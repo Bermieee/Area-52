@@ -10,7 +10,8 @@ import {
   ResultStatus, StructuredCompilerFixture, TelemetryEvent, TurnEventHub,
   assertAdvisoryJevMapping, capabilityRequest, compareRevisionSets, createCognitiveTask,
   createRevisionSet, createTurnEnvelope, createWorkerResult, jevCapabilityRequests,
-  summarizeSwarmTrace, toCloudEvent, toNexusCognitiveResult, toRuntimeCapabilityDescriptor,
+  summarizeSwarmTrace, toCloudEvent, toNexusCognitiveResult, toRuntimeCapabilityDescriptor, toRuntimeObligation,
+  runtimeTurnEventTypeDescriptor, toRuntimeTurnEventEmission,
   validateWorkerOutput,
 } from '../src/coprocessor/index.js';
 import {
@@ -84,6 +85,51 @@ test('capability registry discovers multiple interchangeable semantic providers'
 test('capability profile maps to Runtime Wave 1 registration shape without owning scheduling', () => {
   const profile=createProfileRegistry().get('historian-local'); const runtime=toRuntimeCapabilityDescriptor(profile);
   assert.equal(runtime.workerId,'slot:historian'); assert.equal(runtime.provider,'fixture:historian'); assert.ok(runtime.capabilities.includes(Capability.RETRIEVAL)); assert.equal(runtime.currentLoad,0);
+});
+
+test('Runtime Wave 2 capability mapping carries versions, implementation identity and eligibility', () => {
+  const registry=new CapabilityProfileRegistry();
+  const profile=registry.register({
+    profileId:'versioned',workerId:'slot:v',providerId:'provider:v',implementationId:'impl:v',
+    capabilities:[Capability.SEMANTIC_JUDGMENT],capabilityVersions:{[Capability.SEMANTIC_JUDGMENT]:'2.1'},
+    capabilityQuality:{[Capability.SEMANTIC_JUDGMENT]:7},latencyClass:'LOW',qualityScore:5,foregroundEligible:true,backgroundEligible:false,
+  });
+  const runtime=toRuntimeCapabilityDescriptor(profile);
+  assert.equal(runtime.implementationId,'impl:v');
+  assert.equal(runtime.capabilityDescriptors[0].version,'2.1');
+  assert.equal(runtime.capabilityDescriptors[0].qualityScore,7);
+  assert.equal(runtime.backgroundEligible,false);
+});
+
+test('capability negotiation honors minimum version without changing task semantics', () => {
+  const registry=new CapabilityProfileRegistry();
+  registry.register({profileId:'v1',capabilities:['CAP'],capabilityVersions:{CAP:'1.0'}});
+  registry.register({profileId:'v2',capabilities:['CAP'],capabilityVersions:{CAP:'2.0'}});
+  const task=createCognitiveTask({taskId:'version-task',taskType:'X',turnId:'t',correlationId:'c',requiredCapabilities:['CAP'],capabilityRequests:[{id:'CAP',minVersion:'2.0',preferredVersion:'2.0'}],softDeadline:1,hardDeadline:2});
+  assert.deepEqual(registry.eligibleProfiles(task).map(x=>x.profileId),['v2']);
+});
+
+test('Sidecar task maps to Runtime Wave 2 obligation without embedding scheduler authority', () => {
+  const event=createTurnEnvelope(createEmberTurn()); const task=new DynamicFanOutPlanner().plan({turnEvent:event,...createEmberPlannerInput()}).tasks[0];
+  const obligation=toRuntimeObligation(task);
+  assert.equal(obligation.taskId,task.taskId);
+  assert.equal(obligation.layer,'L1');
+  assert.equal(obligation.owner,'COGNITIVE_COPROCESSOR');
+  assert.equal(obligation.deadline,task.hardDeadline);
+  assert.equal(obligation.resultContract.contextSealPolicy,'BEFORE_SEAL_ONLY');
+  assert.deepEqual(obligation.capabilityRequests,task.capabilityRequests);
+  assert.equal(typeof obligation.execute,'undefined');
+  assert.equal(typeof obligation.schedule,'undefined');
+});
+
+test('Turn Event maps to Runtime Wave 2 dynamic Event Spine registration/emission contract', () => {
+  const descriptor=runtimeTurnEventTypeDescriptor(); const event=createTurnEnvelope(createEmberTurn()); const emission=toRuntimeTurnEventEmission(event,{text:'fixture'});
+  assert.equal(descriptor.eventType,'TURN_EVENT');
+  assert.equal(descriptor.payloadSchema.allowUnknown,true);
+  assert.equal(emission.meta.eventId,event.eventId);
+  assert.equal(emission.meta.correlationId,event.correlationId);
+  assert.equal(emission.meta.revisionFences.worldRevision,event.worldRevision);
+  assert.equal(emission.payload.deliveryAttempt,1);
 });
 
 test('Jev responsibilities are advisory capabilities, not mutation permissions', () => {

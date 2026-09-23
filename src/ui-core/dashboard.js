@@ -20,8 +20,11 @@ import { registerWave3InspectorRenderers } from './wave3-inspector.js';
 import { registerWave3Workspaces } from './wave3-workspaces.js';
 import { UIExtensionRegistry } from './wave4-extension-registry.js';
 import { renderGenericArtifactInspector, renderGenericEventInspector } from './wave4-generic-inspection.js';
+import { FrontFaceUIAdapter, ProductActivityFeed, ProductPresentationState } from './wave5-product-model.js';
+import { createWave5ProductFixture } from './wave5-fixtures.js';
+import { registerWave5FrontFaceWorkspaces } from './wave5-front-face.js';
 
-export function createBrainDashboard({ root, stateStore = new UIStateStore(), adapters: suppliedAdapters = null } = {}) {
+export function createBrainDashboard({ root, stateStore = new UIStateStore(), adapters: suppliedAdapters = null, productSnapshot = null } = {}) {
   if (!root) throw new Error('Area-52 Brain Dashboard requires a root element');
   const signals = new SignalHub();
   const scheduler = new RenderScheduler();
@@ -30,7 +33,14 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   const inspectorRegistry = new InspectorRegistry();
   const actionRouter = new ActionRouter();
   const extensionRegistry = new UIExtensionRegistry({ workspaceRegistry, inspectorRegistry, actionRouter, scheduler });
+  const presentationState = new ProductPresentationState({ stateStore });
+  const productAdapter = new FrontFaceUIAdapter({ snapshot: productSnapshot ?? createWave5ProductFixture(), presentationState });
+  const productActivityScope = new ResourceScope();
   let shell;
+  const productActivity = new ProductActivityFeed({
+    scheduler,
+    onUpdate() { if (shell?.currentWorkspace === 'home') shell.refreshCurrentWorkspace(); },
+  });
   const overlays = new OverlayManager({ document: root.ownerDocument, root: root.ownerDocument.body, getResponsiveMode: () => shell?.mode });
   const notifications = new NotificationCenter({ signals });
   const runtime = new MockBrainRuntime({ signals, scheduler });
@@ -68,12 +78,17 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
     host.replaceChildren();
     entry.render?.(host, {
       mount(widgetId, node, props) { const instance = widgetRuntime.mount(widgetId, node, props); mounted.add(instance); return instance; },
-      signals, scheduler, runtime, actionRouter, permissions: ['demo:operate','knowledge:inspect'], overlays, notifications, adapters, fixture, extensionRegistry, adapterSource: suppliedAdapters ? 'external' : 'fixture', scope: workspaceScope,
+      signals, scheduler, runtime, actionRouter, permissions: ['demo:operate','knowledge:inspect'], overlays, notifications, adapters, fixture, extensionRegistry,
+      productAdapter, productActivity, workspaceRegistry, adapterSource: suppliedAdapters ? 'external' : 'fixture', scope: workspaceScope,
+      inspect(object) { signals.publish(Signals.UI_INSPECT_SELECTION_CHANGED, { object }, { source: 'front-face' }); },
+      navigate(id) { shell?.selectWorkspace(id); },
+      refresh() { shell?.refreshCurrentWorkspace(); },
     });
   };
 
   registerWorkspaces(workspaceRegistry, root.ownerDocument);
   registerWave3Workspaces(workspaceRegistry);
+  registerWave5FrontFaceWorkspaces(workspaceRegistry, { adapter: productAdapter, extensionRegistry });
   shell = new ApplicationShell({ root, workspaceRegistry, inspector, signals, stateStore, renderWorkspace });
   shell.mount();
 
@@ -81,14 +96,17 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   const toastViewport = new ToastViewport({ host: shell.nodes.toastHost, signals, scope: toastScope });
   toastViewport.mount();
   installHotCognitionStrip({ shell, adapters, signals, scope: toastScope });
-  signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'LIVE ADAPTER' : 'HOT / WAVE 3 OBSERVABILITY' }, { source: 'ui-core' });
+  for (const type of [Signals.WORKER_STATE_CHANGED, Signals.BATCH_PROGRESS_CHANGED, Signals.CLAIM_STATE_CHANGED, Signals.REFLECTION_CHANGED]) {
+    productActivityScope.subscribe(signals, type, (event) => productActivity.ingestSignal(event));
+  }
+  signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'READY' : 'READY' }, { source: 'ui-core' });
 
   return {
-    shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, extensionRegistry, runtime, adapters, fixture, overlays, notifications,
+    shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, extensionRegistry, runtime, adapters, fixture, overlays, notifications, productAdapter, productActivity,
     registerUIExtension(descriptor, binding) { return extensionRegistry.register(descriptor, binding); },
     updateUIExtension(extensionId, patch) { return extensionRegistry.update(extensionId, patch); },
     unregisterUIExtension(extensionId) { return extensionRegistry.unregister(extensionId); },
-    destroy() { for (const instance of mounted) widgetRuntime.destroy(instance); mounted.clear(); workspaceScope.cleanup(); toastScope.cleanup(); overlays.destroy(); shell.destroy(); extensionRegistry.destroy(); scheduler.destroy(); signals.clear(); },
+    destroy() { for (const instance of mounted) widgetRuntime.destroy(instance); mounted.clear(); workspaceScope.cleanup(); toastScope.cleanup(); productActivityScope.cleanup(); overlays.destroy(); shell.destroy(); extensionRegistry.destroy(); scheduler.destroy(); signals.clear(); },
   };
 }
 

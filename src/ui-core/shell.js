@@ -54,8 +54,10 @@ export class ApplicationShell {
     this.inspector.host = inspectorHost;
     this.inspector.mount();
     const persisted = this.stateStore.load();
-    const entries = this.workspaceRegistry.list();
-    const initial = entries.some((w) => w.id === persisted.selectedWorkspace) ? persisted.selectedWorkspace : entries[0]?.id;
+    const entries = this.#navigationEntries();
+    const initial = entries.some((w) => w.id === persisted.selectedWorkspace)
+      ? persisted.selectedWorkspace
+      : (entries.some((w) => w.id === 'home') ? 'home' : entries[0]?.id);
     if (initial) this.selectWorkspace(initial);
     return this;
   }
@@ -66,7 +68,7 @@ export class ApplicationShell {
     this.navScope.cleanup();
     this.navScope = new ResourceScope();
     nav.replaceChildren();
-    const entries = this.workspaceRegistry.list();
+    const entries = this.#navigationEntries();
     for (const entry of entries) {
       const badges = [entry.lifecycle, entry.availability].filter(Boolean).map((value) => `[${value}]`).join(' ');
       const button = element(nav.ownerDocument, 'button', {
@@ -104,6 +106,21 @@ export class ApplicationShell {
     this.#syncSelectedNav();
     this.renderWorkspace(entry, this.nodes.workspace);
     this.signals.publish(Signals.UI_WORKSPACE_CHANGED, { workspaceId: id }, { source: 'ui-core' });
+  }
+
+  refreshCurrentWorkspace() {
+    if (!this.currentWorkspace || !this.workspaceRegistry.has(this.currentWorkspace)) return false;
+    this.renderWorkspace(this.workspaceRegistry.get(this.currentWorkspace), this.nodes.workspace);
+    return true;
+  }
+
+  #navigationEntries() {
+    const all = this.workspaceRegistry.list();
+    const product = all
+      .filter((entry) => entry.navigation?.level === 'product')
+      .sort((a, b) => (a.navigation?.order ?? 0) - (b.navigation?.order ?? 0)
+        || a.registrationSequence - b.registrationSequence);
+    return product.length ? product : all;
   }
 
   #syncSelectedNav() {

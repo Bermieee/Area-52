@@ -76,6 +76,8 @@ export function createCognitiveTask(input = {}) {
     correlationId: requiredString(input.correlationId, 'correlationId'),
     causationId: optionalString(input.causationId),
     requiredCapabilities,
+    capabilityRequests: normalizeCapabilityRequests(input.capabilityRequests ?? requiredCapabilities),
+    fallbackCapabilitySets: normalizeFallbackCapabilitySets(input.fallbackCapabilitySets ?? []),
     cognitiveLayer: requiredString(input.cognitiveLayer ?? 'L1', 'cognitiveLayer'),
     resultClass,
     inputRevisionSet: createRevisionSet(input.inputRevisionSet ?? input),
@@ -181,6 +183,20 @@ export function assertSchema(version) {
     throw new TypeError(`Unsupported coprocessor schema version: ${version}`);
   }
   return version;
+}
+
+function normalizeCapabilityRequests(values) {
+  if (!Array.isArray(values)) throw new TypeError('capabilityRequests must be an array');
+  return values.map((value) => {
+    if (typeof value === 'string') return { id: requiredString(value, 'capabilityRequest.id'), minVersion: 1, preferredVersion: 1 };
+    if (!value || typeof value !== 'object') throw new TypeError('capabilityRequest must be a string or object');
+    const id = requiredString(value.id, 'capabilityRequest.id');
+    return { id, minVersion: value.minVersion ?? 1, preferredVersion: value.preferredVersion ?? value.minVersion ?? 1 };
+  }).sort((a,b)=>a.id.localeCompare(b.id));
+}
+function normalizeFallbackCapabilitySets(sets) {
+  if (!Array.isArray(sets)) throw new TypeError('fallbackCapabilitySets must be an array');
+  return sets.map((set) => normalizeCapabilityRequests(set));
 }
 
 function requiredString(value, name) {

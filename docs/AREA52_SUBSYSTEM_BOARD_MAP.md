@@ -705,3 +705,49 @@ Primary invariant:
 > **One keypress may wake many sidecars, but the Main path waits only for the bounded foreground quorum.**
 
 Child work items: #76-#95.
+
+
+# Advanced implementation references
+
+These documents preserve concrete implementation ideas discussed during Area-52 planning and are intended to be consumed by multiple specialist lanes.
+
+## Advanced Memory + State-Aware Retrieval
+
+`docs/AREA52_ADVANCED_MEMORY_STATE_AWARE_RETRIEVAL.md`
+
+Covers:
+
+- write-back knowledge graphs through typed proposals + Settlement;
+- temporal mutable state without source mutation;
+- evidence-driven autonomous reflection;
+- episodic SceneEpisode memory;
+- SPR-style dense semantic packets with factual-retention gates;
+- self-organizing memory and learning feedback;
+- state-aware retrieval;
+- branch ownership boundaries.
+
+Primary consumers: `Development-Memory`, `Development-Lorebook-Editor`, `Development-Scene-Scanner`, `Development-Sidecar/Jev`, `Development-Nexus`.
+
+## Local Precision Reranking + Optimized Inference
+
+`docs/AREA52_LOCAL_PRECISION_RERANKING_GUIDE.md`
+
+Covers:
+
+- compact reranker model families;
+- classic cross-encoder vs ColBERT-style late interaction;
+- INT8 / FP16 optimization;
+- ONNX Runtime;
+- TensorRT;
+- FlashRank;
+- local CPU/GPU serving;
+- adaptive candidate pruning;
+- token truncation;
+- batch/result contracts;
+- foreground deadline/fallback behavior;
+- intent-opposite fixtures;
+- model/runtime/cutoff/quantization benchmarks.
+
+Primary consumer: `Development-Sidecar/Jev`, with Runtime integration through `Development-Worker-Director` and Context/Truth integration through `Development-Nexus`.
+
+These are reference documents for existing work items. They do not create new ownership or additional issue families.

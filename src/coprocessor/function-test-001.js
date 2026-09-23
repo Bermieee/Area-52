@@ -11,6 +11,7 @@ import { CoprocessorTelemetry } from './telemetry.js';
 import { RecordingResultBusFixture } from './integration-adapters.js';
 import { toNexusCognitiveResult } from './integration-adapters.js';
 import { fallbackForTask } from './fallback-policy.js';
+import { toRuntimeObligation } from './runtime-compatibility.js';
 
 export function createFunctionTest001Fixtures(overrides={}){
   return{
@@ -141,7 +142,7 @@ export async function runFunctionTestTurn({
   }
   const finalBundle=gather.bundle();const promptPlan=typeof downstream.promptPlan==='function'?await downstream.promptPlan({compiled,seal:sealCompatibilityReceipt.externalSeal,compilerInput}):null;
   return Object.freeze({
-    fanOutPlan:plan,workerResults:Object.freeze(workerResults),gatherBundle:finalBundle,foregroundQuorumReceipt,
+    fanOutPlan:plan,runtimeSubmissions:Object.freeze(plan.tasks.map(task=>toRuntimeObligation(task))),workerResults:Object.freeze(workerResults),gatherBundle:finalBundle,foregroundQuorumReceipt,
     lateResults:Object.freeze(finalBundle.lateResults),compilerInput,sealCompatibilityReceipt,promptPlan,
     telemetrySummary:summarizeTelemetry(telemetry.list()),fixtureBoundaries:{scene:true,evidence:true,graph:true,provider:providerMode==='deterministic'},
   });

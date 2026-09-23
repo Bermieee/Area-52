@@ -16,6 +16,7 @@ export function compareCapabilityVersions(a,b) {
 
 export class CapabilityProfileRegistry {
   #profiles = new Map();
+  #state = new Map();
 
   register(input = {}) {
     if (!input.profileId) throw new TypeError('profileId is required');
@@ -39,7 +40,12 @@ export class CapabilityProfileRegistry {
       latencyClass: input.latencyClass ?? 'MEDIUM',
       reliability: Number(input.reliability ?? 1),
       structuredOutput: input.structuredOutput !== false,
+      streamingSupport: Boolean(input.streamingSupport),
+      abortSupport: input.abortSupport !== false,
       maxContextTokens: Number(input.maxContextTokens ?? Number.MAX_SAFE_INTEGER),
+      maxOutputTokens: Number(input.maxOutputTokens ?? Number.MAX_SAFE_INTEGER),
+      local: Boolean(input.local),
+      costMetadata: Object.freeze({ ...(input.costMetadata ?? {}) }),
       costClass: input.costClass ?? 'MEDIUM',
       concurrencyCapacity: Math.max(1, Number(input.concurrencyCapacity ?? 1)),
       currentLoad: Math.max(0, Number(input.currentLoad ?? 0)),
@@ -53,16 +59,22 @@ export class CapabilityProfileRegistry {
       backgroundEligible: input.backgroundEligible !== false,
     });
     this.#profiles.set(profile.profileId, profile);
-    return profile;
+    this.#state.set(profile.profileId,{health:profile.health,available:profile.available,currentLoad:profile.currentLoad});
+    return this.get(profile.profileId);
   }
 
-  get(profileId) { return this.#profiles.get(profileId) ?? null; }
-  list() { return [...this.#profiles.values()]; }
+  get(profileId) { const p=this.#profiles.get(profileId);if(!p)return null;return Object.freeze({...p,...this.#state.get(profileId)}); }
+  list() { return [...this.#profiles.keys()].map(id=>this.get(id)); }
+  setHealth(profileId,health){this.#requiredState(profileId).health=health;}
+  setAvailability(profileId,available){this.#requiredState(profileId).available=Boolean(available);}
+  setLoad(profileId,currentLoad){this.#requiredState(profileId).currentLoad=Math.max(0,Number(currentLoad)||0);}
 
   eligibleProfiles(task, {
     contextTokens = 0,
     maxCostClass = 'HIGH',
     requireStructuredOutput = true,
+    expectedOutputTokens = 0,
+    preferLocal = false,
   } = {}) {
     const requests=(task.capabilityRequests?.length?task.capabilityRequests:(task.requiredCapabilities??[]).map((id)=>({id,minVersion:1,preferredVersion:1})));
     const required = new Set(requests.map((request)=>request.id));
@@ -73,6 +85,7 @@ export class CapabilityProfileRegistry {
       if (!profile.placements.includes(task.placement)) return false;
       if (requireStructuredOutput && !profile.structuredOutput) return false;
       if (contextTokens > profile.maxContextTokens) return false;
+      if (Number(expectedOutputTokens)>profile.maxOutputTokens) return false;
       if ((COST[profile.costClass] ?? 99) > (COST[maxCostClass] ?? 99)) return false;
       for (const request of requests) {
         const descriptor=profile.capabilityDescriptors.find((item)=>item.id===request.id);
@@ -87,6 +100,7 @@ export class CapabilityProfileRegistry {
         return score+(descriptor&&compareCapabilityVersions(descriptor.version,request.preferredVersion??request.minVersion??1)>=0?100:0)+Number(descriptor?.qualityScore??0);
       },0);
       return loadA - loadB
+        || (preferLocal ? Number(b.local)-Number(a.local) : 0)
         || versionScore(b)-versionScore(a)
         || b.qualityScore-a.qualityScore
         || (LATENCY[a.latencyClass] ?? 99) - (LATENCY[b.latencyClass] ?? 99)
@@ -95,6 +109,8 @@ export class CapabilityProfileRegistry {
         || a.profileId.localeCompare(b.profileId);
     });
   }
+
+  #requiredState(profileId){const state=this.#state.get(profileId);if(!state)throw new Error(`Unknown capability profile: ${profileId}`);return state;}
 }
 
 export function toRuntimeCapabilityDescriptor(profile) {

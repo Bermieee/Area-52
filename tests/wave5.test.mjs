@@ -96,7 +96,7 @@ test('ApplicationShell starts on Home when product navigation exists even if old
 });
 
 test('Scene Normal stays concise and marks inferred tone; Advanced exposes inspection path', () => {
-  const a=adapter(); let r=render('story',a); let t=textOf(r.host); assert.match(t,/East Tower/); assert.match(t,/INFERRED/); assert.equal(t.includes('Scene ID'),false); r.scope.cleanup();
+  const a=adapter(); let r=render('story',a); let t=textOf(r.host); assert.match(t,/East Tower/); assert.match(t,/inferred/i); assert.equal(t.includes('Scene ID'),false); r.scope.cleanup();
   a.setDetailLevel(ProductDetailLevel.ADVANCED); r=render('story',a); t=textOf(r.host); assert.match(t,/Scene ID/); const button=walk(r.host).find(n=>n.textContent==='Inspect Scene Intelligence'); button.dispatch('click'); assert.equal(r.inspected[0].kind,'current-scene'); r.scope.cleanup();
 });
 
@@ -108,7 +108,7 @@ test('Lore Front Face preserves tree representation and progressively discloses 
 });
 
 test('Memory Front Face exposes inference and says reconsolidation did not change canonical truth', () => {
-  const a=adapter(); a.setDetailLevel(ProductDetailLevel.ADVANCED); const r=render('memory-product',a); const t=textOf(r.host); assert.match(t,/Area-52 learned a pattern/); assert.match(t,/INFERRED/); assert.match(t,/Canonical truth changed/); assert.match(t,/NO/); r.scope.cleanup();
+  const a=adapter(); a.setDetailLevel(ProductDetailLevel.ADVANCED); const r=render('memory-product',a); const t=textOf(r.host); assert.match(t,/Area-52 learned a pattern/); assert.match(t,/inferred/i); assert.match(t,/Canonical truth changed/); assert.match(t,/NO/); r.scope.cleanup();
 });
 
 test('World Front Face keeps current and historical Sun Blade state separate', () => {

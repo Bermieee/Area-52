@@ -27,3 +27,21 @@ Wave 5 adds **23 deterministic tests** covering:
 - no synthetic-subsystem shell hardcoding.
 
 Final CI evidence is recorded only after the final committed bytes complete the Wave 3, Wave 4, and Wave 5 validation workflows.
+
+
+## Accepted implementation checkpoint
+
+Implementation checkpoint: `17a2e1c1754fadec550012429526980e063fecf5`
+
+Validation on that exact commit:
+
+- full deterministic suite: **100/100 PASS**;
+- Wave 5 focused suite: **23/23 PASS**;
+- Wave 1–4 accepted regression tests: preserved inside the 100-test full suite;
+- JavaScript syntax validation: **PASS**;
+- UI.Core index import: **PASS**;
+- UI.Core Wave 3 workflow: **SUCCESS** (run 35828234166);
+- UI.Core Wave 4 workflow: **SUCCESS** (run 35828234127);
+- UI.Core Wave 5 workflow: **SUCCESS** (run 35828234114).
+
+The final documentation-only acceptance commit is required to pass the same workflows before handoff.

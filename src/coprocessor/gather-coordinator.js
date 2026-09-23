@@ -63,6 +63,19 @@ export class GatherCoordinator {
 
   addFailure(failure) { this.failures.push(failure); return failure; }
 
+  recordExternalRoute(result, route = {}) {
+    const freshness = route.freshness ?? Freshness.FRESH;
+    if (freshness === Freshness.STALE) {
+      if (!this.stale.includes(result.resultId)) this.stale.push(result.resultId);
+      return { accepted: false, stale: true, destination: route.effectiveDestination ?? ResultDestination.EVALUATION };
+    }
+    if (freshness === Freshness.INVALID) {
+      this.rejected.push({ resultId: result.resultId, taskId: result.taskId, reason: route.reason ?? 'result-bus-invalid' });
+      return { accepted: false, invalid: true, destination: route.effectiveDestination ?? ResultDestination.EVALUATION };
+    }
+    return null;
+  }
+
   addFallback(taskId, result) {
     const task = this.tasks.get(taskId);
     if (!task) throw new Error(`Unknown task: ${taskId}`);

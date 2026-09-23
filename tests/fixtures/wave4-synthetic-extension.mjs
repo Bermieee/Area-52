@@ -99,6 +99,7 @@ export function createSyntheticUnknownExtension(signals, { index = null, renderC
     inspectors:[{ id:`economy-inspector${suffix}`, kind:inspectorKind, adapter:adapterName, surfaceId:'economy.inspect' }],
     telemetry:[{ id:`economy-telemetry${suffix}`, signalType:telemetryType, adapter:adapterName, surfaceId:'economy.telemetry', lightweight:true }],
     actions:[{ type:actionType, operation:'inspect', adapter:adapterName, readOnly:true }],
+    frontFace:{ summaries:[{ id:`economy-summary${suffix}`, title:index == null ? 'World Economy' : `World Economy ${index}`, adapter:adapterName, surfaceId:'economy.front-face', order:index ?? 0, lightweight:true }] },
     lifecycle:'SHADOW',
     requiredCapabilities:['READ_STATE'],
     optionalCapabilities:['PRECISION'],
@@ -133,11 +134,14 @@ export function createSyntheticUnknownExtension(signals, { index = null, renderC
     actionHandlers:{
       inspect(action) { return adapter.inspect(action.target ?? { id:'none' }); },
     },
+    frontFaceProviders:{
+      'economy.front-face'() { return { title:index == null ? 'World Economy' : `World Economy ${index}`, value:'Market stable', detail:'Synthetic lightweight summary', status:'SHADOW' }; },
+    },
   };
   return {
     descriptor,
     binding,
-    ids:{ extensionId, workspaceId, inspectorKind, actionType, telemetryType, telemetryId:`economy-telemetry${suffix}` },
+    ids:{ extensionId, workspaceId, inspectorKind, actionType, telemetryType, telemetryId:`economy-telemetry${suffix}`, frontFaceSummaryId:`economy-summary${suffix}` },
     emitTelemetry(payload = { queueDepth:1 }) { signals.publish(telemetryType, payload, { source:extensionId }); },
   };
 }

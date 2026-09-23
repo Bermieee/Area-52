@@ -1,0 +1,10 @@
+{
+  "name": "area-52",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "Experimental cognitive memory core for Nexus",
+  "scripts": {
+    "test": "node tests/cognitive-core.mjs"
+  }
+}

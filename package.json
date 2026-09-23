@@ -3,8 +3,11 @@
   "version": "0.1.0-dev",
   "private": true,
   "type": "module",
-  "description": "Experimental cognitive memory core for Nexus",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Wave 1",
   "scripts": {
-    "test": "node tests/cognitive-core.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
+    "test:stress": "node --test tests/coprocessor-stress.test.mjs",
+    "check": "find src tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check"
   }
 }

@@ -42,7 +42,7 @@ Invariant:
 
 ## Protected truth
 
-The Wave 3 packet's current, historical and unresolved semantic sections are protected in this reference implementation. User input, supplied system policy and relevant generation-envelope sections marked protected also receive floors. Optional material is compacted or dropped first.
+The Wave 3 packet's current, historical and unresolved semantic sections are protected in this reference implementation. User input, supplied system policy and relevant generation-envelope sections marked protected also receive floors. Optional material is compacted first; low-priority optional material may be dropped, while higher-priority optional material that still cannot fit is explicitly deferred rather than silently lost.
 
 If protected compact content cannot fit, delivery returns `DELIVERY_BUDGET_UNSATISFIABLE`. It does not silently truncate critical truth.
 

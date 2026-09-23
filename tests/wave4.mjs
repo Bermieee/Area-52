@@ -206,6 +206,58 @@ test('explicit compatible profile fallback and approximate estimator fallback ar
   assert.equal(estimatorFallback.plan.diagnosticReceipt.estimator.exact,false);
 });
 
+
+test('fallback distinguishes deferred higher-priority optional material from dropped bulk material',()=>{
+  const runtime=new AdaptiveContextRuntime();
+  const deferred=runtime.deliver(input({
+    generationId:'defer',budgetTokens:600,
+    contributions:[{id:'defer-me',slot:PromptSlot.RECENT_NARRATIVE,sourceCategory:ContributionSource.GENERATION_ENVELOPE,
+      owner:'GENERATION_ENVELOPE',semantic:false,semanticRefs:[],content:'defer '.repeat(4000),
+      sourceRevisionIds:[],role:'context',required:false,priority:7,metadata:{}}],
+  }));
+  assert.equal(deferred.ok,true);
+  assert.ok(deferred.plan.deferred.some(x=>x.slot===PromptSlot.RECENT_NARRATIVE));
+  assert.ok(deferred.plan.fallbackDecisions.includes('DEFER_OPTIONAL_MATERIAL'));
+  assert.ok(deferred.plan.reuseDecisions.some(x=>x.segmentKey==='slot:RECENT_NARRATIVE'&&x.state===ReuseState.OMIT));
+});
+
+test('registered future semantic subsystem can map only facts already present in the sealed packet',()=>{
+  const slots=new PromptSlotRegistry();
+  slots.registerExtensionSlot('EXT_FUTURE_STATE',{owner:'FUTURE_SUBSYSTEM',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',semantic:true});
+  const runtime=new AdaptiveContextRuntime({slotRegistry:slots});
+  const {packet,receipt}=fixture();
+  packet.futureFacts=[{id:'claim:future',e:'future-entity',p:'state',v:'sealed',a:'SOURCE_CANON',cf:1}];
+  packet.provenanceIndex['claim:future']=['src:future@1'];
+  packet.dependencies.push('src:future@1');
+  receipt.sourceRevisionIds=[...packet.dependencies];
+  receipt.dependencies=[...packet.dependencies];
+  receipt.packetHash=hashPacket(packet);
+  const accepted=runtime.deliver({
+    sealedPacket:packet,sealReceipt:receipt,generationId:'future-semantic',modelProfileId:'RECENCY_WEIGHTED',
+    contributions:[{id:'future-contribution',slot:'EXT_FUTURE_STATE',sourceCategory:ContributionSource.SEALED_PACKET,
+      owner:'FUTURE_SUBSYSTEM',semantic:true,semanticRefs:['claim:future'],content:null,sourceRevisionIds:['src:future@1'],role:'context'}],
+  });
+  assert.equal(accepted.ok,true);
+  assert.ok(accepted.plan.sections.some(s=>s.slot==='EXT_FUTURE_STATE'&&s.semanticManifest.some(x=>x.semanticKey==='claim:future')));
+  const bypass=runtime.deliver({
+    sealedPacket:packet,sealReceipt:receipt,generationId:'future-bypass',modelProfileId:'RECENCY_WEIGHTED',
+    contributions:[{id:'bad-future',slot:'EXT_FUTURE_STATE',sourceCategory:ContributionSource.SEALED_PACKET,
+      owner:'FUTURE_SUBSYSTEM',semantic:true,semanticRefs:['claim:not-sealed'],content:null,sourceRevisionIds:[],role:'context'}],
+  });
+  assert.equal(bypass.ok,false);
+  assert.equal(bypass.failure.code,'SEALED_REFERENCE_NOT_FOUND');
+});
+
+test('slot owner mismatch is rejected before conflicting presentation ownership can enter a plan',()=>{
+  const runtime=new AdaptiveContextRuntime();
+  const result=runtime.deliver(input({generationId:'owner-mismatch',contributions:[{
+    id:'foreign-owner',slot:PromptSlot.RECENT_NARRATIVE,sourceCategory:ContributionSource.GENERATION_ENVELOPE,
+    owner:'FOREIGN_SYSTEM',semantic:false,semanticRefs:[],content:'attempt',sourceRevisionIds:[],role:'context',
+  }]}));
+  assert.equal(result.ok,false);
+  assert.match(result.failure.code,/CONFLICTING_SLOT_OWNERSHIP/);
+});
+
 test('benchmark requires semantic retention and accepts provider-neutral cost hook',()=>{
   const runtime=new AdaptiveContextRuntime(), args=input(), delivery=runtime.deliver(args);
   const required=['claim:tavern','claim:blade-location','claim:blade-fate'];

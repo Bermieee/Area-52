@@ -24,7 +24,7 @@
   - profile-driven ordering;
   - Prompt Integrity Guard;
   - model adapter registry and two deterministic reference adapters;
-  - explicit overflow/failure behavior.
+  - explicit overflow/failure behavior, including distinct optional drop vs defer decisions.
 
 ### Benchmarking
 
@@ -39,7 +39,7 @@
 
 ### Tests and acceptance
 
-- `tests/wave4.mjs` adds contract, budget, reuse, segmentation, attack, fallback, benchmark and 1,200-contribution stress coverage.
+- `tests/wave4.mjs` adds contract, budget, reuse, segmentation, attack, fallback, sealed extension-slot, ownership, defer-state, benchmark and 1,200-contribution stress coverage.
 - `tests/wave4-golden-harness.js` carries the accepted Ember Tavern / Sun Blade packet across two model profiles, reuse, a revised seal, budget pressure and integrity attacks.
 - `scripts/wave4-acceptance-report.mjs` provides a deterministic acceptance report.
 - Cognitive Core CI runs the Wave 4 acceptance report in addition to prior suites.

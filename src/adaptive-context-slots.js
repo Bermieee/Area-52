@@ -41,6 +41,7 @@ export class PromptSlotRegistry{
     const contribution=createPromptContribution(input),spec=this.slots.get(contribution.slot);
     if(contribution.semantic&&contribution.sourceCategory!==ContributionSource.SEALED_PACKET)throw new Error('POST_SEAL_SEMANTIC_INJECTION');
     if(!spec.allowedSources.includes(contribution.sourceCategory))throw new Error(`Prompt slot ${contribution.slot} rejects source category ${contribution.sourceCategory}`);
+    if(contribution.owner!==spec.owner)throw new Error(`CONFLICTING_SLOT_OWNERSHIP:${contribution.slot}`);
     if(spec.semantic&&contribution.sourceCategory===ContributionSource.SEALED_PACKET&&!contribution.semanticRefs.length)throw new Error(`Sealed semantic contribution ${contribution.id} requires semanticRefs`);
     if(contribution.role!==spec.role)throw new Error(`Prompt slot ${contribution.slot} requires role ${spec.role}`);
     return contribution;

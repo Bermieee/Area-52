@@ -99,6 +99,9 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   for (const type of [Signals.WORKER_STATE_CHANGED, Signals.BATCH_PROGRESS_CHANGED, Signals.CLAIM_STATE_CHANGED, Signals.REFLECTION_CHANGED]) {
     productActivityScope.subscribe(signals, type, (event) => productActivity.ingestSignal(event));
   }
+  for (const type of [Signals.UI_NOTIFICATION, Signals.UI_NOTIFICATION_CHANGED]) {
+    productActivityScope.subscribe(signals, type, () => { if (shell?.currentWorkspace === 'home') shell.refreshCurrentWorkspace(); });
+  }
   signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'READY' : 'READY' }, { source: 'ui-core' });
 
   return {

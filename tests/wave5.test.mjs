@@ -148,6 +148,12 @@ test('NotificationCenter supports acknowledge, dismiss and cleanup without repla
   center.push({id:'n1',title:'Conflict found'}); center.acknowledge('n1'); assert.equal(center.list()[0].acknowledged,true); assert.equal(toasts,1); center.dismiss('n1'); assert.equal(center.list().length,0); center.push({id:'n2'}); center.clear(); assert.deepEqual(changes,['acknowledged','dismissed','cleared']);
 });
 
+test('Home exposes acknowledge and dismiss controls for live operator notifications', () => {
+  const signals=new SignalHub(),center=new NotificationCenter({signals}); center.push({id:'live-1',status:'warning',title:'Conflict found',message:'Two sources disagree.'});
+  const a=adapter(); const r=render('home',a,{extra:{notifications:center}}); const ack=walk(r.host).find(n=>n.textContent==='Acknowledge'); const dismiss=walk(r.host).find(n=>n.textContent==='Dismiss');
+  assert.ok(ack); assert.ok(dismiss); ack.dispatch('click'); assert.equal(center.list()[0].acknowledged,true); dismiss.dispatch('click'); assert.equal(center.list().length,0); r.scope.cleanup();
+});
+
 test('PromptPlan presentation is explicitly fixture-backed and does not claim #145 integration', () => {
   const a=adapter(); a.setDetailLevel(ProductDetailLevel.ADVANCED); const r=render('brain',a); const t=textOf(r.host); assert.match(t,/FIXTURE/); assert.match(t,/until the Adaptive Context Runtime production contract is integrated/); r.scope.cleanup();
 });

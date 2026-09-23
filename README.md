@@ -72,3 +72,13 @@ The current direction is explicitly hybrid: lore study, sparse + dense retrieval
 **0.1-dev — blueprint phase.**
 
 Implementation is subordinate to the blueprint. Area-52 remains isolated from production Nexus until the cognitive contracts and invariants are proven.
+
+
+## Advanced memory and precision references
+
+Concrete implementation/reference material for the advanced systems discussed during Area-52 planning:
+
+- [Advanced Memory + State-Aware Retrieval](docs/AREA52_ADVANCED_MEMORY_STATE_AWARE_RETRIEVAL.md) — write-back state through Settlement, temporal graph updates, autonomous reflection, episodic memory, SPR-style semantic packets, self-organizing memory, and state-aware retrieval.
+- [Local Precision Reranking + Optimized Inference](docs/AREA52_LOCAL_PRECISION_RERANKING_GUIDE.md) — compact rerankers, cross-encoder vs late interaction, INT8/FP16, ONNX Runtime, TensorRT, FlashRank, local serving, candidate pruning, truncation, batching, fallbacks, and benchmark requirements.
+
+Specialist branches should read these before implementing related memory, retrieval, sidecar, or precision work.

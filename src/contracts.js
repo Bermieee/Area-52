@@ -77,13 +77,13 @@ export function createSourceRecord({ id, sourceType, logicalKey = id, metadata =
   };
 }
 
-export function createSourceRevision({ id, sourceId, revision, contentHash, exactContent, replacesRevisionId = null, active = true }) {
+export function createSourceRevision({ id, sourceId, revision, contentHash, exactContent, replacesRevisionId = null }) {
   if (!Number.isInteger(revision) || revision < 1) throw new TypeError('SourceRevision.revision must be a positive integer');
   if (replacesRevisionId !== null) requiredString(replacesRevisionId, 'SourceRevision.replacesRevisionId');
   return {
     kind: 'SourceRevision', id: requiredString(id, 'SourceRevision.id'), sourceId: requiredString(sourceId, 'SourceRevision.sourceId'),
     revision, contentHash: requiredString(contentHash, 'SourceRevision.contentHash'), exactContent: requiredString(exactContent, 'SourceRevision.exactContent'),
-    replacesRevisionId, active: Boolean(active),
+    replacesRevisionId,
   };
 }
 

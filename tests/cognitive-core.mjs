@@ -77,3 +77,86 @@ test('Source Registry invalidates only the truthful dependency cone', () => {
   assert.equal(registry.isArtifactValid('claim:b'), true);
   assert.deepEqual(registry.explainArtifact('summary:a').derivedFrom[0].sourceRevisions.map((x) => x.id), ['lore:a@1']);
 });
+
+
+import { LoreStudyEngine } from '../src/lore-study.js';
+import { TemporalStateGraph } from '../src/temporal-state-graph.js';
+import { Area52CognitiveCore } from '../src/cognitive-core.js';
+
+test('Lore Study preserves exact source while deriving context, entities, claims, relationships, and temporal proposals', () => {
+  const registry = new SourceRegistry();
+  registry.importSource({ id:'lore:study', sourceType:'LORE', content:'The Sun Blade is carried by Eris.' });
+  const study = new LoreStudyEngine({registry}).studySource('lore:study');
+  assert.equal(registry.getActiveRevision('lore:study').exactContent, 'The Sun Blade is carried by Eris.');
+  assert.equal(study.contextual.exactTextHash, registry.getActiveRevision('lore:study').contentHash);
+  assert.deepEqual(study.entities.map((x) => x.id).sort(), ['eris','sun-blade']);
+  assert.equal(study.claims[0].predicate, 'location');
+  assert.equal(study.claims[0].value, 'eris');
+  assert.equal(study.relationships[0].predicate, 'carries');
+  assert.equal(study.proposals[0].owner, 'WORLD_STATE');
+  assert.deepEqual(study.claims[0].provenance.sourceRevisionIds, ['lore:study@1']);
+});
+
+test('Temporal State Graph retains superseded history and rejects stale settlement proposals', () => {
+  const registry = new SourceRegistry();
+  registry.importSource({ id:'lore:s', sourceType:'LORE', content:'The Sun Blade is carried by Eris.' });
+  const studyEngine = new LoreStudyEngine({registry});
+  const graph = new TemporalStateGraph();
+  const first = studyEngine.studySource('lore:s');
+  const oldProposal = first.proposals[0];
+  assert.equal(graph.settleProposal(oldProposal, registry).outcome, 'SETTLED');
+  registry.replaceSource('lore:s', 'The Sun Blade is carried by Eris and forged by Sol.');
+  assert.equal(graph.settleProposal(oldProposal, registry).outcome, 'STALE');
+});
+
+test('Ember Tavern end-to-end cognitive vertical slice preserves current truth, history, provenance, and incremental relearning', () => {
+  const core = new Area52CognitiveCore();
+  for (const source of EMBER_TAVERN_WORLD.sources) core.importAndLearn({...source, at:0});
+  for (const source of EMBER_TAVERN_WORLD.narrative) core.importAndLearn(source);
+
+  const current = core.graph.currentClaims();
+  const currentTriples = current.map((c) => [c.subjectId,c.predicate,c.value]);
+  for (const expected of EMBER_TAVERN_WORLD.expected.current) assert.ok(currentTriples.some((row) => JSON.stringify(row) === JSON.stringify(expected)), `missing current ${expected}`);
+
+  const historical = core.graph.historicalClaims();
+  const historicalTriples = historical.map((c) => [c.subjectId,c.predicate,c.value]);
+  for (const expected of EMBER_TAVERN_WORLD.expected.historical) assert.ok(historicalTriples.some((row) => JSON.stringify(row) === JSON.stringify(expected)), `missing historical ${expected}`);
+  const inferredBladeIntact = historical.find((c) => c.subjectId === 'sun-blade' && c.predicate === 'state' && c.value === 'intact');
+  assert.equal(inferredBladeIntact.authorityClass, AuthorityClass.INFERRED);
+
+  const present = core.query(EMBER_TAVERN_WORLD.expected.presentQuery, {intent:'CURRENT',anchorEntityIds:['sun-blade','eris']});
+  const stalePossession = present.truth.find((r) => r.claimIds.some((id) => {
+    const c = core.graph.getClaim(id); return c?.subjectId === 'sun-blade' && c?.predicate === 'location' && c?.value === 'eris';
+  }));
+  assert.ok(stalePossession);
+  assert.equal(stalePossession.usableForIntent, false);
+  assert.ok(present.packet.current.some((f) => f.e === 'sun-blade' && f.p === 'state' && f.v === 'destroyed'));
+  assert.equal(present.packet.current.some((f) => f.e === 'sun-blade' && f.p === 'location' && f.v === 'eris'), false);
+
+  const past = core.query(EMBER_TAVERN_WORLD.expected.historicalQuery, {intent:'HISTORICAL',anchorEntityIds:['eris','sun-blade']});
+  const retrievalChannels = new Set(past.candidates.flatMap((c) => c.retrievalIntents));
+  assert.ok(retrievalChannels.has('exact'));
+  assert.ok(retrievalChannels.has('semantic'));
+  assert.ok(retrievalChannels.has('graph'));
+  assert.ok(past.packet.historical.some((f) => f.e === 'sun-blade' && f.p === 'location' && f.v === 'eris'));
+  const carriedFact = past.packet.historical.find((f) => f.e === 'sun-blade' && f.p === 'location' && f.v === 'eris');
+  assert.ok(past.packet.provenanceIndex[carriedFact.id].includes('lore:sun-blade@1'));
+
+  const ownerBefore = core.graph.currentClaims({subjectId:'ember-tavern',predicate:'owner'})[0].id;
+  const edit = core.editAndRelearn('lore:sun-blade', 'The Sun Blade is carried by Eris and forged by Sol.');
+  assert.ok(edit.replacement.invalidatedArtifactIds.some((id) => id.startsWith('claim:lore:sun-blade@1')));
+  assert.ok(edit.invalidatedGraphClaimIds.some((id) => id.startsWith('claim:lore:sun-blade@1')));
+  assert.equal(core.graph.currentClaims({subjectId:'ember-tavern',predicate:'owner'})[0].id, ownerBefore);
+  assert.ok(core.graph.currentClaims({subjectId:'sun-blade',predicate:'state'}).some((c) => c.value === 'destroyed'));
+  assert.ok(core.graph.currentClaims({subjectId:'sun-blade',predicate:'forgedBy'}).some((c) => c.value === 'sol'));
+  assert.ok(core.graph.historicalClaims({subjectId:'sun-blade',predicate:'location'}).some((c) => c.value === 'eris' && c.provenance.sourceRevisionIds.includes('lore:sun-blade@2')));
+  assert.equal(core.registry.getRevision('lore:sun-blade@1').exactContent, 'The Sun Blade is carried by Eris.');
+  assert.equal(core.registry.getActiveRevision('lore:sun-blade').exactContent, 'The Sun Blade is carried by Eris and forged by Sol.');
+
+  const postEditPast = core.query(EMBER_TAVERN_WORLD.expected.historicalQuery, {intent:'HISTORICAL',anchorEntityIds:['sun-blade']});
+  const relearnedCarry = postEditPast.packet.historical.find((f) => f.e === 'sun-blade' && f.p === 'location' && f.v === 'eris');
+  assert.ok(relearnedCarry);
+  assert.deepEqual(postEditPast.packet.provenanceIndex[relearnedCarry.id], ['lore:sun-blade@2']);
+  assert.ok(JSON.stringify(postEditPast.packet).length < 2500);
+  assert.equal(JSON.stringify(postEditPast.packet).includes('The Sun Blade is carried by Eris'), false);
+});

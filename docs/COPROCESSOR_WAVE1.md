@@ -69,13 +69,25 @@ Green Room is intentionally delayed beyond foreground seal.
 
 ## Current validation checkpoint
 
-At implementation checkpoint `bedc234ded0b861842945937f2222c74819ab522`:
+At Runtime Wave 2 compatibility checkpoint `e0604cad8e92fc92289f809ad1979ff621e920a6`:
 
-- full deterministic tests: 38/38 PASS;
-- focused Wave 1 tests: 36/36 PASS;
+- full deterministic tests: 42/42 PASS;
+- focused Wave 1 tests: 40/40 PASS;
 - stress tests: 2/2 PASS;
 - syntax PASS;
 - coprocessor index import PASS;
 - CI SUCCESS.
 
 A final documentation/compatibility checkpoint is required before handoff.
+
+
+## Live compatibility reconciliation
+
+Final compatibility inspection used:
+
+- Runtime: `Development-Worker-Director@890f8576bcfcc4c056b959271027242dc6af7d7c` (Cognitive Runtime Fabric Wave 2);
+- Nexus: `Development-Nexus@327c120bc8826e33c07766d94c88dd7d8b82d352` (Adaptive Context Runtime Wave 1 + fixes).
+
+Runtime Wave 2 added versioned capability negotiation, fallback capability sets, foreground/background eligibility, dynamic Event type registration, resultSink, and read-only Context Seal timing. Sidecar exports now map to those fields.
+
+Nexus Result Bus and Context Seal contracts remain compatible with Wave 1. Adaptive Context Runtime begins after GenerationContextSeal and consumes the immutable sealed packet/receipt, so it does not grant late Sidecar work a new route into the active generation.

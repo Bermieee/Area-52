@@ -279,3 +279,61 @@ test('sealed generation stays historically stable while future generation rebuil
   assert.equal(future.sourceRevisionIds.includes('w3:journal@2'),true);
   assert.equal(future.sourceRevisionIds.includes('w3:journal@1'),false);
 });
+
+
+test('corrective retrieval failure preserves existing evidence and seals conservatively',()=>{
+  const core=loadWave3();
+  const original=core.retrieval.retrieve.bind(core.retrieval);
+  core.retrieval.retrieve=(query,options)=>{
+    if(options?.intent==='CONTRADICTION')throw new Error('corrective worker unavailable');
+    return original(query,options);
+  };
+  const out=core.publishGenerationContext({
+    turnId:'corrective-fail:1',correlationId:'corrective-fail:c1',
+    query:EMBER_TAVERN_WAVE3.query,intent:'CURRENT',anchorEntityIds:EMBER_TAVERN_WAVE3.anchors,sealedAt:1,
+  });
+  assert.equal(out.assessment.confidence,RetrievalConfidence.MIXED);
+  assert.equal(out.corrective.failed,true);
+  assert.equal(out.corrective.terminated,true);
+  assert.equal(out.sealReceipt.fallbackState,'CORRECTIVE_FAILED');
+  assert.ok(out.packet.unresolved.some(f=>f.e==='sun-blade'));
+  assert.equal(out.packet.current.some(f=>f.e==='sun-blade'&&f.p==='location'&&f.v==='ember-tavern'),false);
+});
+
+test('precision failure falls back without blocking context publication',()=>{
+  const core=loadWave3();
+  core.publication.precision.rank=()=>{throw new Error('precision unavailable');};
+  const out=core.publishGenerationContext({
+    turnId:'precision-fail:1',correlationId:'precision-fail:c1',
+    query:EMBER_TAVERN_WAVE3.query,intent:'CURRENT',anchorEntityIds:EMBER_TAVERN_WAVE3.anchors,sealedAt:1,
+  });
+  assert.equal(out.precisionFailed,true);
+  assert.equal(out.precisionResults.length,0);
+  assert.equal(out.sealReceipt.fallbackState,'PRECISION_FALLBACK');
+  assert.equal(out.sealReceipt.packetHash,hashPacket(out.packet));
+  assert.ok(out.packet.current.some(f=>f.e==='ember-tavern'&&f.p==='state'&&f.v==='destroyed'));
+});
+
+test('Truth Gate directly classifies all six required temporal truth states',()=>{
+  const core=new Area52CognitiveCore();
+  const statuses=['CURRENT','HISTORICAL','SUPERSEDED','CONTRADICTED','UNCERTAIN','UNRESOLVED'];
+  for(const [index,status] of statuses.entries()){
+    const id=`truth-state:${status.toLowerCase()}`;
+    const claim={
+      kind:'Claim',id,subjectId:`subject-${index}`,predicate:'state',value:status.toLowerCase(),
+      temporal:{kind:status==='HISTORICAL'?'HISTORICAL':status==='UNCERTAIN'?'UNCERTAIN':status==='UNRESOLVED'?'UNRESOLVED':'CURRENT',validFrom:index,validUntil:null},
+      authorityClass:status==='UNRESOLVED'?AuthorityClass.UNRESOLVED:AuthorityClass.SOURCE_CANON,
+      confidence:1,status,provenance:{kind:'Provenance',id:`prov:${id}`,sourceRevisionIds:[],evidenceIds:[],derivedFromIds:[],activity:'TEST',agent:'wave3',invalidators:[]},
+      supersedes:[],contradictedBy:[],owner:'WORLD_STATE',semanticKey:`${id}|state`,stableIdentity:null,claimType:'STATE',slotPolicy:'MULTI',explicitness:'TEST',evidenceTime:index,
+    };
+    core.graph._wave3TestClaim ??= ()=>{};
+    const candidate={candidateId:`candidate:${id}`,sourceType:'CLAIM',sourceId:id,entityIds:[claim.subjectId],claimIds:[id],scoreSignals:{},retrievalIntents:['TEST'],temporalStatus:status,provenance:claim.provenance};
+    // Classification is contract-level: provide a tiny graph facade so settlement behavior is not conflated with this vocabulary test.
+    const gate=new TruthPublicationGate({
+      truthGate:{classifyAll:(candidates)=>candidates.map(c=>({kind:'TruthGateResult',candidateId:c.candidateId,classification:status,usableForIntent:true,reasons:['fixture'],claimIds:[id],provenance:claim.provenance}))},
+      graph:{getClaim:(claimId)=>claimId===id?claim:null},
+    });
+    const assessment=gate.assess([candidate],{query:'state?',intent:'TEMPORAL'});
+    assert.equal(assessment.truthResults[0].classification,status);
+  }
+});

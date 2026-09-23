@@ -2,7 +2,7 @@
 
 Accepted Wave 1–4 baseline at kickoff: **77 tests**.
 
-Wave 5 adds **23 deterministic tests** covering:
+Wave 5 adds **24 deterministic tests** covering:
 
 - UI-only detail-level persistence;
 - authority validation;
@@ -21,7 +21,7 @@ Wave 5 adds **23 deterministic tests** covering:
 - unavailable extension degradation;
 - data-only extension descriptors;
 - Home generic extension summary consumption;
-- notification acknowledge/dismiss/cleanup;
+- notification acknowledge/dismiss/cleanup and Home interaction controls;
 - fixture-backed PromptPlan disclosure;
 - responsive/reduced-motion CSS;
 - no synthetic-subsystem shell hardcoding.
@@ -31,17 +31,17 @@ Final CI evidence is recorded only after the final committed bytes complete the 
 
 ## Accepted implementation checkpoint
 
-Implementation checkpoint: `17a2e1c1754fadec550012429526980e063fecf5`
+Implementation checkpoint: `3256fdfe9cbdbed74809d586fdbe1d90db3065af`
 
 Validation on that exact commit:
 
-- full deterministic suite: **100/100 PASS**;
-- Wave 5 focused suite: **23/23 PASS**;
+- full deterministic suite: **101/101 PASS**;
+- Wave 5 focused suite: **24/24 PASS**;
 - Wave 1–4 accepted regression tests: preserved inside the 100-test full suite;
 - JavaScript syntax validation: **PASS**;
 - UI.Core index import: **PASS**;
-- UI.Core Wave 3 workflow: **SUCCESS** (run 35828234166);
-- UI.Core Wave 4 workflow: **SUCCESS** (run 35828234127);
-- UI.Core Wave 5 workflow: **SUCCESS** (run 35828234114).
+- UI.Core Wave 3 workflow: **SUCCESS** (run 35828502585);
+- UI.Core Wave 4 workflow: **SUCCESS** (run 35828502594);
+- UI.Core Wave 5 workflow: **SUCCESS** (run 35828502628).
 
 The final documentation-only acceptance commit is required to pass the same workflows before handoff.

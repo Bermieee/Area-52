@@ -6,7 +6,7 @@ import {
   OpenAICompatibleProviderAdapter, PartialResultAccumulator, ProviderAdapterRegistry, ProviderExecutionRouter,
   ResultClass, SidecarBatchAdapter, SpecialistExecutionLayer, TelemetryEvent, classifyFreshness,
   createCognitiveTask, createRevisionSet, createTurnEnvelope, createWorkerResult, fallbackForTask,
-  parseStrictProviderJson, runFunctionTestTurn, validateWorkerOutput, DynamicFanOutPlanner,
+  parseStrictProviderJson, runFunctionTestTurn, validateWorkerOutput, DynamicFanOutPlanner, StreamingTruthObserver,
 } from '../src/coprocessor/index.js';
 
 function task(taskType,capabilities=['X'],extra={}){
@@ -207,6 +207,19 @@ test('planner obeys per-turn fan-out cap even when more roles have expected valu
 
 test('Function Test 001 exports Runtime-ready obligations for every planned specialist',async()=>{
   const r=await runFunctionTestTurn();assert.equal(r.runtimeSubmissions.length,4);assert.ok(r.runtimeSubmissions.every(x=>x.owner==='COGNITIVE_COPROCESSOR'&&x.foreground===true));
+});
+
+test('Streaming Truth OBSERVE buffers raw tokens until a meaningful clause boundary',async()=>{
+  const seen=[];const observer=new StreamingTruthObserver({deterministicCheck:async claim=>{seen.push(claim);return{classification:'SUPPORTED',confidence:1};}});
+  assert.equal((await observer.push('The Sun')).observations.length,0);
+  assert.equal((await observer.push(' Blade is missing')).observations.length,0);
+  const out=await observer.push('. Mara waits.');assert.equal(out.observations.length,2);assert.equal(seen.length,2);
+});
+
+test('Streaming Truth OBSERVE logs soft uncertainty and never rewrites or intercepts output',async()=>{
+  const observer=new StreamingTruthObserver({deterministicCheck:async()=>({classification:'UNCERTAIN',confidence:.4,reason:'ambiguous'})});
+  const out=await observer.push('Perhaps the Blade survived.');assert.equal(out.mode,'OBSERVE');assert.equal(out.intercepted,false);
+  assert.equal(out.observations[0].classification,'UNCERTAIN');assert.equal(out.releasedText,'Perhaps the Blade survived.');
 });
 
 test('telemetry remains prompt/payload safe for real provider execution',()=>{

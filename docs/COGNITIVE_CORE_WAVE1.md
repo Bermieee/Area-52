@@ -41,3 +41,24 @@ This document records the executable foundation for issues #1 and #2. The archit
 **Rebuild/recovery:** the entire world must be reproducible from the source fixture and ordered experiences.
 
 **Benchmark coverage:** Ember Tavern / Sun Blade is the first mandatory world. Current state, historical state, stale-state rejection, provenance, source-edit dependency cones, and compact context are expanded in issue #14 coverage.
+
+
+## Source Registry and provenance core
+
+**Input contract:** source import/replacement commands plus explicit derived-artifact dependency declarations.
+
+**Output contract:** immutable SourceRecord/SourceRevision snapshots, deterministic SHA-256 content identity, provenance-backed derived artifacts, invalidation sets, and provenance explanations.
+
+**Canonical authority:** Source Registry exclusively owns source identity, revision history, the active-revision pointer, and source-to-derived dependency edges. It never rewrites an earlier source revision.
+
+**Provenance behavior:** derived artifacts declare exact source revision IDs and optional artifact parents. Provenance traversal walks those links back to exact original source text.
+
+**Revision/freshness identity:** source revisions are `<sourceId>@<monotonic revision>` plus content hash. Currentness is a registry pointer rather than a mutation to prior revision objects.
+
+**Invalidators:** replacement of an active source revision invalidates direct dependents and their transitive artifact children only.
+
+**Failure behavior:** unknown source/revision/dependency references fail before registration. Re-importing an existing source fails rather than silently replacing it.
+
+**Rebuild/recovery:** active learned artifacts can be rebuilt from active source revisions. Historical source revisions remain recoverable for audit/history.
+
+**Benchmark coverage:** tests prove hash determinism, exact old-revision recovery, active revision advancement, transitive dependency invalidation, and survival of unrelated learned artifacts.

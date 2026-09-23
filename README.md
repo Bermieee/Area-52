@@ -60,6 +60,8 @@ Subsystem ownership, lifecycle/runtime architecture, branch lanes, and board hie
 
 The canonical interface platform is defined in [`docs/AREA52_UI_CORE_BLUEPRINT.md`](docs/AREA52_UI_CORE_BLUEPRINT.md).
 
+The sidecar/cognitive-coprocessor architecture is defined in [`docs/AREA52_COGNITIVE_COPROCESSOR_BLUEPRINT.md`](docs/AREA52_COGNITIVE_COPROCESSOR_BLUEPRINT.md).
+
 The current direction is explicitly hybrid: lore study, sparse + dense retrieval, late-interaction / reranking, temporal graph state, hierarchical semantic memory, reflections, truth maintenance, context compilation, and continual learning operate as one cognitive system.
 
 ## Status

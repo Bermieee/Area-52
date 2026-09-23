@@ -4,6 +4,8 @@
 **Repository:** `Bermieee/Area-52`  
 **Planning model:** dependency-gated, architecture-first  
 **Canonical architecture:** `docs/AREA52_COGNITIVE_MEMORY_BLUEPRINT.md`
+**Subsystem board map:** `docs/AREA52_SUBSYSTEM_BOARD_MAP.md`
+**Research map:** `docs/REFERENCE_RESEARCH_MAP.md`
 
 ---
 

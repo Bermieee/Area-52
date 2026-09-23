@@ -47,10 +47,18 @@ export function validateUIExtensionDescriptor(input) {
   const inspectors = freezeArray(input.inspectors, (surface, index) => normalizeInspector(surface, index, extensionId));
   const telemetry = freezeArray(input.telemetry ?? input.telemetrySurfaces, (surface, index) => normalizeTelemetry(surface, index, extensionId));
   const actions = freezeArray(input.actions, (action, index) => normalizeAction(action, index, extensionId));
+  const frontFaceInput = input.frontFace && typeof input.frontFace === 'object' && !Array.isArray(input.frontFace) ? input.frontFace : {};
+  const frontFace = Object.freeze({
+    summaries: freezeArray(frontFaceInput.summaries, (surface, index) => normalizeFrontFaceContribution(surface, index, 'summaries', extensionId)),
+    health: freezeArray(frontFaceInput.health, (surface, index) => normalizeFrontFaceContribution(surface, index, 'health', extensionId)),
+    activity: freezeArray(frontFaceInput.activity, (surface, index) => normalizeFrontFaceContribution(surface, index, 'activity', extensionId)),
+    notifications: freezeArray(frontFaceInput.notifications, (surface, index) => normalizeFrontFaceContribution(surface, index, 'notifications', extensionId)),
+  });
   assertUnique(workspaces, 'id', 'workspace');
   assertUnique(inspectors, 'kind', 'inspector');
   assertUnique(telemetry, 'id', 'telemetry');
   assertUnique(actions, 'type', 'action');
+  for (const [kind, contributions] of Object.entries(frontFace)) assertUnique(contributions, 'id', `front-face-${kind}`);
 
   const dependencies = freezeArray(input.dependencies, (dependency, index) => {
     if (!dependency || typeof dependency !== 'object') fail('invalid-descriptor', `dependencies[${index}] must be an object`);
@@ -72,6 +80,7 @@ export function validateUIExtensionDescriptor(input) {
     inspectors,
     telemetry,
     actions,
+    frontFace,
     lifecycle,
     availability,
     requiredCapabilities: Object.freeze(normalizeStrings(input.requiredCapabilities)),
@@ -198,6 +207,41 @@ export class UIExtensionRegistry {
     return this.#snapshot(record);
   }
 
+  listFrontFaceContributions(kind = 'summaries') {
+    if (!['summaries','health','activity','notifications'].includes(kind)) fail('unknown-front-face-kind', `Unknown Front Face contribution kind: ${kind}`);
+    const items = [];
+    for (const record of this.#extensions.values()) {
+      for (const contribution of record.descriptor.frontFace?.[kind] ?? []) {
+        items.push(Object.freeze({
+          extensionId: record.descriptor.extensionId,
+          subsystemId: record.descriptor.subsystemId,
+          extensionTitle: record.descriptor.display.title,
+          lifecycle: record.state.lifecycle,
+          availability: record.state.availability,
+          contribution,
+        }));
+      }
+    }
+    return items.sort((a, b) => (a.contribution.order ?? 0) - (b.contribution.order ?? 0)
+      || a.extensionTitle.localeCompare(b.extensionTitle)
+      || a.contribution.id.localeCompare(b.contribution.id));
+  }
+
+  readFrontFaceContribution(extensionId, kind, contributionId) {
+    const record = this.#required(extensionId);
+    if (!['summaries','health','activity','notifications'].includes(kind)) fail('unknown-front-face-kind', `Unknown Front Face contribution kind: ${kind}`);
+    const contribution = record.descriptor.frontFace?.[kind]?.find((item) => item.id === contributionId);
+    if (!contribution) fail('unknown-front-face-contribution', `Unknown Front Face contribution: ${contributionId}`);
+    if (record.state.availability === UIExtensionAvailability.UNAVAILABLE) return null;
+    const provider = record.binding.frontFaceProviders?.[contribution.surfaceId];
+    if (typeof provider !== 'function') fail('missing-front-face-binding', `Front Face provider unavailable: ${contribution.surfaceId}`);
+    const adapter = contribution.adapter ? record.binding.adapters?.[contribution.adapter] : null;
+    const value = provider({ contribution, adapter, extension: this.#snapshot(record) });
+    if (value && typeof value.then === 'function') fail('invalid-front-face-result', 'Front Face summaries must be synchronous lightweight data');
+    assertNoFunctions(value, 'frontFace-result');
+    return value == null ? null : deepFreezeClone(value);
+  }
+
   subscribeTelemetry(extensionId, telemetryId, handler) {
     const record = this.#required(extensionId);
     const surface = record.descriptor.telemetry.find((item) => item.id === telemetryId);
@@ -275,6 +319,12 @@ export class UIExtensionRegistry {
       if (this.actionRouter.hasAction?.(action.type)) fail('duplicate-action', `Action already registered: ${action.type}`);
       if (action.adapter && !adapters[action.adapter]) fail('missing-required-adapter', `Action ${action.type} requires adapter ${action.adapter}`);
       if (typeof binding.actionHandlers?.[action.operation] !== 'function') fail('invalid-action', `Action handler unavailable: ${action.operation}`);
+    }
+    for (const contributions of Object.values(descriptor.frontFace ?? {})) {
+      for (const contribution of contributions) {
+        if (contribution.adapter && !adapters[contribution.adapter]) fail('missing-required-adapter', `Front Face ${contribution.id} requires adapter ${contribution.adapter}`);
+        if (typeof binding.frontFaceProviders?.[contribution.surfaceId] !== 'function') fail('missing-front-face-binding', `Front Face provider unavailable: ${contribution.surfaceId}`);
+      }
     }
   }
 
@@ -425,6 +475,21 @@ function normalizeTelemetry(surface, index, extensionId) {
   });
 }
 
+function normalizeFrontFaceContribution(surface, index, kind, extensionId) {
+  if (!surface || typeof surface !== 'object') fail('invalid-descriptor', `frontFace.${kind}[${index}] must be an object`);
+  return Object.freeze({
+    ...surface,
+    id: requiredString(surface.id, `frontFace.${kind}[${index}].id`),
+    title: requiredString(surface.title, `frontFace.${kind}[${index}].title`),
+    surfaceId: requiredString(surface.surfaceId, `frontFace.${kind}[${index}].surfaceId`),
+    adapter: surface.adapter ?? null,
+    order: Number(surface.order ?? index),
+    lightweight: surface.lightweight !== false,
+    kind,
+    extensionId,
+  });
+}
+
 function normalizeAction(action, index, extensionId) {
   if (!action || typeof action !== 'object') fail('invalid-action', `actions[${index}] must be an object`);
   if ('handler' in action || 'invoke' in action || 'execute' in action) fail('invalid-action', `actions[${index}] may not contain executable handlers`);
@@ -496,6 +561,17 @@ function once(fn) {
     done = true;
     fn?.();
   };
+}
+
+function deepFreezeClone(value) {
+  const clone = JSON.parse(JSON.stringify(value));
+  const freeze = (item) => {
+    if (!item || typeof item !== 'object' || Object.isFrozen(item)) return item;
+    Object.freeze(item);
+    for (const child of Object.values(item)) freeze(child);
+    return item;
+  };
+  return freeze(clone);
 }
 
 function fail(code, message, details) {

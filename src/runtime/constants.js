@@ -1,0 +1,82 @@
+export const COGNITIVE_LAYERS = Object.freeze({
+  L0: 0,
+  L1: 1,
+  L2: 2,
+  L3: 3,
+  L4: 4,
+});
+
+export const LAYER_NAMES = Object.freeze(Object.keys(COGNITIVE_LAYERS));
+
+export const LIFECYCLE_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  ELIGIBLE: 'ELIGIBLE',
+  SATISFIED: 'SATISFIED',
+  SUPERSEDED: 'SUPERSEDED',
+  CANCELLED: 'CANCELLED',
+});
+
+export const EXECUTION_STATUS = Object.freeze({
+  QUEUED: 'QUEUED',
+  ACTIVE: 'ACTIVE',
+  YIELDING: 'YIELDING',
+  PARKED: 'PARKED',
+  BLOCKED: 'BLOCKED',
+  RECOVERING: 'RECOVERING',
+  COMPLETE: 'COMPLETE',
+  FAILED: 'FAILED',
+});
+
+export const RESOURCE_CLASSES = Object.freeze([
+  'CPU',
+  'GPU',
+  'MEMORY',
+  'IO',
+  'NETWORK',
+  'STRUCTURED_LLM',
+  'RERANK',
+  'EMBED',
+  'GRAPH',
+]);
+
+export const CAPABILITIES = Object.freeze({
+  STRUCTURED_LLM: 'STRUCTURED_LLM',
+  SEMANTIC_JUDGMENT: 'SEMANTIC_JUDGMENT',
+  RERANK: 'RERANK',
+  EMBED: 'EMBED',
+  GRAPH: 'GRAPH',
+  IO: 'IO',
+  CPU_ANALYSIS: 'CPU_ANALYSIS',
+});
+
+export const EVENT_TYPES = Object.freeze({
+  TURN_RECEIVED: 'TURN_RECEIVED',
+  GENERATION_STARTED: 'GENERATION_STARTED',
+  GENERATION_COMPLETED: 'GENERATION_COMPLETED',
+  SOURCE_CHANGED: 'SOURCE_CHANGED',
+  SCENE_CHANGED: 'SCENE_CHANGED',
+  STATE_SETTLED: 'STATE_SETTLED',
+  REFLECTION_CHANGED: 'REFLECTION_CHANGED',
+  CACHE_INVALIDATED: 'CACHE_INVALIDATED',
+  WORK_ELIGIBLE: 'WORK_ELIGIBLE',
+  WORK_STARTED: 'WORK_STARTED',
+  WORK_YIELD_REQUESTED: 'WORK_YIELD_REQUESTED',
+  WORK_YIELDING: 'WORK_YIELDING',
+  WORK_BLOCKED: 'WORK_BLOCKED',
+  WORK_PARKED: 'WORK_PARKED',
+  WORK_RESUMED: 'WORK_RESUMED',
+  WORK_COMPLETED: 'WORK_COMPLETED',
+  WORK_RECOVERING: 'WORK_RECOVERING',
+});
+
+export function assertLayer(layer) {
+  if (!(layer in COGNITIVE_LAYERS)) {
+    throw new TypeError(`Unknown cognitive layer: ${layer}`);
+  }
+  return layer;
+}
+
+export function isForegroundLayer(layer) {
+  assertLayer(layer);
+  return COGNITIVE_LAYERS[layer] <= COGNITIVE_LAYERS.L1;
+}

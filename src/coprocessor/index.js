@@ -10,4 +10,5 @@ export * from './telemetry.js';
 export * from './jev-migration.js';
 export * from './benchmark.js';
 export * from './deadline-policy.js';
+export * from './runtime-compatibility.js';
 export * from './swarm.js';

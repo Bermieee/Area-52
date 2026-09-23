@@ -82,3 +82,18 @@ Concrete implementation/reference material for the advanced systems discussed du
 - [Local Precision Reranking + Optimized Inference](docs/AREA52_LOCAL_PRECISION_RERANKING_GUIDE.md) — compact rerankers, cross-encoder vs late interaction, INT8/FP16, ONNX Runtime, TensorRT, FlashRank, local serving, candidate pruning, truncation, batching, fallbacks, and benchmark requirements.
 
 Specialist branches should read these before implementing related memory, retrieval, sidecar, or precision work.
+
+
+## Advanced learning, causal memory and lore compilation
+
+The next Brain extensions are documented as shared canonical references:
+
+- [Memory Reconsolidation, Maturation + Value-Aware Forgetting](docs/AREA52_MEMORY_RECONSOLIDATION_MATURATION_FORGETTING.md) — derived-memory plasticity, support-aware weakening, hot/warm/cold value policy, safe forgetting, anti-self-validation, and resumable reconsolidation. Tracked by #118.
+- [Causal / Event Memory + Competing Hypothesis Sets](docs/AREA52_CAUSAL_EVENT_MEMORY_AND_HYPOTHESES.md) — event-centric memory, evidence-backed causal relations, explicit competing explanations, uncertainty-preserving retrieval, and causal/history integration. Tracked by #119.
+- [Semantic Lore Compiler + Diff / Impact Analysis](docs/AREA52_LORE_COMPILER_SEMANTIC_DIFF.md) — semantic compilation, semantic diff, dependency impact preview, ontology refactoring, and multi-representation lore. Tracked by #120.
+
+### Lore Tree compatibility
+
+The traditional **Lore Tree remains first-class** for human organization, browsing and editing.
+
+Area-52's semantic graph, ontology, retrieval hierarchy and compiled representations augment the Lore Tree rather than replacing it. Human-facing tree structure and machine-facing semantic structures intentionally coexist.

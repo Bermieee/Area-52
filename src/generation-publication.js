@@ -1,5 +1,5 @@
 import { AuthorityClass } from './contracts.js';
-import { ResultClass,ResultDestination,SealFallbackState } from './publication-contracts.js';
+import { ResultClass,ResultDestination,ResultPayloadClass,SealFallbackState,createCognitiveResult } from './publication-contracts.js';
 import { ResultBus } from './result-bus.js';
 import { TruthPublicationGate,inferTruthNeed } from './truth-publication-gate.js';
 import { DeterministicPrecisionStub } from './precision-contract.js';
@@ -59,15 +59,33 @@ export class GenerationPublicationPipeline {
     const precisionResults=precisionAvailable
       ?this.precision.rank(candidates,{query,intent,worldRevision,sceneRevision})
       :[];
+    for(const precisionResult of precisionResults){
+      this.resultBus.receive(createCognitiveResult({
+        id:`result:precision:${precisionResult.candidateId}:${correlationId}`,
+        taskId:`precision:${turnId}`,turnId,correlationId,causationId:null,
+        sourceSubsystem:'PRECISION',workerId:'deterministic-reference',destinationOwner:null,
+        resultType:'PRECISION_RESULT',resultClass:ResultClass.REQUIRED,payloadClass:ResultPayloadClass.DERIVED_DATA,
+        evidenceIds:[precisionResult.candidateId],provenance:{candidateId:precisionResult.candidateId},
+        sourceRevisionIds:precisionResult.sourceRevisionIds,worldRevision:precisionResult.worldRevision,
+        sceneRevision:precisionResult.sceneRevision,authorityClass:'UNRESOLVED',
+        destination:ResultDestination.FOREGROUND,payload:precisionResult,timing:{latencyMs:precisionResult.latencyMs},
+      }));
+    }
+    const usablePrecision=this.resultBus.foreground(turnId)
+      .filter(x=>x.result.resultType==='PRECISION_RESULT')
+      .map(x=>x.result.payload);
     const unknownSlots=this.#unknownSlots(query,intent,anchorEntityIds);
     const compiled=this.compiler.compile({
-      query,intent,truthAssessment:assessment,precisionResults,budgetBytes,unknownSlots,rawEvidence:candidates,
+      query,intent,truthAssessment:assessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,rawEvidence:candidates,
     });
 
     const turnResults=this.resultBus.results({turnId});
     const candidateToResult=new Map(turnResults.map(x=>[x.result.payload?.candidateId,x]));
     const admittedCandidateIds=uniq([...assessment.admittedCandidateIds,...assessment.supportCandidateIds]);
-    const admittedResultIds=uniq(admittedCandidateIds.map(id=>candidateToResult.get(id)?.result.id).filter(Boolean));
+    const admittedResultIds=uniq([
+      ...admittedCandidateIds.map(id=>candidateToResult.get(id)?.result.id).filter(Boolean),
+      ...turnResults.filter(x=>x.route.effectiveDestination===ResultDestination.FOREGROUND&&x.route.freshness==='FRESH'&&x.result.resultType==='PRECISION_RESULT').map(x=>x.result.id),
+    ]);
     const staleResultIds=uniq(turnResults.filter(x=>x.route.freshness==='STALE').map(x=>x.result.id));
     const rejectedResultIds=uniq(turnResults.filter(x=>!x.route.accepted).map(x=>x.result.id));
 
@@ -83,7 +101,7 @@ export class GenerationPublicationPipeline {
     });
     return{
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,corrective,
-      precisionResults,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
+      precisionResults:usablePrecision,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
       resultRoutes:turnResults,
     };
   }

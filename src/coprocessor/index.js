@@ -15,3 +15,5 @@ export * from './swarm.js';
 export * from './provider-adapters.js';
 export * from './foreground-specialists.js';
 export * from './provider-execution.js';
+export * from './batch-adapter.js';
+export * from './fallback-policy.js';

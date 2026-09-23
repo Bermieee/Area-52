@@ -21,3 +21,28 @@ export function summarizeSwarmTrace(trace, measured = {}) {
     estimatedCost: measured.estimatedCost ?? null,
   });
 }
+
+
+export function summarizeWave2Benchmarks({traces=[],batchReceipts=[],greenRoomChecks=[],disagreementChecks=[]}={}) {
+  const taskTraces=traces.flatMap(t=>t.taskTraces??[]);
+  const attempts=taskTraces.reduce((n,t)=>n+Number(t.attempts??1),0);
+  const fallbacks=traces.reduce((n,t)=>n+(t.gather?.fallbacksUsed?.length??0),0);
+  const planned=traces.reduce((n,t)=>n+(t.plan?.tasks?.length??0),0);
+  const late=traces.reduce((n,t)=>n+(t.gather?.lateResults?.length??0),0);
+  const valid=taskTraces.filter(t=>t.validation==='PASS').length;
+  const committed=batchReceipts.reduce((n,r)=>n+Number(r.committedUnits??0),0);
+  const failed=batchReceipts.reduce((n,r)=>n+Number(r.failedUnits??0),0);
+  return Object.freeze({
+    turns:traces.length,
+    fanOutTasks:planned,
+    structuredOutputValidity:taskTraces.length?valid/taskTraces.length:1,
+    retryRate:taskTraces.length?Math.max(0,attempts-taskTraces.length)/taskTraces.length:0,
+    fallbackRate:planned?fallbacks/planned:0,
+    opportunisticLateRate:planned?late/planned:0,
+    batchCommittedUnits:committed,
+    batchFailedUnits:failed,
+    greenRoomExpiryCorrectness:greenRoomChecks.length?greenRoomChecks.filter(Boolean).length/greenRoomChecks.length:1,
+    disagreementPreservation:disagreementChecks.length?disagreementChecks.filter(Boolean).length/disagreementChecks.length:1,
+    cpuMs:null,peakRamMb:null,llmInputTokens:null,llmOutputTokens:null,estimatedCost:null,
+  });
+}

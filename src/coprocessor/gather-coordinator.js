@@ -25,6 +25,7 @@ export class GatherCoordinator {
     this.closedAt = null;
     this.closeReason = null;
     this.sealReceipt = null;
+    this.maxDiagnostics = Math.max(64, plan.tasks.length * 8);
   }
 
   async accept(rawResult, { arrivalAt = rawResult?.completedAt ?? 0, semanticValidator = null, attempt = 1 } = {}) {
@@ -34,7 +35,7 @@ export class GatherCoordinator {
 
     const task = this.tasks.get(rawResult?.taskId);
     if (!task) {
-      this.rejected.push({ resultId: resultId ?? null, reason: 'unknown-task' });
+      this.#boundedPush(this.rejected,{ resultId: resultId ?? null, reason: 'unknown-task' });
       return { accepted: false, duplicate: false, destination: ResultDestination.EVALUATION, reason: 'unknown-task' };
     }
 
@@ -42,18 +43,23 @@ export class GatherCoordinator {
       currentRevisionSet: this.currentRevisionSet, semanticValidator, attempt,
     });
     if (!validation.valid) {
-      this.failures.push(validation.failure);
-      this.rejected.push({ resultId: resultId ?? null, taskId: task.taskId, reason: validation.failure.code });
+      this.#boundedPush(this.failures,validation.failure);
+      this.#boundedPush(this.rejected,{ resultId: resultId ?? null, taskId: task.taskId, reason: validation.failure.code });
       return { accepted: false, duplicate: false, destination: ResultDestination.EVALUATION, validation };
     }
     if (validation.freshness === Freshness.STALE) {
-      this.stale.push(validation.result.resultId);
+      this.#boundedPush(this.stale,validation.result.resultId);
       return { accepted: false, stale: true, destination: ResultDestination.EVALUATION, validation };
+    }
+
+    if (this.accepted.has(task.taskId)) {
+      this.#boundedPush(this.rejected,{resultId:validation.result.resultId,taskId:task.taskId,reason:'duplicate-task-result'});
+      return {accepted:false,duplicateTask:true,destination:ResultDestination.EVALUATION,validation};
     }
 
     if (this.closed || this.sealed || task.resultClass === ResultClass.DEFERRED) {
       const destination = task.resultClass === ResultClass.DEFERRED ? ResultDestination.BACKGROUND : ResultDestination.NEXT_TURN;
-      this.late.push({ resultId: validation.result.resultId, taskId: task.taskId, destination, arrivalAt });
+      this.#boundedPush(this.late,{ resultId: validation.result.resultId, taskId: task.taskId, destination, arrivalAt });
       return { accepted: false, late: true, destination, validation };
     }
 
@@ -61,16 +67,16 @@ export class GatherCoordinator {
     return { accepted: true, duplicate: false, destination: ResultDestination.FOREGROUND, validation };
   }
 
-  addFailure(failure) { this.failures.push(failure); return failure; }
+  addFailure(failure) { this.#boundedPush(this.failures,failure); return failure; }
 
   recordExternalRoute(result, route = {}) {
     const freshness = route.freshness ?? Freshness.FRESH;
     if (freshness === Freshness.STALE) {
-      if (!this.stale.includes(result.resultId)) this.stale.push(result.resultId);
+      if (!this.stale.includes(result.resultId)) this.#boundedPush(this.stale,result.resultId);
       return { accepted: false, stale: true, destination: route.effectiveDestination ?? ResultDestination.EVALUATION };
     }
     if (freshness === Freshness.INVALID) {
-      this.rejected.push({ resultId: result.resultId, taskId: result.taskId, reason: route.reason ?? 'result-bus-invalid' });
+      this.#boundedPush(this.rejected,{ resultId: result.resultId, taskId: result.taskId, reason: route.reason ?? 'result-bus-invalid' });
       return { accepted: false, invalid: true, destination: route.effectiveDestination ?? ResultDestination.EVALUATION };
     }
     return null;
@@ -102,6 +108,45 @@ export class GatherCoordinator {
     this.sealed = true;
     this.sealReceipt = receipt ?? null;
   }
+
+  compilerInput() {
+    const bundle=this.bundle();
+    const currentWorldState=bundle.graphResults.flatMap(x=>[
+      ...(x.current??[]),...(x.currentStateRefs??[]).map(ref=>({ref,temporalStatus:'CURRENT'}))
+    ]);
+    const historicalState=bundle.graphResults.flatMap(x=>[
+      ...(x.historical??[]),...(x.historicalRefs??[]).map(ref=>({ref,temporalStatus:'HISTORICAL'}))
+    ]);
+    const unresolved=[
+      ...bundle.unresolvedDisagreement,
+      ...bundle.graphResults.flatMap(x=>(x.unresolvedRefs??[]).map(ref=>({ref,temporalStatus:'UNRESOLVED'}))),
+    ];
+    return structuredClone({
+      kind:'GatherCompilerInput',
+      turnIdentity:bundle.turnIdentity,
+      evidence:bundle.loreEvidence,
+      currentWorldState,
+      historicalState,
+      characterInference:bundle.greenRoom,
+      truthClassifications:bundle.truthClassifications,
+      rankedCandidates:bundle.truthClassifications.flatMap(x=>x.ranking??[]),
+      unresolved,
+      externalGrounding:bundle.externalGrounding,
+      provenance:bundle.provenanceIndex,
+      freshness:bundle.freshnessIndex,
+      degradedCapabilities:this.#degradedCapabilities(),
+      acceptedResultIds:bundle.acceptedResultIds,
+    });
+  }
+
+  #degradedCapabilities() {
+    const degraded=[];
+    for(const item of this.fallbacks){const task=this.tasks.get(item.taskId);degraded.push({taskId:item.taskId,roleId:task?.metadata?.roleId??null,reason:'FALLBACK_USED',policy:item.policy});}
+    for(const failure of this.failures){const task=this.tasks.get(failure.taskId);degraded.push({taskId:failure.taskId,roleId:task?.metadata?.roleId??null,reason:failure.code});}
+    return degraded;
+  }
+
+  #boundedPush(target,value){target.push(value);if(target.length>this.maxDiagnostics)target.splice(0,target.length-this.maxDiagnostics);}
 
   bundle() {
     const lanes = Object.fromEntries(LANES.map((lane) => [lane, []]));

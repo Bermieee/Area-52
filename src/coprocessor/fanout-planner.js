@@ -16,6 +16,7 @@ export const INITIAL_ROLE_CATALOG = Object.freeze([
     roleId: 'green-room', taskType: 'GREEN_ROOM', compilerLane: 'greenRoom',
     requiredCapabilities: [Capability.SEMANTIC_JUDGMENT, Capability.CHARACTER_INFERENCE],
     resultClass: ResultClass.OPPORTUNISTIC, placement: Placement.HOT, cognitiveLayer: 'L1',
+    batchMetadata: { batchable: true, slicePolicy: 'ADAPTIVE', checkpointBoundary: 'SLICE', yieldSafety: 'CHECKPOINT_ONLY', partialResultSemantics: 'PRESERVE_VALID_SLICES' },
   }),
   Object.freeze({
     roleId: 'truth-precision', taskType: 'TRUTH_PRECISION', compilerLane: 'truthClassifications',
@@ -35,7 +36,8 @@ export class DynamicFanOutPlanner {
   plan({
     turnEvent, text = '', queryIntent = null, activeCast = [], activeThreads = [],
     conflictSignals = [], expectedValue = {}, providerHealth = {}, latencyBudgetMs = this.defaultHardBudgetMs,
-    costBudget = 'MEDIUM', cacheWarmth = {},
+    costBudget = 'MEDIUM', cacheWarmth = {}, availableCapabilities = null, location = null, inputRefs = {},
+    maxFanOut = this.maxWorkers, resourceConstraint = {},
   }) {
     const normalized = String(text).trim().toLowerCase();
     const trivial = /^(ok|okay|thanks|thank you|got it|sure|yep|yes)[.! ]*$/.test(normalized);
@@ -56,10 +58,14 @@ export class DynamicFanOutPlanner {
     for (const [roleId, value] of Object.entries(expectedValue)) if (Number(value) > 0.65) selected.add(roleId);
 
     const tasks = [];
+    const boundedFanOut=Math.max(0,Math.min(this.maxWorkers,Number(maxFanOut??this.maxWorkers),
+      Number(resourceConstraint.maxForegroundWorkers??this.maxWorkers)));
+    const capabilitySet=availableCapabilities?new Set(availableCapabilities):null;
     for (const role of this.roleCatalog) {
       if (!selected.has(role.roleId)) continue;
       if (role.resultClass !== ResultClass.REQUIRED && providerHealth[role.roleId] === 'unavailable') continue;
-      if (tasks.length >= this.maxWorkers) break;
+      if (capabilitySet && role.resultClass !== ResultClass.REQUIRED && role.requiredCapabilities.some(cap=>!capabilitySet.has(cap))) continue;
+      if (tasks.length >= boundedFanOut) break;
       const softDeadline = turnEvent.createdAt + Math.min(this.defaultSoftBudgetMs, latencyBudgetMs);
       const hardDeadline = turnEvent.createdAt + Math.min(this.defaultHardBudgetMs, latencyBudgetMs);
       tasks.push(createCognitiveTask({
@@ -84,12 +90,13 @@ export class DynamicFanOutPlanner {
         placement: role.placement,
         compilerLane: role.compilerLane,
         intentFingerprint: `intent:${turnEvent.turnId}:${queryIntent ?? 'AUTO'}`,
-        metadata: { roleId: role.roleId, cacheWarm: Boolean(cacheWarmth[role.roleId]), costBudget },
+        metadata: { roleId: role.roleId, cacheWarm: Boolean(cacheWarmth[role.roleId]), costBudget, expectedValue:Number(expectedValue[role.roleId]??0),
+          location, inputRefs: structuredClone(inputRefs[role.roleId]??[]), resourceConstraint: structuredClone(resourceConstraint) },
       }));
     }
     return freezePlan(turnEvent, tasks, {
       reason: tasks.length ? 'expected-value fan-out' : 'no eligible expected-value cognition',
-      costBudget, latencyBudgetMs,
+      costBudget, latencyBudgetMs, boundedFanOut,
     });
   }
 }

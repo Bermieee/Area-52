@@ -3,6 +3,7 @@ import { createWorkerFailure, createWorkerResult } from './contracts.js';
 import { GatherCoordinator } from './gather-coordinator.js';
 import { toNexusCognitiveResult } from './integration-adapters.js';
 import { validateWorkerOutput } from './validation.js';
+import { fallbackForTask } from './fallback-policy.js';
 
 export class CognitiveSwarm {
   constructor({
@@ -140,11 +141,20 @@ export class CognitiveSwarm {
 
     while (true) {
       if (error) {
-        const failure = createWorkerFailure({
-          code: FailureCode.PROVIDER_FAILURE, taskId: task.taskId, turnId: task.turnId, correlationId: task.correlationId,
-          message: error?.message ?? String(error), attempt, retryable: attempt <= Number(task.fallbackPolicy?.maxRetries ?? 0),
+        const maxRetries=Number(task.fallbackPolicy?.maxRetries??0);
+        const rawCode=Object.values(FailureCode).includes(error?.code)?error.code:FailureCode.PROVIDER_FAILURE;
+        const retryable=attempt<=maxRetries && ![FailureCode.CAPABILITY_UNAVAILABLE,FailureCode.FUTURE_REVISION,FailureCode.PROVIDER_ABORTED].includes(rawCode);
+        let failure = createWorkerFailure({
+          code: rawCode, taskId: task.taskId, turnId: task.turnId, correlationId: task.correlationId,
+          providerId:error?.providerId??null,message: error?.message ?? String(error), attempt, retryable,
+          details:{providerCode:rawCode},
         });
-        if (!failure.retryable) return { task, failure, result: null, trace: failedTrace(task, failure) };
+        if (!failure.retryable) {
+          if(maxRetries>0&&attempt>maxRetries)failure=createWorkerFailure({code:FailureCode.RETRY_EXHAUSTED,taskId:task.taskId,turnId:task.turnId,
+            correlationId:task.correlationId,providerId:error?.providerId??null,message:'provider retry budget exhausted',attempt,retryable:false,
+            details:{lastFailureCode:rawCode}});
+          return { task, failure, result: null, trace: failedTrace(task, failure) };
+        }
         this.telemetry?.emit(TelemetryEvent.RETRY, { ...telemetryTask(task), attempt: attempt + 1, reason: failure.code });
       } else {
         const validation = await validateWorkerOutput(raw, task, { currentRevisionSet: turnEvent, semanticValidator, attempt });
@@ -173,25 +183,8 @@ export class CognitiveSwarm {
   }
 }
 
-export async function defaultFallbackResolver(task, { at } = {}) {
-  if (task.resultClass !== ResultClass.REQUIRED) return null;
-  const authorityClass = task.metadata?.roleId === 'green-room' ? 'INFERRED' : 'UNRESOLVED';
-  return {
-    resultId: `fallback:${task.taskId}`,
-    taskId: task.taskId, turnId: task.turnId, correlationId: task.correlationId,
-    workerId: 'deterministic-fallback', providerId: 'area52:deterministic',
-    capabilities: [...task.requiredCapabilities], status: ResultStatus.FALLBACK,
-    payload: {
-      lane: task.compilerLane,
-      fallback: task.fallbackPolicy.type,
-      unresolved: task.fallbackPolicy.type.includes('UNRESOLVED'),
-      evidence: [],
-    },
-    provenance: { fallback: true }, confidence: 0,
-    freshnessIdentity: task.inputRevisionSet, inputRevisionSet: task.inputRevisionSet,
-    startedAt: at ?? task.hardDeadline, completedAt: at ?? task.hardDeadline, latency: 0,
-    validationReceipt: { syntax: 'PASS', deterministic: 'FALLBACK' }, authorityClass,
-  };
+export async function defaultFallbackResolver(task, context = {}) {
+  return fallbackForTask(task,context);
 }
 
 function telemetryTask(task) {

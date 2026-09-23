@@ -15,15 +15,17 @@ export class SpecialistExecutionLayer {
     if(!specialist)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No specialist contract for ${task.taskType}`);
     const providerInput=specialist.buildInput(task,input??{});
     const contextTokens=estimateTokens(providerInput);
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens,maxCostClass,requireStructuredOutput:true})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens,maxCostClass,requireStructuredOutput:true,
+      expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal)})
       .filter(profile=>this.adapters.get(profile.providerId));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
     const profile=eligible[0],adapter=this.adapters.get(profile.providerId);
     this.telemetry?.emit(TelemetryEvent.PROVIDER_SELECTED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
-      requiredCapabilities:task.requiredCapabilities,contextTokens,attempt});
+      requiredCapabilities:task.requiredCapabilities,contextTokens,expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),
+      queueTime:Number(task.metadata?.queueTime??0),local:profile.local,attempt});
     let invocation;
     try{
-      invocation=await adapter.invoke(task,providerInput,{signal,attempt,maxOutputTokens:profile.profileMetadata?.maxOutputTokens??null});
+      invocation=await adapter.invoke(task,providerInput,{signal,attempt,maxOutputTokens:Number.isFinite(profile.maxOutputTokens)?profile.maxOutputTokens:null});
     }catch(error){
       this.telemetry?.emit(TelemetryEvent.PROVIDER_FAILED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
         attempt,reason:error?.code??FailureCode.PROVIDER_FAILURE});

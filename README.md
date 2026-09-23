@@ -46,6 +46,8 @@ Observe
 
 The architecture is defined in [`docs/AREA52_COGNITIVE_MEMORY_BLUEPRINT.md`](docs/AREA52_COGNITIVE_MEMORY_BLUEPRINT.md).
 
+Execution is tracked in [`PROJECT_PLAN.md`](PROJECT_PLAN.md) and [GitHub issue #15 — Area-52 Program Tracker](https://github.com/Bermieee/Area-52/issues/15).
+
 The current direction is explicitly hybrid: lore study, sparse + dense retrieval, late-interaction / reranking, temporal graph state, hierarchical semantic memory, reflections, truth maintenance, context compilation, and continual learning operate as one cognitive system.
 
 ## Status

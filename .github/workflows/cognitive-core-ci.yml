@@ -23,3 +23,5 @@ jobs:
         run: node -e "import('./src/cognitive-core.js').then(()=>console.log('ESM PASS'))"
       - name: Wave 3 acceptance report
         run: node scripts/wave3-acceptance-report.mjs
+      - name: Wave 4 adaptive context acceptance report
+        run: node scripts/wave4-acceptance-report.mjs

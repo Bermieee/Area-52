@@ -751,3 +751,90 @@ Covers:
 Primary consumer: `Development-Sidecar/Jev`, with Runtime integration through `Development-Worker-Director` and Context/Truth integration through `Development-Nexus`.
 
 These are reference documents for existing work items. They do not create new ownership or additional issue families.
+
+
+# 20. Memory plasticity, causal memory and Lore Compiler
+
+These extensions deepen the existing Brain rather than creating separate authority systems.
+
+## Memory reconsolidation / maturation / forgetting — #118
+
+Owner lane: `Development-Memory`.
+
+Canonical reference:
+
+`docs/AREA52_MEMORY_RECONSOLIDATION_MATURATION_FORGETTING.md`
+
+The Brain may reorganize derived memory from retrieval/use feedback, support changes and consolidation pressure.
+
+Allowed effects include:
+
+- strengthening/weakening derived associations;
+- changing hot/warm/cold priority;
+- rebuilding retrieval representations;
+- reevaluating Reflections;
+- splitting/merging redundant derived memory;
+- retiring rebuildable artifacts.
+
+Usage feedback is not factual evidence.
+
+Reconsolidation cannot rewrite source, erase historical truth, or bypass Settlement.
+
+## Causal / Event Memory + hypotheses — #119
+
+Owner lane: `Development-Memory`.
+
+Inputs: `Development-Scene-Scanner`.
+
+Canonical reference:
+
+`docs/AREA52_CAUSAL_EVENT_MEMORY_AND_HYPOTHESES.md`
+
+Event memory distinguishes chronology from causality and supports evidence-backed relations such as:
+
+- CAUSES;
+- ENABLES;
+- PREVENTS;
+- MOTIVATES;
+- RESULTS_IN;
+- SUPPORTS;
+- CONTRADICTS.
+
+Competing hypotheses remain explicit and may stay UNRESOLVED.
+
+No highest-scoring hypothesis becomes canon merely because it is most probable.
+
+## Semantic Lore Compiler + diff / impact — #120
+
+Owner lane: `Development-Lorebook-Editor`.
+
+Integration lane: `Development-Nexus`.
+
+Canonical reference:
+
+`docs/AREA52_LORE_COMPILER_SEMANTIC_DIFF.md`
+
+Lore Study evolves into semantic compilation:
+
+```text
+Lore Tree / exact source
+        |
+        v
+semantic compilation
+        |
+        +-> claims / rules / capabilities
+        +-> relationships / events
+        +-> ontology / hierarchy
+        +-> retrieval representations
+        +-> dependency graph
+```
+
+### Lore Tree invariant
+
+**The Lore Tree remains a first-class human-facing representation.**
+
+It remains available for folders, categories, nested entries, browsing and editing.
+
+Learned ontology, graphs, communities and retrieval hierarchies augment the Lore Tree; they do not replace or silently reorganize it.
+
+Semantic diff and impact analysis identify meaning-level changes and the smallest truthful relearning cone.

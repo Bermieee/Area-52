@@ -14,7 +14,7 @@ export const ResultPayloadClass=freeze({PROPOSAL:'PROPOSAL',OBSERVATION:'OBSERVA
 export const ResultFreshness=freeze({FRESH:'FRESH',STALE:'STALE',INVALID:'INVALID'});
 export const RetrievalConfidence=freeze({HIGH:'HIGH',MIXED:'MIXED',LOW:'LOW'});
 export const PrecisionFreshness=freeze({FRESH:'FRESH',STALE:'STALE'});
-export const SealFallbackState=freeze({NONE:'NONE',PRECISION_FALLBACK:'PRECISION_FALLBACK',CORRECTIVE_FAILED:'CORRECTIVE_FAILED',RICH_CONTEXT:'RICH_CONTEXT'});
+export const SealFallbackState=freeze({NONE:'NONE',PRECISION_FALLBACK:'PRECISION_FALLBACK',CORRECTIVE_EXHAUSTED:'CORRECTIVE_EXHAUSTED',CORRECTIVE_FAILED:'CORRECTIVE_FAILED',RICH_CONTEXT:'RICH_CONTEXT'});
 
 const DEST=enumValues(ResultDestination), CLASS=enumValues(ResultClass), PAYLOAD=enumValues(ResultPayloadClass), FRESH=enumValues(ResultFreshness), CONF=enumValues(RetrievalConfidence), PFRESH=enumValues(PrecisionFreshness), FALLBACK=enumValues(SealFallbackState);
 

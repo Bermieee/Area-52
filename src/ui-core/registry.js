@@ -42,20 +42,33 @@ export class WidgetRegistry {
 
 export class WorkspaceRegistry {
   #workspaces = new Map();
+  #listeners = new Set();
+  #sequence = 0;
 
   register(workspace) {
     if (!workspace?.id || !workspace?.title) throw new TypeError('workspace id/title required');
     if (this.#workspaces.has(workspace.id)) throw new Error(`Workspace already registered: ${workspace.id}`);
-    const normalized = Object.freeze({
-      id: workspace.id,
-      title: workspace.title,
-      icon: workspace.icon ?? '',
-      views: Object.freeze([...(workspace.views ?? [])]),
-      supportedActions: Object.freeze([...(workspace.supportedActions ?? [])]),
-      render: workspace.render,
-    });
+    const normalized = this.#normalize(workspace, ++this.#sequence);
     this.#workspaces.set(normalized.id, normalized);
+    this.#notify({ type: 'registered', workspace: normalized });
     return normalized;
+  }
+
+  update(id, patch = {}) {
+    const current = this.get(id);
+    if (patch.id && patch.id !== id) throw new Error('Workspace id cannot change');
+    const normalized = this.#normalize({ ...current, ...patch, id }, current.registrationSequence);
+    this.#workspaces.set(id, normalized);
+    this.#notify({ type: 'updated', workspace: normalized, previous: current });
+    return normalized;
+  }
+
+  unregister(id) {
+    const current = this.#workspaces.get(id);
+    if (!current) return false;
+    this.#workspaces.delete(id);
+    this.#notify({ type: 'unregistered', workspace: current });
+    return true;
   }
 
   get(id) {
@@ -64,17 +77,73 @@ export class WorkspaceRegistry {
     return workspace;
   }
 
-  list() { return [...this.#workspaces.values()]; }
+  has(id) { return this.#workspaces.has(id); }
+
+  list({ category } = {}) {
+    return [...this.#workspaces.values()].filter((workspace) => !category || workspace.category === category);
+  }
+
+  subscribe(listener) {
+    if (typeof listener !== 'function') throw new TypeError('WorkspaceRegistry listener must be a function');
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #normalize(workspace, registrationSequence) {
+    return Object.freeze({
+      ...workspace,
+      id: workspace.id,
+      title: workspace.title,
+      icon: workspace.icon ?? '',
+      category: workspace.category ?? 'Built-in',
+      views: Object.freeze([...(workspace.views ?? [])]),
+      supportedActions: Object.freeze([...(workspace.supportedActions ?? [])]),
+      render: workspace.render,
+      registrationSequence,
+    });
+  }
+
+  #notify(change) {
+    for (const listener of [...this.#listeners]) {
+      try { listener(change); } catch {}
+    }
+  }
 }
 
 export class InspectorRegistry {
   #renderers = new Map();
+  #listeners = new Set();
 
   register(kind, renderer) {
     if (!kind || typeof renderer !== 'function') throw new TypeError('Inspector kind and renderer required');
+    if (this.#renderers.has(kind)) throw new Error(`Inspector already registered: ${kind}`);
     this.#renderers.set(kind, renderer);
-    return () => this.#renderers.delete(kind);
+    this.#notify({ type: 'registered', kind });
+    return () => this.unregister(kind, renderer);
   }
 
+  unregister(kind, expectedRenderer = null) {
+    const current = this.#renderers.get(kind);
+    if (!current || (expectedRenderer && current !== expectedRenderer)) return false;
+    this.#renderers.delete(kind);
+    this.#notify({ type: 'unregistered', kind });
+    return true;
+  }
+
+  has(kind) { return this.#renderers.has(kind); }
+  list() { return [...this.#renderers.keys()]; }
+
   resolve(kind) { return this.#renderers.get(kind) ?? this.#renderers.get('*') ?? null; }
+
+  subscribe(listener) {
+    if (typeof listener !== 'function') throw new TypeError('InspectorRegistry listener must be a function');
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #notify(change) {
+    for (const listener of [...this.#listeners]) {
+      try { listener(change); } catch {}
+    }
+  }
 }

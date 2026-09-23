@@ -15,6 +15,9 @@ export class InspectorController {
   mount() {
     this.host.setAttribute('aria-label', 'Inspector');
     this.scope.subscribe(this.signals, Signals.UI_INSPECT_SELECTION_CHANGED, ({ payload }) => this.select(payload.object ?? null));
+    this.scope.add(this.registry.subscribe?.(() => {
+      if (this.selection) this.scheduler.invalidate('inspector:registry', () => this.render(), { cost: 'NORMAL' });
+    }));
     this.render();
   }
 

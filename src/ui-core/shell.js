@@ -13,6 +13,7 @@ export class ApplicationShell {
     this.stateStore = stateStore;
     this.renderWorkspace = renderWorkspace;
     this.scope = new ResourceScope();
+    this.navScope = new ResourceScope();
     this.currentWorkspace = null;
     this.mode = null;
     this.nodes = {};
@@ -35,17 +36,8 @@ export class ApplicationShell {
     this.root.replaceChildren(header, nav, workspace, inspectorHost, strip, toastHost);
     this.nodes = { header, brand, brainState, search, nav, workspace, inspectorHost, strip, toastHost };
 
-    for (const entry of this.workspaceRegistry.list()) {
-      const button = element(doc, 'button', {
-        className: 'a52-nav-item',
-        text: `${entry.icon ? `${entry.icon} ` : ''}${entry.title}`,
-        attrs: { type: 'button' },
-        dataset: { workspaceId: entry.id, rovingItem: '' },
-      });
-      this.scope.listen(button, 'click', () => this.selectWorkspace(entry.id));
-      nav.append(button);
-    }
-    installRovingFocus(nav, this.scope);
+    this.scope.add(this.workspaceRegistry.subscribe?.((change) => this.syncWorkspaceNav(change)));
+    this.syncWorkspaceNav();
 
     this.scope.listen(search, 'keydown', (event) => {
       if (event.key === 'Escape') { search.value = ''; workspace.focus(); }
@@ -62,26 +54,68 @@ export class ApplicationShell {
     this.inspector.host = inspectorHost;
     this.inspector.mount();
     const persisted = this.stateStore.load();
-    const initial = this.workspaceRegistry.list().some((w) => w.id === persisted.selectedWorkspace) ? persisted.selectedWorkspace : this.workspaceRegistry.list()[0]?.id;
+    const entries = this.workspaceRegistry.list();
+    const initial = entries.some((w) => w.id === persisted.selectedWorkspace) ? persisted.selectedWorkspace : entries[0]?.id;
     if (initial) this.selectWorkspace(initial);
     return this;
   }
 
+  syncWorkspaceNav(change = null) {
+    const nav = this.nodes.nav;
+    if (!nav) return;
+    this.navScope.cleanup();
+    this.navScope = new ResourceScope();
+    nav.replaceChildren();
+    const entries = this.workspaceRegistry.list();
+    for (const entry of entries) {
+      const badges = [entry.lifecycle, entry.availability].filter(Boolean).map((value) => `[${value}]`).join(' ');
+      const button = element(nav.ownerDocument, 'button', {
+        className: 'a52-nav-item',
+        text: `${entry.icon ? `${entry.icon} ` : ''}${badges ? `${badges} ` : ''}${entry.title}`,
+        attrs: { type: 'button' },
+        dataset: { workspaceId: entry.id, rovingItem: '', category: entry.category ?? 'Built-in' },
+      });
+      this.navScope.listen(button, 'click', () => this.selectWorkspace(entry.id));
+      nav.append(button);
+    }
+    installRovingFocus(nav, this.navScope);
+
+    if (this.currentWorkspace && !this.workspaceRegistry.has(this.currentWorkspace)) {
+      this.currentWorkspace = null;
+      const fallback = entries[0]?.id;
+      if (fallback) this.selectWorkspace(fallback);
+      else this.nodes.workspace?.replaceChildren();
+      return;
+    }
+    this.#syncSelectedNav();
+    if (change?.type === 'updated' && change.workspace?.id === this.currentWorkspace) {
+      this.renderWorkspace(change.workspace, this.nodes.workspace);
+    }
+  }
+
   selectWorkspace(id) {
     const entry = this.workspaceRegistry.get(id);
-    if (this.currentWorkspace === id) return;
+    if (this.currentWorkspace === id) {
+      this.#syncSelectedNav();
+      return;
+    }
     this.currentWorkspace = id;
     this.stateStore.save({ selectedWorkspace: id });
-    for (const button of this.nodes.nav.querySelectorAll('[data-workspace-id]')) {
-      const selected = button.dataset.workspaceId === id;
-      button.classList.toggle('is-selected', selected);
-      button.setAttribute('aria-current', selected ? 'page' : 'false');
-    }
+    this.#syncSelectedNav();
     this.renderWorkspace(entry, this.nodes.workspace);
     this.signals.publish(Signals.UI_WORKSPACE_CHANGED, { workspaceId: id }, { source: 'ui-core' });
   }
 
+  #syncSelectedNav() {
+    for (const button of this.nodes.nav?.querySelectorAll?.('[data-workspace-id]') ?? []) {
+      const selected = button.dataset.workspaceId === this.currentWorkspace;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-current', selected ? 'page' : 'false');
+    }
+  }
+
   destroy() {
+    this.navScope.cleanup();
     this.scope.cleanup();
     this.inspector.destroy();
     this.root.replaceChildren();

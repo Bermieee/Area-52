@@ -29,4 +29,7 @@ export * from './wave3-memory-workspace.js';
 export * from './wave3-precision-workspace.js';
 export * from './wave3-inspector.js';
 export * from './wave3-workspaces.js';
+export * from './wave4-extension-registry.js';
+export * from './wave4-generic-inspection.js';
+export * from './wave4-runtime-adapter.js';
 export * from './dashboard.js';

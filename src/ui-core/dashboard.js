@@ -18,6 +18,8 @@ import { registerKnowledgeInspectionActions } from './provenance-ui.js';
 import { installHotCognitionStrip, registerWave2InspectorRenderers } from './wave2-workspaces.js';
 import { registerWave3InspectorRenderers } from './wave3-inspector.js';
 import { registerWave3Workspaces } from './wave3-workspaces.js';
+import { UIExtensionRegistry } from './wave4-extension-registry.js';
+import { renderGenericArtifactInspector, renderGenericEventInspector } from './wave4-generic-inspection.js';
 
 export function createBrainDashboard({ root, stateStore = new UIStateStore(), adapters: suppliedAdapters = null } = {}) {
   if (!root) throw new Error('Area-52 Brain Dashboard requires a root element');
@@ -27,6 +29,7 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   const workspaceRegistry = new WorkspaceRegistry();
   const inspectorRegistry = new InspectorRegistry();
   const actionRouter = new ActionRouter();
+  const extensionRegistry = new UIExtensionRegistry({ workspaceRegistry, inspectorRegistry, actionRouter, scheduler });
   let shell;
   const overlays = new OverlayManager({ document: root.ownerDocument, root: root.ownerDocument.body, getResponsiveMode: () => shell?.mode });
   const notifications = new NotificationCenter({ signals });
@@ -38,10 +41,11 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
 
   registerPrimitiveWidgets(widgetRegistry);
   registerCognitiveWidgets(widgetRegistry);
-  registerInspectorRenderers(inspectorRegistry);
   registerKnowledgeInspectionActions(actionRouter, { adapter: adapters.knowledge, signals });
   registerWave2InspectorRenderers(inspectorRegistry, { adapters, actionRouter });
   registerWave3InspectorRenderers(inspectorRegistry, { adapters, actionRouter });
+  inspectorRegistry.register('framework-artifact', renderGenericArtifactInspector);
+  inspectorRegistry.register('framework-event', (object, context) => renderGenericEventInspector(object, context));
 
   const widgetRuntime = new WidgetRuntime({ registry: widgetRegistry, services: { signals, scheduler, actionRouter, overlays, notifications, mockBrain: runtime, adapters } });
 
@@ -55,7 +59,7 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   actionRouter.registerAction('mock.claim.supersede', { subsystem: 'mock-brain', permissions: ['demo:operate'], allowedStates: ['CURRENT'] });
   actionRouter.registerAction('mock.batch.advance', { subsystem: 'mock-brain', permissions: ['demo:operate'] });
 
-  const inspector = new InspectorController({ host: root, registry: inspectorRegistry, signals, scheduler, services: { signals, actionRouter, adapters } });
+  const inspector = new InspectorController({ host: root, registry: inspectorRegistry, signals, scheduler, services: { signals, actionRouter, adapters, extensionRegistry } });
   const renderWorkspace = (entry, host) => {
     for (const instance of mounted) widgetRuntime.destroy(instance);
     mounted.clear();
@@ -64,7 +68,7 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
     host.replaceChildren();
     entry.render?.(host, {
       mount(widgetId, node, props) { const instance = widgetRuntime.mount(widgetId, node, props); mounted.add(instance); return instance; },
-      signals, scheduler, runtime, actionRouter, permissions: ['demo:operate','knowledge:inspect'], overlays, notifications, adapters, fixture, adapterSource: suppliedAdapters ? 'external' : 'fixture', scope: workspaceScope,
+      signals, scheduler, runtime, actionRouter, permissions: ['demo:operate','knowledge:inspect'], overlays, notifications, adapters, fixture, extensionRegistry, adapterSource: suppliedAdapters ? 'external' : 'fixture', scope: workspaceScope,
     });
   };
 
@@ -80,8 +84,11 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'LIVE ADAPTER' : 'HOT / WAVE 3 OBSERVABILITY' }, { source: 'ui-core' });
 
   return {
-    shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, runtime, adapters, fixture, overlays, notifications,
-    destroy() { for (const instance of mounted) widgetRuntime.destroy(instance); mounted.clear(); workspaceScope.cleanup(); toastScope.cleanup(); overlays.destroy(); shell.destroy(); scheduler.destroy(); signals.clear(); },
+    shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, extensionRegistry, runtime, adapters, fixture, overlays, notifications,
+    registerUIExtension(descriptor, binding) { return extensionRegistry.register(descriptor, binding); },
+    updateUIExtension(extensionId, patch) { return extensionRegistry.update(extensionId, patch); },
+    unregisterUIExtension(extensionId) { return extensionRegistry.unregister(extensionId); },
+    destroy() { for (const instance of mounted) widgetRuntime.destroy(instance); mounted.clear(); workspaceScope.cleanup(); toastScope.cleanup(); overlays.destroy(); shell.destroy(); extensionRegistry.destroy(); scheduler.destroy(); signals.clear(); },
   };
 }
 

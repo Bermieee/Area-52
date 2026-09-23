@@ -7,20 +7,31 @@ export class ActionRouter {
 
   registerSubsystem(id, invoke) {
     if (!id || typeof invoke !== 'function') throw new TypeError('subsystem id/invoke required');
+    if (this.#subsystems.has(id)) throw new Error(`Subsystem already registered: ${id}`);
     this.#subsystems.set(id, invoke);
-    return () => this.#subsystems.delete(id);
+    return () => {
+      if (this.#subsystems.get(id) === invoke) this.#subsystems.delete(id);
+    };
   }
 
   registerAction(type, definition) {
     if (!type || !definition?.subsystem) throw new TypeError('action type/subsystem required');
-    this.#actions.set(type, Object.freeze({
+    if (this.#actions.has(type)) throw new Error(`Action already registered: ${type}`);
+    const normalized = Object.freeze({
       ...definition,
       permissions: Object.freeze([...(definition.permissions ?? [])]),
       allowedStates: definition.allowedStates ? Object.freeze([...(definition.allowedStates)]) : null,
       validate: definition.validate ?? null,
-    }));
-    return () => this.#actions.delete(type);
+    });
+    this.#actions.set(type, normalized);
+    return () => {
+      if (this.#actions.get(type) === normalized) this.#actions.delete(type);
+    };
   }
+
+  hasAction(type) { return this.#actions.has(type); }
+  hasSubsystem(id) { return this.#subsystems.has(id); }
+  listActions() { return [...this.#actions.keys()]; }
 
   async route(action, context = {}) {
     const definition = this.#actions.get(action?.type);

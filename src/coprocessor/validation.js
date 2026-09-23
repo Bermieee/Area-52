@@ -23,16 +23,31 @@ export async function validateWorkerOutput(raw, task, {
     return failed(task, FailureCode.SCHEMA_VALIDATION_FAILED, 'worker result does not attest required capabilities', attempt, attempt <= maxRetries, { missingCapabilities });
   }
 
-  const freshness = compareRevisionSets(result.freshnessIdentity, currentRevisionSet);
-  if (freshness === Freshness.INVALID) {
+  const freshnessOutcome = classifyFreshness(result.freshnessIdentity, currentRevisionSet);
+  const freshness = freshnessOutcome === Freshness.FUTURE_REVISION ? Freshness.INVALID : freshnessOutcome;
+  if (freshnessOutcome === Freshness.FUTURE_REVISION) {
     return {
       valid: false,
       freshness,
+      freshnessOutcome,
       result,
       failure: createWorkerFailure({
-        code: FailureCode.INVALID_REVISION, taskId: task.taskId, turnId: task.turnId, correlationId: task.correlationId,
+        code: FailureCode.FUTURE_REVISION, taskId: task.taskId, turnId: task.turnId, correlationId: task.correlationId,
         providerId: result.providerId, workerId: result.workerId, attempt, retryable: false,
         message: 'worker result references a future revision',
+      }),
+    };
+  }
+  if (result.intentFingerprint != null && result.intentFingerprint !== task.intentFingerprint) {
+    return {
+      valid: false,
+      freshness: Freshness.STALE,
+      freshnessOutcome: Freshness.STALE,
+      result,
+      failure: createWorkerFailure({
+        code: FailureCode.STALE_RESULT, taskId: task.taskId, turnId: task.turnId, correlationId: task.correlationId,
+        providerId: result.providerId, workerId: result.workerId, attempt, retryable: false,
+        message: 'worker result intent fingerprint is stale for the active task',
       }),
     };
   }
@@ -52,6 +67,7 @@ export async function validateWorkerOutput(raw, task, {
   return {
     valid: true,
     freshness,
+    freshnessOutcome,
     result: {
       ...result,
       validationReceipt: {
@@ -60,6 +76,7 @@ export async function validateWorkerOutput(raw, task, {
         deterministic: 'PASS',
         semantic: semanticValidator ? 'PASS' : 'NOT_REQUIRED',
         freshness,
+        freshnessOutcome,
       },
     },
     failure: freshness === Freshness.STALE
@@ -72,17 +89,22 @@ export async function validateWorkerOutput(raw, task, {
   };
 }
 
-export function compareRevisionSets(actual, current) {
+export function classifyFreshness(actual, current) {
   for (const key of ['worldRevision', 'sceneRevision', 'characterStateRevision']) {
     const a = Number(actual?.[key] ?? 0);
     const c = Number(current?.[key] ?? 0);
-    if (a > c) return Freshness.INVALID;
+    if (a > c) return Freshness.FUTURE_REVISION;
     if (a < c) return Freshness.STALE;
   }
   const aSources = [...(actual?.sourceRevisionSet ?? [])].sort();
   const cSources = [...(current?.sourceRevisionSet ?? [])].sort();
   if (aSources.length !== cSources.length || aSources.some((value, index) => value !== cSources[index])) return Freshness.STALE;
   return Freshness.FRESH;
+}
+
+export function compareRevisionSets(actual, current) {
+  const value=classifyFreshness(actual,current);
+  return value===Freshness.FUTURE_REVISION?Freshness.INVALID:value;
 }
 
 export function resultSatisfiesForeground(result) {

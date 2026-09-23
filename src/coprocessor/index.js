@@ -12,3 +12,6 @@ export * from './benchmark.js';
 export * from './deadline-policy.js';
 export * from './runtime-compatibility.js';
 export * from './swarm.js';
+export * from './provider-adapters.js';
+export * from './foreground-specialists.js';
+export * from './provider-execution.js';

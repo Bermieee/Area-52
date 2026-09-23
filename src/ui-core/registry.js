@@ -79,8 +79,10 @@ export class WorkspaceRegistry {
 
   has(id) { return this.#workspaces.has(id); }
 
-  list({ category } = {}) {
-    return [...this.#workspaces.values()].filter((workspace) => !category || workspace.category === category);
+  list({ category, navigationLevel } = {}) {
+    return [...this.#workspaces.values()].filter((workspace) =>
+      (!category || workspace.category === category)
+      && (!navigationLevel || workspace.navigation?.level === navigationLevel));
   }
 
   subscribe(listener) {
@@ -98,6 +100,11 @@ export class WorkspaceRegistry {
       category: workspace.category ?? 'Built-in',
       views: Object.freeze([...(workspace.views ?? [])]),
       supportedActions: Object.freeze([...(workspace.supportedActions ?? [])]),
+      navigation: Object.freeze({
+        ...(workspace.navigation ?? {}),
+        level: workspace.navigation?.level ?? 'advanced',
+        order: Number(workspace.navigation?.order ?? registrationSequence),
+      }),
       render: workspace.render,
       registrationSequence,
     });

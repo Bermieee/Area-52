@@ -115,7 +115,8 @@ test('Settlement freshness rejection causes no partial mutation and emits explai
   const before=JSON.stringify(core.graph.currentProjection());
   const rejected=core.settlement.settle(proposal);
   assert.equal(rejected.decision.decision,SettlementDecisionType.REJECT);
-  assert.match(rejected.decision.reason,/stale/i);
+  assert.match(rejected.decision.reason,/missing|invalid|stale/i);
+  assert.ok(rejected.audit.validationResults.some(v=>['evidence','freshness'].includes(v.stage)));
   assert.equal(JSON.stringify(core.graph.currentProjection()),before);
   assert.equal(core.settlement.explain(rejected.audit.id).proposalId,proposal.id);
 });

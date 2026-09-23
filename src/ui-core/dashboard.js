@@ -12,10 +12,12 @@ import { InspectorController } from './inspector.js';
 import { ApplicationShell } from './shell.js';
 import { MockBrainRuntime } from './mock-brain.js';
 import { Signals } from './constants.js';
-import { assertAdapterBundle } from './wave2-adapters.js';
-import { createEmberTavernAdapterBundle } from './ember-tavern-wave2.js';
+import { assertWave3AdapterBundle } from './wave3-adapters.js';
+import { createEmberTavernWave3AdapterBundle } from './ember-tavern-wave3.js';
 import { registerKnowledgeInspectionActions } from './provenance-ui.js';
-import { installHotCognitionStrip, registerWave2InspectorRenderers, registerWave2Workspaces, renderCognitiveRuntimeWorkspace } from './wave2-workspaces.js';
+import { installHotCognitionStrip, registerWave2InspectorRenderers } from './wave2-workspaces.js';
+import { registerWave3InspectorRenderers } from './wave3-inspector.js';
+import { registerWave3Workspaces } from './wave3-workspaces.js';
 
 export function createBrainDashboard({ root, stateStore = new UIStateStore(), adapters: suppliedAdapters = null } = {}) {
   if (!root) throw new Error('Area-52 Brain Dashboard requires a root element');
@@ -29,8 +31,8 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   const overlays = new OverlayManager({ document: root.ownerDocument, root: root.ownerDocument.body, getResponsiveMode: () => shell?.mode });
   const notifications = new NotificationCenter({ signals });
   const runtime = new MockBrainRuntime({ signals, scheduler });
-  const wave2 = suppliedAdapters ? { fixture: null, adapters: assertAdapterBundle(suppliedAdapters) } : createEmberTavernAdapterBundle({ signals });
-  const { fixture, adapters } = wave2;
+  const wave3 = suppliedAdapters ? { fixture: null, adapters: assertWave3AdapterBundle(suppliedAdapters) } : createEmberTavernWave3AdapterBundle({ signals });
+  const { fixture, adapters } = wave3;
   const mounted = new Set();
   let workspaceScope = new ResourceScope();
 
@@ -39,6 +41,7 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   registerInspectorRenderers(inspectorRegistry);
   registerKnowledgeInspectionActions(actionRouter, { adapter: adapters.knowledge, signals });
   registerWave2InspectorRenderers(inspectorRegistry, { adapters, actionRouter });
+  registerWave3InspectorRenderers(inspectorRegistry, { adapters, actionRouter });
 
   const widgetRuntime = new WidgetRuntime({ registry: widgetRegistry, services: { signals, scheduler, actionRouter, overlays, notifications, mockBrain: runtime, adapters } });
 
@@ -66,7 +69,7 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   };
 
   registerWorkspaces(workspaceRegistry, root.ownerDocument);
-  registerWave2Workspaces(workspaceRegistry);
+  registerWave3Workspaces(workspaceRegistry);
   shell = new ApplicationShell({ root, workspaceRegistry, inspector, signals, stateStore, renderWorkspace });
   shell.mount();
 
@@ -74,7 +77,7 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore(), ad
   const toastViewport = new ToastViewport({ host: shell.nodes.toastHost, signals, scope: toastScope });
   toastViewport.mount();
   installHotCognitionStrip({ shell, adapters, signals, scope: toastScope });
-  signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'LIVE ADAPTER' : 'HOT / EMBER FIXTURE' }, { source: 'ui-core' });
+  signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'LIVE ADAPTER' : 'HOT / WAVE 3 OBSERVABILITY' }, { source: 'ui-core' });
 
   return {
     shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, runtime, adapters, fixture, overlays, notifications,
@@ -86,7 +89,6 @@ function registerWorkspaces(registry, doc) {
   registry.register({ id: 'memory', title: 'Memory', icon: '◉', views: ['overview'], supportedActions: ['inspect'], render(host, ctx) { renderBrainWorkspace(doc, host, ctx); } });
   registry.register({ id: 'world', title: 'World', icon: '◇', views: ['temporal'], supportedActions: ['inspect'], render(host, ctx) { renderWorldWorkspace(doc, host, ctx); } });
   registry.register({ id: 'study', title: 'Study', icon: '▦', views: ['provenance'], supportedActions: ['inspect'], render(host, ctx) { renderStudyWorkspace(doc, host, ctx); } });
-  registry.register({ id: 'runtime', title: 'Runtime', icon: '↯', views: ['overview','lifecycle','workers','batches','ledger'], supportedActions: ['inspect'], render: renderCognitiveRuntimeWorkspace });
   registry.register({ id: 'retrieval', title: 'Retrieval', icon: '⌕', views: ['candidates'], supportedActions: ['inspect'], render(host, ctx) { renderRetrievalWorkspace(doc, host, ctx); } });
   registry.register({ id: 'evaluation', title: 'Evaluation', icon: '✓', views: ['shadow'], supportedActions: ['inspect'], render(host, ctx) { renderEvaluationWorkspace(doc, host, ctx); } });
 }

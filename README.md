@@ -1,5 +1,11 @@
 # Area-52
 
+## Active working branch
+
+**Development-Nexus** is the active implementation workspace for the cognitive brain. `main` remains the preserved reference baseline.
+
+Working-ground rules: [`docs/DEVELOPMENT_NEXUS_WORKING_GROUND.md`](docs/DEVELOPMENT_NEXUS_WORKING_GROUND.md)
+
 Area-52 is the isolated research and development repository for the next-generation Nexus cognitive memory architecture.
 
 The project explores a self-teaching external memory system that continuously turns narrative experience into structured, provenance-backed understanding without granting language models direct canonical mutation authority.

@@ -677,3 +677,17 @@ Owns the Brain Inspector and lightweight runtime observability.
 19. Evaluation combines deterministic golden worlds with optional RAG-quality metrics.
 20. Nexus integration begins in shadow mode.
 
+
+# 18. UI.Core
+
+Epic #58. Owner lane: `Development-UI`.
+
+Canonical blueprint: `docs/AREA52_UI_CORE_BLUEPRINT.md`.
+
+UI.Core owns the application shell, design tokens, widget lifecycle/registry, workspaces, Inspector, action routing, signal subscriptions, render coalescing, virtualization, overlays, notifications, accessibility, persistent presentation state and the shared primitive/cognitive widget vocabulary.
+
+Core invariant:
+
+> **Subsystems expose state, events and typed actions. UI.Core owns how those become interface.**
+
+Child work items: #59-#74 plus #34 Brain Inspector.

@@ -160,3 +160,35 @@ test('Ember Tavern end-to-end cognitive vertical slice preserves current truth, 
   assert.ok(JSON.stringify(postEditPast.packet).length < 2500);
   assert.equal(JSON.stringify(postEditPast.packet).includes('The Sun Blade is carried by Eris'), false);
 });
+
+test('Temporal State Graph exposes contradiction and unresolved state without inventing a current winner', () => {
+  const registry = new SourceRegistry();
+  registry.importSource({ id:'lore:conflict-a', sourceType:'LORE', content:'A' });
+  registry.importSource({ id:'lore:conflict-b', sourceType:'LORE', content:'B' });
+  const graph = new TemporalStateGraph();
+  const mk = (id, revisionId, value) => {
+    const provenance = createProvenance({ id:`prov:${id}`, sourceRevisionIds:[revisionId], activity:'TEST', agent:'golden-world' });
+    const claim = createClaim({ id, subjectId:'door', predicate:'state', value, temporal:{kind:'CURRENT',validFrom:0,validUntil:null}, authorityClass:AuthorityClass.SOURCE_CANON, provenance });
+    return createMutationProposal({ id:`proposal:${id}`, mutationType:MutationType.SET_CLAIM, owner:'WORLD_STATE', sourceRevisionIds:[revisionId], payload:{claim} });
+  };
+  graph.settleProposal(mk('claim:open','lore:conflict-a@1','open'), registry);
+  graph.settleProposal(mk('claim:closed','lore:conflict-b@1','closed'), registry);
+  assert.equal(graph.currentClaims({subjectId:'door',predicate:'state'}).length, 0);
+  assert.equal(graph.getClaim('claim:open').status, KnowledgeStatus.CONTRADICTED);
+  assert.equal(graph.getClaim('claim:closed').status, KnowledgeStatus.CONTRADICTED);
+  assert.deepEqual(graph.unresolvedState('door','state').claimIds, ['claim:closed','claim:open']);
+  assert.ok(graph.neighbors('door',{limit:1}).length <= 1);
+});
+
+import { runEmberTavernGoldenWorld } from './golden-harness.js';
+
+test('golden-world harness scores the complete Ember Tavern acceptance surface', () => {
+  const scored = runEmberTavernGoldenWorld();
+  assert.equal(scored.pass, true, JSON.stringify(scored.metrics, null, 2));
+  assert.equal(scored.metrics.currentStateAccuracy, 1);
+  assert.equal(scored.metrics.historicalStateAccuracy, 1);
+  assert.equal(scored.metrics.staleCurrentEscapes, 0);
+  assert.equal(scored.metrics.provenanceCompleteness, 1);
+  assert.equal(scored.metrics.retrievalChannelsCovered, true);
+  assert.equal(scored.metrics.unrelatedKnowledgeSurvived, true);
+});

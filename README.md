@@ -56,6 +56,8 @@ Execution is tracked in [`PROJECT_PLAN.md`](PROJECT_PLAN.md) and [GitHub issue #
 
 External framework and research references are mapped in [`docs/REFERENCE_RESEARCH_MAP.md`](docs/REFERENCE_RESEARCH_MAP.md). This distinguishes architecture patterns to adopt from optional dependencies to benchmark.
 
+Subsystem ownership, lifecycle/runtime architecture, branch lanes, and board hierarchy are mapped in [`docs/AREA52_SUBSYSTEM_BOARD_MAP.md`](docs/AREA52_SUBSYSTEM_BOARD_MAP.md).
+
 The current direction is explicitly hybrid: lore study, sparse + dense retrieval, late-interaction / reranking, temporal graph state, hierarchical semantic memory, reflections, truth maintenance, context compilation, and continual learning operate as one cognitive system.
 
 ## Status

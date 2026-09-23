@@ -85,8 +85,12 @@ export class TruthPublicationGate {
     if(request.attempt>request.maxAttempts)return{assessment,candidates:[],executed:false,terminated:true};
 
     const correctiveIntent=request.intent==='HISTORICAL'?'TEMPORAL':'CONTRADICTION';
-    const candidates=retrieval.retrieve(request.originalQuery,{intent:correctiveIntent,anchorEntityIds});
-    return{assessment,candidates,executed:true,terminated:request.attempt>=request.maxAttempts};
+    try{
+      const candidates=retrieval.retrieve(request.originalQuery,{intent:correctiveIntent,anchorEntityIds});
+      return{assessment,candidates,executed:true,terminated:request.attempt>=request.maxAttempts,failed:false,error:null};
+    }catch(error){
+      return{assessment,candidates:[],executed:true,terminated:true,failed:true,error:error?.message??String(error)};
+    }
   }
 }
 

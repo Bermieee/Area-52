@@ -21,7 +21,7 @@ export class PartialResultAccumulator {
   constructor(){this.committed=new Map();this.failures=[];}
   commit({sliceId,unitIds,output}){if(this.committed.has(sliceId))return this.committed.get(sliceId);const receipt={sliceId,unitIds:[...unitIds],output:structuredClone(output)};this.committed.set(sliceId,receipt);return receipt;}
   fail({sliceId,unitIds,error}){this.failures.push({sliceId,unitIds:[...unitIds],message:error?.message??String(error)});}
-  snapshot(){return{committedSlices:[...this.committed.values()].map(structuredClone),failedSlices:structuredClone(this.failures),
+  snapshot(){return{committedSlices:[...this.committed.values()].map((value)=>structuredClone(value)),failedSlices:structuredClone(this.failures),
     committedUnits:[...this.committed.values()].reduce((n,r)=>n+r.unitIds.length,0),failedUnits:this.failures.reduce((n,r)=>n+r.unitIds.length,0)};}
 }
 

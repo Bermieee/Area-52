@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import {
   Capability, CapabilityProfileRegistry, COPROCESSOR_SCHEMA_VERSION, CognitiveSwarm,
   CoprocessorTelemetry, DeterministicContextSealFixture, DynamicFanOutPlanner, FailureCode,
-  Freshness, GatherCoordinator, JEV_CAPABILITY_MIGRATION, NexusContextSealBoundary,
+  Freshness, ForegroundDeadlinePolicy, GatherCoordinator, JEV_CAPABILITY_MIGRATION, NexusContextSealBoundary,
   NexusResultBusBoundary, Placement, RecordingResultBusFixture, ResultClass, ResultDestination,
   ResultStatus, StructuredCompilerFixture, TelemetryEvent, TurnEventHub,
   assertAdvisoryJevMapping, capabilityRequest, compareRevisionSets, createCognitiveTask,
@@ -240,6 +240,27 @@ test('telemetry stays lightweight and excludes raw prompts/responses/payload blo
 test('benchmark summary reports parallel start skew, quorum and full swarm completion', async () => {
   const h=createEmberSwarm(); const trace=await h.swarm.run({turn:createEmberTurn(),plannerInput:createEmberPlannerInput()}); const metrics=summarizeSwarmTrace(trace);
   assert.equal(metrics.fanOutStartSkew,0); assert.equal(metrics.foregroundQuorumLatency,57); assert.equal(metrics.fullSwarmCompletionLatency,220); assert.equal(metrics.lateResultRate,.25);
+});
+
+test('foreground deadline policy gives soft advisory behavior and hard deterministic outcomes', () => {
+  const policy=new ForegroundDeadlinePolicy(); const event=createTurnEnvelope(createEmberTurn());
+  const tasks=new DynamicFanOutPlanner().plan({turnEvent:event,...createEmberPlannerInput()}).tasks;
+  const required=tasks.find(x=>x.resultClass===ResultClass.REQUIRED), opportunistic=tasks.find(x=>x.resultClass===ResultClass.OPPORTUNISTIC);
+  assert.equal(policy.state(required,required.softDeadline-1),'OPEN');
+  assert.equal(policy.state(required,required.softDeadline+1),'SOFT_EXPIRED');
+  assert.equal(policy.state(required,required.hardDeadline+1),'HARD_EXPIRED');
+  assert.equal(policy.hardDeadlineAction(required),'FALLBACK_REQUIRED');
+  assert.equal(policy.hardDeadlineAction(opportunistic),'ROUTE_NEXT_TURN');
+  assert.equal(policy.canBlockForeground(opportunistic,1),false);
+});
+
+test('task contract carries explicit Context Seal publication policy', () => {
+  const task=createCognitiveTask({taskId:'seal-task',taskType:'X',turnId:'t',correlationId:'c',requiredCapabilities:['X'],softDeadline:1,hardDeadline:2});
+  assert.equal(task.contextSealPolicy,'BEFORE_SEAL_ONLY');
+});
+
+test('telemetry vocabulary includes queue, yield, park, resume, batch and cache lifecycle without payload cloning', () => {
+  for(const type of [TelemetryEvent.TASK_QUEUED,TelemetryEvent.TASK_YIELD_REQUESTED,TelemetryEvent.TASK_YIELDING,TelemetryEvent.TASK_PARKED,TelemetryEvent.TASK_RESUMED,TelemetryEvent.BATCH_PROGRESS,TelemetryEvent.CACHE_HIT]) assert.equal(typeof type,'string');
 });
 
 test('source contains no privileged JEV worker authority path', async () => {

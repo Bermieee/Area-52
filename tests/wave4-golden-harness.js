@@ -50,7 +50,7 @@ export function runWave4AdaptiveContextGoldenWorld(){
   const metrics={
     profileAReady:cacheStable.ok,profileBReady:recency.ok,profilePresentationDiffers:profileComparison.presentationDiffers,profileSemanticEquivalent:profileComparison.semanticEquivalent,
     profileSegmentBoundariesDiffer:cacheStable.plan.segments.length!==recency.plan.segments.length||cacheStable.plan.placement.segmentStrategy!==recency.plan.placement.segmentStrategy,
-    currentTavern,historicalBlade,unresolvedBlade,falseCurrentBlade,
+    currentTavern,historicalBlade,unresolvedBlade,noFalseCurrentBlade:!falseCurrentBlade,
     cacheBenchmarkPass:cacheBenchmark.pass,recencyBenchmarkPass:recencyBenchmark.pass,
     repeatedStableReuse:Object.entries(repeatStates).some(([k,v])=>k!=='slot:USER_INPUT'&&v==='NO_CHANGE'),
     repeatedVolatileRebuild:repeatStates['slot:USER_INPUT']==='REBUILD',

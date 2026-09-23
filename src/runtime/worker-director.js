@@ -1,7 +1,9 @@
 import { BatchEngine, AdaptiveBatchSizer } from './batch-engine.js';
 import { CapabilityRegistry } from './capability-registry.js';
 import { EVENT_TYPES, EXECUTION_STATUS, LIFECYCLE_STATUS } from './constants.js';
+import { ServiceDependencyGraph } from './dependency-graph.js';
 import { EventSpine } from './event-spine.js';
+import { EventTypeRegistry } from './event-type-registry.js';
 import { LifecycleCore } from './lifecycle.js';
 import { MemoryPersistenceAdapter } from './persistence.js';
 import { ResourceGovernor } from './resource-governor.js';
@@ -18,10 +20,20 @@ export class WorkerDirector {
     telemetrySink = null,
     batch = {},
     maxRetries = 3,
+    eventRegistry = null,
+    dependencyGraph = null,
+    isTurnSealed = () => false,
+    resultSink = null,
   } = {}) {
     this.persistence = persistence;
     this.telemetry = new RuntimeTelemetry({ sink: telemetrySink });
-    this.events = new EventSpine();
+    const diagnostic = (entry) => this.telemetry.emit(entry.type ?? 'RUNTIME_DIAGNOSTIC', entry);
+    this.eventTypes = eventRegistry ?? new EventTypeRegistry({ builtins: Object.values(EVENT_TYPES), onDiagnostic: diagnostic });
+    this.events = new EventSpine({
+      registry: this.eventTypes,
+      onDiagnostic: diagnostic,
+    });
+    this.dependencies = dependencyGraph ?? new ServiceDependencyGraph({ onDiagnostic: diagnostic });
     this.ledger = new WorkLedger({ persistence });
     this.lifecycle = new LifecycleCore({ ledger: this.ledger, maxOutstanding });
     this.registry = new CapabilityRegistry();
@@ -31,14 +43,28 @@ export class WorkerDirector {
       lifecycle: this.lifecycle,
       registry: this.registry,
       governor: this.governor,
+      dependencyGraph: this.dependencies,
       onBlocked: (taskId, reason) => {
         const record = this.ledger.get(taskId);
-        this.telemetry.emit('WORK_BLOCKED', { taskId, reason, layer: record?.obligation.layer ?? null });
+        const type = reason.startsWith('required-dependency:') ? 'DEPENDENCY_BLOCKED' : 'WORK_BLOCKED';
+        this.telemetry.emit(type, { taskId, reason, layer: record?.obligation.layer ?? null });
         this.events.emit(EVENT_TYPES.WORK_BLOCKED, { reason }, this.#eventMeta(taskId));
+      },
+      onDegraded: (taskId, degradation) => {
+        this.telemetry.emit(degradation.degraded ? 'DEGRADED_EXECUTION' : 'DEGRADATION_CLEARED', { taskId, ...degradation });
+      },
+      onNegotiated: (taskId, negotiation) => {
+        this.telemetry.emit('CAPABILITY_NEGOTIATED', { taskId, ...negotiation });
+        if (negotiation.fallbackUsed) this.telemetry.emit('CAPABILITY_FALLBACK', { taskId, ...negotiation });
+      },
+      onStarvation: (taskId, detail) => {
+        this.telemetry.emit('STARVATION_PROTECTION', { taskId, ...detail });
       },
     });
     this.batch = new BatchEngine({ ledger: this.ledger, telemetry: this.telemetry, sizer: new AdaptiveBatchSizer(batch) });
     this.maxRetries = maxRetries;
+    this.isTurnSealed = isTurnSealed;
+    this.resultSink = resultSink;
     this.executors = new Map();
     this.active = new Map();
     this.resumePending = new Set();
@@ -46,14 +72,50 @@ export class WorkerDirector {
   }
 
   registerWorker(worker) {
-    return this.registry.register(worker);
+    const registered = this.registry.register(worker);
+    this.telemetry.emit('CAPABILITY_PROVIDER_REGISTERED', {
+      workerId: registered.workerId,
+      provider: registered.provider,
+      implementationId: registered.implementationId,
+      capabilities: registered.capabilityDescriptors,
+    });
+    return registered;
+  }
+
+  setWorkerAvailability(workerId, available) {
+    this.registry.setAvailability(workerId, available);
+    this.telemetry.emit('CAPABILITY_PROVIDER_AVAILABILITY', { workerId, available: Boolean(available) });
+  }
+
+  setWorkerHealth(workerId, health) {
+    this.registry.setHealth(workerId, health);
+    this.telemetry.emit('CAPABILITY_PROVIDER_HEALTH', { workerId, health });
+  }
+
+  registerService(descriptor) {
+    const service = this.dependencies.registerService(descriptor);
+    this.telemetry.emit('DEPENDENCY_REGISTERED', { serviceId: service.serviceId, dependencies: service.dependencies });
+    return service;
+  }
+
+  setServiceAvailability(serviceId, available, options = {}) {
+    const service = this.dependencies.setAvailability(serviceId, available, options);
+    this.telemetry.emit('DEPENDENCY_AVAILABILITY', { serviceId, available: service.available, degraded: service.degraded });
+    return service;
+  }
+
+  registerEventType(descriptor) {
+    const type = this.eventTypes.register(descriptor);
+    this.telemetry.emit('EVENT_TYPE_REGISTERED', { eventType: type.eventType, schemaVersion: type.schemaVersion, producer: type.producer });
+    return type;
   }
 
   submit(obligation, { units = [{ id: `${obligation.taskId ?? obligation.dedupeKey ?? obligation.taskType}:unit:0`, payload: null }], execute, validate = null, commit = null } = {}) {
     if (typeof execute !== 'function') throw new TypeError('submit requires an execute function');
     const admission = this.lifecycle.create(obligation);
     if (!admission.accepted) {
-      this.telemetry.emit('BACKPRESSURE_REJECTED', { taskType: obligation.taskType, layer: obligation.layer, reason: admission.reason });
+      const signal = admission.reason === 'dependency-cycle' ? 'DEPENDENCY_CYCLE_REJECTED' : 'BACKPRESSURE_REJECTED';
+      this.telemetry.emit(signal, { taskType: obligation.taskType, layer: obligation.layer, reason: admission.reason, cycle: admission.cycle ?? null });
       return admission;
     }
     const taskId = admission.task.taskId;
@@ -62,7 +124,7 @@ export class WorkerDirector {
       return admission;
     }
     if (!admission.deduped) {
-      this.batch.prepare(taskId, units);
+      this.batch.prepare(taskId, units, { batchPolicy: admission.task.batchHint ?? {} });
       this.lifecycle.markEligible(taskId);
       this.scheduler.enqueue(taskId);
       this.events.emit(EVENT_TYPES.WORK_ELIGIBLE, {}, this.#eventMeta(taskId));
@@ -93,6 +155,20 @@ export class WorkerDirector {
     return ok;
   }
 
+  resumeParked() {
+    let resumed = 0;
+    for (const record of this.ledger.list()) {
+      if (record.executionStatus === EXECUTION_STATUS.PARKED && record.lifecycleStatus === LIFECYCLE_STATUS.ELIGIBLE && !record.supersession?.requested) {
+        this.ledger.clearYield(record.taskId);
+        this.ledger.setExecution(record.taskId, EXECUTION_STATUS.QUEUED, 'resume-eligible');
+        this.scheduler.enqueue(record.taskId);
+        this.resumePending.add(record.taskId);
+        resumed += 1;
+      }
+    }
+    return resumed;
+  }
+
   resolveInDoubtCommit(taskId, resolution) {
     this.ledger.resolveInDoubtCommit(taskId, resolution);
     const record = this.ledger.get(taskId);
@@ -112,8 +188,8 @@ export class WorkerDirector {
       const record = this.ledger.get(taskId);
       if (!record || ![EXECUTION_STATUS.ACTIVE, EXECUTION_STATUS.YIELDING].includes(record.executionStatus)) continue;
       this.ledger.requestYield(taskId);
-      this.telemetry.emit('WORK_YIELD_REQUESTED', { taskId, reason: 'foreground-demand' });
-      this.telemetry.emit('WORK_YIELDING', { taskId, reason: 'foreground-demand' });
+      this.telemetry.emit('WORK_YIELD_REQUESTED', { taskId, reason: 'foreground-demand', runtimeClass: record.obligation.runtimeClass });
+      this.telemetry.emit('WORK_YIELDING', { taskId, reason: 'foreground-demand', runtimeClass: record.obligation.runtimeClass });
       this.events.emit(EVENT_TYPES.WORK_YIELD_REQUESTED, { reason: 'foreground-demand' }, this.#eventMeta(taskId));
     }
     this.#emitResourceTelemetry();
@@ -123,14 +199,7 @@ export class WorkerDirector {
   completeGeneration(meta = {}) {
     this.governor.completeGeneration();
     this.events.emit(EVENT_TYPES.GENERATION_COMPLETED, {}, meta);
-    for (const record of this.ledger.list()) {
-      if (record.executionStatus === EXECUTION_STATUS.PARKED && record.lifecycleStatus === LIFECYCLE_STATUS.ELIGIBLE && !record.supersession?.requested) {
-        this.ledger.clearYield(record.taskId);
-        this.ledger.setExecution(record.taskId, EXECUTION_STATUS.QUEUED, 'resume-eligible');
-        this.scheduler.enqueue(record.taskId);
-        this.resumePending.add(record.taskId);
-      }
-    }
+    this.resumeParked();
     this.#emitQueueTelemetry();
   }
 
@@ -160,10 +229,18 @@ export class WorkerDirector {
 
   snapshot() {
     return {
-      lifecycle: this.ledger.list().map((record) => ({ taskId: record.taskId, lifecycleStatus: record.lifecycleStatus, executionStatus: record.executionStatus, layer: record.obligation.layer })),
+      lifecycle: this.ledger.list().map((record) => ({
+        taskId: record.taskId,
+        lifecycleStatus: record.lifecycleStatus,
+        executionStatus: record.executionStatus,
+        layer: record.obligation.layer,
+        degradation: structuredClone(record.degradation),
+      })),
       queueDepth: this.scheduler.depthByLayer(),
       resources: this.governor.snapshot(),
       workers: this.registry.snapshot(),
+      dependencies: this.dependencies.snapshot(),
+      eventTypes: this.eventTypes.list(),
       telemetry: this.telemetry.snapshot(),
     };
   }
@@ -172,7 +249,7 @@ export class WorkerDirector {
     while (true) {
       const next = this.scheduler.next();
       if (!next) break;
-      const { record, worker } = next;
+      const { record, worker, negotiation } = next;
       const executor = this.executors.get(record.taskId);
       if (!executor) {
         this.ledger.setExecution(record.taskId, EXECUTION_STATUS.BLOCKED, 'executor-not-attached');
@@ -186,10 +263,19 @@ export class WorkerDirector {
       this.registry.claim(worker.workerId);
       const resumed = this.resumePending.delete(record.taskId) || record.startedCount > 0;
       this.ledger.setExecution(record.taskId, EXECUTION_STATUS.ACTIVE, resumed ? 'resumed' : 'started');
-      this.active.set(record.taskId, { taskId: record.taskId, workerId: worker.workerId, lease, executor });
+      this.active.set(record.taskId, { taskId: record.taskId, workerId: worker.workerId, lease, executor, negotiation });
       const eventType = resumed ? EVENT_TYPES.WORK_RESUMED : EVENT_TYPES.WORK_STARTED;
       this.events.emit(eventType, { workerId: worker.workerId }, this.#eventMeta(record.taskId));
-      this.telemetry.emit(eventType, { taskId: record.taskId, workerId: worker.workerId, layer: record.obligation.layer });
+      this.telemetry.emit(eventType, {
+        taskId: record.taskId,
+        workerId: worker.workerId,
+        layer: record.obligation.layer,
+        runtimeClass: record.obligation.runtimeClass,
+        resultContract: structuredClone(record.obligation.resultContract ?? null),
+      degraded: record.degradation?.degraded ?? false,
+      });
+      if (record.obligation.runtimeClass === 'DEEP') this.telemetry.emit('DEEP_ACTIVE', { taskId: record.taskId, workerId: worker.workerId });
+      if (record.obligation.runtimeClass === 'SLEEP') this.telemetry.emit('SLEEP_ACTIVE', { taskId: record.taskId, workerId: worker.workerId });
     }
   }
 
@@ -236,16 +322,52 @@ export class WorkerDirector {
     this.ledger.setExecution(taskId, EXECUTION_STATUS.PARKED, 'safe-yield-boundary');
     this.#releaseAssignment(taskId);
     const record = this.ledger.get(taskId);
-    this.telemetry.emit('WORK_PARKED', { taskId, checkpoint: record.checkpoint });
+    this.telemetry.emit('WORK_PARKED', { taskId, checkpoint: record.checkpoint, runtimeClass: record.obligation.runtimeClass });
     this.events.emit(EVENT_TYPES.WORK_PARKED, { checkpoint: record.checkpoint }, this.#eventMeta(taskId));
   }
 
   #completeTask(taskId) {
+    const before = this.ledger.get(taskId);
     this.ledger.setExecution(taskId, EXECUTION_STATUS.COMPLETE);
     this.lifecycle.satisfy(taskId);
     this.#releaseAssignment(taskId);
-    this.telemetry.emit('WORK_COMPLETED', { taskId });
+    const envelope = this.#completionEnvelope(before);
+    this.telemetry.emit('WORK_COMPLETED', { taskId, runtimeClass: before.obligation.runtimeClass });
+    this.telemetry.emit('RUNTIME_RESULT_READY', envelope);
     this.events.emit(EVENT_TYPES.WORK_COMPLETED, {}, this.#eventMeta(taskId));
+    if (this.resultSink) {
+      try {
+        const value = this.resultSink(envelope);
+        if (value?.catch) value.catch((error) => this.telemetry.emit('RESULT_SINK_FAILED', { taskId, message: error?.message ?? String(error) }));
+      } catch (error) {
+        this.telemetry.emit('RESULT_SINK_FAILED', { taskId, message: error?.message ?? String(error) });
+      }
+    }
+  }
+
+  #completionEnvelope(record) {
+    const payload = record.obligation.payload ?? {};
+    const turnId = payload.turnId ?? null;
+    const late = Boolean(turnId && this.isTurnSealed(turnId));
+    return {
+      taskId: record.taskId,
+      taskType: record.obligation.taskType,
+      owner: record.obligation.owner,
+      producerId: record.obligation.producerId,
+      runtimeClass: record.obligation.runtimeClass,
+      turnId,
+      correlationId: payload.correlationId ?? null,
+      causationId: payload.causationId ?? null,
+      sourceRevisions: structuredClone(record.obligation.sourceRevisions ?? {}),
+      sourceRevisionIds: [...(record.obligation.sourceRevisionIds ?? [])],
+      worldRevision: record.obligation.worldRevision ?? null,
+      sceneRevision: record.obligation.sceneRevision ?? null,
+      resultContract: structuredClone(record.obligation.resultContract ?? null),
+      degraded: record.degradation?.degraded ?? false,
+      late,
+      timing: { completedSequence: this.ledger.sequence, afterSeal: late },
+      resultReceiptCount: record.resultReceipts.length,
+    };
   }
 
   #releaseAssignment(taskId) {
@@ -261,7 +383,7 @@ export class WorkerDirector {
       if (record.executionStatus === EXECUTION_STATUS.RECOVERING) {
         this.telemetry.emit('WORK_RECOVERING', { taskId: record.taskId, recoveryState: record.recoveryState, checkpoint: record.checkpoint });
         this.events.emit(EVENT_TYPES.WORK_RECOVERING, { recoveryState: record.recoveryState }, this.#eventMeta(record.taskId));
-      } else if (record.lifecycleStatus === LIFECYCLE_STATUS.ELIGIBLE && record.executionStatus === EXECUTION_STATUS.QUEUED) {
+      } else if (record.lifecycleStatus === LIFECYCLE_STATUS.ELIGIBLE && [EXECUTION_STATUS.QUEUED, EXECUTION_STATUS.BLOCKED].includes(record.executionStatus)) {
         this.scheduler.enqueue(record.taskId);
       }
     }
@@ -271,11 +393,18 @@ export class WorkerDirector {
     const record = this.ledger.get(taskId);
     return {
       taskId,
+      producer: 'RUNTIME_CORE',
       sourceRevisions: record?.obligation.sourceRevisions ?? {},
+      revisionFences: {
+        sourceRevisionIds: record?.obligation.sourceRevisionIds ?? [],
+        worldRevision: record?.obligation.worldRevision ?? null,
+        sceneRevision: record?.obligation.sceneRevision ?? null,
+      },
       worldRevision: record?.obligation.worldRevision ?? null,
       sceneRevision: record?.obligation.sceneRevision ?? null,
       correlationId: record?.obligation.payload?.correlationId ?? null,
       causationId: record?.obligation.payload?.causationId ?? null,
+      turnId: record?.obligation.payload?.turnId ?? null,
     };
   }
 

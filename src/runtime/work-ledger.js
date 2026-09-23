@@ -53,6 +53,9 @@ export class WorkLedger {
       retryState: { attempts: 0, failures: [] },
       recoveryState: null,
       supersession: null,
+      dependencyState: null,
+      degradation: { degraded: false, reasons: [], missingOptional: [], degradedServices: [], fallbackUsed: false },
+      negotiation: null,
       yieldRequested: false,
       startedCount: 0,
       resumeCount: 0,
@@ -223,6 +226,52 @@ export class WorkLedger {
     record.batch.validationState = { sliceId, valid: false, reason };
     record.updatedSequence = ++this.sequence;
     this.flush();
+  }
+
+
+  setDependencyState(taskId, state) {
+    const record = this.#required(taskId);
+    const next = deepClone(state ?? null);
+    if (JSON.stringify(record.dependencyState) === JSON.stringify(next)) return false;
+    record.dependencyState = next;
+    record.updatedSequence = ++this.sequence;
+    this.flush();
+    return true;
+  }
+
+  setDegradation(taskId, state) {
+    const record = this.#required(taskId);
+    const next = {
+      degraded: Boolean(state?.degraded),
+      reasons: [...(state?.reasons ?? [])],
+      missingOptional: [...(state?.missingOptional ?? [])],
+      degradedServices: [...(state?.degradedServices ?? [])],
+      fallbackUsed: Boolean(state?.fallbackUsed),
+    };
+    if (JSON.stringify(record.degradation) === JSON.stringify(next)) return false;
+    record.degradation = next;
+    record.updatedSequence = ++this.sequence;
+    this.flush();
+    return true;
+  }
+
+  setNegotiation(taskId, negotiation) {
+    const record = this.#required(taskId);
+    const next = deepClone(negotiation ?? null);
+    if (JSON.stringify(record.negotiation) === JSON.stringify(next)) return false;
+    record.negotiation = next;
+    record.updatedSequence = ++this.sequence;
+    this.flush();
+    return true;
+  }
+
+  recordSliceDuration(taskId, durationMs) {
+    const record = this.#required(taskId);
+    if (!record.batch) return false;
+    record.batch.lastSliceDurationMs = Number(durationMs);
+    record.updatedSequence = ++this.sequence;
+    this.flush();
+    return true;
   }
 
   requestYield(taskId) {

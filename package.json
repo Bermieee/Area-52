@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Experimental cognitive memory core for Nexus",
   "scripts": {
-    "test": "node tests/runtime-fabric.mjs && node tests/runtime-stress.mjs",
+    "test": "node tests/runtime-fabric.mjs && node tests/runtime-wave2.mjs && node tests/runtime-stress.mjs && node tests/runtime-wave2-stress.mjs",
+    "test:wave1": "node tests/runtime-fabric.mjs && node tests/runtime-stress.mjs",
+    "test:wave2": "node tests/runtime-wave2.mjs && node tests/runtime-wave2-stress.mjs",
     "check": "node tests/syntax.mjs"
   }
 }

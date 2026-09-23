@@ -12,7 +12,7 @@ export class AdaptiveBatchSizer {
     let size = this.base;
     if (signals.foregroundDemand) size = Math.ceil(size / 2);
     if ((signals.resourcePressure ?? 0) >= 0.75) size = Math.ceil(size / 2);
-    if ((signals.historicalSliceMs ?? 0) > this.targetSliceMs) size = Math.ceil(size / 2);
+    if ((signals.historicalSliceMs ?? 0) > (signals.targetSliceMs ?? this.targetSliceMs)) size = Math.ceil(size / 2);
     if ((signals.queueDepth ?? 0) > 50 && !signals.foregroundDemand && (signals.resourcePressure ?? 0) < 0.5) size *= 2;
     if (signals.deadlineNear && !signals.foregroundDemand) size *= 2;
     return clamp(Math.max(1, Math.floor(size)), this.min, this.max);
@@ -56,7 +56,14 @@ export class BatchEngine {
     const pending = this.ledger.pendingUnits(taskId);
     if (!pending.length) return { status: 'complete' };
 
-    const size = this.sizer.choose(signals);
+    const adaptive = this.sizer.choose({
+      ...signals,
+      historicalSliceMs: signals.historicalSliceMs ?? record.batch?.lastSliceDurationMs ?? 0,
+      targetSliceMs: record.obligation.yieldPolicy?.maxUninterruptedSliceMs ?? signals.targetSliceMs,
+    });
+    const maxSliceUnits = Number(record.obligation.batchHint?.maxSliceUnits ?? Number.POSITIVE_INFINITY);
+    const maxCheckpointUnits = Number(record.obligation.checkpointPolicy?.maxUnitsPerCheckpoint ?? Number.POSITIVE_INFINITY);
+    const size = Math.max(1, Math.min(adaptive, maxSliceUnits, maxCheckpointUnits));
     record.batch.adaptiveBatchSize = size;
     const units = pending.slice(0, size);
     const sliceId = `${record.batch.batchId}:${units.map((unit) => unit.id).join('+')}`;
@@ -105,6 +112,7 @@ export class BatchEngine {
     }
     this.ledger.commitSlice(taskId, { sliceId, unitIds: units.map((unit) => unit.id), receipt });
     const durationMs = Math.max(0, Date.now() - started);
+    this.ledger.recordSliceDuration(taskId, durationMs);
     this.telemetry?.emit('BATCH_CHECKPOINT', {
       taskId,
       sliceId,

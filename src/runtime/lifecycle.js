@@ -22,10 +22,14 @@ export class LifecycleCore {
 
   create(input) {
     const layer = assertLayer(input.layer);
-    const requiredCapabilities = normalizeCapabilities(input.requiredCapabilities);
+    const requiredCapabilities = normalizeCapabilities(input.requiredCapabilities ?? []);
+    const capabilityRequests = deepClone(input.capabilityRequests ?? []);
+    const fallbackCapabilitySets = deepClone(input.fallbackCapabilitySets ?? []);
     if (!input.taskType) throw new TypeError('taskType is required');
     if (!input.owner) throw new TypeError('owner is required');
-    if (!requiredCapabilities.length) throw new TypeError('requiredCapabilities must not be empty');
+    if (!requiredCapabilities.length && !capabilityRequests.length && !fallbackCapabilitySets.length) {
+      throw new TypeError('task must declare required capabilities or capability requests');
+    }
 
     const dedupeKey = input.dedupeKey ?? `${input.owner}:${input.taskType}:${input.revision ?? 'none'}`;
     const existing = this.#findByDedupe(dedupeKey);
@@ -51,21 +55,37 @@ export class LifecycleCore {
     }
 
     const taskId = input.taskId ?? makeSequenceId('task', ++this.sequence);
+    const dependencyCycle = this.#detectTaskDependencyCycle(taskId, input.dependencies ?? []);
+    if (dependencyCycle) return { accepted: false, reason: 'dependency-cycle', cycle: dependencyCycle };
     const obligation = {
       taskId,
       taskType: input.taskType,
       layer,
       owner: input.owner,
+      producerId: input.producerId ?? null,
+      resultContract: deepClone(input.resultContract ?? null),
+      runtimeClass: input.runtimeClass ?? null,
       requiredCapabilities,
+      capabilityRequests,
+      fallbackCapabilitySets,
       resourceClass: input.resourceClass ?? null,
+      resourceLimits: deepClone(input.resourceLimits ?? {}),
+      serviceDependencies: deepClone(input.serviceDependencies ?? []),
       sourceRevisions: deepClone(input.sourceRevisions ?? {}),
+      sourceRevisionIds: [...(input.sourceRevisionIds ?? [])],
       worldRevision: input.worldRevision ?? null,
       sceneRevision: input.sceneRevision ?? null,
       revision: input.revision ?? input.worldRevision ?? 0,
       dependencies: [...(input.dependencies ?? [])],
       priority: Number.isFinite(input.priority) ? input.priority : 50,
       deadline: input.deadline ?? null,
+      deadlineClass: input.deadlineClass ?? null,
       foreground: input.foreground ?? isForegroundLayer(layer),
+      foregroundSensitivity: input.foregroundSensitivity ?? null,
+      expectedCost: deepClone(input.expectedCost ?? {}),
+      yieldPolicy: deepClone(input.yieldPolicy ?? {}),
+      checkpointPolicy: deepClone(input.checkpointPolicy ?? {}),
+      batchHint: deepClone(input.batchHint ?? {}),
       speculative: Boolean(input.speculative),
       dedupeKey,
       conflictKey: input.conflictKey ?? null,
@@ -108,6 +128,33 @@ export class LifecycleCore {
 
   listOpen() {
     return this.ledger.list().filter((record) => OPEN.has(record.lifecycleStatus));
+  }
+
+
+  #detectTaskDependencyCycle(taskId, dependencies) {
+    const graph = new Map(this.ledger.list().map((record) => [record.taskId, [...(record.dependencies ?? [])]]));
+    graph.set(taskId, [...dependencies]);
+    const visiting = new Set();
+    const visited = new Set();
+    const stack = [];
+    const visit = (id) => {
+      if (visiting.has(id)) {
+        const start = stack.indexOf(id);
+        return [...stack.slice(start), id];
+      }
+      if (visited.has(id) || !graph.has(id)) return null;
+      visiting.add(id);
+      stack.push(id);
+      for (const dependency of graph.get(id)) {
+        const cycle = visit(dependency);
+        if (cycle) return cycle;
+      }
+      stack.pop();
+      visiting.delete(id);
+      visited.add(id);
+      return null;
+    };
+    return visit(taskId);
   }
 
   #findByDedupe(dedupeKey) {

@@ -1,8 +1,10 @@
 import { immutableCopy, makeSequenceId } from './utils.js';
 
 export class EventSpine {
-  constructor({ limit = 2000 } = {}) {
+  constructor({ limit = 2000, registry = null, onDiagnostic = null } = {}) {
     this.limit = limit;
+    this.registry = registry;
+    this.onDiagnostic = onDiagnostic;
     this.sequence = 0;
     this.events = [];
     this.subscribers = new Map();
@@ -17,17 +19,35 @@ export class EventSpine {
   }
 
   emit(eventType, payload = {}, meta = {}) {
-    if (meta.dedupeKey && this.dedupe.has(meta.dedupeKey)) {
-      return this.dedupe.get(meta.dedupeKey);
+    const schemaVersion = meta.schemaVersion ?? this.registry?.resolve(eventType)?.schemaVersion ?? '1.0';
+    if (this.registry) {
+      const validation = this.registry.validate(eventType, schemaVersion, payload);
+      if (!validation.ok) {
+        this.onDiagnostic?.({ type: 'EVENT_REJECTED', eventType, schemaVersion, reason: validation.reason });
+        const error = new Error(`Event rejected: ${eventType}@${schemaVersion}: ${validation.reason}`);
+        error.code = 'EVENT_SCHEMA_INCOMPATIBLE';
+        throw error;
+      }
+    }
+    const dedupeIdentity = meta.dedupeKey ? `${eventType}@${schemaVersion}:${meta.dedupeKey}` : null;
+    if (dedupeIdentity && this.dedupe.has(dedupeIdentity)) {
+      return this.dedupe.get(dedupeIdentity);
     }
     const sequence = ++this.sequence;
     const event = immutableCopy({
       eventId: meta.eventId ?? makeSequenceId('evt', sequence),
       eventType,
+      schemaVersion,
+      producer: meta.producer ?? this.registry?.resolve(eventType, schemaVersion)?.producer ?? 'UNSPECIFIED',
       causationId: meta.causationId ?? null,
       correlationId: meta.correlationId ?? null,
       turnId: meta.turnId ?? null,
       taskId: meta.taskId ?? null,
+      revisionFences: meta.revisionFences ?? {
+        sourceRevisions: meta.sourceRevisions ?? {},
+        worldRevision: meta.worldRevision ?? null,
+        sceneRevision: meta.sceneRevision ?? null,
+      },
       sourceRevisions: meta.sourceRevisions ?? {},
       worldRevision: meta.worldRevision ?? null,
       sceneRevision: meta.sceneRevision ?? null,
@@ -38,7 +58,7 @@ export class EventSpine {
     });
     this.events.push(event);
     if (this.events.length > this.limit) this.events.shift();
-    if (event.dedupeKey) this.dedupe.set(event.dedupeKey, event);
+    if (dedupeIdentity) this.dedupe.set(dedupeIdentity, event);
 
     const handlers = [
       ...(this.subscribers.get(eventType) ?? []),
@@ -48,7 +68,9 @@ export class EventSpine {
       try {
         handler(event);
       } catch (error) {
-        this.subscriberFailures.push({ eventId: event.eventId, message: error?.message ?? String(error) });
+        const failure = { eventId: event.eventId, message: error?.message ?? String(error) };
+        this.subscriberFailures.push(failure);
+        this.onDiagnostic?.({ type: 'EVENT_SUBSCRIBER_FAILED', eventType, ...failure });
       }
     }
     return event;

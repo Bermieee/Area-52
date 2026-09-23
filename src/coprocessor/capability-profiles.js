@@ -3,6 +3,17 @@ import { Placement } from './constants.js';
 const LATENCY = Object.freeze({ ULTRA_LOW: 0, LOW: 1, MEDIUM: 2, HIGH: 3 });
 const COST = Object.freeze({ FREE: 0, LOW: 1, MEDIUM: 2, HIGH: 3 });
 
+function versionParts(value) {
+  if (typeof value === 'number') return [value];
+  const parts = String(value ?? '1').replace(/^v/i,'').split('.').map((part)=>Number.parseInt(part,10));
+  return parts.every(Number.isFinite) ? parts : [1];
+}
+export function compareCapabilityVersions(a,b) {
+  const aa=versionParts(a), bb=versionParts(b), len=Math.max(aa.length,bb.length);
+  for(let i=0;i<len;i+=1){const delta=(aa[i]??0)-(bb[i]??0);if(delta)return delta<0?-1:1;}
+  return 0;
+}
+
 export class CapabilityProfileRegistry {
   #profiles = new Map();
 
@@ -16,6 +27,12 @@ export class CapabilityProfileRegistry {
       modelId: input.modelId == null ? null : String(input.modelId),
       capabilities: Object.freeze([...new Set(input.capabilities ?? [])]),
       capabilityVersions: Object.freeze({ ...(input.capabilityVersions ?? {}) }),
+      capabilityDescriptors: Object.freeze([...new Set(input.capabilities ?? [])].map((id)=>Object.freeze({
+        id,
+        version: input.capabilityVersions?.[id] ?? 1,
+        qualityScore: Number(input.capabilityQuality?.[id] ?? 0),
+        metadata: Object.freeze({ ...(input.capabilityMetadata?.[id] ?? {}) }),
+      }))),
       resourceProfile: Object.freeze({ ...(input.resourceProfile ?? { CPU: 1 }) }),
       supportedLayers: Object.freeze([...(input.supportedLayers ?? ['L0','L1','L2','L3','L4'])]),
       placements: Object.freeze([...(input.placements ?? [Placement.HOT, Placement.DEEP])]),
@@ -29,6 +46,11 @@ export class CapabilityProfileRegistry {
       health: input.health ?? 'healthy',
       available: input.available !== false,
       fallbackCapabilities: Object.freeze([...(input.fallbackCapabilities ?? [])]),
+      implementationId: input.implementationId ?? input.providerId ?? input.workerId ?? input.profileId,
+      qualityScore: Number(input.qualityScore ?? 0),
+      profileMetadata: Object.freeze({ ...(input.profileMetadata ?? {}) }),
+      foregroundEligible: input.foregroundEligible !== false,
+      backgroundEligible: input.backgroundEligible !== false,
     });
     this.#profiles.set(profile.profileId, profile);
     return profile;
@@ -42,7 +64,8 @@ export class CapabilityProfileRegistry {
     maxCostClass = 'HIGH',
     requireStructuredOutput = true,
   } = {}) {
-    const required = new Set(task.requiredCapabilities ?? []);
+    const requests=(task.capabilityRequests?.length?task.capabilityRequests:(task.requiredCapabilities??[]).map((id)=>({id,minVersion:1,preferredVersion:1})));
+    const required = new Set(requests.map((request)=>request.id));
     return this.list().filter((profile) => {
       if (!profile.available || profile.health !== 'healthy') return false;
       if (profile.currentLoad >= profile.concurrencyCapacity) return false;
@@ -51,12 +74,21 @@ export class CapabilityProfileRegistry {
       if (requireStructuredOutput && !profile.structuredOutput) return false;
       if (contextTokens > profile.maxContextTokens) return false;
       if ((COST[profile.costClass] ?? 99) > (COST[maxCostClass] ?? 99)) return false;
-      for (const capability of required) if (!profile.capabilities.includes(capability)) return false;
+      for (const request of requests) {
+        const descriptor=profile.capabilityDescriptors.find((item)=>item.id===request.id);
+        if (!descriptor || compareCapabilityVersions(descriptor.version,request.minVersion??1)<0) return false;
+      }
       return true;
     }).sort((a, b) => {
       const loadA = a.currentLoad / a.concurrencyCapacity;
       const loadB = b.currentLoad / b.concurrencyCapacity;
+      const versionScore=(profile)=>requests.reduce((score,request)=>{
+        const descriptor=profile.capabilityDescriptors.find((item)=>item.id===request.id);
+        return score+(descriptor&&compareCapabilityVersions(descriptor.version,request.preferredVersion??request.minVersion??1)>=0?100:0)+Number(descriptor?.qualityScore??0);
+      },0);
       return loadA - loadB
+        || versionScore(b)-versionScore(a)
+        || b.qualityScore-a.qualityScore
         || (LATENCY[a.latencyClass] ?? 99) - (LATENCY[b.latencyClass] ?? 99)
         || b.reliability - a.reliability
         || (COST[a.costClass] ?? 99) - (COST[b.costClass] ?? 99)
@@ -70,13 +102,20 @@ export function toRuntimeCapabilityDescriptor(profile) {
   return Object.freeze({
     workerId: profile.workerId,
     capabilities: [...profile.capabilities],
+    capabilityDescriptors: structuredClone(profile.capabilityDescriptors),
     supportedLayers: [...profile.supportedLayers],
     resourceProfile: { ...profile.resourceProfile },
     provider: profile.providerId,
+    implementationId: profile.implementationId,
     model: profile.modelId,
     concurrencyCapacity: profile.concurrencyCapacity,
     currentLoad: profile.currentLoad,
     latencyScore: latencyScore(profile.latencyClass),
+    latencyClass: profile.latencyClass,
+    qualityScore: profile.qualityScore,
+    profileMetadata: { ...profile.profileMetadata },
+    foregroundEligible: profile.foregroundEligible,
+    backgroundEligible: profile.backgroundEligible,
     health: profile.health,
     available: profile.available,
   });
@@ -86,7 +125,10 @@ export function capabilityRequest(task) {
   return Object.freeze({
     taskId: task.taskId,
     requiredCapabilities: [...task.requiredCapabilities],
+    capabilityRequests: structuredClone(task.capabilityRequests ?? []),
+    fallbackCapabilitySets: structuredClone(task.fallbackCapabilitySets ?? []),
     layer: task.cognitiveLayer,
+    foreground: task.resultClass !== 'DEFERRED',
     placement: task.placement,
     hardDeadline: task.hardDeadline,
   });

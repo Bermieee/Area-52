@@ -691,3 +691,17 @@ Core invariant:
 > **Subsystems expose state, events and typed actions. UI.Core owns how those become interface.**
 
 Child work items: #59-#74 plus #34 Brain Inspector.
+
+# 19. Cognitive Coprocessor Layer
+
+Epic #75. Owner lane: `Development-Sidecar/Jev`.
+
+Canonical blueprint: `docs/AREA52_COGNITIVE_COPROCESSOR_BLUEPRINT.md`.
+
+One user turn becomes one immutable Turn Event. A Dynamic Fan-Out Planner wakes the useful capability workers in parallel. A Gather Coordinator validates freshness and closes on a bounded foreground quorum/deadline rather than waiting for every worker. Late results may feed future/background cognition but cannot mutate sealed context.
+
+Primary invariant:
+
+> **One keypress may wake many sidecars, but the Main path waits only for the bounded foreground quorum.**
+
+Child work items: #76-#95.

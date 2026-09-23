@@ -42,8 +42,14 @@ Observe
 7. Reflection cadence is eligibility, not automatic authority.
 8. Existing Nexus systems are integration targets, not dependencies of the prototype.
 
+## Canonical blueprint
+
+The architecture is defined in [`docs/AREA52_COGNITIVE_MEMORY_BLUEPRINT.md`](docs/AREA52_COGNITIVE_MEMORY_BLUEPRINT.md).
+
+The current direction is explicitly hybrid: lore study, sparse + dense retrieval, late-interaction / reranking, temporal graph state, hierarchical semantic memory, reflections, truth maintenance, context compilation, and continual learning operate as one cognitive system.
+
 ## Status
 
-**0.1-dev — cognitive contracts and executable prototype.**
+**0.1-dev — blueprint phase.**
 
-This repository is intentionally isolated from the production Nexus repository until the architecture proves its invariants.
+Implementation is subordinate to the blueprint. Area-52 remains isolated from production Nexus until the cognitive contracts and invariants are proven.

@@ -1,0 +1,26 @@
+name: Cognitive Core CI
+
+on:
+  push:
+    branches:
+      - Development-Nexus
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Cognitive tests
+        run: npm test
+      - name: Syntax checks
+        run: npm run check
+      - name: ESM load
+        run: node -e "import('./src/cognitive-core.js').then(()=>console.log('ESM PASS'))"

@@ -1,13 +1,15 @@
 {
   "name": "area-52",
-  "version": "0.1.0-dev",
+  "version": "0.2.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Wave 1",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Wave 2",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
-    "test:stress": "node --test tests/coprocessor-stress.test.mjs",
-    "check": "find src tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check"
+    "test:wave2": "node --test tests/coprocessor-wave2.test.mjs",
+    "test:stress": "node --test tests/coprocessor-stress.test.mjs tests/coprocessor-wave2-stress.test.mjs",
+    "check": "find src tests scripts -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
+    "manual:provider": "node scripts/manual-provider-smoke.mjs"
   }
 }

@@ -17,3 +17,4 @@ export * from './foreground-specialists.js';
 export * from './provider-execution.js';
 export * from './batch-adapter.js';
 export * from './fallback-policy.js';
+export * from './function-test-001.js';

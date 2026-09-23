@@ -90,6 +90,7 @@ export function createCognitiveTask(input = {}) {
     dedupeKey: requiredString(input.dedupeKey ?? `task:${taskId}`, 'dedupeKey'),
     fallbackPolicy: cloneSerializable(input.fallbackPolicy ?? { type: 'DETERMINISTIC', maxRetries: 1 }, 'fallbackPolicy'),
     placement,
+    contextSealPolicy: requiredString(input.contextSealPolicy ?? 'BEFORE_SEAL_ONLY', 'contextSealPolicy'),
     compilerLane: requiredString(input.compilerLane ?? 'externalGrounding', 'compilerLane'),
     intentFingerprint: requiredString(input.intentFingerprint ?? `intent:${turnId}`, 'intentFingerprint'),
     metadata: cloneSerializable(input.metadata ?? {}, 'metadata'),

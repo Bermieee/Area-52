@@ -46,3 +46,34 @@ test('Ember Tavern golden world freezes the canonical acceptance story', () => {
   assert.match(EMBER_TAVERN_WORLD.expected.presentQuery, /Sun Blade/);
   assert.match(EMBER_TAVERN_WORLD.expected.historicalQuery, /before the tavern fire/);
 });
+
+
+import { SourceRegistry, hashContent } from '../src/source-registry.js';
+
+test('Source Registry preserves exact revisions and hashes content deterministically', () => {
+  const registry = new SourceRegistry();
+  const first = registry.importSource({ id:'lore:test', sourceType:'LORE', content:'Exact source A.' });
+  assert.equal(first.revision.contentHash, hashContent('Exact source A.'));
+  const replaced = registry.replaceSource('lore:test', 'Exact source B.');
+  assert.equal(replaced.changed, true);
+  assert.equal(registry.getRevision('lore:test@1').exactContent, 'Exact source A.');
+  assert.equal(registry.getActiveRevision('lore:test').exactContent, 'Exact source B.');
+  assert.equal(registry.isActiveRevision('lore:test@1'), false);
+  assert.equal(registry.isActiveRevision('lore:test@2'), true);
+});
+
+test('Source Registry invalidates only the truthful dependency cone', () => {
+  const registry = new SourceRegistry();
+  registry.importSource({ id:'lore:a', sourceType:'LORE', content:'A' });
+  registry.importSource({ id:'lore:b', sourceType:'LORE', content:'B' });
+  registry.registerDerivedArtifact({ artifactId:'claim:a', artifact:{kind:'ClaimStub'}, sourceRevisionIds:['lore:a@1'] });
+  registry.registerDerivedArtifact({ artifactId:'summary:a', artifact:{kind:'SummaryStub'}, dependsOnArtifactIds:['claim:a'] });
+  registry.registerDerivedArtifact({ artifactId:'claim:b', artifact:{kind:'ClaimStub'}, sourceRevisionIds:['lore:b@1'] });
+
+  const edit = registry.replaceSource('lore:a', 'A2');
+  assert.deepEqual(edit.invalidatedArtifactIds, ['claim:a','summary:a']);
+  assert.equal(registry.isArtifactValid('claim:a'), false);
+  assert.equal(registry.isArtifactValid('summary:a'), false);
+  assert.equal(registry.isArtifactValid('claim:b'), true);
+  assert.deepEqual(registry.explainArtifact('summary:a').derivedFrom[0].sourceRevisions.map((x) => x.id), ['lore:a@1']);
+});

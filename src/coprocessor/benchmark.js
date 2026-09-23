@@ -1,4 +1,4 @@
-export function summarizeSwarmTrace(trace) {
+export function summarizeSwarmTrace(trace, measured = {}) {
   const starts = trace.taskTraces.map((item) => item.startedAt).filter(Number.isFinite);
   const completions = trace.taskTraces.map((item) => item.completedAt).filter(Number.isFinite);
   const required = trace.taskTraces.filter((item) => item.resultClass === 'REQUIRED');
@@ -14,5 +14,10 @@ export function summarizeSwarmTrace(trace) {
     structuredOutputValidity: trace.taskTraces.length ? trace.taskTraces.filter((item) => item.validation === 'PASS').length / trace.taskTraces.length : 1,
     duplicateDeliveries: trace.duplicateDeliveries ?? 0,
     fallbacksUsed: trace.gather.fallbacksUsed.length,
+    cpuMs: measured.cpuMs ?? null,
+    peakRamMb: measured.peakRamMb ?? null,
+    llmInputTokens: measured.llmInputTokens ?? null,
+    llmOutputTokens: measured.llmOutputTokens ?? null,
+    estimatedCost: measured.estimatedCost ?? null,
   });
 }

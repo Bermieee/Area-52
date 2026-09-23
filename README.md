@@ -62,6 +62,9 @@ The canonical interface platform is defined in [`docs/AREA52_UI_CORE_BLUEPRINT.m
 
 The sidecar/cognitive-coprocessor architecture is defined in [`docs/AREA52_COGNITIVE_COPROCESSOR_BLUEPRINT.md`](docs/AREA52_COGNITIVE_COPROCESSOR_BLUEPRINT.md).
 
+Implementation phases and acceptance tests: [`docs/AREA52_SIDECAR_IMPLEMENTATION_RUNBOOK.md`](docs/AREA52_SIDECAR_IMPLEMENTATION_RUNBOOK.md).
+Verified external references and design implications: [`docs/AREA52_SIDECAR_REFERENCE_DOCUMENTATION.md`](docs/AREA52_SIDECAR_REFERENCE_DOCUMENTATION.md).
+
 The current direction is explicitly hybrid: lore study, sparse + dense retrieval, late-interaction / reranking, temporal graph state, hierarchical semantic memory, reflections, truth maintenance, context compilation, and continual learning operate as one cognitive system.
 
 ## Status

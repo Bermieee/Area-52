@@ -33,3 +33,7 @@ export * from './wave4-extension-registry.js';
 export * from './wave4-generic-inspection.js';
 export * from './wave4-runtime-adapter.js';
 export * from './dashboard.js';
+
+export * from './wave5-product-model.js';
+export * from './wave5-fixtures.js';
+export * from './wave5-front-face.js';

@@ -14,11 +14,44 @@ export class NotificationCenter {
       title: notification.title ?? '',
       message: notification.message ?? '',
       createdAt: notification.createdAt ?? Date.now(),
+      acknowledged: Boolean(notification.acknowledged),
     });
     this.items.unshift(item);
     if (this.items.length > this.max) this.items.length = this.max;
     this.signals?.publish(Signals.UI_NOTIFICATION, { id: item.id, status: item.status, title: item.title, message: item.message }, { source: 'ui-core' });
     return item;
+  }
+
+  list({ includeAcknowledged = true } = {}) {
+    return this.items.filter((item) => includeAcknowledged || !item.acknowledged).map((item) => ({ ...item }));
+  }
+
+  acknowledge(id) {
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index < 0) return false;
+    if (!this.items[index].acknowledged) this.items[index] = Object.freeze({ ...this.items[index], acknowledged: true });
+    this.#changed('acknowledged', id);
+    return true;
+  }
+
+  dismiss(id) {
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index < 0) return false;
+    this.items.splice(index, 1);
+    this.#changed('dismissed', id);
+    return true;
+  }
+
+  clear() {
+    if (!this.items.length) return 0;
+    const count = this.items.length;
+    this.items.length = 0;
+    this.#changed('cleared', null);
+    return count;
+  }
+
+  #changed(action, id) {
+    this.signals?.publish(Signals.UI_NOTIFICATION_CHANGED, { action, id, count: this.items.length }, { source: 'ui-core' });
   }
 }
 

@@ -1,0 +1,26 @@
+name: UI.Core Wave 5 validation
+
+on:
+  push:
+    branches:
+      - Development-UI
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full deterministic regression suite
+        run: npm test
+      - name: Wave 5 acceptance suite
+        run: node --test tests/wave5.test.mjs
+      - name: JavaScript syntax validation
+        run: |
+          find src demo tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: UI.Core module import
+        run: node -e "import('./src/ui-core/index.js').then(() => console.log('UI.Core index import PASS'))"

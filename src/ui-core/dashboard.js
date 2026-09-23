@@ -1,7 +1,7 @@
 import { SignalHub } from './signals.js';
 import { RenderScheduler } from './render-scheduler.js';
 import { WidgetRegistry, WorkspaceRegistry, InspectorRegistry } from './registry.js';
-import { WidgetRuntime } from './lifecycle.js';
+import { WidgetRuntime, ResourceScope } from './lifecycle.js';
 import { ActionRouter } from './action-router.js';
 import { UIStateStore } from './persistence.js';
 import { OverlayManager } from './overlay.js';
@@ -12,9 +12,12 @@ import { InspectorController } from './inspector.js';
 import { ApplicationShell } from './shell.js';
 import { MockBrainRuntime } from './mock-brain.js';
 import { Signals } from './constants.js';
-import { ResourceScope } from './lifecycle.js';
+import { assertAdapterBundle } from './wave2-adapters.js';
+import { createEmberTavernAdapterBundle } from './ember-tavern-wave2.js';
+import { registerKnowledgeInspectionActions } from './provenance-ui.js';
+import { installHotCognitionStrip, registerWave2InspectorRenderers, registerWave2Workspaces, renderCognitiveRuntimeWorkspace } from './wave2-workspaces.js';
 
-export function createBrainDashboard({ root, stateStore = new UIStateStore() } = {}) {
+export function createBrainDashboard({ root, stateStore = new UIStateStore(), adapters: suppliedAdapters = null } = {}) {
   if (!root) throw new Error('Area-52 Brain Dashboard requires a root element');
   const signals = new SignalHub();
   const scheduler = new RenderScheduler();
@@ -22,15 +25,22 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore() } =
   const workspaceRegistry = new WorkspaceRegistry();
   const inspectorRegistry = new InspectorRegistry();
   const actionRouter = new ActionRouter();
+  let shell;
   const overlays = new OverlayManager({ document: root.ownerDocument, root: root.ownerDocument.body, getResponsiveMode: () => shell?.mode });
   const notifications = new NotificationCenter({ signals });
   const runtime = new MockBrainRuntime({ signals, scheduler });
+  const wave2 = suppliedAdapters ? { fixture: null, adapters: assertAdapterBundle(suppliedAdapters) } : createEmberTavernAdapterBundle({ signals });
+  const { fixture, adapters } = wave2;
   const mounted = new Set();
+  let workspaceScope = new ResourceScope();
 
   registerPrimitiveWidgets(widgetRegistry);
   registerCognitiveWidgets(widgetRegistry);
   registerInspectorRenderers(inspectorRegistry);
-  const widgetRuntime = new WidgetRuntime({ registry: widgetRegistry, services: { signals, scheduler, actionRouter, overlays, notifications, mockBrain: runtime } });
+  registerKnowledgeInspectionActions(actionRouter, { adapter: adapters.knowledge, signals });
+  registerWave2InspectorRenderers(inspectorRegistry, { adapters, actionRouter });
+
+  const widgetRuntime = new WidgetRuntime({ registry: widgetRegistry, services: { signals, scheduler, actionRouter, overlays, notifications, mockBrain: runtime, adapters } });
 
   actionRouter.registerSubsystem('mock-brain', async (action) => {
     if (action.type === 'mock.worker.advance') return runtime.advanceWorker();
@@ -42,27 +52,33 @@ export function createBrainDashboard({ root, stateStore = new UIStateStore() } =
   actionRouter.registerAction('mock.claim.supersede', { subsystem: 'mock-brain', permissions: ['demo:operate'], allowedStates: ['CURRENT'] });
   actionRouter.registerAction('mock.batch.advance', { subsystem: 'mock-brain', permissions: ['demo:operate'] });
 
-  const inspector = new InspectorController({ host: root, registry: inspectorRegistry, signals, scheduler, services: { signals } });
-  let shell;
+  const inspector = new InspectorController({ host: root, registry: inspectorRegistry, signals, scheduler, services: { signals, actionRouter, adapters } });
   const renderWorkspace = (entry, host) => {
     for (const instance of mounted) widgetRuntime.destroy(instance);
     mounted.clear();
+    workspaceScope.cleanup();
+    workspaceScope = new ResourceScope();
     host.replaceChildren();
-    entry.render?.(host, { mount(widgetId, node, props) { const instance = widgetRuntime.mount(widgetId, node, props); mounted.add(instance); return instance; }, signals, runtime, actionRouter, permissions: ['demo:operate'], overlays, notifications });
+    entry.render?.(host, {
+      mount(widgetId, node, props) { const instance = widgetRuntime.mount(widgetId, node, props); mounted.add(instance); return instance; },
+      signals, scheduler, runtime, actionRouter, permissions: ['demo:operate','knowledge:inspect'], overlays, notifications, adapters, fixture, adapterSource: suppliedAdapters ? 'external' : 'fixture', scope: workspaceScope,
+    });
   };
 
   registerWorkspaces(workspaceRegistry, root.ownerDocument);
+  registerWave2Workspaces(workspaceRegistry);
   shell = new ApplicationShell({ root, workspaceRegistry, inspector, signals, stateStore, renderWorkspace });
   shell.mount();
 
   const toastScope = new ResourceScope();
   const toastViewport = new ToastViewport({ host: shell.nodes.toastHost, signals, scope: toastScope });
   toastViewport.mount();
-  signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: 'HOT / MOCK' }, { source: 'mock-brain' });
+  installHotCognitionStrip({ shell, adapters, signals, scope: toastScope });
+  signals.publish(Signals.COGNITIVE_MODE_CHANGED, { mode: suppliedAdapters ? 'LIVE ADAPTER' : 'HOT / EMBER FIXTURE' }, { source: 'ui-core' });
 
   return {
-    shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, runtime, overlays, notifications,
-    destroy() { for (const instance of mounted) widgetRuntime.destroy(instance); mounted.clear(); toastScope.cleanup(); overlays.destroy(); shell.destroy(); scheduler.destroy(); signals.clear(); },
+    shell, signals, scheduler, widgetRegistry, workspaceRegistry, inspectorRegistry, actionRouter, runtime, adapters, fixture, overlays, notifications,
+    destroy() { for (const instance of mounted) widgetRuntime.destroy(instance); mounted.clear(); workspaceScope.cleanup(); toastScope.cleanup(); overlays.destroy(); shell.destroy(); scheduler.destroy(); signals.clear(); },
   };
 }
 
@@ -70,7 +86,7 @@ function registerWorkspaces(registry, doc) {
   registry.register({ id: 'memory', title: 'Memory', icon: '◉', views: ['overview'], supportedActions: ['inspect'], render(host, ctx) { renderBrainWorkspace(doc, host, ctx); } });
   registry.register({ id: 'world', title: 'World', icon: '◇', views: ['temporal'], supportedActions: ['inspect'], render(host, ctx) { renderWorldWorkspace(doc, host, ctx); } });
   registry.register({ id: 'study', title: 'Study', icon: '▦', views: ['provenance'], supportedActions: ['inspect'], render(host, ctx) { renderStudyWorkspace(doc, host, ctx); } });
-  registry.register({ id: 'runtime', title: 'Runtime', icon: '↯', views: ['workers', 'batches'], supportedActions: ['mock.worker.advance'], render(host, ctx) { renderRuntimeWorkspace(doc, host, ctx); } });
+  registry.register({ id: 'runtime', title: 'Runtime', icon: '↯', views: ['overview','lifecycle','workers','batches','ledger'], supportedActions: ['inspect'], render: renderCognitiveRuntimeWorkspace });
   registry.register({ id: 'retrieval', title: 'Retrieval', icon: '⌕', views: ['candidates'], supportedActions: ['inspect'], render(host, ctx) { renderRetrievalWorkspace(doc, host, ctx); } });
   registry.register({ id: 'evaluation', title: 'Evaluation', icon: '✓', views: ['shadow'], supportedActions: ['inspect'], render(host, ctx) { renderEvaluationWorkspace(doc, host, ctx); } });
 }
@@ -81,25 +97,18 @@ function renderBrainWorkspace(doc, host, ctx) {
   host.append(element(doc, 'h1', { text: 'Brain Dashboard' }));
   const controls = element(doc, 'div', { className: 'a52-stack' });
   controls.append(
-    createButton(doc, { label: 'Advance worker lifecycle', onPress: () => ctx.actionRouter.route({ type: 'mock.worker.advance' }, { permissions: ctx.permissions }) }),
-    createButton(doc, { label: 'Advance batch', onPress: () => ctx.actionRouter.route({ type: 'mock.batch.advance' }, { permissions: ctx.permissions }) }),
-    createButton(doc, { label: 'Supersede temporal claim', onPress: () => ctx.actionRouter.route({ type: 'mock.claim.supersede', target: { state: ctx.runtime.claim.status } }, { permissions: ctx.permissions }) }),
+    createButton(doc, { label: 'Advance worker lifecycle', scope: ctx.scope, onPress: () => ctx.actionRouter.route({ type: 'mock.worker.advance' }, { permissions: ctx.permissions }) }),
+    createButton(doc, { label: 'Advance batch', scope: ctx.scope, onPress: () => ctx.actionRouter.route({ type: 'mock.batch.advance' }, { permissions: ctx.permissions }) }),
+    createButton(doc, { label: 'Supersede temporal claim', scope: ctx.scope, onPress: () => ctx.actionRouter.route({ type: 'mock.claim.supersede', target: { state: ctx.runtime.claim.status } }, { permissions: ctx.permissions }) }),
   );
   host.append(controls);
   const grid = element(doc, 'div', { className: 'a52-grid' }); host.append(grid);
   ctx.mount('cognitive.BrainStatus', slot(doc, grid), { mode: 'HOT', queueCount: 3, status: 'ready' });
-  ctx.mount('cognitive.WorkerPool', slot(doc, grid), { workers: ctx.runtime.workers });
+  ctx.mount('cognitive.WorkerPool', slot(doc, grid), { workers: ctx.adapters.runtime.getWorkers().slice(0, 8) });
   ctx.mount('cognitive.BatchProgress', slot(doc, grid), { batchId: 'batch-42', progress: ctx.runtime.batchProgress });
   ctx.mount('cognitive.TemporalStateCard', slot(doc, grid), { claim: ctx.runtime.claim });
   ctx.mount('cognitive.ReflectionCard', slot(doc, grid), { reflection: ctx.runtime.reflection });
   ctx.mount('cognitive.ContextPacketViewer', slot(doc, grid), { packet: { turnId: 'TURN-001', lanes: ['lore', 'graph', 'green-room'], sealed: true } });
-}
-
-function renderRuntimeWorkspace(doc, host, ctx) {
-  host.append(element(doc, 'h1', { text: 'Runtime' }));
-  ctx.mount('cognitive.WorkerPool', slot(doc, host), { workers: ctx.runtime.workers });
-  ctx.mount('cognitive.LifecycleLane', slot(doc, host), { workerId: ctx.runtime.workers[0].id, current: ctx.runtime.workers[0].state });
-  ctx.mount('cognitive.BatchProgress', slot(doc, host), { batchId: 'batch-42', progress: ctx.runtime.batchProgress });
 }
 
 function renderWorldWorkspace(doc, host, ctx) {

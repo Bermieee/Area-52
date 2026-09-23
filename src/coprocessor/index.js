@@ -9,4 +9,5 @@ export * from './integration-adapters.js';
 export * from './telemetry.js';
 export * from './jev-migration.js';
 export * from './benchmark.js';
+export * from './deadline-policy.js';
 export * from './swarm.js';

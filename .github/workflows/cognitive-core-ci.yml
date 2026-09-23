@@ -21,3 +21,5 @@ jobs:
         run: npm run check
       - name: ESM load
         run: node -e "import('./src/cognitive-core.js').then(()=>console.log('ESM PASS'))"
+      - name: Wave 3 acceptance report
+        run: node scripts/wave3-acceptance-report.mjs

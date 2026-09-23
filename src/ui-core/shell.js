@@ -1,0 +1,89 @@
+import { ResourceScope } from './lifecycle.js';
+import { ResponsiveController } from './responsive.js';
+import { installRovingFocus } from './accessibility.js';
+import { Signals } from './constants.js';
+import { element } from './primitives.js';
+
+export class ApplicationShell {
+  constructor({ root, workspaceRegistry, inspector, signals, stateStore, renderWorkspace }) {
+    this.root = root;
+    this.workspaceRegistry = workspaceRegistry;
+    this.inspector = inspector;
+    this.signals = signals;
+    this.stateStore = stateStore;
+    this.renderWorkspace = renderWorkspace;
+    this.scope = new ResourceScope();
+    this.currentWorkspace = null;
+    this.mode = null;
+    this.nodes = {};
+  }
+
+  mount() {
+    const doc = this.root.ownerDocument;
+    this.root.classList.add('a52-app');
+    const header = element(doc, 'header', { className: 'a52-shell__header' });
+    const brand = element(doc, 'div', { className: 'a52-brand', text: 'Area-52' });
+    const brainState = element(doc, 'div', { className: 'a52-brain-state', attrs: { 'aria-live': 'polite' }, text: 'Brain State · READY' });
+    const search = element(doc, 'input', { className: 'a52-search', attrs: { type: 'search', placeholder: 'Search UI…', 'aria-label': 'Search' } });
+    header.append(brand, brainState, search);
+
+    const nav = element(doc, 'nav', { className: 'a52-shell__nav', attrs: { 'aria-label': 'Workspaces' } });
+    const workspace = element(doc, 'main', { className: 'a52-shell__workspace', attrs: { id: 'a52-workspace', tabindex: '-1' } });
+    const inspectorHost = element(doc, 'aside', { className: 'a52-shell__inspector', attrs: { 'aria-label': 'Contextual inspector' } });
+    const strip = element(doc, 'footer', { className: 'a52-shell__activity', attrs: { 'aria-live': 'polite' }, text: 'Runtime idle' });
+    const toastHost = element(doc, 'div', { className: 'a52-shell__toasts' });
+    this.root.replaceChildren(header, nav, workspace, inspectorHost, strip, toastHost);
+    this.nodes = { header, brand, brainState, search, nav, workspace, inspectorHost, strip, toastHost };
+
+    for (const entry of this.workspaceRegistry.list()) {
+      const button = element(doc, 'button', {
+        className: 'a52-nav-item',
+        text: `${entry.icon ? `${entry.icon} ` : ''}${entry.title}`,
+        attrs: { type: 'button' },
+        dataset: { workspaceId: entry.id, rovingItem: '' },
+      });
+      this.scope.listen(button, 'click', () => this.selectWorkspace(entry.id));
+      nav.append(button);
+    }
+    installRovingFocus(nav, this.scope);
+
+    this.scope.listen(search, 'keydown', (event) => {
+      if (event.key === 'Escape') { search.value = ''; workspace.focus(); }
+    });
+    this.scope.listen(doc, 'keydown', (event) => {
+      if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(doc.activeElement?.tagName)) { event.preventDefault(); search.focus(); }
+    });
+    this.scope.subscribe(this.signals, Signals.COGNITIVE_MODE_CHANGED, ({ payload }) => { brainState.textContent = `Brain State · ${payload.mode ?? 'READY'}`; });
+    this.scope.subscribe(this.signals, Signals.UI_RUNTIME_ACTIVITY, ({ payload }) => { strip.textContent = payload.message ?? 'Runtime activity'; });
+
+    const responsive = new ResponsiveController({ root: this.root, scope: this.scope, onChange: (mode) => { this.mode = mode; } });
+    responsive.mount();
+
+    this.inspector.host = inspectorHost;
+    this.inspector.mount();
+    const persisted = this.stateStore.load();
+    const initial = this.workspaceRegistry.list().some((w) => w.id === persisted.selectedWorkspace) ? persisted.selectedWorkspace : this.workspaceRegistry.list()[0]?.id;
+    if (initial) this.selectWorkspace(initial);
+    return this;
+  }
+
+  selectWorkspace(id) {
+    const entry = this.workspaceRegistry.get(id);
+    if (this.currentWorkspace === id) return;
+    this.currentWorkspace = id;
+    this.stateStore.save({ selectedWorkspace: id });
+    for (const button of this.nodes.nav.querySelectorAll('[data-workspace-id]')) {
+      const selected = button.dataset.workspaceId === id;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-current', selected ? 'page' : 'false');
+    }
+    this.renderWorkspace(entry, this.nodes.workspace);
+    this.signals.publish(Signals.UI_WORKSPACE_CHANGED, { workspaceId: id }, { source: 'ui-core' });
+  }
+
+  destroy() {
+    this.scope.cleanup();
+    this.inspector.destroy();
+    this.root.replaceChildren();
+  }
+}

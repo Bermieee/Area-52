@@ -51,3 +51,11 @@ Wave 3 fixtures exercise these concepts only for observability contracts. They d
 ## Project workflow note
 
 Issue comments were posted when Wave 3 UI work began and again at completion. If GitHub Projects automation maps issue closure/status automatically, #33/#86 must remain open until all owning lanes satisfy their acceptance criteria.
+
+## Canonical Nexus advance during Wave 3
+
+`Development-Nexus` advanced from kickoff SHA `1b1f81d0a1d1d036a4c5719bdc477fd8effb8acd` to `bd42966f3e0fd28cefacacabd1458ef080c32ea7` while UI work was in progress.
+
+The added architecture introduces #118 Memory reconsolidation/maturation, #119 Causal/Event Memory + hypotheses, and #120 Semantic Lore Compiler/diff. These preserve the same provenance/authority/settlement invariants and do not redefine the Wave 3 UI-owned acceptance surface.
+
+**Do not close #118, #119, or #120 based on Wave 3 UI work.**

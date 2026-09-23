@@ -8,6 +8,8 @@
 
 Both live branch heads matched the kickoff contract before implementation.
 
+During Wave 3, `Development-Nexus` advanced by eight commits. Final reconciliation confirmed the new canonical additions introduce memory reconsolidation/maturation (#118), causal/event hypotheses (#119), and semantic lore compilation/diff (#120) while preserving the existing authority, provenance, history and settlement invariants. The Wave 3 UI contracts remain compatible; these new backend extensions are not claimed as UI-owned completion work.
+
 ## Delivered
 
 ### Runtime observability

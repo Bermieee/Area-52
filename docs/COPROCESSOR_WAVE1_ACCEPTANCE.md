@@ -72,3 +72,17 @@ The Turn Event Hub is bounded during stress to prevent unbounded closed-history 
 ## Deferred benchmark metrics
 
 CPU, RAM, provider token use and monetary cost remain null/unclaimed until real provider/runtime integration exists. Wave 1 does not fabricate them.
+
+
+## Cross-lane compatibility checkpoint
+
+Runtime Wave 2 mapping is covered by deterministic tests for:
+
+- versioned capability descriptors;
+- minimum/preferred capability versions;
+- implementation/provider identity;
+- foreground/background eligibility;
+- Runtime obligation conversion without scheduler authority;
+- dynamic `TURN_EVENT` registration/emission shape.
+
+Nexus compatibility was rechecked after Adaptive Context Runtime landed. Result Bus late/freshness routing and Context Seal packet-hash immutability are unchanged. The post-Seal PromptPlan pipeline consumes the seal; it does not reopen it.

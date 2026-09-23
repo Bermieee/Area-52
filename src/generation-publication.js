@@ -56,9 +56,12 @@ export class GenerationPublicationPipeline {
       });
     }
 
-    const precisionResults=precisionAvailable
-      ?this.precision.rank(candidates,{query,intent,worldRevision,sceneRevision})
-      :[];
+    let precisionResults=[];
+    let precisionFailed=false;
+    if(precisionAvailable){
+      try{precisionResults=this.precision.rank(candidates,{query,intent,worldRevision,sceneRevision});}
+      catch(error){precisionFailed=true;precisionResults=[];}
+    }
     for(const precisionResult of precisionResults){
       this.resultBus.receive(createCognitiveResult({
         id:`result:precision:${precisionResult.candidateId}:${correlationId}`,
@@ -90,9 +93,10 @@ export class GenerationPublicationPipeline {
     const rejectedResultIds=uniq(turnResults.filter(x=>!x.route.accepted).map(x=>x.result.id));
 
     let fallbackState=SealFallbackState.NONE;
-    if(!precisionAvailable)fallbackState=SealFallbackState.PRECISION_FALLBACK;
+    if(!precisionAvailable||precisionFailed)fallbackState=SealFallbackState.PRECISION_FALLBACK;
     if(compiled.receipt.fallbackUsed)fallbackState=SealFallbackState.RICH_CONTEXT;
-    if(corrective.executed&&assessment.confidence==='MIXED'&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_FAILED;
+    if(corrective.failed&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_FAILED;
+    else if(corrective.executed&&corrective.terminated&&assessment.confidence==='MIXED'&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_EXHAUSTED;
 
     const sealed=this.seal.seal({
       turnId,correlationId,packet:compiled.packet,sourceRevisionIds:compiled.packet.dependencies,
@@ -101,7 +105,7 @@ export class GenerationPublicationPipeline {
     });
     return{
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,corrective,
-      precisionResults:usablePrecision,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
+      precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
       resultRoutes:turnResults,
     };
   }

@@ -65,11 +65,8 @@ export class CognitiveSwarm {
       }
       if (item.result) {
         const route = this.resultBus.receive(toNexusCognitiveResult(item.result, item.task));
-        if (route?.route?.freshness === 'STALE' || route?.route?.freshness === 'INVALID') {
-          await gather.accept({ ...item.result, freshnessIdentity: { ...item.result.freshnessIdentity, worldRevision: turnEvent.worldRevision - 1 } }, { arrivalAt: completedAt });
-        } else {
-          await gather.accept(item.result, { arrivalAt: completedAt, semanticValidator: semanticValidators[item.task.taskType] });
-        }
+        const external = gather.recordExternalRoute(item.result, route?.route);
+        if (!external) await gather.accept(item.result, { arrivalAt: completedAt });
         foreground.push(item);
       } else if (item.failure) {
         gather.addFailure(item.failure);

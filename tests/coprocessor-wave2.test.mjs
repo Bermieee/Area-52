@@ -6,7 +6,7 @@ import {
   OpenAICompatibleProviderAdapter, PartialResultAccumulator, ProviderAdapterRegistry, ProviderExecutionRouter,
   ResultClass, SidecarBatchAdapter, SpecialistExecutionLayer, TelemetryEvent, classifyFreshness,
   createCognitiveTask, createRevisionSet, createTurnEnvelope, createWorkerResult, fallbackForTask,
-  parseStrictProviderJson, runFunctionTestTurn,
+  parseStrictProviderJson, runFunctionTestTurn, validateWorkerOutput, DynamicFanOutPlanner,
 } from '../src/coprocessor/index.js';
 
 function task(taskType,capabilities=['X'],extra={}){
@@ -152,6 +152,61 @@ test('Function Test 001 keeps Tavern current, Blade history historical, current 
 test('Function Test 001 exposes obvious fixture boundaries and downstream injection seam without owning Seal',async()=>{
   let compiled=0,prompted=0;const r=await runFunctionTestTurn({downstream:{compile:async x=>{compiled++;return{id:'external-compiled',x};},promptPlan:async()=>{prompted++;return{id:'external-plan'};}}});
   assert.equal(compiled,1);assert.equal(prompted,1);assert.deepEqual(r.fixtureBoundaries,{scene:true,evidence:true,graph:true,provider:true});assert.equal(r.promptPlan.id,'external-plan');
+});
+
+test('provider health/availability changes eligible nomination without changing task semantics',()=>{
+  const registry=new CapabilityProfileRegistry();
+  registry.register({profileId:'A',providerId:'A',capabilities:['CAP'],latencyClass:'LOW'});
+  registry.register({profileId:'B',providerId:'B',capabilities:['CAP'],latencyClass:'MEDIUM'});
+  const t=task('X',['CAP']);
+  assert.equal(registry.eligibleProfiles(t)[0].profileId,'A');
+  registry.setHealth('A','unhealthy');assert.equal(registry.eligibleProfiles(t)[0].profileId,'B');
+  registry.setHealth('A','healthy');registry.setAvailability('A',false);assert.equal(registry.eligibleProfiles(t)[0].profileId,'B');
+});
+
+test('provider selection can prefer local and enforce output/context limits',()=>{
+  const registry=new CapabilityProfileRegistry();
+  registry.register({profileId:'remote',providerId:'remote',capabilities:['CAP'],latencyClass:'LOW',local:false,maxOutputTokens:50});
+  registry.register({profileId:'local',providerId:'local',capabilities:['CAP'],latencyClass:'MEDIUM',local:true,maxOutputTokens:500});
+  const t=task('X',['CAP']);
+  assert.equal(registry.eligibleProfiles(t,{preferLocal:true,expectedOutputTokens:100})[0].profileId,'local');
+});
+
+test('OpenAI-compatible timeout becomes typed PROVIDER_TIMEOUT',async()=>{
+  const fake=async(_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true}));
+  const a=new OpenAICompatibleProviderAdapter({providerId:'timeout',modelId:'m',endpoint:'https://example.invalid/v1',fetchImpl:fake,timeoutMs:5});
+  await assert.rejects(()=>a.invoke({taskType:'X'},{messages:[{role:'user',content:'x'}]}),e=>e.code===FailureCode.PROVIDER_TIMEOUT);
+});
+
+test('OpenAI-compatible service failure becomes typed PROVIDER_UNAVAILABLE',async()=>{
+  const fake=async()=>new Response('down',{status:503});
+  const a=new OpenAICompatibleProviderAdapter({providerId:'down',modelId:'m',endpoint:'https://example.invalid/v1',fetchImpl:fake});
+  await assert.rejects(()=>a.invoke({taskType:'X'},{messages:[{role:'user',content:'x'}]}),e=>e.code===FailureCode.PROVIDER_UNAVAILABLE);
+});
+
+test('missing eligible adapter becomes CAPABILITY_UNAVAILABLE',async()=>{
+  const profiles=new CapabilityProfileRegistry();profiles.register({profileId:'only',providerId:'missing',capabilities:['CAP']});
+  const adapters=new ProviderAdapterRegistry();const layer=new SpecialistExecutionLayer({profiles,adapters});
+  const t=task('HISTORIAN_RETRIEVAL',['CAP']);
+  await assert.rejects(()=>layer.execute(t,{input:{candidates:[]}}),e=>e.code===FailureCode.CAPABILITY_UNAVAILABLE);
+});
+
+test('intent fingerprint mismatch is explicitly stale',async()=>{
+  const t=task('X',['CAP']);const raw=createWorkerResult({resultId:'r:intent',taskId:t.taskId,turnId:t.turnId,correlationId:t.correlationId,
+    workerId:'w',providerId:'p',capabilities:['CAP'],payload:{},provenance:{},confidence:1,freshnessIdentity:t.inputRevisionSet,inputRevisionSet:t.inputRevisionSet,
+    intentFingerprint:'different',startedAt:0,completedAt:1});
+  const v=await validateWorkerOutput(raw,t);assert.equal(v.valid,false);assert.equal(v.freshness,Freshness.STALE);assert.equal(v.failure.code,FailureCode.STALE_RESULT);
+});
+
+test('planner obeys per-turn fan-out cap even when more roles have expected value',()=>{
+  const event=createTurnEnvelope({turnId:'cap',eventId:'evt:cap',correlationId:'corr:cap',dedupeKey:'cap',worldRevision:1,sceneRevision:1,characterStateRevision:1});
+  const plan=new DynamicFanOutPlanner({maxWorkers:16}).plan({turnEvent:event,text:'Eris returns to the Tavern looking for the Blade while speaking to Mara.',
+    queryIntent:'CURRENT_STATE',activeCast:['Eris','Mara'],activeThreads:['blade'],conflictSignals:['fate'],maxFanOut:2,resourceConstraint:{maxForegroundWorkers:2}});
+  assert.equal(plan.tasks.length,2);assert.equal(plan.boundedFanOut,2);
+});
+
+test('Function Test 001 exports Runtime-ready obligations for every planned specialist',async()=>{
+  const r=await runFunctionTestTurn();assert.equal(r.runtimeSubmissions.length,4);assert.ok(r.runtimeSubmissions.every(x=>x.owner==='COGNITIVE_COPROCESSOR'&&x.foreground===true));
 });
 
 test('telemetry remains prompt/payload safe for real provider execution',()=>{

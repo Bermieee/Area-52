@@ -87,18 +87,62 @@ export class TemporalStateGraph {
     const closures = this.#closures.get(key) ?? [];
     const superseded = [];
 
-    for (let i = 0; i < claims.length; i += 1) {
-      const claim = claims[i];
-      const nextClaim = claims[i + 1];
-      const from = Number(claim.temporal.validFrom);
-      const closure = closures.find((item) => item.at > from && (!nextClaim || item.at <= Number(nextClaim.temporal.validFrom)));
-      const until = closure ? closure.at : nextClaim ? Number(nextClaim.temporal.validFrom) : null;
-      const explicitHistorical = claim.temporal.kind === 'HISTORICAL';
-      const status = explicitHistorical ? KnowledgeStatus.HISTORICAL : until === null ? KnowledgeStatus.CURRENT : KnowledgeStatus.SUPERSEDED;
-      if (status === KnowledgeStatus.SUPERSEDED) superseded.push(claim.id);
-      this.#claims.set(claim.id, { ...claim, status, temporal:{...claim.temporal, validUntil:until}, supersededBy: nextClaim && !closure ? nextClaim.id : null });
+    const assertive = [];
+    for (const claim of claims) {
+      if (claim.temporal.kind === 'UNRESOLVED' || claim.authorityClass === AuthorityClass.UNRESOLVED) {
+        this.#claims.set(claim.id, { ...claim, status:KnowledgeStatus.UNRESOLVED });
+      } else if (claim.temporal.kind === 'UNCERTAIN') {
+        this.#claims.set(claim.id, { ...claim, status:KnowledgeStatus.UNCERTAIN });
+      } else {
+        assertive.push(claim);
+      }
+    }
+
+    const groups = [];
+    for (const claim of assertive) {
+      const time = Number(claim.temporal.validFrom);
+      const last = groups.at(-1);
+      if (last && last.time === time) last.claims.push(claim);
+      else groups.push({time, claims:[claim]});
+    }
+
+    for (let i = 0; i < groups.length; i += 1) {
+      const group = groups[i];
+      const nextTime = groups[i + 1]?.time ?? null;
+      const closure = closures.find((item) => item.at > group.time && (nextTime === null || item.at <= nextTime));
+      const until = closure ? closure.at : nextTime;
+      const valueKeys = new Set(group.claims.map((claim) => JSON.stringify(claim.value)));
+      const contradictory = valueKeys.size > 1;
+
+      for (const claim of group.claims) {
+        if (contradictory) {
+          this.#claims.set(claim.id, {
+            ...claim,
+            status:KnowledgeStatus.CONTRADICTED,
+            temporal:{...claim.temporal, validUntil:until},
+            contradictedBy:group.claims.filter((other) => other.id !== claim.id).map((other) => other.id).sort(),
+            supersededBy:null,
+          });
+          continue;
+        }
+        const explicitHistorical = claim.temporal.kind === 'HISTORICAL';
+        const status = explicitHistorical ? KnowledgeStatus.HISTORICAL : until === null ? KnowledgeStatus.CURRENT : KnowledgeStatus.SUPERSEDED;
+        if (status === KnowledgeStatus.SUPERSEDED) superseded.push(claim.id);
+        this.#claims.set(claim.id, { ...claim, status, temporal:{...claim.temporal, validUntil:until}, supersededBy: groups[i + 1]?.claims[0]?.id ?? null });
+      }
     }
     return [...new Set(superseded)].sort();
+  }
+
+  unresolvedState(subjectId, predicate) {
+    const key = slotKey(subjectId, predicate);
+    const claims = (this.#slotClaims.get(key) ?? []).filter((id) => !this.#invalidClaims.has(id)).map((id) => this.#claims.get(id)).filter(Boolean);
+    if (claims.some((claim) => claim.status === KnowledgeStatus.CURRENT)) return null;
+    const unresolved = claims.filter((claim) => [KnowledgeStatus.CONTRADICTED, KnowledgeStatus.UNCERTAIN, KnowledgeStatus.UNRESOLVED].includes(claim.status));
+    if (unresolved.length === 0) return null;
+    const maxTime = Math.max(...unresolved.map((claim) => Number(claim.temporal.validFrom)));
+    const latest = unresolved.filter((claim) => Number(claim.temporal.validFrom) === maxTime);
+    return { status:KnowledgeStatus.UNRESOLVED, subjectId, predicate, claimIds:latest.map((claim) => claim.id).sort(), classifications:[...new Set(latest.map((claim) => claim.status))].sort() };
   }
 
   invalidateClaimsBySourceRevision(revisionId) {

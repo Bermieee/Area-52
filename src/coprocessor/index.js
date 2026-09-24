@@ -65,3 +65,8 @@ export * from './historian-retrieval.js';
 export * from './jev-contracts.js';
 export * from './jev-invocation-gate.js';
 export * from './jev-decision-core.js';
+export * from './jev-domain-adapter.js';
+export * from './jev-lore-adapter.js';
+export * from './jev-scene-adapter.js';
+export * from './jev-retrieval-truth-adapter.js';
+export * from './jev-adapter-matrix.js';

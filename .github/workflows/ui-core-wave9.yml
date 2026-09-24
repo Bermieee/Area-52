@@ -1,0 +1,72 @@
+name: UI.Core Wave 9 validation
+on:
+  push:
+    branches: [Development-UI]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'demo/phase2-shell/**'
+      - 'tests/wave9*.mjs'
+      - 'tests/wave8*.mjs'
+      - 'tests/fixtures/wave8*.mjs'
+      - 'docs/UI_CORE_WAVE_9_*.md'
+      - 'package.json'
+      - '.github/workflows/ui-core-wave9.yml'
+  pull_request:
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'demo/phase2-shell/**'
+      - 'tests/wave9*.mjs'
+      - 'tests/wave8*.mjs'
+      - 'tests/fixtures/wave8*.mjs'
+      - 'docs/UI_CORE_WAVE_9_*.md'
+      - 'package.json'
+concurrency:
+  group: ui-core-wave9-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  wave9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full UI.Core regression
+        run: npm test
+      - name: Wave 9 focused acceptance
+        run: npm run test:ui:wave9
+      - name: Wave 6 focused regression
+        run: npm run test:ui:wave6
+      - name: Wave 6 lifecycle stress
+        run: npm run test:ui:wave6:stress
+      - name: Wave 8 focused regression
+        run: npm run test:ui:wave8
+      - name: Wave 8 cognition stress
+        run: npm run test:ui:wave8:stress
+      - name: Wave 9 shell stress
+        run: npm run test:ui:wave9:stress
+      - name: JavaScript syntax validation
+        run: find src/ui-core demo tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Static shell contract
+        run: |
+          test -f demo/phase2-shell/index.html
+          test -f demo/phase2-shell/README.md
+          grep -q 'DEMO / FIXTURE DATA' demo/phase2-shell/index.html
+          grep -q 'HOST-OWNED SURFACE' demo/phase2-shell/index.html
+          grep -q 'prefers-reduced-motion' demo/phase2-shell/review.css
+          if grep -R -nE 'message-bubble|chat-message|send-message' demo/phase2-shell; then
+            echo 'Fake host-chat UI detected in Wave 9 shell'
+            exit 1
+          fi
+      - name: Browser-facing Wave 9 source guard
+        run: |
+          if grep -R -nE "from ['\"]node:|\\brequire\\s*\\(|\\bprocess\\." demo/phase2-shell --include='*.js'; then
+            echo 'Node-only dependency detected in Wave 9 browser source'
+            exit 1
+          fi
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./demo/phase2-shell/app.js'),import('./demo/phase2-shell/review-workspaces.js'),import('./demo/phase2-shell/scenarios/index.js')]).then(() => console.log('Wave 9 browser module import PASS'))"
+      - name: UI.Core ESM import
+        run: node -e "import('./src/ui-core/index.js').then(() => console.log('UI.Core Wave 9 ESM import PASS'))"

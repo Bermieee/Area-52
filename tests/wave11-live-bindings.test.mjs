@@ -140,12 +140,14 @@ test('chat/turn switch rebinds generation, clears Inspector, coalesces render wo
 });
 
 test('production mode with missing producers is UNAVAILABLE and never falls back to Ember fixtures',()=>{
-  const host=createWave11LiveHost([makeWave11Turn({selection:{turnId:'turn:none',generationId:'gen:none',correlationId:'corr:none'},scenario:'hot'})],'turn:none');
-  for(const key of ['readScene','readHotCognition','readLoreStatus','readCognitiveChoice','readScatter','readCandidateBusEnvelope','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readPromptPlan','readContextReceipt'])host.bundle[key]=()=>null;
+  const listeners=new Set(),host={bundle:{
+    readSelection:()=>({chatId:'chat:none',turnId:'turn:none',generationId:'gen:none',correlationId:'corr:none'}),
+    subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
+  },listenerCount:()=>listeners.size};
   const{ui}=mount(host),read=ui.productionAdapters.cognition.read();
   assert.equal(read.source.mode,ProductDataMode.UNAVAILABLE);assert.equal(read.sources.choice.mode,ProductDataMode.UNAVAILABLE);assert.equal(ui.productAdapter.getSnapshot().wave6.mode,ProductDataMode.UNAVAILABLE);
   assert.doesNotMatch(textOf(ui.shell.nodes.workspace),/DEMO \/ FIXTURE DATA|Ember Tavern/);
-  ui.destroy();
+  ui.destroy();assert.equal(host.listenerCount(),0);
 });
 
 test('fixture review mode and live host binding cannot be mixed',()=>{

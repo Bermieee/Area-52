@@ -28,16 +28,16 @@
       "sourceDigest": "b8de4cc25dc238d90f406c1fd8ee549786edc6d0"
     },
     {
-      "path": "demo/phase2-shell/README.md",
-      "sourceDigest": "fd59466cfbd33d644e3a07a9751e133d5cf14419"
-    },
-    {
       "path": "demo/phase2-shell/app.js",
       "sourceDigest": "706ec67a3ea4ac5a70f036611ad5391598e36648"
     },
     {
       "path": "demo/phase2-shell/index.html",
       "sourceDigest": "989d14edd633a579b3a7c0e5c6adec4dbadd616d"
+    },
+    {
+      "path": "demo/phase2-shell/README.md",
+      "sourceDigest": "fd59466cfbd33d644e3a07a9751e133d5cf14419"
     },
     {
       "path": "demo/phase2-shell/review-workspaces.js",
@@ -460,6 +460,38 @@
       "sourceDigest": "89e60ad9a3bf75b76ade074da222d59b12046bb1"
     },
     {
+      "path": "styles/ui-core-wave2.css",
+      "sourceDigest": "e38b2410fc807ce0865404a5d7ec97ddb456a913"
+    },
+    {
+      "path": "styles/ui-core-wave3.css",
+      "sourceDigest": "7ad0c018df21ebd6d67a2e2b10d26f58c416c01b"
+    },
+    {
+      "path": "styles/ui-core-wave4.css",
+      "sourceDigest": "447699d19f8f37295cbcc9802bd5a201da3b1904"
+    },
+    {
+      "path": "styles/ui-core-wave5.css",
+      "sourceDigest": "d6e09906ac65ccb31cff4354e2305723c428bb80"
+    },
+    {
+      "path": "styles/ui-core-wave6.css",
+      "sourceDigest": "d65a315a6e428d5d8234397b883913bf0f246a86"
+    },
+    {
+      "path": "styles/ui-core-wave7.css",
+      "sourceDigest": "68736a3d62bada231f11ddf5a108796eeb09d959"
+    },
+    {
+      "path": "styles/ui-core-wave8.css",
+      "sourceDigest": "42ec19028bd9c719a3c088c799bf4d6321e7cc54"
+    },
+    {
+      "path": "styles/ui-core.css",
+      "sourceDigest": "8b8e8562bc6e6b88a374b224319c09d8a66e4595"
+    },
+    {
       "path": "tests/fixtures/wave11-live-receipts.mjs",
       "sourceDigest": "645356f6816c29487c3dd0e88c554212397c927b"
     },
@@ -619,7 +651,15 @@
     "src/ui-core/wave8-bindings.js",
     "src/ui-core/wave8-cognition.js",
     "src/ui-core/wave8-production-adapters.js",
-    "src/ui-core/wave8-workspace.js"
+    "src/ui-core/wave8-workspace.js",
+    "styles/ui-core-wave2.css",
+    "styles/ui-core-wave3.css",
+    "styles/ui-core-wave4.css",
+    "styles/ui-core-wave5.css",
+    "styles/ui-core-wave6.css",
+    "styles/ui-core-wave7.css",
+    "styles/ui-core-wave8.css",
+    "styles/ui-core.css"
   ],
   "nodeOnlyToolPaths": [],
   "requiredWebApis": [

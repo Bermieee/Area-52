@@ -1,0 +1,67 @@
+name: UI.Core Wave 11 validation
+on:
+  push:
+    branches: [Development-UI]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'demo/phase2-shell/**'
+      - 'tests/wave7*.mjs'
+      - 'tests/wave8*.mjs'
+      - 'tests/wave9*.mjs'
+      - 'tests/wave10*.mjs'
+      - 'tests/wave11*.mjs'
+      - 'tests/fixtures/wave11*.mjs'
+      - 'docs/UI_CORE_WAVE_11_*.md'
+      - 'package.json'
+      - '.github/workflows/ui-core-wave11.yml'
+  pull_request:
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'demo/phase2-shell/**'
+      - 'tests/wave7*.mjs'
+      - 'tests/wave8*.mjs'
+      - 'tests/wave9*.mjs'
+      - 'tests/wave10*.mjs'
+      - 'tests/wave11*.mjs'
+      - 'tests/fixtures/wave11*.mjs'
+      - 'docs/UI_CORE_WAVE_11_*.md'
+      - 'package.json'
+concurrency:
+  group: ui-core-wave11-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  wave11:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full UI.Core regression
+        run: npm test
+      - name: Wave 7 explainability regression
+        run: npm run test:ui:wave7
+      - name: Wave 8 Brain regression
+        run: npm run test:ui:wave8
+      - name: Wave 9 Phase-2 shell regression
+        run: npm run test:ui:wave9
+      - name: Wave 10 context/forensics regression
+        run: npm run test:ui:wave10
+      - name: Wave 11 live binding acceptance
+        run: npm run test:ui:wave11
+      - name: Wave 11 live binding stress
+        run: npm run test:ui:wave11:stress
+      - name: JavaScript syntax validation
+        run: find src/ui-core demo tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Browser-facing Wave 11 source guard
+        run: |
+          if grep -R -nE "from ['\"]node:|\\brequire\\s*\\(|\\bprocess\\." src/ui-core/wave11-live-bindings.js src/ui-core/wave8-production-adapters.js src/ui-core/wave8-cognition.js src/ui-core/wave8-workspace.js; then
+            echo 'Node-only dependency detected in Wave 11 browser source'
+            exit 1
+          fi
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/ui-core/wave11-live-bindings.js'),import('./src/ui-core/wave8-production-adapters.js'),import('./src/ui-core/wave8-cognition.js'),import('./src/ui-core/wave8-workspace.js')]).then(() => console.log('Wave 11 browser module import PASS'))"
+      - name: UI.Core ESM import
+        run: node -e "import('./src/ui-core/index.js').then(() => console.log('UI.Core Wave 11 ESM import PASS'))"

@@ -46,3 +46,4 @@ export * from './wave6-runtime.js';
 export * from './wave7-explainability.js';
 export * from './wave7-forensics.js';
 export * from './wave7-workspaces.js';
+export * from './wave7-bindings.js';

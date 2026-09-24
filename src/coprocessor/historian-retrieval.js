@@ -220,8 +220,9 @@ export function validateHistorianProviderOutput(value,{input={},task,providerInp
     relevance:candidateSet.candidates.map((x)=>({ref:x.candidateId,score:bestSignal(x.rankSignals)})),
     uncertainty,reasoningSummary,candidates:candidateSet.candidates,candidateSet,retrievalIntentIds:[...(task?.metadata?.retrievalIntentIds ?? [])],
     memoryRevisionRefs:[...(task?.metadata?.memoryRevisionRefs ?? [])],perspectiveConstraint:structuredClone(task?.metadata?.perspectiveConstraint ?? null),
-    evidence:candidateSet.candidates.map((x)=>({id:x.candidateId,semanticKey:x.metadata?.semanticKey ?? x.candidateId,value:x.representationText,
-      temporalStatus:x.truthStatus,authority:x.authorityClass,sourceRevisionRefs:x.sourceRevisionRefs,provenance:x.provenance})),
+    evidence:candidateSet.candidates.map((x)=>({id:x.candidateId,semanticKey:x.metadata?.semanticKey ?? x.candidateId,
+      value:x.metadata?.legacyValue ?? x.representationText,temporalStatus:x.truthStatus,
+      authority:x.metadata?.legacyAuthority ?? x.authorityClass,sourceRevisionRefs:x.sourceRevisionRefs,provenance:x.provenance})),
     authorityGranted:false,memoryMutation:false,truthAuthorityGranted:false,
   });
 }
@@ -246,7 +247,8 @@ export function createHistorianCandidateSet({task,sourceCandidates=[],nomination
       representationText:original.representationText ?? original.summary ?? original.statement ?? null,freshness:CandidateFreshness.FRESH,
       dependencyRevisions:[...(original.dependencyRevisions ?? [])],perspective:structuredClone(original.perspective ?? null),
       metadata:{memoryChannel:original.channel ?? null,sourceRef:original.sourceRef ?? null,episodeId:original.episodeId ?? null,eventId:original.eventId ?? null,
-        reflectionId:original.reflectionId ?? null,semanticKey:original.semanticKey ?? null,historianOnly:true},
+        reflectionId:original.reflectionId ?? null,semanticKey:original.semanticKey ?? null,legacyValue:original.value ?? null,
+        legacyAuthority:original.authority ?? null,historianOnly:true},
       authorityGranted:false,admissionAuthority:false,
     };
   });
@@ -437,7 +439,7 @@ function normalizeLimits(value={}) {
 }
 function legacyProviderInput(task,input) {
   const candidates=input.candidates.map((c)=>({candidateId:required(c.candidateId ?? c.ref,'ref'),ref:required(c.candidateId ?? c.ref,'ref'),
-    summary:String(c.summary ?? c.statement ?? ''),semanticKey:c.semanticKey ?? null,temporalStatus:c.temporalStatus ?? null,authority:c.authority ?? 'UNRESOLVED',
+    summary:String(c.summary ?? c.statement ?? ''),value:c.value ?? c.statement ?? c.summary ?? null,semanticKey:c.semanticKey ?? null,temporalStatus:c.temporalStatus ?? null,authority:c.authority ?? 'UNRESOLVED',
     retrievalIntentIds:c.retrievalIntentIds ?? task.metadata?.retrievalIntentIds ?? [],entityRefs:c.entityRefs ?? [],relationshipRefs:c.relationshipRefs ?? [],
     eventRefs:c.eventRefs ?? [],claimRefs:c.claimRefs ?? [],temporalHints:c.temporalHints ?? (c.temporalStatus?[c.temporalStatus]:[]),
     authorityClass:c.authorityClass ?? (AUTHORITIES.has(c.authority)?c.authority:CandidateAuthorityClass.UNKNOWN),

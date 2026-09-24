@@ -80,7 +80,8 @@ export class Wave11LiveReceiptBinding{
   #read(stage,fn,explicit={}){
     if(!fn)return null;const selection=this.selection(explicit);this.diagnosticsState.reads+=1;
     try{
-      const raw=fn(selection);if(raw==null)return null;assertCoherent(stage,raw,selection);return raw;
+      const request=explicit&&typeof explicit==='object'&&!Array.isArray(explicit)?{...clone(explicit),...selection}:selection;
+      const raw=fn(request);if(raw==null)return null;assertCoherent(stage,raw,selection);return raw;
     }catch(error){
       this.diagnosticsState.rejected+=1;if(error?.code==='LIVE_RECEIPT_STALE')this.diagnosticsState.stale+=1;if(error?.code==='LIVE_RECEIPT_FUTURE')this.diagnosticsState.future+=1;
       this.diagnosticsState.lastError={stage,code:error?.code??'LIVE_RECEIPT_READ_FAILED',message:String(error?.message??error)};throw error;
@@ -90,7 +91,8 @@ export class Wave11LiveReceiptBinding{
   #list(stage,fn,explicit={}){
     if(!fn)return[];const selection=this.selection(explicit);this.diagnosticsState.reads+=1;
     try{
-      const rows=fn(selection)??[];if(!Array.isArray(rows))throw new LiveReceiptBindingError('LIVE_RECEIPT_LIST_INVALID',stage+' reader did not return an array',{stage});
+      const request=explicit&&typeof explicit==='object'&&!Array.isArray(explicit)?{...clone(explicit),...selection}:selection;
+      const rows=fn(request)??[];if(!Array.isArray(rows))throw new LiveReceiptBindingError('LIVE_RECEIPT_LIST_INVALID',stage+' reader did not return an array',{stage});
       return rows.filter(row=>matchesSelection(row,selection,{allowUnknown:false}));
     }catch(error){this.diagnosticsState.rejected+=1;this.diagnosticsState.lastError={stage,code:error?.code??'LIVE_RECEIPT_READ_FAILED',message:String(error?.message??error)};throw error;}
   }

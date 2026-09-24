@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {AuthorityClass, LoreStudyRuntime} from '../src/lore-study-runtime.js';
 import {LoreStudyRuntime as Runtime} from '../src/lore-study-runtime.js';
 import {
   LORE_WAVE3_LIMITS,

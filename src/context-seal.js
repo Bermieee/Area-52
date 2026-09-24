@@ -1,7 +1,8 @@
 import { stableHash,stableJson } from './browser-runtime-utils.js';
 import { SealFallbackState,createContextSealReceipt } from './publication-contracts.js';
 
-export function stablePacketString(value){return stableJson(value);}\nexport function hashPacket(value){return stableHash(stablePacketString(value),{alreadyString:true});}
+export function stablePacketString(value){return stableJson(value);}
+export function hashPacket(value){return stableHash(stablePacketString(value),{alreadyString:true});}
 function deepFreeze(value){
   if(!value||typeof value!=='object'||Object.isFrozen(value))return value;
   Object.freeze(value);for(const key of Object.keys(value))deepFreeze(value[key]);return value;

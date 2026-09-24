@@ -32,6 +32,30 @@ The objective is not to replace one retrieval system with another. The objective
 
 ---
 
+## 2A. 2026-09-23 Phase transition
+
+**Program state:** Phase 1 live integration gate GREEN -> Program Phase 2 entry OPEN.
+
+Area-52 has now crossed the first real integrated-runtime boundary:
+
+- the accepted Nexus/Core, Runtime Fabric, Coprocessor, and UI source sets were copied into `main` without merging or rewriting their worker branches;
+- `main` was packaged as a directly installable SillyTavern extension repository;
+- the extension installed successfully from `https://github.com/Bermieee/Area-52` with authenticated GitHub access because the repository is private;
+- Function Test 001 passed inside SillyTavern's browser runtime;
+- a browser-only `Buffer` incompatibility was exposed by the first live run, repaired on `main`, and added as a permanent no-`Buffer` regression;
+- the live path proved Cognitive Coprocessor -> Runtime Fabric -> Result Bus -> Gather -> Context Seal -> Adaptive Context Runtime -> PromptPlan;
+- current, historical, and unresolved truth boundaries remained intact through publication.
+
+The exact live acceptance evidence is recorded in `docs/PHASE1_LIVE_ACCEPTANCE.md`.
+
+Program Phase 2 is governed by GitHub issues #156 and #157 and by `docs/PHASE2_READINESS.md`. Candidate implementation remains dependency/evidence gated even though Phase 2 entry is now open.
+
+### Naming note
+
+The numbered subsystem-development phases below predate the newer **Program Phase 2** roadmap. They remain useful as a subsystem maturation sequence, but they are **not** the same thing as the current Program Phase 2 candidate program tracked in #156-#176.
+
+---
+
 # 3. Development phases
 
 ## Phase 0 — Cognitive contract freeze
@@ -646,10 +670,32 @@ A subsystem is not done unless it documents:
 
 # 8. Current program state
 
-**Current phase:** Phase 0 — Cognitive contract freeze.
+**Current program stage:** Phase 1 live integration GREEN -> Program Phase 2 entry OPEN.
 
-**Implementation posture:** architecture and test-fixture work may proceed; backend commitment and Nexus integration may not.
+**Live integration baseline:** `main` is now an installable SillyTavern extension package containing copied accepted source from the active Phase 1 implementation lanes. Worker branches remain intact and continue to own their lane-specific development.
 
-**First target:** complete P0 contracts and the first golden-world fixture, then implement the smallest end-to-end vertical slice.
+**Function Test 001:** GREEN in the real SillyTavern browser runtime.
 
-The project should resist the temptation to perfect embeddings, graph storage, rerankers, or UI before that slice proves that the complete cognitive lifecycle is coherent.
+The successful live test proved:
+
+- four-worker dynamic fan-out;
+- REQUIRED foreground quorum at 70ms;
+- late opportunistic Green Room routing after the foreground boundary;
+- Runtime admission/execution through `SATISFIED / COMPLETE`;
+- real Result Bus late-result containment;
+- Gather compilation boundary;
+- immutable Context Seal;
+- current vs historical vs unresolved truth preservation;
+- competing evidence preservation;
+- Adaptive Context delivery to a READY PromptPlan.
+
+**Phase 2 posture:** implementation work may now begin under staged promotion. The Phase 2 Systems Audit remains active and individual candidates still require their dependency-specific evidence before promotion.
+
+**Parallel qualification work:** Function Tests 002–006 continue replacing fixtures with real Scene Intelligence, Memory, Lore, external providers, and representative RP workloads. Long-run stress, restart/recovery, resource/cost behavior, diagnostics, and real-story quality remain evidence to collect rather than assumptions.
+
+See:
+
+- `docs/PHASE1_LIVE_ACCEPTANCE.md`
+- `docs/PHASE2_READINESS.md`
+- GitHub #156 — Phase 2 Program Tracker
+- GitHub #157 — Phase 1 Systems Audit + Promotion Criteria

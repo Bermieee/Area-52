@@ -54,9 +54,13 @@ The current direction is explicitly hybrid: lore study, sparse + dense retrieval
 
 ## Status
 
-**0.1-dev — blueprint phase.**
+**0.1-alpha — Phase 1 live integration GREEN; Program Phase 2 entry OPEN.**
 
-Implementation is subordinate to the blueprint. Area-52 remains isolated from production Nexus until the cognitive contracts and invariants are proven.
+On September 23, 2026, Area-52 was installed directly into SillyTavern from the private GitHub repository and completed Function Test 001 successfully in the real browser extension runtime. The integrated path exercised the Cognitive Coprocessor, Runtime Fabric, Result Bus, Gather, Context Seal, Adaptive Context Runtime, and PromptPlan as one system.
+
+The live acceptance record is in [`docs/PHASE1_LIVE_ACCEPTANCE.md`](docs/PHASE1_LIVE_ACCEPTANCE.md). Phase 2 readiness, promotion rules, and remaining evidence requirements are in [`docs/PHASE2_READINESS.md`](docs/PHASE2_READINESS.md).
+
+Phase 2 may now begin under staged evidence gates. This does **not** mean every Phase 1 subsystem is feature-complete: Scene Intelligence, real Memory/Lore retrieval, external providers, long-run recovery, and representative RP workload evidence continue through Function Tests 002–006 and the Phase 1 Systems Audit.
 
 
 ## SillyTavern direct install
@@ -68,3 +72,21 @@ Phase 1 Function Test 001 is assembled on `main` as a SillyTavern UI extension. 
 The accepted worker-lane files are copied into `main`; their source branches remain intact. After installation, open the Extensions panel, find **Area-52 — Phase 1**, and press **Run Test**. The same test is available from the browser console as `Area52.runFunctionTest001()`.
 
 Function Test 001 exercises the copied Coprocessor, Runtime Fabric, Nexus Result Bus/Context Seal, and Adaptive Context Runtime/PromptPlan boundaries using the deterministic Ember Tavern / Sun Blade fixture.
+
+
+### Live acceptance result
+
+Function Test 001 is **GREEN in SillyTavern**, not only in Node CI.
+
+Accepted live receipts:
+
+- Context packet hash: `28e5dda5548d0e24554c5118efd6774e35555cbb104fb428d0ade4767ae2a5f4`
+- PromptPlan: `prompt-plan:1f03f27b6f1bd03545e78880`
+- Four worker obligations: `SATISFIED / COMPLETE`
+- Foreground quorum: `70ms`
+- One late Green Room result correctly routed away from the active foreground
+- Historical Sun Blade location remained historical
+- Current Sun Blade location remained unresolved
+- Competing fate evidence remained preserved
+
+Because the repository is private, SillyTavern installation currently requires authenticated GitHub access. Once authenticated, the repository URL installs the extension directly.

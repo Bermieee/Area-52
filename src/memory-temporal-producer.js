@@ -3,6 +3,7 @@ import {
   MEMORY_CONTRACT_VERSION,
   MEMORY_LIMITS,
   deepClone,
+  stableStringify,
 } from './memory-contracts.js';
 import {TemporalStateGraph} from './temporal-state-graph.js';
 import {MemoryGreenRoomStore} from './memory-green-room.js';
@@ -146,7 +147,31 @@ export class MemoryTemporalProducer {
 
   resolveHistorianMemoryRequest(request) {
     try {
-      return this.historian.resolveHistorianMemoryRequest(request);
+      const currentRevisionRefs=this.memoryRevisionRefs();
+      const requested=[...(request?.memoryRevisionRefs??[])].sort();
+      if (requested.length && stableStringify(requested)!==stableStringify([...currentRevisionRefs].sort())) {
+        return {
+          kind:'HistorianMemoryResolution',
+          contractVersion:'1.0.0',
+          status:'DEGRADED',
+          artifacts:[],
+          unavailableChannels:['MEMORY_REVISION_FENCE_CHANGED'],
+          memoryRevisionRefs:requested,
+          perspectiveStatus:request?.perspectiveConstraint?.scope??'WORLD',
+          evidenceBytes:0,
+          authorityGranted:false,
+          memoryMutation:false,
+        };
+      }
+      const innerRequest={
+        ...(request??{}),
+        memoryRevisionRefs:this.historian.memoryRevisionRefs(),
+      };
+      const result=this.historian.resolveHistorianMemoryRequest(innerRequest);
+      return {
+        ...result,
+        memoryRevisionRefs:requested.length?requested:currentRevisionRefs,
+      };
     } catch (error) {
       this.pushDiagnostic({kind:'MemoryHistorianResolverDegraded',reason:error?.message??String(error)});
       return {

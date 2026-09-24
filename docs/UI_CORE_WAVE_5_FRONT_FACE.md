@@ -39,3 +39,24 @@ Home does not load large backing collections.
 Front Face is observational. It does not settle claims, mutate memory, rewrite lore, promote lifecycle state, or write canonical world state. Inspection delegates to the existing Inspector Framework.
 
 Deterministic product fixtures are marked as fixtures and do not imply backend integration.
+
+
+## Phase 2 visual carry-forward
+
+Wave 5 Front Face is the base product composition for Phase 2, not a separate visual skin.
+
+Phase 2 surfaces inherit the canonical UI.Core visual language:
+
+- deep navy/charcoal layered surfaces;
+- cyan/blue primary interaction accents;
+- teal/green healthy states, amber warnings and restrained red errors;
+- rounded cards and compact pill/chip status controls;
+- crisp high-contrast typography with muted secondary text;
+- compact spacing suitable for coexistence beside an active SillyTavern chat;
+- soft borders/glow used for hierarchy rather than decorative animation;
+- shared widget-health treatments through canonical status values and `HealthPill`;
+- shared button variants and sizes rather than workspace-specific controls.
+
+Future slide-out/collapsed Front Face work should compose these same primitives at different densities. Expanded views must not introduce another design system.
+
+Visible shell branding is configurable. Area-52 remains the current name; the planned post-Phase-2 Nexus rename is a product configuration change rather than a UI rewrite.

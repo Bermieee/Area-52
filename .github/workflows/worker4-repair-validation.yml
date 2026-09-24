@@ -3,8 +3,9 @@ on:
   push:
     branches: [Development-Repair-Validation]
   workflow_dispatch:
+
 jobs:
-  worker4:
+  lore:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -14,10 +15,37 @@ jobs:
           node-version: 22
       - name: Lore focused Worker 4 repro + accepted regressions
         run: node --test tests/worker4-lore190-repro.test.mjs tests/lore-wave1.mjs tests/lore-wave2.mjs
+
+  jev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Jev focused Worker 4 repro + accepted regressions
         run: node --test tests/worker4-jev211-repro.test.mjs tests/coprocessor-wave8-jev.test.mjs tests/coprocessor-wave9-lore.test.mjs tests/coprocessor-wave9-scene.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/coprocessor-wave9-cross-domain.test.mjs tests/coprocessor-wave9-authority.test.mjs
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: UI Wave 9 independent focused validation
         run: node --test tests/wave9.test.mjs tests/wave9-stress.mjs
+
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Browser/source syntax guard
         run: |
           find src/coprocessor src/ui-core demo/phase2-shell -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check

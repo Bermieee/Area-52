@@ -534,7 +534,7 @@ export class SpeculativeWarmCoordinator {
         precisionReceipt,
         compiledRepresentation,
         createdAt: Number(request.context.createdAt ?? 0),
-        expiresAfterTurns: Number(request.context.expiresAfterTurns ?? this.limits.defaultTtlTurns),
+        expiresAfterTurns: Number(request.context.expiresAfterTurns ?? this.cache.defaultTtlTurns ?? this.limits.defaultTtlTurns),
         metadata: {
           coordinatorVersion: SPECULATIVE_WARM_COORDINATOR_VERSION,
           providerMode: this.adapters.providerMode,

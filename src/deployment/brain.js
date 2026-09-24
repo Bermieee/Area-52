@@ -8,6 +8,8 @@ import {
   createRetrievalChannelDescriptor,
 } from '../candidate-bus-contracts.js';
 import { LoreStudyRuntime } from '../lore-study-runtime.js';
+import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
+import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
@@ -257,6 +259,8 @@ export class DevelopmentDeploymentBrain {
     this.lore = new LoreStudyRuntime();
     this.loreSystem = new LoreHierarchyRetrievalSystem({ runtime: this.lore });
     this.scene = new SceneLifecycleRuntime();
+    this.memory = new MemoryTemporalProducer();
+    this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
     this.core.registerRetrievalChannel(this.loreChannel);
@@ -350,6 +354,19 @@ export class DevelopmentDeploymentBrain {
     if (this.core.hotCognition.activeChatNamespace !== String(chatId)) this.core.activateHotCognitionChat(String(chatId));
     this.core.consumeSceneSignal(signal, { chatNamespace: String(chatId) });
     return signal;
+  }
+
+  admitMemoryEvidenceMapping(input = {}) {
+    const receipt = this.memorySurface.adapters.admitExternalEvidenceMapping(input);
+    const evidence = receipt.memoryEvidenceId ? this.memory.graph.evidenceRecord(receipt.memoryEvidenceId) : null;
+    return {
+      receipt,
+      evidence,
+      status: this.memory.status(),
+      authorityGranted: false,
+      canonicalMutationAuthority: false,
+      contextSealAuthority: false,
+    };
   }
 
   async runTurn({
@@ -518,6 +535,13 @@ export class DevelopmentDeploymentBrain {
       }, get(selection)?.selection ?? {}),
       readGather: (selection) => attachIdentity(get(selection)?.published?.gatherReceipt, get(selection)?.selection ?? {}),
       readLoreStatus: (selection) => attachIdentity(get(selection)?.loreStatus, get(selection)?.selection ?? {}),
+      readMemoryStatus: (selection) => attachIdentity({
+        kind: 'DeploymentMemoryStatus',
+        ...this.memory.status(),
+        authorityGranted: false,
+        canonicalMutationAuthority: false,
+        contextSealAuthority: false,
+      }, get(selection)?.selection ?? {}),
     };
   }
 
@@ -542,6 +566,7 @@ export class DevelopmentDeploymentBrain {
       externalDatabaseRequired: false,
       externalOrchestrationRequired: false,
       remoteProviderRequired: false,
+      memory: this.memory.status(),
       mainMutationAuthority: false,
     };
   }

@@ -1,0 +1,2 @@
+import {runCognitiveAuditWave2GoldenWorld} from '../tests/cognitive-audit-wave2-harness.js';
+const r=runCognitiveAuditWave2GoldenWorld();for(const [name,pass] of Object.entries(r.metrics))console.log(`${pass===true?'PASS':pass===false?'FAIL':'INFO'} ${name}: ${pass}`);console.log(`Cognitive Audit Wave 2 acceptance: ${Object.values(r.metrics).filter(x=>x===true).length}/${Object.values(r.metrics).filter(x=>typeof x==='boolean').length}`);if(!r.pass)process.exitCode=1;

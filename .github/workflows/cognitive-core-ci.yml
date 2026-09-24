@@ -27,5 +27,9 @@ jobs:
         run: node scripts/wave4-acceptance-report.mjs
       - name: Framework Wave 1 acceptance report
         run: node scripts/framework-wave1-acceptance-report.mjs
-      - name: Framework browser-host acceptance
+      - name: Cognitive Audit Wave 2 acceptance report
+        run: node scripts/cognitive-audit-wave2-acceptance-report.mjs
+      - name: Cognitive Audit stress report
+        run: node scripts/cognitive-audit-stress-report.mjs
+      - name: Framework + Audit browser-host acceptance
         run: node scripts/framework-browser-acceptance.mjs

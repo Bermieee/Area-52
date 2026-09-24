@@ -4,7 +4,7 @@ import { VirtualListController } from './virtualization.js';
 import { ProductDetailLevel } from './wave5-product-model.js';
 import { createAuthorityPill, createProductHealthSurface, sourceStateMessage } from './wave6-presentation.js';
 import { ExplainabilityView, buildGenerationExplainability, createForensicBookmark, diffGenerationContext, explainContextSeal, explainContextSection } from './wave7-explainability.js';
-import { forensicWhy, unresolvedConflictModel } from './wave7-forensics.js';
+import { ForensicMetadataIndex, forensicWhy, unresolvedConflictModel } from './wave7-forensics.js';
 
 export function registerWave7Actions(actionRouter,{presentation}={}){
   const releases=[];
@@ -88,10 +88,10 @@ function renderForensicsWorkspace(host,ctx){
   const listHost=element(d,'section',{className:'a52-card a52-forensic-timeline',attrs:{'aria-label':'Cognitive forensic timeline'}});
   listHost.append(element(d,'h2',{text:`Cognitive timeline · ${timeline.rows.length} recorded/reference items`}));
   const virtualHost=element(d,'div');listHost.append(virtualHost);host.append(listHost);
-  const initial=applyFilters(ctx,timeline.rows,generationId);
+  const filterIndex=new ForensicMetadataIndex(timeline.rows);const initial=applyFilters(ctx,filterIndex,generationId);
   const controller=new VirtualListController({host:virtualHost,items:initial,itemSize:58,overscan:8,scope:ctx.scope,keyForItem:x=>x.id,renderItem(item){return forensicRow(d,item,ctx);}});controller.mount();
   ctx.scope.add(()=>{});
-  bindFilterRefresh(ctx,controller,timeline.rows,generationId);
+  bindFilterRefresh(ctx,controller,filterIndex,generationId);
   if(timeline.runtimeWorkRefs.length){
     host.append(section(d,'Related Runtime work'),state(d,'Execution history is separate',`${timeline.runtimeWorkRefs.length} Runtime Work Ledger reference${timeline.runtimeWorkRefs.length===1?'':'s'} available. Open a reference to inspect computational execution without merging it into the cognitive timeline.`));
     const runtimeLinks=element(d,'div',{className:'a52-inline-status'});for(const ref of timeline.runtimeWorkRefs.slice(0,12))runtimeLinks.append(createButton(d,{label:ref,scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspectRuntimeRef(ctx,ref)}));host.append(runtimeLinks);
@@ -182,15 +182,15 @@ function forensicFilters(d,ctx,timeline){
   box.append(filters,element(d,'span',{className:'a52-muted',text:`${timeline.rows.length} indexed timeline items`}));return box;
 }
 
-function bindFilterRefresh(ctx,controller,rows,generationId){
+function bindFilterRefresh(ctx,controller,index,generationId){
   const root=controller.host.parentNode??controller.host;const controls=root?.parentNode?.querySelectorAll?.('[data-wave7-filter]')??[];
   const schedule=()=>ctx.scheduler.invalidate(`wave7:forensic-filter:${generationId??'none'}`,()=>{
-    const filters={...ctx.presentation.get().filters,generationId};for(const node of controls){const key=node.dataset.wave7Filter;filters[key]=node.value??'';}ctx.presentation.setFilters(filters);controller.setItems(applyFilters(ctx,rows,generationId));
+    const filters={...ctx.presentation.get().filters,generationId};for(const node of controls){const key=node.dataset.wave7Filter;filters[key]=node.value??'';}ctx.presentation.setFilters(filters);controller.setItems(applyFilters(ctx,index,generationId));
   },{cost:'NORMAL'});
   for(const node of controls)ctx.scope.listen(node,node.tagName==='SELECT'?'change':'input',schedule);
 }
 
-function applyFilters(ctx,rows,generationId){return ctx.forensics.queryTimeline({...ctx.presentation.get().filters,generationId},{generationId,limit:10000})||rows;}
+function applyFilters(ctx,index,generationId){return index.query({...ctx.presentation.get().filters,generationId});}
 
 function forensicRow(d,item,ctx){
   const button=element(d,'button',{className:'a52-forensic-row',attrs:{type:'button','aria-label':`${item.eventType}: ${item.impact}`},dataset:{status:item.status,stage:item.stage}});

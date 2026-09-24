@@ -17,8 +17,11 @@ export class SpecialistExecutionLayer {
     if(!specialist)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No specialist contract for ${task.taskType}`);
     const providerInput=specialist.buildInput(task,input??{});
     const contextTokens=estimateTokens(providerInput);
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens,maxCostClass,requireStructuredOutput:true,
-      expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal)})
+    const eligibilityOptions={contextTokens,maxCostClass,requireStructuredOutput:true,
+      expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal)};
+    const eligible=(profileId==null
+      ? this.profiles.eligibleProfiles(task,eligibilityOptions)
+      : this.profiles.discover(task,eligibilityOptions).profiles)
       .filter(profile=>this.adapters.get(profile.providerId));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
     const profile=profileId==null?eligible[0]:eligible.find((candidate)=>candidate.profileId===profileId);

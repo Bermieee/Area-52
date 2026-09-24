@@ -18,9 +18,17 @@ export async function validateWorkerOutput(raw, task, {
     return failed(task, FailureCode.CORRELATION_MISMATCH, 'worker result identity does not match task envelope', attempt, false, { resultId: result.resultId });
   }
 
-  const missingCapabilities = task.requiredCapabilities.filter((capability) => !result.capabilities.includes(capability));
-  if (missingCapabilities.length) {
-    return failed(task, FailureCode.SCHEMA_VALIDATION_FAILED, 'worker result does not attest required capabilities', attempt, attempt <= maxRetries, { missingCapabilities });
+  const acceptableCapabilitySets = [
+    [...task.requiredCapabilities],
+    ...(task.fallbackCapabilitySets ?? []).map((set) => set.map((request) => request.id)),
+  ];
+  const satisfiedCapabilitySet = acceptableCapabilitySets.find((set) => set.every((capability) => result.capabilities.includes(capability))) ?? null;
+  if (!satisfiedCapabilitySet) {
+    const missingCapabilities = task.requiredCapabilities.filter((capability) => !result.capabilities.includes(capability));
+    return failed(task, FailureCode.SCHEMA_VALIDATION_FAILED, 'worker result does not attest a complete primary or declared fallback capability set', attempt, attempt <= maxRetries, {
+      missingCapabilities,
+      acceptableCapabilitySets,
+    });
   }
 
   const freshnessOutcome = classifyFreshness(result.freshnessIdentity, currentRevisionSet);

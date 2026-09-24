@@ -39,6 +39,7 @@ export class CoprocessorTelemetry {
   snapshot() {
     const retrieval = { HIGH: 0, MIXED: 0, LOW: 0 };
     const resultDestinations = {};
+    const precision = { requests: 0, inputCandidates: 0, outputCandidates: 0, correctivePasses: 0, staleRejected: 0, authorityRejected: 0, deduped: 0, stages: {}, fallbacks: {} };
     let warmHit = 0, warmMiss = 0, retry = 0, fallback = 0, staleDrop = 0;
     for (const event of this.#events) {
       if (event.type === TelemetryEvent.WARM_HIT || (event.type === TelemetryEvent.CACHE_HIT && event.payload.cacheClass === 'WARM')) warmHit += 1;
@@ -48,6 +49,15 @@ export class CoprocessorTelemetry {
       if (event.type === TelemetryEvent.STALE_DROPPED) staleDrop += 1;
       if (event.type === TelemetryEvent.RETRIEVAL_QUALITY && retrieval[event.payload.quality] != null) retrieval[event.payload.quality] += 1;
       if (event.type === TelemetryEvent.RESULT_ROUTED && typeof event.payload.destination === 'string') resultDestinations[event.payload.destination] = (resultDestinations[event.payload.destination] ?? 0) + 1;
+      if (event.type === TelemetryEvent.PRECISION_REQUEST) {
+        precision.requests += 1; precision.inputCandidates += Number(event.payload.inputCandidateCount ?? 0); if (event.payload.correctivePass) precision.correctivePasses += 1;
+      }
+      if (event.type === TelemetryEvent.PRECISION_STAGE) {
+        precision.outputCandidates += Number(event.payload.outputCandidateCount ?? 0); if (event.payload.stage) precision.stages[event.payload.stage] = (precision.stages[event.payload.stage] ?? 0) + 1;
+      }
+      if (event.type === TelemetryEvent.PRECISION_FALLBACK && event.payload.fallbackStage) precision.fallbacks[event.payload.fallbackStage] = (precision.fallbacks[event.payload.fallbackStage] ?? 0) + 1;
+      if (event.type === TelemetryEvent.CANDIDATE_REJECTED) { if (event.payload.stale) precision.staleRejected += 1; if (event.payload.authorityViolation) precision.authorityRejected += 1; }
+      if (event.type === TelemetryEvent.CANDIDATE_DEDUPED) precision.deduped += Number(event.payload.duplicateCount ?? 1);
     }
     return Object.freeze({
       totalEvents: this.#events.length,
@@ -55,6 +65,7 @@ export class CoprocessorTelemetry {
       eventCounts: Object.freeze(Object.fromEntries(this.#counters)),
       warm: Object.freeze({ hit: warmHit, miss: warmMiss }),
       retrieval: Object.freeze(retrieval),
+      precision: Object.freeze({ ...precision, stages: Object.freeze(precision.stages), fallbacks: Object.freeze(precision.fallbacks) }),
       retry,
       fallback,
       staleDrop,

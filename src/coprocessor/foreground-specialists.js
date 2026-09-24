@@ -1,5 +1,6 @@
 import { FailureCode } from './constants.js';
 import { wave3SpecialistForTask } from './wave3-specialists.js';
+import { precisionSpecialistForTask } from './precision-specialists.js';
 
 const TRUST=['DOWN','STABLE','UP','UNKNOWN'];
 const ASSESS=['SUPPORTED','CONFLICTING','INSUFFICIENT','UNRESOLVED','LOW_CONFIDENCE'];
@@ -13,7 +14,7 @@ export const ForegroundSpecialists=Object.freeze({
   TRUTH_PRECISION:Object.freeze({taskType:'TRUTH_PRECISION',buildInput:buildTruthInput,normalize:normalizeTruth}),
 });
 
-export function specialistForTask(taskType){return ForegroundSpecialists[taskType]??wave3SpecialistForTask(taskType);}
+export function specialistForTask(taskType){return ForegroundSpecialists[taskType]??wave3SpecialistForTask(taskType)??precisionSpecialistForTask(taskType);}
 
 export function buildHistorianInput(task,input={}){
   const candidates=array(input.candidates,'Historian.candidates').map((c)=>({

@@ -5,6 +5,8 @@ export const CoprocessorPlacementPolicy = Object.freeze({
   WARM_VALIDATION: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.OPPORTUNISTIC, runtimeEnforced: false }),
   HISTORIAN_RETRIEVAL: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.REQUIRED }),
   ADAPTIVE_RETRIEVAL: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.REQUIRED }),
+  PRECISION_RERANK: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.REQUIRED, runtimeEnforced: false }),
+  PRECISION_SEMANTIC_JUDGE: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.OPPORTUNISTIC, runtimeEnforced: false }),
   GRAPH_WALK: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.REQUIRED }),
   TRUTH_PRECISION: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.REQUIRED }),
   GREEN_ROOM: Object.freeze({ placement: Placement.HOT, layers: Object.freeze(['L1']), resultClass: ResultClass.OPPORTUNISTIC }),

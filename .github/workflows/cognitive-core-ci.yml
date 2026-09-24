@@ -39,3 +39,5 @@ jobs:
         run: node scripts/framework-browser-acceptance.mjs
       - name: Core browser-runtime execution acceptance
         run: node scripts/core-browser-runtime-acceptance.mjs
+      - name: Phase 1 Core closure evidence
+        run: node scripts/phase1-core-closure-evidence.mjs

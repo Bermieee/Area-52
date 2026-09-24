@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '../browser-compat.js';
 import { ResultClass, ResultDestination } from './constants.js';
 
 export function toNexusCognitiveResult(result, task, {
@@ -118,7 +118,7 @@ export class StructuredCompilerFixture {
 }
 
 export function hashPacket(value) {
-  return createHash('sha256').update(stableString(value), 'utf8').digest('hex');
+  return sha256Hex(stableString(value));
 }
 function stableString(value) {
   if (Array.isArray(value)) return `[${value.map(stableString).join(',')}]`;

@@ -1,4 +1,5 @@
-const bytes=(value)=>Buffer.byteLength(JSON.stringify(value),'utf8');
+import { utf8ByteLength } from './browser-compat.js';
+const bytes=(value)=>utf8ByteLength(JSON.stringify(value));
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const factKey=(f)=>JSON.stringify([f.e??f.subjectId,f.p??f.predicate,f.v??f.value]);
 

@@ -1,4 +1,4 @@
-import { performance } from 'node:perf_hooks';
+import { nowMs,utf8ByteLength } from './browser-compat.js';
 import { deliveryHash } from './adaptive-context-contracts.js';
 
 const pct=(n,d)=>d?Number((n/d).toFixed(6)):1;
@@ -21,7 +21,7 @@ export function benchmarkAdaptiveDelivery({delivery,requiredSemanticKeys=[],cost
   const temporalRetention=historical.every(x=>x.temporalStatus&&x.temporalStatus!=='CURRENT')?1:0;
   const unresolvedRetention=unresolved.every(x=>x.temporalStatus&&x.temporalStatus!=='CURRENT')?1:0;
   const currentStateRetention=current.every(x=>x.temporalStatus==='CURRENT')?1:0;
-  const renderedSize=delivery?.rendered?Buffer.byteLength(JSON.stringify(delivery.rendered),'utf8'):0;
+  const renderedSize=delivery?.rendered?utf8ByteLength(JSON.stringify(delivery.rendered)):0;
   const allocatedSize=plan?.budget?.allocated??0;
   const costEstimate=typeof costEstimator==='function'?costEstimator({allocatedTokens:allocatedSize,renderedBytes:renderedSize,profileId:plan?.modelProfileId??null}):null;
   return{
@@ -42,6 +42,6 @@ export function compareProfileDeliveries(deliveries=[]){
 }
 
 export function timedDelivery(runtime,input){
-  const start=performance.now(),delivery=runtime.deliver(input),elapsedMs=performance.now()-start;
+  const start=nowMs(),delivery=runtime.deliver(input),elapsedMs=nowMs()-start;
   return{delivery,elapsedMs};
 }

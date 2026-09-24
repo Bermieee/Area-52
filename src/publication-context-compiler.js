@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex,utf8ByteLength } from './browser-compat.js';
 import { KnowledgeStatus } from './contracts.js';
 import { createCompilerReceipt } from './publication-contracts.js';
 
 const clone=(v)=>structuredClone(v);
-const hash=(v)=>createHash('sha256').update(String(v),'utf8').digest('hex').slice(0,16);
-const bytes=(v)=>Buffer.byteLength(JSON.stringify(v),'utf8');
+const hash=(v)=>sha256Hex(String(v)).slice(0,16);
+const bytes=(v)=>utf8ByteLength(JSON.stringify(v));
 const historical=new Set([KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED]);
 const unresolved=new Set([KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNCERTAIN,KnowledgeStatus.UNRESOLVED]);
 

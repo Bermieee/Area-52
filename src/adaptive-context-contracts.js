@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './browser-compat.js';
 
 const freeze=(value)=>Object.freeze(value);
 const enumValues=(value)=>new Set(Object.values(value));
@@ -43,7 +43,7 @@ function stable(value){
   return value;
 }
 export function stableDeliveryString(value){return JSON.stringify(stable(value));}
-export function deliveryHash(value){return createHash('sha256').update(stableDeliveryString(value),'utf8').digest('hex');}
+export function deliveryHash(value){return sha256Hex(stableDeliveryString(value));}
 
 export function createPromptContribution({
   id,slot,sourceCategory,owner='CONTEXT_DELIVERY',semantic=false,semanticRefs=[],content=null,

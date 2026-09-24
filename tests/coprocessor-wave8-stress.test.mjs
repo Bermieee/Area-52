@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Capability,CapabilityProfileRegistry,DeterministicProviderAdapter,ProviderAdapterRegistry,JevDecisionCore,JevDecisionShape,JevOutcome,JevProviderExecutor,createJevDecisionRequest,
+  Capability,CapabilityProfileRegistry,DeterministicProviderAdapter,FailureCode,ProviderAdapterRegistry,JevDecisionCore,JevDecisionShape,JevOutcome,JevProviderExecutor,createJevDecisionRequest,
 } from '../src/coprocessor/index.js';
 
 function r(i,extra={}){return createJevDecisionRequest({decisionId:'stress:'+i,decisionType:'STRESS',decisionShape:JevDecisionShape.CHOOSE_ONE,turnId:'t:'+i,taskId:'j:'+i,correlationId:'c:'+i,
@@ -30,3 +30,27 @@ test('Wave 8 focused stress stays bounded, idempotent, revision-safe and non-aut
 test('single cognitive execution resource still supports Jev architecture',async()=>{const core=new JevDecisionCore({providerExecutor:ex(1)});for(let i=2000;i<2050;i++){const x=await core.decide(r(i),{currentRevisionState:state(i)});assert.equal(x.outcome,'DECIDED');assert.equal(x.providerProvenance.workerId,'slot:0');}});
 
 test('parallel bounded decisions do not cross-contaminate identity or revisions',async()=>{const core=new JevDecisionCore({providerExecutor:ex(2)});const results=await Promise.all(Array.from({length:100},(_,k)=>{const i=3000+k;return core.decide(r(i),{currentRevisionState:state(i)});}));assert.equal(new Set(results.map(x=>x.decisionId)).size,100);assert.equal(results.every(x=>x.outcome==='DECIDED'&&!x.authorityGranted),true);});
+
+test('provider timeout under focused load degrades to UNRESOLVED without authority or retry loops',async()=>{
+  const profiles=new CapabilityProfileRegistry();profiles.register({profileId:'timeout-profile',workerId:'slot:timeout',providerId:'timeout-provider',capabilities:[Capability.SEMANTIC_JUDGMENT],placements:['HOT'],supportedLayers:['L1'],maxContextTokens:100000,maxOutputTokens:2000});
+  const adapters=new ProviderAdapterRegistry();adapters.register(new DeterministicProviderAdapter({providerId:'timeout-provider',capabilities:[Capability.SEMANTIC_JUDGMENT],handlers:{JEV_DECISION:()=>{throw Object.assign(new Error('timeout'),{code:FailureCode.PROVIDER_TIMEOUT});}}}));
+  const core=new JevDecisionCore({providerExecutor:new JevProviderExecutor({profiles,adapters})});
+  const results=[];for(let i=4000;i<4050;i++)results.push(await core.decide(r(i),{currentRevisionState:state(i)}));
+  assert.equal(results.every(x=>x.outcome==='UNRESOLVED'&&x.serviceStatus==='JEV_UNAVAILABLE'&&!x.authorityGranted&&!x.canonicalMutation),true);
+  const m=core.metricsSnapshot();assert.equal(m.timeouts,50);assert.equal(m.providerCalls,50);assert.equal(m.retries,0);
+});
+
+test('malformed provider output under repeated decisions fails closed INVALID without unbounded retry',async()=>{
+  const profiles=new CapabilityProfileRegistry();profiles.register({profileId:'bad-profile',workerId:'slot:bad',providerId:'bad-provider',capabilities:[Capability.SEMANTIC_JUDGMENT],placements:['HOT'],supportedLayers:['L1'],maxContextTokens:100000,maxOutputTokens:2000});
+  const adapters=new ProviderAdapterRegistry();adapters.register(new DeterministicProviderAdapter({providerId:'bad-provider',capabilities:[Capability.SEMANTIC_JUDGMENT],handlers:{JEV_DECISION:()=>({text:'{"truncated":'})}}));
+  const core=new JevDecisionCore({providerExecutor:new JevProviderExecutor({profiles,adapters})});
+  const results=[];for(let i=4100;i<4150;i++)results.push(await core.decide(r(i),{currentRevisionState:state(i)}));
+  assert.equal(results.every(x=>x.outcome==='INVALID'&&x.serviceStatus==='JEV_INVALID'&&!x.authorityGranted&&!x.canonicalMutation),true);
+  const m=core.metricsSnapshot();assert.equal(m.invalid,50);assert.equal(m.providerCalls,50);assert.equal(m.retries,0);
+});
+
+test('provider disagreement never becomes majority truth or canonical authority',async()=>{
+  function choiceExecutor(choice,providerId){const profiles=new CapabilityProfileRegistry();profiles.register({profileId:'profile:'+providerId,workerId:'slot:'+providerId,providerId,capabilities:[Capability.SEMANTIC_JUDGMENT],placements:['HOT'],supportedLayers:['L1'],maxContextTokens:100000,maxOutputTokens:2000});const adapters=new ProviderAdapterRegistry();adapters.register(new DeterministicProviderAdapter({providerId,capabilities:[Capability.SEMANTIC_JUDGMENT],handlers:{JEV_DECISION:()=>({payload:{...payload(),selectedOptionIds:[choice],rejectedOptionIds:[choice==='A'?'B':'A'],evidenceUsed:[choice==='A'?'eA':'eB']}})}}));return new JevProviderExecutor({profiles,adapters});}
+  const left=new JevDecisionCore({providerExecutor:choiceExecutor('A','provider-left')});const right=new JevDecisionCore({providerExecutor:choiceExecutor('B','provider-right')});
+  for(let i=4200;i<4250;i++){const q=r(i);const a=await left.decide(q,{currentRevisionState:state(i)});const b=await right.decide(q,{currentRevisionState:state(i)});assert.deepEqual(a.selectedOptionIds,['A']);assert.deepEqual(b.selectedOptionIds,['B']);assert.equal(a.authorityGranted,false);assert.equal(b.authorityGranted,false);assert.equal(a.requiresOwnerSettlement,true);assert.equal(b.requiresOwnerSettlement,true);}
+});

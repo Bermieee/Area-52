@@ -46,10 +46,10 @@ export function normalizePromptPlanReadModel(model){
   // Wave 6 compatibility for raw PromptPlan; kept only so accepted callers do not break.
   const sections=(model.sections??[]).map(section=>{
     const reuse=(model.reuseDecisions??[]).find(x=>x.slot===section.slot)||(model.segments??[]).find(x=>(x.slot??x.segmentKey)===section.slot)||null;
-    return deepFreeze({kind:'GenerationContextSection',slot:section.slot??section.segmentKey??'UNKNOWN',state:mapReuseState(reuse?.state??section.reuseState,true),
+    return deepFreeze({kind:'GenerationContextSection',slot:section.slot??section.segmentKey??'UNKNOWN',state:mapReuseState(reuse?.state??reuse?.reuseState??section.reuseState,true),
       priority:section.priority??reuse?.priority??null,estimatedTokens:section.estimatedTokens??section.tokenEstimate??section.allocatedTokens??null,actualTokens:section.actualTokens??null,
       sourceSubsystem:section.sourceSubsystem??null,authority:section.authorityClass??null,revisionIdentity:cloneSafe(section.sourceRevisionIds??null),
-      reuseState:reuse?.state??section.reuseState??null,cacheEligible:section.cacheEligible??reuse?.cacheEligible??null,representation:section.representation??null,
+      reuseState:reuse?.state??reuse?.reuseState??section.reuseState??null,cacheEligible:reuse?.cacheEligible??section.cacheEligible??null,representation:section.representation??null,
       required:Boolean(section.required),protected:Boolean(section.protected),reason:ownerReason(section)??ownerReason(reuse),included:true,rawRef:null});
   });
   for(const row of model.dropped??[])sections.push(sectionFromDisposition(row,ContextSectionState.DROPPED));

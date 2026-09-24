@@ -1,6 +1,6 @@
 import { FailureCode } from './constants.js';
 import { CorrectiveRetrievalAction, RetrievalQuality } from './retrieval-control-policy.js';
-import { validateConsolidationProviderOutput } from './continuous-consolidation.js';
+import { createConsolidationProviderInput, validateConsolidationProviderOutput } from './continuous-consolidation.js';
 import { validateTruthMonitorReceipt } from './streaming-truth-observer.js';
 
 export const Wave3Specialists = Object.freeze({
@@ -30,20 +30,24 @@ export function normalizeRetrievalQuality(text) {
 }
 
 export function buildConsolidationInput(task, input = {}) {
-  return promptEnvelope('Continuous Consolidation', 'Produce proposal-only consolidation output. Preserve provenance and unique source facts. Never delete source turns, mutate Memory, or claim Settlement authority.', {
-    unit: structuredClone(input.unit ?? input),
-    sourceRevisionSet: [...task.sourceRevisionSet],
-    worldRevision: task.worldRevision,
-    sceneRevision: task.sceneRevision,
-    characterStateRevision: task.characterStateRevision,
-  });
+  const bounded=createConsolidationProviderInput(task,input);
+  return promptEnvelope('Continuous Consolidation',
+    'Produce a bounded proposal-only bundle when evidence supports multiple derived artifacts. Preserve provenance, chronology, ambiguity, unique source facts and per-proposal confidence. Never delete source turns, mutate Memory, promote historical evidence to current canon, or claim Settlement authority.',
+    bounded);
 }
-export function normalizeConsolidation(text, { task }) {
+export function normalizeConsolidation(text, { task, input }) {
+  const unit=input?.unit??{};
+  const knownArtifactRefs=unit.artifactRefs??task.metadata?.batchSlice?.artifactRefs??[];
   return validateConsolidationProviderOutput(text, {
+    unitId:unit.unitId??task.metadata?.batchSlice?.unitId,
+    sourceArtifactRefs:knownArtifactRefs,
+    knownArtifactRefs,
     sourceRevisionSet: task.sourceRevisionSet,
     worldRevision: task.worldRevision,
     sceneRevision: task.sceneRevision,
     characterStateRevision: task.characterStateRevision,
+    policyVersion:unit.policyVersion??task.metadata?.policyVersion,
+    provenance:unit.provenance??{},
     currentRevisionSet: task.inputRevisionSet,
   });
 }

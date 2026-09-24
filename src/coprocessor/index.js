@@ -57,3 +57,5 @@ export * from './usage-receipt.js';
 export * from './coprocessor-ui-read-model.js';
 export * from './native-event-spine-baseline.js';
 export * from './wave5-benchmark.js';
+
+export * from './cognitive-worker-pipelines.js';

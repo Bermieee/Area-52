@@ -1,17 +1,19 @@
 {
   "name": "area-52",
-  "version": "0.6.0-memory-wave2",
+  "version": "0.7.0-memory-wave3",
   "private": true,
   "type": "module",
-  "description": "Area-52 native temporal and hierarchical Memory producer",
+  "description": "Area-52 native temporal, hierarchical and exact-evidence Memory producer",
   "scripts": {
-    "test": "node --test tests/memory-wave1.mjs tests/memory-wave2.mjs tests/memory-browser-safe.mjs",
-    "test:focused": "node --test tests/memory-wave1.mjs tests/memory-wave2.mjs",
+    "test": "node --test tests/memory-wave1.mjs tests/memory-wave2.mjs tests/memory-wave3.mjs tests/memory-browser-safe.mjs",
+    "test:focused": "node --test tests/memory-wave1.mjs tests/memory-wave2.mjs tests/memory-wave3.mjs",
     "test:wave1": "node --test tests/memory-wave1.mjs",
     "test:wave2": "node --test tests/memory-wave2.mjs",
+    "test:wave3": "node --test tests/memory-wave3.mjs",
     "test:browser": "node --test tests/memory-browser-safe.mjs",
-    "test:stress": "node tests/memory-wave1-stress.mjs && node tests/memory-wave2-stress.mjs",
+    "test:stress": "node tests/memory-wave1-stress.mjs && node tests/memory-wave2-stress.mjs && node tests/memory-wave3-stress.mjs",
     "test:stress:wave1": "node tests/memory-wave1-stress.mjs",
-    "test:stress:wave2": "node tests/memory-wave2-stress.mjs"
+    "test:stress:wave2": "node tests/memory-wave2-stress.mjs",
+    "test:stress:wave3": "node tests/memory-wave3-stress.mjs"
   }
 }

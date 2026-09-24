@@ -5,6 +5,8 @@ import { TruthPublicationGate,inferTruthNeed } from './truth-publication-gate.js
 import { DeterministicPrecisionStub } from './precision-contract.js';
 import { PublicationContextCompiler } from './publication-context-compiler.js';
 import { GenerationContextSeal } from './context-seal.js';
+import { buildHotCognitionCompilerProjection,attachHotCognitionToPacket } from './hot-cognition-context.js';
+import { utf8ByteLength } from './browser-runtime-utils.js';
 
 const uniq=(values)=>[...new Set(values)].sort();
 
@@ -30,7 +32,10 @@ export class GenerationPublicationPipeline {
     turnId,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],
   }){
+    const hotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
+    if(hotSnapshot?.sceneRevision&&hotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=hotSnapshot.sceneRevision;
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
+    const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot):null;
     const primary=this.core.retrieval.retrieve(query,{intent,anchorEntityIds});
     for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
       taskId:`retrieve:${turnId}`,turnId,correlationId,sourceSubsystem:'SENSORY_NET',
@@ -78,9 +83,15 @@ export class GenerationPublicationPipeline {
       .filter(x=>x.result.resultType==='PRECISION_RESULT')
       .map(x=>x.result.payload);
     const unknownSlots=this.#unknownSlots(query,intent,anchorEntityIds);
-    const compiled=this.compiler.compile({
+    let compiled=this.compiler.compile({
       query,intent,truthAssessment:assessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,rawEvidence:candidates,activeThreads,
     });
+    let hotContributions=[];
+    if(hotProjection?.facts?.length){
+      const attached=attachHotCognitionToPacket(compiled.packet,hotProjection);
+      hotContributions=attached.contributions;
+      compiled={...compiled,packet:attached.packet,receipt:{...compiled.receipt,packetId:attached.packet.id,compiledBytes:utf8ByteLength(JSON.stringify(attached.packet)),reason:compiled.receipt.reason+'; Hot Cognition snapshot '+hotProjection.snapshotId+' attached through sealed semantic contributions'}};
+    }
 
     const turnResults=this.resultBus.results({turnId});
     const candidateToResult=new Map(turnResults.map(x=>[x.result.payload?.candidateId,x]));
@@ -103,10 +114,12 @@ export class GenerationPublicationPipeline {
       worldRevision,sceneRevision,admittedResultIds,rejectedResultIds,staleResultIds,
       fallbackState,deadline,sealedAt,dependencies:compiled.packet.dependencies,
     });
+    if(hotSnapshot)this.core.hotCognition?.noteGenerationSeal?.({turnId,sealReceipt:sealed.receipt,snapshot:hotSnapshot});
     return{
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,corrective,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
-      resultRoutes:turnResults,
+      hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,
+      hotContributions,resultRoutes:turnResults,
     };
   }
 

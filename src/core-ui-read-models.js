@@ -1,3 +1,4 @@
+import {createHotCognitionReadModel} from './hot-cognition-read-model.js';
 const clone=(v)=>structuredClone(v);
 function deepFreeze(v){if(v&&typeof v==='object'&&!Object.isFrozen(v)){for(const x of Object.values(v))deepFreeze(x);Object.freeze(v);}return v;}
 const frozen=(v)=>deepFreeze(clone(v));
@@ -45,6 +46,7 @@ export class CoreObservationSpine{
   promptPlan(plan,options){return createPromptPlanReadModel(plan,options);}
   forensic(bundle,options){return createForensicReadModel(bundle,options);}
   knowledgeTrace(input){return createKnowledgeTraceReadModel(input);}
+  hotCognition(snapshot){return createHotCognitionReadModel(snapshot);}
   widgetHealth(input){return createWidgetHealth(input);}
   isFresh(model,expected){return isCoreReadModelFresh(model,expected);}
 }

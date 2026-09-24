@@ -1,5 +1,7 @@
 import { ProductPresentationState } from './wave5-product-model.js';
 import { ProductDataMode, Wave6Health, createProductSourceStatus, deepFreeze, clone, normalizeWave6Health, assertFixtureNotLive } from './wave6-contracts.js';
+import { buildGenerationExplainability, normalizeContextReceiptReadModel, normalizePromptPlanReadModel } from './wave7-explainability.js';
+import { ForensicMetadataIndex, LazyForensicDetailCache, buildForensicTimeline, normalizeForensicReadModel } from './wave7-forensics.js';
 
 const required=(fn,name)=>{if(typeof fn!=='function')throw new TypeError(`${name} is required`);return fn;};
 const optional=(fn)=>typeof fn==='function'?fn:null;
@@ -75,42 +77,120 @@ export class CoprocessorProductionUIAdapter{
 }
 
 export class PromptPlanProductionUIAdapter{
-  constructor({readPlan,readSealReceipt=null,readContextReceipt=null,readIntegrityReceipt=null}={}){
-    this.readPlan=optional(readPlan);this.readSealReceipt=optional(readSealReceipt);this.readContextReceipt=optional(readContextReceipt);this.readIntegrityReceipt=optional(readIntegrityReceipt);this.kind='PromptPlanProductionUIAdapter';
+  constructor({
+    readPlan=null,readPromptPlanReadModel=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
+    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,
+  }={}){
+    this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readSealReceipt=optional(readSealReceipt);
+    this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);
+    this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.kind='PromptPlanProductionUIAdapter';
   }
-  read(){
-    if(!this.readPlan)return unavailable('PromptPlan','Adaptive Context / PromptPlan read producer is not connected.');
+  #plan(selection){
+    if(this.readPromptPlanReadModel)return this.readPromptPlanReadModel(selection??{});
+    if(this.readGenerationFn&&selection?.generationId)return this.readGenerationFn(selection.generationId)?.promptPlan??this.readGenerationFn(selection.generationId)?.plan??null;
+    return this.readPlan?.(selection??{});
+  }
+  #context(selection){
+    if(this.readContextReceiptReadModel)return this.readContextReceiptReadModel(selection??{});
+    if(this.readGenerationFn&&selection?.generationId)return this.readGenerationFn(selection.generationId)?.contextReceipt??null;
+    return this.readContextReceipt?.(selection??{});
+  }
+  #seal(selection){
+    if(this.readGenerationFn&&selection?.generationId)return this.readGenerationFn(selection.generationId)?.sealReceipt??null;
+    return this.readSealReceipt?.(selection??{});
+  }
+  read(selection={}){
+    if(!this.readPlan&&!this.readPromptPlanReadModel&&!this.readGenerationFn)return unavailable('PromptPlan','Adaptive Context / PromptPlan read producer is not connected.');
     try{
-      const plan=this.readPlan();if(!plan)return unavailable('PromptPlan','No completed PromptPlan is available.');
-      if(!plan.promptPlanId)return degraded('PromptPlan','PromptPlan producer returned an unsupported contract.',{kind:plan.kind??null});
-      const seal=this.readSealReceipt?.()??null,receipt=this.readContextReceipt?.()??null,integrity=this.readIntegrityReceipt?.()??null;
-      const segments=plan.segments??[],reuse=segments.filter(x=>x.reuseState==='NO_CHANGE').length,rebuild=segments.filter(x=>x.reuseState==='REBUILD'||x.reuseState==='PATCH').length;
-      const allocated=Number(plan.budget?.allocated??sum(plan.sections??[],'allocatedTokens')),total=Number(plan.budget?.total??plan.budget?.available??allocated);
-      const health=plan.status==='READY'&&(!seal||seal.sealedState!==false)?Wave6Health.READY:Wave6Health.DEGRADED;
+      const raw=this.#plan(selection);if(!raw)return unavailable('PromptPlan','No completed PromptPlan is available.');
+      const plan=normalizePromptPlanReadModel(raw);if(!plan)return degraded('PromptPlan','PromptPlan producer returned an unsupported contract.',{kind:raw.kind??null});
+      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null;
+      const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal});
+      const allocated=Number(plan.estimatedTokens??plan.budget?.allocated??plan.budget?.usedTokens??0),total=Number(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow??allocated);
+      const reused=plan.sections.filter(x=>x.state==='REUSED').length,updated=plan.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).length;
+      const health=normalizeWave6Health(raw.health?.state??plan.health?.state??(raw.status==='READY'?'READY':raw.integrityStatus==='ERROR'?'BLOCKED':'READY'),{fallback:Wave6Health.READY});
+      const degradedHealth=health!==Wave6Health.READY||plan.dropped.length>0||plan.deferred.length>0||(receipt?.fallbackState&&receipt.fallbackState!=='NONE');
       return deepFreeze({
-        source:createProductSourceStatus({mode:health===Wave6Health.READY?ProductDataMode.LIVE:ProductDataMode.DEGRADED,health,label:'Context Delivery',impact:health===Wave6Health.READY?'Generation context is prepared and revision-fenced.':'Context delivery is degraded; inspect omissions, fallback, or seal state.',producer:'PromptPlan/ContextSeal',revision:plan.promptPlanId}),
+        source:createProductSourceStatus({mode:degradedHealth?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degradedHealth?Wave6Health.DEGRADED:health,label:'Context Delivery',impact:degradedHealth?'Context was delivered with omissions, deferrals, fallback, or degraded integrity.':'Generation context is prepared and revision-fenced.',producer:raw.kind==='PromptPlanReadModel'?'PromptPlanReadModel':'PromptPlan/ContextSeal',revision:plan.promptPlanId}),
         data:{
-          promptPlanId:plan.promptPlanId,generationId:plan.generationId??receipt?.generationId??null,turnId:plan.turnId??seal?.turnId??null,
-          totalTokens:allocated,budgetTotal:total,budgetUsage:total?allocated/total:0,reusedSegments:reuse,updatedSegments:rebuild,
-          dropped:[...(plan.dropped??[])],deferred:[...(plan.deferred??[])],segments:clone(segments),sections:clone(plan.sections??[]),
-          modelProfileId:plan.modelProfileId??null,ordering:[...(plan.ordering??[])],cacheDecisions:clone(plan.cacheDecisions??[]),
-          fallbackDecisions:[...(plan.fallbackDecisions??[])],integrityReceipt:clone(integrity),seal:clone(seal),contextReceipt:clone(receipt),
-          sourceRevisionDependencies:[...(plan.sourceRevisionDependencies??[])],worldRevision:plan.worldRevision??null,sceneRevision:plan.sceneRevision??null,status:plan.status??null,
+          promptPlanId:plan.promptPlanId,generationId:plan.generationId??receipt?.generationId??null,turnId:plan.turnId??seal?.turnId??receipt?.turnId??null,
+          totalTokens:allocated,budgetTotal:total,budgetUsage:total?allocated/total:0,reusedSegments:reused,updatedSegments:updated,
+          dropped:clone(plan.dropped),deferred:clone(plan.deferred),segments:clone(raw.segments??[]),sections:clone(plan.sections),
+          modelProfileId:plan.modelProfileId??null,ordering:[...(plan.sectionOrder??[])],cacheDecisions:clone(raw.cacheDecisions??[]),
+          reuseDecisions:clone(raw.reuseDecisions??[]),fallbackDecisions:clone(plan.fallbackDecisions??[]),integrityReceipt:clone(integrity),
+          seal:clone(seal),contextReceipt:clone(receipt),sourceRevisionDependencies:[...(plan.sourceRevisionRefs??[])],
+          worldRevision:plan.worldRevision??null,sceneRevision:plan.sceneRevision??null,status:raw.status??raw.integrityStatus??null,explainability:explain,
+          readModelKind:raw.kind??null,
         },
       });
     }catch(error){return degraded('PromptPlan','Context delivery read failed.',{error:String(error?.message??error)});}
   }
+  explain(selection={}){const r=this.read(selection);return r.data?.explainability??null;}
+  listGenerations({limit=50}={}){
+    try{
+      if(this.listGenerationsFn)return (this.listGenerationsFn({limit})??[]).slice(-Math.max(1,limit)).map(x=>clone(x));
+      const current=this.read();return current.data?.generationId?[{generationId:current.data.generationId,turnId:current.data.turnId,promptPlanId:current.data.promptPlanId,current:true}]:[];
+    }catch{return[];}
+  }
+  readPrevious(current){
+    const rows=this.listGenerations({limit:100});const id=typeof current==='string'?current:current?.generationId;const i=rows.findIndex(x=>x.generationId===id);if(i<=0)return null;return this.explain({generationId:rows[i-1].generationId});
+  }
 }
 
 export class ForensicsProductionUIAdapter{
-  constructor({listTransactions=null,listBundles=null}={}){this.listTransactions=optional(listTransactions);this.listBundles=optional(listBundles);this.kind='ForensicsProductionUIAdapter';}
+  constructor({
+    listTransactions=null,listBundles=null,listForensicReadModels=null,readForensicReadModel=null,readTransaction=null,
+    reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyPayload=null,search=null,
+  }={}){
+    this.listTransactions=optional(listTransactions);this.listBundles=optional(listBundles);this.listForensicReadModels=optional(listForensicReadModels);this.readForensicReadModel=optional(readForensicReadModel);
+    this.readTransaction=optional(readTransaction);this.reconstructGeneration=optional(reconstructGeneration);this.reconstructTransaction=optional(reconstructTransaction);
+    this.readRuntimeWork=optional(readRuntimeWork);this.readKnowledgeTrace=optional(readKnowledgeTrace);this.searchFn=optional(search);
+    this.detailCache=new LazyForensicDetailCache({loader:optional(readLazyPayload),maxEntries:32});this.indexCache=new Map();this.kind='ForensicsProductionUIAdapter';
+  }
   read({limit=100}={}){
-    if(!this.listTransactions&&!this.listBundles)return unavailable('Forensics','Cognitive transaction / forensic read producer is not connected.');
+    if(!this.listTransactions&&!this.listBundles&&!this.listForensicReadModels&&!this.readForensicReadModel)return unavailable('Forensics','Cognitive transaction / forensic read producer is not connected.');
     try{
-      const transactions=(this.listTransactions?.()??[]).slice(-Math.max(1,limit));const bundles=(this.listBundles?.()??[]).slice(-Math.max(1,limit));
-      return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.READY,label:'Forensics',impact:'Decision and context trails are available for inspection.',producer:'CognitiveTransactionLedger/ForensicBundle'}),data:{transactions:clone(transactions),bundles:clone(bundles)}});
+      const transactions=(this.listTransactions?.({limit})??this.listTransactions?.()??[]).slice(-Math.max(1,limit));
+      const models=(this.listForensicReadModels?.({limit})??[]).slice(-Math.max(1,limit));
+      const bundles=models.length?models:(this.listBundles?.({limit})??this.listBundles?.()??[]).slice(-Math.max(1,limit));
+      const degradedRows=bundles.some(x=>x.health?.state==='DEGRADED'||x.complete===false);
+      return deepFreeze({source:createProductSourceStatus({mode:degradedRows?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degradedRows?Wave6Health.DEGRADED:Wave6Health.READY,label:'Forensics',impact:degradedRows?'Forensic reconstruction is partial; missing stages are shown rather than inferred.':'Decision and context trails are available for inspection.',producer:'ForensicReadModel/CognitiveTransactionLedger'}),data:{transactions:clone(transactions),bundles:clone(bundles)}});
     }catch(error){return degraded('Forensics','Forensic read failed.',{error:String(error?.message??error)});}
   }
+  readGeneration(generationId,{limit=10000}={}){
+    if(!generationId)return unavailable('Forensics','Select a generation to reconstruct.');
+    try{
+      let forensic=this.readForensicReadModel?.({generationId})??this.readForensicReadModel?.(generationId)??null;
+      if(!forensic){
+        const rows=this.listForensicReadModels?.({generationId,limit})??this.listBundles?.({generationId})??this.listBundles?.()??[];
+        forensic=rows.find(x=>x.generationId===generationId)??null;
+      }
+      if(!forensic)return unavailable('Forensics',`No forensic read model is available for ${generationId}.`);
+      const model=normalizeForensicReadModel(forensic);
+      let transactions=this.listTransactions?.({generationId,limit})??this.listTransactions?.()??[];
+      transactions=transactions.filter(x=>!x.generationId||x.generationId===generationId).slice(-Math.max(1,limit));
+      const timeline=buildForensicTimeline({forensic:model,transactions});
+      return deepFreeze({source:createProductSourceStatus({mode:model.complete?ProductDataMode.LIVE:ProductDataMode.DEGRADED,health:model.complete?Wave6Health.READY:Wave6Health.DEGRADED,label:'Forensics',impact:model.complete?'Generation reconstruction references are available.':'Reconstruction is partial; missing references remain explicit.',producer:'ForensicReadModel',revision:model.bundleId}),data:{forensic:model,transactions:clone(transactions),timeline}});
+    }catch(error){return degraded('Forensics','Generation reconstruction failed.',{error:String(error?.message??error)});}
+  }
+  queryTimeline(filters={},options={}){
+    if(this.searchFn)return clone(this.searchFn(filters,options)??[]);
+    const generationId=options.generationId??filters.generationId??null,r=this.readGeneration(generationId,{limit:options.limit??10000});
+    if(!r.data)return[];
+    const key=generationId??r.data.forensic.bundleId;let index=this.indexCache.get(key);
+    if(!index){index=new ForensicMetadataIndex(r.data.timeline.rows);this.indexCache.set(key,index);while(this.indexCache.size>8)this.indexCache.delete(this.indexCache.keys().next().value);}
+    return clone(index.query(filters));
+  }
+  getTransaction(id){return clone(this.readTransaction?.(id)??this.listTransactions?.().find(x=>(x.transactionId??x.id)===id)??null);}
+  getRuntimeWork(id){return clone(this.readRuntimeWork?.(id)??null);}
+  getKnowledgeTrace(ref){return clone(this.readKnowledgeTrace?.(ref)??null);}
+  getReconstruction(target,{maxTransactions=128}={}){
+    if(target?.transactionId&&this.reconstructTransaction)return clone(this.reconstructTransaction(target.transactionId,{maxTransactions}));
+    if(target?.generationId&&this.reconstructGeneration)return clone(this.reconstructGeneration(target.generationId,{maxTransactions}));
+    return null;
+  }
+  loadDetail(ref){return this.detailCache.load(ref);}
+  destroy(){this.detailCache.destroy();this.indexCache.clear();}
 }
 
 export class Wave6ProductAdapter{

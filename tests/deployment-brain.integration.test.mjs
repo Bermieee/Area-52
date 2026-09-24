@@ -27,7 +27,10 @@ test('deployment golden lore is studied exactly and mirrored through Core settle
   assert.equal(ingest.retrieval.retrieval.externalDatabaseRequired, false);
   assert.equal(ingest.retrieval.retrieval.orchestrationServiceRequired, false);
   const model = brain.core.currentWorldModel();
-  assert.ok(model.current.some((row) => row.subjectId.includes('Ember Tavern') || String(row.value).includes('Ember Tavern')));
+  const claims = brain.core.graph.allClaims();
+  assert.ok(model.current.length > 0);
+  assert.ok(claims.some((row) => row.predicate === 'state' && row.value === 'destroyed'));
+  assert.ok(claims.some((row) => row.predicate === 'state' && row.value === 'intact' && ['HISTORICAL', 'SUPERSEDED'].includes(row.status)));
   assert.ok(model.unresolved.length >= 1);
   assert.equal(brain.diagnostics().remoteProviderRequired, false);
 });

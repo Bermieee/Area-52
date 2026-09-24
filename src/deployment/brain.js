@@ -417,7 +417,19 @@ export class DevelopmentDeploymentBrain {
       anchorEntityIds,
       channelIds: mode === 'simple' ? null : [CHANNEL_ID],
       budgetBytes: 3000,
-      activeThreads: sceneSignal.activeThreads ?? [],
+      activeThreads: (sceneSignal.activeThreads ?? []).map((thread, index) => {
+        if (thread && typeof thread === 'object' && thread.threadId) return thread;
+        const objective = typeof thread === 'string' ? thread : JSON.stringify(thread);
+        return {
+          threadId: 'scene-thread:' + (index + 1) + ':' + objective.slice(0, 80),
+          objective,
+          status: 'ACTIVE',
+          priority: 8,
+          sourceRevisionIds: [...(sceneSignal.sourceRevisionRefs ?? sceneSignal.sourceRevisionSet ?? [])],
+          sceneRevision: sceneSignal.sceneRevision,
+          evidenceRefs: [...(sceneSignal.provenanceRefs ?? sceneSignal.provenance ?? [])].slice(0, 16),
+        };
+      }),
     });
     const delivery = this.core.deliverGenerationContext({
       published,

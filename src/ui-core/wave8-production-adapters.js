@@ -46,11 +46,19 @@ export class Wave8CognitionProductionAdapter{
     const rawGather=this.#safe('gather',this.readGatherReceipt,selection,errors);
     const gather=normalizeGatherReceipt(rawGather)??(this.strictReceiptCoherence?null:normalizeGatherFromChoiceReceipt(choice));
     const rawSeal=this.#safe('seal',this.readContextSealReceipt,selection,errors);
-    const sceneResult=this.scene?.read?.()??null;
+    const sceneResult=this.scene?.read?.(selection)??null;
     const scene=sceneResult?.data??null;
     const promptResult=this.promptPlan?.read?.(selection)??null;
     const promptPlan=promptResult?.data??null;
-    const seal=normalizeContextSealReceipt(rawSeal??promptPlan?.seal??null,{lateResultRefs:gather?.results?.filter(x=>x.status==='LATE').map(x=>x.resultId).filter(Boolean)??[]})??(this.strictReceiptCoherence?null:normalizeSealFromChoiceReceipt(choice));
+    let seal=normalizeContextSealReceipt(rawSeal??promptPlan?.seal??null,{lateResultRefs:gather?.results?.filter(x=>x.status==='LATE').map(x=>x.resultId).filter(Boolean)??[]})??(this.strictReceiptCoherence?null:normalizeSealFromChoiceReceipt(choice));
+    if(this.strictReceiptCoherence&&seal&&gather){
+      const blocked=new Set(gather.results.filter(x=>['LATE','STALE','INVALID','REJECTED'].includes(x.status)).map(x=>x.resultId).filter(Boolean));
+      const conflicts=seal.admittedResultIds.filter(id=>blocked.has(id));
+      if(conflicts.length){
+        errors.seal={code:'LIVE_RECEIPT_SEAL_CONFLICT',message:'Context Seal admitted result(s) that Gather marked late/stale/invalid/rejected: '+conflicts.join(', ')};
+        seal=deepFreeze({...seal,coherenceConflictIds:conflicts,effectiveAdmittedResultIds:seal.admittedResultIds.filter(id=>!blocked.has(id))});
+      }
+    }
     const hotCognition=clone(this.#safe('hotCognition',this.readHotCognitionReadModel,selection,errors));
     const lore=normalizeLoreStatus(this.#safe('lore',this.readLoreStatus,selection,errors));
 

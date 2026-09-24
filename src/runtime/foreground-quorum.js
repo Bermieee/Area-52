@@ -152,6 +152,9 @@ export class ForegroundQuorumController {
       settlementPerformed: false,
     };
     this.fallbacks.set(taskId, fallback);
+    if (record && [LIFECYCLE_STATUS.PENDING, LIFECYCLE_STATUS.ELIGIBLE].includes(record.lifecycleStatus)) {
+      this.director.cancelTask(taskId, `foreground-fallback:${reason}`);
+    }
     this.director.telemetry.emit('REQUIRED_FALLBACK_APPLIED', { taskId, reason, deterministic: deterministic != null });
     this.director.publishResultReady(fallback);
     return fallback;

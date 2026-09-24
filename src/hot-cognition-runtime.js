@@ -194,7 +194,7 @@ export class HotCognitionRuntime{
       sceneId,narrativeTime:narrativeTime.value,boundaryState:clone(signal.boundaryState??null),
       uncertainFields:uniq(signal.uncertainFields??[]),conflictSignals:uniq(signal.conflictSignals??[]),
       sceneRelationship:signal.sceneRelationship??null,transitionType:signal.transitionType??signal.sceneRelationship??null,
-      health:clone(signal.health??{status:'ready',reasons:[]}),
+      atmosphere:clone(signal.atmosphere??null),health:clone(signal.health??{status:'ready',reasons:[]}),
     };
     this.#setSegment(state,HotSegmentKind.SCENE,{value:sceneValue,sourceRevisionRefs,provenanceRefs:mergeRefs(provenanceRefs,narrativeTime.evidenceRefs,this.limits.maxProvenanceRefs),authorityClass:AuthorityClass.UNRESOLVED,owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
     const location=normalizeField(signal.location??null);
@@ -278,13 +278,18 @@ export class HotCognitionRuntime{
       }
       this.#setSegment(state,HotSegmentKind.ACTIVE_CAST,{value:cast,sourceRevisionRefs,provenanceRefs,authorityClass:this.#listAuthority(cast),owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId,changed,reused});
     }else if(eventType==='OBJECT_TRANSITION'){
-      const existing=state.segments[HotSegmentKind.ACTIVE_ENTITIES].value??[],map=new Map(existing.map(x=>[x.id,x]));
-      const after=payload.after??payload.object??payload;
-      const id=identityOf(after)??payload.objectRef;
-      const stateValue=object(after)?after.state??after.presence??null:null;
-      if(id&&['DEPARTED','REMOVED','DESTROYED'].includes(stateValue))map.delete(String(id));
-      else for(const row of normalizePresenceList(id?[after]:[],{excludeMentioned:true}))map.set(row.id,row);
-      this.#setSegment(state,HotSegmentKind.ACTIVE_ENTITIES,{value:cap([...map.values()].sort((a,b)=>a.id.localeCompare(b.id)),this.limits.maxActiveEntities),sourceRevisionRefs,provenanceRefs,authorityClass:observationOf(after),owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId,changed,reused});
+      if(Array.isArray(payload.objects)){
+        const entities=cap(normalizePresenceList(payload.objects,{excludeMentioned:true}),this.limits.maxActiveEntities);
+        this.#setSegment(state,HotSegmentKind.ACTIVE_ENTITIES,{value:entities,sourceRevisionRefs,provenanceRefs,authorityClass:this.#listAuthority(entities),owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId,changed,reused});
+      }else{
+        const existing=state.segments[HotSegmentKind.ACTIVE_ENTITIES].value??[],map=new Map(existing.map(x=>[x.id,x]));
+        const after=payload.after??payload.object??payload;
+        const id=identityOf(after)??payload.objectRef;
+        const stateValue=object(after)?after.state??after.presence??null:null;
+        if(id&&['DEPARTED','REMOVED','DESTROYED'].includes(stateValue))map.delete(String(id));
+        else for(const row of normalizePresenceList(id?[after]:[],{excludeMentioned:true}))map.set(row.id,row);
+        this.#setSegment(state,HotSegmentKind.ACTIVE_ENTITIES,{value:cap([...map.values()].sort((a,b)=>a.id.localeCompare(b.id)),this.limits.maxActiveEntities),sourceRevisionRefs,provenanceRefs,authorityClass:observationOf(after),owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId,changed,reused});
+      }
     }else if(eventType==='SCENE_BOUNDARY_CANDIDATE'){
       this.#rememberDedupe(state,updateId);
       return createHotUpdateReceipt({updateId,status:HotUpdateStatus.NO_CHANGE,chatNamespace:namespace,eventType,hotRevision:state.hotRevision,reusedSegments:[HotSegmentKind.SCENE,HotSegmentKind.LOCATION,HotSegmentKind.ACTIVE_CAST],sourceRevisionRefs,sceneRevision:state.sceneRevision,worldRevision:state.worldRevision,details:{reason:'boundary candidate is descriptive only; active Hot Cognition is unchanged until Scene owner confirms/opens a transition'}});

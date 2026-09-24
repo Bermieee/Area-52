@@ -33,8 +33,10 @@ function inferHotNeed(query){
   if(/\bcurrent (?:objective|thread|goal)\b|\bactive thread\b/.test(text))return HotSegmentKind.ACTIVE_THREADS;
   return null;
 }
-function hotSufficient({snapshot,query,intent,anchorEntityIds=[],worldRevision=0,sceneRevision=0}){
+function hotSufficient({snapshot,query,intent,anchorEntityIds=[],worldRevision=0,sceneRevision=0,sceneContext=null}){
   if(!snapshot||intent!=='CURRENT'||anchorEntityIds.length)return false;
+  if(sceneContext?.retrievalRequired)return false;
+  if(sceneContext?.sceneId&&snapshot.sceneId&&String(sceneContext.sceneId)!==String(snapshot.sceneId))return false;
   if((snapshot.invalidationState??[]).length)return false;
   if(Number(snapshot.worldRevision)!==Number(worldRevision))return false;
   if(Number(snapshot.sceneRevision)!==Number(sceneRevision))return false;
@@ -97,15 +99,15 @@ export class CognitiveChoiceController{
 
   begin({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
-    hotSnapshot=null,worldRevision=0,sceneRevision=0,budgetBytes=null,deadline=null,channelIds=null,channelManifest=null,
+    hotSnapshot=null,worldRevision=0,sceneRevision=0,budgetBytes=null,deadline=null,channelIds=null,channelManifest=null,sceneContext=null,
   }={}){
     const startedAt=now();
     const requested=channelIds?.length?uniq(channelIds):uniq((channelManifest?.channels??[]).filter(x=>x.available!==false).map(x=>x.channelId));
-    const hotOnly=hotSufficient({snapshot:hotSnapshot,query,intent,anchorEntityIds,worldRevision,sceneRevision});
+    const hotOnly=hotSufficient({snapshot:hotSnapshot,query,intent,anchorEntityIds,worldRevision,sceneRevision,sceneContext});
     const session={
       turnId:String(turnId),turnRevision:Number(turnRevision)||0,correlationId:String(correlationId),query:String(query),intent:String(intent),
       anchorEntityIds:uniq(anchorEntityIds),startedAt,budgetBytes,deadline,hotSnapshotId:hotSnapshot?.snapshotId??null,
-      worldRevision:Number(worldRevision)||0,sceneRevision:Number(sceneRevision)||0,requestedChannels:requested,
+      worldRevision:Number(worldRevision)||0,sceneRevision:Number(sceneRevision)||0,sceneContext:clone(sceneContext),requestedChannels:requested,
       paths:new Set([hotOnly?CognitiveChoicePath.HOT_ONLY:CognitiveChoicePath.STANDARD_RETRIEVAL]),
       admitted:new Set([CognitiveJob.CONTEXT_COMPILER,CognitiveJob.CONTEXT_SEAL]),
       skipped:new Set(),deferred:new Set([CognitiveJob.DEEP_COGNITION]),reasons:new Set([CognitiveReason.DEFER_BACKGROUND]),
@@ -122,7 +124,7 @@ export class CognitiveChoiceController{
     }else{
       session.admitted.add(CognitiveJob.RETRIEVAL);session.admitted.add(CognitiveJob.TRUTH);session.admitted.add(CognitiveJob.GATHER);
       for(const job of [CognitiveJob.HISTORIAN,CognitiveJob.GRAPH_WALKER,CognitiveJob.GREEN_ROOM,CognitiveJob.EXTERNAL_GROUNDING])session.skipped.add(job);
-      session.reasons.add(CognitiveReason.RETRIEVAL_REQUIRED);session.reasons.add(CognitiveReason.LOW_EXPECTED_VALUE);
+      session.reasons.add(CognitiveReason.RETRIEVAL_REQUIRED);session.reasons.add(CognitiveReason.LOW_EXPECTED_VALUE);if(sceneContext?.retrievalRequired)session.reasons.add(CognitiveReason.CACHE_STALE);
     }
     return session;
   }
@@ -276,8 +278,9 @@ export class CognitiveChoiceController{
         compilerBytes:compilerReceipt?.compiledBytes??null,
       },
       revisions:{
-        turnRevision:session.turnRevision,sceneRevision:session.sceneRevision,worldRevision:session.worldRevision,
-        sourceRevisionRefs,candidateRevisionRefs:candidateRevisionRefs(envelopes),
+        turnRevision:session.turnRevision,sceneId:session.sceneContext?.sceneId??null,sceneRevision:session.sceneRevision,worldRevision:session.worldRevision,
+        sourceRevisionRefs,candidateRevisionRefs:candidateRevisionRefs(envelopes),sceneSourceRevisionRefs:uniq(session.sceneContext?.sourceRevisionRefs??[]),
+        sceneProvenanceRefs:uniq(session.sceneContext?.provenanceRefs??[]),sceneContextInvalidationEpoch:Number(session.sceneContext?.contextInvalidationEpoch??0),
         retrievalRepresentationRevisionRefs:representationRefs(envelopes),
         truthInputCandidateIds:uniq(assessment?.truthResults?.map(x=>x.candidateId)??[]),
         jevDecisionRevision:session.jev?.decisionRevision??null,
@@ -293,7 +296,7 @@ export class CognitiveChoiceController{
         packetId:sealReceipt?.packetId??packet?.id??null,packetHash:sealReceipt?.packetHash??null,publicationBoundary:'CLOSED',
       },
       lateResultIds,staleResultIds,invalidResultIds,
-      metadata:{hotCognitionSnapshotId:session.hotSnapshotId,query:session.query,intent:session.intent},
+      metadata:{hotCognitionSnapshotId:session.hotSnapshotId,query:session.query,intent:session.intent,sceneIntegration:clone(session.sceneContext),sceneCognitiveNeeds:clone(session.sceneContext?.cognitiveNeeds??[])},
     });
     this.#store(receipt);return receipt;
   }

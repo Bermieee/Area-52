@@ -19,6 +19,7 @@ export class GenerationPublicationPipeline {
   constructor({core,sceneRevision=0,cognitiveChoice=null,maxPublishedTurns=64}){
     this.core=core;
     this.sceneRevision=sceneRevision;
+    this.sceneId=null;
     this.choice=cognitiveChoice??core.cognitiveChoice??null;
     this.maxPublishedTurns=Math.max(8,Number(maxPublishedTurns)||64);
     this.publishedTurns=new Map();
@@ -35,7 +36,11 @@ export class GenerationPublicationPipeline {
     this.compiler=new PublicationContextCompiler({graph:core.graph,baseCompiler:core.compiler});
   }
 
-  setSceneRevision(revision){this.sceneRevision=Number(revision);}
+  setSceneRevision(revision,{sceneId=null}={}){
+    const next=Number(revision);if(!Number.isInteger(next)||next<0)return this.sceneRevision;
+    if(sceneId!=null&&this.sceneId!==null&&String(sceneId)!==String(this.sceneId)){this.sceneId=String(sceneId);this.sceneRevision=next;return this.sceneRevision;}
+    if(sceneId!=null)this.sceneId=String(sceneId);this.sceneRevision=Math.max(this.sceneRevision,next);return this.sceneRevision;
+  }
 
   publish({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
@@ -53,12 +58,17 @@ export class GenerationPublicationPipeline {
     }
 
     const hotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
-    if(hotSnapshot?.sceneRevision&&hotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=hotSnapshot.sceneRevision;
+    const sceneTrace=this.core.sceneIntegration?.publicationTrace?.(hotSnapshot?.chatNamespace)??null;
+    if(sceneTrace?.sceneId)this.setSceneRevision(sceneTrace.sceneRevision,{sceneId:sceneTrace.sceneId});
+    else if(hotSnapshot?.sceneId)this.setSceneRevision(hotSnapshot.sceneRevision,{sceneId:hotSnapshot.sceneId});
+    else if(hotSnapshot?.sceneRevision&&hotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=hotSnapshot.sceneRevision;
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
+    const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
+    const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot):null;
     const choiceSession=this.choice?.begin?.({
-      turnId,turnRevision,correlationId,query,intent,anchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
-      budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),
+      turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
+      budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,
     })??null;
 
     let primary=[],primaryEnvelope=null,correctiveEnvelope=null,candidates=[];
@@ -69,7 +79,7 @@ export class GenerationPublicationPipeline {
     if(choiceSession?.hotOnly){
       publicationAssessment=emptyAssessment({turnId,query,intent,reason:'long-term retrieval and Truth were skipped because Hot Cognition satisfied the turn'});
     }else{
-      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds,worldRevision,sceneRevision,channelIds});
+      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,channelIds,metadata:{sceneId:sceneTrace?.sceneId??null,sceneRevision,sceneIntegrationReceiptId:sceneTrace?.lastReceiptId??null}});
       this.choice?.observeRetrieval?.(choiceSession,primaryEnvelope,{phase:'PRIMARY'});
       primary=primaryEnvelope.candidates.filter(candidate=>candidate.freshness===CandidateFreshness.FRESH);
       for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
@@ -84,7 +94,7 @@ export class GenerationPublicationPipeline {
       this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:Boolean(assessment.correctiveRequest)});
 
       if(assessment.correctiveRequest){
-        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds});
+        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds:effectiveAnchorEntityIds});
         if(corrective.executed&&!corrective.failed){
           correctiveEnvelope=this.core.retrieval.lastEnvelope??null;
           if(correctiveEnvelope)this.choice?.observeRetrieval?.(choiceSession,correctiveEnvelope,{phase:'CORRECTIVE'});
@@ -140,7 +150,7 @@ export class GenerationPublicationPipeline {
       .filter(x=>x.result.resultType==='PRECISION_RESULT')
       .map(x=>x.result.payload);
     const lowAbstention=assessment?.confidence==='LOW';
-    const unknownSlots=lowAbstention||choiceSession?.hotOnly?[]:this.#unknownSlots(query,intent,anchorEntityIds);
+    const unknownSlots=lowAbstention||choiceSession?.hotOnly?[]:this.#unknownSlots(query,intent,effectiveAnchorEntityIds);
     let compiled=this.compiler.compile({
       query,intent,truthAssessment:publicationAssessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,
       rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,
@@ -150,6 +160,15 @@ export class GenerationPublicationPipeline {
       const attached=attachHotCognitionToPacket(compiled.packet,hotProjection);
       hotContributions=attached.contributions;
       compiled={...compiled,packet:attached.packet,receipt:{...compiled.receipt,packetId:attached.packet.id,compiledBytes:utf8ByteLength(JSON.stringify(attached.packet)),reason:compiled.receipt.reason+'; Hot Cognition snapshot '+hotProjection.snapshotId+' attached through sealed semantic contributions'}};
+    }
+    if(sceneTrace){
+      const packet=structuredClone(compiled.packet);
+      packet.sceneIntegration=structuredClone(sceneTrace);
+      packet.sceneId=sceneTrace.sceneId;packet.sceneRevision=sceneTrace.sceneRevision;
+      packet.sceneProvenanceRefs=uniq(sceneTrace.provenanceRefs??[]);
+      packet.dependencies=uniq([...(packet.dependencies??[]),...(sceneTrace.sourceRevisionRefs??[])]);
+      packet.id=String(packet.id)+':scene:'+stableHash({sceneId:sceneTrace.sceneId,sceneRevision:sceneTrace.sceneRevision,invalidationEpoch:sceneTrace.contextInvalidationEpoch,receipt:sceneTrace.lastReceiptId},{length:16});
+      compiled={...compiled,packet,receipt:{...compiled.receipt,id:'compiler-receipt:'+packet.id,packetId:packet.id,compiledBytes:utf8ByteLength(JSON.stringify(packet)),reason:compiled.receipt.reason+'; native Scene integration trace '+sceneTrace.sceneId+'@'+sceneTrace.sceneRevision+' attached'}};
     }
 
     const turnResults=this.resultBus.results({turnId});
@@ -163,6 +182,13 @@ export class GenerationPublicationPipeline {
     ]);
     const staleResultIds=uniq(turnResults.filter(x=>x.route.freshness==='STALE').map(x=>x.result.id));
     const rejectedResultIds=uniq(turnResults.filter(x=>!x.route.accepted).map(x=>x.result.id));
+    const gatherReceipt={
+      kind:'GenerationGatherReceipt',turnId,correlationId,sceneId:sceneTrace?.sceneId??this.sceneId,sceneRevision,
+      sourceRevisionRefs:uniq(sceneTrace?.sourceRevisionRefs??[]),provenanceRefs:uniq(sceneTrace?.provenanceRefs??[]),
+      foregroundResultIds:uniq(turnResults.filter(x=>x.route.effectiveDestination===ResultDestination.FOREGROUND&&x.route.freshness==='FRESH').map(x=>x.result.id)),
+      admittedResultIds:[...admittedResultIds],staleResultIds:[...staleResultIds],rejectedResultIds:[...rejectedResultIds],
+      cognitiveNeeds:structuredClone(sceneTrace?.cognitiveNeeds??[]),deadline,closedForForeground:true,authorityGranted:false,canonicalMutationAuthority:false,
+    };
 
     let fallbackState=SealFallbackState.NONE;
     const precisionState=choiceSession?.precision??{};
@@ -183,13 +209,14 @@ export class GenerationPublicationPipeline {
       assessment,publicationAssessment,corrective,packet:sealed.packet,sealReceipt:sealed.receipt,resultRoutes:finalRoutes,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,
     })??null;
+    if(sceneTrace)this.core.sceneIntegration?.noteSeal?.({chatNamespace:hotSnapshot?.chatNamespace,sealReceipt:sealed.receipt});
 
     const output={
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,publicationAssessment,corrective,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
       candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,
-      hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,duplicate:false,
+      hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,duplicate:false,
     };
     this.#rememberPublished(turnId,fingerprint,output);
     return output;

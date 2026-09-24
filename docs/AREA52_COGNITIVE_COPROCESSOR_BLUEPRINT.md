@@ -629,3 +629,102 @@ Core does not own:
 - canonical owner Settlement.
 
 The permanent invariants remain: logical jobs are not physical sidecars; relevance is not truth; Jev is not Settlement; skip and abstention are not failures; revisions fence every decision; and late work cannot mutate sealed context.
+
+
+---
+
+## 23. Wave 10 native Scene -> Core integration seam
+
+Wave 10 consumes the accepted Scene Intelligence public surface from `Development-Scene-Scanner@3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf`. Core does not copy Scene Registry, extraction, boundary detection, cast/spatial/temporal tracking, Episode compilation, host scraping, or Scene scheduling.
+
+The legal integration path is:
+
+```text
+SceneIntegrationSignal / normalized Scene event / SceneContextInvalidationSignal
+  -> SceneCoreIntegrationBridge
+  -> Hot Cognition
+  -> revision/freshness fence
+  -> Cognitive Choice
+  -> existing Sensory / Truth / Precision / Jev seam
+  -> Result Bus / deterministic Gather receipt
+  -> Context Compiler
+  -> Context Seal
+  -> Adaptive Context Runtime
+  -> PromptPlan
+```
+
+### 23.1 Public contracts only
+
+The bridge accepts the Scene-owned version-1 public contracts documented by:
+
+- `docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md`;
+- `docs/SCENE_EVENT_INTEGRATION_CONTRACT.md`;
+- `docs/SCENE_CONTEXT_INVALIDATION_CONTRACT.md`.
+
+Those documents remain Scene-owned and authoritative for producer semantics.
+
+### 23.2 Scene identity and revision fencing
+
+Scene revision is scoped to Scene identity. Core tracks `sceneId + sceneRevision`, not one global monotonic Scene number. A new Scene may open at revision 1 after the prior Scene reached revision N.
+
+Within one Scene identity:
+
+- older revision -> STALE;
+- exact duplicate -> idempotent no-op;
+- different payload at the same accepted revision -> conflict/reject;
+- retired Scene output cannot silently reactivate current cognition;
+- accepted `RESUMES` may reactivate the same conceptual Scene at a newer revision.
+
+The Scene identity/revision/source/provenance tuple survives the generation-facing path and is inspectable in the sealed packet, Gather receipt, Cognitive Choice receipt and PromptPlan diagnostics.
+
+### 23.3 Hot Cognition and active anchors
+
+Native Scene signals hydrate:
+
+- Scene identity/relationship;
+- location;
+- narrative time;
+- active cast;
+- active objects;
+- active threads;
+- atmosphere/continuity metadata.
+
+`MENTIONED_ONLY` observations remain observable but are never promoted to active cognition anchors.
+
+Scene state stays descriptive. Repetition, confidence, revision and retrieval strength do not grant canonical truth.
+
+### 23.4 Context invalidation
+
+`SceneContextInvalidationSignal` invalidates only the Scene working-context cone it names. Core maps accepted Scene scopes onto current Hot/Scene working segments.
+
+Permanent rule:
+
+```text
+Scene context invalidation != narrative evidence deletion
+```
+
+A transition whose target Scene has already been freshly hydrated may record the invalidation epoch without destroying that newer target state.
+
+### 23.5 Cognitive Choice
+
+The Wave 9 controller is reused.
+
+Stable same-Scene changes may remain Hot-only. A confirmed transition, location/time shift, new active participant, or explicit Scene-context invalidation can make retrieval/cognition useful and prevents stale Hot-only reuse.
+
+The bridge emits logical cognition needs only. Worker Director remains the physical scheduling owner.
+
+### 23.6 Boundary and temporal semantics
+
+A `SCENE_BOUNDARY_CANDIDATE` cannot close/reset Core Scene state. Core follows Scene's accepted boundary decision rather than reinterpreting narrative prose.
+
+`FLASHBACK_OF`, `PARALLEL_TO`, `INTERRUPTS` and `RESUMES` remain explicit relationships through publication. They do not mutate canonical present-world truth merely because they are current narrative focus.
+
+### 23.7 Context Seal and late work
+
+Once a turn is sealed, Scene work may inform future cognition but cannot mutate that sealed packet. Stale Scene revisions remain excluded; late/old Scene artifacts cannot reopen the active generation.
+
+### 23.8 FT002 native-contract evidence
+
+Core CI uses an exact read-only checkout of the accepted Scene Wave 3 checkpoint and executes Scene's own `SceneLifecycleRuntime`, `SceneEventPublisher`, `SceneContextInvalidationPublisher` and `integrationSignal()`. The generated native artifacts feed Core directly.
+
+This replaces the former fixture-generated `CurrentScene` boundary for the Core FT002 acceptance while preserving lane ownership. Full live FT002 still belongs to assembled `main` + SillyTavern acceptance.

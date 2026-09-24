@@ -17,6 +17,7 @@ import { CoreObservationSpine } from './core-ui-read-models.js';
 import { KnowledgeIntegrationSpine } from './knowledge-integration-spine.js';
 import { HotCognitionRuntime } from './hot-cognition-runtime.js';
 import { CognitiveChoiceController } from './cognitive-choice-controller.js';
+import { SceneCoreIntegrationBridge,SUPPORTED_SCENE_EVENT_TYPES } from './scene-core-integration.js';
 
 export class Area52CognitiveCore {
   constructor(){
@@ -28,6 +29,7 @@ export class Area52CognitiveCore {
     this.hotCognition=new HotCognitionRuntime({sourceRegistry:this.registry,getWorldRevision:()=>this.graph.revision});
     this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition});
     this.cognitiveChoice=new CognitiveChoiceController();
+    this.sceneIntegration=new SceneCoreIntegrationBridge({core:this});
     this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});this.observation=new CoreObservationSpine();
     this.publication=new GenerationPublicationPipeline({core:this,cognitiveChoice:this.cognitiveChoice});this.audit.bindPublication(this.publication);const receiveResult=this.publication.receiveResult.bind(this.publication);this.publication.receiveResult=(result)=>{const received=receiveResult(result);this.audit.recordResultRoute(received);this.hotCognition.consumeResultRoute(received);return received;};
     this.deliveryLearning=new DeliveryLearningEngine();this.delivery=new AdaptiveContextRuntime({deliveryLearning:this.deliveryLearning});
@@ -49,11 +51,20 @@ export class Area52CognitiveCore {
     const contributions=[...(published.hotContributions??[]),...(deliveryOptions.contributions??[])];
     const delivered=this.delivery.deliver({sealedPacket:published.packet,sealReceipt:published.sealReceipt,turnId:published.sealReceipt.turnId,...deliveryOptions,contributions});if(delivered?.plan)this.audit.recordPromptPlan(delivered);return delivered;
   }
-  activateHotCognitionChat(chatNamespace,options){return this.hotCognition.activateChat(chatNamespace,options);}
-  consumeSceneSignal(signal,options={}){const receipt=this.hotCognition.consumeSceneSignal(signal,options);if(signal?.sceneRevision)this.publication.setSceneRevision(Math.max(this.publication.sceneRevision,Number(signal.sceneRevision)));return receipt;}
-  consumeCognitiveEvent(event,options={}){const receipt=this.hotCognition.consumeEvent(event,options);const revision=Number(event?.sceneRevision??event?.revisionFences?.sceneRevision??event?.payload?.sceneRevision);if(Number.isInteger(revision)&&revision>=0)this.publication.setSceneRevision(Math.max(this.publication.sceneRevision,revision));return receipt;}
+  activateHotCognitionChat(chatNamespace,options){const snapshot=this.hotCognition.activateChat(chatNamespace,options);this.sceneIntegration.activateChat(chatNamespace);return snapshot;}
+  consumeSceneSignal(signal,options={}){const receipt=this.sceneIntegration.consumeSignal(signal,options);const trace=this.sceneIntegration.publicationTrace(options.chatNamespace??this.hotCognition.activeChatNamespace);if(trace)this.publication.setSceneRevision(trace.sceneRevision,{sceneId:trace.sceneId});return receipt;}
+  consumeSceneContextInvalidation(signal,options={}){const receipt=this.sceneIntegration.consumeInvalidation(signal,options);const trace=this.sceneIntegration.publicationTrace(options.chatNamespace??this.hotCognition.activeChatNamespace);if(trace)this.publication.setSceneRevision(trace.sceneRevision,{sceneId:trace.sceneId});return receipt;}
+  consumeCognitiveEvent(event,options={}){
+    if(SUPPORTED_SCENE_EVENT_TYPES.includes(String(event?.eventType??''))){
+      const receipt=this.sceneIntegration.consumeEvent(event,options),trace=this.sceneIntegration.publicationTrace(options.chatNamespace??this.hotCognition.activeChatNamespace);
+      if(trace)this.publication.setSceneRevision(trace.sceneRevision,{sceneId:trace.sceneId});return receipt;
+    }
+    const receipt=this.hotCognition.consumeEvent(event,options);const revision=Number(event?.sceneRevision??event?.revisionFences?.sceneRevision??event?.payload?.sceneRevision);if(Number.isInteger(revision)&&revision>=0)this.publication.setSceneRevision(revision);return receipt;
+  }
   consumeNarrativeEvidence(evidence,options={}){return this.hotCognition.consumeNarrativeEvidence(evidence,options);}
   hotCognitionSnapshot(chatNamespace){return this.hotCognition.snapshot(chatNamespace);}
+  sceneIntegrationSnapshot(chatNamespace){return this.sceneIntegration.snapshot(chatNamespace);}
+  sceneIntegrationDiagnostics(chatNamespace){return this.sceneIntegration.diagnostics(chatNamespace);}
   registerJevAdapter(adapter){return this.cognitiveChoice.registerJevAdapter(adapter);}
   cognitiveChoiceReceipt(turnId){return this.cognitiveChoice.getReceipt(turnId);}
   sensoryEnvelope(query,options={}){return this.retrieval.retrieveEnvelope(query,options);}

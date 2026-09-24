@@ -61,6 +61,22 @@ jobs:
         run: node scripts/cognitive-choice-wave9-acceptance-report.mjs
       - name: Cognitive Choice Wave 9 stress
         run: node scripts/cognitive-choice-wave9-stress-report.mjs
+      - name: Checkout accepted Scene Wave 3 integration reference
+        uses: actions/checkout@v4
+        with:
+          repository: Bermieee/Area-52
+          ref: 3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf
+          path: .integration/scene-wave3
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Wave 10 native Scene Core FT002 acceptance
+        env:
+          AREA52_SCENE_REF_ROOT: ${{ github.workspace }}/.integration/scene-wave3
+        run: node scripts/ft002-wave10-acceptance-report.mjs
+      - name: Wave 10 native Scene Core focused stress
+        env:
+          AREA52_SCENE_REF_ROOT: ${{ github.workspace }}/.integration/scene-wave3
+        run: node scripts/ft002-wave10-stress-report.mjs
       - name: Phase 1 Gate V2 evidence
         run: node scripts/phase1-gate-v2-report.mjs
       - name: Phase 1 Integration gate evidence

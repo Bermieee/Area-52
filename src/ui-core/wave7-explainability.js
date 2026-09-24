@@ -89,7 +89,7 @@ export function buildGenerationExplainability({promptPlan,contextReceipt=null,se
   const reasons=plan.sections.filter(x=>x.reason).map(x=>({slot:x.slot,state:x.state,reason:x.reason}));
   const unavailableReasonCount=plan.sections.filter(x=>!x.reason).length;
   const health=normalizeWave6Health(plan.health?.state??plan.integrityStatus??'READY',{fallback:Wave6Health.READY});
-  const degraded=health!==Wave6Health.READY||counts.DROPPED>0||counts.DEFERRED>0||(seal&&seal.fallbackState!=='NONE');
+  const degraded=health!==Wave6Health.READY||Boolean(seal&&seal.fallbackState!=='NONE');
   const source=createProductSourceStatus({mode:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degraded?Wave6Health.DEGRADED:Wave6Health.READY,label:'Generation Explainability',impact:degraded?'Context was delivered with omissions, deferrals, fallback, or degraded integrity.':'Context delivery is explainable and healthy.',producer:'PromptPlanReadModel/ContextReceiptReadModel',revision:plan.promptPlanId});
   return deepFreeze({
     kind:'GenerationExplainability',generationId:plan.generationId,turnId:plan.turnId,contextSealId:plan.contextSealId??receipt?.contextSealId??seal?.sealId??null,promptPlanId:plan.promptPlanId,

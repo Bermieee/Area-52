@@ -75,7 +75,18 @@ Status meaning must never rely on color alone; the visible label and accessible 
 
 ## Widget health
 
-Widget health should communicate meaning before diagnostics.
+Widget health is a Phase 2 foundation concern, not a per-workspace decoration.
+
+A widget should answer, in order:
+
+1. is this surface available and trustworthy enough to use?
+2. is it healthy, working, degraded, stale or blocked?
+3. what does that state affect?
+4. what deliberate inspection/action is available?
+
+Normal UI should summarize health. Diagnostic causes such as provider errors, worker IDs, correlation IDs and raw failures belong behind inspection unless they directly require operator action.
+
+Health should communicate meaning before diagnostics.
 
 Examples:
 
@@ -104,13 +115,56 @@ Hierarchy:
 
 Dense dashboards should remain readable rather than maximizing information per pixel.
 
+## Front Face composition
+
+The Phase 2 Front Face is a slide-out Area-52 surface that coexists with SillyTavern rather than replacing or reproducing SillyTavern chat.
+
+It has two operator-controlled presentation states:
+
+### Quick Dash / collapsed
+
+A narrow dock/rail remains available beside the host chat. It should expose only high-value glanceable state:
+
+- product mark/name;
+- current overall brain health;
+- current scene identity/state;
+- needs-attention count;
+- compact cognitive-activity indication;
+- navigation/expand affordance.
+
+The Quick Dash must not become a miniature dashboard full of unreadable metrics.
+
+### Expanded
+
+The same dock expands into the Area-52 product workspace. It may expose Home, Story/Scene, Characters, Lore, Memory, World and Brain while the host chat remains outside Area-52 and continues to be usable.
+
+Expanded mode reuses the same UI.Core cards, pills, buttons, workspace registry and inspector contracts. It is not a second UI implementation.
+
+### Host coexistence rule
+
+Area-52 does not capture, clone or visually reproduce SillyTavern chat inside the Front Face. The host application owns chat presentation. Area-52 owns its cognitive product surface.
+
+Collapse/expand state, selected workspace, panel size and presentation density are presentation-only state and may persist through UIStateStore.
+
 ## Density
 
 Compact presentation is first-class because the Front Face is expected to coexist with an active SillyTavern chat.
 
 `.a52-density-compact` reduces panel/control density without changing semantic content or backend state.
 
-A future collapsed/expanded Front Face should use the same components at different densities rather than separate CSS systems.
+Collapsed and expanded Front Face states use the same components at different densities rather than separate CSS systems.
+
+### Readability floor
+
+Compact does not mean microscopic. Phase 2 work must preserve:
+
+- readable body and status text;
+- visible authority labels;
+- keyboard/focus affordances;
+- distinguishable widget boundaries;
+- sensible truncation with inspector access to full detail.
+
+If information cannot remain readable in Quick Dash, it belongs in Expanded or Inspector rather than being compressed further.
 
 ## Motion
 
@@ -170,3 +224,18 @@ A Phase 2 UI is conformant when it:
 5. keeps authority accessible without color dependence;
 6. introduces no parallel typography, shape, status or overlay system;
 7. remains visually coherent with Home, Scene, Characters, Lore, Memory, World and Brain.
+
+
+## Workspace composition pattern
+
+Phase 2 workspaces should normally follow one of three shared compositions:
+
+1. **Compact/operator-first** — one dominant state, a few secondary summaries, attention and meaningful activity.
+2. **Dashboard/workspace** — primary object plus supporting state, history/activity and workflow/attention.
+3. **Inspector-heavy** — collection/timeline, selected object/workflow and contextual Inspector.
+
+The dashboard/workspace form is the default for expanded product workspaces. Inspector-heavy composition is deliberate Advanced/authoring/forensic territory.
+
+## Planning handoff
+
+Card-ready Phase 2 UI work is defined in `docs/UI_CORE_PHASE2_PROJECT_CARD_HANDOFF.md`. That handoff must be used with #187 so new cards extend existing subsystem issues rather than duplicating backend architecture.

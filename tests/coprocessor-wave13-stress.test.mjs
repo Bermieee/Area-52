@@ -15,8 +15,8 @@ const profileSet=()=>[
   {profileId:'stress-jev',capabilities:[Capability.DEEP_REASONING],providerHealth:'HEALTHY',available:true,currentLoad:0,concurrencyCapacity:1,latencyClass:'MEDIUM'},
   {profileId:'stress-external',capabilities:[Capability.EXTERNAL_GROUNDING],providerHealth:'HEALTHY',available:true,currentLoad:0,concurrencyCapacity:1,latencyClass:'HIGH'},
 ];
-const event=(i,rev=7)=>createTurnEnvelope({turnId:'stress:'+i,eventId:'evt:stress:'+i,correlationId:'corr:stress:'+i,dedupeKey:'stress:'+i,createdAt:100+i,
-  sourceRevisionSet:['src:scene:'+rev,'src:lore:'+(i%5)],worldRevision:12+Math.floor(i/200),sceneRevision:rev,characterStateRevision:4+(i%3),deadline:260+i});
+const event=(i,rev=7)=>{const n=Number.isFinite(Number(i))?Number(i):0;return createTurnEnvelope({turnId:'stress:'+i,eventId:'evt:stress:'+i,correlationId:'corr:stress:'+i,dedupeKey:'stress:'+i,createdAt:100+n,
+  sourceRevisionSet:['src:scene:'+rev,'src:lore:'+(n%5)],worldRevision:12+Math.floor(n/200),sceneRevision:rev,characterStateRevision:4+(n%3),deadline:260+n});};
 const semantic=p=>p.options.map(x=>[x.optionId,x.disposition,x.reasonCodes,x.logicalCapability]);
 
 test('Wave 13 replay stress remains deterministic and bounded over mixed choice classes',()=>{

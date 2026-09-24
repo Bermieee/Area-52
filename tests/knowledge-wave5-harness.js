@@ -147,7 +147,7 @@ export function buildWave5Fixture(){
   const ft004SealStable=JSON.stringify(core.publication.seal.getPacket('turn:ft004:core'))===JSON.stringify(ft004Publication.packet);
 
   const ft003=evaluateFt003CorePreflight({
-    ...contracts, hypothesisEvidence:contracts.hypotheses,lateRoute:{...lateResult.route,resultId:lateResult.result.id},
+    observedEvidence:contracts.observed,episodicEvidence:contracts.episodic,reflectionEvidence:contracts.reflection,historicalEvidence:contracts.historical,hypothesisEvidence:contracts.hypotheses,lateRoute:{...lateResult.route,resultId:lateResult.result.id},
     staleEvidence:[staleEvidence],publication:{...ft003Publication,gather:ft003Publication.gather},
   });
   const ft004=evaluateFt004CorePreflight({

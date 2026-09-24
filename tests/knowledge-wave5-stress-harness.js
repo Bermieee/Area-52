@@ -78,7 +78,7 @@ export function runKnowledgeWave5Stress(){
 
   const base=runKnowledgeWave5Acceptance();
   for(let i=0;i<2000;i++){
-    const r=evaluateFt003CorePreflight({...base.fixture.contracts,hypothesisEvidence:base.fixture.contracts.hypotheses,lateRoute:{...base.fixture.lateResult.route,resultId:base.fixture.lateResult.result.id},staleEvidence:[base.fixture.staleEvidence],publication:{...base.fixture.ft003Publication,gather:base.fixture.ft003Publication.gather}});
+    const r=evaluateFt003CorePreflight({observedEvidence:base.fixture.contracts.observed,episodicEvidence:base.fixture.contracts.episodic,reflectionEvidence:base.fixture.contracts.reflection,historicalEvidence:base.fixture.contracts.historical,hypothesisEvidence:base.fixture.contracts.hypotheses,lateRoute:{...base.fixture.lateResult.route,resultId:base.fixture.lateResult.result.id},staleEvidence:[base.fixture.staleEvidence],publication:{...base.fixture.ft003Publication,gather:base.fixture.ft003Publication.gather}});
     if(r.state!=='CORE_SIDE_READY')throw new Error('FT003 stress preflight failed at '+i);
     counts.ft003MixedMemoryCases++;
   }

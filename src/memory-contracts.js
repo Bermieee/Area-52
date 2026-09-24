@@ -4,6 +4,8 @@ export const CORE_SETTLEMENT_COMPAT_VERSION = '1.0.0';
 export const SCENE_MEMORY_HANDOFF_COMPAT_VERSION = '1.0.0';
 export const GREEN_ROOM_COMPAT_VERSION = '1.1.0';
 export const HISTORIAN_COMPAT_VERSION = '1.0.0';
+export const MEMORY_HIERARCHY_API_VERSION = '1.0.0';
+export const MEMORY_HIERARCHY_CONTRACT_VERSION = '1.0.0';
 
 export const AuthorityClass = Object.freeze({
   OPERATOR:'OPERATOR',
@@ -51,6 +53,11 @@ export const MemoryArtifactKind = Object.freeze({
   EXPERIENCE:'EXPERIENCE',
   REFLECTION:'REFLECTION',
   GREEN_ROOM_INFERENCE:'GREEN_ROOM_INFERENCE',
+  SCENE_SUMMARY:'SCENE_SUMMARY',
+  CHAPTER_SUMMARY:'CHAPTER_SUMMARY',
+  SESSION_SUMMARY:'SESSION_SUMMARY',
+  ARC_SUMMARY:'ARC_SUMMARY',
+  STORY_SUMMARY:'STORY_SUMMARY',
 });
 
 export const PerspectiveScope = Object.freeze({
@@ -89,6 +96,17 @@ export const MEMORY_LIMITS = Object.freeze({
   maxCheckpointWorkUnits:32,
   maxConsolidationJobs:4096,
   maxIndexedTermsPerArtifact:192,
+  maxSummaryScopes:2048,
+  maxSummaryChildScopes:512,
+  maxSummaryEpisodeLogicalIds:512,
+  maxSummaryEvidenceRefs:8192,
+  maxSummarySourceRevisionRefs:8192,
+  maxSummaryEntityRefs:512,
+  maxSummaryCharacters:12000,
+  minSummaryCharacters:128,
+  maxSummaryRepresentativeEvidence:24,
+  maxSummaryWorkUnits:32,
+  maxSummaryDrillbackRows:256,
 });
 
 export function deepClone(value) {

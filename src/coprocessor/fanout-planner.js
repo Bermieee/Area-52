@@ -1,5 +1,6 @@
 import { Capability, Placement, ResultClass } from './constants.js';
 import { createCognitiveTask } from './contracts.js';
+import { historianUrgency } from './historian-retrieval.js';
 
 export const INITIAL_ROLE_CATALOG = Object.freeze([
   Object.freeze({
@@ -98,8 +99,11 @@ export class DynamicFanOutPlanner {
     const continuity = activeThreads.length > 0 || sceneEntities.length > 0 || normalized.length > 20 || prefetch.length > 0;
     const transition = sceneTransitionType != null && !['CONTINUES', 'FALSE_BOUNDARY', 'REJECTED'].includes(sceneTransitionType);
     const freshWarm = warmState === 'FRESH' || cacheWarmth.historian === 'FRESH';
+    const historianPolicy = historianUrgency({
+      text, queryIntent, activeThreads, hotStateSufficient, freshWarm, physical,
+    });
 
-    if ((trivial || hotStateSufficient) && !conflict && !transition && !backgroundSignals.consolidationPending) {
+    if ((trivial || hotStateSufficient) && !conflict && !transition && !backgroundSignals.consolidationPending && !historianPolicy.wake) {
       return freezePlan(turnEvent, [], [], {
         reason: 'zero-worker path: hot cognition already satisfies turn',
         reasonCodes: ['HOT_STATE_SUFFICIENT'], costBudget, latencyBudgetMs,
@@ -114,8 +118,12 @@ export class DynamicFanOutPlanner {
       if (!prior || next.expectedValue >= prior.expectedValue) selected.set(roleId, next);
     };
 
-    if ((continuity || physical || dialogue || transition) && !freshWarm) nominate('historian', continuity ? 0.82 : 0.75, ['CONTINUITY_OR_RETRIEVAL_REQUIRED'], ['sceneRevision', 'sourceRevisionSet', 'intentFingerprint']);
-    if (freshWarm && (physical || continuity)) nominate('historian', 0.40, ['FRESH_WARM_PACKET_AVAILABLE'], ['warmPacket']);
+    if (historianPolicy.wake) nominate(
+      'historian',
+      historianPolicy.resultClass === ResultClass.REQUIRED ? 0.94 : 0.76,
+      [historianPolicy.reason],
+      ['sceneRevision', 'sourceRevisionSet', 'intentFingerprint', 'retrievalIntents'],
+    );
     if (physical || transition || sceneUncertain.some((field) => ['location', 'immediateObjects', 'activeCast'].includes(field))) nominate('graph-walker', 0.86, ['PHYSICAL_OR_SCENE_STATE_QUERY'], ['sceneRevision', 'location']);
     if (dialogue && activeCast.length) nominate('green-room', 0.76, ['ACTIVE_CAST_DIALOGUE'], ['activeCast', 'sceneRevision']);
     if (physical || conflict || retrievalQuality === 'MIXED') nominate('truth-precision', 0.90, ['UNCERTAINTY_OR_PRECISION_REQUIRED'], ['worldRevision', 'sourceRevisionSet']);
@@ -137,12 +145,13 @@ export class DynamicFanOutPlanner {
       if (providerHealth[role.roleId] === 'unavailable' || providerHealth[role.roleId] === 'unhealthy') continue;
       if (Number(providerLoad[role.roleId] ?? 0) >= 1) continue;
       if (tasks.length >= caps.maxTotalWorkers) break;
-      if (role.resultClass === ResultClass.DEFERRED && backgroundCount >= caps.maxBackgroundNominations) continue;
-      if (role.resultClass !== ResultClass.DEFERRED && foregroundCount >= caps.maxForegroundWorkers) continue;
-      if (role.resultClass === ResultClass.OPPORTUNISTIC && opportunisticCount >= caps.maxOpportunisticWorkers) continue;
+      const effectiveResultClass = role.roleId === 'historian' ? (historianPolicy.resultClass ?? role.resultClass) : role.resultClass;
+      if (effectiveResultClass === ResultClass.DEFERRED && backgroundCount >= caps.maxBackgroundNominations) continue;
+      if (effectiveResultClass !== ResultClass.DEFERRED && foregroundCount >= caps.maxForegroundWorkers) continue;
+      if (effectiveResultClass === ResultClass.OPPORTUNISTIC && opportunisticCount >= caps.maxOpportunisticWorkers) continue;
       const cost = Math.max(0, Number(role.costUnits ?? 1));
       if (costUsed + cost > caps.maxCostUnits) continue;
-      const deadlineExposure = role.resultClass === ResultClass.DEFERRED ? 0 : Math.min(this.defaultHardBudgetMs, latencyBudgetMs);
+      const deadlineExposure = effectiveResultClass === ResultClass.DEFERRED ? 0 : Math.min(this.defaultHardBudgetMs, latencyBudgetMs);
       if (deadlineExposureUsed + deadlineExposure > caps.maxDeadlineExposureMs) continue;
 
       const softDeadline = turnEvent.createdAt + Math.min(this.defaultSoftBudgetMs, latencyBudgetMs);
@@ -151,7 +160,7 @@ export class DynamicFanOutPlanner {
         roleId: role.roleId,
         taskType: role.taskType,
         capability: Object.freeze([...role.requiredCapabilities]),
-        resultClass: role.resultClass,
+        resultClass: effectiveResultClass,
         expectedValue: signal.expectedValue,
         reasonCodes: Object.freeze([...signal.reasonCodes]),
         requiredInputs: Object.freeze([...signal.requiredInputs]),
@@ -171,7 +180,7 @@ export class DynamicFanOutPlanner {
         causationId: turnEvent.eventId,
         requiredCapabilities: role.requiredCapabilities,
         cognitiveLayer: role.cognitiveLayer,
-        resultClass: role.resultClass,
+        resultClass: effectiveResultClass,
         inputRevisionSet: turnEvent,
         sourceRevisionSet: turnEvent.sourceRevisionSet,
         worldRevision: turnEvent.worldRevision,
@@ -195,6 +204,7 @@ export class DynamicFanOutPlanner {
           requiredInputs: signal.requiredInputs,
           costEstimate: nomination.costEstimate,
           latencyClass: nomination.latencyClass,
+          historianUrgency: role.roleId === 'historian' ? historianPolicy.reason : null,
           location,
           inputRefs: structuredClone(inputRefs[role.roleId] ?? []),
           resourceConstraint: structuredClone(resourceConstraint),
@@ -202,9 +212,9 @@ export class DynamicFanOutPlanner {
       }));
       costUsed += cost;
       deadlineExposureUsed += deadlineExposure;
-      if (role.resultClass === ResultClass.DEFERRED) backgroundCount += 1;
+      if (effectiveResultClass === ResultClass.DEFERRED) backgroundCount += 1;
       else foregroundCount += 1;
-      if (role.resultClass === ResultClass.OPPORTUNISTIC) opportunisticCount += 1;
+      if (effectiveResultClass === ResultClass.OPPORTUNISTIC) opportunisticCount += 1;
     }
 
     return freezePlan(turnEvent, tasks, nominations, {

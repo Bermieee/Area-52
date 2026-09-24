@@ -49,6 +49,7 @@ export function createEmberTavernPrecisionFixture() {
     candidateSet: createCandidateBusEnvelope({ candidateSetId: 'ember:golden', query: 'What is the current state of Ember Tavern and the Sun Blade?', intentFingerprint: 'intent:ember:golden', sourceRevisionSet, worldRevision: 8, sceneRevision: 4, candidates }),
     currentRevisionSet: Object.freeze({ sourceRevisionSet, worldRevision: 8, sceneRevision: 4, characterStateRevision: 0 }),
     conflictSets: Object.freeze([{ id: 'blade-fate', refs: ['blade:destroyed', 'blade:removed'], credible: true }]),
+    requiredCandidateIds: Object.freeze(['tavern:destroyed', 'blade:tavern-history', 'blade:destroyed', 'blade:removed']),
     expected: Object.freeze({ tavernCurrent: 'tavern:destroyed', bladeHistorical: 'blade:tavern-history', bladeCurrent: 'UNKNOWN', fate: 'UNRESOLVED' }),
   });
 }

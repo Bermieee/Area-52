@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   PrecisionGateway, PrecisionFallbackStage, createCandidateBusEnvelope, createEmberTavernPrecisionFixture,
-  deterministicPrecisionScore, runPrecisionBenchmark, PRECISION_INTENT_OPPOSITE_CORPUS, PRECISION_TEMPORAL_CORPUS,
+  deterministicPrecisionScore, runPrecisionBenchmark, PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS, PRECISION_TEMPORAL_CORPUS,
 } from '../src/coprocessor/index.js';
 
 const unitAdapter = Object.freeze({
@@ -41,7 +41,7 @@ test('Wave 4 stress: 5,000 precision requests process 100k+ candidates with boun
   const started = globalThis.performance?.now?.() ?? Date.now();
   for (let i = 0; i < 5000; i++) {
     const size = sizes[i % sizes.length]; maxCandidateSet = Math.max(maxCandidateSet, size); broadCandidates += size;
-    const intentCase = i < 2000 ? PRECISION_INTENT_OPPOSITE_CORPUS[i % PRECISION_INTENT_OPPOSITE_CORPUS.length] : null;
+    const intentCase = i < 2000 ? PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS[i % PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS.length] : null;
     const temporalCase = i >= 2000 && i < 3000 ? PRECISION_TEMPORAL_CORPUS[(i - 2000) % PRECISION_TEMPORAL_CORPUS.length] : null;
     const query = intentCase?.query ?? temporalCase?.query ?? (i < 4000 ? 'What happened to Blade fate?' : `query ${i}`);
     const candidates = [];
@@ -79,7 +79,7 @@ test('Wave 4 stress: 5,000 precision requests process 100k+ candidates with boun
 test('Wave 4 stress: 2,000 intent-opposite and 1,000 temporal-opposite replays preserve deterministic discrimination', async () => {
   let intentCorrect = 0, temporalCorrect = 0;
   const adapter = { adapterId: 'stress-deterministic', async rank({ query, candidates }) { return unitAdapter.rank({ query, candidates }); } };
-  for (let i = 0; i < 2000; i++) { const item = PRECISION_INTENT_OPPOSITE_CORPUS[i % PRECISION_INTENT_OPPOSITE_CORPUS.length]; const ranked = await adapter.rank(item); if (ranked[0]?.ref === item.expectedRef) intentCorrect += 1; }
+  for (let i = 0; i < 2000; i++) { const item = PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS[i % PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS.length]; const ranked = await adapter.rank(item); if (ranked[0]?.ref === item.expectedRef) intentCorrect += 1; }
   for (let i = 0; i < 1000; i++) { const item = PRECISION_TEMPORAL_CORPUS[i % PRECISION_TEMPORAL_CORPUS.length]; const ranked = await adapter.rank(item); if (ranked[0]?.ref === item.expectedRef) temporalCorrect += 1; }
   assert.equal(intentCorrect, 2000); assert.equal(temporalCorrect, 1000);
   console.log(JSON.stringify({ stress: 'wave4-opposites', intentCases: 2000, intentCorrect, temporalCases: 1000, temporalCorrect }));
@@ -89,7 +89,7 @@ test('Wave 4 stress: Ember Tavern contradiction stays unresolved across 1,000 pr
   const fixture = createEmberTavernPrecisionFixture(); let preserved = 0;
   const gateway = new PrecisionGateway({ caps: { input: 16, lateInteraction: 8, semanticJudge: 6, final: 5 }, lateInteractionAdapter: unitAdapter });
   for (let i = 0; i < 1000; i++) {
-    const out = await gateway.run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets, query: fixture.candidateSet.query });
+    const out = await gateway.run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets, requiredCandidateIds: fixture.requiredCandidateIds, query: fixture.candidateSet.query });
     const refs = new Set(out.results.map((row) => row.candidateRef)); if (refs.has('blade:destroyed') && refs.has('blade:removed')) preserved += 1;
     assert.equal(out.results.find((row) => row.candidateRef === 'blade:tavern-history')?.truthStatus, 'HISTORICAL');
   }

@@ -72,7 +72,8 @@ export class PrecisionGateway {
       fallbackStage = PrecisionFallbackStage.FIRST_STAGE_DEADLINE_CUTOFF;
     }
 
-    const selected = preserveCredibleConflicts(ranked.slice(0, this.caps.final), ranked, conflictSets, this.caps.final);
+    const conflictPreserved = preserveCredibleConflicts(ranked.slice(0, this.caps.final), ranked, conflictSets, this.caps.final);
+    const selected = preserveRequiredCandidates(conflictPreserved, ranked, requiredCandidateIds, this.caps.final, conflictSets);
     const byId = new Map(selected.map((entry) => [entry.candidate.candidateId, entry]));
     for (const id of requiredCandidateIds) if (!byId.has(id) && freshCandidates.some((candidate) => candidate.candidateId === id)) fail(FailureCode.UNKNOWN_REFERENCE, `Precision omitted required candidate: ${id}`);
 
@@ -182,6 +183,25 @@ function preserveCredibleConflicts(selected, fullRanking, conflictSets, cap) {
   }
   return out.slice(0, cap).sort((a, b) => b.score - a.score || a.candidate.candidateId.localeCompare(b.candidate.candidateId));
 }
+function preserveRequiredCandidates(selected, fullRanking, requiredCandidateIds, cap, conflictSets) {
+  const out = [...selected];
+  const chosen = new Set(out.map((entry) => entry.candidate.candidateId));
+  const byId = new Map(fullRanking.map((entry) => [entry.candidate.candidateId, entry]));
+  const required = [...new Set(requiredCandidateIds ?? [])].filter((id) => byId.has(id));
+  if (required.length > cap) fail(FailureCode.SCHEMA_INVALID, `required precision candidates exceed final cap=${cap}`);
+  for (const id of required) {
+    if (chosen.has(id)) continue;
+    if (out.length >= cap) {
+      const replaceIndex = findReplaceableIndex(out, required, conflictSets);
+      if (replaceIndex < 0) fail(FailureCode.SCHEMA_INVALID, `cannot preserve required precision candidate within final cap: ${id}`);
+      chosen.delete(out[replaceIndex].candidate.candidateId);
+      out.splice(replaceIndex, 1);
+    }
+    out.push(byId.get(id)); chosen.add(id);
+  }
+  return out.slice(0, cap).sort((a, b) => b.score - a.score || a.candidate.candidateId.localeCompare(b.candidate.candidateId));
+}
+
 function findReplaceableIndex(entries, protectedRefs, conflictSets) {
   const globallyProtected = new Set(protectedRefs);
   for (const set of conflictSets ?? []) if (set?.credible !== false) for (const ref of set?.refs ?? []) globallyProtected.add(ref);

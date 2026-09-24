@@ -4,6 +4,16 @@ export const PrecisionMeasurementStatus = Object.freeze({ MEASURED: 'MEASURED', 
 
 export const PRECISION_INTENT_OPPOSITE_CORPUS = Object.freeze([
   fixture('enter-leave', 'Mara leaves the tavern', 'Mara leaves the tavern', 'Mara enters the tavern'),
+  fixture('intact-destroyed', 'The bridge is intact', 'The bridge remains intact', 'The bridge was destroyed'),
+  fixture('trust-distrust', 'Eris trusts Mara', 'Eris trusts Mara', 'Eris distrusts Mara'),
+  fixture('carry-drop', 'Mara carries the blade', 'Mara carries the blade', 'Mara drops the blade'),
+  fixture('heal-injure', 'The spell heals Eris', 'The spell heals Eris', 'The spell injures Eris'),
+  fixture('present-departed', 'Mara is present', 'Mara is present in the room', 'Mara departed the room'),
+  fixture('current-historical', 'current location of the blade', 'CURRENT: the blade location is unknown', 'HISTORICAL: the blade was at Ember Tavern'),
+]);
+
+export const PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS = Object.freeze([
+  fixture('enter-leave', 'Mara leaves the tavern', 'Mara leaves the tavern', 'Mara enters the tavern'),
   fixture('leave-enter', 'Mara enters the tavern', 'Mara enters the tavern', 'Mara leaves the tavern'),
   fixture('intact-destroyed', 'The bridge is intact', 'The bridge remains intact', 'The bridge was destroyed'),
   fixture('destroyed-intact', 'The Tavern is destroyed now', 'CURRENT: the Tavern is destroyed', 'HISTORICAL: the Tavern was intact'),
@@ -91,7 +101,7 @@ export async function runPrecisionBenchmark({ adapter = new DeterministicPrecisi
 
 export async function runPrecisionGainBenchmark({
   baselineAdapter = new BroadSimilarityBaselineAdapter(), precisionAdapter = new DeterministicPrecisionAdapter(),
-  corpus = PRECISION_INTENT_OPPOSITE_CORPUS,
+  corpus = PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS,
 } = {}) {
   const baseline = await runPrecisionBenchmark({ adapter: baselineAdapter, corpus });
   const precision = await runPrecisionBenchmark({ adapter: precisionAdapter, corpus });
@@ -111,7 +121,7 @@ export async function runTemporalPrecisionBenchmark({ adapter = new Deterministi
 }
 
 export async function runTwoStagePrecisionBenchmark({
-  firstStageAdapter = new DeterministicPrecisionAdapter(), secondStageAdapter = null, corpus = PRECISION_INTENT_OPPOSITE_CORPUS,
+  firstStageAdapter = new DeterministicPrecisionAdapter(), secondStageAdapter = null, corpus = PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS,
 } = {}) {
   const first = await runPrecisionBenchmark({ adapter: firstStageAdapter, corpus });
   if (!secondStageAdapter) return Object.freeze({ kind: 'TwoStagePrecisionBenchmark', measurementState: PrecisionMeasurementStatus.NOT_MEASURED, firstStage: first, secondStage: null, reason: 'second-stage adapter unavailable' });
@@ -138,7 +148,7 @@ export async function runTwoStagePrecisionBenchmark({
   });
 }
 
-export async function runExternalPrecisionBenchmark({ adapterId, runner = null, corpus = PRECISION_INTENT_OPPOSITE_CORPUS, resourceMeasurement = null } = {}) {
+export async function runExternalPrecisionBenchmark({ adapterId, runner = null, corpus = PRECISION_WAVE4_INTENT_OPPOSITE_CORPUS, resourceMeasurement = null } = {}) {
   if (typeof runner !== 'function') return Object.freeze({ adapterId, measurementState: PrecisionMeasurementStatus.NOT_MEASURED, result: null, latencyMs: null, peakRamMb: null, reason: 'external model/runtime unavailable in current environment' });
   const adapter = new ExternalPrecisionAdapter({ adapterId, runner });
   const result = await runPrecisionBenchmark({ adapter, corpus });

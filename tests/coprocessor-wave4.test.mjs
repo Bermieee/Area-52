@@ -85,7 +85,7 @@ test('Ember Tavern golden set preserves current destruction, historical Blade lo
 });
 
 test('Truth-compatible evidence set preserves temporal/authority metadata and leaves Truth authority external', async () => {
-  const fixture = createEmberTavernPrecisionFixture(); const out = await new PrecisionGateway({ caps: { input: 16, lateInteraction: 8, semanticJudge: 6, final: 5 } }).run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets });
+  const fixture = createEmberTavernPrecisionFixture(); const out = await new PrecisionGateway({ caps: { input: 16, lateInteraction: 8, semanticJudge: 6, final: 5 } }).run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets, requiredCandidateIds: fixture.requiredCandidateIds });
   const truth = toTruthCompatibleEvidenceSet(out); assert.equal(truth.rankingAuthority, 'PRECISION_ONLY'); assert.equal(truth.truthClassificationAuthority, 'TRUTH_GATE'); assert.equal(truth.settlementAuthority, false);
 });
 
@@ -269,6 +269,6 @@ test('Wave 4 production precision modules contain no Node-only runtime dependenc
 
 test('representative production precision path works with Buffer/process conveniences unavailable', async () => {
   const originalBuffer = globalThis.Buffer; const originalProcess = globalThis.process;
-  try { globalThis.Buffer = undefined; globalThis.process = undefined; const fixture = createEmberTavernPrecisionFixture(); const out = await new PrecisionGateway({ caps: { input: 16, lateInteraction: 8, semanticJudge: 6, final: 5 } }).run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets }); assert.ok(out.finalCandidateCount > 0); }
+  try { globalThis.Buffer = undefined; globalThis.process = undefined; const fixture = createEmberTavernPrecisionFixture(); const out = await new PrecisionGateway({ caps: { input: 16, lateInteraction: 8, semanticJudge: 6, final: 5 } }).run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets, requiredCandidateIds: fixture.requiredCandidateIds }); assert.ok(out.finalCandidateCount > 0); }
   finally { globalThis.Buffer = originalBuffer; globalThis.process = originalProcess; }
 });

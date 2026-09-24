@@ -122,7 +122,7 @@ function sensoryDetail(d,path,ctx){
   const x=path.sensory;if(!x){card.append(state(d,'Sensory unavailable','No Candidate Bus / Sensory receipt was published.','offline'));return card;}
   card.append(element(d,'p',{text:`${x.inputNominationCount} nominations → ${x.uniqueCandidateCount} unique evidence candidates. ${x.duplicateNominationCount} cross-channel duplicates were merged.`}));
   const rows=Object.entries(x.perChannelCounts??{}).map(([key,value])=>({key:human(key),value}));
-  if(rows.length)card.append(createKeyValue(d,rows));
+  if(rows.length)card.append(createKeyValue(d,rows));else if(x.channelsUsed?.length)card.append(element(d,'p',{text:`Channels used: ${x.channelsUsed.map(human).join(' · ')}`}),element(d,'p',{className:'a52-muted',text:'Per-channel nomination counts were not published in this summary receipt.'}));
   if(x.unavailableChannels.length||x.degradedChannels.length)card.append(state(d,'Channel degradation',`Unavailable: ${x.unavailableChannels.join(', ')||'none'} · Degraded: ${x.degradedChannels.join(', ')||'none'}`,'warning'));
   card.append(element(d,'p',{className:'a52-muted',text:'Channel count and fusion rank are retrieval metadata, not truth or authority.'}));
   return card;
@@ -152,7 +152,7 @@ function jevPrecisionDetail(d,path,ctx){
   const wrap=element(d,'div',{className:'a52-wave8-detail-grid'});
   const jev=element(d,'section',{className:'a52-card'});jev.append(element(d,'h2',{text:'Jev'}));
   const j=path.jev;
-  if(!j){jev.append(state(d,'Jev unavailable','No JevDecisionReceipt and no explicit Cognitive Choice skip decision are available.','offline'));}else if(j.state===CognitionStageState.SKIPPED){
+  if(!j){jev.append(state(d,'Jev unavailable','No JevDecisionReceipt and no explicit Cognitive Choice skip decision are available.','offline'));}else if(j.state===CognitionStageState.UNAVAILABLE){jev.append(makeBadge(d,'UNAVAILABLE','warning'),element(d,'p',{text:j.reason??'Jev service was unavailable.'}),element(d,'p',{className:'a52-muted',text:'Ambiguity remains unresolved; no forced adjudication or Settlement is implied.'}));}else if(j.state===CognitionStageState.SKIPPED){
     jev.append(makeBadge(d,'SKIPPED','historical'),element(d,'p',{text:j.reason??'Jev was explicitly skipped; no reason was published.'}));
   }else{
     jev.append(makeBadge(d,j.outcome,jevStatus(j.outcome)),element(d,'p',{text:j.reason??'No Jev reason code was published.'}));
@@ -175,7 +175,7 @@ function gatherDetail(d,path,ctx){
   if(!g){card.append(state(d,'Gather unavailable','No GatherReceipt is connected. Context contribution is not inferred from Result Bus presence alone.','offline'));return card;}
   const chips=element(d,'div',{className:'a52-inline-status'});for(const key of ['ADMITTED','STALE','LATE','REJECTED','INVALID'])chips.append(makeBadge(d,`${g.counts[key]} ${key}`,gatherStatus(key)));card.append(chips);
   for(const row of g.results.filter(x=>x.status!=='ADMITTED').slice(0,10))card.append(gatherRow(d,row,ctx));
-  const seal=path.seal;if(seal)card.append(state(d,'Context Seal',`SEALED · ${seal.admittedResultIds.length} cognitive results admitted · ${seal.staleResultIds.length} stale excluded · ${seal.lateResultIds.length} late excluded.`,'ready'));
+  const seal=path.seal;if(seal)card.append(state(d,'Context Seal',`SEALED · ${seal.admittedEvidenceCount??seal.admittedResultIds.length} cognitive results/evidence admitted · ${seal.staleResultIds.length} stale excluded · ${seal.lateResultIds.length} late excluded.`,'ready'));
   else card.append(state(d,'Context Seal unavailable','The immutable publication boundary cannot be shown without a Seal receipt.','offline'));
   if(path.promptPlan)card.append(createButton(d,{label:'Why This Generation?',scope:ctx.scope,onPress:()=>openWorkspace(ctx,'generation-explainability')}));
   card.append(createButton(d,{label:'Open Forensics',scope:ctx.scope,variant:'quiet',onPress:()=>openWorkspace(ctx,'forensics')}));
@@ -214,7 +214,7 @@ function gatherRow(d,row,ctx){const root=element(d,'div',{className:'a52-wave8-g
 function correctiveFlow(d,truth,corrective){const root=element(d,'div',{className:'a52-wave8-corrective',attrs:{'aria-label':'Bounded corrective retrieval'}});root.append(element(d,'span',{text:'Initial retrieval'}),makeBadge(d,'MIXED','warning'),element(d,'span',{text:'→'}));if(corrective){root.append(element(d,'span',{text:'Corrective pass'}),makeBadge(d,corrective.state,statusToken(corrective.state)),element(d,'span',{text:`Attempt ${corrective.attempt??'—'} / ${corrective.maxAttempts??1}`}));if(corrective.finalQuality)root.append(element(d,'span',{text:'→'}),makeBadge(d,corrective.finalQuality,qualityStatus(corrective.finalQuality)));}else root.append(makeBadge(d,'CORRECTION RECEIPT UNAVAILABLE','offline'));return root;}
 function summaryCard(d,title,value,detail){const body=element(d,'div',{className:'a52-stack'});body.append(element(d,'strong',{className:'a52-metric-value',text:String(value)}),element(d,'span',{className:'a52-muted',text:String(detail??'')}));return makeCard(d,{title,body});}
 function truthCard(d,path){const body=element(d,'div',{className:'a52-stack'}),truth=path.truth;if(!truth){body.append(element(d,'strong',{className:'a52-metric-value',text:'Unavailable'}));return makeCard(d,{title:'Truth',body});}const rows=Object.entries(truth.counts).filter(([,n])=>n>0).map(([k,n])=>`${n} ${k}`);body.append(element(d,'strong',{className:'a52-metric-value',text:rows.join(' · ')||'No candidates'}));return makeCard(d,{title:'Truth',body});}
-function jevCard(d,path,ctx){const body=element(d,'div',{className:'a52-stack'}),j=path.jev;if(!j)body.append(element(d,'strong',{className:'a52-metric-value',text:'Unavailable'}),element(d,'span',{className:'a52-muted',text:'No Jev receipt / explicit skip decision'}));else body.append(element(d,'strong',{className:'a52-metric-value',text:j.outcome==='SKIPPED'?'Skipped':j.outcome}),element(d,'span',{className:'a52-muted',text:j.reason??'Reason not published'}));return makeCard(d,{title:'Jev',body});}
+function jevCard(d,path,ctx){const body=element(d,'div',{className:'a52-stack'}),j=path.jev;if(!j)body.append(element(d,'strong',{className:'a52-metric-value',text:'Unavailable'}),element(d,'span',{className:'a52-muted',text:'No Jev receipt / explicit skip decision'}));else if(j.state===CognitionStageState.UNAVAILABLE)body.append(element(d,'strong',{className:'a52-metric-value',text:'Unavailable'}),element(d,'span',{className:'a52-muted',text:j.reason??'Ambiguity preserved without forced adjudication'}));else body.append(element(d,'strong',{className:'a52-metric-value',text:j.outcome==='SKIPPED'?'Skipped':j.outcome}),element(d,'span',{className:'a52-muted',text:j.reason??'Reason not published'}));return makeCard(d,{title:'Jev',body});}
 
 function renderInspectorObject(object,{document:d,scope},{forensics}){
   const item=object.item??object.payload??object,root=element(d,'div',{className:'a52-stack'});root.append(element(d,'h2',{text:object.title??'Cognitive detail'}));

@@ -1,0 +1,40 @@
+name: Lore Wave 1 CI
+
+on:
+  push:
+    branches:
+      - Development-Lorebook-Editor
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lore-wave1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Focused and golden Lore suite
+        run: npm test
+
+      - name: Representative Lore stress
+        run: npm run test:stress
+
+      - name: JavaScript syntax
+        shell: bash
+        run: |
+          for f in src/*.js tests/*.mjs; do
+            node --check "$f"
+          done
+
+      - name: ESM module import
+        run: node -e "Promise.all(['lore-contracts','lore-source-registry','lore-study-engine','lore-study-runtime'].map(x => import('./src/' + x + '.js'))).then(() => console.log('LORE_ESM_IMPORT_PASS'))"

@@ -168,6 +168,22 @@ function analyzeSentence(workspace, sentence, index) {
   let match;
   const s = sentence.replace(/\s+/g, ' ').trim();
 
+  if ((match = s.match(/^(.+?),\s+also\s+(?:called|known as)\s+(.+?),\s+owns\s+(?:the\s+)?(.+?)[.!?]?$/i))) {
+    const owner = ensureEntity(workspace, match[1], 'PERSON', index);
+    const alias = cleanName(match[2]);
+    const target = ensureEntity(workspace, match[3], null, index);
+    workspace.entities[owner].aliases = boundedUnique([...workspace.entities[owner].aliases, alias], 16);
+    pushClaim(workspace, s, index, target, 'owner', owner, {temporalClass: TemporalClass.CURRENT});
+    pushRelationship(workspace, s, index, owner, 'owns', target, {temporalClass: TemporalClass.CURRENT});
+    return;
+  }
+
+  if ((match = s.match(/^(.+?)\s+(?:is\s+)?also\s+(?:called|known as)\s+(.+?)[.!?]?$/i))) {
+    const entity = ensureEntity(workspace, match[1], null, index);
+    workspace.entities[entity].aliases = boundedUnique([...workspace.entities[entity].aliases, cleanName(match[2])], 16);
+    return;
+  }
+
   if ((match = s.match(/^(.+?)\s+owns\s+(?:the\s+)?(.+?)[.!?]?$/i))) {
     const owner = ensureEntity(workspace, match[1], 'PERSON', index);
     const target = ensureEntity(workspace, match[2], null, index);
@@ -540,22 +556,44 @@ export function semanticDiff(previousArtifacts, nextArtifacts) {
   const changed = [];
   for (const [slot, oldArtifact] of beforeSlots.entries()) {
     const nextArtifact = afterSlots.get(slot);
-    if (nextArtifact && stableStringify(oldArtifact.payload.value) !== stableStringify(nextArtifact.payload.value)) {
+    if (!nextArtifact) continue;
+    const valueChanged = stableStringify(oldArtifact.payload.value) !== stableStringify(nextArtifact.payload.value);
+    const temporalChanged = oldArtifact.temporalClass !== nextArtifact.temporalClass;
+    const authorityChanged = oldArtifact.authorityClass !== nextArtifact.authorityClass || oldArtifact.unresolved !== nextArtifact.unresolved;
+    if (valueChanged || temporalChanged || authorityChanged) {
       changed.push({
         slot,
         from: deepClone(oldArtifact.payload.value),
         to: deepClone(nextArtifact.payload.value),
         oldSemanticId: oldArtifact.semanticId,
         newSemanticId: nextArtifact.semanticId,
+        valueChanged,
+        temporalChanged,
+        authorityChanged,
+        oldTemporalClass: oldArtifact.temporalClass,
+        newTemporalClass: nextArtifact.temporalClass,
       });
     }
   }
+  const typeCounts = (ids, map) => {
+    const counts = {};
+    for (const id of ids) {
+      const artifact = map.get(id);
+      const type = artifact?.artifactType || 'UNKNOWN';
+      counts[type] = (counts[type] || 0) + 1;
+    }
+    return counts;
+  };
   return {
     kind: 'LoreSemanticDiff',
     addedSemanticIds: added,
     removedSemanticIds: removed,
     preservedSemanticIds: preserved,
     changed,
+    addedByType: typeCounts(added, after),
+    removedByType: typeCounts(removed, before),
+    temporalMeaningChanged: changed.some((row) => row.temporalChanged),
+    authorityMeaningChanged: changed.some((row) => row.authorityChanged),
     claimAdded: added.filter((id) => id.includes(':claim:')).length,
     claimRemoved: removed.filter((id) => id.includes(':claim:')).length,
     meaningChanged: added.length > 0 || removed.length > 0 || changed.length > 0,

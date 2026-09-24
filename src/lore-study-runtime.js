@@ -75,6 +75,7 @@ export class LoreStudyRuntime {
       if ([StudyState.DUE, StudyState.PENDING, StudyState.CHECKPOINTED].includes(obligation.state) && obligation.sourceRevisionId !== revision.id) {
         obligation.state = StudyState.SUPERSEDED;
         obligation.supersededBy = revision.id;
+        this.sessions.delete(obligation.id);
       }
     }
     const id = 'obligation:' + stableHash(revision.sourceId + '|' + revision.id + '|' + trigger);
@@ -147,6 +148,7 @@ export class LoreStudyRuntime {
     const previousLearned = this.store.currentLearnedRevision(obligation.sourceId);
     const previousArtifacts = previousLearned ? this.store.artifactsForLearnedRevision(previousLearned.id) : [];
     const impactPreview = this.store.impactPreview(obligation.sourceId);
+    impactPreview.unrelatedReusableArtifactCount = this.store.currentArtifacts(this.registry).filter((artifact) => artifact.sourceId !== obligation.sourceId).length;
 
     if (currentRevision.state === 'REMOVED') {
       const diff = semanticDiff(previousArtifacts, []);
@@ -158,6 +160,7 @@ export class LoreStudyRuntime {
       });
       obligation.state = StudyState.COMPLETED;
       obligation.checkpoint = {unitIndex: 1, totalUnits: 1, checksum: stableHash(learnedRevision.id)};
+      this.sessions.delete(obligationId);
       return {obligation: deepClone(obligation), learnedRevision, impactPreview, semanticDiff: diff, checkpointed: false};
     }
 
@@ -193,6 +196,7 @@ export class LoreStudyRuntime {
 
     if (!session.valid || !session.workspace.validation?.ok) {
       obligation.state = StudyState.INVALID;
+      this.sessions.delete(obligationId);
       return {
         obligation: deepClone(obligation),
         learnedRevision: null,
@@ -205,6 +209,7 @@ export class LoreStudyRuntime {
     if (this.registry.currentRevision(obligation.sourceId).id !== obligation.sourceRevisionId) {
       obligation.state = StudyState.SUPERSEDED;
       obligation.supersededBy = this.registry.currentRevision(obligation.sourceId).id;
+      this.sessions.delete(obligationId);
       return {obligation: deepClone(obligation), learnedRevision: null, impactPreview, checkpointed: false};
     }
 
@@ -217,6 +222,7 @@ export class LoreStudyRuntime {
       validation: session.workspace.validation,
     });
     obligation.state = StudyState.COMPLETED;
+    this.sessions.delete(obligationId);
     obligation.checkpoint = {
       ...obligation.checkpoint,
       committedLearnedRevisionId: learnedRevision.id,

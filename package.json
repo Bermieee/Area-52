@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Area-52 native Lore Study and cognitive memory architecture",
   "scripts": {
-    "test": "node --test tests/*.mjs",
+    "test": "node --test tests/lore-wave1.mjs tests/lore-browser-safe.mjs",
     "test:lore": "node --test tests/lore-wave1.mjs",
     "test:stress": "node tests/lore-wave1-stress.mjs"
   }

@@ -132,7 +132,7 @@ export class Wave6ProductAdapter{
     const attention=Object.entries(sources).filter(([name,s])=>['scene','runtime','coprocessor','promptPlan'].includes(name)&&[Wave6Health.DEGRADED,Wave6Health.STALE,Wave6Health.BLOCKED,Wave6Health.UNAVAILABLE].includes(s.health)).map(([name,s])=>({id:`source:${name}`,source:name,status:s.statusToken,title:s.label,message:s.impact||s.reason}));
     const overall=aggregateHealth([scene.source,runtime.source,coprocessor.source,promptPlan.source]);
     return deepFreeze({
-      wave6:{mode:ProductDataMode.LIVE,sources,attention},
+      wave6:{mode:aggregateMode(Object.values(sources)),sources,attention},
       story:story.data,scene:scene.data,characters:characters.data,lore:lore.data,memory:memory.data,world:world.data,
       runtime:runtime.data,coprocessor:coprocessor.data,promptPlan:promptPlan.data,forensics:forensics.data,
       brain:{overall,components:Object.entries(sources).filter(([n])=>['scene','runtime','coprocessor','promptPlan'].includes(n)).map(([id,s])=>({id,label:s.label,status:s.health,detail:s.impact||s.reason,mode:s.mode}))},
@@ -156,8 +156,8 @@ function readGeneric(label,source){
 }
 function unavailable(label,reason){return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label,impact:`${label} is unavailable.`,reason,connected:false}),data:null});}
 function degraded(label,impact,extra={}){return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.DEGRADED,health:Wave6Health.DEGRADED,label,impact,reason:extra.error??'',connected:true}),data:extra.raw??null});}
-function aggregateHealth(statuses){if(statuses.some(x=>x.health===Wave6Health.BLOCKED))return'BLOCKED';if(statuses.some(x=>x.health===Wave6Health.UNAVAILABLE))return'DEGRADED';if(statuses.some(x=>[Wave6Health.DEGRADED,Wave6Health.STALE].includes(x.health)))return'DEGRADED';if(statuses.some(x=>x.health===Wave6Health.WORKING))return'STUDYING';return'READY';}
-function sceneTitle(location,sceneId){const name=normalizeLocation(location);return name&&name!=='—'?name:`Scene ${sceneId}`;}
+function aggregateHealth(statuses){if(statuses.length&&statuses.every(x=>x.health===Wave6Health.UNAVAILABLE))return'UNAVAILABLE';if(statuses.some(x=>x.health===Wave6Health.BLOCKED))return'BLOCKED';if(statuses.some(x=>x.health===Wave6Health.UNAVAILABLE))return'DEGRADED';if(statuses.some(x=>[Wave6Health.DEGRADED,Wave6Health.STALE].includes(x.health)))return'DEGRADED';if(statuses.some(x=>x.health===Wave6Health.WORKING))return'STUDYING';return'READY';}
+function aggregateMode(statuses){if(statuses.length&&statuses.every(x=>x.mode===ProductDataMode.UNAVAILABLE))return ProductDataMode.UNAVAILABLE;if(statuses.some(x=>x.mode===ProductDataMode.DEGRADED))return ProductDataMode.DEGRADED;return ProductDataMode.LIVE;}\nfunction sceneTitle(location,sceneId){const name=normalizeLocation(location);return name&&name!=='—'?name:`Scene ${sceneId}`;}
 function normalizeLocation(x){if(x==null)return'—';if(typeof x==='string')return x;return x.name??x.location??x.label??x.id??'—';}
 function normalizeTime(x){if(x==null)return'—';if(typeof x==='string')return x;return x.label??x.anchor??x.display??x.mode??'—';}
 function character(x){if(typeof x==='string')return{id:x,name:x,state:'PRESENT'};const id=idOf(x,'characterId','characterRef','ref','id')??'unknown';return{id,name:x.name??id,state:x.state??x.presence??'PRESENT',authority:x.authority??x.observationClass??'OBSERVED'};}

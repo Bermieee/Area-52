@@ -131,7 +131,6 @@ test('corrective retrieval goldens terminate each major action family after one 
   ];
   for(const [name,expected,defect] of cases){
     let action=null,corrections=0;
-    const initial=candidateSet([{...candidateSet([]).candidates[0]}].filter(Boolean),'empty');
     const weak=candidateSet([{candidateId:'weak:'+name,evidenceIdentity:'weak:'+name,channel:'HISTORIAN',sourceRevisionRefs:['src:story'],
       rankSignals:{intentMatch:.8},retrievalIntentIds:['i1'],authorityClass:'OBSERVED',truthStatus:'HISTORICAL',freshness:'FRESH',provenance:[{ref:'p'}],evidenceRefs:['e']}],'weak');
     const fixed=candidateSet([{candidateId:'fixed:'+name,evidenceIdentity:'fixed:'+name,channel:'HISTORIAN',sourceRevisionRefs:['src:story'],

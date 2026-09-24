@@ -124,8 +124,9 @@ test('Wave 6 focused cognition stress preserves Green Room and Consolidation inv
       unitId:'long:'+i,artifactRefs:[artifact(5000+i)],sourceRevisionSet:['long:src:'+i],worldRevision:5,sceneRevision:7,
       characterStateRevision:3,priority:i%10,createdAt:i,
     }));
-    if(i%3===0)longBacklog.complete(u.unitId);
-    else if(i%5===0)longBacklog.supersede(u.unitId,'replacement:'+i);
+    const resident=longBacklog.list().some((row)=>row.unitId===u.unitId);
+    if(resident&&i%3===0)longBacklog.complete(u.unitId);
+    else if(resident&&i%5===0)longBacklog.supersede(u.unitId,'replacement:'+i);
     assert.ok(longBacklog.metrics({now:i}).storedUnits<=128);
   }
   assert.ok(longBacklog.metrics({now:5001}).pendingUnits<=128);totals.longConsolidationBacklogReplay=1;

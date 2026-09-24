@@ -10,9 +10,23 @@ Subsystems expose state, events and typed actions. UI.Core owns presentation, re
 
 No Area-52 subsystem owns root DOM architecture.
 
+## Phase 2 visual direction
+
+UI.Core is the visual authority for all Phase 2 product and cognitive surfaces.
+
+The canonical visual language is a compact cognitive control surface: deep navy/charcoal layered surfaces, cool cyan/blue primary accents, teal/green healthy states, amber warnings, restrained red failures, rounded elevated cards, compact pill/chip status language, crisp high-contrast typography, and soft luminous borders rather than heavy chrome.
+
+Subsystems must consume these shared tokens and primitives instead of inventing local palettes, radii, button shapes, status indicators, card treatments, or typography systems.
+
+The design must remain readable beside an active host chat. Compact density is a first-class presentation mode; deeper information belongs behind workspace expansion and the Inspector Framework.
+
+Visible branding is configurable at the shell boundary. The current product name is Area-52, but product surfaces must remain ready for the planned post-Phase-2 Nexus rename without changing cognitive or UI.Core contracts. The existing `a52-` implementation namespace is an internal compatibility namespace, not a visible branding requirement.
+
+See `docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md`.
+
 ## Runtime layers
 
-- Design System: tokens, typography, spacing, themes, status language, responsive modes.
+- Design System: tokens, typography, spacing, themes, status language, responsive modes and compact-density treatment.
 - Widget Runtime: lifecycle contract, registry, mount/update/destroy, subscriptions, cleanup.
 - Structural Runtime: application shell, workspace registry, inspector, overlays, persistent UI state.
 - Interaction Runtime: typed action router, permission/state validation, accessibility and keyboard behavior.
@@ -39,7 +53,7 @@ Knowledge: canonical, observed, inferred, historical, superseded, contradicted, 
 
 ## Primitive and structural widget set
 
-Primitives: Button, IconButton, Badge, StatusDot, TextField, SearchField, Select, Toggle, Slider.
+Primitives: Button, IconButton, Badge, HealthPill, StatusDot, TextField, SearchField, Select, Toggle, Slider.
 Information: Card, StatCard, KeyValue, ProgressBar, ProgressRing, Timeline, DataTable, VirtualList.
 Containers: Panel, Section, Tabs, Accordion, SplitPane, Drawer, Modal.
 Feedback: Toast, Banner, LoadingState, EmptyState, ErrorState.

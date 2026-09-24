@@ -20,6 +20,8 @@ import { FrontFacePresentationState, HostAdjacentMountAdapter } from './wave6-pr
 import { HostAdjacentFrontFaceController, registerWave6FrontFaceWorkspaces } from './wave6-front-face.js';
 import { ExplainabilityPresentationState } from './wave7-explainability.js';
 import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces } from './wave7-workspaces.js';
+import { Wave8CognitionProductionAdapter } from './wave8-production-adapters.js';
+import { registerWave8Actions, registerWave8Inspectors } from './wave8-workspace.js';
 
 export function createWave6ProductInterface({
   root,
@@ -43,6 +45,7 @@ export function createWave6ProductInterface({
   const coprocessor=new CoprocessorProductionUIAdapter(bridges.coprocessorTelemetry??bridges.coprocessorAdapter??null);
   const promptPlan=new PromptPlanProductionUIAdapter(bridges.promptPlan??{});
   const forensics=new ForensicsProductionUIAdapter(bridges.forensics??{});
+  const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(bridges.cognition??{})});
   const productAdapter=new Wave6ProductAdapter({
     scene,runtime,coprocessor,promptPlan,forensics,
     story:bridges.story??null,characters:bridges.characters??null,lore:bridges.lore??null,memory:bridges.memory??null,world:bridges.world??null,
@@ -56,17 +59,19 @@ export function createWave6ProductInterface({
   const widgetRuntime=new WidgetRuntime({registry:widgetRegistry,services:{signals,scheduler,actionRouter,overlays,notifications,productAdapter}});
   if(bridges.knowledgeAdapter)registerKnowledgeInspectionActions(actionRouter,{adapter:bridges.knowledgeAdapter,signals});
   const releaseWave7Actions=registerWave7Actions(actionRouter,{presentation:explainabilityPresentation});
+  const releaseWave8Actions=registerWave8Actions(actionRouter);
 
   inspectorRegistry.register('*',(object,{document:doc})=>renderReadOnlyInspector(doc,object));
   inspectorRegistry.register('framework-artifact',renderGenericArtifactInspector);
   const releaseWave7Inspectors=registerWave7Inspectors(inspectorRegistry,{forensics});
+  const releaseWave8Inspectors=registerWave8Inspectors(inspectorRegistry,{cognition,forensics});
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});
   const renderWorkspace=(entry,host)=>{
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
-      promptPlan,forensics,presentation:explainabilityPresentation,
+      promptPlan,forensics,cognition,presentation:explainabilityPresentation,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
       inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
       navigate(id){shell?.selectWorkspace(id);},
@@ -82,15 +87,17 @@ export function createWave6ProductInterface({
   const mountAdapter=hostMountAdapter instanceof HostAdjacentMountAdapter?hostMountAdapter:new HostAdjacentMountAdapter(hostMountAdapter??{});
   controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName});
   controller.mount();
+  const cognitionScope=new ResourceScope();
+  const cognitionRelease=cognition.subscribe(()=>scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'}));if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
 
   const toastScope=new ResourceScope(),toastViewport=new ToastViewport({host:shell.nodes.toastHost,signals,scope:toastScope});toastViewport.mount();
 
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
     productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,
-    productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics},
+    productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();forensics.destroy?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();cognition.destroy?.();forensics.destroy?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
   };
 }
 

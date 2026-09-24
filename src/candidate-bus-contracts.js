@@ -71,9 +71,9 @@ export function deriveEvidenceIdentity(input={}){
   const artifactId=typeof artifact==='string'?artifact:artifact?.artifactId??artifact?.id??input.artifactId??null;
   const artifactRevision=typeof artifact==='object'?(artifact?.revision??input.artifactRevision??null):(input.artifactRevision??null);
   const sourceRevisionRefs=uniq(input.sourceRevisionRefs??input.sourceRevisionSet??[]);
-  if(claimRefs.length)return 'claim:'+stableHash({claimRefs,artifactId,artifactRevision,representationRef,semanticKey},{length:32});
-  if(eventRefs.length)return 'event:'+stableHash({eventRefs,artifactId,artifactRevision,representationRef,semanticKey},{length:32});
-  if(relationshipRefs.length)return 'relationship:'+stableHash({relationshipRefs,artifactId,artifactRevision,representationRef,semanticKey},{length:32});
+  if(claimRefs.length)return 'claim:'+stableHash({claimRefs,artifactId,semanticKey},{length:32});
+  if(eventRefs.length)return 'event:'+stableHash({eventRefs,artifactId,semanticKey},{length:32});
+  if(relationshipRefs.length)return 'relationship:'+stableHash({relationshipRefs,artifactId,semanticKey},{length:32});
   if(semanticKey)return 'semantic:'+stableHash({semanticKey,artifactId,artifactRevision,representationRef},{length:32});
   if(representationRef)return 'representation:'+stableHash({representationRef,artifactId,artifactRevision,sourceRevisionRefs},{length:32});
   if(artifactId)return 'artifact:'+stableHash({artifactId,artifactRevision,sourceRevisionRefs},{length:32});

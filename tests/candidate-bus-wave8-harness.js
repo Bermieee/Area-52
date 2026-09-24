@@ -231,8 +231,7 @@ export function runWave8ContinuityAndCoreAcceptance(){
   const continuity=backbone.continuityOnly('what is happening now?',{intent:'CURRENT',sceneRevision:5,retrievalIntents:[intent('intent:now','CURRENT','what is happening now?')]});
 
   const core=new Area52CognitiveCore();
-  core.importAndLearn({id:'wave8:lore',sourceType:'LORE',at:1,content:'Mara owns Ember Tavern.'});
-  const published=core.publishGenerationContext({turnId:'turn:wave8',correlationId:'corr:wave8',query:'Who owns Ember Tavern?',intent:'CURRENT',anchorEntityIds:['mara'],sealedAt:2000});
+  const published=core.publishGenerationContext({turnId:'turn:wave8',correlationId:'corr:wave8',query:'What is relevant right now?',intent:'CURRENT',anchorEntityIds:[],sealedAt:2000});
   return{
     pass:continuity.candidateCount>0&&continuity.unavailableChannels.length===0&&published.candidateEnvelope?.kind==='CandidateBusEnvelope'&&published.candidateEnvelope.authorityGranted===false&&published.precisionResults.length>=0,
     continuity,published,

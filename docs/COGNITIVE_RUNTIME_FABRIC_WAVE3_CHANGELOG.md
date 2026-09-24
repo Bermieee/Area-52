@@ -18,6 +18,7 @@
 - Runtime event constants include canonical `TURN_EVENT`.
 - `CognitiveRuntimeHost` exposes the native turn runtime and execution-resource registration.
 - Runtime package exports/scripts include Wave 3.
+- Foreground quorum distinguishes temporary single-resource contention from true no-progress/resource absence, allowing queued REQUIRED work to run sequentially before fallback.
 
 ## Preserved
 

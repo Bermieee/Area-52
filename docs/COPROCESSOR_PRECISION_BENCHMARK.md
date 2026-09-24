@@ -63,3 +63,9 @@ Do not adopt either library as a mandatory dependency.
 Preserve the existing deterministic provider-neutral precision contract. FlashRank is eligible for a later optional adapter benchmark. ColBERTv2 is deferred to an external/local-service experiment.
 
 Issue #42 remains open because the empirical relevance/intent-opposite benchmark has not been executed.
+
+## Wave 3 continuation
+
+The deterministic intent-opposite corpus is reused by Adaptive Retrieval / Truth / Precision qualification for enter/leave, intact/destroyed, trust/distrust, carry/drop, heal/injure, present/departed, and CURRENT/HISTORICAL distinctions.
+
+No external FlashRank or ColBERTv2 run was fabricated for Wave 3. The isolated provider-neutral precision adapter route remains available for a future real benchmark. Issue #42 therefore remains open.

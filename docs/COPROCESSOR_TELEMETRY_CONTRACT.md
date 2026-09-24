@@ -44,3 +44,16 @@ Telemetry never grants truth, Settlement, canonical mutation, or scheduling auth
 ## Shared ownership
 
 This completes the bounded Sidecar telemetry contract but does not by itself close shared issue #86. UI.Core still owns presentation/consumption acceptance.
+
+## Wave 3 operational counters
+
+Wave 3 extends the same bounded telemetry surface with provider-neutral receipts for:
+
+- warm hit, miss and partial-salvage outcomes;
+- retrieval HIGH / MIXED / LOW / SKIP outcomes;
+- result destination;
+- streamed claim-check classifications;
+- consolidation backlog counts;
+- existing queue / execution / batch / yield / park / resume / retry / fallback / validation / stale-drop signals.
+
+The telemetry snapshot is counter-oriented. Raw source text, retrieved text, candidate bodies, full artifact bodies, prompts and provider responses remain blocked recursively. UI continues to own presentation.

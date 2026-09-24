@@ -1,57 +1,9 @@
 # Character Green Room Contract
 
-## Authority
+Green Room is scene-local inferred micro-state, not Character State. Every inference carries character reference, scene revision, evidence refs, confidence, creation time, expiry condition, source revision set and `authority: INFERRED`.
 
-Green Room state is always:
+Dimensions are sparse and bounded. Supported dimensions include guardedness, warmth, anger, trust trend, anxiety, latent intent, attention target, social pressure and uncertainty. Characters are processed in bounded batches rather than one call per character.
 
-- INFERRED;
-- EPHEMERAL;
-- SCENE-SCOPED;
-- EXPIRING;
-- NON-CANONICAL.
+Expiry may be triggered by Scene close/replacement, major time shift, character departure, contradictory evidence, source-revision invalidation, Scene revision change or TTL. Active-character count, dimensions, evidence refs and retained history are all capped.
 
-Repeated inference does not directly mutate Character State.
-
-## Input
-
-Multiple active characters may be sent in one provider call.
-
-Per character:
-
-- characterId;
-- evidenceRefs;
-- recent scene evidence;
-- relationship evidence refs.
-
-## Output
-
-Per character:
-
-- guardedness;
-- warmth;
-- anger;
-- trustTrend;
-- anxiety;
-- latentIntent;
-- confidence;
-- evidenceRefs;
-- sceneRevision;
-- expiry policy.
-
-Normalized scalar values are bounded to 0..1 where applicable.
-
-## Expiry
-
-GreenRoomEphemeralStore rejects/retires state when:
-
-- scene revision changes;
-- turn TTL is exceeded;
-- character is no longer active when active-cast fencing is supplied.
-
-Expired inference is not automatically reused in a later scene.
-
-## Batching
-
-Green Room declares adaptive batch semantics and the Sidecar Batch Adapter can submit multiple characters as common Runtime Batch Engine units.
-
-Focused per-character follow-up is not automatic.
+Repeated compatible observations may produce a `ReflectionCandidate`, but that object remains proposal-only and has no Memory/Settlement mutation authority. Provider output claiming canonical, Settlement or Memory authority fails closed.

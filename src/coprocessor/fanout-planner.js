@@ -5,69 +5,164 @@ export const INITIAL_ROLE_CATALOG = Object.freeze([
   Object.freeze({
     roleId: 'historian', taskType: 'HISTORIAN_RETRIEVAL', compilerLane: 'loreEvidence',
     requiredCapabilities: [Capability.RETRIEVAL, Capability.LONG_CONTEXT],
-    resultClass: ResultClass.REQUIRED, placement: Placement.HOT, cognitiveLayer: 'L1',
+    resultClass: ResultClass.REQUIRED, placement: Placement.HOT, cognitiveLayer: 'L1', costUnits: 2, latencyClass: 'LOW',
   }),
   Object.freeze({
     roleId: 'graph-walker', taskType: 'GRAPH_WALK', compilerLane: 'graphResults',
     requiredCapabilities: [Capability.GRAPH],
-    resultClass: ResultClass.REQUIRED, placement: Placement.HOT, cognitiveLayer: 'L1',
+    resultClass: ResultClass.REQUIRED, placement: Placement.HOT, cognitiveLayer: 'L1', costUnits: 1, latencyClass: 'LOW',
   }),
   Object.freeze({
     roleId: 'green-room', taskType: 'GREEN_ROOM', compilerLane: 'greenRoom',
     requiredCapabilities: [Capability.SEMANTIC_JUDGMENT, Capability.CHARACTER_INFERENCE],
-    resultClass: ResultClass.OPPORTUNISTIC, placement: Placement.HOT, cognitiveLayer: 'L1',
+    resultClass: ResultClass.OPPORTUNISTIC, placement: Placement.HOT, cognitiveLayer: 'L1', costUnits: 1, latencyClass: 'LOW',
     batchMetadata: { batchable: true, slicePolicy: 'ADAPTIVE', checkpointBoundary: 'SLICE', yieldSafety: 'CHECKPOINT_ONLY', partialResultSemantics: 'PRESERVE_VALID_SLICES' },
   }),
   Object.freeze({
     roleId: 'truth-precision', taskType: 'TRUTH_PRECISION', compilerLane: 'truthClassifications',
     requiredCapabilities: [Capability.TRUTH_JUDGMENT, Capability.RERANK],
-    resultClass: ResultClass.REQUIRED, placement: Placement.HOT, cognitiveLayer: 'L1',
+    resultClass: ResultClass.REQUIRED, placement: Placement.HOT, cognitiveLayer: 'L1', costUnits: 2, latencyClass: 'LOW',
+  }),
+  Object.freeze({
+    roleId: 'consolidation', taskType: 'CONSOLIDATION', compilerLane: 'consolidationProposals',
+    requiredCapabilities: [Capability.CONSOLIDATION, Capability.COMPRESSION],
+    resultClass: ResultClass.DEFERRED, placement: Placement.DEEP, cognitiveLayer: 'L3', costUnits: 4, latencyClass: 'HIGH',
+    batchMetadata: { batchable: true, slicePolicy: 'ADAPTIVE', checkpointBoundary: 'SLICE', yieldSafety: 'CHECKPOINT_ONLY', partialResultSemantics: 'PRESERVE_VALID_SLICES' },
   }),
 ]);
 
 export class DynamicFanOutPlanner {
-  constructor({ roleCatalog = INITIAL_ROLE_CATALOG, defaultSoftBudgetMs = 70, defaultHardBudgetMs = 120, maxWorkers = 16 } = {}) {
+  constructor({
+    roleCatalog = INITIAL_ROLE_CATALOG,
+    defaultSoftBudgetMs = 70,
+    defaultHardBudgetMs = 120,
+    maxWorkers = 16,
+    expectedValueThreshold = 0.65,
+    maxForegroundWorkers = null,
+    maxOpportunisticWorkers = null,
+    maxBackgroundNominations = null,
+    maxCostUnits = 16,
+    maxDeadlineExposureMs = null,
+  } = {}) {
     this.roleCatalog = [...roleCatalog];
     this.defaultSoftBudgetMs = defaultSoftBudgetMs;
     this.defaultHardBudgetMs = defaultHardBudgetMs;
     this.maxWorkers = maxWorkers;
+    this.expectedValueThreshold = expectedValueThreshold;
+    this.defaultCaps = {
+      maxForegroundWorkers: maxForegroundWorkers ?? maxWorkers,
+      maxOpportunisticWorkers: maxOpportunisticWorkers ?? maxWorkers,
+      maxBackgroundNominations: maxBackgroundNominations ?? maxWorkers,
+      maxCostUnits,
+      maxDeadlineExposureMs: maxDeadlineExposureMs ?? maxWorkers * defaultHardBudgetMs,
+    };
   }
 
   plan({
-    turnEvent, text = '', queryIntent = null, activeCast = [], activeThreads = [],
-    conflictSignals = [], expectedValue = {}, providerHealth = {}, latencyBudgetMs = this.defaultHardBudgetMs,
-    costBudget = 'MEDIUM', cacheWarmth = {}, availableCapabilities = null, location = null, inputRefs = {},
-    maxFanOut = this.maxWorkers, resourceConstraint = {},
+    turnEvent,
+    text = '',
+    queryIntent = null,
+    sceneEntities = [],
+    activeCast = [],
+    activeThreads = [],
+    uncertainSceneFields = [],
+    sceneTransitionType = null,
+    retrievalQuality = null,
+    prefetchRecommendations = [],
+    conflictSignals = [],
+    expectedValue = {},
+    providerHealth = {},
+    providerLoad = {},
+    latencyBudgetMs = this.defaultHardBudgetMs,
+    costBudget = 'MEDIUM',
+    cacheWarmth = {},
+    warmState = null,
+    availableCapabilities = null,
+    location = null,
+    inputRefs = {},
+    maxFanOut = this.maxWorkers,
+    resourceConstraint = {},
+    backgroundSignals = {},
+    hotStateSufficient = false,
   }) {
+    if (!turnEvent) throw new TypeError('turnEvent is required');
     const normalized = String(text).trim().toLowerCase();
     const trivial = /^(ok|okay|thanks|thank you|got it|sure|yep|yes)[.! ]*$/.test(normalized);
-    if (trivial) return freezePlan(turnEvent, [], { reason: 'zero-worker path: no expected-value cognition', costBudget, latencyBudgetMs });
-
+    const prefetch = Array.isArray(prefetchRecommendations) ? prefetchRecommendations : [];
+    const sceneUncertain = Array.isArray(uncertainSceneFields) ? uncertainSceneFields : [];
     const physical = /\b(where|location|inventory|item|weapon|blade|find|looking|returns?|ruin|tavern|carried|left)\b/.test(normalized)
-      || ['LOCATION','INVENTORY','PHYSICAL_STATE','CURRENT_STATE'].includes(queryIntent);
+      || ['LOCATION', 'INVENTORY', 'PHYSICAL_STATE', 'CURRENT_STATE'].includes(queryIntent);
     const dialogue = /\b(speaks?|speaking|talks?|asks?|tells?|mara|dialogue)\b/.test(normalized) || activeCast.length > 1;
-    const conflict = conflictSignals.length > 0 || /\b(conflict|contradiction|ambiguous|truth|current|historical)\b/.test(normalized);
-    const continuity = activeThreads.length > 0 || normalized.length > 20;
+    const conflict = conflictSignals.length > 0 || sceneUncertain.length > 0 || ['MIXED', 'LOW'].includes(retrievalQuality)
+      || /\b(conflict|contradiction|ambiguous|truth|current|historical)\b/.test(normalized);
+    const continuity = activeThreads.length > 0 || sceneEntities.length > 0 || normalized.length > 20 || prefetch.length > 0;
+    const transition = sceneTransitionType != null && !['CONTINUES', 'FALSE_BOUNDARY', 'REJECTED'].includes(sceneTransitionType);
+    const freshWarm = warmState === 'FRESH' || cacheWarmth.historian === 'FRESH';
 
-    const selected = new Set();
-    if (continuity || physical || dialogue) selected.add('historian');
-    if (physical) selected.add('graph-walker');
-    if (dialogue) selected.add('green-room');
-    if (physical || conflict) selected.add('truth-precision');
+    if ((trivial || hotStateSufficient) && !conflict && !transition && !backgroundSignals.consolidationPending) {
+      return freezePlan(turnEvent, [], [], {
+        reason: 'zero-worker path: hot cognition already satisfies turn',
+        reasonCodes: ['HOT_STATE_SUFFICIENT'], costBudget, latencyBudgetMs,
+        boundedFanOut: 0, budget: budgetReceipt(0, 0, 0, 0, this.#caps(maxFanOut, resourceConstraint)),
+      });
+    }
 
-    for (const [roleId, value] of Object.entries(expectedValue)) if (Number(value) > 0.65) selected.add(roleId);
+    const selected = new Map();
+    const nominate = (roleId, value, reasons = [], requiredInputs = []) => {
+      const prior = selected.get(roleId);
+      const next = { expectedValue: clamp(value), reasonCodes: uniqueStrings([...(prior?.reasonCodes ?? []), ...reasons]), requiredInputs: uniqueStrings([...(prior?.requiredInputs ?? []), ...requiredInputs]) };
+      if (!prior || next.expectedValue >= prior.expectedValue) selected.set(roleId, next);
+    };
 
+    if ((continuity || physical || dialogue || transition) && !freshWarm) nominate('historian', continuity ? 0.82 : 0.75, ['CONTINUITY_OR_RETRIEVAL_REQUIRED'], ['sceneRevision', 'sourceRevisionSet', 'intentFingerprint']);
+    if (freshWarm && (physical || continuity)) nominate('historian', 0.40, ['FRESH_WARM_PACKET_AVAILABLE'], ['warmPacket']);
+    if (physical || transition || sceneUncertain.some((field) => ['location', 'immediateObjects', 'activeCast'].includes(field))) nominate('graph-walker', 0.86, ['PHYSICAL_OR_SCENE_STATE_QUERY'], ['sceneRevision', 'location']);
+    if (dialogue && activeCast.length) nominate('green-room', 0.76, ['ACTIVE_CAST_DIALOGUE'], ['activeCast', 'sceneRevision']);
+    if (physical || conflict || retrievalQuality === 'MIXED') nominate('truth-precision', 0.90, ['UNCERTAINTY_OR_PRECISION_REQUIRED'], ['worldRevision', 'sourceRevisionSet']);
+    if (retrievalQuality === 'LOW') nominate('truth-precision', 0.72, ['LOW_RETRIEVAL_REQUIRES_ABSTENTION_CHECK'], ['retrievalQuality']);
+    if (backgroundSignals.consolidationPending || Number(backgroundSignals.pendingUnits ?? 0) > 0) nominate('consolidation', Number(backgroundSignals.expectedValue ?? 0.70), ['BACKGROUND_CONSOLIDATION_PENDING'], ['artifactRefs', 'checkpoint']);
+
+    for (const [roleId, value] of Object.entries(expectedValue)) if (Number(value) > this.expectedValueThreshold) nominate(roleId, Number(value), ['EXPLICIT_EXPECTED_VALUE'], []);
+
+    const caps = this.#caps(maxFanOut, resourceConstraint);
+    const capabilitySet = availableCapabilities ? new Set(availableCapabilities) : null;
     const tasks = [];
-    const boundedFanOut=Math.max(0,Math.min(this.maxWorkers,Number(maxFanOut??this.maxWorkers),
-      Number(resourceConstraint.maxForegroundWorkers??this.maxWorkers)));
-    const capabilitySet=availableCapabilities?new Set(availableCapabilities):null;
+    const nominations = [];
+    let foregroundCount = 0, opportunisticCount = 0, backgroundCount = 0, costUsed = 0, deadlineExposureUsed = 0;
+
     for (const role of this.roleCatalog) {
-      if (!selected.has(role.roleId)) continue;
-      if (role.resultClass !== ResultClass.REQUIRED && providerHealth[role.roleId] === 'unavailable') continue;
-      if (capabilitySet && role.resultClass !== ResultClass.REQUIRED && role.requiredCapabilities.some(cap=>!capabilitySet.has(cap))) continue;
-      if (tasks.length >= boundedFanOut) break;
+      const signal = selected.get(role.roleId);
+      if (!signal || signal.expectedValue <= this.expectedValueThreshold && !expectedValue[role.roleId]) continue;
+      if (capabilitySet && role.requiredCapabilities.some((capability) => !capabilitySet.has(capability))) continue;
+      if (providerHealth[role.roleId] === 'unavailable' || providerHealth[role.roleId] === 'unhealthy') continue;
+      if (Number(providerLoad[role.roleId] ?? 0) >= 1) continue;
+      if (tasks.length >= caps.maxTotalWorkers) break;
+      if (role.resultClass === ResultClass.DEFERRED && backgroundCount >= caps.maxBackgroundNominations) continue;
+      if (role.resultClass !== ResultClass.DEFERRED && foregroundCount >= caps.maxForegroundWorkers) continue;
+      if (role.resultClass === ResultClass.OPPORTUNISTIC && opportunisticCount >= caps.maxOpportunisticWorkers) continue;
+      const cost = Math.max(0, Number(role.costUnits ?? 1));
+      if (costUsed + cost > caps.maxCostUnits) continue;
+      const deadlineExposure = role.resultClass === ResultClass.DEFERRED ? 0 : Math.min(this.defaultHardBudgetMs, latencyBudgetMs);
+      if (deadlineExposureUsed + deadlineExposure > caps.maxDeadlineExposureMs) continue;
+
       const softDeadline = turnEvent.createdAt + Math.min(this.defaultSoftBudgetMs, latencyBudgetMs);
       const hardDeadline = turnEvent.createdAt + Math.min(this.defaultHardBudgetMs, latencyBudgetMs);
+      const nomination = Object.freeze({
+        roleId: role.roleId,
+        taskType: role.taskType,
+        capability: Object.freeze([...role.requiredCapabilities]),
+        resultClass: role.resultClass,
+        expectedValue: signal.expectedValue,
+        reasonCodes: Object.freeze([...signal.reasonCodes]),
+        requiredInputs: Object.freeze([...signal.requiredInputs]),
+        freshnessFence: Object.freeze({ sourceRevisionSet: [...turnEvent.sourceRevisionSet], worldRevision: turnEvent.worldRevision, sceneRevision: turnEvent.sceneRevision, characterStateRevision: turnEvent.characterStateRevision, intentFingerprint: `intent:${turnEvent.turnId}:${queryIntent ?? 'AUTO'}` }),
+        costEstimate: Object.freeze({ units: cost, class: costBudget }),
+        latencyClass: role.latencyClass ?? null,
+        fallback: Object.freeze(fallbackFor(role.roleId)),
+        providerIdentity: null,
+        canonicalAuthority: false,
+      });
+      nominations.push(nomination);
       tasks.push(createCognitiveTask({
         taskId: `${turnEvent.turnId}:${role.roleId}`,
         taskType: role.taskType,
@@ -89,14 +184,50 @@ export class DynamicFanOutPlanner {
         fallbackPolicy: fallbackFor(role.roleId),
         placement: role.placement,
         compilerLane: role.compilerLane,
-        intentFingerprint: `intent:${turnEvent.turnId}:${queryIntent ?? 'AUTO'}`,
-        metadata: { roleId: role.roleId, cacheWarm: Boolean(cacheWarmth[role.roleId]), costBudget, expectedValue:Number(expectedValue[role.roleId]??0),
-          location, inputRefs: structuredClone(inputRefs[role.roleId]??[]), resourceConstraint: structuredClone(resourceConstraint) },
+        intentFingerprint: nomination.freshnessFence.intentFingerprint,
+        metadata: {
+          roleId: role.roleId,
+          cacheWarm: Boolean(cacheWarmth[role.roleId]),
+          warmState,
+          costBudget,
+          expectedValue: signal.expectedValue,
+          reasonCodes: signal.reasonCodes,
+          requiredInputs: signal.requiredInputs,
+          costEstimate: nomination.costEstimate,
+          latencyClass: nomination.latencyClass,
+          location,
+          inputRefs: structuredClone(inputRefs[role.roleId] ?? []),
+          resourceConstraint: structuredClone(resourceConstraint),
+        },
       }));
+      costUsed += cost;
+      deadlineExposureUsed += deadlineExposure;
+      if (role.resultClass === ResultClass.DEFERRED) backgroundCount += 1;
+      else foregroundCount += 1;
+      if (role.resultClass === ResultClass.OPPORTUNISTIC) opportunisticCount += 1;
     }
-    return freezePlan(turnEvent, tasks, {
-      reason: tasks.length ? 'expected-value fan-out' : 'no eligible expected-value cognition',
-      costBudget, latencyBudgetMs, boundedFanOut,
+
+    return freezePlan(turnEvent, tasks, nominations, {
+      reason: tasks.length ? 'expected-value bounded fan-out' : 'zero-worker path: no eligible expected-value cognition',
+      reasonCodes: tasks.length ? ['EXPECTED_VALUE_PLAN'] : ['NO_ELIGIBLE_EXPECTED_VALUE'],
+      costBudget,
+      latencyBudgetMs,
+      boundedFanOut: caps.maxTotalWorkers,
+      budget: budgetReceipt(foregroundCount, opportunisticCount, backgroundCount, costUsed, caps, deadlineExposureUsed),
+      inputSignals: Object.freeze({ queryIntent, location, retrievalQuality, sceneTransitionType, uncertainSceneFieldCount: sceneUncertain.length, prefetchRecommendationCount: prefetch.length }),
+    });
+  }
+
+  #caps(maxFanOut, resourceConstraint) {
+    const total = Math.max(0, Math.min(this.maxWorkers, finiteCap(maxFanOut, this.maxWorkers)));
+    const foreground = Math.max(0, Math.min(total, finiteCap(resourceConstraint.maxForegroundWorkers, this.defaultCaps.maxForegroundWorkers)));
+    return Object.freeze({
+      maxTotalWorkers: total,
+      maxForegroundWorkers: foreground,
+      maxOpportunisticWorkers: Math.max(0, Math.min(foreground, finiteCap(resourceConstraint.maxOpportunisticWorkers, this.defaultCaps.maxOpportunisticWorkers))),
+      maxBackgroundNominations: Math.max(0, Math.min(total, finiteCap(resourceConstraint.maxBackgroundNominations, this.defaultCaps.maxBackgroundNominations))),
+      maxCostUnits: Math.max(0, finiteCap(resourceConstraint.maxCostUnits, this.defaultCaps.maxCostUnits)),
+      maxDeadlineExposureMs: Math.max(0, finiteCap(resourceConstraint.maxDeadlineExposureMs, this.defaultCaps.maxDeadlineExposureMs)),
     });
   }
 }
@@ -107,17 +238,23 @@ function fallbackFor(roleId) {
     'graph-walker': { type: 'CURRENT_STATE_LOOKUP', maxRetries: 1 },
     'green-room': { type: 'OMIT_INFERRED_SHADOW_STATE', maxRetries: 0 },
     'truth-precision': { type: 'PRESERVE_UNRESOLVED_AND_FUSED_ORDER', maxRetries: 1 },
+    consolidation: { type: 'PARK_OR_RECOMPUTE', maxRetries: 0 },
   };
   return map[roleId] ?? { type: 'DEGRADED_CONTINUE', maxRetries: 0 };
 }
 
-function freezePlan(turnEvent, tasks, metadata) {
+function freezePlan(turnEvent, tasks, nominations, metadata) {
   return Object.freeze({
     kind: 'FanOutPlan',
     turnId: turnEvent.turnId,
     correlationId: turnEvent.correlationId,
     tasks: Object.freeze([...tasks]),
+    nominations: Object.freeze([...nominations]),
     plannedWorkerCount: tasks.length,
     ...metadata,
   });
 }
+function budgetReceipt(foreground, opportunistic, background, cost, caps, deadlineExposureMs = 0) { return Object.freeze({ foregroundWorkers: foreground, opportunisticWorkers: opportunistic, backgroundNominations: background, estimatedCostUnits: cost, deadlineExposureMs, caps }); }
+function finiteCap(value, fallback) { const n = Number(value ?? fallback); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback; }
+function clamp(value) { const n = Number(value); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0; }
+function uniqueStrings(values) { return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))]; }

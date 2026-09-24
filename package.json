@@ -1,16 +1,19 @@
 {
   "name": "area-52",
-  "version": "0.2.0-dev",
+  "version": "0.3.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Wave 2",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 1 Wave 3",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
     "test:wave2": "node --test tests/coprocessor-wave2.test.mjs tests/coprocessor-runtime-integration.test.mjs",
-    "test:stress": "node --test tests/coprocessor-stress.test.mjs tests/coprocessor-wave2-stress.test.mjs tests/coprocessor-runtime-integration-stress.test.mjs",
+    "test:wave3": "node --test tests/coprocessor-wave3.test.mjs",
+    "test:stress": "node --test tests/coprocessor-stress.test.mjs tests/coprocessor-wave2-stress.test.mjs tests/coprocessor-runtime-integration-stress.test.mjs tests/coprocessor-wave3-stress.test.mjs",
+    "test:browser:wave3": "node --test --test-name-pattern='browser execution|production modules' tests/coprocessor-wave3.test.mjs",
     "check": "find src tests scripts -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
     "manual:provider": "node scripts/manual-provider-smoke.mjs",
-    "manual:ft005": "node scripts/ft005-provider-readiness.mjs"
+    "manual:ft005": "node scripts/ft005-provider-readiness.mjs",
+    "report:wave3": "node scripts/wave3-acceptance-report.mjs"
   }
 }

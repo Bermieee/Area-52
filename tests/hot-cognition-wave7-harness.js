@@ -93,7 +93,7 @@ export function runHotCognitionWave7Acceptance(){
     anchorEntityIds:EMBER_TAVERN_WAVE3.anchors,sealedAt:1000,
   });
   const delivered=core.deliverGenerationContext({published,generationId:'generation:golden:1',modelProfileId:'RECENCY_WEIGHTED',userInput:EMBER_TAVERN_WAVE3.query});
-  const sealedHot=core.hotCognition.snapshotForTurn('turn:golden:seal');steps.push({step:9,name:'generation seals',receipt:published.sealReceipt,snapshot:sealedHot?.snapshot});
+  const sealedRecord=core.hotCognition.snapshotForTurn('turn:golden:seal'),sealedHot=sealedRecord?.snapshot??null;steps.push({step:9,name:'generation seals',receipt:published.sealReceipt,snapshot:sealedHot});
 
   const late=core.publication.receiveResult(createCognitiveResult({
     id:'result:late:golden',taskId:'task:late:golden',turnId:'turn:golden:seal',correlationId:'corr:golden:seal',

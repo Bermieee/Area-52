@@ -89,7 +89,8 @@ export function attachHotCognitionToPacket(packet,projection){
     provenanceIndex[fact.id]=uniq([...fact.sourceRevisionRefs,...fact.dependencyRevisionRefs]);
     for(const ref of [...fact.sourceRevisionRefs,...fact.dependencyRevisionRefs])dependencies.add(ref);
   }
-  next.hotCognition=projection.facts.map(clone);
+  next.hotCognitionProvenanceIndex=Object.fromEntries(projection.facts.map(fact=>[fact.id,uniq(fact.provenanceRefs??[])]));
+  next.hotCognition=projection.facts.map(fact=>{const row=clone(fact);delete row.provenanceRefs;return row;});
   next.provenanceIndex=provenanceIndex;next.dependencies=[...dependencies].sort();
   next.hotCognitionSnapshotId=projection.snapshotId;next.hotCognitionRevision=projection.hotRevision;next.hotCognitionChatNamespace=projection.chatNamespace;
   next.id=String(packet.id)+':hot:'+stableHash({snapshotId:projection.snapshotId,facts:projection.facts.map(x=>[x.id,x.hotSlot,x.segmentRevision])},{length:16});

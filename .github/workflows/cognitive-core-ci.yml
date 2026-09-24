@@ -41,3 +41,9 @@ jobs:
         run: node scripts/core-browser-runtime-acceptance.mjs
       - name: Phase 1 Core closure evidence
         run: node scripts/phase1-core-closure-evidence.mjs
+      - name: Phase 1 Integration Wave 4 acceptance
+        run: node scripts/integration-wave4-acceptance-report.mjs
+      - name: Phase 1 Integration Wave 4 stress
+        run: node scripts/integration-wave4-stress-report.mjs
+      - name: Phase 1 Integration gate evidence
+        run: node scripts/phase1-integration-gate-evidence.mjs

@@ -13,6 +13,7 @@ import { AdaptiveContextRuntime } from './adaptive-context-runtime.js';
 import { DeliveryLearningEngine } from './delivery-learning.js';
 import { FrameworkKernel } from './framework-kernel.js';
 import { CognitiveAuditPlane } from './cognitive-audit-plane.js';
+import { CoreObservationSpine } from './core-ui-read-models.js';
 
 export class Area52CognitiveCore {
   constructor(){
@@ -21,7 +22,7 @@ export class Area52CognitiveCore {
     this.settlement=new SettlementBoundary({registry:this.registry,graph:this.graph,worldStateSettlement:this.settlementCore});
     this.retrieval=new MinimalRetrieval({graph:this.graph});this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
-    this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});
+    this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});this.observation=new CoreObservationSpine();
     this.publication=new GenerationPublicationPipeline({core:this});this.audit.bindPublication(this.publication);const receiveResult=this.publication.receiveResult.bind(this.publication);this.publication.receiveResult=(result)=>{const received=receiveResult(result);this.audit.recordResultRoute(received);return received;};
     this.deliveryLearning=new DeliveryLearningEngine();this.delivery=new AdaptiveContextRuntime({deliveryLearning:this.deliveryLearning});
   }

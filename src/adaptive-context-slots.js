@@ -10,7 +10,7 @@ export const CORE_SLOT_SPECS={
   [PromptSlot.CURRENT_CHARACTER_STATE]:{owner:'CONTEXT_COMPILER',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',protected:true,semantic:true,band:DeliveryBand.REVISIONED_MIDDLE,cacheEligible:true},
   [PromptSlot.CURRENT_WORLD_STATE]:{owner:'CONTEXT_COMPILER',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',protected:true,semantic:true,band:DeliveryBand.REVISIONED_MIDDLE,cacheEligible:true},
   [PromptSlot.CURRENT_SCENE]:{owner:'GENERATION_ENVELOPE',allowedSources:[ContributionSource.GENERATION_ENVELOPE],role:'context',protected:true,semantic:false,band:DeliveryBand.VOLATILE_TAIL,cacheEligible:false},
-  [PromptSlot.ACTIVE_THREADS]:{owner:'GENERATION_ENVELOPE',allowedSources:[ContributionSource.GENERATION_ENVELOPE],role:'context',protected:true,semantic:false,band:DeliveryBand.VOLATILE_TAIL,cacheEligible:false},
+  [PromptSlot.ACTIVE_THREADS]:{owner:'CONTEXT_COMPILER',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',protected:true,semantic:true,band:DeliveryBand.REVISIONED_MIDDLE,cacheEligible:true},
   [PromptSlot.RELEVANT_LORE]:{owner:'CONTEXT_COMPILER',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',protected:false,semantic:true,band:DeliveryBand.REVISIONED_MIDDLE,cacheEligible:true},
   [PromptSlot.EPISODIC_MEMORY]:{owner:'CONTEXT_COMPILER',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',protected:false,semantic:true,band:DeliveryBand.REVISIONED_MIDDLE,cacheEligible:true},
   [PromptSlot.HISTORICAL_SUPPORT]:{owner:'CONTEXT_COMPILER',allowedSources:[ContributionSource.SEALED_PACKET],role:'context',protected:true,semantic:true,band:DeliveryBand.REVISIONED_MIDDLE,cacheEligible:true},

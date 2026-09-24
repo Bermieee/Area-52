@@ -10,6 +10,7 @@ import { ContextCompiler } from './context-compiler.js';
 import { ReflectionEngine } from './reflection-engine.js';
 import { GenerationPublicationPipeline } from './generation-publication.js';
 import { AdaptiveContextRuntime } from './adaptive-context-runtime.js';
+import { DeliveryLearningEngine } from './delivery-learning.js';
 import { FrameworkKernel } from './framework-kernel.js';
 import { CognitiveAuditPlane } from './cognitive-audit-plane.js';
 
@@ -18,11 +19,11 @@ export class Area52CognitiveCore {
     this.registry=new SourceRegistry();this.study=new LoreStudyEngine({registry:this.registry});this.graph=new TemporalStateGraph();
     this.settlementCore=new SettlementEngine({registry:this.registry,graph:this.graph});
     this.settlement=new SettlementBoundary({registry:this.registry,graph:this.graph,worldStateSettlement:this.settlementCore});
-    this.retrieval=new MinimalRetrieval({graph:this.graph});this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
+    this.retrieval=new MinimalRetrieval({graph:this.graph});this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
     this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});
     this.publication=new GenerationPublicationPipeline({core:this});this.audit.bindPublication(this.publication);const receiveResult=this.publication.receiveResult.bind(this.publication);this.publication.receiveResult=(result)=>{const received=receiveResult(result);this.audit.recordResultRoute(received);return received;};
-    this.delivery=new AdaptiveContextRuntime();
+    this.deliveryLearning=new DeliveryLearningEngine();this.delivery=new AdaptiveContextRuntime({deliveryLearning:this.deliveryLearning});
   }
   importAndLearn({id,sourceType,content,at=0,metadata={}}){const imported=this.registry.importSource({id,sourceType,content,metadata:{...metadata,at}});const sourceTx=this.audit.recordSourceAdmission({sourceId:id,revision:imported.revision,correlationId:`source:${imported.revision.id}`});return this.learnSource(id,{correlationId:sourceTx.correlationId,causationId:sourceTx.transactionId});}
   importEvidence({id,evidenceType=EvidenceType.NARRATIVE_EXPERIENCE,content,at=0,metadata={}}){const evidence=createEvidenceRecord({id,evidenceType,at,content,metadata});return{evidence,learning:this.importAndLearn({id,sourceType:'EXPERIENCE',content,at,metadata:{...metadata,evidenceType}})};}

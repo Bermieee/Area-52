@@ -5,6 +5,7 @@ export { PromptSlotRegistry,ModelProfileRegistry } from './adaptive-context-slot
 export { DeterministicApproxTokenEstimator,AdaptiveBudgetAllocator } from './adaptive-context-budget.js';
 export { PromptIntegrityGuard } from './prompt-integrity-guard.js';
 export { ModelAdapterRegistry } from './model-adapters.js';
+export { DeliveryLearningEngine,DeliveryPolicyStatus,DeliveryEvidenceState,feedbackMetricsFromBenchmark } from './delivery-learning.js';
 
 export class ContextDeliveryEngine extends PromptPlanner{
   constructor(options={}){super(options);this.adapterRegistry=options.adapterRegistry??new ModelAdapterRegistry();}

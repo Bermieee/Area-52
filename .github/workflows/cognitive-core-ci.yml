@@ -21,7 +21,7 @@ jobs:
         run: npm run check
       - name: ESM load
         run: node -e "import('./src/cognitive-core.js').then(()=>console.log('ESM PASS'))"
-      - name: Wave 3 acceptance report
+      - name: Wave 3 publication acceptance report
         run: node scripts/wave3-acceptance-report.mjs
       - name: Wave 4 adaptive context acceptance report
         run: node scripts/wave4-acceptance-report.mjs
@@ -31,5 +31,11 @@ jobs:
         run: node scripts/cognitive-audit-wave2-acceptance-report.mjs
       - name: Cognitive Audit stress report
         run: node scripts/cognitive-audit-stress-report.mjs
-      - name: Framework + Audit browser-host acceptance
+      - name: Context Closure Wave 3 acceptance
+        run: node scripts/context-closure-wave3-acceptance-report.mjs
+      - name: Delivery Learning stress
+        run: node scripts/delivery-learning-stress-report.mjs
+      - name: Core browser-host source acceptance
         run: node scripts/framework-browser-acceptance.mjs
+      - name: Core browser-runtime execution acceptance
+        run: node scripts/core-browser-runtime-acceptance.mjs

@@ -1,6 +1,6 @@
 import { PromptSlot,deliveryHash } from './adaptive-context-contracts.js';
 const clone=(value)=>structuredClone(value),uniq=(values)=>[...new Set(values)].sort();
-export function factTemporalStatus(fact,slot){if(slot===PromptSlot.CURRENT_WORLD_STATE||slot===PromptSlot.CURRENT_CHARACTER_STATE)return'CURRENT';if(Array.isArray(fact?.t)&&fact.t[2])return fact.t[2];if(slot===PromptSlot.HISTORICAL_SUPPORT)return'HISTORICAL';if(slot===PromptSlot.UNRESOLVED_EVIDENCE)return'UNRESOLVED';return null;}
+export function factTemporalStatus(fact,slot){if(slot===PromptSlot.CURRENT_WORLD_STATE||slot===PromptSlot.CURRENT_CHARACTER_STATE)return'CURRENT';if(slot===PromptSlot.ACTIVE_THREADS)return'UNRESOLVED';if(Array.isArray(fact?.t)&&fact.t[2])return fact.t[2];if(slot===PromptSlot.HISTORICAL_SUPPORT)return'HISTORICAL';if(slot===PromptSlot.UNRESOLVED_EVIDENCE)return'UNRESOLVED';return null;}
 const factAuthority=(fact)=>fact?.a??fact?.authorityClass??null;
 export const factKey=(fact,slot)=>String(fact?.id??deliveryHash([slot,fact?.e,fact?.p,fact?.v]));
 function renderSection(slot,content){const richText=typeof content==='string'?content:`${slot}\n${JSON.stringify(content,null,2)}`,compactText=typeof content==='string'?content:JSON.stringify(content);return{richText,compactText};}

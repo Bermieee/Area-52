@@ -1,4 +1,4 @@
-import { performance } from 'node:perf_hooks';
+import { monotonicNow,utf8ByteLength } from './browser-runtime-utils.js';
 import { deliveryHash } from './adaptive-context-contracts.js';
 
 const pct=(n,d)=>d?Number((n/d).toFixed(6)):1;
@@ -16,20 +16,20 @@ export function benchmarkAdaptiveDelivery({delivery,requiredSemanticKeys=[],cost
   const rebuilt=segments.filter(s=>s.reuseState==='REBUILD').length;
   const cacheEligible=segments.filter(s=>s.cacheEligible).length;
   const historical=(plan?.sections??[]).filter(s=>s.slot==='HISTORICAL_SUPPORT').flatMap(s=>s.semanticManifest??[]);
-  const unresolved=(plan?.sections??[]).filter(s=>s.slot==='UNRESOLVED_EVIDENCE').flatMap(s=>s.semanticManifest??[]);
+  const unresolved=(plan?.sections??[]).filter(s=>s.slot==='UNRESOLVED_EVIDENCE').flatMap(s=>s.semanticManifest??[]),activeThreads=(plan?.sections??[]).filter(s=>s.slot==='ACTIVE_THREADS').flatMap(s=>s.semanticManifest??[]);
   const current=(plan?.sections??[]).filter(s=>s.slot==='CURRENT_WORLD_STATE'||s.slot==='CURRENT_CHARACTER_STATE').flatMap(s=>s.semanticManifest??[]);
   const temporalRetention=historical.every(x=>x.temporalStatus&&x.temporalStatus!=='CURRENT')?1:0;
-  const unresolvedRetention=unresolved.every(x=>x.temporalStatus&&x.temporalStatus!=='CURRENT')?1:0;
+  const unresolvedRetention=unresolved.every(x=>x.temporalStatus&&x.temporalStatus!=='CURRENT')?1:0,activeThreadRetention=activeThreads.every(x=>x.authorityClass==='UNRESOLVED'&&x.temporalStatus==='UNRESOLVED')?1:0;
   const currentStateRetention=current.every(x=>x.temporalStatus==='CURRENT')?1:0;
-  const renderedSize=delivery?.rendered?Buffer.byteLength(JSON.stringify(delivery.rendered),'utf8'):0;
+  const renderedSize=delivery?.rendered?utf8ByteLength(JSON.stringify(delivery.rendered)):0;
   const allocatedSize=plan?.budget?.allocated??0;
   const costEstimate=typeof costEstimator==='function'?costEstimator({allocatedTokens:allocatedSize,renderedBytes:renderedSize,profileId:plan?.modelProfileId??null}):null;
   return{
     kind:'AdaptiveContextRuntimeBenchmark',ok:Boolean(delivery?.ok),semanticRetention:pct(retained,required.size),currentStateRetention,temporalQualifierRetention:temporalRetention,
-    unresolvedRetention,contradictionRetention:unresolvedRetention,provenanceReferenceRetention:delivery?.integrityReceipt?.revisionChecks?.passed?1:0,
+    unresolvedRetention,activeThreadRetention,contradictionRetention:unresolvedRetention,provenanceReferenceRetention:delivery?.integrityReceipt?.revisionChecks?.passed?1:0,
     allocatedSize,renderedSize,reusePercentage:pct(reused,segments.length),rebuildPercentage:pct(rebuilt,segments.length),cacheEligiblePercentage:pct(cacheEligible,segments.length),
     deliveryLatencyMs:elapsedMs,fallbackUse:(plan?.fallbackDecisions??[]).length,integrityFailures:delivery?.integrityReceipt?.violations?.length??(delivery?.ok?0:1),costEstimate,
-    pass:Boolean(delivery?.ok)&&pct(retained,required.size)===1&&currentStateRetention===1&&temporalRetention===1&&unresolvedRetention===1&&(delivery?.integrityReceipt?.valid??false),
+    pass:Boolean(delivery?.ok)&&pct(retained,required.size)===1&&currentStateRetention===1&&temporalRetention===1&&unresolvedRetention===1&&activeThreadRetention===1&&(delivery?.integrityReceipt?.valid??false),
   };
 }
 
@@ -42,6 +42,6 @@ export function compareProfileDeliveries(deliveries=[]){
 }
 
 export function timedDelivery(runtime,input){
-  const start=performance.now(),delivery=runtime.deliver(input),elapsedMs=performance.now()-start;
+  const start=monotonicNow(),delivery=runtime.deliver(input),elapsedMs=monotonicNow()-start;
   return{delivery,elapsedMs};
 }

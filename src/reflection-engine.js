@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { stableHash as browserStableHash } from './browser-runtime-utils.js';
 import { AuthorityClass, KnowledgeStatus, ReflectionStatus, createProvenance, createReflection, createReflectionDecision, createReflectionProposal } from './contracts.js';
-const stable=(value)=>createHash('sha256').update(String(value),'utf8').digest('hex').slice(0,16);
+const stable=(value)=>browserStableHash(String(value),{length:16,alreadyString:true});
 const clamp=(v)=>Math.max(0,Math.min(1,v));
 
 export class ReflectionEngine {

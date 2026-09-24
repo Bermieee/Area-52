@@ -1,15 +1,7 @@
-import { createHash } from 'node:crypto';
+import { stableHash,stableJson } from './browser-runtime-utils.js';
 import { SealFallbackState,createContextSealReceipt } from './publication-contracts.js';
 
-function stable(value){
-  if(Array.isArray(value))return value.map(stable);
-  if(value&&typeof value==='object'){
-    return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));
-  }
-  return value;
-}
-export function stablePacketString(value){return JSON.stringify(stable(value));}
-export function hashPacket(value){return createHash('sha256').update(stablePacketString(value),'utf8').digest('hex');}
+export function stablePacketString(value){return stableJson(value);}\nexport function hashPacket(value){return stableHash(stablePacketString(value),{alreadyString:true});}
 function deepFreeze(value){
   if(!value||typeof value!=='object'||Object.isFrozen(value))return value;
   Object.freeze(value);for(const key of Object.keys(value))deepFreeze(value[key]);return value;

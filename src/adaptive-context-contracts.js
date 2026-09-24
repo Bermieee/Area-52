@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { stableHash } from './browser-runtime-utils.js';
 
 const freeze=(value)=>Object.freeze(value);
 const enumValues=(value)=>new Set(Object.values(value));
@@ -43,7 +43,7 @@ function stable(value){
   return value;
 }
 export function stableDeliveryString(value){return JSON.stringify(stable(value));}
-export function deliveryHash(value){return createHash('sha256').update(stableDeliveryString(value),'utf8').digest('hex');}
+export function deliveryHash(value){return stableHash(stableDeliveryString(value),{alreadyString:true});}
 
 export function createPromptContribution({
   id,slot,sourceCategory,owner='CONTEXT_DELIVERY',semantic=false,semanticRefs=[],content=null,
@@ -62,7 +62,7 @@ export function createPromptContribution({
 export function createModelProfile({
   modelProfileId,schemaVersion='1',revision='1',contextWindow=4096,reservedTokens=256,
   roleBehavior={system:true,user:true,context:true},structuredContextPreference='COMPACT',positionOrder=[],
-  bandBySlot={},segmentStrategy='SLOT_ATOMIC',cacheCharacteristics={},tokenEstimatorId='deterministic-approx-v1',
+  bandBySlot={},segmentStrategy='SLOT_ATOMIC',cacheCharacteristics={},sectionAllocationWeights={},tokenEstimatorId='deterministic-approx-v1',
   segmentConstraints={},longContextPolicy='DEGRADE_OPTIONAL_FIRST',fallbackProfileId=null,adapterId='structured-blocks-v1',deliveryPolicyRevision='1',
 }){
   if(!Number.isInteger(contextWindow)||contextWindow<1)throw new TypeError('ModelProfile.contextWindow must be a positive integer');
@@ -74,7 +74,7 @@ export function createModelProfile({
     kind:'ModelProfile',modelProfileId:req(modelProfileId,'ModelProfile.modelProfileId'),schemaVersion:req(schemaVersion,'ModelProfile.schemaVersion'),revision:req(revision,'ModelProfile.revision'),
     contextWindow,reservedTokens,roleBehavior:serial(roleBehavior,'ModelProfile.roleBehavior'),structuredContextPreference:req(structuredContextPreference,'ModelProfile.structuredContextPreference'),
     positionOrder:[...positionOrder],bandBySlot:serial(bandBySlot,'ModelProfile.bandBySlot'),segmentStrategy:req(segmentStrategy,'ModelProfile.segmentStrategy'),
-    cacheCharacteristics:serial(cacheCharacteristics,'ModelProfile.cacheCharacteristics'),tokenEstimatorId:req(tokenEstimatorId,'ModelProfile.tokenEstimatorId'),
+    cacheCharacteristics:serial(cacheCharacteristics,'ModelProfile.cacheCharacteristics'),sectionAllocationWeights:serial(sectionAllocationWeights,'ModelProfile.sectionAllocationWeights'),tokenEstimatorId:req(tokenEstimatorId,'ModelProfile.tokenEstimatorId'),
     segmentConstraints:serial(segmentConstraints,'ModelProfile.segmentConstraints'),longContextPolicy:req(longContextPolicy,'ModelProfile.longContextPolicy'),
     fallbackProfileId:fallbackProfileId===null?null:req(fallbackProfileId,'ModelProfile.fallbackProfileId'),adapterId:req(adapterId,'ModelProfile.adapterId'),
     deliveryPolicyRevision:req(deliveryPolicyRevision,'ModelProfile.deliveryPolicyRevision'),

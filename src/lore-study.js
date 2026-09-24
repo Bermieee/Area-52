@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { stableHash as browserStableHash } from './browser-runtime-utils.js';
 import {
   AuthorityClass, KnowledgeStatus, MutationType,
   createAliasCandidate, createCapability, createClaim, createEntity, createEvent,
@@ -8,7 +8,7 @@ import {
 
 const slug=(name)=>String(name).toLowerCase().replace(/^the\s+/i,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const clean=(value)=>String(value).replace(/[.,!?]$/,'').trim();
-const stableHash=(value)=>createHash('sha256').update(String(value),'utf8').digest('hex').slice(0,16);
+const stableHash=(value)=>browserStableHash(String(value),{length:16,alreadyString:true});
 const stableId=(prefix,sourceId,signature)=>`${prefix}:${sourceId}:${stableHash(signature)}`;
 const semanticKey=(subjectId,predicate,value)=>`${subjectId}|${predicate}|${JSON.stringify(value)}`;
 const sentenceList=(content)=>String(content).split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(Boolean);

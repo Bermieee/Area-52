@@ -1,7 +1,7 @@
 import { createProvenance, createSourceRecord, createSourceRevision } from './contracts.js';
-import { createHash } from 'node:crypto';
+import { stableHash } from './browser-runtime-utils.js';
 
-export function hashContent(content) { return createHash('sha256').update(content, 'utf8').digest('hex'); }
+export function hashContent(content) { return stableHash(content,{alreadyString:true}); }
 
 export class SourceRegistry {
   #sources=new Map(); #revisions=new Map(); #revisionIdsBySource=new Map(); #activeRevisionBySource=new Map();

@@ -28,7 +28,7 @@ export class GenerationPublicationPipeline {
 
   publish({
     turnId,correlationId,query,intent='CURRENT',anchorEntityIds=[],
-    budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,
+    budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],
   }){
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
     const primary=this.core.retrieval.retrieve(query,{intent,anchorEntityIds});
@@ -79,7 +79,7 @@ export class GenerationPublicationPipeline {
       .map(x=>x.result.payload);
     const unknownSlots=this.#unknownSlots(query,intent,anchorEntityIds);
     const compiled=this.compiler.compile({
-      query,intent,truthAssessment:assessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,rawEvidence:candidates,
+      query,intent,truthAssessment:assessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,rawEvidence:candidates,activeThreads,
     });
 
     const turnResults=this.resultBus.results({turnId});

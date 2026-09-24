@@ -34,11 +34,14 @@ export class LoreRepresentationRegistry {
       const prior = this.representations.get(priorId);
       prior.state = 'HISTORICAL';
       prior.replacedByRepresentationId = representation.id;
-      this.staleReasons.set(prior.id, {
-        kind: 'LoreRepresentationStaleReason',
-        reason: 'REPRESENTATION_REPLACED',
-        replacedByRepresentationId: representation.id,
-      });
+      const existingReason = this.staleReasons.get(prior.id);
+      this.staleReasons.set(prior.id, existingReason
+        ? {...existingReason, replacedByRepresentationId: representation.id}
+        : {
+            kind: 'LoreRepresentationStaleReason',
+            reason: 'REPRESENTATION_REPLACED',
+            replacedByRepresentationId: representation.id,
+          });
     }
     const stored = deepClone(representation);
     stored.state = 'CURRENT';

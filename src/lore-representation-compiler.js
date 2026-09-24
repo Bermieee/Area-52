@@ -196,7 +196,7 @@ function sourceTextureContributions({sourceId, sourceRevisionId, content}) {
     if (/\b(because|therefore|so that|caused|due to|as a result)\b/i.test(text)) {
       add(SemanticClass.CAUSAL_CONTEXT);
     }
-    if (/\b(embroider|ornate|decorative|trimmed|patterned|painted)\b/i.test(text)) {
+    if (/\b(embroider\w*|ornate|decorative|trimmed|patterned|painted)\b/i.test(text)) {
       add(SemanticClass.FLAVOR_DETAIL);
     }
   }

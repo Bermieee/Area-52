@@ -106,7 +106,7 @@ test('Ember Tavern profiles retain ownership, chronology, destruction, and unres
     assert.match(text, /HISTORICAL/);
     assert.match(text, /destroyed/i);
     assert.match(text, /UNRESOLVED/);
-    assert.match(text, /removed-before-fire/i);
+    assert.match(text, /Removed Before Fire/i);
     assert.equal(result.qualityReceipt.conflicts.retained, result.qualityReceipt.conflicts.total);
   }
 });

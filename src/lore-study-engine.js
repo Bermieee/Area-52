@@ -47,7 +47,7 @@ function spanFor(sentence, sentenceIndex) {
 
 function inferEntityType(name) {
   const value = String(name);
-  if (/\b(tavern|inn|house|hall|tower|city|kingdom|forest|temple|forge|shop|market)\b/i.test(value)) return 'LOCATION';
+  if (/\b(tavern|inn|house|hall|tower|city|kingdom|forest|temple|shrine|forge|shop|market)\b/i.test(value)) return 'LOCATION';
   if (/\b(blade|sword|dagger|spear|shield|ring|amulet|book|key|orb|staff)\b/i.test(value)) return 'OBJECT';
   if (/\b(guild|familia|order|company|clan|faction|council)\b/i.test(value)) return 'ORGANIZATION';
   if (/\b(fire|war|incident|festival|battle)\b/i.test(value)) return 'EVENT';
@@ -266,6 +266,15 @@ function analyzeSentence(workspace, sentence, index) {
   }
 
   if ((match = s.match(/^(?:The\s+)?(.+?)\s+is\s+(?:an?\s+)?(.+?)[.!?]?$/i))) {
+    if (/^(her|his|their|its|our|my|your)\b/i.test(match[1])) {
+      workspace.warnings.push({
+        kind: 'UnresolvedSourceFragment',
+        sentenceIndex: index,
+        textHash: stableHash(s),
+        status: 'PRONOUN_CONTEXT_REQUIRES_GROUNDED_CONTEXTUALIZATION',
+      });
+      return;
+    }
     const subject = ensureEntity(workspace, match[1], null, index);
     const value = cleanName(match[2]).toLowerCase();
     if (['destroyed', 'damaged', 'intact', 'lost', 'missing'].includes(value)) {
@@ -277,8 +286,13 @@ function analyzeSentence(workspace, sentence, index) {
   }
 
   const candidates = s.match(/\b[A-Z][A-Za-z'’-]*(?:\s+[A-Z][A-Za-z'’-]*){0,3}\b/g) || [];
+  const leadingNoise = /^(The|A|An|Later|Before|After|Because|Except|Around|During|When|While|Although|However|Her|His|Their|Its|Our|My|Your|Blue|Silver|Gold|Golden|Black|White|Red)\b/i;
   for (const candidate of candidates.slice(0, 8)) {
-    if (/^(The|A|An|Later|Before|After)$/i.test(candidate)) continue;
+    if (leadingNoise.test(candidate)) {
+      const remainder = candidate.replace(leadingNoise, '').trim();
+      if (remainder && /^[A-Z]/.test(remainder)) ensureEntity(workspace, remainder, null, index);
+      continue;
+    }
     ensureEntity(workspace, candidate, null, index);
   }
   workspace.warnings.push({

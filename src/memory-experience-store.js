@@ -57,6 +57,7 @@ export class MemoryExperienceStore {
       evidenceRefs:bridgeResolution?.memoryEvidenceIds??proposal.evidenceRefs??[],
       externalEvidenceRefs:proposal.evidenceRefs??[],
       externalSourceRevisionRefs:proposal.sourceRevisionRefs??[],
+      unresolvedExternalEvidenceRefs:bridgeResolution?.unresolvedEvidenceRefs??proposal.evidenceRefs??[],
       mappingRefs:bridgeResolution?.mappingIds??[],
       bridgeResolutionStatus:bridgeResolution?.status??null,
       bridgeReasonCodes:bridgeResolution?.details?.reasons??[],
@@ -81,6 +82,7 @@ export class MemoryExperienceStore {
     evidenceRefs=[],
     externalEvidenceRefs=[],
     externalSourceRevisionRefs=[],
+    unresolvedExternalEvidenceRefs=[],
     mappingRefs=[],
     bridgeResolutionStatus=null,
     bridgeReasonCodes=[],
@@ -98,7 +100,9 @@ export class MemoryExperienceStore {
     requiredString(logicalId,'episode.logicalId');
     const sources=uniqStrings(sourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
     const evidence=uniqStrings(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const unresolvedEvidenceRefs=evidence.filter((id)=>!this.graph.evidenceRecord(id));
+    const unresolvedLocalEvidenceRefs=evidence.filter((id)=>!this.graph.evidenceRecord(id));
+    const unresolvedExternal=uniqStrings(unresolvedExternalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
+    const unresolvedEvidenceRefs=uniqStrings([...unresolvedLocalEvidenceRefs,...unresolvedExternal],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
     const resolvedEvidenceRefs=evidence.filter((id)=>this.graph.evidenceRecord(id));
     const externalEvidence=uniqStrings(externalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
     const externalSources=uniqStrings(externalSourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
@@ -106,7 +110,7 @@ export class MemoryExperienceStore {
     const bridgeReasons=uniqStrings(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
     const history=this.episodeHistoryByLogical.get(logicalId)??[];
     const publicationFingerprint=stableHash(stableStringify({
-      logicalId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,mappings,
+      logicalId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,unresolvedExternal,mappings,
       bridgeResolutionStatus,bridgeReasons,participants,knownBy,significance,timeStart,timeEnd,summary,
       sceneEpisodeRef,graphReferenceSet,admissionSource,
     }));
@@ -133,6 +137,7 @@ export class MemoryExperienceStore {
       unresolvedEvidenceRefs,
       externalEvidenceRefs:externalEvidence,
       externalSourceRevisionRefs:externalSources,
+      unresolvedExternalEvidenceRefs:unresolvedExternal,
       mappingRefs:mappings,
       bridgeResolutionStatus,
       bridgeReasonCodes:bridgeReasons,
@@ -260,7 +265,11 @@ export class MemoryExperienceStore {
     const staleReflections=[];
     for (const episode of this.episodes.values()) {
       if (episode.state!=='CURRENT') continue;
-      const unresolved=episode.evidenceRefs.filter((id)=>!this.graph.evidenceRecord(id));
+      const unresolvedLocal=episode.evidenceRefs.filter((id)=>!this.graph.evidenceRecord(id));
+      const unresolved=uniqStrings([
+        ...unresolvedLocal,
+        ...(episode.bridgeResolutionStatus==='WITHHELD'?(episode.unresolvedExternalEvidenceRefs??[]):[]),
+      ],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
       episode.unresolvedEvidenceRefs=unresolved;
       episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>this.graph.evidenceRecord(id));
       const fresh=freshBySources(this.graph,episode.sourceRevisionRefs)

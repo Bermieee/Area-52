@@ -89,6 +89,50 @@ test('malformed Lore adapter input is isolated; Scene and Retrieval adapters con
   assert.equal(rp.proposedOutcome, 'UNRESOLVED');
 });
 
+test('adapter failure isolation is symmetric across Lore, Scene, and Retrieval/Truth', async () => {
+  const m = createJevDomainAdapterMatrix({ providerExecutor: providerExecutor(sharedHandler) });
+  const cases = [
+    [loreReconciliation('iso2-lore', { options: [] }), sceneBoundary('iso2-scene', { boundarySignals: { doorwayOnly: true } }), retrievalTruth('iso2-rt', { retrievalQuality: 'LOW' })],
+    [sceneBoundary('iso3-scene', { options: [] }), loreReconciliation('iso3-lore', { exactDuplicate: true }), retrievalTruth('iso3-rt', { retrievalQuality: 'LOW' })],
+    [retrievalTruth('iso4-rt', { options: [] }), loreReconciliation('iso4-lore', { exactDuplicate: true }), sceneBoundary('iso4-scene', { boundarySignals: { doorwayOnly: true } })],
+  ];
+  for (const [bad, goodA, goodB] of cases) {
+    const degraded = await m.service.adjudicate(bad, { currentRevisionState: currentFor(bad) });
+    const a = await m.service.adjudicate(goodA, { currentRevisionState: currentFor(goodA) });
+    const b = await m.service.adjudicate(goodB, { currentRevisionState: currentFor(goodB) });
+    assert.equal(degraded.status, 'ADAPTER_DEGRADED');
+    assert.notEqual(a.status, 'ADAPTER_DEGRADED');
+    assert.notEqual(b.status, 'ADAPTER_DEGRADED');
+  }
+});
+
+test('adapter boundedness rejects oversized option/evidence spaces before Jev', () => {
+  const registry = createDefaultJevDomainAdapterRegistry();
+  const lore = registry.resolve('LORE', 'LORE_TREE_PLACEMENT');
+  const tooMany = base('LORE', 'LORE_TREE_PLACEMENT', 'bounded-options', {
+    options: Array.from({ length: 17 }, (_, i) => ({ optionId: `tree:${i}`, evidenceRefs: ['e'] })),
+    evidence: [{ evidenceId: 'e', summary: 'bounded' }],
+  });
+  assert.throws(() => lore.deterministicPrecheck(tooMany), /1-16/);
+  const hugeEvidence = base('LORE', 'LORE_TREE_PLACEMENT', 'bounded-evidence', {
+    options: [{ optionId: 'tree:a', evidenceRefs: ['e0'] }, { optionId: 'tree:b', evidenceRefs: ['e1'] }],
+    evidence: Array.from({ length: 32 }, (_, i) => ({ evidenceId: `e${i}`, summary: 'x'.repeat(1200) })),
+  });
+  assert.throws(() => lore.deterministicPrecheck(hugeEvidence), /compact evidence/);
+});
+
+test('adapter request sanitization ignores unrelated conversation/prompt/provider dumps', () => {
+  const registry = createDefaultJevDomainAdapterRegistry();
+  const adapter = registry.resolve('LORE', 'LORE_RECONCILIATION');
+  const input = loreReconciliation('sanitize-lore', { fullConversation: 'DO_NOT_COPY_FULL_CONVERSATION', rawPrompt: 'DO_NOT_COPY_RAW_PROMPT', providerResponseDump: 'DO_NOT_COPY_PROVIDER_DUMP' });
+  const pre = adapter.deterministicPrecheck(input);
+  const request = adapter.buildRequest(input, pre);
+  const serialized = JSON.stringify(request);
+  assert.equal(serialized.includes('DO_NOT_COPY_FULL_CONVERSATION'), false);
+  assert.equal(serialized.includes('DO_NOT_COPY_RAW_PROMPT'), false);
+  assert.equal(serialized.includes('DO_NOT_COPY_PROVIDER_DUMP'), false);
+});
+
 test('Runtime compatibility is one generic JEV_DECISION / SEMANTIC_JUDGMENT logical task', () => {
   const m = createJevDomainAdapterMatrix({ core: new JevDecisionCore() });
   for (const input of [loreReconciliation('runtime-lore'), sceneBoundary('runtime-scene'), retrievalTruth('runtime-rt')]) {

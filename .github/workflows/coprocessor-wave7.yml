@@ -1,0 +1,53 @@
+name: Cognitive Coprocessor Wave 7
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wave 7 Historian focused suite
+        run: npm run test:wave7:historian
+      - name: Wave 7 adaptive retrieval focused suite
+        run: npm run test:wave7:adaptive
+      - name: Wave 7 long-form retrieval goldens
+        run: npm run test:wave7:golden
+      - name: Wave 7 authority-negative suite
+        run: npm run test:wave7:authority
+      - name: Wave 7 focused stress
+        run: npm run test:wave7:stress
+      - name: Full Coprocessor regression
+        run: npm test
+      - name: Wave 1 regression
+        run: npm run test:coprocessor
+      - name: Wave 2 regression
+        run: npm run test:wave2
+      - name: Wave 3 regression
+        run: npm run test:wave3
+      - name: Wave 4 regression
+        run: npm run test:wave4
+      - name: Wave 5 regression
+        run: npm run test:wave5
+      - name: Wave 6 regression
+        run: npm run test:wave6
+      - name: Historical stress suites
+        run: npm run test:stress
+      - name: Wave 5 pressure regression
+        run: npm run test:wave5:stress
+      - name: Wave 6 cognition stress
+        run: npm run test:wave6:stress
+      - name: Browser-like Wave 7 production path
+        run: npm run test:browser:wave7
+      - name: JavaScript syntax validation
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(() => console.log('Coprocessor index import PASS'))"

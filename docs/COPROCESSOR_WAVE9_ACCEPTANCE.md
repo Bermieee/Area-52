@@ -44,9 +44,25 @@ The exact final branch head must pass:
 - bounded requests do not copy full owner databases/raw prompt/provider dumps.
 - Runtime sees generic `JEV_DECISION`, not domain-specific scheduler semantics.
 
-## Evidence status
+## Acceptance evidence
 
-Implementation and focused suites are present. Exact final SHA, run ID and numeric stress totals are recorded in this file after the final exact-head GitHub Actions run completes.
+Code/test evidence run `36046692412` at `44c4f429db31c5afa04704792f7299669fd1b55c` completed GREEN after the final test-strengthening commits:
+
+- Wave 8 regression: 40/40 PASS;
+- Wave 8 stress: 6/6 PASS;
+- Lore adapter: 6/6 PASS;
+- Scene adapter: 7/7 PASS;
+- Retrieval/Truth adapter: 7/7 PASS;
+- cross-domain / same-core / Ember Tavern / isolation / boundedness / sanitization: 12/12 PASS;
+- authority/abstain/escalation negatives: 7/7 PASS;
+- combined Wave 9 focused: 41/41 PASS;
+- browser-like Wave 9: 2/2 PASS;
+- full repository regression: 425/425 PASS;
+- Coprocessor index ESM import: PASS.
+
+Focused stress: 3,000 mixed owner decisions (1,000 Lore / 1,000 Scene / 1,000 Retrieval), 26 duplicate replays, 31 malformed adapter inputs, 33 stale revisions, 2,421 provider calls, 0 authority violations, 0 stale proposal acceptance, 0 cross-domain state leaks, 0 forced decisions where abstention was required, and 0 oversized proposals.
+
+The final branch-head run must remain GREEN after documentation/evidence commits; its exact run ID is reported in the Worker 2 handoff.
 
 ## Integration boundary
 

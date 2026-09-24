@@ -5,8 +5,17 @@ import { FrontFaceMode, ProductDetailLevel, UIStateStore, computeVirtualWindow, 
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 import { createReviewScenarios } from '../demo/phase2-shell/scenarios/index.js';
 import { installPhase2ReviewWorkspaces } from '../demo/phase2-shell/review-workspaces.js';
-import { REVIEW_LAYOUTS, REVIEW_WIDTHS } from '../demo/phase2-shell/app.js';
+import { REVIEW_LAYOUTS, REVIEW_WIDTHS, createPhase2ReviewController } from '../demo/phase2-shell/app.js';
 class Doc extends FakeDocument{createDocumentFragment(){return new FakeNode('fragment',this);}}
+class ReviewDoc extends Doc{
+  constructor(){
+    super();this.bySelector=new Map();
+    const add=(id,tag='div',value='')=>{const node=new FakeNode(tag,this);node.id=id;node.value=value;node.checked=false;node.style.setProperty=(name,next)=>{node.style[name]=String(next);};node.style.removeProperty=name=>{delete node.style[name];};this.bySelector.set(`#${id}`,node);this.body.append(node);return node;};
+    add('area52-phase2-root');add('phase2-review-frame');add('phase2-host-surface');add('review-fixture-label');add('review-scenario-description');
+    add('review-scenario','select','healthy');add('review-detail','select','NORMAL');add('review-layout','select','desktop');add('review-width','select','w720');add('review-inspector','input');add('review-reset','button');
+  }
+  querySelector(selector){return this.bySelector.get(selector)??null;}
+}
 const memory=()=>{const m=new Map();return{getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,String(v)),removeItem:k=>m.delete(k),m};};
 const textOf=node=>[node?.textContent??'',...(node?.children??[]).map(textOf)].filter(Boolean).join(' ');
 function mountScenario(id='healthy'){const rec=createReviewScenarios().get(id),doc=new Doc(),root=new FakeNode('div',doc),stateStore=new UIStateStore({storage:memory(),namespace:`wave9:${id}`});const ui=createWave6ProductInterface({root,stateStore,fixture:rec.product,bridges:{cognition:rec.cognition?{fixture:rec.cognition}:{}}});installPhase2ReviewWorkspaces(ui);ui.presentation.patch({frontFaceMode:FrontFaceMode.EXPANDED,frontFaceWidth:720});ui.productAdapter.setDetailLevel(ProductDetailLevel.NORMAL);ui.shell.selectWorkspace('home');ui.scheduler.flush(0);return{rec,doc,root,ui};}
@@ -27,4 +36,11 @@ test('Inspector uses the existing InspectorController and can inspect review obj
 test('Front Face presentation accepts collapsed and 420/560/720/900 review widths',()=>{const{ui}=mountScenario();ui.presentation.patch({frontFaceMode:FrontFaceMode.COLLAPSED});assert.equal(ui.presentation.get().frontFaceMode,'COLLAPSED');for(const width of [420,560,720,900]){ui.presentation.patch({frontFaceMode:FrontFaceMode.EXPANDED,frontFaceWidth:width});assert.equal(ui.presentation.get().frontFaceWidth,width);}ui.destroy();});
 test('large review collections remain bounded by canonical virtualization math',()=>{for(const count of [10000,20000]){const w=computeVirtualWindow({count,itemSize:48,viewportSize:480,scrollOffset:240000,overscan:8});assert.ok(w.end-w.start<=26);}});
 test('destroy removes UI listeners and root content cleanly',()=>{const{ui,root}=mountScenario();ui.destroy();assert.equal(ui.signals.listenerCount('UI_WORKSPACE_CHANGED'),0);assert.equal(ui.signals.listenerCount('UI_INSPECT_SELECTION_CHANGED'),0);assert.equal(ui.signals.listenerCount('*'),0);assert.equal(root.children.length,0);});
+test('review controller destroy removes toolbar and document listeners before clean remount',()=>{
+  const doc=new ReviewDoc(),storage=memory(),bindings=[['#review-scenario','change'],['#review-detail','change'],['#review-layout','change'],['#review-width','change'],['#review-inspector','change'],['#review-reset','click']];
+  const assertMounted=()=>{assert.equal(doc.listeners.get('keydown')?.size??0,1);for(const [selector,event] of bindings)assert.equal(doc.querySelector(selector).listeners.get(event)?.size??0,1,`${selector} ${event} listener`);};
+  const assertClean=()=>{assert.equal(doc.listeners.get('keydown')?.size??0,0);for(const [selector,event] of bindings)assert.equal(doc.querySelector(selector).listeners.get(event)?.size??0,0,`${selector} ${event} listener leaked`);};
+  let controller=createPhase2ReviewController({document:doc,storage});assertMounted();controller.destroy();assertClean();
+  controller=createPhase2ReviewController({document:doc,storage});assertMounted();controller.destroy();assertClean();
+});
 test('Wave 9 docs keep #224 live binding pending rather than claiming Phase 2 complete',async()=>{const doc=await readFile(new URL('../docs/UI_CORE_WAVE_9_PHASE2_DEMO_SHELL.md',import.meta.url),'utf8');assert.match(doc,/LIVE #224 BINDING PENDING/);assert.doesNotMatch(doc,/Phase 2 complete/i);});

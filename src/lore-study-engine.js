@@ -184,6 +184,14 @@ function analyzeSentence(workspace, sentence, index) {
     return;
   }
 
+  if ((match = s.match(/^(.+?)\s+formerly\s+owned\s+(?:the\s+)?(.+?)[.!?]?$/i))) {
+    const owner = ensureEntity(workspace, match[1], 'PERSON', index);
+    const target = ensureEntity(workspace, match[2], null, index);
+    pushClaim(workspace, s, index, target, 'owner', owner, {temporalClass: TemporalClass.HISTORICAL});
+    pushRelationship(workspace, s, index, owner, 'owns', target, {temporalClass: TemporalClass.HISTORICAL});
+    return;
+  }
+
   if ((match = s.match(/^(.+?)\s+owns\s+(?:the\s+)?(.+?)[.!?]?$/i))) {
     const owner = ensureEntity(workspace, match[1], 'PERSON', index);
     const target = ensureEntity(workspace, match[2], null, index);

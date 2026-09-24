@@ -37,9 +37,31 @@
   ],
   "integrationOwned": [
     {
+      "path": ".github/workflows/development-deployment.yml",
+      "originCommit": "a97f5e0aff2ac91a388e81e25721f40277265150",
+      "reason": "Exact-head deployment CI including demo evidence",
+      "latestCommit": "8db7bbabef2ee63feed8386a4cc3c4dcdd31ef09"
+    },
+    {
+      "path": "docs/DEVELOPMENT_DEPLOYMENT_DEMO.md",
+      "originCommit": "0aec41435b21746cbaeccbb5ffd627018057d414",
+      "reason": "Reproducible demo runbook and explicit live-gate boundary"
+    },
+    {
+      "path": "scripts/development-deployment-demo.mjs",
+      "originCommit": "eb2f0f8da100f8000bd527cf6e80ac7dfceedd30",
+      "reason": "Deterministic operator demo evidence; not a live-host substitute"
+    },
+    {
+      "path": "scripts/verify-development-deployment.mjs",
+      "originCommit": "fc7c3e2162b26f400617bf36a74b40095c17e9cc",
+      "reason": "Assembly digest verifier corrected to compute canonical Git blob SHA"
+    },
+    {
       "path": "src/deployment/brain.js",
       "originCommit": "1a86f43d41e9cb2f510fba057d88c5cd3e7802c1",
-      "reason": "Narrow assembly adapter"
+      "reason": "Narrow assembly adapter; exposes native SceneDelta evidence without owning Scene policy",
+      "latestCommit": "205e9b00ebbec6ffa53022448b658a56adf4474f"
     },
     {
       "path": "src/deployment/index.js",
@@ -49,12 +71,8 @@
     {
       "path": "tests/deployment-brain.integration.test.mjs",
       "originCommit": "90260613195a0842f15580f88c31fbd37ca5270d",
-      "reason": "Vertical-slice acceptance harness"
-    },
-    {
-      "path": ".github/workflows/development-deployment.yml",
-      "originCommit": "a97f5e0aff2ac91a388e81e25721f40277265150",
-      "reason": "Exact-head deployment CI"
+      "reason": "Vertical-slice acceptance harness including native Scene revision/delta",
+      "latestCommit": "9bef503efbc15e8b21265cbceedf32e89174bcb7"
     }
   ],
   "liveGate": {
@@ -72,5 +90,22 @@
     "Owner branches still need the Worker 4 Lore #190 and Jev #211 repairs transferred separately.",
     "main is intentionally untouched.",
     "A real SillyTavern generation is required before #224 or Phase 2 can be marked complete."
+  ],
+  "assemblyReconciliations": [
+    {
+      "id": "JEV-ACCEPTED-CHECKPOINT-CLOSURE",
+      "commits": [
+        "631cf6e382ea5210d2d8369d0f7510a62c9bcf40",
+        "5dcd10991dcea250b31cdec8c2f04c94435ba380",
+        "7e4c2d4d57dad6f014b37f69d383aa997856aea8",
+        "7aac63bb968d2f11d5bc16524cd1447de1d6bf9d",
+        "cb6fcbe4bc171056440d2a042f4224295e15045a",
+        "175b14a09d5b4f7fe9287165fc5312b1989a6d68",
+        "3752b0292f1c9e123e1f04be19dad0a4e8bfac02",
+        "e3792559483ade77f8eabe5f5f3d047ea1fffb9e"
+      ],
+      "reason": "Restore omitted accepted Jev evaluation assets and reconcile bounded #211 replay retention with accepted Wave 8 stress.",
+      "ownerAuthorityChanged": false
+    }
   ]
 }

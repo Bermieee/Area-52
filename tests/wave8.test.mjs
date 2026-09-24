@@ -267,3 +267,77 @@ function readersFromFixture(f){
     readPrecisionReceipt:()=>f.precision??null,readGatherReceipt:()=>f.gather??null,readContextSealReceipt:()=>f.seal??null,readLoreStatus:()=>f.lore??null,
   };
 }
+
+
+const canonicalChoiceReceipt=()=>({
+  kind:'CognitiveChoiceReceipt',contractVersion:'1.0.0',id:'cognitive-choice:canonical',receiptRevision:1,turnId:'turn:canonical',turnRevision:4,correlationId:'corr:canonical',
+  paths:['STANDARD_RETRIEVAL','BOUNDED_AMBIGUITY'],
+  consideredCognitionOptions:['CONTEXT_COMPILER','CONTEXT_SEAL','RETRIEVAL','TRUTH','GATHER','JEV','PRECISION','HISTORIAN','DEEP_COGNITION'],
+  admittedJobs:['CONTEXT_COMPILER','CONTEXT_SEAL','RETRIEVAL','TRUTH','GATHER','JEV'],
+  skippedJobs:['PRECISION','HISTORIAN'],deferredJobs:['DEEP_COGNITION'],
+  reasonCodes:['RETRIEVAL_MIXED','JEV_REQUIRED','JEV_ABSTAINED','PRECISION_NOT_REQUIRED','DEFER_BACKGROUND'],
+  retrievalIntents:['intent:possession'],sensoryChannelsRequested:['SPARSE','DENSE','GRAPH'],sensoryChannelsUsed:['SPARSE','DENSE'],
+  candidateCounts:{nominated:18,normalized:18,deduplicated:7,truthAdmitted:7,precisionAdmitted:7,finalGenerationFacing:5},
+  retrievalQuality:'MIXED',correctiveRetrieval:{requested:true,executed:true,correctionCount:1,maxCorrections:1,failed:false,result:'MIXED'},
+  truthGate:{considered:true,invoked:true,skipped:false,outcomeCounts:{CURRENT:5,HISTORICAL:1,SUPERSEDED:0,CONTRADICTED:0,UNCERTAIN:0,UNRESOLVED:1},admittedCandidateIds:['cand:1'],supportCandidateIds:['cand:2']},
+  jev:{considered:true,invoked:true,skipped:false,unavailable:false,abstained:true,action:'JEV_ABSTAINED',reason:'JEV_ABSTAINED',alternativeCount:2,request:{kind:'JevInvocationRequest'},decisionRevision:3,resultRef:'jev:canonical'},
+  precision:{considered:true,invoked:false,skipped:true,required:false,available:true,fallback:false,failed:false,resultCount:0,reason:'PRECISION_NOT_REQUIRED'},
+  finalEvidenceRefs:['e:1','e:2','e:3','e:4','e:5'],abstained:false,unresolved:true,
+  latencyResourceBudget:{budgetBytes:64000,controllerOverheadMs:3},revisions:{turnRevision:4,sceneRevision:19,worldRevision:52,sourceRevisionRefs:['scene:r19','lore:r6'],candidateRevisionRefs:['cand@1'],retrievalRepresentationRevisionRefs:['rep@6'],truthInputCandidateIds:['cand:1'],jevDecisionRevision:3,contextSealRevision:418},
+  freshness:{candidateSet:'FRESH',staleNominationCount:0,invalidNominationCount:0,staleResultCount:0,invalidResultCount:0},
+  seal:{sealed:true,sealReceiptId:'seal:canonical',sequence:418,packetId:'packet:canonical',packetHash:'hash:canonical',publicationBoundary:'CLOSED'},
+  lateResultIds:[],staleResultIds:[],invalidResultIds:[],metadata:{intent:'CURRENT'},
+  truthAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealBypass:false,
+});
+
+const canonicalJevReceipt=(overrides={})=>({
+  kind:'JevDecisionReceipt',contractVersion:'1.0.0',decisionId:'jev:canonical',decisionType:'POSSESSION_AMBIGUITY',decisionShape:'CHOOSE_ONE',
+  selectedOptionIds:[],rejectedOptionIds:[],decisionCode:'ABSTAIN',classification:null,reasonCodes:['INSUFFICIENT_EVIDENCE'],evidenceUsed:['e:3','e:4'],
+  unresolvedFactors:['No fresh possession observation'],confidence:.44,abstained:true,outcome:'ABSTAINED',serviceStatus:'JEV_ABSTAINED',
+  escalationTarget:null,requiresOwnerSettlement:false,requiresOperator:false,
+  revisionFence:{sourceRevisionSet:['lore:r6'],worldRevision:52,sceneRevision:19,characterStateRevision:8,domainRevisions:{LORE:6}},
+  freshnessToken:'fresh:jev:canonical',providerProvenance:{providerProfileId:'profile:1',providerId:'provider:1',modelId:'model:1',workerId:'resource:1'},
+  validationStatus:{schema:'PASS',deterministic:'PASS',freshness:'FRESH'},latencyMetadata:{providerLatencyMs:30,validationLatencyMs:1,totalLatencyMs:31,attempts:1},
+  admission:{foregroundEligible:true,late:false,destination:'FOREGROUND',reasonCode:null},explanation:'Evidence cannot safely decide between the surviving options.',
+  requestFingerprint:'jev:fingerprint',authorityGranted:false,canonicalMutation:false,settlementPerformed:false,...overrides,
+});
+
+test('canonical Worker-1 CognitiveChoiceReceipt v1 maps exact fields without per-job reason invention',()=>{
+  const x=normalizeCognitiveChoiceReceipt(canonicalChoiceReceipt());
+  assert.equal(x.contractVersion,'1.0.0');assert.equal(x.receiptId,'cognitive-choice:canonical');assert.equal(x.turnRevision,4);
+  assert.match(x.brainChoice,/Standard Retrieval/);assert.match(x.brainChoice,/Bounded Ambiguity/);
+  assert.equal(x.candidateJobs.length,9);assert.equal(x.admitted.length,6);assert.equal(x.skipped.length,2);assert.equal(x.deferred.length,1);
+  assert.equal(x.admitted.find(j=>j.capability==='Retrieval').reason,null);
+  assert.equal(x.retrievalDecision.invoked,true);assert.equal(x.truthDecision.outcomeCounts.CURRENT,5);
+  assert.equal(x.jevDecision.action,'JEV_ABSTAINED');assert.equal(x.precisionDecision.skipped,true);assert.equal(x.gatherDecision.invoked,true);
+  assert.equal(x.candidateCounts.deduplicated,7);assert.deepEqual(x.sensoryChannelsUsed,['SPARSE','DENSE']);
+  assert.equal(x.truthAuthority,false);assert.equal(x.settlementAuthority,false);assert.equal(x.mutationAuthority,false);
+});
+
+test('canonical CognitiveChoiceReceipt alone can drive honest Normal-stage summaries while deep receipts remain optional',()=>{
+  const a=new Wave8CognitionProductionAdapter({readCognitiveChoiceReceipt:canonicalChoiceReceipt}),r=a.read(),p=r.data;
+  assert.equal(r.sources.choice.mode,ProductDataMode.LIVE);assert.equal(r.sources.sensory.mode,ProductDataMode.LIVE);assert.equal(r.sources.truth.mode,ProductDataMode.LIVE);
+  assert.equal(p.sensory.inputNominationCount,18);assert.equal(p.sensory.uniqueCandidateCount,7);assert.equal(p.sensory.summaryOnly,true);
+  assert.equal(p.truth.retrievalQuality,'MIXED');assert.equal(p.truth.counts.CURRENT,5);assert.equal(p.truth.counts.UNRESOLVED,1);assert.equal(p.truth.summaryOnly,true);
+  assert.equal(p.corrective.executed,true);assert.equal(p.corrective.maxAttempts,1);
+  assert.equal(p.jev.outcome,'ABSTAINED');assert.equal(p.precision.state,CognitionStageState.SKIPPED);
+  assert.equal(p.gather.counts.ADMITTED,5);assert.equal(p.gather.summaryOnly,true);assert.equal(p.seal.sealedState,true);assert.equal(p.seal.admittedEvidenceCount,5);
+  assert.equal(stage(p,'SCATTER').state,CognitionStageState.UNAVAILABLE);
+});
+
+test('canonical Worker-2 JevDecisionReceipt v1 preserves service status evidence provenance and non-authority flags',()=>{
+  const x=normalizeJevDecisionReceipt(canonicalJevReceipt());
+  assert.equal(x.receiptId,'jev:canonical');assert.equal(x.state,CognitionStageState.COMPLETE);assert.equal(x.outcome,'ABSTAINED');
+  assert.deepEqual(x.evidenceRefs,['e:3','e:4']);assert.equal(x.reasonCodes[0],'INSUFFICIENT_EVIDENCE');assert.match(x.reason,/cannot safely decide/);
+  assert.equal(x.requiresOwnerSettlement,false);assert.equal(x.requiresOperatorReview,false);assert.equal(x.provider,'provider:1');assert.equal(x.model,'model:1');assert.equal(x.resourceId,'resource:1');
+  assert.equal(x.admission.foregroundEligible,true);assert.equal(x.settlementPerformed,false);assert.equal(x.authorityGranted,false);assert.equal(x.mutationAuthority,false);
+});
+
+test('canonical Jev service SKIPPED and UNAVAILABLE remain distinct and recorded outage degrades the path safely',()=>{
+  const skipped=normalizeJevDecisionReceipt(canonicalJevReceipt({outcome:'UNRESOLVED',serviceStatus:'JEV_SKIPPED',decisionCode:'UNRESOLVED',reasonCodes:['DETERMINISTIC_RESULT_SUFFICIENT'],abstained:false,explanation:''}));
+  const unavailableReceipt=canonicalJevReceipt({outcome:'UNRESOLVED',serviceStatus:'JEV_UNAVAILABLE',decisionCode:'UNRESOLVED',reasonCodes:['PROVIDER_UNAVAILABLE'],abstained:false,explanation:'Jev provider execution unavailable'});
+  const unavailable=normalizeJevDecisionReceipt(unavailableReceipt);
+  assert.equal(skipped.state,CognitionStageState.SKIPPED);assert.equal(unavailable.state,CognitionStageState.UNAVAILABLE);
+  const choice=canonicalChoiceReceipt(),a=new Wave8CognitionProductionAdapter({readCognitiveChoiceReceipt:()=>choice,readJevDecisionReceipt:()=>unavailableReceipt}),p=a.read().data;
+  assert.equal(stage(p,'JEV').state,CognitionStageState.UNAVAILABLE);assert.equal(p.source.mode,ProductDataMode.DEGRADED);assert.equal(p.source.health,'DEGRADED');
+});

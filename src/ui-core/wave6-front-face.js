@@ -25,7 +25,7 @@ export class HostAdjacentFrontFaceController{
   constructor({host,shell,adapter,presentation,scheduler,signals,brainPulse=null,hostMountAdapter=null,productName='Area-52'}={}){
     if(!host||!shell||!adapter||!presentation||!scheduler||!signals)throw new TypeError('HostAdjacentFrontFaceController missing required UI.Core service');
     this.host=host;this.shell=shell;this.adapter=adapter;this.presentation=presentation;this.scheduler=scheduler;this.signals=signals;this.brainPulse=brainPulse;this.hostMountAdapter=hostMountAdapter;this.productName=productName;
-    this.scope=new ResourceScope();this.nodes={};this.mounted=false;
+    this.scope=new ResourceScope();this.quickScope=new ResourceScope();this.nodes={};this.mounted=false;
   }
   mount(){
     if(this.mounted)return this;this.mounted=true;const d=this.host.ownerDocument;
@@ -45,14 +45,14 @@ export class HostAdjacentFrontFaceController{
   }
   scheduleQuickDash(){this.scheduler.invalidate('wave6:quick-dash',()=>this.renderQuickDash(),{cost:'CHEAP'});}
   renderQuickDash(){
-    if(!this.nodes.quick)return;const d=this.nodes.quick.ownerDocument,s=this.adapter.getSnapshot(),p=this.presentation.get(),pulse=this.brainPulse?.getSnapshot?.()??null;
+    if(!this.nodes.quick)return;this.quickScope.cleanup();this.quickScope=new ResourceScope();const d=this.nodes.quick.ownerDocument,s=this.adapter.getSnapshot(),p=this.presentation.get(),pulse=this.brainPulse?.getSnapshot?.()??null;
     const health=s.brain?.overall??Wave6Health.UNAVAILABLE,scene=s.scene,attention=s.wave6?.attention??[];
     const brand=element(d,'div',{className:'a52-quick-dash__brand'});brand.append(element(d,'strong',{text:this.productName}),sourceModeBadge(d,overallSource(s)));
     const brain=makeHealthPill(d,{label:`Brain · ${human(health)}`,status:healthToken(health),detail:pulse?.currentFocus??''});
     const sceneNode=element(d,'div',{className:'a52-quick-dash__scene'});sceneNode.append(element(d,'span',{className:'a52-eyebrow',text:'Current Scene'}),element(d,'strong',{text:scene?.title??'Not connected'}));if(scene?.narrativeTime)sceneNode.append(element(d,'span',{className:'a52-muted',text:scene.narrativeTime}));
     const attentionNode=element(d,'div',{className:'a52-quick-dash__attention'});attentionNode.append(makeBadge(d,`Attention ${attention.length}`,attention.length?'warning':'ready'));
     const activity=element(d,'div',{className:'a52-quick-dash__activity',text:pulse?.activity?.[0]?.meaning??(pulse?.currentFocus??'Brain ready')});
-    const button=createButton(d,{label:p.frontFaceMode===FrontFaceMode.COLLAPSED?'Expand':'Collapse',scope:this.scope,onPress:()=>this.presentation.toggle()});
+    const button=createButton(d,{label:p.frontFaceMode===FrontFaceMode.COLLAPSED?'Expand':'Collapse',scope:this.quickScope,onPress:()=>this.presentation.toggle()});
     this.nodes.quick.replaceChildren(brand,brain,sceneNode,attentionNode,activity,button);
   }
   #applyPresentation(){
@@ -65,7 +65,7 @@ export class HostAdjacentFrontFaceController{
     this.hostMountAdapter?.apply?.({mode:p.frontFaceMode,width:p.frontFaceWidth,collapsedWidth:76});
   }
   destroy(){
-    if(!this.mounted)return;this.mounted=false;this.brainPulse?.destroy?.();this.scope.cleanup();this.shell.destroy();this.hostMountAdapter?.destroy?.();this.host.replaceChildren();this.nodes={};
+    if(!this.mounted)return;this.mounted=false;this.brainPulse?.destroy?.();this.quickScope.cleanup();this.scope.cleanup();this.shell.destroy();this.hostMountAdapter?.destroy?.();this.host.replaceChildren();this.nodes={};
   }
 }
 

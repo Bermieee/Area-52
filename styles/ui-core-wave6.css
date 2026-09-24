@@ -19,7 +19,7 @@
 .a52-front-face[data-presentation=COLLAPSED] .a52-quick-dash__activity{writing-mode:vertical-rl;transform:rotate(180deg);max-height:180px}
 .a52-front-face__expanded{height:100%;overflow:hidden}
 .a52-front-face__shell,.a52-front-face__shell.a52-app{height:100%;min-height:0}
-.a52-front-face__shell.a52-app{grid-template-columns:164px minmax(0,1fr) minmax(260px,320px);grid-template-rows:54px minmax(0,1fr) 30px}
+.a52-front-face__shell.a52-app{grid-template-columns:164px minmax(0,1fr) minmax(260px,320px);grid-template-rows:54px minmax(0,1fr) 30px}\n.a52-front-face__shell.a52-app[data-inspector-visible=false]{grid-template-columns:164px minmax(0,1fr)}
 .a52-front-face__shell .a52-shell__header{grid-template-columns:164px 1fr minmax(120px,220px);padding-inline:.75rem}
 .a52-front-face__shell .a52-shell__workspace{padding:var(--a52-space-4)}
 .a52-front-face__shell .a52-shell__nav{padding:.55rem}

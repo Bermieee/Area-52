@@ -7,9 +7,9 @@ export const ForensicStage=Object.freeze({
 const TYPE_STAGE=Object.freeze({
   SOURCE_REVISION_ADMITTED:ForensicStage.SOURCE,
   PROPOSAL_CREATED:ForensicStage.PROPOSAL,PROPOSAL_VALIDATED:ForensicStage.PROPOSAL,PROPOSAL_REJECTED:ForensicStage.PROPOSAL,
-  SETTLEMENT_ACCEPTED:ForensicStage.SETTLEMENT,SETTLEMENT_REJECTED:ForensicStage.SETTLEMENT,STATE_SUPERSEDED:ForensicStage.SETTLEMENT,STATE_CONTRADICTED:ForensicStage.SETTLEMENT,
-  HYPOTHESIS_OPENED:ForensicStage.COGNITION,HYPOTHESIS_RESOLVED:ForensicStage.COGNITION,REFLECTION_CREATED:ForensicStage.COGNITION,REFLECTION_REVISED:ForensicStage.COGNITION,
-  OPERATOR_OVERRIDE:ForensicStage.SETTLEMENT,CONTEXT_SEALED:ForensicStage.CONTEXT,CONTEXT_DELIVERY_PLANNED:ForensicStage.CONTEXT,
+  SETTLEMENT_ACCEPTED:ForensicStage.SETTLEMENT,SETTLEMENT_REJECTED:ForensicStage.SETTLEMENT,SETTLEMENT_UNRESOLVED:ForensicStage.SETTLEMENT,STATE_SUPERSEDED:ForensicStage.SETTLEMENT,STATE_CONTRADICTED:ForensicStage.SETTLEMENT,
+  HYPOTHESIS_OPENED:ForensicStage.COGNITION,HYPOTHESIS_RESOLVED:ForensicStage.COGNITION,REFLECTION_CREATED:ForensicStage.COGNITION,REFLECTION_REVISED:ForensicStage.COGNITION,RETRIEVAL_COMPLETED:ForensicStage.COGNITION,RETRIEVAL_SKIPPED:ForensicStage.COGNITION,
+  OPERATOR_OVERRIDE:ForensicStage.SETTLEMENT,CONTEXT_SECTION_COMPILED:ForensicStage.CONTEXT,CONTEXT_SEALED:ForensicStage.CONTEXT,CONTEXT_DELIVERY_PLANNED:ForensicStage.CONTEXT,
   ARTIFACT_INVALIDATED:ForensicStage.COGNITION,RECONSOLIDATION_APPLIED:ForensicStage.COGNITION,RESULT_ROUTED:ForensicStage.GATHER,
   RESULT_STALE:ForensicStage.COGNITION,RESULT_LATE:ForensicStage.COGNITION,
 });
@@ -61,6 +61,28 @@ export function buildForensicTimeline({forensic,transactions=[]}={}){
     rows,runtimeWorkRefs:[...f.runtimeWorkRefs],sourceRevisionRefs:[...f.sourceRevisionRefs],complete:f.complete,health:f.health?.state??(f.complete?'READY':'DEGRADED'),
     diagnosticReasons:clone(f.diagnosticReasons),missingStages:missingStageNames(rows),authority:'READ_ONLY',mutationAuthority:false,
   });
+}
+
+export function buildForensicPath(timeline){
+  const rows=timeline?.rows??[];
+  const specs=[
+    ['source','Source',row=>row.eventType==='SOURCE_REVISION_ADMITTED'||row.stage===ForensicStage.SOURCE],
+    ['proposal','Proposal',row=>row.eventType==='PROPOSAL_CREATED'],
+    ['validation','Validation',row=>row.eventType==='PROPOSAL_VALIDATED'],
+    ['settlement','Owner Settlement',row=>row.eventType==='SETTLEMENT_UNRESOLVED'||row.eventType==='SETTLEMENT_ACCEPTED'||row.eventType==='SETTLEMENT_REJECTED'||row.owner==='SETTLEMENT'],
+    ['change','State / Reflection',row=>['REFLECTION_CREATED','REFLECTION_REVISED','STATE_SUPERSEDED','STATE_CONTRADICTED'].includes(row.eventType)],
+    ['retrieval','Retrieval',row=>row.eventType==='RETRIEVAL_COMPLETED'||row.eventType==='RETRIEVAL_SKIPPED'||row.eventType.includes('RETRIEVAL')],
+    ['compiled','Compiled Context',row=>row.eventType==='CONTEXT_SECTION_COMPILED'],
+    ['seal','Context Seal',row=>row.eventType==='CONTEXT_SEALED'],
+  ];
+  const steps=specs.map(([key,label,match])=>{
+    const row=rows.find(match)??null;
+    if(!row)return deepFreeze({kind:'ForensicPathStep',key,label,status:'MISSING',recorded:false,referenceOnly:false,id:null,sequence:null,authority:authorityDescriptor('UNRESOLVED'),impact:`No recorded ${label.toLowerCase()} step is available for this generation; the UI did not infer one.`});
+    return deepFreeze({kind:'ForensicPathStep',key,label,status:row.status??'RECORDED',recorded:!row.referenceOnly,referenceOnly:Boolean(row.referenceOnly),id:row.id,sequence:row.sequence,authority:row.authority??authorityDescriptor('UNRESOLVED'),impact:row.impact,eventType:row.eventType});
+  });
+  const seal=rows.find(row=>row.eventType==='CONTEXT_SEALED')??null;
+  const lateAfterSeal=rows.filter(row=>row.status==='LATE'&&(seal==null||Number(row.sequence??Number.MAX_SAFE_INTEGER)>Number(seal.sequence??-1))).map(row=>row.id);
+  return deepFreeze({kind:'ForensicPath',available:Boolean(timeline?.available),steps,lateAfterSeal,complete:steps.every(x=>x.status!=='MISSING'),generationId:timeline?.generationId??null,turnId:timeline?.turnId??null});
 }
 
 export function unresolvedConflictModel(contextReceipt){
@@ -121,12 +143,15 @@ function addReference(rows,ref,stage,eventType,impact,known,status='REFERENCE'){
   if(!ref||known.has(ref)||rows.some(x=>x.id===ref))return;
   rows.push(deepFreeze({kind:'ForensicTimelineItem',id:ref,sequence:Number.MAX_SAFE_INTEGER,timestamp:null,eventType,stage,subsystem:null,owner:null,turnId:null,generationId:null,taskId:null,correlationId:null,causationId:null,beforeRevision:null,afterRevision:null,sourceRevisionRefs:[],affectedArtifactIds:[],authority:authorityDescriptor('UNRESOLVED'),decision:null,outcome:null,receiptRefs:[ref],reasonCode:null,provenance:{},retentionClass:null,status,impact,referenceOnly:true,rawPayloadAvailable:false}));
 }
-function statusFor(type,row){if(STALE.has(type))return'STALE';if(LATE.has(type))return'LATE';if(REJECTED.has(type))return'REJECTED';if(type==='STATE_CONTRADICTED')return'UNRESOLVED';if(type==='CONTEXT_SEALED'||type==='CONTEXT_DELIVERY_PLANNED'||type==='SETTLEMENT_ACCEPTED')return'ACCEPTED';return row.outcome?.status??row.decision?.status??'RECORDED';}
+function statusFor(type,row){if(STALE.has(type))return'STALE';if(LATE.has(type))return'LATE';if(REJECTED.has(type))return'REJECTED';if(type==='STATE_CONTRADICTED'||type==='SETTLEMENT_UNRESOLVED')return'UNRESOLVED';if(type==='RETRIEVAL_SKIPPED')return'SKIPPED';if(type==='CONTEXT_SEALED'||type==='CONTEXT_DELIVERY_PLANNED'||type==='SETTLEMENT_ACCEPTED')return'ACCEPTED';return row.outcome?.status??row.decision?.status??'RECORDED';}
 function impactFor(type,row){
   if(type==='RESULT_STALE')return'Result was contained as stale and did not participate in current publication.';
   if(type==='RESULT_LATE')return'Result completed late; historical record is preserved without retroactively changing sealed context.';
   if(type==='PROPOSAL_REJECTED'||type==='SETTLEMENT_REJECTED')return'The proposal/settlement was rejected by the owning authority.';
-  if(type==='STATE_CONTRADICTED')return'Competing evidence was preserved rather than silently resolved.';
+  if(type==='STATE_CONTRADICTED'||type==='SETTLEMENT_UNRESOLVED')return'Owner Settlement preserved competing evidence as UNRESOLVED rather than choosing a claim.';
+  if(type==='RETRIEVAL_COMPLETED')return'Retrieval supplied evidence to the generation context path.';
+  if(type==='RETRIEVAL_SKIPPED')return'Retrieval was intentionally skipped; no retrieval result is implied.';
+  if(type==='CONTEXT_SECTION_COMPILED')return'Recorded evidence was compiled into a context section without changing its authority.';
   if(type==='CONTEXT_SEALED')return'Generation context crossed the immutable publication boundary.';
   if(type==='CONTEXT_DELIVERY_PLANNED')return'Prompt delivery was planned for a specific generation.';
   return row.outcome?.summary??row.decision?.summary??row.reasonCode??'Recorded cognitive transaction.';

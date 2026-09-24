@@ -3,7 +3,7 @@
   "version": "0.4.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Wave 9",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Wave 10",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
@@ -43,6 +43,12 @@
     "test:wave9:authority": "node --test tests/coprocessor-wave9-authority.test.mjs",
     "test:wave9:stress": "node --test tests/coprocessor-wave9-stress.test.mjs",
     "test:browser:wave9": "node --test tests/coprocessor-wave9-browser.test.mjs",
-    "test:wave9": "node --test tests/coprocessor-wave9-lore.test.mjs tests/coprocessor-wave9-scene.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/coprocessor-wave9-cross-domain.test.mjs tests/coprocessor-wave9-authority.test.mjs tests/coprocessor-wave9-browser.test.mjs"
+    "test:wave9": "node --test tests/coprocessor-wave9-lore.test.mjs tests/coprocessor-wave9-scene.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/coprocessor-wave9-cross-domain.test.mjs tests/coprocessor-wave9-authority.test.mjs tests/coprocessor-wave9-browser.test.mjs",
+    "test:wave10:corpus": "node --test tests/coprocessor-wave10-corpus.test.mjs",
+    "test:wave10:provider": "node --test tests/coprocessor-wave10-provider.test.mjs",
+    "test:browser:wave10": "node --test tests/coprocessor-wave10-browser.test.mjs",
+    "test:wave10": "node --test tests/coprocessor-wave10-corpus.test.mjs tests/coprocessor-wave10-provider.test.mjs tests/coprocessor-wave10-browser.test.mjs",
+    "report:wave10": "node scripts/jev-wave10-evaluation.mjs",
+    "smoke:jev:live": "node scripts/jev-wave10-live-smoke.mjs"
   }
 }

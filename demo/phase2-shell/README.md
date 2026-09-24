@@ -19,7 +19,7 @@ For static hosting, publish the repository root (or preserve the same relative p
 
 ## Review controls
 
-The top review bar is intentionally outside the product surface. It provides six scenarios, Normal/Detail/Advanced disclosure, Wide/Desktop/Compact/Narrow host-layout presets, collapsed/420/560/720/900 Area-52 widths, Inspector visibility and deterministic reset.
+The top review bar is intentionally outside the product surface. It preserves the six Wave-9 scenarios and adds Wave-10 **Context loading** and **Stale context view** states, plus Normal/Detail/Advanced disclosure, Wide/Desktop/Compact/Narrow host-layout presets, collapsed/420/560/720/900 Area-52 widths, Inspector visibility and deterministic reset.
 
 Every scenario is visibly labeled **DEMO / FIXTURE DATA**. Fixture cognition never masquerades as live production cognition. Production bindings from Waves 6–8 remain separate and continue to report `UNAVAILABLE` when their real producer is absent.
 
@@ -34,6 +34,12 @@ The Brain workspace remains the Wave-8 cognition surface. Context Delivery and f
 ## Review world
 
 The default cohesive fixture is **Ember Tavern / Sun Blade**: Ember Tavern is SETTLED destroyed; Eris historically carried the Sun Blade there; the Blade's current fate remains UNRESOLVED; bounded ambiguity can reach Jev; false current Blade location is excluded from sealed generation context.
+
+## Wave 10 context / forensics walkthrough
+
+For the connected #145/#152 review path, choose **Ambiguous / Jev**, open **Brain**, and use the **Generation Context** card. It summarizes the current budget, reuse/rebuild/drop/defer decisions, model profile, fallback and final packet estimate. **Inspect context plan** opens the shared Inspector; **Why This Generation?** shows ordered section allocations; **Forensics** reconstructs the recorded Source → Proposal → Validation → Owner Settlement → State/Reflection → Retrieval → Compiled Context → Context Seal path.
+
+The Sun Blade conflict remains visibly **UNRESOLVED** through the ContextReceipt and sealed context. A recorded late result remains visible after the seal but is not shown as mutating the sealed generation. These readers use contract-shaped fixture data and explicitly report **FIXTURE**, not LIVE.
 
 ## What remains live-integration work
 

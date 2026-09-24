@@ -24,7 +24,7 @@ function scoreCandidate(candidate,truth){
   const staleFacts=activeSources.size?metric(ShadowMeasurementState.MEASURED,candidateSources.filter(x=>!activeSources.has(x)).length,truth.evaluationRefs):metric(ShadowMeasurementState.NOT_MEASURED);
   const unnecessaryContext=expectedAll.size?metric(ShadowMeasurementState.MEASURED,facts.filter(x=>!expectedAll.has(factKey(x))).length,truth.evaluationRefs):metric(ShadowMeasurementState.NOT_MEASURED);
   const size=metric(ShadowMeasurementState.MEASURED,utf8ByteLength(JSON.stringify(candidate.payload??candidate)),candidate.evidenceRefs);
-  const latency=Number.isFinite(Number(candidate.latencyMs))?metric(ShadowMeasurementState.MEASURED,Number(candidate.latencyMs),candidate.evidenceRefs):metric(ShadowMeasurementState.NOT_MEASURED);
+  const latency=candidate.latencyMs!==null&&candidate.latencyMs!==undefined&&Number.isFinite(Number(candidate.latencyMs))?metric(ShadowMeasurementState.MEASURED,Number(candidate.latencyMs),candidate.evidenceRefs):metric(ShadowMeasurementState.NOT_MEASURED);
   const expectedNext=new Set(truth.nextBeatRefs??[]),actualNext=new Set(candidate.nextBeatRefs??[]);
   const nextBeat=expectedNext.size?measuredRatio([...expectedNext].filter(x=>actualNext.has(x)).length,expectedNext.size):metric(ShadowMeasurementState.NOT_MEASURED);
   return{relevance,staleFacts,missingContinuity,currentStateCorrectness:currentCorrect,historicalStateCorrectness:historicalCorrect,unresolvedThreadCoverage:unresolvedCoverage,provenanceCoverage,unnecessaryContext,byteSize:size,latencyMs:latency,nextBeatUsefulness:nextBeat};

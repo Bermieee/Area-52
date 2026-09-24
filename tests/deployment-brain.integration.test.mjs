@@ -35,6 +35,36 @@ test('deployment golden lore is studied exactly and mirrored through Core settle
   assert.equal(brain.diagnostics().remoteProviderRequired, false);
 });
 
+
+test('native Scene observation advances revision and exposes the narrative delta before cognition runs', () => {
+  const brain = new DevelopmentDeploymentBrain({ resourceCount: 1 });
+  brain.ingestLorebook(createGoldenDeploymentLorebook());
+  const refs = brain.core.registry.activeRevisionIds();
+  const before = brain.observeScene({
+    chatId: 'chat:scene-delta',
+    sourceRevisionId: refs[0],
+    location: 'Ember Tavern',
+    activeCast: ['Mara', 'Eris'],
+    activeThreads: ['Find the Sun Blade'],
+    objects: [{ objectId: 'Sun Blade', state: 'PRESENT', evidenceRefs: [refs[0]] }],
+  });
+  const after = brain.observeScene({
+    chatId: 'chat:scene-delta',
+    sourceRevisionId: refs[1] ?? refs[0],
+    location: 'Ember Tavern Ruins',
+    activeCast: ['Mara', 'Eris'],
+    activeThreads: ['Determine the Sun Blade fate'],
+    objects: [{ objectId: 'Sun Blade', state: 'UNCERTAIN', evidenceRefs: [refs[1] ?? refs[0]] }],
+  });
+  assert.equal(before.observationApplied, true);
+  assert.equal(after.observationApplied, true);
+  assert.ok(after.sceneRevision > before.sceneRevision);
+  assert.equal(after.delta.fromRevision, before.sceneRevision);
+  assert.equal(after.delta.toRevision, after.sceneRevision);
+  assert.ok(after.delta.changedFields.location);
+  assert.equal(after.location.location, 'Ember Tavern Ruins');
+});
+
 test('simple turn uses native Scene Hot Cognition and reaches a sealed PromptPlan without expensive retrieval or Jev', async () => {
   const { brain } = seeded();
   const result = await brain.runTurn({

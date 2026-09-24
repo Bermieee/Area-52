@@ -173,3 +173,40 @@ test('hierarchical artifacts survive reload and keep old revisions available for
   assert.equal(restored.summaryStatus().providerRequired,false);
   assert.equal(restored.publicApi().ownership.summaries,'DERIVED_NAVIGATION_ONLY');
 });
+
+
+test('public Historian resolver can nominate a fenced hierarchical summary without granting authority',()=>{
+  const {p}=buildEmber();
+  const request={
+    kind:'HistorianMemoryRequest',
+    contractVersion:'1.0.0',
+    requestId:'wave2:broad',
+    retrievalIntents:[{
+      intentId:'hist:ember-overview',
+      mode:'EXPLICIT_HISTORY',
+      query:'what happened to the Ember Tavern?',
+      entityRefs:['Ember Tavern'],
+      breadth:'BROAD',
+    }],
+    retrievalIntentIds:['hist:ember-overview'],
+    activeEntityIds:['Ember Tavern'],
+    activeThreadIds:[],
+    perspectiveConstraint:{scope:PerspectiveScope.WORLD,characterRef:null},
+    memoryRevisionRefs:p.memoryRevisionRefs(),
+    limits:{maxArtifacts:8,maxEvidenceBytes:65536},
+  };
+  const resolved=p.resolveHistorianMemoryRequest(request);
+  assert.equal(resolved.status,'OK');
+  assert.ok(resolved.artifacts.length>0);
+  assert.equal(resolved.artifacts[0].channel,'HIERARCHICAL_SUMMARY');
+  assert.ok(['STORY','ARC'].includes(resolved.artifacts[0].resolutionLevel));
+  assert.equal(resolved.artifacts[0].independentEvidence,false);
+  assert.equal(resolved.artifacts[0].navigationOnly,true);
+  assert.equal(resolved.artifacts[0].authorityGranted,false);
+  assert.equal(resolved.artifacts[0].memoryMutation,false);
+
+  const stale=p.resolveHistorianMemoryRequest({...request,memoryRevisionRefs:['memory:stale']});
+  assert.equal(stale.status,'DEGRADED');
+  assert.deepEqual(stale.artifacts,[]);
+  assert.ok(stale.unavailableChannels.includes('MEMORY_REVISION_FENCE_CHANGED'));
+});

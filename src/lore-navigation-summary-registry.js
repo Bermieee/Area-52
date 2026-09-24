@@ -18,6 +18,16 @@ export class LoreNavigationSummaryRegistry {
     return (this.historyByScope.get(scopeId) || []).length + 1;
   }
 
+  findReusable({scope, sourceRevisionSet, childSummaryDependencies, generatorRevision}) {
+    const reuseKey = summaryReuseKey({scope, sourceRevisionSet, childSummaryDependencies, generatorRevision});
+    const id = this.byReuseKey.get(reuseKey);
+    if (!id) return null;
+    const row = this.summaries.get(id);
+    if (!row || ![NavigationSummaryState.BUILT, NavigationSummaryState.REUSED].includes(row.state) || row.freshness !== 'FRESH') return null;
+    row.state = NavigationSummaryState.REUSED;
+    return deepClone(row);
+  }
+
   publish({summary, scope}) {
     const reuseKey = summaryReuseKey({
       scope,

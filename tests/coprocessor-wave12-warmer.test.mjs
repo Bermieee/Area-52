@@ -282,3 +282,25 @@ test('one-resource scheduling coalesces repeats, yields at a batch boundary and 
   assert.ok(warmer.metrics().activePreparations<=1);
   assert.ok(warmer.metrics().queuedPreparations<=3);
 });
+
+
+test('Scene/world/character/source/policy revision changes supersede active preparation before it can publish a packet',async()=>{
+  let release;
+  const gate=new Promise((resolve)=>{release=resolve;});
+  const adapters=fullAdapters({delay:async(stage)=>{if(stage==='retrieval')await gate;}});
+  const warmer=new SpeculativeWarmCoordinator({adapters});
+  const handle=warmer.enqueuePreparation({
+    recommendation:recommendation({id:'active-stale'}),identity:identity(),turnSequence:3,
+  });
+  const cancelled=warmer.invalidateActiveWork({
+    currentIdentity:identity({worldRevision:13}),reason:'WORLD_STATE_SETTLED',
+  });
+  assert.equal(cancelled,1);
+  release();
+  const result=await handle.promise;
+  assert.equal(result.status,'CANCELLED');
+  assert.equal(result.packet,null);
+  const use=warmer.consumeForSend({identity:identity({worldRevision:13}),turnSequence:3,turnId:'post-cancel'});
+  assert.equal(use.status,'FOREGROUND_FALLBACK');
+  assert.equal(use.reason,'MISS');
+});

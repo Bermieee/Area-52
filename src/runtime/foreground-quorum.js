@@ -105,11 +105,6 @@ export class ForegroundQuorumController {
         fallback.push(taskId);
         continue;
       }
-      if (blockedOrFailed && /no-compatible-provider-or-resource/.test(record.executionReason ?? '')) {
-        this.#applyFallbackOrDegraded(taskId, 'NO_ELIGIBLE_EXECUTION_RESOURCE');
-        fallback.push(taskId);
-        continue;
-      }
       if (TERMINAL_LIFECYCLE.has(record.lifecycleStatus)) {
         this.#applyFallbackOrDegraded(taskId, `TERMINAL_${record.lifecycleStatus}`);
         fallback.push(taskId);

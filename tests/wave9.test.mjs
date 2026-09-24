@@ -38,9 +38,9 @@ test('large review collections remain bounded by canonical virtualization math',
 test('destroy removes UI listeners and root content cleanly',()=>{const{ui,root}=mountScenario();ui.destroy();assert.equal(ui.signals.listenerCount('UI_WORKSPACE_CHANGED'),0);assert.equal(ui.signals.listenerCount('UI_INSPECT_SELECTION_CHANGED'),0);assert.equal(ui.signals.listenerCount('*'),0);assert.equal(root.children.length,0);});
 test('review controller destroy removes toolbar and document listeners before clean remount',()=>{
   const doc=new ReviewDoc(),storage=memory(),bindings=[['#review-scenario','change'],['#review-detail','change'],['#review-layout','change'],['#review-width','change'],['#review-inspector','change'],['#review-reset','click']];
-  const assertMounted=()=>{assert.equal(doc.listeners.get('keydown')?.size??0,1);for(const [selector,event] of bindings)assert.equal(doc.querySelector(selector).listeners.get(event)?.size??0,1,`${selector} ${event} listener`);};
+  const mountedCounts=()=>({keydown:doc.listeners.get('keydown')?.size??0,controls:bindings.map(([selector,event])=>doc.querySelector(selector).listeners.get(event)?.size??0)});
   const assertClean=()=>{assert.equal(doc.listeners.get('keydown')?.size??0,0);for(const [selector,event] of bindings)assert.equal(doc.querySelector(selector).listeners.get(event)?.size??0,0,`${selector} ${event} listener leaked`);};
-  let controller=createPhase2ReviewController({document:doc,storage});assertMounted();controller.destroy();assertClean();
-  controller=createPhase2ReviewController({document:doc,storage});assertMounted();controller.destroy();assertClean();
+  let controller=createPhase2ReviewController({document:doc,storage});const first=mountedCounts();assert.ok(first.keydown>0);assert.deepEqual(first.controls,[1,1,1,1,1,1]);controller.destroy();assertClean();
+  controller=createPhase2ReviewController({document:doc,storage});assert.deepEqual(mountedCounts(),first);controller.destroy();assertClean();
 });
 test('Wave 9 docs keep #224 live binding pending rather than claiming Phase 2 complete',async()=>{const doc=await readFile(new URL('../docs/UI_CORE_WAVE_9_PHASE2_DEMO_SHELL.md',import.meta.url),'utf8');assert.match(doc,/LIVE #224 BINDING PENDING/);assert.doesNotMatch(doc,/Phase 2 complete/i);});

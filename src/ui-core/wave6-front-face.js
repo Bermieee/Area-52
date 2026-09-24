@@ -6,6 +6,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { createKnowledgeActionBar } from './provenance-ui.js';
 import { ProductDataMode, Wave6Health, authorityDescriptor } from './wave6-contracts.js';
 import { FrontFaceMode, FrontFaceDensity, WorkspaceComposition, createAuthorityPill, createComposition, createProductHealthSurface, sourceModeBadge, sourceStateMessage } from './wave6-presentation.js';
+import { createWave7BrainLaunchers } from './wave7-workspaces.js';
 
 const PRODUCT=[
   ['home','Home','⌂',0,renderHome],['story','Story / Scene','◫',10,renderScene],['characters','Characters','◎',20,renderGeneric('Characters','characters')],
@@ -110,6 +111,7 @@ function renderBrain(host,ctx){
   const hero=element(d,'section',{className:'a52-card a52-brain-pulse',attrs:{'aria-label':`Brain Pulse ${pulse.overall}`}});
   const pulseHead=element(d,'div',{className:'a52-brain-pulse__head'});pulseHead.append(makeHealthPill(d,{label:`Brain · ${human(pulse.overall)}`,status:healthToken(pulse.overall),detail:pulse.currentFocus}),sourceModeBadge(d,overallSource(s)));const lanes=element(d,'div',{className:'a52-brain-pulse__lanes'});lanes.append(pulseLane(d,'Foreground',pulse.foreground),pulseLane(d,'Background',pulse.background));hero.append(pulseHead,element(d,'h2',{text:pulse.currentFocus}),lanes);
   host.append(hero);
+  if(ctx.promptPlan&&ctx.forensics&&ctx.presentation)host.append(createWave7BrainLaunchers(d,{ctx,currentGenerationId:s.promptPlan?.generationId??null}));
   if(pulse.activity.length){host.append(section(d,'Meaningful activity'),renderActivity(d,pulse.activity));}
   if(pulse.attention.length)host.append(section(d,'Needs attention'),renderActivity(d,pulse.attention));
   host.append(section(d,'Context Delivery'),renderPromptPlan(d,s.promptPlan,s.wave6.sources.promptPlan,level,ctx));

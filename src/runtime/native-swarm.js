@@ -34,6 +34,7 @@ function normalizeTurnEnvelope(input = {}) {
     worldRevision: finite(input.worldRevision, 0),
     sceneRevision: finite(input.sceneRevision, 0),
     characterStateRevision: finite(input.characterStateRevision, 0),
+    freshnessToken: input.freshnessToken == null ? null : requiredString(input.freshnessToken, 'freshnessToken'),
     createdAt: finite(input.createdAt, 0),
     deadline: finite(input.deadline, 0),
     cognitiveLayer: requiredString(input.cognitiveLayer ?? 'L1', 'cognitiveLayer'),
@@ -77,6 +78,7 @@ function normalizeJob(job, turn) {
     worldRevision: finite(job.worldRevision ?? job.inputRevisionSet?.worldRevision, turn.worldRevision),
     sceneRevision: finite(job.sceneRevision ?? job.inputRevisionSet?.sceneRevision, turn.sceneRevision),
     characterStateRevision: finite(job.characterStateRevision ?? job.inputRevisionSet?.characterStateRevision, turn.characterStateRevision),
+    freshnessToken: job.freshnessToken ?? job.inputRevisionSet?.freshnessToken ?? job.metadata?.freshnessToken ?? turn.freshnessToken ?? null,
     softDeadline,
     hardDeadline,
     dedupeKey: requiredString(job.dedupeKey ?? `task:${taskId}`, 'job.dedupeKey'),
@@ -234,8 +236,8 @@ export class NativeTurnRuntime {
 
   #submitJob(job, turn) {
     const fallback = deterministicFallback(job);
-    const freshnessToken = job.metadata?.freshnessToken ?? job.intentFingerprint ?? job.dedupeKey;
-    const requestedDestination = job.metadata?.requestedDestination ?? null;
+    const freshnessToken = job.freshnessToken ?? job.metadata?.freshnessToken ?? turn.freshnessToken ?? job.intentFingerprint ?? job.dedupeKey;
+    const requestedDestination = job.requestedDestination ?? job.metadata?.requestedDestination ?? null;
     const inputPayload = job.metadata?.providerInput ?? job.metadata?.input ?? {
       taskId: job.taskId,
       taskType: job.taskType,
@@ -261,7 +263,7 @@ export class NativeTurnRuntime {
       deadline: job.hardDeadline > 0 ? job.hardDeadline : null,
       deadlineClass: job.metadata?.deadlineClass ?? job.resultClass,
       foreground: job.resultClass !== RuntimeResultClass.DEFERRED,
-      foregroundSensitivity: job.metadata?.foregroundSensitivity ?? (job.resultClass !== RuntimeResultClass.DEFERRED),
+      foregroundSensitivity: job.foregroundSensitivity ?? job.metadata?.foregroundSensitivity ?? (job.resultClass !== RuntimeResultClass.DEFERRED),
       resourceLimits: structuredClone(job.metadata?.resourceLimits ?? {}),
       batchHint: { maxSliceUnits: 1, ...(job.batchHint ?? {}) },
       checkpointPolicy: { maxUnitsPerCheckpoint: 1 },
@@ -287,10 +289,10 @@ export class NativeTurnRuntime {
         resultClass: job.resultClass,
         softDeadline: job.softDeadline,
         hardDeadline: job.hardDeadline,
-        qualityWeight: Number(job.metadata?.qualityWeight ?? job.qualityWeight ?? 0),
+        qualityWeight: Number(job.qualityWeight ?? job.metadata?.qualityWeight ?? 0),
         deterministicFallback: fallback,
         fallbackPolicy: structuredClone(job.fallbackPolicy),
-        providerTimeoutMs: job.metadata?.providerTimeoutMs ?? null,
+        providerTimeoutMs: job.providerTimeoutMs ?? job.metadata?.providerTimeoutMs ?? null,
         requestedDestination,
         intentFingerprint: job.intentFingerprint ?? null,
         characterStateRevision: job.characterStateRevision,

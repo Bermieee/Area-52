@@ -141,7 +141,7 @@ export function createCanonicalCandidate({
   rankSignals={},graphMetadata=[],temporalHints=[],continuitySignals=[],authorityClass='UNKNOWN',
   truthStatusHint=CandidateTruthStatus.UNKNOWN,provenance=[],evidenceRefs=[],dependencyRevisions=[],
   freshness=CandidateFreshness.UNKNOWN,representationRef=null,representationRevision=null,representationText=null,
-  metadata={},worldRevision=null,sceneRevision=null,fusionScore=null,
+  metadata={},worldRevision=null,sceneRevision=null,fusionScore=null,legacyRetrievalIntents=[],
 }={}){
   if(!FRESHNESS.has(freshness))throw new CandidateBusContractError('CANDIDATE_FRESHNESS_INVALID','Unsupported freshness: '+freshness);
   if(!TRUTH.has(truthStatusHint))throw new CandidateBusContractError('CANDIDATE_TRUTH_STATUS_INVALID','Unsupported truth status: '+truthStatusHint);
@@ -169,7 +169,7 @@ export function createCanonicalCandidate({
     worldRevision:worldRevision==null?null:Number(worldRevision),sceneRevision:sceneRevision==null?null:Number(sceneRevision),
     fusionScore:fusionScore==null?null:Number(fusionScore),
     sourceType:'RETRIEVAL_CANDIDATE',sourceId:id,entityIds:uniq(entityRefs),claimIds:claims,
-    scoreSignals:normalizeRankSignals(rankSignals),retrievalIntents:intents,temporalStatus:truthStatusHint,
+    scoreSignals:normalizeRankSignals(rankSignals),retrievalIntents:uniq([...intents,...legacyRetrievalIntents]),temporalStatus:truthStatusHint,
     legacyProvenance,
     authorityGranted:false,admissionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,
   });

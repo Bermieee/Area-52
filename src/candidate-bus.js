@@ -192,6 +192,7 @@ export class CandidateBus{
         dependencyRevisions:uniq(keptRows.flatMap(x=>x.dependencyRevisions)),freshness:candidateFreshness,
         representationRef,representationRevision,representationText,metadata:metadataOut,
         worldRevision:currentRevisionSet.worldRevision??keptRows.map(x=>x.worldRevision).find(x=>x!=null)??null,
+        legacyRetrievalIntents:uniq(keptRows.map(x=>x.metadata?.legacyRetrievalIntent).filter(Boolean)),
         sceneRevision:currentRevisionSet.sceneRevision??keptRows.map(x=>x.sceneRevision).find(x=>x!=null)??null,
         fusionScore:candidateFusionScore(keptRows,intentSet.length),
       });

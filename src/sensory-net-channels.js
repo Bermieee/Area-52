@@ -26,7 +26,8 @@ export class CoreClaimRetrievalChannel{
     else if(this.mode==='TEMPORAL')rows=['HISTORICAL','TEMPORAL'].includes(intent.intentKind)?this.retrieval.temporal(anchors):[];
     else if(this.mode==='CONFLICT')rows=['CURRENT','TEMPORAL','CONTRADICTION'].includes(intent.intentKind)?this.retrieval.conflicts(anchors):[];
     return rows.slice(0,this.descriptor.maxCandidates).map(({claim,score},index)=>{
-      const raw={},metadata={mode:this.mode,compatibilityChannel:true};
+      const legacyLabel={SPARSE:'exact',DENSE:'semantic',GRAPH:'graph',TEMPORAL:'temporal',CONFLICT:'conflict'}[this.mode]??this.mode.toLowerCase();
+      const raw={},metadata={mode:this.mode,compatibilityChannel:true,legacyRetrievalIntent:legacyLabel};
       let graphMetadata=null;
       if(this.mode==='SPARSE')Object.assign(raw,{bm25Score:score,sparse:score});
       if(this.mode==='DENSE')Object.assign(raw,{semanticSimilarity:score,dense:score});

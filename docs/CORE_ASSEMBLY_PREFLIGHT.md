@@ -32,3 +32,7 @@ This extends the Wave 1 assembly-manifest primitives. #186 remains open until a 
 ## Wave 5 knowledge-lane support
 
 IntegrationLaneManifest now also carries `artifactContracts[]` and `requiredAdapters[]`. A future accepted Memory/Lore/Sensory/Precision checkpoint can declare its source/browser paths, accepted SHA/run, contract versions, adapter requirements, known conflicts, and integration patches before any copy into `main`. The existing dry plan remains non-mutating.
+
+## Wave 6 accepted-checkpoint control
+
+Assembly rehearsal now distinguishes BRANCH_HEAD from ACCEPTED_CHECKPOINT and defaults to the latter. Moving Scene/Coprocessor heads are refused when they differ from their accepted checkpoint. File-origin receipts and the integration patch registry make every rehearsed copy/patch explainable. The expanded rehearsal emits COPY, VERIFY_DIGEST, APPLY_DOCUMENTED_PATCH, CHECK_CONTRACT_VERSION, RUN_BROWSER_GATE and RUN_FUNCTION_TEST while continuing to report `mainMutationAllowed:false`.

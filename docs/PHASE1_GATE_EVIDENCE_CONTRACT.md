@@ -29,3 +29,7 @@ The aggregator is evidence for #157; it does not close #157 and does not start P
 ## Wave 5 knowledge readiness dimensions
 
 The report now tracks knowledge readiness independently for `CORE`, `MEMORY_OWNER`, `LORE_OWNER`, `SENSORY`, `PRECISION`, and `LIVE_ASSEMBLED_MAIN`. This prevents `CORE SIDE READY FOR FT003/FT004` from being misreported as a live Function Test PASS. At the Wave 5 functional checkpoint Core is ready, while owner/live dimensions remain explicitly partial or blocked.
+
+## Wave 6 Gate V2
+
+`Phase1GateReportV2` records accepted checkpoints and moving heads separately, contract reconciliation, drift detection, the machine-readable Function Test blocker matrix, browser/assembly/UI readiness, Lore/Memory status and remaining blockers. Its state remains `BLOCKED`, with `phase2PromotionAllowed:false`, until real live Phase 1 requirements are met.

@@ -35,3 +35,7 @@ Node-only CLI/benchmark tooling remains isolated under `scripts/`. No new live S
 ## Wave 5 knowledge path
 
 The browser-visible manifest now includes `knowledge-evidence.js`, `knowledge-integration-spine.js`, and `nexus-shadow-adapter.js`. At Wave 5 functional checkpoint `5c34d9ae6f8bc880a2c8d13ddc00c1a20bf87956`, the source gate is **71/71 PASS** and browser runtime remains **7/7 PASS**. This is Core/browser compatibility evidence only; assembled-main live SillyTavern acceptance for #185 remains pending.
+
+## Wave 6 integration matrix
+
+Wave 6 separates executed, replayed/imported, and NOT_RUN browser evidence across lanes. Core executes its browser-like checks directly; accepted Scene/Coprocessor browser evidence can be imported as REPLAYED; Runtime remains NOT_RUN where Worker 1 has no independent execution evidence. Integration browser readiness therefore stays PARTIAL until live host qualification.

@@ -16,3 +16,7 @@ Recorded observations can be exported/imported and deterministically replayed in
 The optional live seam accepts read callbacks only. Adapter outputs always report `readOnly:true`, `mutationAllowed:false`, and `liveAcceptance:false`. No Core contract binds directly to mutable Nexus runtime objects.
 
 Issue #13 should remain open until the real read-only live connection acceptance is completed.
+
+## Wave 6 live-seam hardening
+
+The adapter now exposes typed read-only surfaces for turn feed, Smart Context, Character State/Durable Lore, Work Director observations, Jev decision observations and Prompt Loader packets. The implementation reports `LIVE_ADAPTER_IMPLEMENTATION_READY` while an unavailable real Nexus process is explicitly `RUNTIME_CONNECTION_NOT_EXECUTED`. Every surface remains `readOnly:true` and `mutationAllowed:false`.

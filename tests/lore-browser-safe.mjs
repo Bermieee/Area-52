@@ -11,6 +11,12 @@ const productionFiles = [
   'src/lore-representation-compiler.js',
   'src/lore-representation-registry.js',
   'src/lore-multi-resolution.js',
+  'src/lore-navigation-contracts.js',
+  'src/lore-navigation-hierarchy.js',
+  'src/lore-navigation-summary-registry.js',
+  'src/lore-navigation-summary-builder.js',
+  'src/lore-contextual-retrieval.js',
+  'src/lore-hierarchy-retrieval-system.js',
 ];
 
 test('integration-visible Lore production modules avoid Node-only runtime dependencies', async () => {

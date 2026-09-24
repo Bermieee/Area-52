@@ -54,7 +54,14 @@ export function normalizeCandidate(input = {}, { inputRank = null } = {}) {
     rankSignals: normalizeRankSignals(input.rankSignals ?? {}),
     entityRefs: Object.freeze(uniqueStrings(input.entityRefs ?? [])),
     relationshipRefs: Object.freeze(uniqueStrings(input.relationshipRefs ?? [])),
+    eventRefs: Object.freeze(uniqueStrings(input.eventRefs ?? [])),
+    claimRefs: Object.freeze(uniqueStrings(input.claimRefs ?? [])),
+    retrievalIntentIds: Object.freeze(uniqueStrings(input.retrievalIntentIds ?? [])),
     temporalHints: Object.freeze(uniqueStrings(input.temporalHints ?? [])),
+    freshness: input.freshness ?? CandidateFreshness.FRESH,
+    dependencyRevisions: Object.freeze(uniqueStrings(input.dependencyRevisions ?? [])),
+    perspective: input.perspective == null ? null : Object.freeze(structuredClone(input.perspective)),
+    truthStatusHint: normalizeEnum(input.truthStatusHint ?? truthStatus, TRUTH_STATUSES, truthStatus, 'truthStatusHint'),
     sceneRelevance: input.sceneRelevance == null ? null : unit(input.sceneRelevance, 'sceneRelevance'),
     authorityClass,
     truthStatus,
@@ -86,7 +93,12 @@ export function dedupeCandidates(candidates = []) {
     prior.sourceRevisionRefs = uniqueStrings([...prior.sourceRevisionRefs, ...candidate.sourceRevisionRefs]);
     prior.entityRefs = uniqueStrings([...prior.entityRefs, ...candidate.entityRefs]);
     prior.relationshipRefs = uniqueStrings([...prior.relationshipRefs, ...candidate.relationshipRefs]);
+    prior.eventRefs = uniqueStrings([...(prior.eventRefs ?? []), ...(candidate.eventRefs ?? [])]);
+    prior.claimRefs = uniqueStrings([...(prior.claimRefs ?? []), ...(candidate.claimRefs ?? [])]);
+    prior.retrievalIntentIds = uniqueStrings([...(prior.retrievalIntentIds ?? []), ...(candidate.retrievalIntentIds ?? [])]);
     prior.temporalHints = uniqueStrings([...prior.temporalHints, ...candidate.temporalHints]);
+    prior.dependencyRevisions = uniqueStrings([...(prior.dependencyRevisions ?? []), ...(candidate.dependencyRevisions ?? [])]);
+    if (prior.perspective == null && candidate.perspective != null) prior.perspective = structuredClone(candidate.perspective);
     prior.duplicateCount = Number(prior.duplicateCount ?? 1) + 1;
     // Ranking support from multiple channels is metadata, never confidence multiplication.
     prior.sceneRelevance = maxNullable(prior.sceneRelevance, candidate.sceneRelevance);
@@ -124,6 +136,11 @@ export function candidateDrilldown(candidate) {
     sourceRevisionRefs: [...value.sourceRevisionRefs],
     provenance: structuredClone(value.provenance),
     evidenceIdentity: value.evidenceIdentity,
+    retrievalIntentIds: [...(value.retrievalIntentIds ?? [])],
+    eventRefs: [...(value.eventRefs ?? [])],
+    claimRefs: [...(value.claimRefs ?? [])],
+    dependencyRevisions: [...(value.dependencyRevisions ?? [])],
+    perspective: value.perspective == null ? null : structuredClone(value.perspective),
   });
 }
 

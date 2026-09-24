@@ -119,3 +119,19 @@ Canonical design and planning references:
 - `docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md`
 - `docs/UI_CORE_PHASE2_PROJECT_CARD_HANDOFF.md`
 - #187 — Phase 2 UI.Core Design-System + Workspace Conformance Gate
+
+# Wave 6 Continuation
+
+Wave 5 established the product-facing workspace hierarchy and fixture-backed Front Face concepts.
+
+Wave 6 keeps those concepts but separates the paths explicitly:
+
+- `createBrainDashboard()` remains the deterministic fixture/demo harness used by prior UI.Core acceptance;
+- `createWave6ProductInterface()` is the production host-adjacent bootstrap;
+- production mode never silently falls back to Wave 5 fixtures;
+- explicit fixture/demo mode is labeled FIXTURE on every available fixture-backed product source;
+- the Front Face now has a collapsed Quick Dash and Expanded presentation state around the same UI.Core runtime;
+- live Scene/Runtime/Coprocessor/PromptPlan/Forensic data is consumed through typed adapters when an owning producer is bound;
+- missing owning producers display UNAVAILABLE rather than Ember Tavern/demo state.
+
+This keeps Wave 5 regression fixtures useful without allowing them to masquerade as real user cognition.

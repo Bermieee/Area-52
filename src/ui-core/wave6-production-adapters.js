@@ -10,9 +10,9 @@ const idOf=(x,...keys)=>{for(const key of keys){const value=x?.[key];if(typeof v
 
 export class SceneProductionUIAdapter{
   constructor({readModel,subscribe=null}={}){this.readModel=required(readModel,'SceneProductionUIAdapter.readModel');this.subscribeFn=optional(subscribe);this.kind='SceneProductionUIAdapter';}
-  read(){
+  read(selection={}){
     let model=null;
-    try{model=this.readModel();}
+    try{model=this.readModel(selection);}
     catch(error){return degraded('Scene','Scene read failed; the selected live context was not filled from another turn.',{error:String(error?.message??error),code:error?.code??null});}
     if(!model)return unavailable('Scene','Scene read model is not connected.');
     if(model.kind!=='SceneUiReadModel')return degraded('Scene','Scene producer returned an unsupported read-model shape.',{rawKind:model.kind??null});

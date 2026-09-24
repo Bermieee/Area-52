@@ -1,0 +1,238 @@
+import { Signals } from './constants.js';
+import { createButton, createKeyValue, element, makeBadge, makeCard, makeHealthPill } from './primitives.js';
+import { VirtualListController } from './virtualization.js';
+import { ProductDetailLevel } from './wave5-product-model.js';
+import { createAuthorityPill, createProductHealthSurface, sourceStateMessage } from './wave6-presentation.js';
+import { ExplainabilityView, buildGenerationExplainability, createForensicBookmark, diffGenerationContext, explainContextSeal, explainContextSection } from './wave7-explainability.js';
+import { forensicWhy, unresolvedConflictModel } from './wave7-forensics.js';
+
+export function registerWave7Actions(actionRouter,{presentation}={}){
+  const releases=[];
+  if(!actionRouter.hasSubsystem('wave7-ui'))releases.push(actionRouter.registerSubsystem('wave7-ui',async(action)=>{
+    if(action.type==='wave7.selectGeneration'){presentation?.selectGeneration?.({generationId:action.target?.generationId??null,turnId:action.target?.turnId??null});return{kind:'Wave7PresentationSelection',generationId:action.target?.generationId??null,turnId:action.target?.turnId??null};}
+    if(action.type==='wave7.why'){
+      if(action.target?.section)return explainContextSection(action.target.section);
+      if(action.target?.item)return forensicWhy(action.target.item);
+      if(action.target?.explanation)return action.target.explanation;
+      return{kind:'Wave7Why',available:false,summary:'No owner-published explanation is available.'};
+    }
+    if(action.type==='wave7.inspect')return action.target?.object??action.target??null;
+    if(action.type==='wave7.openWorkspace')return{workspaceId:action.target?.workspaceId??null};
+    return null;
+  }));
+  for(const type of ['wave7.selectGeneration','wave7.why','wave7.inspect','wave7.openWorkspace'])if(!actionRouter.hasAction(type))releases.push(actionRouter.registerAction(type,{subsystem:'wave7-ui'}));
+  return()=>{for(const release of releases.reverse())try{release?.();}catch{}};
+}
+
+export function registerWave7Inspectors(registry,{forensics}={}){
+  const releases=[];
+  if(!registry.has('wave7-generation'))releases.push(registry.register('wave7-generation',(object,ctx)=>renderGenerationInspector(object,ctx)));
+  if(!registry.has('wave7-context-section'))releases.push(registry.register('wave7-context-section',(object,ctx)=>renderSectionInspector(object,ctx)));
+  if(!registry.has('wave7-forensic-item'))releases.push(registry.register('wave7-forensic-item',(object,ctx)=>renderForensicInspector(object,ctx,forensics)));
+  if(!registry.has('wave7-unresolved-conflict'))releases.push(registry.register('wave7-unresolved-conflict',(object,ctx)=>renderConflictInspector(object,ctx)));
+  return()=>{for(const release of releases.reverse())try{release?.();}catch{}};
+}
+
+export function registerWave7Workspaces(registry,{promptPlan,forensics,presentation,scheduler}={}){
+  if(!registry.has('generation-explainability'))registry.register({
+    id:'generation-explainability',title:'Why This Generation?',icon:'?',category:'Brain',navigation:{level:'advanced',order:155},
+    views:['normal','detail','advanced'],supportedActions:['inspect','why','generation-select'],render(host,ctx){renderGenerationWorkspace(host,{...ctx,promptPlan,forensics,presentation,scheduler});},
+  });
+  if(registry.has('forensics'))registry.update('forensics',{
+    title:'Forensics',icon:'⌁',category:'Brain',navigation:{level:'advanced',order:160},
+    views:['normal','detail','advanced'],supportedActions:['inspect','why','filter','generation-select'],render(host,ctx){renderForensicsWorkspace(host,{...ctx,promptPlan,forensics,presentation,scheduler});},
+  });
+}
+
+export function createWave7BrainLaunchers(doc,{ctx,currentGenerationId=null}={}){
+  const card=element(doc,'section',{className:'a52-card a52-wave7-launchers'});
+  card.append(element(doc,'span',{className:'a52-eyebrow',text:'Explainability'}),element(doc,'h2',{text:'Understand this generation'}),element(doc,'p',{className:'a52-muted',text:'Trace what context was included, excluded, reused, sealed, and why.'}));
+  const actions=element(doc,'div',{className:'a52-inline-status'});
+  actions.append(
+    createButton(doc,{label:'Why This Generation?',scope:ctx.scope,onPress:()=>openWorkspace(ctx,'generation-explainability')}),
+    createButton(doc,{label:'Forensics',scope:ctx.scope,variant:'quiet',onPress:()=>openWorkspace(ctx,'forensics')}),
+  );
+  if(currentGenerationId)actions.append(makeBadge(doc,currentGenerationId,'observed'));
+  card.append(actions);return card;
+}
+
+function renderGenerationWorkspace(host,ctx){
+  const d=host.ownerDocument,detail=ctx.productAdapter.getDetailLevel();
+  header(host,ctx,'Why This Generation?','What context reached this generation, what changed, what was contained, and which explanation evidence Core actually published.');
+  const selection=selectedGeneration(ctx),generationId=selection.generationId;
+  const read=ctx.promptPlan.read(generationId?{generationId}:{}),source=read.source;
+  host.append(generationSelector(d,ctx,read.data?.generationId??generationId));
+  if(!read.data?.explainability){host.append(sourceStateMessage(d,source));return;}
+  let explain=read.data.explainability;
+  const forensic=explain.generationId?ctx.forensics.readGeneration(explain.generationId,{limit:5000}):null;
+  if(forensic?.data?.forensic&&read.data.seal)explain=buildGenerationExplainability({promptPlan:planForRebuild(read),contextReceipt:read.data.contextReceipt,sealReceipt:read.data.seal,forensic:forensic.data.forensic})??explain;
+  host.append(generationHero(d,explain,source));
+  host.append(section(d,'Why?'),whySummary(d,explain,ctx));
+  host.append(section(d,'Context plan'),contextSections(d,explain,detail,ctx));
+  host.append(section(d,'Context Seal'),sealCard(d,explain,forensic,detail,ctx));
+  const previous=ctx.promptPlan.readPrevious(explain);const diff=diffGenerationContext(previous,explain);
+  host.append(section(d,'Previous generation comparison'),diffCard(d,diff,ctx));
+  if(explain.unresolvedEvidence?.length){host.append(section(d,'Unresolved evidence preserved'));for(const conflict of unresolvedConflictModel(explain.receipt))host.append(conflictCard(d,conflict,ctx));}
+  if(detail===ProductDetailLevel.ADVANCED)host.append(advancedGeneration(d,explain,ctx));
+}
+
+function renderForensicsWorkspace(host,ctx){
+  const d=host.ownerDocument,detail=ctx.productAdapter.getDetailLevel();header(host,ctx,'Cognitive Forensics','Reconstruct meaningful cognitive decisions without flattening Runtime execution into the same timeline.');
+  const selection=selectedGeneration(ctx),generationId=selection.generationId??ctx.promptPlan.read().data?.generationId??null;
+  host.append(generationSelector(d,ctx,generationId,{compact:true}));
+  const read=generationId?ctx.forensics.readGeneration(generationId,{limit:10000}):ctx.forensics.read();
+  if(!read.data?.timeline){host.append(sourceStateMessage(d,read.source));return;}
+  const timeline=read.data.timeline;host.append(createProductHealthSurface(d,{source:read.source,label:'Forensic reconstruction',compact:true}));
+  if(!timeline.complete)host.append(state(d,'Partial reconstruction','Missing stages/references remain explicit; Area-52 did not invent replacements.','warning'));
+  host.append(forensicFilters(d,ctx,timeline));
+  const listHost=element(d,'section',{className:'a52-card a52-forensic-timeline',attrs:{'aria-label':'Cognitive forensic timeline'}});
+  listHost.append(element(d,'h2',{text:`Cognitive timeline · ${timeline.rows.length} recorded/reference items`}));
+  const virtualHost=element(d,'div');listHost.append(virtualHost);host.append(listHost);
+  const initial=applyFilters(ctx,timeline.rows,generationId);
+  const controller=new VirtualListController({host:virtualHost,items:initial,itemSize:58,overscan:8,scope:ctx.scope,keyForItem:x=>x.id,renderItem(item){return forensicRow(d,item,ctx);}});controller.mount();
+  ctx.scope.add(()=>{});
+  bindFilterRefresh(ctx,controller,timeline.rows,generationId);
+  if(timeline.runtimeWorkRefs.length){
+    host.append(section(d,'Related Runtime work'),state(d,'Execution history is separate',`${timeline.runtimeWorkRefs.length} Runtime Work Ledger reference${timeline.runtimeWorkRefs.length===1?'':'s'} available. Open a reference to inspect computational execution without merging it into the cognitive timeline.`));
+    const runtimeLinks=element(d,'div',{className:'a52-inline-status'});for(const ref of timeline.runtimeWorkRefs.slice(0,12))runtimeLinks.append(createButton(d,{label:ref,scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspectRuntimeRef(ctx,ref)}));host.append(runtimeLinks);
+  }
+  if(timeline.missingStages.length)host.append(section(d,'Stages not recorded for this turn'),list(d,timeline.missingStages.map(x=>`${x} — no recorded stage/reference; not fabricated`)));
+  if(detail===ProductDetailLevel.ADVANCED)host.append(advancedForensic(d,read.data,ctx));
+}
+
+function generationSelector(d,ctx,currentId,{compact=false}={}){
+  const rows=ctx.promptPlan.listGenerations({limit:25}),box=element(d,'section',{className:`a52-generation-selector${compact?' a52-generation-selector--compact':''}`,attrs:{'aria-label':'Generation selector'}});
+  box.append(element(d,'span',{className:'a52-eyebrow',text:'Generation'}));
+  const actions=element(d,'div',{className:'a52-inline-status'});
+  if(rows.length){
+    const currentIndex=Math.max(0,rows.findIndex(x=>x.generationId===currentId));const current=rows[currentIndex]??rows.at(-1),previous=currentIndex>0?rows[currentIndex-1]:rows.length>1?rows.at(-2):null;
+    if(current)actions.append(createButton(d,{label:`Current · ${current.generationId}`,scope:ctx.scope,size:'sm',onPress:()=>selectGeneration(ctx,current)}));
+    if(previous)actions.append(createButton(d,{label:`Previous · ${previous.generationId}`,scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>selectGeneration(ctx,previous)}));
+    for(const row of rows.slice(-5).reverse())if(row.generationId!==current?.generationId&&row.generationId!==previous?.generationId)actions.append(createButton(d,{label:row.generationId,scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>selectGeneration(ctx,row)}));
+  }else actions.append(makeBadge(d,'Generation reader unavailable','offline'));
+  const lookup=element(d,'input',{className:'a52-search',attrs:{type:'search',placeholder:'Generation ID…','aria-label':'Direct generation lookup'}});
+  ctx.scope.listen(lookup,'keydown',(event)=>{if(event.key==='Enter'&&lookup.value?.trim())selectGeneration(ctx,{generationId:lookup.value.trim(),turnId:null});});
+  box.append(actions,lookup);return box;
+}
+
+function generationHero(d,x,source){
+  const card=element(d,'section',{className:'a52-card a52-generation-hero'}),head=element(d,'div',{className:'a52-inline-status'});
+  head.append(makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','observed'));
+  card.append(head,element(d,'h2',{text:x.generationId??'Generation'}),createKeyValue(d,[{key:'Turn',value:x.turnId??'unavailable'},{key:'Context Seal',value:x.contextSealId??'unavailable'},{key:'PromptPlan',value:x.promptPlanId??'unavailable'},{key:'Model profile',value:x.modelProfileId??'unavailable'},{key:'Planned / used',value:`${number(x.plannedTokens)} / ${number(x.usedOrEstimatedTokens)} tokens`},{key:'Integrity',value:x.integrityState??'unavailable'},{key:'Fallback',value:x.fallbackState??'NONE'}]));
+  return card;
+}
+
+function whySummary(d,x,ctx){
+  const card=element(d,'section',{className:'a52-card'}),counts=x.sectionCounts??{};
+  card.append(element(d,'p',{text:`${x.sections.length} context section records · ${counts.REUSED??0} reused · ${counts.UPDATED??0} updated · ${counts.REBUILT??0} rebuilt · ${counts.DROPPED??0} dropped · ${counts.DEFERRED??0} deferred.`}));
+  if(x.reasons.length){const ul=element(d,'ul',{className:'a52-why-list'});for(const row of x.reasons.slice(0,8))ul.append(element(d,'li',{text:`${human(row.slot)} — ${row.reason}`}));card.append(ul);}
+  if(x.unavailableReasonCount)card.append(state(d,'Some reasons were not published',`${x.unavailableReasonCount} section${x.unavailableReasonCount===1?' has':'s have'} state/revision data but no owner-provided explanation. Area-52 will not invent one.`));
+  card.append(createButton(d,{label:'Inspect generation',scope:ctx.scope,variant:'quiet',onPress:()=>inspect(ctx,{kind:'wave7-generation',id:x.generationId,title:x.generationId??'Generation',generation:x})}));
+  return card;
+}
+
+function contextSections(d,x,detail,ctx){
+  const root=element(d,'div',{className:'a52-context-section-grid'});
+  for(const section of x.sections){
+    const explanation=explainContextSection(section),card=element(d,'article',{className:'a52-context-section-card',dataset:{state:explanation.state}});
+    const head=element(d,'div',{className:'a52-inline-status'});head.append(makeBadge(d,explanation.state,stateToken(explanation.state)),element(d,'strong',{text:human(explanation.slot)}));
+    card.append(head,element(d,'p',{text:explanation.impact}));
+    if(explanation.reason)card.append(element(d,'p',{className:'a52-muted',text:explanation.reason}));else card.append(element(d,'p',{className:'a52-muted',text:'Reason not published by the owning context model.'}));
+    if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Priority',value:explanation.priority??'unavailable'},{key:'Tokens',value:number(explanation.actualTokens??explanation.estimatedTokens)},{key:'Representation',value:explanation.representation??'unavailable'},{key:'Cache eligible',value:explanation.cacheEligible==null?'unavailable':String(explanation.cacheEligible)}]));
+    if(explanation.authority)card.append(createAuthorityPill(d,explanation.authority));
+    const actions=element(d,'div',{className:'a52-inline-status'});actions.append(createButton(d,{label:'Why?',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>why(ctx,{section})}),createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-context-section',id:`${x.generationId}:${section.slot}`,title:human(section.slot),section,generationId:x.generationId})}));card.append(actions);root.append(card);
+  }
+  return root;
+}
+
+function sealCard(d,x,forensic,detail,ctx){
+  const seal=x.seal?{...x.seal,lateResultIds:forensic?.data?.forensic?.lateResultRefs??x.seal.lateResultIds??[]}:null,expl=explainContextSeal(seal);
+  const card=element(d,'section',{className:'a52-card a52-seal-explainer'});
+  if(!expl.available){card.append(state(d,'Context Seal unavailable',expl.impact,'offline'));return card;}
+  card.append(element(d,'div',{className:'a52-inline-status'},makeBadge(d,'SEALED','canonical'),makeBadge(d,expl.fallbackState??'NONE',expl.fallbackState&&expl.fallbackState!=='NONE'?'warning':'ready')),element(d,'p',{text:expl.summary}));
+  card.append(createKeyValue(d,[{key:'Accepted',value:expl.accepted},{key:'Rejected',value:expl.rejected},{key:'Stale',value:expl.stale},{key:'Late',value:expl.late}]));
+  if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Seal',value:expl.sealId},{key:'Turn',value:expl.turnId},{key:'World / Scene revision',value:`${expl.revisionFences.worldRevision??'—'} / ${expl.revisionFences.sceneRevision??'—'}`},{key:'Source revisions',value:expl.revisionFences.sourceRevisionRefs.join(', ')||'none'}]));
+  if(detail===ProductDetailLevel.ADVANCED)card.append(createButton(d,{label:'Inspect seal',scope:ctx.scope,variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-generation',id:expl.sealId,title:'Context Seal',payload:seal})}));
+  return card;
+}
+
+function diffCard(d,diff,ctx){
+  const card=element(d,'section',{className:'a52-card'});if(!diff.available){card.append(state(d,'Comparison unavailable',diff.reason,'offline'));return card;}
+  card.append(element(d,'h3',{text:`${diff.fromGenerationId??'Previous'} → ${diff.toGenerationId??'Current'}`}));
+  for(const key of ['UNCHANGED','UPDATED','REBUILT','ADDED','REMOVED','DROPPED','DEFERRED','UNKNOWN']){
+    const rows=diff.groups[key]??[];if(!rows.length)continue;const group=element(d,'div',{className:'a52-diff-group',dataset:{state:key}});group.append(element(d,'strong',{text:key}),list(d,rows.map(x=>`${human(x.slot)}${x.reason?` — ${x.reason}`:''}`)));card.append(group);
+  }
+  if(diff.insufficient)card.append(state(d,'Some semantic comparison is unavailable','The read models did not publish enough reuse/change evidence to classify every shared section.','warning'));
+  return card;
+}
+
+function conflictCard(d,conflict,ctx){
+  const card=element(d,'article',{className:'a52-card a52-unresolved-card'});card.append(element(d,'div',{className:'a52-inline-status'},makeBadge(d,'UNRESOLVED','warning'),createAuthorityPill(d,conflict.authority)),element(d,'h3',{text:`${conflict.subjectId??'Unknown subject'} · ${conflict.predicate??'unknown claim'}`}),element(d,'p',{text:'Area-52 preserved disagreement; no winning alternative is implied.'}));
+  if(conflict.alternatives.length)card.append(list(d,conflict.alternatives.map(x=>typeof x==='string'?x:JSON.stringify(x))));else card.append(element(d,'p',{className:'a52-muted',text:'Competing alternatives were not expanded in the available read model.'}));
+  card.append(createButton(d,{label:'Inspect evidence',scope:ctx.scope,variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-unresolved-conflict',id:conflict.id,title:'Unresolved evidence',conflict})}));return card;
+}
+
+function forensicFilters(d,ctx,timeline){
+  const box=element(d,'section',{className:'a52-forensic-filters',attrs:{'aria-label':'Forensic filters'}}),search=element(d,'input',{className:'a52-search',attrs:{type:'search',placeholder:'Search event, source, claim, task…','aria-label':'Search forensic timeline'}});
+  search.value=ctx.presentation.get().filters.search??'';search.dataset.wave7Filter='search';box.append(search);
+  const filters=element(d,'div',{className:'a52-inline-status'});
+  for(const [label,key,values] of [['Status','status',['ALL','STALE','LATE','REJECTED','UNRESOLVED','ACCEPTED']],['Authority','authority',['ALL','SOURCE_CANON','OBSERVED','SETTLED','INFERRED','UNRESOLVED','HISTORICAL']],['Stage','stage',['ALL','SOURCE','COGNITION','TRUTH','PROPOSAL','SETTLEMENT','GATHER','CONTEXT']]]){
+    const select=element(d,'select',{attrs:{'aria-label':`${label} filter`},dataset:{wave7Filter:key}});for(const value of values){const option=element(d,'option',{text:value,attrs:{value:value==='ALL'?'':value}});select.append(option);}select.value=ctx.presentation.get().filters[key]??'';filters.append(select);
+  }
+  box.append(filters,element(d,'span',{className:'a52-muted',text:`${timeline.rows.length} indexed timeline items`}));return box;
+}
+
+function bindFilterRefresh(ctx,controller,rows,generationId){
+  const root=controller.host.parentNode??controller.host;const controls=root?.parentNode?.querySelectorAll?.('[data-wave7-filter]')??[];
+  const schedule=()=>ctx.scheduler.invalidate(`wave7:forensic-filter:${generationId??'none'}`,()=>{
+    const filters={...ctx.presentation.get().filters,generationId};for(const node of controls){const key=node.dataset.wave7Filter;filters[key]=node.value??'';}ctx.presentation.setFilters(filters);controller.setItems(applyFilters(ctx,rows,generationId));
+  },{cost:'NORMAL'});
+  for(const node of controls)ctx.scope.listen(node,node.tagName==='SELECT'?'change':'input',schedule);
+}
+
+function applyFilters(ctx,rows,generationId){return ctx.forensics.queryTimeline({...ctx.presentation.get().filters,generationId},{generationId,limit:10000})||rows;}
+
+function forensicRow(d,item,ctx){
+  const button=element(d,'button',{className:'a52-forensic-row',attrs:{type:'button','aria-label':`${item.eventType}: ${item.impact}`},dataset:{status:item.status,stage:item.stage}});
+  const main=element(d,'span',{className:'a52-forensic-row__main'});main.append(element(d,'strong',{text:human(item.eventType)}),element(d,'span',{className:'a52-muted',text:item.impact}));
+  const badges=element(d,'span',{className:'a52-forensic-row__badges'});badges.append(makeBadge(d,item.stage,'observed'),makeBadge(d,item.status,statusToken(item.status)),createAuthorityPill(d,item.authority?.authority??'UNRESOLVED'));
+  button.append(main,badges);ctx.scope.listen(button,'click',()=>inspectThroughRouter(ctx,{kind:'wave7-forensic-item',id:item.id,title:human(item.eventType),item}));return button;
+}
+
+function advancedGeneration(d,x,ctx){
+  const card=element(d,'section',{className:'a52-card'});card.append(element(d,'h3',{text:'Advanced generation identity'}),createKeyValue(d,[{key:'PromptPlan',value:x.promptPlanId},{key:'Context Seal',value:x.contextSealId??'unavailable'},{key:'Model profile',value:x.modelProfileId??'unavailable'},{key:'World revision',value:x.worldRevision??'unavailable'},{key:'Scene revision',value:x.sceneRevision??'unavailable'},{key:'Source revisions',value:x.sourceRevisionRefs.join(', ')||'none'}]));return card;
+}
+function advancedForensic(d,data,ctx){
+  const card=element(d,'section',{className:'a52-card'});card.append(element(d,'h3',{text:'Advanced reconstruction'}),createKeyValue(d,[{key:'Bundle',value:data.forensic.bundleId},{key:'World / Scene revision',value:`${data.forensic.worldRevision??'—'} / ${data.forensic.sceneRevision??'—'}`},{key:'Transactions',value:data.transactions.length},{key:'Diagnostic refs',value:data.forensic.diagnosticRefs.join(', ')||'none'}]));return card;
+}
+
+function renderGenerationInspector(object,{document:d,scope}){
+  const root=element(d,'div',{className:'a52-stack'}),x=object.generation??object.payload??{};root.append(element(d,'h2',{text:object.title??'Generation'}),createKeyValue(d,[{key:'Generation',value:x.generationId??'—'},{key:'Turn',value:x.turnId??'—'},{key:'PromptPlan',value:x.promptPlanId??'—'},{key:'Context Seal',value:x.contextSealId??x.sealId??'—'},{key:'World / Scene revision',value:`${x.worldRevision??'—'} / ${x.sceneRevision??'—'}`}]),element(d,'p',{className:'a52-muted',text:'Read-only explainability object. Raw prompt text is not rendered.'}));return root;
+}
+function renderSectionInspector(object,{document:d}){
+  const x=explainContextSection(object.section),root=element(d,'div',{className:'a52-stack'});root.append(element(d,'h2',{text:object.title??human(x.slot)}),makeBadge(d,x.state,stateToken(x.state)),element(d,'p',{text:x.impact}),element(d,'p',{className:'a52-muted',text:x.reason??'Reason not published by owning backend.'}),createKeyValue(d,[{key:'Priority',value:x.priority??'—'},{key:'Reuse',value:x.reuseState??'—'},{key:'Cache eligible',value:x.cacheEligible==null?'—':String(x.cacheEligible)},{key:'Representation',value:x.representation??'—'}]));if(x.authority)root.append(createAuthorityPill(d,x.authority));return root;
+}
+function renderForensicInspector(object,{document:d,scope},forensics){
+  const item=object.item??{},whyModel=forensicWhy(item),root=element(d,'div',{className:'a52-stack'});root.append(element(d,'h2',{text:object.title??human(item.eventType)}),makeBadge(d,item.status??'RECORDED',statusToken(item.status)),createAuthorityPill(d,item.authority?.authority??'UNRESOLVED'),element(d,'p',{text:whyModel.summary}),createKeyValue(d,[{key:'Subsystem',value:item.subsystem??'—'},{key:'Reason',value:item.reasonCode??'not published'},{key:'Revision',value:`${item.beforeRevision??'—'} → ${item.afterRevision??'—'}`},{key:'Correlation',value:item.correlationId??'—'},{key:'Task',value:item.taskId??'—'}]));
+  if(item.rawPayloadAvailable&&forensics){const out=element(d,'div',{className:'a52-lazy-detail'}),button=createButton(d,{label:'Load raw diagnostic detail',scope,variant:'quiet',onPress:async()=>{button.disabled=true;try{const payload=await forensics.loadDetail(item.id);out.replaceChildren(payload==null?state(d,'Detail unavailable','The owning producer did not return a retained payload.','offline'):element(d,'pre',{className:'a52-context-packet',text:JSON.stringify(payload,null,2)}));}catch(error){out.replaceChildren(state(d,'Detail failed',String(error?.message??error),'warning'));}}});root.append(button,out);}
+  return root;
+}
+function renderConflictInspector(object,{document:d}){
+  const x=object.conflict??{},root=element(d,'div',{className:'a52-stack'});root.append(element(d,'h2',{text:'Unresolved conflict'}),makeBadge(d,'UNRESOLVED','warning'),createAuthorityPill(d,x.authority??'UNRESOLVED'),element(d,'p',{text:'Competing evidence remains preserved. The UI does not choose a winner.'}),createKeyValue(d,[{key:'Subject',value:x.subjectId??'—'},{key:'Predicate',value:x.predicate??'—'},{key:'Provenance',value:(x.provenanceRefs??[]).join(', ')||'—'}]));return root;
+}
+
+async function selectGeneration(ctx,row){const result=await ctx.actionRouter.route({type:'wave7.selectGeneration',target:row});if(result.ok)ctx.refresh?.();}
+async function openWorkspace(ctx,id){const result=await ctx.actionRouter.route({type:'wave7.openWorkspace',target:{workspaceId:id}});if(result.ok&&result.result?.workspaceId)ctx.navigate?.(result.result.workspaceId);}
+async function why(ctx,target){const result=await ctx.actionRouter.route({type:'wave7.why',target});if(result.ok)ctx.inspect?.({kind:'wave7-generation',id:`why:${Date.now?.()??0}`,title:'Why?',generation:result.result});}
+async function inspectThroughRouter(ctx,object){const result=await ctx.actionRouter.route({type:'wave7.inspect',target:{object}});if(result.ok)ctx.inspect?.(result.result);}
+async function inspectRuntimeRef(ctx,ref){const object=ctx.forensics.getRuntimeWork(ref);await inspectThroughRouter(ctx,{kind:'wave7-generation',id:ref,title:`Runtime work ${ref}`,payload:object??{reference:ref,status:'UNAVAILABLE'}});}
+function selectedGeneration(ctx){return ctx.presentation.get().bookmark??createForensicBookmark();}
+function planForRebuild(read){return read.data?.explainability?{kind:'PromptPlanReadModel',promptPlanId:read.data.promptPlanId,generationId:read.data.generationId,turnId:read.data.turnId,contextSealId:read.data.explainability.contextSealId,sealedPacketHash:read.data.explainability.seal?.packetHash??'unavailable',modelProfileId:read.data.modelProfileId??'unavailable',modelProfileRevision:'unavailable',deliveryPolicyRevision:'unavailable',worldRevision:read.data.worldRevision??0,sceneRevision:read.data.sceneRevision??0,sourceRevisionRefs:read.data.sourceRevisionDependencies??[],slotAllocation:read.data.sections.map(x=>({slot:x.slot,representation:x.representation,estimatedTokens:x.estimatedTokens,required:x.required,protected:x.protected})),sectionOrder:read.data.ordering??[],reuseDecisions:read.data.reuseDecisions??[],cacheDecisions:read.data.cacheDecisions??[],reusedSegments:read.data.sections.filter(x=>x.state==='REUSED').map(x=>({slot:x.slot,reuseState:'NO_CHANGE'})),rebuiltSegments:read.data.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).map(x=>({slot:x.slot,reuseState:x.state==='UPDATED'?'PATCH':'REBUILD'})),dropped:read.data.dropped??[],deferred:read.data.deferred??[],fallbackDecisions:read.data.fallbackDecisions??[],budget:read.data.explainability.budget??{},estimatedTokens:read.data.totalTokens,integrityStatus:read.data.explainability.integrityState,health:read.data.explainability.source?{state:read.data.explainability.source.health}:null,authority:'READ_ONLY'}:null;}
+function header(host,ctx,title,subtitle){const d=host.ownerDocument,h=element(d,'div',{className:'a52-product-header'}),t=element(d,'div');t.append(element(d,'h1',{text:title}),element(d,'p',{className:'a52-muted',text:subtitle}));const controls=element(d,'div',{className:'a52-detail-control',attrs:{role:'group','aria-label':'Detail level'}});for(const level of Object.values(ProductDetailLevel)){const b=createButton(d,{label:human(level),scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>{ctx.productAdapter.setDetailLevel(level);ctx.refresh?.();}});b.setAttribute('aria-pressed',String(ctx.productAdapter.getDetailLevel()===level));if(ctx.productAdapter.getDetailLevel()===level)b.classList.add('is-selected');controls.append(b);}h.append(t,controls);host.append(h);}
+function state(d,title,message,status='ready'){const r=element(d,'section',{className:'a52-state-message',attrs:{role:'status'},dataset:{status}});r.append(element(d,'strong',{text:title}),element(d,'span',{text:message}));return r;}
+function section(d,title){return element(d,'h2',{className:'a52-section-title',text:title});}
+function list(d,items=[]){const ul=element(d,'ul');for(const item of items)ul.append(element(d,'li',{text:String(item)}));return ul;}
+function human(v){return String(v??'').toLowerCase().replace(/(^|_)([a-z])/g,(_,sp,l)=>`${sp?' ':''}${l.toUpperCase()}`);}
+function number(v){return v==null?'unavailable':new Intl.NumberFormat('en-US').format(Number(v)||0);}
+function stateToken(v){if(v==='REUSED'||v==='INCLUDED')return'ready';if(v==='UPDATED'||v==='REBUILT'||v==='NEW')return'loading';if(v==='DEFERRED'||v==='DROPPED'||v==='INVALIDATED')return'warning';return'offline';}
+function statusToken(v){if(['ACCEPTED','RECORDED','REFERENCE'].includes(v))return'ready';if(['STALE','LATE','UNRESOLVED'].includes(v))return'warning';if(v==='REJECTED')return'error';return'observed';}

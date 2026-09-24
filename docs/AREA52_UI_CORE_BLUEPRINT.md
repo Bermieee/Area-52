@@ -103,3 +103,49 @@ Keyboard navigation, semantic roles/labels, focus order/rings, reduced motion, c
 ## Exit criteria
 
 UI.Core is ready when the shell/workspace/inspector contracts exist, widget cleanup is tested, action routing protects subsystem authority, signal-driven rendering is coalesced, primitives require no subsystem CSS, large collections virtualize, cognitive widgets run on mock contracts, responsive/accessibility behavior is default, and a subsystem can register UI without modifying UI.Core internals.
+
+# Wave 6 — Host-Adjacent Product Runtime
+
+Wave 6 adds a production product layer **on top of** UI.Core. It does not replace the framework.
+
+The canonical host arrangement is:
+
+```text
+Host / SillyTavern conversation
+        |
+        | remains host-owned
+        |
++-------+-----------------------------+
+| Area-52 Front Face                 |
+|                                     |
+| COLLAPSED: Quick Dash               |
+| EXPANDED: existing ApplicationShell |
++-------------------------------------+
+```
+
+Both states use the same Widget Registry, Workspace Registry, Inspector, SignalHub, Action Router, Render Scheduler and UI persistence.
+
+The production bootstrap is `createWave6ProductInterface()`. Fixture-backed `createBrainDashboard()` remains valid for prior deterministic/demo coverage.
+
+## Production read boundary
+
+UI.Core consumes injected read contracts; it does not import backend implementations.
+
+```text
+SceneUiReadModel ----------> SceneProductionUIAdapter
+Runtime UI bridge ---------> RuntimeProductionUIAdapter
+Coprocessor telemetry -----> CoprocessorProductionUIAdapter
+PromptPlan / Seal readers -> PromptPlanProductionUIAdapter
+Ledger / Forensic readers -> ForensicsProductionUIAdapter
+                             |
+                             v
+                    Wave6ProductAdapter
+                             |
+             +---------------+---------------+
+             v                               v
+       Quick Dash                   Product workspaces
+```
+
+Missing bindings become UNAVAILABLE, never implicit fixtures.
+
+Presentation state remains strictly separate from cognitive state.

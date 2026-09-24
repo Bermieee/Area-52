@@ -13,7 +13,7 @@ export class Wave8CognitionProductionAdapter{
     scene=null,promptPlan=null,readHotCognitionReadModel=null,readCognitiveChoiceReceipt=null,readScatterReceipt=null,
     readSensoryTrace=null,readCandidateBusEnvelope=null,readCandidateFusionReceipt=null,readTruthAssessment=null,
     readCorrectiveRetrievalReceipt=null,readJevDecisionReceipt=null,readPrecisionReceipt=null,readGatherReceipt=null,
-    readContextSealReceipt=null,readLoreStatus=null,subscribe=null,fixture=null,
+    readContextSealReceipt=null,readLoreStatus=null,subscribe=null,fixture=null,strictReceiptCoherence=false,selectionProvider=null,
   }={}){
     this.scene=scene;this.promptPlan=promptPlan;this.readHotCognitionReadModel=optional(readHotCognitionReadModel);
     this.readCognitiveChoiceReceipt=optional(readCognitiveChoiceReceipt);this.readScatterReceipt=optional(readScatterReceipt);
@@ -21,7 +21,7 @@ export class Wave8CognitionProductionAdapter{
     this.readTruthAssessment=optional(readTruthAssessment);this.readCorrectiveRetrievalReceipt=optional(readCorrectiveRetrievalReceipt);
     this.readJevDecisionReceipt=optional(readJevDecisionReceipt);this.readPrecisionReceipt=optional(readPrecisionReceipt);this.readGatherReceipt=optional(readGatherReceipt);
     this.readContextSealReceipt=optional(readContextSealReceipt);this.readLoreStatus=optional(readLoreStatus);this.subscribeFn=optional(subscribe);
-    this.fixture=fixture;this.kind='Wave8CognitionProductionAdapter';
+    this.fixture=fixture;this.strictReceiptCoherence=Boolean(strictReceiptCoherence);this.selectionProvider=optional(selectionProvider);this.kind='Wave8CognitionProductionAdapter';
   }
 
   read(selection={}){
@@ -33,23 +33,24 @@ export class Wave8CognitionProductionAdapter{
     const scatter=normalizeScatterReceipt(rawScatter,choice);
 
     const sensoryInput=this.#sensoryInput(selection,errors);
-    const sensory=normalizeSensoryReceipt(sensoryInput)??normalizeSensoryFromChoiceReceipt(choice);
+    const choiceSensory=normalizeSensoryFromChoiceReceipt(choice);
+    const sensory=normalizeSensoryReceipt(sensoryInput)??(this.strictReceiptCoherence&&choiceSensory?.state!=='SKIPPED'?null:choiceSensory);
     const rawTruth=this.#safe('truth',this.readTruthAssessment,selection,errors);
-    const truth=normalizeTruthAssessment(rawTruth)??normalizeTruthFromChoiceReceipt(choice);
+    const truth=normalizeTruthAssessment(rawTruth)??(this.strictReceiptCoherence?null:normalizeTruthFromChoiceReceipt(choice));
     const rawCorrection=this.#safe('corrective',this.readCorrectiveRetrievalReceipt,selection,errors);
-    const corrective=normalizeCorrectiveRetrievalReceipt(rawCorrection??choice?.correctiveRetrieval,truth);
+    const corrective=normalizeCorrectiveRetrievalReceipt(rawCorrection??(this.strictReceiptCoherence?null:choice?.correctiveRetrieval),truth);
     const rawJev=this.#safe('jev',this.readJevDecisionReceipt,selection,errors);
     const jev=normalizeJevDecisionReceipt(rawJev,choice);
     const rawPrecision=this.#safe('precision',this.readPrecisionReceipt,selection,errors);
-    const precision=normalizePrecisionReceipt(rawPrecision,choice);
+    const precision=normalizePrecisionReceipt(rawPrecision,this.strictReceiptCoherence?strictPrecisionChoice(choice):choice);
     const rawGather=this.#safe('gather',this.readGatherReceipt,selection,errors);
-    const gather=normalizeGatherReceipt(rawGather)??normalizeGatherFromChoiceReceipt(choice);
+    const gather=normalizeGatherReceipt(rawGather)??(this.strictReceiptCoherence?null:normalizeGatherFromChoiceReceipt(choice));
     const rawSeal=this.#safe('seal',this.readContextSealReceipt,selection,errors);
     const sceneResult=this.scene?.read?.()??null;
     const scene=sceneResult?.data??null;
     const promptResult=this.promptPlan?.read?.(selection)??null;
     const promptPlan=promptResult?.data??null;
-    const seal=normalizeContextSealReceipt(rawSeal??promptPlan?.seal??null,{lateResultRefs:gather?.results?.filter(x=>x.status==='LATE').map(x=>x.resultId).filter(Boolean)??[]})??normalizeSealFromChoiceReceipt(choice);
+    const seal=normalizeContextSealReceipt(rawSeal??promptPlan?.seal??null,{lateResultRefs:gather?.results?.filter(x=>x.status==='LATE').map(x=>x.resultId).filter(Boolean)??[]})??(this.strictReceiptCoherence?null:normalizeSealFromChoiceReceipt(choice));
     const hotCognition=clone(this.#safe('hotCognition',this.readHotCognitionReadModel,selection,errors));
     const lore=normalizeLoreStatus(this.#safe('lore',this.readLoreStatus,selection,errors));
 
@@ -64,7 +65,8 @@ export class Wave8CognitionProductionAdapter{
       gather:modeFor(gatherEvidence,errors.gather),seal:modeFor(sealEvidence,errors.seal),promptPlan:promptResult?.source?.mode??ProductDataMode.UNAVAILABLE,
       hotCognition:modeFor(hotCognition,errors.hotCognition),lore:modeFor(lore,errors.lore),
     };
-    const path=buildLiveCognitionPath({scene,hotCognition,choice,scatter,sensory,truth,corrective,jev,precision,gather,seal,promptPlan,lore,modes});
+    const basePath=buildLiveCognitionPath({scene,hotCognition,choice,scatter,sensory,truth,corrective,jev,precision,gather,seal,promptPlan,lore,modes});
+    const path=deepFreeze({...basePath,bindingSelection:clone(this.selectionProvider?.()??selection??{})});
     const sources=sourceMap({sceneResult,rawChoice,rawScatter,sensoryInput:sensoryEvidence,rawTruth:truthEvidence,rawCorrection:correctiveEvidence,rawJev:jevEvidence,rawPrecision:precisionEvidence,rawGather:gatherEvidence,rawSeal:sealEvidence,promptResult,hotCognition,lore,errors,modes});
     const failed=Object.keys(errors).length;
     return deepFreeze({
@@ -138,8 +140,15 @@ function sourceMap({sceneResult,rawChoice,rawScatter,sensoryInput,rawTruth,rawCo
   });
 }
 function status(label,value,error,mode){
-  if(error)return createProductSourceStatus({mode:ProductDataMode.DEGRADED,health:Wave6Health.DEGRADED,label,impact:`${label} producer read failed; dependent stages remain unavailable.`,reason:error.message,connected:true});
+  if(error){const stale=error.code==='LIVE_RECEIPT_STALE'||error.code==='LIVE_RECEIPT_FUTURE';return createProductSourceStatus({mode:ProductDataMode.DEGRADED,health:stale?Wave6Health.STALE:Wave6Health.DEGRADED,label,impact:stale?label+' receipt failed the selected revision fence and was not shown.':label+' producer read failed; dependent stages remain unavailable.',reason:error.message,connected:true});}
   if(value)return createProductSourceStatus({mode:mode??ProductDataMode.LIVE,health:Wave6Health.READY,label,impact:`${label} receipt/read model is available.`,producer:value.kind??label});
   return createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label,impact:`${label} producer is unavailable.`,connected:false});
 }
 function modeFor(value,error){return error?ProductDataMode.DEGRADED:value?ProductDataMode.LIVE:ProductDataMode.UNAVAILABLE;}
+
+function strictPrecisionChoice(choice){
+  const decision=choice?.precisionDecision;
+  if(!decision)return null;
+  if(decision.invoked===false||decision.skipped===true||decision.available===false||decision.failed===true||decision.fallback===true)return choice;
+  return null;
+}

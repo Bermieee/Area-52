@@ -187,16 +187,16 @@ export class HotCognitionRuntime{
     if(state.sceneId===sceneId&&sceneRevision<state.sceneRevision)return this.#stale(state,id,'SCENE_INTEGRATION_SIGNAL','scene revision '+sceneRevision+' is older than active '+state.sceneRevision,sceneRevision);
     const sourceRevisionRefs=uniq(signal.sourceRevisionRefs??signal.sourceRevisionSet??[]),inactiveSourceRefs=this.#knownInactiveSourceRefs(sourceRevisionRefs);
     if(inactiveSourceRefs.length)return this.#stale(state,id,'SCENE_INTEGRATION_SIGNAL','Scene signal depends on inactive source revisions: '+inactiveSourceRefs.join(','),sceneRevision);
-    const provenanceRefs=provenanceFrom(signal),transition=state.sceneId!==null&&state.sceneId!==sceneId;
+    const provenanceRefs=provenanceFrom(signal),transition=state.sceneId!==null&&state.sceneId!==sceneId,narrativeTime=normalizeField(signal.narrativeTime??null);
     const changed=[],reused=[],invalidated=[];
 
     const sceneValue={
-      sceneId,narrativeTime:clone(signal.narrativeTime??null),boundaryState:clone(signal.boundaryState??null),
+      sceneId,narrativeTime:narrativeTime.value,boundaryState:clone(signal.boundaryState??null),
       uncertainFields:uniq(signal.uncertainFields??[]),conflictSignals:uniq(signal.conflictSignals??[]),
       sceneRelationship:signal.sceneRelationship??null,transitionType:signal.transitionType??signal.sceneRelationship??null,
       health:clone(signal.health??{status:'ready',reasons:[]}),
     };
-    this.#setSegment(state,HotSegmentKind.SCENE,{value:sceneValue,sourceRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.UNRESOLVED,owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
+    this.#setSegment(state,HotSegmentKind.SCENE,{value:sceneValue,sourceRevisionRefs,provenanceRefs:mergeRefs(provenanceRefs,narrativeTime.evidenceRefs,this.limits.maxProvenanceRefs),authorityClass:AuthorityClass.UNRESOLVED,owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
     const location=normalizeField(signal.location??null);
     this.#setSegment(state,HotSegmentKind.LOCATION,{value:location.value,sourceRevisionRefs,provenanceRefs:mergeRefs(provenanceRefs,location.evidenceRefs,this.limits.maxProvenanceRefs),authorityClass:location.authorityClass,owner:'SCENE_INTELLIGENCE',freshness:location.value==null?HotFreshness.UNAVAILABLE:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
     const cast=normalizePresenceList(signal.activeCast??[],{excludeMentioned:true});

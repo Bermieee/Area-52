@@ -170,6 +170,19 @@ export function runHotCognitionWave7Acceptance(){
   const threadSection=findSection(delivered.plan,PromptSlot.ACTIVE_THREADS);
   const reuseSceneSegment=reuseDelivered.plan?.segments?.find(x=>x.sections?.some(section=>section.slot===PromptSlot.CURRENT_SCENE));
 
+  const debug={
+    preSealSnapshotId:preSeal.snapshotId,
+    publishedSnapshotId:published.hotCognition?.snapshotId??null,
+    sealedSnapshotId:sealedHot?.snapshotId??null,
+    preSealHotRevision:preSeal.hotRevision,
+    sealedHotRevision:sealedHot?.hotRevision??null,
+    afterLateHotRevision:afterLate.hotRevision,
+    sealedSnapshotFrozen:Boolean(sealedHot&&Object.isFrozen(sealedHot)),
+    sealedContainsLateRef:Boolean(sealedHot&&JSON.stringify(sealedHot).includes('late:continuity-ref')),
+    liveContainsLateRef:JSON.stringify(afterLate).includes('late:continuity-ref'),
+    reuseSceneState:reuseSceneSegment?.reuseState??null,
+  };
+
   const metrics={
     sceneOpenApplied:r1.status===HotUpdateStatus.APPLIED&&s1.sceneId==='scene:ember'&&s1.sceneRevision===1,
     mentionedOnlyNotActive:!ids(seg(s1,HotSegmentKind.ACTIVE_CAST).value).includes('lili'),
@@ -182,11 +195,17 @@ export function runHotCognitionWave7Acceptance(){
     editReplacesTail:ids(seg(s7,HotSegmentKind.RECENT_EPISODE_TAIL).value).includes('recent:chat:golden:m1@2')&&!ids(seg(s7,HotSegmentKind.RECENT_EPISODE_TAIL).value).includes('recent:chat:golden:m1@1'),
     staleFailsClosed:stale.status===HotUpdateStatus.STALE&&beforeStale.hotRevision===afterStale.hotRevision&&seg(afterStale,HotSegmentKind.LOCATION).value.subLocation==='rear-courtyard',
     loreInvalidationTargeted:targeted.invalidatedSegments.includes(HotSegmentKind.WORLD_REFERENCES)&&seg(afterLoreInvalidation,HotSegmentKind.LOCATION).freshness===HotFreshness.FRESH&&seg(afterLoreInvalidation,HotSegmentKind.LOCATION).revision===seg(beforeLoreInvalidation,HotSegmentKind.LOCATION).revision,
-    hotSnapshotSealed:published.hotCognition?.snapshotId===preSeal.snapshotId&&sealedHot?.snapshotId===preSeal.snapshotId&&Object.isFrozen(sealedHot),
+    hotSnapshotPublishedMatchesPreSeal:published.hotCognition?.snapshotId===preSeal.snapshotId,
+    sealedSnapshotRecorded:Boolean(sealedHot),
+    sealedSnapshotMatchesPreSeal:sealedHot?.snapshotId===preSeal.snapshotId,
+    sealedSnapshotFrozen:Boolean(sealedHot&&Object.isFrozen(sealedHot)),
+    hotSnapshotSealed:published.hotCognition?.snapshotId===preSeal.snapshotId&&sealedHot?.snapshotId===preSeal.snapshotId&&Boolean(sealedHot&&Object.isFrozen(sealedHot)),
     compilerContribution:published.packet.hotCognitionSnapshotId===preSeal.snapshotId&&Boolean(findSection(delivered.plan,PromptSlot.CURRENT_SCENE)),
     activeThreadContribution:Boolean(threadSection)&&threadSection.semantic===true,
     lateRoutedNextTurn:late.route.late===true&&late.route.effectiveDestination===ResultDestination.NEXT_TURN,
-    postSealImmutable:sealedHot.hotRevision===preSeal.hotRevision&&afterLate.hotRevision>sealedHot.hotRevision&&!JSON.stringify(sealedHot).includes('late:continuity-ref'),
+    lateAdvancesFutureHot:Boolean(sealedHot)&&afterLate.hotRevision>sealedHot.hotRevision,
+    sealedSnapshotExcludesLate:Boolean(sealedHot)&&!JSON.stringify(sealedHot).includes('late:continuity-ref'),
+    postSealImmutable:Boolean(sealedHot)&&sealedHot.hotRevision===preSeal.hotRevision&&afterLate.hotRevision>sealedHot.hotRevision&&!JSON.stringify(sealedHot).includes('late:continuity-ref'),
     sceneTransitionTargeted:transitioned.sceneId==='scene:street'&&seg(transitioned,HotSegmentKind.LOCATION).value.place==='market-street'&&ids(seg(transitioned,HotSegmentKind.ACTIVE_CAST).value).join(',')==='eris',
     reconstructionPreservesIdentity:restored.chatNamespace==='chat:golden'&&restored.sceneId==='scene:street'&&['RESTORED_PERSISTED','RESTORED_WITH_INVALIDATION'].includes(restored.reconstructionState),
     nextGenerationConsumesHot:nextPublished.hotCognition?.snapshotId===restored.snapshotId&&nextDelivered.ok===true&&currentSceneSection?.semantic===true,
@@ -207,6 +226,6 @@ export function runHotCognitionWave7Acceptance(){
     receipts:{r1,r2,r3,r4,r5,r6,n1,n2,stale,targeted,late,rTransition,stable8,graphEmpty,graphUnavailable},
     snapshots:{s1,s2,s3,s4,s5,s6,s7,beforeStale,afterStale,beforeLoreInvalidation,afterLoreInvalidation,preSeal,afterLate,transitioned,restored,stableSnapshot,degraded},
     publication:{published,delivered,nextPublished,nextDelivered,reusePublished,reuseDelivered},
-    readModel,
+    readModel,debug,
   };
 }

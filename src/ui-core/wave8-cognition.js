@@ -29,28 +29,94 @@ export function createStage({id,label,state=CognitionStageState.UNAVAILABLE,summ
 
 export function normalizeCognitiveChoiceReceipt(receipt){
   if(!receipt)return null;
-  const candidateJobs=safeArray(receipt.candidateJobs??receipt.candidateCognitionOptions??receipt.options??receipt.candidates).map(normalizeJobCandidate);
+  const canonical=receipt.kind==='CognitiveChoiceReceipt'&&receipt.contractVersion==='1.0.0';
+  const candidateJobs=safeArray(receipt.consideredCognitionOptions??receipt.candidateJobs??receipt.candidateCognitionOptions??receipt.options??receipt.candidates).map(normalizeJobCandidate);
   const admitted=safeArray(receipt.admittedJobs??receipt.admitted??receipt.selectedJobs).map(x=>normalizeJobDecision(x,'ADMITTED'));
   const skipped=safeArray(receipt.skippedJobs??receipt.skipped??receipt.rejectedJobs).map(x=>normalizeJobDecision(x,'SKIPPED'));
   const deferred=safeArray(receipt.deferredJobs??receipt.deferred??receipt.backgroundJobs).map(x=>normalizeJobDecision(x,'DEFERRED'));
   const status=receipt.status??receipt.state??'COMPLETE';
   const executionResources=safeArray(receipt.executionResources??receipt.resources??receipt.assignments).map(normalizeResource);
-  const jevDecision=normalizeOptionalDecision(receipt.jev??receipt.jevDecision??receipt.jevStatus);
-  const precisionDecision=normalizeOptionalDecision(receipt.precision??receipt.precisionDecision??receipt.precisionStatus);
-  const retrievalDecision=normalizeOptionalDecision(receipt.retrieval??receipt.retrievalDecision??receipt.retrievalStatus);
-  const sensoryDecision=normalizeOptionalDecision(receipt.sensory??receipt.sensoryDecision??receipt.sensoryStatus);
-  const truthDecision=normalizeOptionalDecision(receipt.truth??receipt.truthDecision??receipt.truthStatus);
-  const scatterDecision=normalizeOptionalDecision(receipt.scatter??receipt.scatterDecision??receipt.scatterStatus);
-  const gatherDecision=normalizeOptionalDecision(receipt.gather??receipt.gatherDecision??receipt.gatherStatus);
+  const reasonCodes=safeArray(receipt.reasonCodes);
+  const admittedNames=new Set(admitted.map(x=>machineJob(x.capability))),skippedNames=new Set(skipped.map(x=>machineJob(x.capability)));
+  const retrievalDecision=canonical?decisionFromJob('RETRIEVAL',admittedNames,skippedNames,reasonCodes):normalizeOptionalDecision(receipt.retrieval??receipt.retrievalDecision??receipt.retrievalStatus);
+  const sensoryDecision=canonical?retrievalDecision:normalizeOptionalDecision(receipt.sensory??receipt.sensoryDecision??receipt.sensoryStatus);
+  const truthDecision=canonical?normalizeTruthChoice(receipt.truthGate,reasonCodes):normalizeOptionalDecision(receipt.truth??receipt.truthDecision??receipt.truthStatus);
+  const jevDecision=canonical?normalizeJevChoice(receipt.jev,reasonCodes):normalizeOptionalDecision(receipt.jev??receipt.jevDecision??receipt.jevStatus);
+  const precisionDecision=canonical?normalizePrecisionChoice(receipt.precision,reasonCodes,receipt.candidateCounts):normalizeOptionalDecision(receipt.precision??receipt.precisionDecision??receipt.precisionStatus);
+  const scatterDecision=canonical?null:normalizeOptionalDecision(receipt.scatter??receipt.scatterDecision??receipt.scatterStatus);
+  const gatherDecision=canonical?decisionFromJob('GATHER',admittedNames,skippedNames,reasonCodes):normalizeOptionalDecision(receipt.gather??receipt.gatherDecision??receipt.gatherStatus);
+  const revisionIdentity=clone(receipt.revisions??receipt.revisionIdentity??{
+    worldRevision:receipt.worldRevision??null,sceneRevision:receipt.sceneRevision??null,sourceRevisionRefs:safeArray(receipt.sourceRevisionRefs??receipt.sourceRevisionIds),
+  });
   return deepFreeze({
-    kind:'NormalizedCognitiveChoiceReceipt',sourceKind:receipt.kind??'CognitiveChoiceReceipt',receiptId:stringOrNull(receipt.receiptId??receipt.id),
-    turnId:stringOrNull(receipt.turnId),generationId:stringOrNull(receipt.generationId),correlationId:stringOrNull(receipt.correlationId),causationId:stringOrNull(receipt.causationId),
-    status,brainChoice:humanChoice(receipt.brainChoice??receipt.chosenPath??receipt.choice??admitted.map(x=>x.capability)),
-    candidateJobs,admitted,skipped,deferred,executionResources,retrievalIntents:safeArray(receipt.retrievalIntents),sensoryChannels:safeArray(receipt.sensoryChannels),
-    jevDecision,precisionDecision,retrievalDecision,sensoryDecision,truthDecision,scatterDecision,gatherDecision,abstentions:safeArray(receipt.abstentions),generationEvidenceRefs:safeArray(receipt.generationEvidenceRefs??receipt.finalEvidenceRefs),
-    resourceBudget:clone(receipt.resourceBudget??receipt.latencyBudget??receipt.budget??null),revisionIdentity:clone(receipt.revisionIdentity??{
-      worldRevision:receipt.worldRevision??null,sceneRevision:receipt.sceneRevision??null,sourceRevisionRefs:safeArray(receipt.sourceRevisionRefs??receipt.sourceRevisionIds),
-    }),reason:reasonOf(receipt),authority:'READ_ONLY',mutationAuthority:false,
+    kind:'NormalizedCognitiveChoiceReceipt',sourceKind:receipt.kind??'CognitiveChoiceReceipt',contractVersion:receipt.contractVersion??null,
+    receiptId:stringOrNull(receipt.receiptId??receipt.id),receiptRevision:receipt.receiptRevision??null,
+    turnId:stringOrNull(receipt.turnId),turnRevision:receipt.turnRevision??revisionIdentity?.turnRevision??null,generationId:stringOrNull(receipt.generationId),
+    correlationId:stringOrNull(receipt.correlationId),causationId:stringOrNull(receipt.causationId),
+    status,paths:safeArray(receipt.paths),brainChoice:humanChoice(receipt.brainChoice??receipt.chosenPath??receipt.choice??(receipt.paths?.length?receipt.paths:admitted.map(x=>x.capability))),
+    candidateJobs,admitted,skipped,deferred,executionResources,reasonCodes,
+    retrievalIntents:safeArray(receipt.retrievalIntents),sensoryChannelsRequested:safeArray(receipt.sensoryChannelsRequested??receipt.sensoryChannels),
+    sensoryChannelsUsed:safeArray(receipt.sensoryChannelsUsed),candidateCounts:clone(receipt.candidateCounts??null),retrievalQuality:receipt.retrievalQuality??null,
+    correctiveRetrieval:clone(receipt.correctiveRetrieval??null),truthGate:clone(receipt.truthGate??null),
+    jevDecision,precisionDecision,retrievalDecision,sensoryDecision,truthDecision,scatterDecision,gatherDecision,
+    abstained:Boolean(receipt.abstained),unresolved:Boolean(receipt.unresolved),abstentions:safeArray(receipt.abstentions),
+    generationEvidenceRefs:safeArray(receipt.finalEvidenceRefs??receipt.generationEvidenceRefs),
+    resourceBudget:clone(receipt.latencyResourceBudget??receipt.resourceBudget??receipt.latencyBudget??receipt.budget??null),
+    revisionIdentity,freshness:clone(receipt.freshness??null),seal:clone(receipt.seal??null),
+    lateResultIds:safeArray(receipt.lateResultIds),staleResultIds:safeArray(receipt.staleResultIds),invalidResultIds:safeArray(receipt.invalidResultIds),
+    metadata:clone(receipt.metadata??null),reason:reasonOf(receipt),authority:'READ_ONLY',truthAuthority:false,settlementAuthority:false,mutationAuthority:false,
+  });
+}
+
+export function normalizeSensoryFromChoiceReceipt(choice){
+  if(!choice?.candidateCounts)return null;
+  const nominated=Number(choice.candidateCounts.nominated??0),unique=Number(choice.candidateCounts.deduplicated??0);
+  if(!nominated&&!unique&&!choice.sensoryChannelsUsed?.length&&!choice.sensoryChannelsRequested?.length)return null;
+  const skipped=isExplicitSkip(choice.retrievalDecision);
+  return deepFreeze({
+    kind:'NormalizedSensoryReceipt',receiptId:choice.receiptId,state:skipped?CognitionStageState.SKIPPED:CognitionStageState.COMPLETE,
+    inputNominationCount:nominated,uniqueCandidateCount:unique,duplicateNominationCount:Math.max(0,nominated-unique),perChannelCounts:{},
+    inputChannelCount:choice.sensoryChannelsUsed?.length??0,boundedOutCount:0,staleNominationCount:Number(choice.freshness?.staleNominationCount??0),
+    invalidNominationCount:Number(choice.freshness?.invalidNominationCount??0),unavailableChannels:[],degradedChannels:[],
+    retrievalIntentIds:safeArray(choice.retrievalIntents),sourceRevisionRefs:safeArray(choice.revisionIdentity?.sourceRevisionRefs),
+    worldRevision:choice.revisionIdentity?.worldRevision??null,sceneRevision:choice.revisionIdentity?.sceneRevision??null,candidates:[],
+    channelsUsed:safeArray(choice.sensoryChannelsUsed),channelsRequested:safeArray(choice.sensoryChannelsRequested),fusionPolicyVersion:null,
+    summaryOnly:true,sourceReceipt:'CognitiveChoiceReceipt',authority:'READ_ONLY',mutationAuthority:false,
+  });
+}
+
+export function normalizeTruthFromChoiceReceipt(choice){
+  const gate=choice?.truthGate;if(!gate||gate.considered===false)return null;
+  const counts=Object.fromEntries([...TRUTH].map(x=>[x,Number(gate.outcomeCounts?.[x]??0)]));
+  return deepFreeze({
+    kind:'NormalizedTruthAssessment',receiptId:choice.receiptId,query:null,intent:null,retrievalQuality:choice.retrievalQuality??null,
+    reason:null,truthRows:[],counts,corrective:null,admittedCandidateIds:safeArray(gate.admittedCandidateIds),supportCandidateIds:safeArray(gate.supportCandidateIds),
+    summaryOnly:true,sourceReceipt:'CognitiveChoiceReceipt',authority:'READ_ONLY',mutationAuthority:false,
+  });
+}
+
+export function normalizeGatherFromChoiceReceipt(choice){
+  if(!choice)return null;
+  const decision=choice.gatherDecision;if(!decision||isExplicitSkip(decision))return null;
+  const admitted=choice.generationEvidenceRefs?.length??0,stale=choice.staleResultIds?.length??0,late=choice.lateResultIds?.length??0,invalid=choice.invalidResultIds?.length??0;
+  if(!admitted&&!stale&&!late&&!invalid&&!decision.invoked)return null;
+  return deepFreeze({
+    kind:'NormalizedGatherReceipt',receiptId:choice.receiptId,turnId:choice.turnId,generationId:choice.generationId,correlationId:choice.correlationId,
+    state:CognitionStageState.COMPLETE,counts:{ADMITTED:admitted,STALE:stale,LATE:late,REJECTED:0,INVALID:invalid},results:[],
+    admittedEvidenceRefs:safeArray(choice.generationEvidenceRefs),rejectedResultIds:[...safeArray(choice.staleResultIds),...safeArray(choice.lateResultIds),...safeArray(choice.invalidResultIds)],
+    reason:null,summaryOnly:true,sourceReceipt:'CognitiveChoiceReceipt',authority:'READ_ONLY',mutationAuthority:false,
+  });
+}
+
+export function normalizeSealFromChoiceReceipt(choice){
+  const seal=choice?.seal;if(!seal?.sealed&&!seal?.sealReceiptId)return null;
+  return deepFreeze({
+    kind:'NormalizedContextSeal',sealId:stringOrNull(seal.sealReceiptId),turnId:choice.turnId,correlationId:choice.correlationId,
+    packetId:stringOrNull(seal.packetId),packetHash:stringOrNull(seal.packetHash),sourceRevisionRefs:safeArray(choice.revisionIdentity?.sourceRevisionRefs),
+    worldRevision:choice.revisionIdentity?.worldRevision??null,sceneRevision:choice.revisionIdentity?.sceneRevision??null,
+    admittedResultIds:[],rejectedResultIds:safeArray(choice.invalidResultIds),staleResultIds:safeArray(choice.staleResultIds),lateResultIds:safeArray(choice.lateResultIds),
+    admittedEvidenceCount:choice.generationEvidenceRefs?.length??0,fallbackState:'NONE',deadline:null,sequence:seal.sequence??null,sealedAt:null,
+    dependencies:[],sealedState:Boolean(seal.sealed),integrityState:seal.sealed?'SEALED':'UNSEALED',summaryOnly:true,sourceReceipt:'CognitiveChoiceReceipt',
   });
 }
 
@@ -130,29 +196,62 @@ export function normalizeCorrectiveRetrievalReceipt(receipt,truth=null){
 export function normalizeJevDecisionReceipt(receipt,choice=null){
   if(!receipt){
     const decision=choice?.jevDecision;if(!decision)return null;
-    if(decision.invoked===false||decision.state==='SKIPPED'||decision.status==='SKIPPED')return deepFreeze({
-      kind:'NormalizedJevDecisionReceipt',receiptId:null,state:CognitionStageState.SKIPPED,outcome:'SKIPPED',invoked:false,reason:decision.reason??decision.reasonCode??null,
-      decisionType:null,options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
-      requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,provider:null,model:null,resourceId:null,authority:'READ_ONLY',mutationAuthority:false,
+    const action=String(decision.action??decision.state??decision.status??'').toUpperCase();
+    if(action==='JEV_UNAVAILABLE'||decision.unavailable===true)return deepFreeze({
+      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.UNAVAILABLE,outcome:'UNAVAILABLE',invoked:Boolean(decision.invoked),
+      reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,
+      serviceStatus:'JEV_UNAVAILABLE',options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
+      requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,settlementPerformed:false,provider:null,model:null,resourceId:null,
+      admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false,
     });
+    if(action==='SKIP_JEV'||decision.invoked===false||decision.skipped===true||action==='SKIPPED')return deepFreeze({
+      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.SKIPPED,outcome:'SKIPPED',invoked:false,
+      reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,
+      serviceStatus:'JEV_SKIPPED',options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
+      requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,settlementPerformed:false,provider:null,model:null,resourceId:null,
+      admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false,
+    });
+    if(action==='JEV_ABSTAINED'||decision.abstained===true)return deepFreeze({
+      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.COMPLETE,outcome:JevOutcome.ABSTAINED,invoked:true,
+      reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:'ABSTAIN',classification:null,
+      serviceStatus:'JEV_ABSTAINED',options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
+      requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,settlementPerformed:false,provider:null,model:null,resourceId:null,
+      admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false,
+    });
+    if(action==='REQUEST_OPERATOR')return choiceJevSummary(decision,JevOutcome.REQUEST_OPERATOR,'JEV_OPERATOR');
+    if(action==='PRESERVE_UNRESOLVED')return choiceJevSummary(decision,JevOutcome.UNRESOLVED,'JEV_UNRESOLVED');
+    if(action==='INVOKE_JEV'||decision.invoked===true)return choiceJevSummary(decision,'INVOKED','JEV_INVOKED');
     return null;
   }
   const rawOutcome=String(receipt.outcome??receipt.status??receipt.decisionStatus??'INVALID').toUpperCase();
   const outcome=JEV.has(rawOutcome)?rawOutcome:JevOutcome.INVALID;
-  const state=outcome==='STALE'?CognitionStageState.STALE:outcome==='INVALID'?CognitionStageState.INVALID:CognitionStageState.COMPLETE;
+  const serviceStatus=String(receipt.serviceStatus??'').toUpperCase();
+  const admission=clone(receipt.admission??null);
+  const state=serviceStatus==='JEV_SKIPPED'?CognitionStageState.SKIPPED:
+    serviceStatus==='JEV_UNAVAILABLE'?CognitionStageState.UNAVAILABLE:
+    outcome==='STALE'||serviceStatus==='JEV_STALE'?CognitionStageState.STALE:
+    outcome==='INVALID'||serviceStatus==='JEV_INVALID'?CognitionStageState.INVALID:
+    admission?.late===true?CognitionStageState.DEFERRED:CognitionStageState.COMPLETE;
   const selected=safeArray(receipt.selectedOptionIds??receipt.selectedOptions??(receipt.selectedOptionId?[receipt.selectedOptionId]:[])).map(x=>typeof x==='string'?x:x.optionId??x.id).filter(Boolean);
   const rejected=safeArray(receipt.rejectedOptionIds??receipt.rejectedOptions).map(x=>typeof x==='string'?x:x.optionId??x.id).filter(Boolean);
+  const reasonCodes=safeArray(receipt.reasonCodes);
+  const provenance=receipt.providerProvenance??{};
   return deepFreeze({
-    kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(receipt.receiptId??receipt.id),state,outcome,invoked:receipt.invoked==null?true:Boolean(receipt.invoked),
-    reason:reasonOf(receipt),decisionType:stringOrNull(receipt.decisionType??receipt.requestType),options:safeArray(receipt.options??receipt.optionsConsidered),
-    selectedOptionIds:selected,rejectedOptionIds:rejected,evidenceRefs:safeArray(receipt.evidenceRefs??receipt.evidenceIds),
+    kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(receipt.receiptId??receipt.id??receipt.decisionId),state,outcome,
+    invoked:serviceStatus!=='JEV_SKIPPED',reason:receipt.explanation||reasonCodes.join(', ')||reasonOf(receipt),reasonCodes,
+    decisionType:stringOrNull(receipt.decisionType??receipt.requestType),decisionShape:stringOrNull(receipt.decisionShape),decisionCode:stringOrNull(receipt.decisionCode),
+    classification:stringOrNull(receipt.classification),serviceStatus:receipt.serviceStatus??null,options:safeArray(receipt.options??receipt.optionsConsidered),
+    selectedOptionIds:selected,rejectedOptionIds:rejected,evidenceRefs:safeArray(receipt.evidenceUsed??receipt.evidenceRefs??receipt.evidenceIds),
     unresolvedFactors:safeArray(receipt.unresolvedFactors),revisionFence:clone(receipt.revisionFence??{
-      worldRevision:receipt.worldRevision??null,sceneRevision:receipt.sceneRevision??null,sourceRevisionRefs:safeArray(receipt.sourceRevisionRefs??receipt.sourceRevisionIds),
-    }),confidence:receipt.confidence==null?null:Number(receipt.confidence),
+      worldRevision:receipt.worldRevision??null,sceneRevision:receipt.sceneRevision??null,sourceRevisionSet:safeArray(receipt.sourceRevisionRefs??receipt.sourceRevisionIds),
+    }),freshnessToken:stringOrNull(receipt.freshnessToken),confidence:receipt.confidence==null?null:Number(receipt.confidence),
     requiresOwnerSettlement:receipt.requiresOwnerSettlement==null?null:Boolean(receipt.requiresOwnerSettlement),
-    requiresOperatorReview:receipt.requiresOperatorReview==null?null:Boolean(receipt.requiresOperatorReview),
-    ownerSettlement:clone(receipt.ownerSettlement??receipt.settlement??null),provider:stringOrNull(receipt.provider??receipt.providerId),model:stringOrNull(receipt.model??receipt.modelId),
-    resourceId:stringOrNull(receipt.resourceId??receipt.workerId??receipt.executionResourceId),authority:'READ_ONLY',mutationAuthority:false,
+    requiresOperatorReview:receipt.requiresOperator==null?(receipt.requiresOperatorReview==null?null:Boolean(receipt.requiresOperatorReview)):Boolean(receipt.requiresOperator),
+    ownerSettlement:clone(receipt.ownerSettlement??receipt.settlement??null),settlementPerformed:Boolean(receipt.settlementPerformed),
+    provider:stringOrNull(receipt.provider??receipt.providerId??provenance.providerId),providerProfileId:stringOrNull(provenance.providerProfileId),
+    model:stringOrNull(receipt.model??receipt.modelId??provenance.modelId),resourceId:stringOrNull(receipt.resourceId??receipt.workerId??receipt.executionResourceId??provenance.workerId),
+    escalationTarget:stringOrNull(receipt.escalationTarget),admission,validationStatus:clone(receipt.validationStatus??null),latencyMetadata:clone(receipt.latencyMetadata??null),
+    explanation:receipt.explanation??null,authority:'READ_ONLY',authorityGranted:false,mutationAuthority:false,
   });
 }
 
@@ -266,6 +365,38 @@ export function sourceModeForReceipt(value,explicitMode=null){
   return value?ProductDataMode.LIVE:ProductDataMode.UNAVAILABLE;
 }
 
+function decisionFromJob(job,admitted,skipped,reasonCodes){
+  if(admitted.has(job))return deepFreeze({invoked:true,state:'ADMITTED',reason:null,reasonCodes:safeArray(reasonCodes)});
+  if(skipped.has(job))return deepFreeze({invoked:false,state:'SKIPPED',reason:null,reasonCodes:safeArray(reasonCodes)});
+  return null;
+}
+function normalizeTruthChoice(value,reasonCodes){
+  if(!value)return null;
+  return deepFreeze({invoked:value.invoked==null?null:Boolean(value.invoked),state:value.skipped?'SKIPPED':value.invoked?'COMPLETE':null,skipped:Boolean(value.skipped),
+    considered:value.considered==null?null:Boolean(value.considered),reason:null,reasonCodes:safeArray(reasonCodes),outcomeCounts:clone(value.outcomeCounts??{}),
+    admittedCandidateIds:safeArray(value.admittedCandidateIds),supportCandidateIds:safeArray(value.supportCandidateIds)});
+}
+function normalizeJevChoice(value,reasonCodes){
+  if(!value)return null;
+  return deepFreeze({invoked:value.invoked==null?null:Boolean(value.invoked),state:value.skipped?'SKIPPED':value.unavailable?'UNAVAILABLE':value.invoked?'INVOKED':null,
+    skipped:Boolean(value.skipped),unavailable:Boolean(value.unavailable),abstained:Boolean(value.abstained),action:value.action??null,
+    reason:value.reason??null,reasonCodes:safeArray(reasonCodes),alternativeCount:Number(value.alternativeCount??0),decisionRevision:value.decisionRevision??null,resultRef:value.resultRef??null});
+}
+function normalizePrecisionChoice(value,reasonCodes,candidateCounts){
+  if(!value)return null;
+  return deepFreeze({invoked:value.invoked==null?null:Boolean(value.invoked),state:value.skipped?'SKIPPED':value.failed||value.fallback?'DEGRADED':value.invoked?'COMPLETE':null,
+    skipped:Boolean(value.skipped),required:value.required==null?null:Boolean(value.required),available:value.available==null?null:Boolean(value.available),
+    fallback:Boolean(value.fallback),failed:Boolean(value.failed),reason:value.reason??null,reasonCodes:safeArray(reasonCodes),
+    inputCount:Number(candidateCounts?.truthAdmitted??0),resultCount:Number(value.resultCount??candidateCounts?.precisionAdmitted??0)});
+}
+function choiceJevSummary(decision,outcome,serviceStatus){
+  return deepFreeze({kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.COMPLETE,outcome,invoked:true,
+    reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,serviceStatus,
+    options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
+    requiresOwnerSettlement:null,requiresOperatorReview:outcome===JevOutcome.REQUEST_OPERATOR,ownerSettlement:null,settlementPerformed:false,
+    provider:null,model:null,resourceId:null,admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false});
+}
+function machineJob(label){return String(label??'').trim().toUpperCase().replace(/[\s-]+/g,'_');}
 function normalizeJobCandidate(row,index){if(typeof row==='string')return deepFreeze({jobId:null,capability:human(row),reason:null,priority:null,index});return deepFreeze({jobId:stringOrNull(row.jobId??row.taskId??row.id),capability:human(row.capability??row.jobType??row.taskType??row.name??row.kind??`Candidate ${index+1}`),reason:reasonOf(row),priority:row.priority??null,index});}
 function normalizeJobDecision(row,disposition){if(typeof row==='string')return deepFreeze({jobId:null,capability:human(row),disposition,reason:null,resourceId:null,provider:null,model:null,state:null});return deepFreeze({jobId:stringOrNull(row.jobId??row.taskId??row.id),capability:human(row.capability??row.jobType??row.taskType??row.name??row.kind??'Cognitive job'),disposition,reason:reasonOf(row),resourceId:stringOrNull(row.resourceId??row.workerId??row.executionResourceId),provider:stringOrNull(row.provider??row.providerId),model:stringOrNull(row.model??row.modelId),state:row.state??row.status??null});}
 function normalizeResource(row){if(typeof row==='string')return deepFreeze({resourceId:row,jobs:[]});return deepFreeze({resourceId:stringOrNull(row.resourceId??row.workerId??row.id),provider:stringOrNull(row.provider??row.providerId),model:stringOrNull(row.model??row.modelId),jobs:safeArray(row.jobs??row.taskIds).map(String),state:row.state??row.status??null});}

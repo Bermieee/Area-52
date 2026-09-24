@@ -186,7 +186,7 @@ export function createHistorianProviderInput(task,input={}) {
 export function validateHistorianProviderOutput(value,{input={},task,providerInput=null}={}) {
   const object=typeof value==='string'?parseObject(value):value;
   if (!object || typeof object!=='object' || Array.isArray(object)) fail(FailureCode.SCHEMA_INVALID,'Historian output must be an object');
-  const sourceCandidates=providerInput?.candidates ?? input.candidates ?? [];
+  const sourceCandidates=providerInput?.data?.candidates ?? providerInput?.candidates ?? input.candidates ?? [];
   const allowed=new Map(sourceCandidates.map((x)=>[x.candidateId ?? x.ref,x]));
   if (!allowed.size && input.resolution?.artifacts) for (const x of input.resolution.artifacts) allowed.set(x.candidateId,x);
   const uncertainty=uncertaintyEnum(object.uncertainty ?? 'UNRESOLVED');
@@ -349,6 +349,7 @@ export function historianUrgency({text='',queryIntent=null,activeThreads=[],hotS
   if (hotStateSufficient&&!explicit&&!historyIntent) return freeze({wake:false,resultClass:null,reason:'HOT_STATE_SUFFICIENT'});
   if (freshWarm&&!explicit&&!historyIntent&&!depends) return freeze({wake:false,resultClass:null,reason:'FRESH_WARM_PACKET_AVAILABLE'});
   if (explicit||historyIntent||depends) return freeze({wake:true,resultClass:ResultClass.REQUIRED,reason:'PRIOR_EXPERIENCE_REQUIRED'});
+  if (physical && ['CURRENT_STATE','LOCATION','INVENTORY'].includes(queryIntent)) return freeze({wake:true,resultClass:ResultClass.OPPORTUNISTIC,reason:'PHYSICAL_HISTORY_MAY_HELP'});
   if (activeThreads.length>0||normalized.length>24) return freeze({wake:true,resultClass:ResultClass.OPPORTUNISTIC,reason:'HISTORY_MAY_ENRICH'});
   return freeze({wake:false,resultClass:null,reason:'NO_EXPECTED_HISTORY_VALUE'});
 }
@@ -465,7 +466,7 @@ function channelFor(type){const x=String(type).toUpperCase();if(x.includes('REFL
   if(x.includes('SCENE'))return HistorianMemoryChannel.SCENE_EPISODE;if(x.includes('EXPERIENCE'))return HistorianMemoryChannel.EXPERIENCE;if(x.includes('CAUSAL'))return HistorianMemoryChannel.CAUSAL_EVENT;
   if(x.includes('HYPOTHESIS'))return HistorianMemoryChannel.UNRESOLVED_HYPOTHESIS;if(x.includes('STATE'))return HistorianMemoryChannel.HISTORICAL_STATE;return HistorianMemoryChannel.EPISODIC_MEMORY;}
 function perspectiveFingerprint(v){const p=normalizePerspective(v);return [p.scope,p.characterRef ?? '',p.allowUncertain?'U1':'U0',p.allowFalseBelief?'F1':'F0'].join(':');}
-function selectedRefs(values,allowed,max){if(!Array.isArray(values))fail(FailureCode.SCHEMA_INVALID,'refs must be array');const out=[...new Set(values.map((x)=>required(x,'ref')))];if(out.length>Number(max))fail(FailureCode.SCHEMA_INVALID,'too many refs');for(const x of out)if(!allowed.has(x))fail(FailureCode.UNKNOWN_REFERENCE,`Unknown Historian ref: ${x}`);return out;}
+function selectedRefs(values,allowed,max){if(!Array.isArray(values))fail(FailureCode.SCHEMA_INVALID,'refs must be array');const raw=values.map((x)=>required(x,'ref'));const out=[...new Set(raw)];if(out.length!==raw.length)fail(FailureCode.SCHEMA_INVALID,'duplicate Historian refs');if(out.length>Number(max))fail(FailureCode.SCHEMA_INVALID,'too many refs');for(const x of out)if(!allowed.has(x))fail(FailureCode.UNKNOWN_REFERENCE,`Unknown Historian ref: ${x}`);return out;}
 function uncertaintyEnum(v){if(!['LOW','MEDIUM','HIGH','UNRESOLVED'].includes(v))fail(FailureCode.SCHEMA_INVALID,`invalid uncertainty: ${v}`);return v;}
 function parseObject(t){if(typeof t!=='string')fail(FailureCode.MALFORMED_OUTPUT,'Historian output must be JSON text');try{const v=JSON.parse(t.trim());if(!v||typeof v!=='object'||Array.isArray(v))throw new Error('not object');return v;}catch(e){fail(FailureCode.MALFORMED_OUTPUT,`Historian JSON parse failed: ${e.message}`);}}
 function evidenceIdentity(x){return x.artifactRef?.artifactId?`${x.artifactRef.artifactId}@${x.artifactRef.revision}`:x.candidateId ?? x.ref;}

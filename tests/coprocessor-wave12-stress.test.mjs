@@ -13,7 +13,7 @@ const rec=(i,sceneRevision=7)=>({
 });
 const ident=(i,overrides={})=>({
   sceneRevision:7,worldRevision:20,characterStateRevision:5,
-  sourceRevisionSet:['src:scene:7','src:lore:'+(i%4)],intentFingerprint:'intent:'+(i%24),
+  sourceRevisionSet:['src:scene:7','src:lore:'+(i%4)],intentFingerprint:'intent:'+(i%80),
   retrievalPolicyRevision:'policy:1',...overrides,
 });
 const adapters={

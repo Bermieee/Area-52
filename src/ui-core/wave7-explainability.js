@@ -45,7 +45,7 @@ export function normalizePromptPlanReadModel(model){
   }
   // Wave 6 compatibility for raw PromptPlan; kept only so accepted callers do not break.
   const sections=(model.sections??[]).map(section=>{
-    const reuse=(model.reuseDecisions??[]).find(x=>x.slot===section.slot)||null;
+    const reuse=(model.reuseDecisions??[]).find(x=>x.slot===section.slot)||(model.segments??[]).find(x=>(x.slot??x.segmentKey)===section.slot)||null;
     return deepFreeze({kind:'GenerationContextSection',slot:section.slot??section.segmentKey??'UNKNOWN',state:mapReuseState(reuse?.state??section.reuseState,true),
       priority:section.priority??reuse?.priority??null,estimatedTokens:section.estimatedTokens??section.tokenEstimate??section.allocatedTokens??null,actualTokens:section.actualTokens??null,
       sourceSubsystem:section.sourceSubsystem??null,authority:section.authorityClass??null,revisionIdentity:cloneSafe(section.sourceRevisionIds??null),

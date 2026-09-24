@@ -75,7 +75,7 @@ producer.rebuildHistorian();
 
 const baselineStarted=performance.now();
 const baseline=producer.historian.query({
-  query:'MemoryEvent long journey history',
+  query:'JourneyDistrict0 overview',
   mode:'EXPLICIT_HISTORY',
   maxCandidates:48,
 });
@@ -83,7 +83,7 @@ const baselineMs=performance.now()-baselineStarted;
 
 const hierarchicalStarted=performance.now();
 const hierarchical=producer.queryHistorian({
-  query:'MemoryEvent long journey history',
+  query:'JourneyDistrict0 overview',
   mode:'EXPLICIT_HISTORY',
   breadth:'BROAD',
   maxCandidates:12,
@@ -104,7 +104,7 @@ for(let i=0;i<10;i++){
 }
 assert.equal(producer.summaryArtifact('ARC:w2-arc-9').id,unrelatedBefore);
 const duringRebuild=producer.queryHistorian({
-  query:'MemoryEvent long journey history',
+  query:'JourneyDistrict0 overview',
   mode:'EXPLICIT_HISTORY',
   breadth:'BROAD',
   maxCandidates:12,

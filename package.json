@@ -5,6 +5,10 @@
   "type": "module",
   "description": "Experimental cognitive memory core for Nexus",
   "scripts": {
-    "test": "node tests/cognitive-core.mjs"
+    "test": "node --test tests/cognitive-core.mjs tests/scene-core.mjs tests/scene-golden.mjs",
+    "test:scene": "node --test tests/scene-core.mjs tests/scene-golden.mjs",
+    "test:scene:stress": "node tests/scene-stress.mjs",
+    "check": "find src tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
+    "check:browser": "node tests/scene-browser-compat.mjs"
   }
 }

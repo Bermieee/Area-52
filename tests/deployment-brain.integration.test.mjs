@@ -100,7 +100,7 @@ test('ambiguous Sun Blade turn invokes bounded Jev through Runtime and preserves
   assert.equal(result.jevProposal.requiresOwnerPolicy, true);
   assert.equal(result.published.cognitiveChoiceReceipt.jev.considered, true);
   assert.equal(result.published.cognitiveChoiceReceipt.jev.abstained, true);
-  const unresolved = brain.core.graph.unresolvedClaims().filter((row) => /Sun Blade/i.test(JSON.stringify(row)));
+  const unresolved = brain.core.graph.unresolvedClaims().filter((row) => JSON.stringify(row).toLowerCase().includes('sun-blade'));
   assert.ok(unresolved.length >= 1);
   assert.ok(result.published.packet.unresolved.length >= 1);
   assert.equal(result.delivery.ok, true);

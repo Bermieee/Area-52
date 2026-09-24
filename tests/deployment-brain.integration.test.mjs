@@ -179,6 +179,37 @@ test('one versus several local resources changes placement, not sealed semantic 
   );
 });
 
+
+test('sequential simple, retrieval and ambiguous turns dedupe rich fallback semantics before PromptPlan', async () => {
+  const { brain } = seeded({ resourceCount: 1 });
+  const simple = await brain.runTurn({
+    chatId: 'chat:ember',
+    turnId: 'turn:sequence-simple',
+    generationId: 'gen:sequence-simple',
+    query: 'Where are we?',
+    mode: 'simple',
+  });
+  const retrieval = await brain.runTurn({
+    chatId: 'chat:ember',
+    turnId: 'turn:sequence-retrieval',
+    generationId: 'gen:sequence-retrieval',
+    query: 'Tell me about Mara and the Ember Tavern history',
+    mode: 'retrieval',
+  });
+  const ambiguous = await brain.runTurn({
+    chatId: 'chat:ember',
+    turnId: 'turn:sequence-ambiguous',
+    generationId: 'gen:sequence-ambiguous',
+    query: 'What happened to the Sun Blade?',
+    mode: 'ambiguous',
+  });
+  assert.equal(simple.delivery.ok, true);
+  assert.equal(retrieval.delivery.ok, true);
+  assert.equal(ambiguous.delivery.ok, true, JSON.stringify(ambiguous.delivery.failure ?? null));
+  const semanticKeys = ambiguous.delivery.plan.sections.flatMap((section) => section.semanticManifest ?? []).map((entry) => entry.semanticKey);
+  assert.equal(new Set(semanticKeys).size, semanticKeys.length);
+});
+
 test('Wave 11 binding reads the same selected deployment turn/generation and does not use fixtures', async () => {
   const { brain } = seeded();
   await brain.runTurn({

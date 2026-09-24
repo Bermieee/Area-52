@@ -34,7 +34,7 @@ test('Wave 6 focused cognition stress preserves Green Room and Consolidation inv
 
   for(let i=0;i<500;i++){
     const store=new GreenRoomStore({defaultTtlTurns:1,maxHistory:8});
-    store.putBatch({sceneRevision:i,characters:[{characterRef:'C',evidenceRefs:['e:'+i],confidence:.6,dimensions:{warmth:.5}}]},{turnSequence:1});
+    store.putBatch({sceneRevision:i,characters:[{characterRef:'C',evidenceRefs:['e:'+i],confidence:.6,dimensions:{warmth:.5},expiryCondition:{ttlTurns:1}}]},{turnSequence:1});
     assert.ok(store.get('C',{sceneRevision:i,turnSequence:1}));
     assert.equal(store.get('C',{sceneRevision:i,turnSequence:3}),null);
     assert.equal(store.size(),0);totals.greenRoomExpirySequences++;

@@ -124,14 +124,22 @@ function artifactContributionText(artifact, labels) {
     return artifact.payload.canonicalName + ' is a ' + String(artifact.payload.entityType || 'world entity').toLowerCase() + '.';
   }
   if (artifact.artifactType === ArtifactType.CLAIM) {
-    return [
+    const temporal = artifact.temporalClass && artifact.temporalClass !== TemporalClass.TIMELESS
+      ? '[' + artifact.temporalClass + '] '
+      : '';
+    const unresolved = artifact.unresolved ? '[UNRESOLVED] ' : '';
+    return temporal + unresolved + [
       humanizeId(artifact.payload.subjectId, labels),
       artifact.payload.predicate,
       humanizeId(artifact.payload.value, labels),
     ].join(' ') + '.';
   }
   if (artifact.artifactType === ArtifactType.RELATIONSHIP) {
-    return [
+    const temporal = artifact.temporalClass && artifact.temporalClass !== TemporalClass.TIMELESS
+      ? '[' + artifact.temporalClass + '] '
+      : '';
+    const unresolved = artifact.unresolved ? '[UNRESOLVED] ' : '';
+    return temporal + unresolved + [
       humanizeId(artifact.payload.subjectId, labels),
       artifact.payload.predicate,
       humanizeId(artifact.payload.objectId, labels),
@@ -229,7 +237,7 @@ export function buildGroundedContributions({runtime, sourceId}) {
         text: artifactContributionText(artifact, labels),
         entityRefs: [artifact.payload.subjectId].filter(Boolean),
         claimRefs: [artifact.payload.claimId || artifact.semanticId],
-        temporalRefs: artifact.temporalClass !== TemporalClass.TIMELESS ? [artifact.semanticId] : [],
+        temporalRefs: artifact.temporalClass !== TemporalClass.TIMELESS ? [artifact.semanticId + '@' + artifact.temporalClass] : [],
         unresolvedRefs: artifact.unresolved ? [artifact.semanticId] : [],
         dependencyArtifactIds: [artifact.id],
         sourceAuthorityClass: artifact.authorityClass,
@@ -242,7 +250,7 @@ export function buildGroundedContributions({runtime, sourceId}) {
         text: artifactContributionText(artifact, labels),
         entityRefs: [artifact.payload.subjectId, artifact.payload.objectId].filter(Boolean),
         relationshipRefs: [artifact.payload.relationshipId || artifact.semanticId],
-        temporalRefs: artifact.temporalClass !== TemporalClass.TIMELESS ? [artifact.semanticId] : [],
+        temporalRefs: artifact.temporalClass !== TemporalClass.TIMELESS ? [artifact.semanticId + '@' + artifact.temporalClass] : [],
         unresolvedRefs: artifact.unresolved ? [artifact.semanticId] : [],
         dependencyArtifactIds: [artifact.id, ...(artifact.payload.supportingClaimIds || [])],
         sourceAuthorityClass: artifact.payload.sourceAuthorityClass || artifact.authorityClass,

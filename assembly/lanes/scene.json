@@ -1,0 +1,324 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "scene",
+  "branch": "Development-Scene-Scanner",
+  "acceptedSha": "3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf",
+  "acceptanceRuns": [
+    {
+      "id": "35965913230",
+      "name": "Scene Intelligence Wave 1+2+3 validation"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "docs/AREA52_SCENE_INTELLIGENCE_BLUEPRINT.md",
+      "sourceDigest": "a93d6493d3d53f71019bb99bd33dff18369e0af0"
+    },
+    {
+      "path": "docs/AREA52_SCENE_INTELLIGENCE_IMPLEMENTATION_RUNBOOK.md",
+      "sourceDigest": "4f8cde24588a7d47b5d449e670d001974977b8f8"
+    },
+    {
+      "path": "docs/AREA52_SCENE_INTELLIGENCE_REFERENCE_DOCUMENTATION.md",
+      "sourceDigest": "c55651549bce353798269b46a69cd00531b9f594"
+    },
+    {
+      "path": "docs/FT002_SCENE_PREFLIGHT.md",
+      "sourceDigest": "d8112e05581568da4948f19b734ec3d065cd8131"
+    },
+    {
+      "path": "docs/SCENE_CONTEXT_INVALIDATION_CONTRACT.md",
+      "sourceDigest": "036da05929d2427d844ab08abee3615522824b95"
+    },
+    {
+      "path": "docs/SCENE_EVENT_INTEGRATION_CONTRACT.md",
+      "sourceDigest": "c63a2960dbe77e7532cfe5edb48f74964a73906b"
+    },
+    {
+      "path": "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md",
+      "sourceDigest": "32aa3d843971bf53eef20f29ed51db114abcc606"
+    },
+    {
+      "path": "docs/SCENE_INTELLIGENCE_WAVE1_ACCEPTANCE.md",
+      "sourceDigest": "56d434616840e386b55261163eee9ddc950d2b2b"
+    },
+    {
+      "path": "docs/SCENE_INTELLIGENCE_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "21d321c2832364ea9b017cab34e38f0e60fd5d28"
+    },
+    {
+      "path": "docs/SCENE_INTELLIGENCE_WAVE2_CHANGELOG.md",
+      "sourceDigest": "3bb5d3e4dd60716222e3a419b79ebde67a48678b"
+    },
+    {
+      "path": "docs/SCENE_INTELLIGENCE_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "3259095e904197541708be52ba0b5106c3235c45"
+    },
+    {
+      "path": "docs/SCENE_INTELLIGENCE_WAVE3_CHANGELOG.md",
+      "sourceDigest": "68b37ea0aaef72db7f5593293de058d464044b9b"
+    },
+    {
+      "path": "docs/SCENE_MEMORY_HANDOFF_CONTRACT.md",
+      "sourceDigest": "3ebe4d7bb8f6f9879621b4c6fda5e6026e558470"
+    },
+    {
+      "path": "docs/SCENE_PHASE1_EVIDENCE.md",
+      "sourceDigest": "caf7307cffb9c2c543119b0356a56ee2ba410da0"
+    },
+    {
+      "path": "docs/SCENE_UI_READ_MODEL.md",
+      "sourceDigest": "a4affdf0a0180abdd6c2b23f756566a0bc198399"
+    },
+    {
+      "path": "src/scene/active-cast.js",
+      "sourceDigest": "ee3fede9120db40e1e34aa886b032000088316ee"
+    },
+    {
+      "path": "src/scene/atmosphere.js",
+      "sourceDigest": "aeee11db6c06a24905f813071ce28c6c346de930"
+    },
+    {
+      "path": "src/scene/boundary-detector.js",
+      "sourceDigest": "b12f8de2f1a14ec8594928a0a68c36c4afe19cca"
+    },
+    {
+      "path": "src/scene/boundary-verifier.js",
+      "sourceDigest": "311beff106aba51591641b3781a3a1b43fdfe542"
+    },
+    {
+      "path": "src/scene/context-invalidation.js",
+      "sourceDigest": "6b8e8a6094472d8aff9ee67044ab48009cb57ecd"
+    },
+    {
+      "path": "src/scene/contracts.js",
+      "sourceDigest": "ef2e0df4de9a4d82b60e8cce72372c1232511264"
+    },
+    {
+      "path": "src/scene/current-scene.js",
+      "sourceDigest": "4fd56a4278409866b297218173c96c1f1af74e71"
+    },
+    {
+      "path": "src/scene/delta-engine.js",
+      "sourceDigest": "d2e249a8011f81c41976112d20ec027affee7e89"
+    },
+    {
+      "path": "src/scene/event-publisher.js",
+      "sourceDigest": "cb2e4db2a7a6a422340b0f000589580628ad3d87"
+    },
+    {
+      "path": "src/scene/host-bridge.js",
+      "sourceDigest": "39d4087e2b513c8cd6048f730b39761c601fd009"
+    },
+    {
+      "path": "src/scene/index.js",
+      "sourceDigest": "f0c2f12fe58a0cb6a3f47aa687c52de50efec1a5"
+    },
+    {
+      "path": "src/scene/integration-contracts.js",
+      "sourceDigest": "2f28db630fc6b9864d79b5ddb6f562ade2009234"
+    },
+    {
+      "path": "src/scene/lifecycle-contracts.js",
+      "sourceDigest": "e4b601202a1da1a13abace438487ad18aa954029"
+    },
+    {
+      "path": "src/scene/lifecycle-state.js",
+      "sourceDigest": "dd4ad4c1a69360961dc85923a49eb7f9cfe0f512"
+    },
+    {
+      "path": "src/scene/narrative-feed-adapter.js",
+      "sourceDigest": "fc5c95d66731a063d0b0e7c37c352b01d3a2c727"
+    },
+    {
+      "path": "src/scene/object-state.js",
+      "sourceDigest": "342c3e98e5b2c05b22657ee36bdf2c4e46b65cd2"
+    },
+    {
+      "path": "src/scene/prefetch-trigger.js",
+      "sourceDigest": "9286f884402fc555af5fe70f0101b3f93bca4352"
+    },
+    {
+      "path": "src/scene/reconciliation.js",
+      "sourceDigest": "a05decc3a9b4e7a23b8f0939dde86dcbcf7f1759"
+    },
+    {
+      "path": "src/scene/runtime.js",
+      "sourceDigest": "327052ab1868647125caecca11e4de2cbb5cffba"
+    },
+    {
+      "path": "src/scene/scene-assembly-manifest.js",
+      "sourceDigest": "b7aa4d4fc3e22306b021d6e7e7e017e9e30a697a"
+    },
+    {
+      "path": "src/scene/scene-episode.js",
+      "sourceDigest": "8e66eaecb6bcc59f75c8e539fcb832a71c8276b0"
+    },
+    {
+      "path": "src/scene/scene-graph.js",
+      "sourceDigest": "e1e01bf16de3c0d5c4ae653748ba440907d23bca"
+    },
+    {
+      "path": "src/scene/scene-integration-view.js",
+      "sourceDigest": "75266f6d65e97eb0f59068247716cf9e130d29f4"
+    },
+    {
+      "path": "src/scene/scene-lifecycle-runtime.js",
+      "sourceDigest": "0612cad89a425a10bdf1148a50e4ebfcd688c01e"
+    },
+    {
+      "path": "src/scene/scene-memory-handoff.js",
+      "sourceDigest": "75ed9382dc2bbdd9e96ffb588fe549025a3c1c63"
+    },
+    {
+      "path": "src/scene/scene-registry.js",
+      "sourceDigest": "720aac69efe558f065bbc2a6a858abd90d6f243d"
+    },
+    {
+      "path": "src/scene/scene-retrieval.js",
+      "sourceDigest": "60306eb510af14832afa79a90ae87c8f5766b234"
+    },
+    {
+      "path": "src/scene/scene-stack.js",
+      "sourceDigest": "561561b1d763f9ca5463a9885c8aee8a368a2863"
+    },
+    {
+      "path": "src/scene/scene-state-extractor.js",
+      "sourceDigest": "bdc704606d63813140857d8687179e15709dd7ee"
+    },
+    {
+      "path": "src/scene/scene-ui-read-model.js",
+      "sourceDigest": "7a7f8986432d6d1e4931a9168a4a030fd44522ed"
+    },
+    {
+      "path": "src/scene/spatial-state.js",
+      "sourceDigest": "eec392c564093791c1a5041456197c4317427eaa"
+    },
+    {
+      "path": "src/scene/temporal-state.js",
+      "sourceDigest": "c1b705a1819db5d7fd999790196b5b2d489306f8"
+    },
+    {
+      "path": "src/scene/transition-manager.js",
+      "sourceDigest": "3452695696f21b395737a7709f15eb4cf5a084aa"
+    },
+    {
+      "path": "tests/scene-browser-compat.mjs",
+      "sourceDigest": "9404915dd181a5eef90bbe6b3b2b107780f96750"
+    },
+    {
+      "path": "tests/scene-core.mjs",
+      "sourceDigest": "2d461d3c6a1254690825f24e4e8cfe8e8800a82f"
+    },
+    {
+      "path": "tests/scene-golden.mjs",
+      "sourceDigest": "f809102e523844a07f81fb1c03ce315834a7c6d2"
+    },
+    {
+      "path": "tests/scene-host-feed.mjs",
+      "sourceDigest": "9353e9bddc6f9b91d8c929ef32bc12c23a43045c"
+    },
+    {
+      "path": "tests/scene-stress.mjs",
+      "sourceDigest": "ad5384f6b6a19559e63a2505533b6ff6d038bdcd"
+    },
+    {
+      "path": "tests/scene-wave2-browser-runtime.mjs",
+      "sourceDigest": "74bf6d378696bc77cf41a63d70c18c740e306f94"
+    },
+    {
+      "path": "tests/scene-wave2-golden.mjs",
+      "sourceDigest": "9359b2944d985804a50899da113e0107a81833e0"
+    },
+    {
+      "path": "tests/scene-wave2-stress.mjs",
+      "sourceDigest": "8b69d389fc0b6b5c9c846178652ab79fe775f268"
+    },
+    {
+      "path": "tests/scene-wave2.mjs",
+      "sourceDigest": "e73cbfe7e8dc90974f1832676db1f53c06f38cd9"
+    },
+    {
+      "path": "tests/scene-wave3-browser-runtime.mjs",
+      "sourceDigest": "b58e2a8dabf3026f29496c16b747a54354882c7b"
+    },
+    {
+      "path": "tests/scene-wave3-preflight.mjs",
+      "sourceDigest": "73e4a802420d23aa0ced9669f0a32f68c24e4518"
+    },
+    {
+      "path": "tests/scene-wave3-stress.mjs",
+      "sourceDigest": "cb16206e0d08d57fedd3c25620ae2284314c23a0"
+    },
+    {
+      "path": "tests/scene-wave3.mjs",
+      "sourceDigest": "76059f3d609d2262a003afaf992f84f0d2bbe4f0"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/scene/active-cast.js",
+    "src/scene/atmosphere.js",
+    "src/scene/boundary-detector.js",
+    "src/scene/boundary-verifier.js",
+    "src/scene/context-invalidation.js",
+    "src/scene/contracts.js",
+    "src/scene/current-scene.js",
+    "src/scene/delta-engine.js",
+    "src/scene/event-publisher.js",
+    "src/scene/host-bridge.js",
+    "src/scene/index.js",
+    "src/scene/integration-contracts.js",
+    "src/scene/lifecycle-contracts.js",
+    "src/scene/lifecycle-state.js",
+    "src/scene/narrative-feed-adapter.js",
+    "src/scene/object-state.js",
+    "src/scene/prefetch-trigger.js",
+    "src/scene/reconciliation.js",
+    "src/scene/runtime.js",
+    "src/scene/scene-assembly-manifest.js",
+    "src/scene/scene-episode.js",
+    "src/scene/scene-graph.js",
+    "src/scene/scene-integration-view.js",
+    "src/scene/scene-lifecycle-runtime.js",
+    "src/scene/scene-memory-handoff.js",
+    "src/scene/scene-registry.js",
+    "src/scene/scene-retrieval.js",
+    "src/scene/scene-stack.js",
+    "src/scene/scene-state-extractor.js",
+    "src/scene/scene-ui-read-model.js",
+    "src/scene/spatial-state.js",
+    "src/scene/temporal-state.js",
+    "src/scene/transition-manager.js"
+  ],
+  "nodeOnlyToolPaths": [],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [
+    "SillyTavern chat/message activity feed"
+  ],
+  "artifactContracts": [
+    {
+      "name": "SceneIntegrationSignal",
+      "version": "1.0.0"
+    },
+    {
+      "name": "SceneContextInvalidationSignal",
+      "version": "1.0.0"
+    },
+    {
+      "name": "SceneExperienceProposal",
+      "version": "1.0.0"
+    }
+  ],
+  "requiredAdapters": [
+    "SillyTavern host activity -> Scene host bridge",
+    "Scene signal -> Core/Coprocessor",
+    "Scene evidence/proposals -> Memory bridge"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [],
+  "knownConflicts": []
+}

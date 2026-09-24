@@ -169,6 +169,7 @@ export function createGreenRoomProviderInput(task, input = {}, limits = {}) {
     ], maxEvidenceRefs, 'evidenceRefs');
     selected.push({
       characterRef,
+      characterId: characterRef,
       presence: item.presence ?? 'PRESENT',
       evidenceRefs: direct,
       relationshipEvidenceRefs: boundedStrings(item.relationshipEvidenceRefs ?? [], maxEvidenceRefs, 'relationshipEvidenceRefs'),

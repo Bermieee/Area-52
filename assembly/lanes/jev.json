@@ -44,12 +44,12 @@
       "sourceDigest": "d785d82d9e22063534bdde3022927fe78c2d4d0c"
     },
     {
-      "path": "docs/CHARACTER_GREEN_ROOM.md",
-      "sourceDigest": "e64bd849ad10f2f87eda54877fdea95bf2addea0"
-    },
-    {
       "path": "docs/CHARACTER_GREEN_ROOM_CONTRACT.md",
       "sourceDigest": "f47118559cee3a2c6915db0241e49235dc11f245"
+    },
+    {
+      "path": "docs/CHARACTER_GREEN_ROOM.md",
+      "sourceDigest": "e64bd849ad10f2f87eda54877fdea95bf2addea0"
     },
     {
       "path": "docs/COGNITIVE_DATA_PLANE.md",
@@ -116,6 +116,18 @@
       "sourceDigest": "428e4a47f44f50f47b6c5bfbc198c7f2466cefe0"
     },
     {
+      "path": "docs/COPROCESSOR_WAVE1_ACCEPTANCE.md",
+      "sourceDigest": "41b9087785f184b855a623fd4ecc45b8e9dcc052"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE1_CHANGELOG.md",
+      "sourceDigest": "c3b63c9d072f02f27cd5307c4d76bc71ab1f34df"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE1_TEST_EVIDENCE.md",
+      "sourceDigest": "439de807111fa089273e46d317a1ecd659cd9007"
+    },
+    {
       "path": "docs/COPROCESSOR_WAVE1.md",
       "sourceDigest": "76d156f8adf90cd4c039ae8ebbb42900a56463ab"
     },
@@ -152,22 +164,6 @@
       "sourceDigest": "42a4a55a998f6b4908ea8ef207a342ab46c9f372"
     },
     {
-      "path": "docs/COPROCESSOR_WAVE1_ACCEPTANCE.md",
-      "sourceDigest": "41b9087785f184b855a623fd4ecc45b8e9dcc052"
-    },
-    {
-      "path": "docs/COPROCESSOR_WAVE1_CHANGELOG.md",
-      "sourceDigest": "c3b63c9d072f02f27cd5307c4d76bc71ab1f34df"
-    },
-    {
-      "path": "docs/COPROCESSOR_WAVE1_TEST_EVIDENCE.md",
-      "sourceDigest": "439de807111fa089273e46d317a1ecd659cd9007"
-    },
-    {
-      "path": "docs/COPROCESSOR_WAVE2.md",
-      "sourceDigest": "246653ddc7e416c758742123a9ee1dbdd67ed711"
-    },
-    {
       "path": "docs/COPROCESSOR_WAVE2_ACCEPTANCE.md",
       "sourceDigest": "2e3d704c7f40f1cacf0d2eda36c4caf2ef9b1350"
     },
@@ -182,6 +178,10 @@
     {
       "path": "docs/COPROCESSOR_WAVE2_TEST_EVIDENCE.md",
       "sourceDigest": "c141cc203eb2640e1d1755029eafae14861e4ac3"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE2.md",
+      "sourceDigest": "246653ddc7e416c758742123a9ee1dbdd67ed711"
     },
     {
       "path": "docs/COPROCESSOR_WAVE3_ACCEPTANCE.md",
@@ -330,6 +330,26 @@
     {
       "path": "evaluation/coprocessor-wave13-evaluator.mjs",
       "sourceDigest": "049115a733236a8eb5b4019f9b084c8dcaecad90"
+    },
+    {
+      "path": "evaluation/jev-wave10-corpus.mjs",
+      "sourceDigest": "ac6072028bbccad05fd1d81db35237bcee76ab34"
+    },
+    {
+      "path": "evaluation/jev-wave10-evaluator.mjs",
+      "sourceDigest": "f8a445077c625561a45b59606994546bd6c936cf"
+    },
+    {
+      "path": "evaluation/jev-wave10-provider-qualification.mjs",
+      "sourceDigest": "5ba268ae48811ee139521fb7e4f335753281770e"
+    },
+    {
+      "path": "evaluation/jev-wave11-evaluator.mjs",
+      "sourceDigest": "5bc04db4fabb38c55fe81da1f3d705a3e1e86100"
+    },
+    {
+      "path": "evaluation/speculative-warmer-wave12-evaluator.mjs",
+      "sourceDigest": "213b64fdfdeecae052fb1e44ae2bf856d1290fca"
     },
     {
       "path": "scripts/coprocessor-wave13-evaluation.mjs",
@@ -965,14 +985,14 @@
     {
       "path": "src/coprocessor/jev-decision-core.js",
       "sourceDigest": "644b274029e2c410c0de8739dd962a0032c2e403",
-      "expectedDigest": "f01d498f51538775094baa8038a76a4d5b1bf12b",
-      "reason": "Worker 4 Jev #211 replay revision/seal freshness and bounded retention"
+      "expectedDigest": "e66cebbdbde1e303501b663539761872fb4f94b2",
+      "reason": "Worker 4 Jev #211 replay revision/seal freshness with bounded 2048-entry default retention; explicit low-limit eviction remains covered by repro tests"
     },
     {
       "path": "src/coprocessor/jev-domain-adapter.js",
       "sourceDigest": "3bbeab2946cceeae530a810d9da0ec9802ad30b2",
-      "expectedDigest": "6f04fb8435a77c86b3a98a57345081c6adcdad05",
-      "reason": "Worker 4 Jev #211 adapter replay revalidation and bounded retention"
+      "expectedDigest": "15fcfeba73150393deb8955a2a6c8a385c0ad8db",
+      "reason": "Worker 4 Jev #211 adapter replay revalidation with bounded 2048-entry default retention; explicit low-limit eviction remains covered by repro tests"
     }
   ],
   "knownConflicts": [],
@@ -982,5 +1002,27 @@
     "sourceCommit": "54fe8cff459c184a8a47f9e1c75bf7a7f963a58b",
     "deploymentTransferCommit": "5968f4973ea772b0f8e99dddfe2d59e7751f72d7",
     "ownerTransferStatus": "PENDING"
-  }
+  },
+  "integrationReconciliations": [
+    {
+      "id": "DEPLOYMENT-JEV-EVALUATION-CLOSURE",
+      "reason": "Accepted Jev Wave 10-12 regression files import evaluation modules omitted from the initial staged checkpoint.",
+      "sourceSha": "daa3d7218b2a1d90e68fcab01217559a512180c1",
+      "paths": [
+        "evaluation/jev-wave10-corpus.mjs",
+        "evaluation/jev-wave10-evaluator.mjs",
+        "evaluation/jev-wave10-provider-qualification.mjs",
+        "evaluation/jev-wave11-evaluator.mjs",
+        "evaluation/speculative-warmer-wave12-evaluator.mjs"
+      ],
+      "authorityChange": false
+    },
+    {
+      "id": "DEPLOYMENT-JEV-REPLAY-BOUND-COMPAT",
+      "reason": "Keep #211 replay retention bounded while retaining the accepted Wave 8 1500-request replay-stress working set.",
+      "decisionCoreReplayLimit": 2048,
+      "domainAdapterReplayLimit": 2048,
+      "authorityChange": false
+    }
+  ]
 }

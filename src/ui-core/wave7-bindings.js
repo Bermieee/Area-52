@@ -7,13 +7,14 @@ export function createWave7ProductionBindings({
   readPromptPlanReadModel=null,readContextReceiptReadModel=null,readContextSealReceipt=null,readIntegrityReceipt=null,listGenerations=null,readGeneration=null,
   listForensicReadModels=null,readForensicReadModel=null,listCognitiveTransactions=null,readCognitiveTransaction=null,
   reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyForensicPayload=null,searchForensics=null,
-  story=null,characters=null,lore=null,memory=null,world=null,
+  story=null,characters=null,lore=null,memory=null,world=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',
 }={}){
   return deepFreeze({
     scene,
     runtimeAdapter,
     coprocessorTelemetry,
     promptPlan:{
+      fixture:Boolean(fixture),fixtureLabel:String(fixtureLabel||'DEMO / FIXTURE DATA'),
       readPromptPlanReadModel:optionalFn(readPromptPlanReadModel,'readPromptPlanReadModel'),
       readContextReceiptReadModel:optionalFn(readContextReceiptReadModel,'readContextReceiptReadModel'),
       readSealReceipt:optionalFn(readContextSealReceipt,'readContextSealReceipt'),
@@ -22,6 +23,7 @@ export function createWave7ProductionBindings({
       readGeneration:optionalFn(readGeneration,'readGeneration'),
     },
     forensics:{
+      fixture:Boolean(fixture),fixtureLabel:String(fixtureLabel||'DEMO / FIXTURE DATA'),
       listForensicReadModels:optionalFn(listForensicReadModels,'listForensicReadModels'),
       readForensicReadModel:optionalFn(readForensicReadModel,'readForensicReadModel'),
       listTransactions:optionalFn(listCognitiveTransactions,'listCognitiveTransactions'),

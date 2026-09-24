@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Area-52 — Phase-2 Product Review Shell</title>
+  <link rel="stylesheet" href="../../styles/ui-core.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave2.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave3.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave4.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave5.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave6.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave7.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave8.css">
+  <link rel="stylesheet" href="./review.css">
+</head>
+<body class="phase2-review-body">
+  <header class="phase2-review-toolbar" aria-label="Phase-2 visual review controls">
+    <div class="phase2-review-toolbar__identity">
+      <strong>Area-52 · Phase-2 Review</strong>
+      <span id="review-fixture-label" class="phase2-review-fixture">DEMO / FIXTURE DATA</span>
+      <span class="phase2-review-brand-note">Brand token: Area-52 · Nexus-ready</span>
+    </div>
+    <label>Scenario
+      <select id="review-scenario" aria-label="Review scenario">
+        <option value="healthy">Healthy / Active Brain</option><option value="hot-only">Hot-only turn</option><option value="retrieval-heavy">Retrieval-heavy turn</option><option value="ambiguous">Ambiguous / Jev</option><option value="degraded">Degraded</option><option value="loading">Context loading</option><option value="stale">Stale context view</option><option value="empty">Empty / Fresh Install</option>
+      </select>
+    </label>
+    <label>View
+      <select id="review-detail" aria-label="Disclosure level"><option value="NORMAL">Normal</option><option value="DETAIL">Detail</option><option value="ADVANCED">Advanced</option></select>
+    </label>
+    <label>Host layout
+      <select id="review-layout" aria-label="Responsive review preset"><option value="wide">Wide desktop</option><option value="desktop" selected>Normal desktop</option><option value="compact">Compact host-adjacent</option><option value="narrow">Narrow / stacked</option></select>
+    </label>
+    <label>Area-52 width
+      <select id="review-width" aria-label="Front Face width preset"><option value="collapsed">Collapsed rail</option><option value="w420">420px</option><option value="w560">560px</option><option value="w720" selected>720px</option><option value="w900">900px</option></select>
+    </label>
+    <label class="phase2-review-check"><input id="review-inspector" type="checkbox"> Inspector</label>
+    <button id="review-reset" type="button">Reset review</button>
+    <p id="review-scenario-description" class="phase2-review-toolbar__description" aria-live="polite"></p>
+  </header>
+  <main id="phase2-review-frame" class="phase2-review-frame" data-review-layout="desktop">
+    <section id="phase2-host-surface" class="phase2-host-surface" aria-label="Host-owned surface">
+      <div class="phase2-host-surface__marker"><span>HOST-OWNED SURFACE</span><strong>SillyTavern remains outside Area-52.</strong><p>This neutral region exists only to judge coexistence, dock width and reading-space impact. It is not a fake chat UI.</p></div>
+    </section>
+    <aside class="phase2-area52-region" aria-label="Area-52 product surface"><div id="area52-phase2-root"></div></aside>
+  </main>
+  <footer class="phase2-review-footer">Static product-review artifact · no backend required · fixture state is never presented as LIVE.</footer>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

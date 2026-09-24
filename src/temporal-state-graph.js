@@ -157,6 +157,8 @@ export class TemporalStateGraph {
 
   applySettlement(envelope) {
     const validation=this.validateSettlement(envelope);
+    const existing=this.settlementJournal.find((row)=>row.proposalId===envelope.proposal.id && row.decisionId===envelope.decision.id);
+    if (existing) return {kind:'MemorySettlementReplayReceipt',replayed:true,journalEntry:deepClone(existing),claim:existing.claimId?deepClone(this.claims.get(existing.claimId)):null};
     const journalEntry={
       kind:'MemorySettlementJournalEntry',
       id:'memory-settlement:' + stableHash(envelope.proposal.id+'|'+envelope.decision.id+'|'+(this.sequence+1)),
@@ -284,8 +286,17 @@ export class TemporalStateGraph {
     const freshnessIds=uniqStrings(proposal.freshnessRevisionIds ?? sourceRevisionIds,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
     for (const id of evidenceIds) if (!this.evidence.has(id)) throw new Error('MEMORY_SETTLEMENT_EVIDENCE_UNKNOWN:'+id);
     for (const id of freshnessIds) if (!this.isSourceRevisionActive(id)) throw new Error('MEMORY_SETTLEMENT_SOURCE_STALE:'+id);
-    if (ACCEPTED_MUTATIONS.has(decision.decision) && (!receipt || receipt.outcome!=='SETTLED')) throw new Error('MEMORY_SETTLEMENT_RECEIPT_REQUIRED');
-    if (proposal.mutationType===MutationType.SET_CLAIM && !proposal.payload?.claim?.id) throw new Error('MEMORY_SETTLEMENT_CLAIM_REQUIRED');
+    if (ACCEPTED_MUTATIONS.has(decision.decision)) {
+      if (!receipt || receipt.outcome!=='SETTLED') throw new Error('MEMORY_SETTLEMENT_RECEIPT_REQUIRED');
+      if (receipt.proposalId!==proposal.id) throw new Error('MEMORY_SETTLEMENT_RECEIPT_PROPOSAL_MISMATCH');
+      if (receipt.owner!=='WORLD_STATE') throw new Error('MEMORY_SETTLEMENT_RECEIPT_OWNER_MISMATCH');
+    }
+    if (proposal.mutationType===MutationType.SET_CLAIM) {
+      if (!proposal.payload?.claim?.id) throw new Error('MEMORY_SETTLEMENT_CLAIM_REQUIRED');
+      if (ACCEPTED_MUTATIONS.has(decision.decision) && !(receipt.settledArtifactIds??[]).includes(proposal.payload.claim.id)) {
+        throw new Error('MEMORY_SETTLEMENT_RECEIPT_CLAIM_MISSING');
+      }
+    }
     return {
       kind:'MemorySettlementValidation',
       ok:true,

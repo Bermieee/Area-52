@@ -5,7 +5,7 @@ import {
   deepClone,
   stableStringify,
 } from './memory-contracts.js';
-import {TemporalStateGraph} from './temporal-state-graph.js';
+import {TemporalStateGraph} from './memory-temporal-state-graph.js';
 import {MemoryGreenRoomStore} from './memory-green-room.js';
 import {MemoryExperienceStore} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';

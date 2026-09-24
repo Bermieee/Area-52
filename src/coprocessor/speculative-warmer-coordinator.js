@@ -263,10 +263,14 @@ export class SpeculativeWarmCoordinator {
       const packet = this.#findPacketByIdentity(current);
       const coverage = packet?.metadata?.stageCoverage ?? {};
       const compiled = normalizeReusableCompiled(packet?.compiledRepresentation);
-      const requiredForegroundStages = ['CORE_FRESHNESS_REVALIDATION', 'CORE_ADMISSION'];
-      if (!coverage.truth) requiredForegroundStages.push('TRUTH_CHECK');
+      const compiledReusable = Boolean(compiled?.reusable && coverage.truth);
+      const requiredForegroundStages = ['CORE_FRESHNESS_REVALIDATION'];
+      if (!coverage.retrieval) requiredForegroundStages.push('RETRIEVAL');
+      if (coverage.truth) requiredForegroundStages.push('CORE_TRUTH_RECEIPT_REVALIDATION');
+      else requiredForegroundStages.push('TRUTH_CHECK');
       if (!coverage.precision) requiredForegroundStages.push('OPTIONAL_PRECISION');
-      if (!compiled?.reusable) requiredForegroundStages.push('COMPILE');
+      if (!compiledReusable) requiredForegroundStages.push('COMPILE');
+      requiredForegroundStages.push('CORE_ADMISSION');
       const consumptionId = 'warm-consume:' + (++this.#sequence);
       const reusableRefs = boundedUniqueStrings(evaluated.salvageableRefs ?? [], this.limits.maxCandidateRefs + this.limits.maxEvidenceRefs);
       const record = {
@@ -274,7 +278,7 @@ export class SpeculativeWarmCoordinator {
         state: WarmState.FRESH,
         packetId: evaluated.packetId,
         coverage: structuredClone(coverage),
-        compiledReusable: Boolean(compiled?.reusable),
+        compiledReusable,
         createdAt: this.clock(),
       };
       this.#rememberConsumption(record);
@@ -291,7 +295,7 @@ export class SpeculativeWarmCoordinator {
         freshness: WarmState.FRESH,
         packetId: evaluated.packetId,
         reusableRefs,
-        compiledReference: compiled?.reference ?? null,
+        compiledReference: compiledReusable ? compiled.reference : null,
         truthReceipt: boundedReceipt(packet?.truthReceipt, 'TRUTH', this.limits),
         precisionReceipt: boundedReceipt(packet?.precisionReceipt, 'PRECISION', this.limits),
         requiredForegroundStages,

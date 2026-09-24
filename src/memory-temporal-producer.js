@@ -147,8 +147,9 @@ export class MemoryTemporalProducer {
 
   resolveHistorianMemoryRequest(request) {
     try {
+      if (!request||request.kind!=='HistorianMemoryRequest') throw new TypeError('HistorianMemoryRequest required');
       const currentRevisionRefs=this.memoryRevisionRefs();
-      const requested=[...(request?.memoryRevisionRefs??[])].sort();
+      const requested=[...(request.memoryRevisionRefs??[])].sort();
       if (requested.length && stableStringify(requested)!==stableStringify([...currentRevisionRefs].sort())) {
         return {
           kind:'HistorianMemoryResolution',
@@ -163,14 +164,112 @@ export class MemoryTemporalProducer {
           memoryMutation:false,
         };
       }
-      const innerRequest={
-        ...(request??{}),
-        memoryRevisionRefs:this.historian.memoryRevisionRefs(),
-      };
-      const result=this.historian.resolveHistorianMemoryRequest(innerRequest);
+
+      const maxArtifacts=Math.max(1,Math.min(
+        MEMORY_LIMITS.maxHistorianCandidates,
+        Number(request.limits?.maxArtifacts??MEMORY_LIMITS.maxHistorianCandidates)||MEMORY_LIMITS.maxHistorianCandidates,
+      ));
+      const all=[];
+      for (const intent of request.retrievalIntents??[]) {
+        const result=this.queryHistorian({
+          query:intent.query??intent.intentId,
+          mode:intent.mode??'CONTINUITY_RECALL',
+          retrievalIntentId:intent.intentId,
+          activeEntityIds:intent.entityRefs?.length?intent.entityRefs:request.activeEntityIds??[],
+          perspectiveConstraint:request.perspectiveConstraint??{scope:'WORLD'},
+          maxCandidates:maxArtifacts,
+          breadth:intent.breadth??request.breadth,
+          temporalDistance:intent.temporalDistance??request.temporalDistance,
+          resolutionHint:intent.resolutionHint??request.resolutionHint,
+          precisionRequired:Boolean(intent.precisionRequired??request.precisionRequired),
+        });
+        all.push(...(result.nominations??[]));
+      }
+
+      const unique=new Map();
+      for (const nomination of all) {
+        const summaryKey=nomination.metadata?.sourceRangeHash
+          ? 'summary-range:'+nomination.metadata.sourceRangeHash
+          : nomination.evidenceIdentity??nomination.candidateId;
+        const existing=unique.get(summaryKey);
+        if (!existing||Number(nomination.normalizedRank??0)>Number(existing.normalizedRank??0)) unique.set(summaryKey,nomination);
+      }
+      const nominations=[...unique.values()]
+        .sort((a,b)=>Number(b.normalizedRank??0)-Number(a.normalizedRank??0)||String(a.candidateId).localeCompare(String(b.candidateId)))
+        .slice(0,maxArtifacts);
+      const artifacts=nominations.map((nomination)=>{
+        const channel=nomination.metadata?.historianChannel??'EPISODIC_MEMORY';
+        const summary=channel==='HIERARCHICAL_SUMMARY';
+        return {
+          candidateId:nomination.candidateId,
+          artifactRef:deepClone(nomination.artifactRef),
+          sourceRef:nomination.sourceRevisionRefs?.[0]??null,
+          episodeId:channel==='SCENE_EPISODE'?nomination.artifactRef?.artifactId:null,
+          eventId:nomination.eventRefs?.[0]??null,
+          reflectionId:channel==='REFLECTION'?nomination.artifactRef?.artifactId:null,
+          summaryArtifactId:summary?nomination.metadata?.summaryArtifactId??nomination.artifactRef?.artifactId:null,
+          channel,
+          resolutionLevel:summary?nomination.metadata?.resolutionLevel??null:null,
+          retrievalIntentIds:[...(nomination.retrievalIntentIds??[])],
+          entityRefs:[...(nomination.entityRefs??[])],
+          relationshipRefs:[...(nomination.relationshipRefs??[])],
+          eventRefs:[...(nomination.eventRefs??[])],
+          claimRefs:[...(nomination.claimRefs??[])],
+          temporalHints:(nomination.temporalHints??[]).map(String),
+          authorityClass:nomination.authorityClass,
+          truthStatusHint:nomination.truthStatusHint,
+          provenance:deepClone(nomination.provenance??[]),
+          evidenceRefs:[...(nomination.evidenceRefs??[])],
+          sourceRevisionRefs:[...(nomination.sourceRevisionRefs??[])],
+          dependencyRevisions:[...(nomination.dependencyRevisions??[])],
+          perspective:deepClone(nomination.metadata?.perspective??request.perspectiveConstraint??{scope:'WORLD'}),
+          representationText:String(nomination.representationText??''),
+          rankSignals:{
+            intentMatch:Number(nomination.rankSignals?.intentMatch??0),
+            entityOverlap:Number(nomination.rankSignals?.entityOverlap??0),
+            temporalFit:Number(nomination.rankSignals?.temporalFit??0),
+            significance:Number(nomination.rankSignals?.significance??0),
+            recency:Number(nomination.rankSignals?.recency??0),
+            perspectiveCompatibility:Number(nomination.rankSignals?.perspectiveCompatibility??1),
+          },
+          sceneRelevance:null,
+          semanticKey:summary
+            ? nomination.metadata?.summaryScopeRef??nomination.artifactRef?.artifactId
+            : nomination.artifactRef?.artifactId??nomination.candidateId,
+          exactSourceDrillback:Boolean(nomination.metadata?.exactSourceDrillback),
+          independentEvidence:summary?false:null,
+          navigationOnly:summary?true:null,
+          authorityGranted:false,
+          memoryMutation:false,
+        };
+      });
+      const bytes=JSON.stringify(artifacts).length;
+      const maxBytes=Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes);
+      if (bytes>maxBytes) {
+        return {
+          kind:'HistorianMemoryResolution',
+          contractVersion:'1.0.0',
+          status:'DEGRADED',
+          artifacts:[],
+          unavailableChannels:['EVIDENCE_BUDGET_EXCEEDED'],
+          memoryRevisionRefs:requested.length?requested:currentRevisionRefs,
+          perspectiveStatus:request?.perspectiveConstraint?.scope??'WORLD',
+          evidenceBytes:0,
+          authorityGranted:false,
+          memoryMutation:false,
+        };
+      }
       return {
-        ...result,
+        kind:'HistorianMemoryResolution',
+        contractVersion:'1.0.0',
+        status:'OK',
+        artifacts,
+        unavailableChannels:[],
         memoryRevisionRefs:requested.length?requested:currentRevisionRefs,
+        perspectiveStatus:request?.perspectiveConstraint?.scope??'WORLD',
+        evidenceBytes:bytes,
+        authorityGranted:false,
+        memoryMutation:false,
       };
     } catch (error) {
       this.pushDiagnostic({kind:'MemoryHistorianResolverDegraded',reason:error?.message??String(error)});

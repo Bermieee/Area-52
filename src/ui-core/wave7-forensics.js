@@ -136,5 +136,5 @@ function authorityFrom(value){
   return authorityDescriptor(value.authorityClass??value.authority??value.status??'UNRESOLVED');
 }
 function missingStageNames(rows){const have=new Set(rows.map(x=>x.stage)),order=[ForensicStage.SOURCE,ForensicStage.COGNITION,ForensicStage.TRUTH,ForensicStage.PROPOSAL,ForensicStage.SETTLEMENT,ForensicStage.GATHER,ForensicStage.CONTEXT];return order.filter(x=>!have.has(x));}
-function indexText(row){return [row.id,row.eventType,row.stage,row.subsystem,row.status,row.reasonCode,row.turnId,row.generationId,row.taskId,row.correlationId,...(row.sourceRevisionRefs??[]),...(row.affectedArtifactIds??[])].filter(Boolean).join(' ').toLowerCase();}
+function indexText(row){return [row.id,row.eventType,row.stage,row.subsystem,row.status,row.reasonCode,row.turnId,row.generationId,row.taskId,row.correlationId,row.impact,row.outcome?.summary,row.decision?.summary,...(row.sourceRevisionRefs??[]),...(row.affectedArtifactIds??[])].filter(Boolean).join(' ').toLowerCase().replace(/[_:\-]+/g,' ');}
 function setFilter(value){return new Set(value==null?[]:Array.isArray(value)?value:[value]);}

@@ -196,8 +196,8 @@ test('all disconnected production sources make overall product availability UNAV
 });
 
 test('explicit fixture snapshot remains visibly FIXTURE and never reports live source state',()=>{
-  const a=new Wave6ProductAdapter({fixture:{story:{title:'Demo'},brain:{overall:'READY'}}}),s=a.getSnapshot();
-  assert.equal(s.wave6.mode,ProductDataMode.FIXTURE);assert.equal(s.wave6.sources.fixture.mode,ProductDataMode.FIXTURE);assert.equal(s.wave6.sources.fixture.fixture,true);
+  const a=new Wave6ProductAdapter({fixture:{story:{title:'Demo'},scene:{title:'Demo Scene'},brain:{overall:'READY'}}}),s=a.getSnapshot();
+  assert.equal(s.wave6.mode,ProductDataMode.FIXTURE);assert.equal(s.wave6.sources.story.mode,ProductDataMode.FIXTURE);assert.equal(s.wave6.sources.scene.fixture,true);assert.equal(s.wave6.sources.runtime.mode,ProductDataMode.UNAVAILABLE);
 });
 
 test('Front Face presentation persists UI-only state and clamps dimensions',()=>{

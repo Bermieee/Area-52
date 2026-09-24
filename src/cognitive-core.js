@@ -10,6 +10,7 @@ import { ContextCompiler } from './context-compiler.js';
 import { ReflectionEngine } from './reflection-engine.js';
 import { GenerationPublicationPipeline } from './generation-publication.js';
 import { AdaptiveContextRuntime } from './adaptive-context-runtime.js';
+import { FrameworkKernel } from './framework-kernel.js';
 
 export class Area52CognitiveCore {
   constructor(){
@@ -19,6 +20,7 @@ export class Area52CognitiveCore {
     this.retrieval=new MinimalRetrieval({graph:this.graph});this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.publication=new GenerationPublicationPipeline({core:this});
     this.delivery=new AdaptiveContextRuntime();
+    this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
   }
   importAndLearn({id,sourceType,content,at=0,metadata={}}){this.registry.importSource({id,sourceType,content,metadata:{...metadata,at}});return this.learnSource(id);}
   importEvidence({id,evidenceType=EvidenceType.NARRATIVE_EXPERIENCE,content,at=0,metadata={}}){const evidence=createEvidenceRecord({id,evidenceType,at,content,metadata});return{evidence,learning:this.importAndLearn({id,sourceType:'EXPERIENCE',content,at,metadata:{...metadata,evidenceType}})};}

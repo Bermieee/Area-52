@@ -1,0 +1,4 @@
+import {readFile} from 'node:fs/promises';
+import {browserHostConformanceReport} from '../src/browser-host-conformance.js';
+const files=['framework-utils.js','framework-contracts.js','contract-versioning.js','artifact-registry.js','event-registry.js','dependency-graph.js','cognitive-repository.js','certification-matrix.js','service-registry.js','conformance-kit.js','assembly-manifest.js','framework-kernel.js'];
+const rows=[];for(const path of files)rows.push({path:`src/${path}`,source:await readFile(new URL(`../src/${path}`,import.meta.url),'utf8')});const report=browserHostConformanceReport(rows);for(const row of report.results)console.log(`${row.pass?'PASS':'FAIL'} ${row.path}${row.violations.length?` ${row.violations.map(x=>x.code).join(',')}`:''}`);console.log(`Framework browser-host acceptance: ${report.results.filter(x=>x.pass).length}/${report.results.length}`);if(!report.pass)process.exitCode=1;

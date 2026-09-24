@@ -32,6 +32,7 @@ export const LORE_REPRESENTATION_LIMITS = Object.freeze({
   sensoryAnchors: 64,
   validationRefs: 768,
   maxRepresentationCharacters: 24000,
+  maxProviderRequestCharacters: 96000,
 });
 
 function humanizeId(id, labels) {
@@ -294,12 +295,13 @@ function requirementFor(policy, contribution) {
 }
 
 function selectedForProfile(contributions, policy) {
+  const effectiveProfile = policy.profile === RepresentationProfile.CUSTOM_CAP
+    ? (policy.baseProfile || RepresentationProfile.LEAN)
+    : policy.profile;
   return contributions.filter((contribution) => {
     const level = requirementFor(policy, contribution);
-    if (policy.profile === RepresentationProfile.LEAN || policy.profile === RepresentationProfile.CUSTOM_CAP) {
-      return level === RequirementLevel.MANDATORY;
-    }
-    if (policy.profile === RepresentationProfile.BALANCED) return level !== RequirementLevel.OPTIONAL;
+    if (effectiveProfile === RepresentationProfile.LEAN) return level === RequirementLevel.MANDATORY;
+    if (effectiveProfile === RepresentationProfile.BALANCED) return level !== RequirementLevel.OPTIONAL;
     return true;
   });
 }
@@ -380,7 +382,9 @@ export function validateRepresentationDraft({
   if (capCharacters != null && size.characters > capCharacters) failures.push(QualityFailure.CAP_EXCEEDED);
   if (size.characters > LORE_REPRESENTATION_LIMITS.maxRepresentationCharacters) failures.push(QualityFailure.CAP_EXCEEDED);
 
-  const unsupportedStatements = refs.filter((ref) => !known.has(ref)).length;
+  const expectedGroundedContent = refs.filter((ref) => known.has(ref)).map((ref) => contributionLine(known.get(ref))).join('\n');
+  const freeFloatingContent = typeof draft?.content === 'string' && draft.content !== expectedGroundedContent;
+  const unsupportedStatements = refs.filter((ref) => !known.has(ref)).length + (freeFloatingContent ? 1 : 0);
   if (unsupportedStatements) failures.push(QualityFailure.UNSUPPORTED_ASSERTION);
 
   const mandatoryRetained = mandatory.filter((row) => refSet.has(row.id)).length;
@@ -581,6 +585,28 @@ export class LoreRepresentationCompiler {
       selected = capPlan.selected;
     }
 
+    const providerRequestCharacters = selected.reduce((sum, row) => sum + row.text.length + 96, 0);
+    if (providerRequestCharacters > LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters) {
+      return {
+        status: QualityStatus.FAIL,
+        failure: 'PROVIDER_REQUEST_LIMIT_EXCEEDED',
+        representation: null,
+        qualityReceipt: {
+          kind: 'RepresentationQualityReceipt',
+          status: QualityStatus.FAIL,
+          sourceId,
+          sourceRevisionId: sourceRevision.id,
+          profile: normalizedProfile,
+          providerRequestCharacters,
+          providerRequestLimit: LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters,
+          validationFailures: ['PROVIDER_REQUEST_LIMIT_EXCEEDED'],
+        },
+        reused: false,
+        contributionSet,
+        slicesReceipt,
+      };
+    }
+
     const draft = this.provider.generate({
       sourceId,
       sourceRevisionId: sourceRevision.id,
@@ -589,7 +615,7 @@ export class LoreRepresentationCompiler {
       policy: deepClone(policy),
       selectedContributions: deepClone(selected),
       allContributions: deepClone(contributionSet.contributions),
-      slices: deepClone(slices),
+      sliceReceipt: deepClone(slicesReceipt),
     });
     const qualityReceipt = validateRepresentationDraft({
       draft,

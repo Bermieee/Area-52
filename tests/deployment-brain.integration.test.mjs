@@ -178,3 +178,50 @@ test('Wave 11 binding reads the same selected deployment turn/generation and doe
   assert.equal(binding.bridges.cognition.readCognitiveChoiceReceipt().turnId, 'turn:ui-a');
   binding.destroy();
 });
+
+
+test('Memory Wave 3 exact-evidence bridge is available without granting Core or Seal authority', () => {
+  const { brain } = seeded();
+  const input = {
+    kind: 'MemoryExternalEvidenceMappingRequest',
+    contractVersion: '1.0.0',
+    ownerArtifactRef: {
+      owner: 'SCENE_INTELLIGENCE',
+      artifactId: 'scene-episode:ember:1',
+      revision: 1,
+      sourceRevisionSet: ['narrative:ember@1'],
+      sceneRevision: 1,
+    },
+    externalEvidenceRef: 'scene-evidence:ember:1',
+    observationState: 'OBSERVED',
+    source: {
+      sourceId: 'narrative:ember',
+      sourceRevisionId: 'narrative:ember@1',
+      exactContent: 'Mara and Eris stand in the Ember Tavern ruins while discussing the missing Sun Blade.',
+      evidenceKind: 'NARRATIVE_EXPERIENCE',
+      occurredAt: 1,
+      worldRevision: 1,
+      sceneRevision: 1,
+      participants: ['Mara', 'Eris', 'Sun Blade', 'Ember Tavern'],
+      knownBy: ['Mara', 'Eris'],
+      perspective: 'WORLD',
+      provenance: ['deployment-memory-bridge-test'],
+    },
+    revisionProof: {
+      sourceRevisionId: 'narrative:ember@1',
+      ownerArtifactRevision: 1,
+      sceneRevision: 1,
+    },
+    provenanceRefs: ['scene-evidence:ember:1'],
+  };
+  const out = brain.admitMemoryEvidenceMapping(input);
+  assert.equal(out.receipt.status, 'ADMITTED');
+  assert.equal(out.evidence.exactContent, input.source.exactContent);
+  assert.equal(out.evidence.sourceRevisionId, 'narrative:ember@1');
+  assert.equal(out.authorityGranted, false);
+  assert.equal(out.canonicalMutationAuthority, false);
+  assert.equal(out.contextSealAuthority, false);
+  const replay = brain.admitMemoryEvidenceMapping(input);
+  assert.equal(replay.receipt.status, 'REPLAYED');
+  assert.equal(replay.evidence.id, out.evidence.id);
+});

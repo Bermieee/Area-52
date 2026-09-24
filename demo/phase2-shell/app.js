@@ -12,7 +12,7 @@ export function createPhase2ReviewController({document:doc=globalThis.document,s
   const scenarios=createReviewScenarios(),stateStore=new UIStateStore({storage,namespace:'area52.ui.wave9.review'});let ui=null,currentScenario='healthy';
   function mountScenario(id=currentScenario){
     const record=scenarios.get(id);if(!record)throw new Error(`Unknown review scenario: ${id}`);currentScenario=id;ui?.destroy?.();root.replaceChildren();
-    ui=createWave6ProductInterface({root,stateStore,productName:'Area-52',productTagline:'Cognitive Story System',fixture:record.product,bridges:{cognition:record.cognition?{fixture:record.cognition}:{}},hostMountAdapter:{reserveWidth(width){frame.style.setProperty('--a52-review-dock-width',`${width}px`);},releaseWidth(){frame.style.removeProperty('--a52-review-dock-width');}}});
+    ui=createWave6ProductInterface({root,stateStore,productName:'Area-52',productTagline:'Cognitive Story System',fixture:record.product,bridges:{...(record.bridges??{}),cognition:record.cognition?{fixture:record.cognition}:{}},hostMountAdapter:{reserveWidth(width){frame.style.setProperty('--a52-review-dock-width',`${width}px`);},releaseWidth(){frame.style.removeProperty('--a52-review-dock-width');}}});
     installPhase2ReviewWorkspaces(ui);ui.signals.subscribe('UI_INSPECT_SELECTION_CHANGED',()=>ui.presentation.setInspector(true));applyReviewState();
     doc.querySelector('#review-fixture-label').textContent=`DEMO / FIXTURE DATA · ${record.label}`;doc.querySelector('#review-scenario-description').textContent=record.description;return ui;
   }

@@ -66,7 +66,7 @@ export class TruthPublicationGate {
     if(confidence===RetrievalConfidence.MIXED&&attempt<maxCorrectiveAttempts){
       correctiveRequest=createCorrectiveRetrievalRequest({
         id:`corrective:${intent.toLowerCase()}:${attempt+1}:${uniq(candidates.map(c=>c.candidateId)).join('|')||'empty'}`,
-        reason,originalQuery:query,intent,sourceRevisionIds:uniq(sourceRevisionIds.length?sourceRevisionIds:candidates.flatMap(c=>c.provenance?.sourceRevisionIds??[])),
+        reason,originalQuery:query,intent,sourceRevisionIds:uniq(sourceRevisionIds.length?sourceRevisionIds:candidates.flatMap(c=>c.sourceRevisionRefs??c.legacyProvenance?.sourceRevisionIds??c.provenance?.sourceRevisionIds??[])),
         worldRevision,sceneRevision,priorCandidateIds:uniq(candidates.map(c=>c.candidateId)),
         missingEvidenceType:need,maxAttempts:maxCorrectiveAttempts,attempt:attempt+1,
       });
@@ -86,7 +86,7 @@ export class TruthPublicationGate {
 
     const correctiveIntent=request.intent==='HISTORICAL'?'TEMPORAL':'CONTRADICTION';
     try{
-      const candidates=retrieval.retrieve(request.originalQuery,{intent:correctiveIntent,anchorEntityIds});
+      const candidates=retrieval.retrieve(request.originalQuery,{intent:correctiveIntent,anchorEntityIds,worldRevision:request.worldRevision,sceneRevision:request.sceneRevision});
       return{assessment,candidates,executed:true,terminated:request.attempt>=request.maxAttempts,failed:false,error:null};
     }catch(error){
       return{assessment,candidates:[],executed:true,terminated:true,failed:true,error:error?.message??String(error)};

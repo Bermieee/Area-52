@@ -36,7 +36,8 @@ export class GenerationPublicationPipeline {
     if(hotSnapshot?.sceneRevision&&hotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=hotSnapshot.sceneRevision;
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot):null;
-    const primary=this.core.retrieval.retrieve(query,{intent,anchorEntityIds});
+    const primary=this.core.retrieval.retrieve(query,{intent,anchorEntityIds,worldRevision,sceneRevision});
+    const candidateEnvelope=this.core.retrieval.lastEnvelope??null;
     for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
       taskId:`retrieve:${turnId}`,turnId,correlationId,sourceSubsystem:'SENSORY_NET',
       resultClass:ResultClass.REQUIRED,destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
@@ -118,6 +119,7 @@ export class GenerationPublicationPipeline {
     return{
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,corrective,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
+      candidateEnvelope,
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,
       hotContributions,resultRoutes:turnResults,
     };
@@ -161,8 +163,8 @@ export function createRetrievalResultEnvelope(candidate,{
   return{
     id,taskId,turnId,correlationId,sourceSubsystem:'PRECISION_OR_RETRIEVAL',workerId:'external-compatible',
     destinationOwner:null,resultType:'RETRIEVAL_CANDIDATE',resultClass,payloadClass:'DERIVED_DATA',
-    evidenceIds:[...(candidate.claimIds??[])],provenance:candidate.provenance??{},
-    sourceRevisionIds:uniq(candidate.provenance?.sourceRevisionIds??[]),worldRevision,sceneRevision,
+    evidenceIds:[...(candidate.claimIds??candidate.claimRefs??[])],provenance:candidate.legacyProvenance??(Array.isArray(candidate.provenance)?{sourceRevisionIds:[...(candidate.sourceRevisionRefs??[])],candidateProvenance:candidate.provenance}:candidate.provenance??{}),
+    sourceRevisionIds:uniq(candidate.sourceRevisionRefs??candidate.legacyProvenance?.sourceRevisionIds??candidate.provenance?.sourceRevisionIds??[]),worldRevision,sceneRevision,
     authorityClass:AuthorityClass.UNRESOLVED,destination,payload:candidate,timing:{},
   };
 }

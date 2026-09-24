@@ -64,7 +64,7 @@ export class DeterministicPrecisionStub {
       normalizedScore:scored.length===1?1:Number(((row.rawScore-min)/span).toFixed(6)),
       finalRank:index+1,modelProfileId:this.profileId,modelProfileRevision:this.profileRevision,
       runtimeProfile,latencyMs:0,truncation:{applied:false},freshness,
-      sourceRevisionIds:[...new Set(row.candidate.provenance?.sourceRevisionIds??[])].sort(),
+      sourceRevisionIds:[...new Set(row.candidate.sourceRevisionRefs??row.candidate.legacyProvenance?.sourceRevisionIds??row.candidate.provenance?.sourceRevisionIds??[])].sort(),
       worldRevision:inputWorldRevision,sceneRevision:inputSceneRevision,
     }));
   }

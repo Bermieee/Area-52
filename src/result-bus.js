@@ -49,13 +49,14 @@ export class ResultBus {
     destination=ResultDestination.FOREGROUND,worldRevision=this.getWorldRevision(),
     sceneRevision=this.getSceneRevision(),timing={},
   }={}){
-    const sourceRevisionIds=[...new Set(candidate.provenance?.sourceRevisionIds??[])].sort();
+    const sourceRevisionIds=[...new Set(candidate.sourceRevisionRefs??candidate.legacyProvenance?.sourceRevisionIds??candidate.provenance?.sourceRevisionIds??[])].sort();
+    const provenance=candidate.legacyProvenance??(Array.isArray(candidate.provenance)?{sourceRevisionIds,candidateProvenance:clone(candidate.provenance),evidenceIdentity:candidate.evidenceIdentity??null}:candidate.provenance??{});
     return this.receive(createCognitiveResult({
       id:`result:${candidate.candidateId}:${correlationId}`,
       taskId,turnId,correlationId,causationId,sourceSubsystem,workerId,
       destinationOwner:null,resultType:'RETRIEVAL_CANDIDATE',
       resultClass,payloadClass:ResultPayloadClass.DERIVED_DATA,
-      evidenceIds:[...candidate.claimIds],provenance:candidate.provenance??{},
+      evidenceIds:[...(candidate.claimIds??candidate.claimRefs??[])],provenance,
       sourceRevisionIds,worldRevision,sceneRevision,authorityClass:'UNRESOLVED',
       destination,payload:candidate,timing,
     }));

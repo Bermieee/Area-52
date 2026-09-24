@@ -15,6 +15,8 @@
     "test:ui:wave9:stress": "node tests/wave9-stress.mjs",
     "test:ui:wave7": "node --test tests/wave7.test.mjs",
     "test:ui:wave10": "node --test tests/wave10.test.mjs",
-    "test:ui:wave10:stress": "node tests/wave10-stress.mjs"
+    "test:ui:wave10:stress": "node tests/wave10-stress.mjs",
+    "test:ui:wave11": "node --test tests/wave11-live-bindings.test.mjs",
+    "test:ui:wave11:stress": "node tests/wave11-live-bindings-stress.mjs"
   }
 }

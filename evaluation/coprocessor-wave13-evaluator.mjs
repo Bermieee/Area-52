@@ -50,7 +50,7 @@ export async function runCoprocessorWave13Evaluation(){
     const started=now(),choice=planner.planChoice(input),proposal=choice.choiceProposal;
     let runtimeRecords=[],swarmTraces=[],resultRoutes=[];
     if(scenario.providerFailure){
-      const jev=option(proposal,'jev-adjudication');if(jev?.taskId)swarmTraces=[{taskId:jev.taskId,validation:'FAIL',failureCode:'PROVIDER_TIMEOUT',workerId:'fixture-slot',providerId:'fixture-jev'}];
+      swarmTraces=[{optionId:'jev-adjudication',validation:'FAIL',failureCode:'PROVIDER_TIMEOUT',workerId:'fixture-slot',providerId:'fixture-jev'}];
       providerCallsSimulated+=1;
     }
     if(scenario.late){

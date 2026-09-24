@@ -37,6 +37,59 @@ export function evaluateFt005CorePreflight({providerValidations=[],malformedVali
   const pass=Object.values(checks).every(Boolean);return{kind:'FT005CorePreflightReceipt',state:pass?CorePreflightState.READY:CorePreflightState.BLOCKED,checks,liveProviderAcceptance:false};
 }
 
+
+function knowledgeEvidenceIds(packet){
+  return new Set(Object.values(packet?.knowledgeTraceIndex??{}).flatMap(rows=>(rows??[]).map(x=>x.evidenceId).filter(Boolean)));
+}
+function publicationPathChecks(publication={}){
+  const packet=publication.packet,seal=publication.sealReceipt,plan=publication.promptPlan,gather=publication.gather;
+  return{
+    truthGatherContextPresent:Boolean(packet?.kind==='CompiledContextPacket'&&gather?.kind==='KnowledgeGatherReceipt'),
+    contextSealPresent:Boolean(seal?.kind==='ContextSealReceipt'&&seal.packetId===packet?.id),
+    promptPlanPresent:Boolean(plan?.promptPlanId&&plan.contextSealId===seal?.id),
+    qualifiersReachPacket:Boolean(packet?.knowledgeTraceIndex&&Object.keys(packet.knowledgeTraceIndex).length),
+  };
+}
+export function evaluateFt003CorePreflight({
+  observedEvidence,episodicEvidence,reflectionEvidence,historicalEvidence,hypothesisEvidence=[],lateRoute=null,staleEvidence=[],publication={},
+}={}){
+  const packetIds=knowledgeEvidenceIds(publication.packet),seal=publication.sealReceipt;
+  const hypotheses=hypothesisEvidence??[];
+  const hypothesisSets=new Set(hypotheses.map(x=>x?.hypothesisSetId).filter(Boolean));
+  const checks={
+    observedRemainsObserved:observedEvidence?.sourceClass==='OBSERVED_EXPERIENCE'&&observedEvidence?.authorityClass==='OBSERVED',
+    episodicRetainsExperienceRef:episodicEvidence?.sourceClass==='EPISODIC_MEMORY'&&(episodicEvidence?.sourceRevisionRefs?.length??0)>0&&episodicEvidence?.authorityClass==='OBSERVED',
+    reflectionRemainsInferred:reflectionEvidence?.sourceClass==='REFLECTION'&&reflectionEvidence?.authorityClass==='INFERRED',
+    historicalRemainsHistorical:historicalEvidence?.temporalStatus==='HISTORICAL',
+    competingHypothesesRemainUnresolved:hypotheses.length>=2&&hypothesisSets.size===1&&hypotheses.every(x=>x?.temporalStatus==='UNRESOLVED'&&x?.authorityClass==='UNRESOLVED'),
+    lateConsolidationContained:!lateRoute||(Boolean(lateRoute.late)&&['NEXT_TURN','BACKGROUND'].includes(lateRoute.effectiveDestination)&&!(seal?.admittedResultIds??[]).includes(lateRoute.resultId)),
+    staleRepresentationExcluded:(staleEvidence??[]).every(x=>!packetIds.has(x?.evidenceId)),
+    ...publicationPathChecks(publication),
+  };
+  const pass=Object.values(checks).every(Boolean);
+  return{kind:'FT003CorePreflightReceipt',state:pass?CorePreflightState.READY:CorePreflightState.BLOCKED,checks,liveAcceptance:false,statusLabel:pass?'CORE SIDE READY FOR FT003':'FT003 CORE PREFLIGHT BLOCKED'};
+}
+export function evaluateFt004CorePreflight({
+  exactSourceEvidence,derivedEvidence=[],raptorEvidence=null,treeEvidence=null,invalidationReceipt=null,
+  oldRevisionRecoverable=false,newSourceRestudyRequired=false,publication={},
+}={}){
+  const derived=derivedEvidence??[];
+  const checks={
+    exactSourceRetainsCanon:exactSourceEvidence?.sourceClass==='SOURCE_LORE'&&exactSourceEvidence?.authorityClass==='SOURCE_CANON',
+    derivedFormsNonCanonical:derived.length>0&&derived.every(x=>!['SOURCE_CANON','SETTLED','OPERATOR'].includes(x?.authorityClass)),
+    raptorCannotReplaceCanon:!raptorEvidence||raptorEvidence.authorityClass!=='SOURCE_CANON',
+    treePlacementCannotGrantTruth:!treeEvidence||treeEvidence.authorityClass!=='SOURCE_CANON'||treeEvidence.sourceClass==='SOURCE_LORE',
+    dependentConeStale:Boolean(invalidationReceipt&&(invalidationReceipt.invalidatedCount??0)>0),
+    unrelatedLoreReusable:Boolean(invalidationReceipt&&(invalidationReceipt.preservedCount??0)>0),
+    smallestTruthfulCone:Boolean(invalidationReceipt&&invalidationReceipt.wholeWorldInvalidation===false),
+    oldRevisionReconstructable:Boolean(oldRevisionRecoverable),
+    newSourceRequiresRestudy:Boolean(newSourceRestudyRequired),
+    ...publicationPathChecks(publication),
+  };
+  const pass=Object.values(checks).every(Boolean);
+  return{kind:'FT004CorePreflightReceipt',state:pass?CorePreflightState.READY:CorePreflightState.BLOCKED,checks,liveAcceptance:false,statusLabel:pass?'CORE SIDE READY FOR FT004':'FT004 CORE PREFLIGHT BLOCKED'};
+}
+
 export const RepresentativeWorkloadMetric=Object.freeze({
  CURRENT_STATE_ERRORS:'currentStateErrors',HISTORICAL_STATE_ERRORS:'historicalStateErrors',CONTRADICTION_ERRORS:'contradictionErrors',STALE_ADMISSION:'staleAdmission',
  MISSED_RELEVANT_CONTEXT:'missedRelevantContext',UNNECESSARY_CONTEXT:'unnecessaryContext',UNRESOLVED_THREAD_MISSES:'unresolvedThreadMisses',PROVENANCE_COMPLETENESS:'provenanceCompleteness',

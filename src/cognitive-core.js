@@ -14,6 +14,7 @@ import { DeliveryLearningEngine } from './delivery-learning.js';
 import { FrameworkKernel } from './framework-kernel.js';
 import { CognitiveAuditPlane } from './cognitive-audit-plane.js';
 import { CoreObservationSpine } from './core-ui-read-models.js';
+import { KnowledgeIntegrationSpine } from './knowledge-integration-spine.js';
 
 export class Area52CognitiveCore {
   constructor(){
@@ -25,6 +26,7 @@ export class Area52CognitiveCore {
     this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});this.observation=new CoreObservationSpine();
     this.publication=new GenerationPublicationPipeline({core:this});this.audit.bindPublication(this.publication);const receiveResult=this.publication.receiveResult.bind(this.publication);this.publication.receiveResult=(result)=>{const received=receiveResult(result);this.audit.recordResultRoute(received);return received;};
     this.deliveryLearning=new DeliveryLearningEngine();this.delivery=new AdaptiveContextRuntime({deliveryLearning:this.deliveryLearning});
+    this.knowledge=new KnowledgeIntegrationSpine({core:this});
   }
   importAndLearn({id,sourceType,content,at=0,metadata={}}){const imported=this.registry.importSource({id,sourceType,content,metadata:{...metadata,at}});const sourceTx=this.audit.recordSourceAdmission({sourceId:id,revision:imported.revision,correlationId:`source:${imported.revision.id}`});return this.learnSource(id,{correlationId:sourceTx.correlationId,causationId:sourceTx.transactionId});}
   importEvidence({id,evidenceType=EvidenceType.NARRATIVE_EXPERIENCE,content,at=0,metadata={}}){const evidence=createEvidenceRecord({id,evidenceType,at,content,metadata});return{evidence,learning:this.importAndLearn({id,sourceType:'EXPERIENCE',content,at,metadata:{...metadata,evidenceType}})};}

@@ -1,11 +1,11 @@
 const clone=(v)=>structuredClone(v);
 const req=(v,n)=>{if(typeof v!=='string'||!v.length)throw new TypeError(`${n} must be a non-empty string`);return v;};
 export const AssemblyPreflightState=Object.freeze({READY_TO_COPY:'READY_TO_COPY',STALE_SOURCE:'STALE_SOURCE',CONFLICT:'CONFLICT',MISSING_ACCEPTANCE:'MISSING_ACCEPTANCE',MISSING_PATH:'MISSING_PATH',INTEGRATION_PATCH_REQUIRED:'INTEGRATION_PATCH_REQUIRED'});
-export function createIntegrationLaneManifest({branch,acceptedSha,acceptanceRun=null,copiedPaths=[],browserRuntimePaths=[],nodeOnlyToolPaths=[],requiredWebApis=[],optionalWebApis=[],hostCapabilities=[],integrationAdapters=[],integrationOnlyPatches=[],knownConflicts=[],supersededAssemblyRevision=null}={}){
+export function createIntegrationLaneManifest({branch,acceptedSha,acceptanceRun=null,copiedPaths=[],browserRuntimePaths=[],nodeOnlyToolPaths=[],requiredWebApis=[],optionalWebApis=[],hostCapabilities=[],artifactContracts=[],requiredAdapters=[],integrationAdapters=[],integrationOnlyPatches=[],knownConflicts=[],supersededAssemblyRevision=null}={}){
   return{kind:'IntegrationLaneManifest',schemaVersion:'2',branch:req(branch,'branch'),acceptedSha:req(acceptedSha,'acceptedSha'),acceptanceRun:acceptanceRun==null?null:String(acceptanceRun),
     copiedPaths:copiedPaths.map(x=>typeof x==='string'?{path:x,sourceDigest:null}:{path:req(x.path,'copiedPath.path'),sourceDigest:x.sourceDigest??null}).sort((a,b)=>a.path.localeCompare(b.path)),
     browserRuntimePaths:[...new Set(browserRuntimePaths)].sort(),nodeOnlyToolPaths:[...new Set(nodeOnlyToolPaths)].sort(),requiredWebApis:[...new Set(requiredWebApis)].sort(),optionalWebApis:[...new Set(optionalWebApis)].sort(),hostCapabilities:[...new Set(hostCapabilities)].sort(),
-    integrationAdapters:integrationAdapters.map(clone),integrationOnlyPatches:integrationOnlyPatches.map(x=>({path:req(x.path,'patch.path'),expectedDigest:req(x.expectedDigest,'patch.expectedDigest'),reason:req(x.reason,'patch.reason')})).sort((a,b)=>a.path.localeCompare(b.path)),knownConflicts:knownConflicts.map(clone),supersededAssemblyRevision};
+    artifactContracts:artifactContracts.map(clone),requiredAdapters:[...new Set(requiredAdapters.map(String))].sort(),integrationAdapters:integrationAdapters.map(clone),integrationOnlyPatches:integrationOnlyPatches.map(x=>({path:req(x.path,'patch.path'),expectedDigest:req(x.expectedDigest,'patch.expectedDigest'),reason:req(x.reason,'patch.reason')})).sort((a,b)=>a.path.localeCompare(b.path)),knownConflicts:knownConflicts.map(clone),supersededAssemblyRevision};
 }
 export function preflightAssemblyLane(manifest,{sourceHeadSha=manifest.acceptedSha,sourceFiles={},integrationFiles={}}={}){
   const rows=[];let laneState=AssemblyPreflightState.READY_TO_COPY;

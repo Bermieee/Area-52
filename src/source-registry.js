@@ -4,7 +4,7 @@ import { stableHash } from './browser-runtime-utils.js';
 export function hashContent(content) { return stableHash(content,{alreadyString:true}); }
 
 export class SourceRegistry {
-  #sources=new Map(); #revisions=new Map(); #revisionIdsBySource=new Map(); #activeRevisionBySource=new Map();
+  #sources=new Map(); #revisions=new Map(); #revisionIdsBySource=new Map(); #activeRevisionBySource=new Map(); #retiredSources=new Map();
   #artifacts=new Map(); #artifactDeps=new Map(); #artifactChildren=new Map(); #revisionChildren=new Map(); #invalidated=new Map();
 
   importSource({id,sourceType,content,logicalKey=id,metadata={}}){
@@ -32,6 +32,16 @@ export class SourceRegistry {
   isActiveRevision(revisionId){const r=this.#revisions.get(revisionId);return Boolean(r&&this.#activeRevisionBySource.get(r.sourceId)===revisionId);}
   listRevisions(sourceId){return(this.#revisionIdsBySource.get(sourceId)??[]).map(id=>this.getRevision(id));}
   listSources(){return[...this.#sources.values()].map(x=>structuredClone(x));}
+  retireSource(sourceId,{reason='source-retired'}={}){
+    const record=this.#sources.get(sourceId);if(!record)throw new Error('Unknown source: '+sourceId);
+    const activeId=this.#activeRevisionBySource.get(sourceId);if(!activeId){const prior=this.#retiredSources.get(sourceId);return{changed:false,source:structuredClone(record),retirement:prior?structuredClone(prior):null,invalidatedArtifactIds:[]};}
+    const invalidatedArtifactIds=this.invalidateFromRevision(activeId,reason);
+    const retirement={kind:'SourceRetirement',sourceId,retiredRevisionId:activeId,reason:String(reason),historyPreserved:true};
+    this.#activeRevisionBySource.delete(sourceId);this.#retiredSources.set(sourceId,retirement);
+    return{changed:true,source:structuredClone(record),retirement:structuredClone(retirement),invalidatedArtifactIds};
+  }
+  isSourceRetired(sourceId){return this.#retiredSources.has(sourceId);}
+  retirement(sourceId){const row=this.#retiredSources.get(sourceId);return row?structuredClone(row):null;}
 
   registerDerivedArtifact({artifactId,artifact,sourceRevisionIds=[],dependsOnArtifactIds=[],activity='DERIVE',agent='area52-core'}){
     if(!artifactId) throw new TypeError('artifactId is required');

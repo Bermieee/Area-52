@@ -45,5 +45,9 @@ jobs:
         run: node scripts/integration-wave4-acceptance-report.mjs
       - name: Phase 1 Integration Wave 4 stress
         run: node scripts/integration-wave4-stress-report.mjs
+      - name: Knowledge Integration Wave 5 acceptance
+        run: node scripts/knowledge-wave5-acceptance-report.mjs
+      - name: Knowledge Integration Wave 5 stress
+        run: node scripts/knowledge-wave5-stress-report.mjs
       - name: Phase 1 Integration gate evidence
         run: node scripts/phase1-integration-gate-evidence.mjs

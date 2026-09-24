@@ -7,7 +7,7 @@ export const CORE_MAIN_RUNTIME_PATHS=Object.freeze([
 'src/context-benchmarks.js','src/context-compiler-contracts.js','src/context-compiler.js','src/context-seal.js','src/contract-versioning.js','src/contracts.js','src/core-function-test-preflight.js','src/core-ui-fixtures.js','src/core-ui-read-models.js',
 'src/delivery-learning.js','src/dependency-graph.js','src/dependency-readiness.js','src/diagnostic-fidelity.js','src/diagnostic-query-plane.js','src/diagnostic-retention.js',
 'src/event-conformance.js','src/event-registry.js','src/forensic-bundle.js','src/framework-contracts.js','src/framework-kernel.js','src/framework-utils.js','src/generation-publication.js',
-'src/integration-browser-matrix.js','src/integration-contract-matrix.js','src/lore-study.js','src/model-adapters.js','src/phase1-gate-evidence.js','src/phase1-integration-fixtures.js','src/phase1-integration.js',
+'src/integration-browser-matrix.js','src/integration-contract-matrix.js','src/knowledge-evidence.js','src/knowledge-integration-spine.js','src/lore-study.js','src/model-adapters.js','src/nexus-shadow-adapter.js','src/phase1-gate-evidence.js','src/phase1-integration-fixtures.js','src/phase1-integration.js',
 'src/precision-contract.js','src/prompt-integrity-guard.js','src/prompt-planner.js','src/publication-context-compiler.js','src/publication-contracts.js','src/reflection-engine.js','src/result-bus.js','src/retrieval.js',
 'src/service-registry.js','src/settlement-boundary.js','src/settlement-engine.js','src/shadow-context-scorer.js','src/source-registry.js','src/structured-output-validation.js','src/temporal-state-graph.js','src/truth-gate.js','src/truth-publication-gate.js',
 'src/core-assembly-manifest.js'

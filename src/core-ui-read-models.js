@@ -23,6 +23,19 @@ export function createForensicReadModel(bundle,{diagnosticReasons=[]}={}){
   if(!bundle?.bundleId)throw new TypeError('ForensicBundle is required');
   return frozen({kind:'ForensicReadModel',contractVersion:'1.0.0',bundleId:bundle.bundleId,turnId:bundle.turnId,generationId:bundle.generationId,worldRevision:bundle.worldRevision,sceneRevision:bundle.sceneRevision,sourceRevisionRefs:uniq(bundle.sourceRevisionRefs),turnEventRef:bundle.turnEventRef,runtimeWorkRefs:uniq(bundle.runtimeWorkRefs),workerResultRefs:uniq(bundle.workerResultRefs),truthDecisionRefs:uniq(bundle.truthDecisionRefs),precisionRefs:uniq(bundle.precisionRefs),gatherRef:bundle.gatherRef,transactionRefs:[...(bundle.transactionRefs??[])],settlementRefs:uniq(bundle.settlementRefs),contextSealRef:bundle.contextSealRef,promptPlanRef:bundle.promptPlanRef,lateResultRefs:uniq(bundle.lateResultRefs),staleResultRefs:uniq(bundle.staleResultRefs),diagnosticRefs:uniq(bundle.diagnosticRefs),diagnosticReasons:clone(diagnosticReasons),assemblyProvenanceRefs:uniq(bundle.assemblyProvenanceRefs),complete:Boolean(bundle.complete),health:healthFrom({degraded:!bundle.complete,reasons:bundle.complete?[]:['FORENSIC_BUNDLE_INCOMPLETE']}),authority:'READ_ONLY',mutationAuthority:false});
 }
+export function createKnowledgeTraceReadModel({
+  contextItemId,authority,temporalStatus,immediateArtifact=null,sourceRevisionRefs=[],derivationChain=[],
+  retrievalChannels=[],precisionReasons=[],truthClassification=null,unresolvedLinks=[],freshness='FRESH',
+}={}){
+  if(!contextItemId)throw new TypeError('contextItemId is required');
+  const stale=freshness==='STALE',blocked=freshness==='INVALID';
+  return frozen({kind:'KnowledgeTraceReadModel',contractVersion:'1.0.0',contextItemId:String(contextItemId),
+    authority:authority??AuthorityLabel.UNRESOLVED,temporalStatus:temporalStatus??'UNRESOLVED',
+    immediateArtifact:clone(immediateArtifact),sourceRevisionRefs:uniq(sourceRevisionRefs),derivationChain:clone(derivationChain),
+    retrievalChannels:uniq(retrievalChannels),precisionReasons:uniq(precisionReasons),truthClassification:truthClassification??null,
+    unresolvedLinks:uniq(unresolvedLinks),freshness,health:healthFrom({stale,blocked,reasons:stale?['KNOWLEDGE_STALE']:blocked?['KNOWLEDGE_INVALID']:[]}),
+    readOnly:true,mutationAuthority:false});
+}
 export function createWidgetHealth(input={}){return healthFrom(input);}
 export function isCoreReadModelFresh(model,{turnId=model?.turnId,generationId=model?.generationId,worldRevision=model?.worldRevision,sceneRevision=model?.sceneRevision,contextSealId=model?.contextSealId,promptPlanId=model?.promptPlanId}={}){
   if(!model)return false;return(turnId==null||model.turnId===turnId)&&(generationId==null||model.generationId===generationId)&&(worldRevision==null||Number(model.worldRevision)===Number(worldRevision))&&(sceneRevision==null||Number(model.sceneRevision)===Number(sceneRevision))&&(contextSealId==null||model.contextSealId===contextSealId)&&(promptPlanId==null||model.promptPlanId===promptPlanId);
@@ -31,6 +44,7 @@ export class CoreObservationSpine{
   contextReceipt(input){return createContextReceiptReadModel(input);}
   promptPlan(plan,options){return createPromptPlanReadModel(plan,options);}
   forensic(bundle,options){return createForensicReadModel(bundle,options);}
+  knowledgeTrace(input){return createKnowledgeTraceReadModel(input);}
   widgetHealth(input){return createWidgetHealth(input);}
   isFresh(model,expected){return isCoreReadModelFresh(model,expected);}
 }

@@ -3,7 +3,7 @@ import { createButton, createKeyValue, element, makeBadge, makeCard, makeHealthP
 import { VirtualListController } from './virtualization.js';
 import { ProductDetailLevel } from './wave5-product-model.js';
 import { createAuthorityPill, createProductHealthSurface, sourceStateMessage } from './wave6-presentation.js';
-import { ExplainabilityView, buildGenerationExplainability, createForensicBookmark, diffGenerationContext, explainContextSeal, explainContextSection } from './wave7-explainability.js';
+import { createForensicBookmark, diffGenerationContext, explainContextSeal, explainContextSection } from './wave7-explainability.js';
 import { ForensicMetadataIndex, forensicWhy, unresolvedConflictModel } from './wave7-forensics.js';
 
 export function registerWave7Actions(actionRouter,{presentation}={}){
@@ -63,9 +63,8 @@ function renderGenerationWorkspace(host,ctx){
   const read=ctx.promptPlan.read(generationId?{generationId}:{}),source=read.source;
   host.append(generationSelector(d,ctx,read.data?.generationId??generationId));
   if(!read.data?.explainability){host.append(sourceStateMessage(d,source));return;}
-  let explain=read.data.explainability;
+  const explain=read.data.explainability;
   const forensic=explain.generationId?ctx.forensics.readGeneration(explain.generationId,{limit:5000}):null;
-  if(forensic?.data?.forensic&&read.data.seal)explain=buildGenerationExplainability({promptPlan:planForRebuild(read),contextReceipt:read.data.contextReceipt,sealReceipt:read.data.seal,forensic:forensic.data.forensic})??explain;
   host.append(generationHero(d,explain,source));
   host.append(section(d,'Why?'),whySummary(d,explain,ctx));
   host.append(section(d,'Context plan'),contextSections(d,explain,detail,ctx));
@@ -223,11 +222,10 @@ function renderConflictInspector(object,{document:d}){
 
 async function selectGeneration(ctx,row){const result=await ctx.actionRouter.route({type:'wave7.selectGeneration',target:row});if(result.ok)ctx.refresh?.();}
 async function openWorkspace(ctx,id){const result=await ctx.actionRouter.route({type:'wave7.openWorkspace',target:{workspaceId:id}});if(result.ok&&result.result?.workspaceId)ctx.navigate?.(result.result.workspaceId);}
-async function why(ctx,target){const result=await ctx.actionRouter.route({type:'wave7.why',target});if(result.ok)ctx.inspect?.({kind:'wave7-generation',id:`why:${Date.now?.()??0}`,title:'Why?',generation:result.result});}
+async function why(ctx,target){const result=await ctx.actionRouter.route({type:'wave7.why',target});if(result.ok)ctx.inspect?.({kind:'wave7-generation',id:`why:${target.section?.slot??target.item?.id??'selection'}`,title:'Why?',generation:result.result});}
 async function inspectThroughRouter(ctx,object){const result=await ctx.actionRouter.route({type:'wave7.inspect',target:{object}});if(result.ok)ctx.inspect?.(result.result);}
 async function inspectRuntimeRef(ctx,ref){const object=ctx.forensics.getRuntimeWork(ref);await inspectThroughRouter(ctx,{kind:'wave7-generation',id:ref,title:`Runtime work ${ref}`,payload:object??{reference:ref,status:'UNAVAILABLE'}});}
 function selectedGeneration(ctx){return ctx.presentation.get().bookmark??createForensicBookmark();}
-function planForRebuild(read){return read.data?.explainability?{kind:'PromptPlanReadModel',promptPlanId:read.data.promptPlanId,generationId:read.data.generationId,turnId:read.data.turnId,contextSealId:read.data.explainability.contextSealId,sealedPacketHash:read.data.explainability.seal?.packetHash??'unavailable',modelProfileId:read.data.modelProfileId??'unavailable',modelProfileRevision:'unavailable',deliveryPolicyRevision:'unavailable',worldRevision:read.data.worldRevision??0,sceneRevision:read.data.sceneRevision??0,sourceRevisionRefs:read.data.sourceRevisionDependencies??[],slotAllocation:read.data.sections.map(x=>({slot:x.slot,representation:x.representation,estimatedTokens:x.estimatedTokens,required:x.required,protected:x.protected})),sectionOrder:read.data.ordering??[],reuseDecisions:read.data.reuseDecisions??[],cacheDecisions:read.data.cacheDecisions??[],reusedSegments:read.data.sections.filter(x=>x.state==='REUSED').map(x=>({slot:x.slot,reuseState:'NO_CHANGE'})),rebuiltSegments:read.data.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).map(x=>({slot:x.slot,reuseState:x.state==='UPDATED'?'PATCH':'REBUILD'})),dropped:read.data.dropped??[],deferred:read.data.deferred??[],fallbackDecisions:read.data.fallbackDecisions??[],budget:read.data.explainability.budget??{},estimatedTokens:read.data.totalTokens,integrityStatus:read.data.explainability.integrityState,health:read.data.explainability.source?{state:read.data.explainability.source.health}:null,authority:'READ_ONLY'}:null;}
 function header(host,ctx,title,subtitle){const d=host.ownerDocument,h=element(d,'div',{className:'a52-product-header'}),t=element(d,'div');t.append(element(d,'h1',{text:title}),element(d,'p',{className:'a52-muted',text:subtitle}));const controls=element(d,'div',{className:'a52-detail-control',attrs:{role:'group','aria-label':'Detail level'}});for(const level of Object.values(ProductDetailLevel)){const b=createButton(d,{label:human(level),scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>{ctx.productAdapter.setDetailLevel(level);ctx.refresh?.();}});b.setAttribute('aria-pressed',String(ctx.productAdapter.getDetailLevel()===level));if(ctx.productAdapter.getDetailLevel()===level)b.classList.add('is-selected');controls.append(b);}h.append(t,controls);host.append(h);}
 function state(d,title,message,status='ready'){const r=element(d,'section',{className:'a52-state-message',attrs:{role:'status'},dataset:{status}});r.append(element(d,'strong',{text:title}),element(d,'span',{text:message}));return r;}
 function section(d,title){return element(d,'h2',{className:'a52-section-title',text:title});}

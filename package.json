@@ -3,7 +3,7 @@
   "version": "0.4.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Wave 11",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Wave 12",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
@@ -56,6 +56,12 @@
     "test:browser:wave11": "node --test tests/coprocessor-wave11-browser.test.mjs",
     "test:wave11": "node --test tests/coprocessor-wave11-native.test.mjs tests/coprocessor-wave11-evaluation.test.mjs tests/coprocessor-wave11-fallback.test.mjs tests/coprocessor-wave11-browser.test.mjs",
     "report:wave11": "node scripts/jev-wave11-evaluation.mjs",
-    "example:wave11": "node scripts/wave11-host-example.mjs"
+    "example:wave11": "node scripts/wave11-host-example.mjs",
+    "test:wave12:warmer": "node --test tests/coprocessor-wave12-warmer.test.mjs",
+    "test:wave12:evaluation": "node --test tests/coprocessor-wave12-evaluation.test.mjs",
+    "test:wave12:stress": "node --test tests/coprocessor-wave12-stress.test.mjs",
+    "test:browser:wave12": "node --test tests/coprocessor-wave12-browser.test.mjs",
+    "test:wave12": "node --test tests/coprocessor-wave12-warmer.test.mjs tests/coprocessor-wave12-evaluation.test.mjs tests/coprocessor-wave12-browser.test.mjs",
+    "report:wave12": "node scripts/speculative-warmer-wave12-evaluation.mjs"
   }
 }

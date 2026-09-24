@@ -671,6 +671,7 @@ export class MemorySummaryHierarchy {
     this.costCounters.compileWorkUnits+=1;
     this.costCounters.compileEvidenceExamined+=rows.length;
     this.costCounters.compileChildArtifactsRead+=childArtifacts.length;
+    this.invalidateQueryViews([ref]);
     return deepClone(artifact);
   }
 
@@ -691,13 +692,20 @@ export class MemorySummaryHierarchy {
 
   refreshFreshness() {
     const stale=[];
-    for (const id of this.currentByScope.values()) {
+    const staleScopes=[];
+    for (const [scopeRef,id] of this.currentByScope.entries()) {
       const artifact=this.artifacts.get(id);
       if (!artifact) continue;
-      if (!this.artifactIsFresh(artifact)) {
+      if (!this.artifactIsFresh(artifact) && artifact.freshness!=='STALE') {
         artifact.freshness='STALE';
         stale.push(artifact.id);
+        staleScopes.push(scopeRef);
       }
+    }
+    if(staleScopes.length){
+      this.queryIndexDirty=true;
+      this.markRevisionDirty();
+      this.evictQueryCache(staleScopes);
     }
     return stale.sort();
   }
@@ -743,7 +751,9 @@ export class MemorySummaryHierarchy {
         staleArtifactIds.push(artifact.id);
       }
     }
-    return {affectedScopeRefs:[...affected].sort(),staleArtifactIds:staleArtifactIds.sort()};
+    const affectedScopeRefs=[...affected].sort();
+    this.invalidateQueryViews(affectedScopeRefs);
+    return {affectedScopeRefs,staleArtifactIds:staleArtifactIds.sort()};
   }
 
   invalidateSourceRevision(sourceRevisionId,{reason='SOURCE_REVISION_INVALIDATED'}={}) {
@@ -825,6 +835,7 @@ export class MemorySummaryHierarchy {
       });
       pending.add(ref);
     }
+    if(refs.size)this.markRevisionDirty();
     return this.pendingWork();
   }
 
@@ -871,6 +882,7 @@ export class MemorySummaryHierarchy {
       }
       used+=1;
     }
+    if(used)this.markRevisionDirty();
     const result={
       kind:'MemorySummaryCompactionBatch',
       state:this.pendingWork().length?'CHECKPOINTED':'COMPLETED',
@@ -1264,6 +1276,9 @@ export class MemorySummaryHierarchy {
         baseQueryUsed:false,
         deterministic:true,
         duplicateCoverageSuppressed:true,
+        profile:deepClone(summary.profile??null),
+        queryIndexRevision:this.queryIndex.revision,
+        queryCacheEntries:this.queryCache.size,
       },
       status:'OK',
       authorityGranted:false,
@@ -1282,8 +1297,12 @@ export class MemorySummaryHierarchy {
   }
 
   revisionRef() {
+    if(!this.revisionDirty&&this.revisionCache)return this.revisionCache;
     const current=[...this.currentByScope.entries()].map(([ref,id])=>[ref,id,this.artifacts.get(id)?.freshness]).sort();
-    return 'memory-summary-hierarchy:'+stableHash(stableStringify({current,pending:this.pendingWork().map((row)=>row.scopeRef)}));
+    const pending=this.workQueue.filter((row)=>row.state==='PENDING').map((row)=>row.scopeRef).sort();
+    this.revisionCache='memory-summary-hierarchy:'+stableHash(stableStringify({current,pending}));
+    this.revisionDirty=false;
+    return this.revisionCache;
   }
 
   pushDiagnostic(row) {
@@ -1312,6 +1331,17 @@ export class MemorySummaryHierarchy {
       exactEvidenceRefsRetained:[...this.artifacts.values()].reduce((sum,row)=>sum+row.exactEvidenceRefs.length,0),
       estimatedRetainedUtf16Bytes:snapshotEstimate,
       costCounters:deepClone(this.costCounters),
+      queryIndex:{
+        revision:this.queryIndex.revision,
+        dirty:this.queryIndexDirty,
+        artifacts:this.queryIndex.artifactIds?.length??0,
+        indexedTerms:this.queryIndex.indexedTerms??0,
+        estimatedUtf16Bytes:this.queryIndex.estimatedUtf16Bytes??0,
+      },
+      queryCache:{
+        entries:this.queryCache.size,
+        estimatedUtf16Bytes:stableStringify([...this.queryCache.values()].map((row)=>row.summary)).length*2,
+      },
       limits:{
         maxSummaryScopes:MEMORY_LIMITS.maxSummaryScopes,
         maxSummaryEvidenceRefs:MEMORY_LIMITS.maxSummaryEvidenceRefs,
@@ -1319,6 +1349,9 @@ export class MemorySummaryHierarchy {
         maxSummaryCharacters:MEMORY_LIMITS.maxSummaryCharacters,
         maxSummaryWorkUnits:MEMORY_LIMITS.maxSummaryWorkUnits,
         maxSummaryDrillbackRows:MEMORY_LIMITS.maxSummaryDrillbackRows,
+        maxHierarchyQueryCacheEntries:MEMORY_LIMITS.maxHierarchyQueryCacheEntries,
+        maxHierarchyQueryIndexTerms:MEMORY_LIMITS.maxHierarchyQueryIndexTerms,
+        maxHierarchyQueryProfileSamples:MEMORY_LIMITS.maxHierarchyQueryProfileSamples,
       },
       providerRequired:false,
       embeddingRequired:false,
@@ -1342,6 +1375,21 @@ export class MemorySummaryHierarchy {
       workSequence:this.workSequence,
       diagnostics:deepClone(this.diagnostics),
       costCounters:deepClone(this.costCounters),
+      queryIndex:{
+        revision:this.queryIndex.revision,
+        tokenToArtifactIds:[...this.queryIndex.tokenToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
+        entityToArtifactIds:[...this.queryIndex.entityToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
+        levelToArtifactIds:[...this.queryIndex.levelToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
+        artifactTokens:[...this.queryIndex.artifactTokens.entries()].map(([k,v])=>[k,[...v]]),
+        artifactIds:[...(this.queryIndex.artifactIds??[])],
+        indexedTerms:this.queryIndex.indexedTerms??0,
+        estimatedUtf16Bytes:this.queryIndex.estimatedUtf16Bytes??0,
+      },
+      queryIndexDirty:this.queryIndexDirty,
+      queryCache:[...this.queryCache.entries()].map(([key,row])=>[key,deepClone(row)]),
+      queryCacheSequence:this.queryCacheSequence,
+      revisionCache:this.revisionCache,
+      revisionDirty:this.revisionDirty,
     };
   }
 
@@ -1363,7 +1411,37 @@ export class MemorySummaryHierarchy {
       historianSummaryArtifactsExamined:0,
       historianBaseQueriesAvoided:0,
       historianBaseQueriesUsed:0,
+      queryIndexBuilds:0,
+      queryIndexBuildMs:0,
+      queryCacheHits:0,
+      queryCacheMisses:0,
+      queryCacheEvictions:0,
+      queryIndexedCandidatesExamined:0,
       ...(snapshot?.costCounters??{}),
     };
+    const qi=snapshot?.queryIndex??null;
+    this.queryIndex=qi?{
+      revision:qi.revision??null,
+      tokenToArtifactIds:new Map((qi.tokenToArtifactIds??[]).map(([k,v])=>[k,new Set(v)])),
+      entityToArtifactIds:new Map((qi.entityToArtifactIds??[]).map(([k,v])=>[k,new Set(v)])),
+      levelToArtifactIds:new Map((qi.levelToArtifactIds??[]).map(([k,v])=>[k,new Set(v)])),
+      artifactTokens:new Map((qi.artifactTokens??[]).map(([k,v])=>[k,[...v]])),
+      artifactIds:[...(qi.artifactIds??[])],
+      indexedTerms:Number(qi.indexedTerms??0),
+      estimatedUtf16Bytes:Number(qi.estimatedUtf16Bytes??0),
+    }:{
+      revision:null,tokenToArtifactIds:new Map(),entityToArtifactIds:new Map(),levelToArtifactIds:new Map(),
+      artifactTokens:new Map(),artifactIds:[],indexedTerms:0,estimatedUtf16Bytes:0,
+    };
+    const restoredIndexValid=Boolean(qi)&&this.queryIndex.artifactIds.every((id)=>{
+      const artifact=this.artifacts.get(id);
+      return Boolean(artifact&&this.artifactIsFresh(artifact));
+    });
+    this.queryIndexDirty=Boolean(snapshot?.queryIndexDirty??!restoredIndexValid)||!restoredIndexValid;
+    this.queryCache=new Map((snapshot?.queryCache??[]).map(([key,row])=>[key,deepClone(row)]));
+    if(this.queryIndexDirty)this.queryCache.clear();
+    this.queryCacheSequence=Number(snapshot?.queryCacheSequence??0);
+    this.revisionCache=snapshot?.revisionCache??null;
+    this.revisionDirty=Boolean(snapshot?.revisionDirty??true);
   }
 }

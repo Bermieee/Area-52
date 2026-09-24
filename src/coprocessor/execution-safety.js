@@ -35,5 +35,5 @@ export class ExecutionAdmissionGuard {
   exportState(){return structuredClone({tasks:[...this.#tasks],results:[...this.#results],dedupe:[...this.#dedupe]});}
   importState(state){this.#tasks=new Map(state?.tasks??[]);this.#results=new Set(state?.results??[]);this.#dedupe=new Map(state?.dedupe??[]);return this;}
   #set(taskId,status){const row=this.#required(taskId);row.status=status;return Object.freeze({taskId,status});}
-  #required(taskId){const row=this.#tasks.get(taskId);if(!row)throw new Error(\`Unknown task: \${taskId}\`);return row;}
+  #required(taskId){const row=this.#tasks.get(taskId);if(!row)throw new Error(`Unknown task: ${taskId}`);return row;}
 }

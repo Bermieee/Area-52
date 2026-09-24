@@ -16,8 +16,8 @@ export function executionPlacementPolicy(task){
 export function createDeepCheckpoint(task,{checkpointId,completedUnits=0,remainingUnits=null,payloadRef=null}={}){
   if(task.placement!==Placement.DEEP)throw new TypeError('Deep checkpoint requires a DEEP task');
   return Object.freeze({
-    kind:'CoprocessorDeepCheckpoint',checkpointId:checkpointId??\`checkpoint:\${task.taskId}:\${completedUnits}\`,taskId:task.taskId,
-    resumeIdentity:task.metadata?.resumeIdentity??\`resume:\${task.taskId}:\${task.dedupeKey}\`,
+    kind:'CoprocessorDeepCheckpoint',checkpointId:checkpointId??`checkpoint:${task.taskId}:${completedUnits}`,taskId:task.taskId,
+    resumeIdentity:task.metadata?.resumeIdentity??`resume:${task.taskId}:${task.dedupeKey}`,
     completedUnits:Math.max(0,Number(completedUnits)||0),remainingUnits:remainingUnits==null?null:Math.max(0,Number(remainingUnits)||0),
     payloadRef:payloadRef==null?null:structuredClone(payloadRef),sourceRevisionSet:[...task.sourceRevisionSet],worldRevision:task.worldRevision,
     sceneRevision:task.sceneRevision,characterStateRevision:task.characterStateRevision,intentFingerprint:task.intentFingerprint,

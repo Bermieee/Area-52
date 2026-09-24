@@ -16,7 +16,7 @@ export class ProviderHealthModel {
   }
   register(providerProfileId,{maxConcurrency=1,manualDisabled=false}={}){
     if(typeof providerProfileId!=='string'||!providerProfileId)throw new TypeError('providerProfileId is required');
-    if(this.#profiles.has(providerProfileId))throw new Error(\`Provider health already registered: \${providerProfileId}\`);
+    if(this.#profiles.has(providerProfileId))throw new Error(`Provider health already registered: ${providerProfileId}`);
     this.#profiles.set(providerProfileId,{providerProfileId,maxConcurrency:Math.max(1,Number(maxConcurrency)||1),activeConcurrency:0,manualDisabled:Boolean(manualDisabled),state:manualDisabled?ProviderHealthState.UNAVAILABLE:ProviderHealthState.HEALTHY,cooldownUntil:null,events:[]});
     return this.snapshot(providerProfileId);
   }
@@ -61,7 +61,7 @@ export class ProviderHealthModel {
   }
   #failureRate(row){return row.events.length?row.events.filter((x)=>x.failed).length/row.events.length:0;}
   #trim(row){if(row.events.length>this.windowSize)row.events.splice(0,row.events.length-this.windowSize);}
-  #required(id){const row=this.#profiles.get(id);if(!row)throw new Error(\`Unknown provider health profile: \${id}\`);return row;}
+  #required(id){const row=this.#profiles.get(id);if(!row)throw new Error(`Unknown provider health profile: ${id}`);return row;}
   #emit(row){emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_HEALTH,{providerProfileId:row.providerProfileId,health:row.state,activeConcurrency:row.activeConcurrency,maxConcurrency:row.maxConcurrency,failureRate:this.#failureRate(row)});}
 }
 function freeze(row,failureRate){return Object.freeze({providerProfileId:row.providerProfileId,health:row.state,availability:row.manualDisabled?'UNAVAILABLE':'AVAILABLE',activeConcurrency:row.activeConcurrency,maxConcurrency:row.maxConcurrency,cooldownUntil:row.cooldownUntil,failureRate,manualDisabled:row.manualDisabled});}

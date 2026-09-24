@@ -15,7 +15,7 @@ export function assertProviderPayloadBoundary(payload){
     if(!value||typeof value!=='object')return;
     if(Array.isArray(value)){for(const item of value)visit(item);return;}
     for(const[key,child]of Object.entries(value)){
-      if(BLOCKED.has(key))throw new TypeError(\`Provider payload contains blocked whole-brain field: \${key}\`);
+      if(BLOCKED.has(key))throw new TypeError(`Provider payload contains blocked whole-brain field: ${key}`);
       visit(child);
     }
   };
@@ -54,4 +54,4 @@ function safeScalarObject(value){
   }
   return out;
 }
-function clip(value){const text=String(value??'');return text.length>2048?\`\${text.slice(0,2048)}…[clipped]\`:text;}
+function clip(value){const text=String(value??'');return text.length>2048?`${text.slice(0,2048)}…[clipped]`:text;}

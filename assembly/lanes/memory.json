@@ -1,0 +1,145 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "memory",
+  "branch": "Development-Memory",
+  "acceptedSha": "a6d7cac76d5bb9fae7c9b2d67c2b7a6342db96b2",
+  "acceptanceRuns": [
+    {
+      "id": "36065342394",
+      "name": "Memory Wave 1+2+3 CI"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "docs/MEMORY_WAVE1_ACCEPTANCE.md",
+      "sourceDigest": "2274e2dde8c49526d339f1b5578904df59ddd14c"
+    },
+    {
+      "path": "docs/MEMORY_WAVE1_CHANGELOG.md",
+      "sourceDigest": "ce6d6160eb2712640763d5913ce66552245ab4fa"
+    },
+    {
+      "path": "docs/MEMORY_WAVE1_TEMPORAL_PRODUCER.md",
+      "sourceDigest": "1cb53b45db157b18a12fa847bb74165e450f0fd1"
+    },
+    {
+      "path": "docs/MEMORY_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "9e5513b4031f4a057e480b7f0f9db11404017559"
+    },
+    {
+      "path": "docs/MEMORY_WAVE2_CHANGELOG.md",
+      "sourceDigest": "ad7ba697dea849b3dfb0db1cd4aabb76b5f5e95d"
+    },
+    {
+      "path": "docs/MEMORY_WAVE2_HIERARCHICAL_PRODUCER.md",
+      "sourceDigest": "c570c8743c5a57e8cd31dc2e13db0b5bc0ffc672"
+    },
+    {
+      "path": "docs/MEMORY_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "3dd4e28750940880d854b193c490980c2009a55d"
+    },
+    {
+      "path": "docs/MEMORY_WAVE3_CHANGELOG.md",
+      "sourceDigest": "1244327e6799e7be7538820fd4a1e8969145a0a5"
+    },
+    {
+      "path": "docs/MEMORY_WAVE3_EVIDENCE_BRIDGE.md",
+      "sourceDigest": "16b921065dde7b56e988feff7282f13ce813d6a9"
+    },
+    {
+      "path": "src/memory-contracts.js",
+      "sourceDigest": "d05044c366ccd68b0df516b24bf67c53e9a672dd"
+    },
+    {
+      "path": "src/memory-evidence-bridge.js",
+      "sourceDigest": "95df1fd9c99b9405cdcb5c469362ec900ec31bb6"
+    },
+    {
+      "path": "src/memory-experience-store.js",
+      "sourceDigest": "add609cbe75bfe64d39d9979bcfb5cb21fe1fa64"
+    },
+    {
+      "path": "src/memory-green-room.js",
+      "sourceDigest": "163b15a6f96b40bf248e3b4182eabd7a7c40d3f2"
+    },
+    {
+      "path": "src/memory-historian.js",
+      "sourceDigest": "264d65b008b45c808ad029cf85506ca085f7b22a"
+    },
+    {
+      "path": "src/memory-integration-surface.js",
+      "sourceDigest": "f8d7e117e7dd71cda4a721c3bb0078b3746c667d"
+    },
+    {
+      "path": "src/memory-summary-hierarchy.js",
+      "sourceDigest": "c97114340eb85af1cba7f6a40839ea590ceceae1"
+    },
+    {
+      "path": "src/memory-temporal-producer.js",
+      "sourceDigest": "2c1bc89a80e19588adf3b813003325ad3c05f71a"
+    },
+    {
+      "path": "tests/fixtures/memory-wave3-owner-shapes.js",
+      "sourceDigest": "b7d96a2dce277d6380a701586ffe80641bf9a8bc"
+    },
+    {
+      "path": "tests/memory-browser-safe.mjs",
+      "sourceDigest": "48645cb942b72f21e7ad9910867999c3702ca5c6"
+    },
+    {
+      "path": "tests/memory-wave1-stress.mjs",
+      "sourceDigest": "9a9dcc87a1769a66da1a2c67c38046c4c4947272"
+    },
+    {
+      "path": "tests/memory-wave1.mjs",
+      "sourceDigest": "368414345471af777465a192175a68ec9eac4d07"
+    },
+    {
+      "path": "tests/memory-wave2-stress.mjs",
+      "sourceDigest": "9128bbaf57df5cf81bf65c65878d78f92c633947"
+    },
+    {
+      "path": "tests/memory-wave2.mjs",
+      "sourceDigest": "3d33bdada0771153ce2b2c933f4d5c6a4adfe7f3"
+    },
+    {
+      "path": "tests/memory-wave3-stress.mjs",
+      "sourceDigest": "e57e4b48c87858ce33036b04b33c7dc0c9c28f77"
+    },
+    {
+      "path": "tests/memory-wave3.mjs",
+      "sourceDigest": "448f32b98a5edc14d6548fa084f5f3f60e25bf68"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/memory-contracts.js",
+    "src/memory-evidence-bridge.js",
+    "src/memory-experience-store.js",
+    "src/memory-green-room.js",
+    "src/memory-historian.js",
+    "src/memory-integration-surface.js",
+    "src/memory-summary-hierarchy.js",
+    "src/memory-temporal-producer.js"
+  ],
+  "nodeOnlyToolPaths": [],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [],
+  "artifactContracts": [
+    {
+      "name": "MemoryExternalEvidenceMapping / evidence bridge",
+      "version": "1.0.0"
+    }
+  ],
+  "requiredAdapters": [
+    "Scene exact evidence -> Memory evidence bridge",
+    "Core Settlement evidence descriptors -> Memory bridge",
+    "Memory Historian nominations -> Candidate Bus"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [],
+  "knownConflicts": []
+}

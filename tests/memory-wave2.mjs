@@ -87,7 +87,7 @@ test('hierarchical summaries preserve Tavern eras and unresolved Blade fate with
   assert.ok(raw.some((row)=>row.id==='ev:fire'));
   assert.ok(raw.some((row)=>row.id==='ev:fate-a'));
   assert.ok(raw.some((row)=>row.id==='ev:fate-b'));
-  assert.equal(p.asOf(1).find((row)=>row.subjectId==='Ember Tavern'&&row.predicate==='state')?.value,'INTACT');
+  assert.equal(p.asOf(1).current.find((row)=>row.subjectId==='Ember Tavern'&&row.predicate==='state')?.value,'INTACT');
 });
 
 test('resolution-aware Historian uses overview for broad Tavern query and exact source for narrow Blade query',()=>{

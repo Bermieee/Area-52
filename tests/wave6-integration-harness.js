@@ -258,7 +258,7 @@ export function runWave6Acceptance(){
     core:resolveIntegrationCheckpoint(Wave6CheckpointCatalog.core),
     coprocessor:resolveIntegrationCheckpoint(Wave6CheckpointCatalog.coprocessor),
     scene:resolveIntegrationCheckpoint(Wave6CheckpointCatalog.scene),
-    coprocessorHeadRejected:resolveIntegrationCheckpoint(Wave6CheckpointCatalog.coprocessor,{refKind:IntegrationRefKind.BRANCH_HEAD}),
+    coprocessorAcceptedHead:resolveIntegrationCheckpoint(Wave6CheckpointCatalog.coprocessor,{refKind:IntegrationRefKind.BRANCH_HEAD}),
     sceneHeadRejected:resolveIntegrationCheckpoint(Wave6CheckpointCatalog.scene,{refKind:IntegrationRefKind.BRANCH_HEAD}),
   };
   const matrix=buildIntegrationContractMatrix(createPhase1ContractDeclarations());
@@ -286,7 +286,7 @@ export function runWave6Acceptance(){
 
   const metrics={
     acceptedCheckpointLockCore:checkpointLocks.core.ok&&checkpointLocks.core.selectedSha===Wave6CheckpointCatalog.core.acceptedCheckpointSha,
-    coprocessorMovingHeadRefused:checkpointLocks.coprocessorHeadRejected.ok===false&&checkpointLocks.coprocessorHeadRejected.code==='UNACCEPTED_BRANCH_HEAD',
+    coprocessorAcceptedReferenceCorrect:checkpointLocks.coprocessor.ok&&checkpointLocks.coprocessor.selectedSha==='d9b195332671d802639e6f9e7174de74f23a4b1e'&&Wave6CheckpointCatalog.coprocessor.acceptanceRun==='35963531808'&&checkpointLocks.coprocessorAcceptedHead.ok===true,
     sceneMovingHeadRefused:checkpointLocks.sceneHeadRejected.ok===false&&checkpointLocks.sceneHeadRejected.code==='UNACCEPTED_BRANCH_HEAD',
     contractMatrixNoMismatch:matrix.hasMismatch===false,
     contractMatrixFutureOwnersBlocked:matrix.rows.some(x=>x.pair==='CORE_MEMORY_FUTURE'&&x.status==='BLOCKED_ON_OTHER_LANE')&&matrix.rows.some(x=>x.pair==='CORE_LORE_FUTURE'&&x.status==='BLOCKED_ON_OTHER_LANE'),

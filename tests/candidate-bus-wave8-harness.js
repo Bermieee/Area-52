@@ -123,7 +123,7 @@ export function runWave8ChannelFailureGolden(){
   const registry=new RetrievalChannelRegistry();
   const make=(id,{health=RetrievalChannelHealth.HEALTHY,available=true,throws=false,freshness=CandidateFreshness.FRESH}={})=>({
     descriptor:createRetrievalChannelDescriptor({channelId:id,capabilities:[RetrievalChannelCapability.SPECIALIZED_STORE],supportedIntentKinds:['GENERAL'],maxCandidates:4,health,available}),
-    retrieve:(i)=>{if(throws)throw Object.assign(new Error(id+' unavailable'),{code:'CHANNEL_DOWN'});return[nom(id,'evidence:'+id,{retrievalIntentIds:[i.intentId],freshness})];},
+    retrieve:(i)=>{if(throws)throw Object.assign(new Error(id+' timed out'),{code:'CHANNEL_TIMEOUT'});return[nom(id,'evidence:'+id,{retrievalIntentIds:[i.intentId],freshness})];},
   });
   registry.register(make('SPARSE'));
   registry.register(make('DENSE',{throws:true}));
@@ -197,6 +197,13 @@ export function runWave8IndexLifecycleAcceptance(){
   let outOfOrderRejected=false;try{tornManager.indexArtifact(B1);}catch(error){outOfOrderRejected=error.code==='OWNER_REVISION_OUT_OF_ORDER';}
   const duplicate=tornManager.indexArtifact(B2);
 
+  let rebuildPutCount=0,rebuildFault=true;
+  const interruptedManager=new RetrievalIndexLifecycleManager({representationProvider:provider});
+  interruptedManager.registerAdapter(new SparseMemoryIndexAdapter({adapterId:'INTERRUPTED_REBUILD',faultInjector:(op)=>rebuildFault&&op==='PUT'&&++rebuildPutCount===2?'rebuild interrupted':false}));
+  const interruptedRebuild=interruptedManager.rebuild({ownerArtifacts:[A1,B2,C1]});
+  rebuildFault=false;rebuildPutCount=0;
+  const repairedRebuild=interruptedManager.rebuild({ownerArtifacts:[A1,B2,C1]});
+
   return{
     pass:Boolean(
       inserts.every(x=>x.status==='APPLIED')&&update.status==='APPLIED'&&beforeA.representationRevision===afterA.representationRevision&&beforeC.representationRevision===afterC.representationRevision&&
@@ -204,10 +211,11 @@ export function runWave8IndexLifecycleAcceptance(){
       invalid.affectedRepresentationIds.length===2&&Object.values(invalidVerify.adapterReceipts[0].statusCounts).some(Boolean)&&
       tombVerify.adapterReceipts.some(r=>(r.statusCounts.TOMBSTONED??0)>0)&&stableJson(identitiesBefore)===stableJson(identitiesAfter)&&
       migration.verification.overall==='FRESH'&&identityA===identityB&&tornUpdate.status==='TORN'&&tornVerify.overall==='DEGRADED'&&
-      tornQuery.every(x=>x.freshness==='STALE')&&recovered.status==='APPLIED'&&recoveredVerify.overall==='FRESH'&&outOfOrderRejected&&duplicate.status==='NO_CHANGE'
+      tornQuery.every(x=>x.freshness==='STALE')&&recovered.status==='APPLIED'&&recoveredVerify.overall==='FRESH'&&outOfOrderRejected&&duplicate.status==='NO_CHANGE'&&
+      interruptedRebuild.status==='DEGRADED'&&interruptedRebuild.verification.overall==='DEGRADED'&&repairedRebuild.status==='REBUILT'&&repairedRebuild.verification.overall==='FRESH'
     ),
     manager,inserts,update,verifyFresh,invalid,invalidVerify,tombstone,tombVerify,rebuild,migration,
-    torn:{tornUpdate,tornVerify,tornQuery,recovered,recoveredVerify,outOfOrderRejected,duplicate},
+    torn:{tornUpdate,tornVerify,tornQuery,recovered,recoveredVerify,outOfOrderRejected,duplicate,interruptedRebuild,repairedRebuild},
     metrics:{
       sourceEditSmallCone:beforeA.representationRevision===afterA.representationRevision&&beforeC.representationRevision===afterC.representationRevision&&bSparse.ownerArtifactRevision===2&&bDense.ownerArtifactRevision===2,
       staleOldRevisionCannotPublish:bSparse.sourceRevision==='source:B@2'&&bDense.sourceRevision==='source:B@2',
@@ -220,6 +228,8 @@ export function runWave8IndexLifecycleAcceptance(){
       tornRecoverable:recovered.status==='APPLIED'&&recoveredVerify.overall==='FRESH',
       duplicateLifecycleIdempotent:duplicate.status==='NO_CHANGE',
       outOfOrderRejected,
+      interruptedRebuildDetected:interruptedRebuild.status==='DEGRADED'&&interruptedRebuild.verification.overall==='DEGRADED',
+      interruptedRebuildRecoverable:repairedRebuild.status==='REBUILT'&&repairedRebuild.verification.overall==='FRESH',
     },
   };
 }

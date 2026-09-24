@@ -71,6 +71,17 @@ test('unknown incompatible candidate and channel versions fail safely',()=>{
   assert.throws(()=>registry.register({descriptor:{channelId:'X',channelVersion:'2.0.0',capabilities:[],supportedIntentKinds:['GENERAL'],maxCandidates:1,revisionRequirements:[],health:'HEALTHY',available:true},retrieve:()=>[]}));
 });
 
+test('unknown artifact refs and malformed nominations fail bounded without poisoning the pool',()=>{
+  const bus=new CandidateBus({isArtifactKnown:(artifactId)=>artifactId==='known'});
+  const unknown=bus.fuse({nominations:[createChannelNomination({nominationId:'unknown:1',channelId:'SPARSE',candidateId:'unknown',evidenceIdentity:'unknown:evidence',artifactRef:{artifactId:'missing',revision:1},sourceRevisionRefs:['s@1'],retrievalIntentIds:['i'],rankSignals:{bm25Score:1},authorityClass:'OBSERVED',truthStatusHint:'CURRENT'})],retrievalIntents:['i'],currentRevisionSet:{sourceRevisionSet:['s@1']}});
+  const malformed=bus.fuse({nominations:[null],retrievalIntents:['i'],currentRevisionSet:{sourceRevisionSet:['s@1']}});
+  assert.equal(unknown.candidateCount,0);
+  assert.equal(unknown.fusionReceipt.invalidNominationCount,1);
+  assert.equal(unknown.fusionReceipt.diagnostics.invalidNominations[0].code,'UNKNOWN_ARTIFACT_REF');
+  assert.equal(malformed.candidateCount,0);
+  assert.equal(malformed.fusionReceipt.invalidNominationCount,1);
+});
+
 test('index lifecycle proves sparse+dense revision, tombstone, rebuild, migration and torn recovery',()=>{
   const r=runWave8IndexLifecycleAcceptance();
   assert.equal(r.pass,true,JSON.stringify(r.metrics,null,2));

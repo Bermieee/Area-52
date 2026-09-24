@@ -126,14 +126,22 @@ export class RetrievalIndexLifecycleManager{
 
   rebuild({ownerArtifacts,adapterIds=null}={}){
     if(!Array.isArray(ownerArtifacts))throw new RetrievalIndexContractError('OWNER_ARTIFACTS_REQUIRED','rebuild requires ownerArtifacts');
-    const owners=ownerArtifacts.map(x=>x?.kind==='OwnerRetrievalArtifact'?x:createOwnerRetrievalArtifact(x)),selected=this.#selected(adapterIds),receipts=[];
+    const owners=ownerArtifacts.map(x=>x?.kind==='OwnerRetrievalArtifact'?x:createOwnerRetrievalArtifact(x)),selected=this.#selected(adapterIds),receipts=[],failures=[];
     for(const adapter of selected){
       const representations=owners.map(artifact=>this.#representation(adapter,artifact));
-      adapter.rebuild(representations);const map=new Map(representations.map(x=>[x.representationId,clone(x)]));this.expectedByAdapter.set(adapter.adapterId,map);
-      receipts.push(this.#receipt({operation:IndexLifecycleOperation.REBUILD,artifact:{artifactId:'*',artifactRevision:1},adapterId:adapter.adapterId,status:'APPLIED',representationIds:representations.map(x=>x.representationId),reason:'rebuilt from supplied owner artifacts'}));
+      try{
+        adapter.rebuild(representations);
+        const map=new Map(representations.map(x=>[x.representationId,clone(x)]));this.expectedByAdapter.set(adapter.adapterId,map);
+        receipts.push(this.#receipt({operation:IndexLifecycleOperation.REBUILD,artifact:{artifactId:'*',artifactRevision:1},adapterId:adapter.adapterId,status:'APPLIED',representationIds:representations.map(x=>x.representationId),reason:'rebuilt from supplied owner artifacts'}));
+      }catch(error){
+        const failure={adapterId:adapter.adapterId,code:error?.code??'INDEX_REBUILD_FAILED',message:String(error?.message??error)};failures.push(failure);
+        for(const owner of owners)this.tornArtifacts.set(owner.artifactId,{transactionId:'rebuild:'+adapter.adapterId,targetArtifact:clone(owner),successfulAdapters:[],failures:[failure],priorArtifact:clone(this.ownerArtifacts.get(owner.artifactId)??null)});
+        receipts.push(this.#receipt({operation:IndexLifecycleOperation.REBUILD,artifact:{artifactId:'*',artifactRevision:1},adapterId:adapter.adapterId,status:'TORN',representationIds:representations.map(x=>x.representationId),reason:'rebuild interrupted; prior committed marker retained',details:{failure}}));
+      }
     }
-    this.ownerArtifacts=new Map(owners.map(x=>[x.artifactId,clone(x)]));this.tornArtifacts.clear();this.counters.rebuilds+=1;
-    return frozen({kind:'IndexRebuildResult',receipts,verification:this.verify({ownerArtifacts:owners,adapterIds:selected.map(x=>x.adapterId)}),authorityGranted:false});
+    this.ownerArtifacts=new Map(owners.map(x=>[x.artifactId,clone(x)]));if(!failures.length)this.tornArtifacts.clear();else this.counters.tornTransactions+=1;this.counters.rebuilds+=1;
+    const verification=this.verify({ownerArtifacts:owners,adapterIds:selected.map(x=>x.adapterId)});
+    return frozen({kind:'IndexRebuildResult',status:failures.length?'DEGRADED':'REBUILT',receipts,failures,verification,authorityGranted:false});
   }
 
   compact({adapterIds=null,dropTombstones=false,dropInvalidated=false}={}){

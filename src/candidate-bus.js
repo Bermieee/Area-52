@@ -118,8 +118,8 @@ function nominationView(n,lim){return {
 };}
 
 export class CandidateBus{
-  constructor({limits:inputLimits={},isSourceRevisionCurrent=null,isDependencyRevisionCurrent=null}={}){
-    this.limits=limits(inputLimits);this.isSourceRevisionCurrent=isSourceRevisionCurrent;this.isDependencyRevisionCurrent=isDependencyRevisionCurrent;
+  constructor({limits:inputLimits={},isSourceRevisionCurrent=null,isDependencyRevisionCurrent=null,isArtifactKnown=null}={}){
+    this.limits=limits(inputLimits);this.isSourceRevisionCurrent=isSourceRevisionCurrent;this.isDependencyRevisionCurrent=isDependencyRevisionCurrent;this.isArtifactKnown=isArtifactKnown;
     this.receipts=[];this.counters={fusions:0,inputNominations:0,duplicates:0,boundedOut:0,stale:0,invalid:0};
   }
 
@@ -134,6 +134,9 @@ export class CandidateBus{
         if(raw?.contractVersion&&!compatibleContractVersion(raw.contractVersion,CANDIDATE_BUS_CONTRACT_VERSION))
           throw new CandidateBusContractError('CANDIDATE_VERSION_INCOMPATIBLE','Unsupported Candidate nomination contract version: '+raw.contractVersion);
         const n=raw?.kind==='CandidateNomination'?raw:createChannelNomination(raw);
+        const artifactId=typeof n.artifactRef==='string'?n.artifactRef:n.artifactRef?.artifactId??n.artifactRef?.id??null;
+        if(artifactId&&typeof this.isArtifactKnown==='function'&&!this.isArtifactKnown(artifactId,n.artifactRef))
+          throw new CandidateBusContractError('UNKNOWN_ARTIFACT_REF','Unknown artifact reference: '+artifactId,{artifactId});
         let freshness=currentFreshness(n,currentRevisionSet);
         if(freshness===CandidateFreshness.FRESH&&typeof this.isSourceRevisionCurrent==='function'&&n.sourceRevisionRefs.some(ref=>!this.isSourceRevisionCurrent(ref)))freshness=CandidateFreshness.STALE;
         if(freshness===CandidateFreshness.FRESH&&typeof this.isDependencyRevisionCurrent==='function'&&n.dependencyRevisions.some(ref=>!this.isDependencyRevisionCurrent(ref)))freshness=CandidateFreshness.STALE;

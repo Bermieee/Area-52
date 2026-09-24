@@ -7,7 +7,7 @@ import { DynamicFanOutPlanner } from './fanout-planner.js';
 import { GatherCoordinator } from './gather-coordinator.js';
 import { ProviderAdapterRegistry, DeterministicProviderAdapter } from './provider-adapters.js';
 import { SpecialistExecutionLayer, ProviderExecutionRouter } from './provider-execution.js';
-import { CoprocessorTelemetry } from './telemetry.js';
+import { CoprocessorTelemetry, emitTelemetry } from './telemetry.js';
 import { RecordingResultBusFixture } from './integration-adapters.js';
 import { toNexusCognitiveResult } from './integration-adapters.js';
 import { fallbackForTask } from './fallback-policy.js';
@@ -137,7 +137,7 @@ export async function runFunctionTestTurn({
   boundarySealed=true;gather.markSealed(sealCompatibilityReceipt.externalSeal??sealCompatibilityReceipt);
   for(const item of lateQueue){
     const routed=bus.receive(toNexusCognitiveResult(item.result,item.task));await gather.accept(item.result,{arrivalAt:item.result.completedAt});
-    telemetry.emit(TelemetryEvent.LATE_ROUTED,{taskId:item.task.taskId,turnId:event.turnId,providerId:item.result.providerId,
+    emitTelemetry(telemetry,TelemetryEvent.LATE_ROUTED,{taskId:item.task.taskId,turnId:event.turnId,providerId:item.result.providerId,
       destination:routed?.route?.effectiveDestination??ResultDestination.NEXT_TURN});
   }
   const finalBundle=gather.bundle();const promptPlan=typeof downstream.promptPlan==='function'?await downstream.promptPlan({compiled,seal:sealCompatibilityReceipt.externalSeal,compilerInput}):null;

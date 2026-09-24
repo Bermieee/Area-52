@@ -4,6 +4,7 @@ import { GatherCoordinator } from './gather-coordinator.js';
 import { toNexusCognitiveResult } from './integration-adapters.js';
 import { validateWorkerOutput } from './validation.js';
 import { fallbackForTask } from './fallback-policy.js';
+import { emitTelemetry } from './telemetry.js';
 
 export class CognitiveSwarm {
   constructor({
@@ -26,17 +27,17 @@ export class CognitiveSwarm {
   async run({ turn, plannerInput = {}, semanticValidators = {} } = {}) {
     const published = this.eventHub.publish(turn);
     const turnEvent = published.event;
-    this.telemetry?.emit(TelemetryEvent.TURN_EVENT_CREATED, {
+    emitTelemetry(this.telemetry,TelemetryEvent.TURN_EVENT_CREATED, {
       turnId: turnEvent.turnId, correlationId: turnEvent.correlationId, duplicate: published.duplicate,
     });
     const plan = this.planner.plan({ turnEvent, ...plannerInput });
     const gather = new GatherCoordinator({ turnEvent, plan, currentRevisionSet: turnEvent });
     for (const task of plan.tasks) {
-      this.telemetry?.emit(TelemetryEvent.TASK_PLANNED, telemetryTask(task));
+      emitTelemetry(this.telemetry,TelemetryEvent.TASK_PLANNED, telemetryTask(task));
     }
 
     const dispatches = plan.tasks.map((task) => {
-      this.telemetry?.emit(TelemetryEvent.TASK_STARTED, telemetryTask(task));
+      emitTelemetry(this.telemetry,TelemetryEvent.TASK_STARTED, telemetryTask(task));
       return Promise.resolve()
         .then(() => this.executionRouter.dispatch(task, { attempt: 1, turnEvent }))
         .then((raw) => ({ task, raw, error: null, attempt: 1 }))
@@ -83,7 +84,7 @@ export class CognitiveSwarm {
           const normalized = createWorkerResult(fallback);
           gather.addFallback(task.taskId, normalized);
           this.resultBus.receive(toNexusCognitiveResult(normalized, task));
-          this.telemetry?.emit(TelemetryEvent.FALLBACK_USED, { ...telemetryTask(task), providerId: normalized.providerId });
+          emitTelemetry(this.telemetry,TelemetryEvent.FALLBACK_USED, { ...telemetryTask(task), providerId: normalized.providerId });
           const trace = taskTraces.find((item) => item.taskId === task.taskId);
           if (trace) { trace.deadlineMiss = true; trace.fallbackUsed = true; }
         }
@@ -92,7 +93,7 @@ export class CognitiveSwarm {
     }
 
     const bundle = gather.close({ at: closureAt ?? turnEvent.createdAt, reason: gather.quorumSatisfied() ? 'FOREGROUND_QUORUM' : 'HARD_DEADLINE_DEGRADED' });
-    this.telemetry?.emit(TelemetryEvent.GATHER_CLOSED, {
+    emitTelemetry(this.telemetry,TelemetryEvent.GATHER_CLOSED, {
       turnId: turnEvent.turnId, correlationId: turnEvent.correlationId, closeReason: bundle.closeReason,
       missingRequired: bundle.missingRequired.length, fallbacksUsed: bundle.fallbacksUsed.length,
     });
@@ -111,7 +112,7 @@ export class CognitiveSwarm {
       deadline: { soft: Math.min(...plan.tasks.map((task) => task.softDeadline), turnEvent.deadline), hard: Math.max(...plan.tasks.map((task) => task.hardDeadline), turnEvent.deadline) },
     });
     gather.markSealed(seal.receipt);
-    this.telemetry?.emit(TelemetryEvent.CONTEXT_SEALED, {
+    emitTelemetry(this.telemetry,TelemetryEvent.CONTEXT_SEALED, {
       turnId: turnEvent.turnId, correlationId: turnEvent.correlationId, packetHash: seal.receipt.packetHash,
     });
 
@@ -119,7 +120,7 @@ export class CognitiveSwarm {
       if (!item.result) continue;
       const bus = this.resultBus.receive(toNexusCognitiveResult(item.result, item.task));
       const late = await gather.accept(item.result, { arrivalAt: item.result.completedAt });
-      this.telemetry?.emit(TelemetryEvent.LATE_ROUTED, {
+      emitTelemetry(this.telemetry,TelemetryEvent.LATE_ROUTED, {
         ...telemetryTask(item.task), resultId: item.result.resultId,
         destination: bus?.route?.effectiveDestination ?? late.destination,
       });
@@ -155,20 +156,20 @@ export class CognitiveSwarm {
             details:{lastFailureCode:rawCode}});
           return { task, failure, result: null, trace: failedTrace(task, failure) };
         }
-        this.telemetry?.emit(TelemetryEvent.RETRY, { ...telemetryTask(task), attempt: attempt + 1, reason: failure.code });
+        emitTelemetry(this.telemetry,TelemetryEvent.RETRY, { ...telemetryTask(task), attempt: attempt + 1, reason: failure.code });
       } else {
         const validation = await validateWorkerOutput(raw, task, { currentRevisionSet: turnEvent, semanticValidator, attempt });
         if (validation.valid) {
-          this.telemetry?.emit(TelemetryEvent.TASK_COMPLETED, {
+          emitTelemetry(this.telemetry,TelemetryEvent.TASK_COMPLETED, {
             ...telemetryTask(task), resultId: validation.result.resultId, providerId: validation.result.providerId,
             executionLatency: validation.result.latency,
           });
-          if (validation.freshness === 'STALE') this.telemetry?.emit(TelemetryEvent.STALE_DROPPED, { ...telemetryTask(task), resultId: validation.result.resultId });
+          if (validation.freshness === 'STALE') emitTelemetry(this.telemetry,TelemetryEvent.STALE_DROPPED, { ...telemetryTask(task), resultId: validation.result.resultId });
           return { task, result: validation.result, failure: validation.failure, trace: passedTrace(task, validation.result, validation.freshness) };
         }
-        this.telemetry?.emit(TelemetryEvent.VALIDATION_FAILED, { ...telemetryTask(task), attempt, reason: validation.failure.code });
+        emitTelemetry(this.telemetry,TelemetryEvent.VALIDATION_FAILED, { ...telemetryTask(task), attempt, reason: validation.failure.code });
         if (!validation.failure.retryable) return { task, failure: validation.failure, result: null, trace: failedTrace(task, validation.failure) };
-        this.telemetry?.emit(TelemetryEvent.RETRY, { ...telemetryTask(task), attempt: attempt + 1, reason: validation.failure.code });
+        emitTelemetry(this.telemetry,TelemetryEvent.RETRY, { ...telemetryTask(task), attempt: attempt + 1, reason: validation.failure.code });
       }
 
       attempt += 1;

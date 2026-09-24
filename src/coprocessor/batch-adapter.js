@@ -1,5 +1,6 @@
 import { ResultClass, TelemetryEvent } from './constants.js';
 import { toRuntimeObligation } from './runtime-compatibility.js';
+import { emitTelemetry } from './telemetry.js';
 
 export class AdaptiveSidecarSlicePolicy {
   constructor({base=8,min=1,max=32,targetLatencyMs=80,reservedOutputTokens=512}={}){
@@ -45,13 +46,13 @@ export class SidecarBatchAdapter {
       ...prepared,accumulator,
       execute:async({task:runtimeTask,units,sliceId})=>{
         const started=Date.now();const output=await executeSlice({task:runtimeTask,units,sliceId});
-        telemetry?.emit(TelemetryEvent.BATCH_SLICE,{taskId:task.taskId,sliceId,unitCount:units.length,phase:'EXECUTED',latency:Date.now()-started});
+        emitTelemetry(telemetry,TelemetryEvent.BATCH_SLICE,{taskId:task.taskId,sliceId,unitCount:units.length,phase:'EXECUTED',latency:Date.now()-started});
         return output;
       },
       validate:async(args)=>Boolean(await validateSlice(args)),
       commit:async({units,output,sliceId})=>{
         const receipt=accumulator.commit({sliceId,unitIds:units.map(x=>x.id),output});
-        telemetry?.emit(TelemetryEvent.BATCH_SLICE,{taskId:task.taskId,sliceId,unitCount:units.length,phase:'COMMITTED'});
+        emitTelemetry(telemetry,TelemetryEvent.BATCH_SLICE,{taskId:task.taskId,sliceId,unitCount:units.length,phase:'COMMITTED'});
         return receipt;
       },
     };

@@ -1,7 +1,9 @@
 import { FailureCode, TelemetryEvent } from './constants.js';
+import { utf8ByteLength } from './browser-compat.js';
 import { createWorkerResult } from './contracts.js';
 import { specialistForTask } from './foreground-specialists.js';
 import { ProviderInvocationError } from './provider-adapters.js';
+import { emitTelemetry } from './telemetry.js';
 
 export class SpecialistExecutionLayer {
   constructor({profiles,adapters,telemetry=null,specialists=null}={}){
@@ -20,15 +22,16 @@ export class SpecialistExecutionLayer {
       .filter(profile=>this.adapters.get(profile.providerId));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
     const profile=eligible[0],adapter=this.adapters.get(profile.providerId);
-    this.telemetry?.emit(TelemetryEvent.PROVIDER_SELECTED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
+    emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_SELECTED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
+      workerCapability:[...task.requiredCapabilities],taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,
       requiredCapabilities:task.requiredCapabilities,contextTokens,expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),
-      queueTime:Number(task.metadata?.queueTime??0),local:profile.local,attempt});
+      queueTime:Number(task.metadata?.queueTime??0),local:profile.local,providerHealth:profile.health,attempt});
     let invocation;
     try{
       invocation=await adapter.invoke(task,providerInput,{signal,attempt,maxOutputTokens:Number.isFinite(profile.maxOutputTokens)?profile.maxOutputTokens:null});
     }catch(error){
-      this.telemetry?.emit(TelemetryEvent.PROVIDER_FAILED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
-        attempt,reason:error?.code??FailureCode.PROVIDER_FAILURE});
+      emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_FAILED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
+        taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,attempt,reason:error?.code??FailureCode.PROVIDER_FAILURE});
       if(error instanceof ProviderInvocationError)throw error;
       throw executionError(error?.code??FailureCode.PROVIDER_FAILURE,error?.message??String(error),{cause:error,providerId:profile.providerId});
     }
@@ -36,8 +39,8 @@ export class SpecialistExecutionLayer {
     try{payload=specialist.normalize(invocation.text,{input:input??{},task,providerInput});}
     catch(error){throw executionError(error?.code??FailureCode.SCHEMA_INVALID,error?.message??String(error),{cause:error,providerId:profile.providerId});}
     const validationLatency=Math.max(0,Date.now()-validationStarted);
-    this.telemetry?.emit(TelemetryEvent.PROVIDER_INVOKED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
-      executionLatency:invocation.latencyMs,validationLatency,attempt});
+    emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_INVOKED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
+      taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,executionLatency:invocation.latencyMs,validationLatency,attempt});
     const confidence=deriveConfidence(payload);
     return createWorkerResult({
       resultId:`result:${task.taskId}:${profile.providerId}:${attempt}`,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,
@@ -64,7 +67,7 @@ export class ProviderExecutionRouter {
   }
 }
 
-export function estimateTokens(value){return Math.max(1,Math.ceil(Buffer.byteLength(JSON.stringify(value??{}),'utf8')/4));}
+export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength(JSON.stringify(value??{}))/4));}
 
 function collectRefs(input){
   const refs=[];const visit=(v)=>{

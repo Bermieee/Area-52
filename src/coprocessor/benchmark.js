@@ -23,7 +23,10 @@ export function summarizeSwarmTrace(trace, measured = {}) {
 }
 
 
-export function summarizeWave2Benchmarks({traces=[],batchReceipts=[],greenRoomChecks=[],disagreementChecks=[]}={}) {
+export function summarizeWave2Benchmarks({
+  traces=[],batchReceipts=[],greenRoomChecks=[],disagreementChecks=[],
+  malformedOutputChecks=[],fallbackChecks=[],zeroWorkerChecks=[],providerInterchangeChecks=[],
+}={}) {
   const taskTraces=traces.flatMap(t=>t.taskTraces??[]);
   const attempts=taskTraces.reduce((n,t)=>n+Number(t.attempts??1),0);
   const fallbacks=traces.reduce((n,t)=>n+(t.gather?.fallbacksUsed?.length??0),0);
@@ -48,7 +51,13 @@ export function summarizeWave2Benchmarks({traces=[],batchReceipts=[],greenRoomCh
     batchThroughput:batchReceipts.reduce((n,r)=>n+Number(r.durationMs??0),0)>0?committed/(batchReceipts.reduce((n,r)=>n+Number(r.durationMs??0),0)/1000):null,
     yieldLatencyMs:batchReceipts.some(r=>Number.isFinite(r.yieldLatencyMs))?Math.max(...batchReceipts.map(r=>Number(r.yieldLatencyMs??0))):null,
     greenRoomExpiryCorrectness:greenRoomChecks.length?greenRoomChecks.filter(Boolean).length/greenRoomChecks.length:1,
-    disagreementPreservation:disagreementChecks.length?disagreementChecks.filter(Boolean).length/disagreementChecks.length:1,
+    disagreementPreservation:ratio(disagreementChecks),
+    malformedOutputRejection:ratio(malformedOutputChecks),
+    fallbackCorrectness:ratio(fallbackChecks),
+    zeroWorkerCorrectness:ratio(zeroWorkerChecks),
+    providerInterchangeability:ratio(providerInterchangeChecks),
     cpuMs:null,peakRamMb:null,llmInputTokens:null,llmOutputTokens:null,estimatedCost:null,
   });
 }
+
+function ratio(checks){return checks.length?checks.filter(Boolean).length/checks.length:null;}

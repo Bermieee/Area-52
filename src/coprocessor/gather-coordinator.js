@@ -129,6 +129,7 @@ export class GatherCoordinator {
       historicalState,
       characterInference:bundle.greenRoom,
       truthClassifications:bundle.truthClassifications,
+      precisionResults:bundle.precisionResults,
       rankedCandidates:bundle.truthClassifications.flatMap(x=>x.ranking??[]),
       unresolved,
       externalGrounding:bundle.externalGrounding,

@@ -19,3 +19,6 @@ export * from './batch-adapter.js';
 export * from './fallback-policy.js';
 export * from './function-test-001.js';
 export * from './streaming-truth-observer.js';
+export * from './browser-compat.js';
+export * from './placement-policy.js';
+export * from './retrieval-control-policy.js';

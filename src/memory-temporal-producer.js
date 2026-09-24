@@ -96,7 +96,7 @@ export class MemoryTemporalProducer {
       for (const proposalId of receipt.affectedSceneProposalIds??[]) {
         materializedSceneEpisodes.push(this.refreshSceneExperienceProposal(proposalId));
       }
-      this.historian.build();
+      if (materializedSceneEpisodes.length) this.historian.build();
     }
     return {
       ...receipt,

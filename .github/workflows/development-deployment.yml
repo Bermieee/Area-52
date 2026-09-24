@@ -6,7 +6,61 @@ on:
   workflow_dispatch:
 
 jobs:
-  focused:
+  deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deployment syntax
+        run: find src/deployment -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Focused deployment vertical slice
+        run: node --test tests/deployment-brain.integration.test.mjs
+
+  repairs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Worker 4 focused repairs
+        run: node --test tests/worker4-lore190-repro.test.mjs tests/worker4-jev211-repro.test.mjs
+
+  lore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Accepted Lore regressions
+        run: node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs tests/lore-wave1-stress.mjs tests/lore-wave2-stress.mjs tests/lore-wave3-stress.mjs
+
+  scene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Accepted Scene regressions
+        run: node --test tests/scene-*.mjs
+
+  runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -16,32 +70,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Deployment syntax
-        run: |
-          find src/deployment -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
-      - name: Focused deployment vertical slice
-        run: node --test tests/deployment-brain.integration.test.mjs
-      - name: Worker 4 focused repairs
-        run: node --test tests/worker4-lore190-repro.test.mjs tests/worker4-jev211-repro.test.mjs
-      - name: Accepted Lore regressions
-        run: node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs
-      - name: Accepted Scene regressions
-        run: node --test tests/scene-*.mjs
       - name: Accepted Runtime regressions
         run: node --test tests/runtime*.mjs
-      - name: Accepted Memory regressions
-        run: node --test tests/memory*.mjs
-      - name: Coprocessor Wave 13 choice regressions
-        run: node --test tests/coprocessor-wave13-*.test.mjs
-      - name: UI live-binding and SillyTavern host regressions
-        run: node --test tests/wave11-live-bindings*.mjs tests/wave12-sillytavern-host*.mjs
-      - name: Browser-facing deployment imports
-        run: |
-          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"
 
-  full-regression:
+  memory:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,8 +83,61 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Full assembled regression
-        run: npm test
+      - name: Accepted Memory Wave 1+2+3 regressions and stress
+        run: node --test tests/memory-wave1.mjs tests/memory-wave2.mjs tests/memory-wave3.mjs tests/memory-wave1-stress.mjs tests/memory-wave2-stress.mjs tests/memory-wave3-stress.mjs
+
+  coprocessor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Coprocessor Wave 13 cognitive-choice regressions
+        run: node --test tests/coprocessor-wave13-browser.test.mjs tests/coprocessor-wave13-choice.test.mjs tests/coprocessor-wave13-evaluation.test.mjs tests/coprocessor-wave13-stress.test.mjs
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: UI live binding and SillyTavern host regressions
+        run: node --test tests/wave11-live-bindings.test.mjs tests/wave11-live-bindings-stress.mjs tests/wave12-sillytavern-host.test.mjs tests/wave12-sillytavern-host-stress.mjs
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Browser-facing deployment imports
+        run: |
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/memory-temporal-producer.js'),import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"
+
+  manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify pinned source digests and documented integration patches
+        run: node scripts/verify-development-deployment.mjs
 
   syntax:
     runs-on: ubuntu-latest
@@ -65,9 +152,9 @@ jobs:
       - name: Full assembled syntax
         run: npm run check
 
-  manifest:
+  full-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,5 +162,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify pinned source digests and documented integration patches
-        run: node scripts/verify-development-deployment.mjs
+      - name: Full assembled regression
+        run: npm test

@@ -260,7 +260,7 @@ export class SpeculativeWarmCoordinator {
     }
 
     if (evaluated.state === WarmState.FRESH) {
-      const packet = this.#findPacketByIdentity(current, turnSequence);
+      const packet = this.#findPacketByIdentity(current);
       const coverage = packet?.metadata?.stageCoverage ?? {};
       const compiled = normalizeReusableCompiled(packet?.compiledRepresentation);
       const requiredForegroundStages = ['CORE_FRESHNESS_REVALIDATION', 'CORE_ADMISSION'];
@@ -632,19 +632,9 @@ export class SpeculativeWarmCoordinator {
     this.#drain();
   }
 
-  #findPacketByIdentity(identity, turnSequence) {
-    const exact = this.cache.evaluate(identity, { turnSequence });
-    if (exact.state !== WarmState.FRESH) return null;
-    if (typeof this.cache.peek === 'function') return this.cache.peek(identity);
-    return this.#packetFromDiagnostics(exact.packetId);
-  }
-
-  #packetFromDiagnostics(packetId) {
-    for (let i = this.#diagnostics.length - 1; i >= 0; i -= 1) {
-      const packet = this.#diagnostics[i]?.packet;
-      if (packet?.packetId === packetId) return packet;
-    }
-    return null;
+  #findPacketByIdentity(identity) {
+    if (typeof this.cache.peek !== 'function') return null;
+    return this.cache.peek(identity);
   }
 
   #rememberConsumption(record) {

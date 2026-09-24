@@ -34,6 +34,8 @@ export class MemoryExperienceStore {
     this.currentReflectionByKey=new Map();
     this.sequence=0;
     this.reflectionSequence=0;
+    this.consolidationSequence=0;
+    this.consolidationSessions=new Map();
     this.diagnostics=[];
     if (snapshot) this.restore(snapshot);
   }
@@ -148,13 +150,19 @@ export class MemoryExperienceStore {
     const support=uniqStrings(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs);
     const contradictions=uniqStrings(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs);
     for (const id of [...support,...contradictions]) if (!this.graph.evidenceRecord(id)) throw new Error('MEMORY_REFLECTION_EVIDENCE_UNKNOWN:'+id);
+    for (const id of support) if (!this.graph.evidenceFresh(id)) throw new Error('MEMORY_REFLECTION_SUPPORT_STALE:'+id);
     const eps=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
-    for (const id of eps) if (!this.episodes.has(id)) throw new Error('MEMORY_REFLECTION_EPISODE_UNKNOWN:'+id);
+    for (const id of eps) {
+      const episode=this.episodes.get(id);
+      if (!episode) throw new Error('MEMORY_REFLECTION_EPISODE_UNKNOWN:'+id);
+      if (episode.freshness!=='FRESH' || episode.state!=='CURRENT') throw new Error('MEMORY_REFLECTION_EPISODE_STALE:'+id);
+    }
     const sources=uniqStrings([
       ...sourceRevisionRefs,
       ...support.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...eps.flatMap((id)=>this.episodes.get(id)?.sourceRevisionRefs??[]),
     ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+    for (const sourceRevisionId of sources) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
     const history=this.reflectionHistoryByKey.get(reflectionKey)??[];
     const revision=history.length+1;
     const priorId=this.currentReflectionByKey.get(reflectionKey);
@@ -281,6 +289,57 @@ export class MemoryExperienceStore {
     ];
   }
 
+  startConsolidation(jobs=[]) {
+    if (!Array.isArray(jobs)) throw new TypeError('consolidation jobs must be an array');
+    if (jobs.length>MEMORY_LIMITS.maxConsolidationJobs) throw new RangeError('Memory consolidation job count exceeds bound');
+    const id='memory-consolidation:' + stableHash(String(++this.consolidationSequence)+'|'+stableStringify(jobs));
+    const session={
+      kind:'MemoryConsolidationSession',
+      id,
+      state:'ACTIVE',
+      cursor:0,
+      jobs:deepClone(jobs),
+      publishedArtifactIds:[],
+      failures:[],
+      checkpoint:null,
+      runtimeSchedulingAuthority:false,
+      physicalWorkerAuthority:false,
+    };
+    this.consolidationSessions.set(id,session);
+    return deepClone(session);
+  }
+
+  runConsolidation(sessionId,{maxUnits=MEMORY_LIMITS.maxCheckpointWorkUnits}={}) {
+    const session=this.consolidationSessions.get(sessionId);
+    if (!session) throw new Error('Unknown Memory consolidation session: '+sessionId);
+    if (session.state==='COMPLETED') return deepClone(session);
+    const limit=Math.max(1,Math.min(MEMORY_LIMITS.maxCheckpointWorkUnits,Number(maxUnits)||1));
+    let used=0;
+    while (session.cursor<session.jobs.length && used<limit) {
+      const job=session.jobs[session.cursor];
+      try {
+        if (job.type!=='REFLECTION') throw new Error('MEMORY_CONSOLIDATION_JOB_UNSUPPORTED:'+String(job.type));
+        const artifact=this.reviseReflection(job.input??{});
+        session.publishedArtifactIds.push(artifact.id);
+      } catch (error) {
+        session.failures.push({cursor:session.cursor,code:error?.message??String(error)});
+      }
+      session.cursor+=1;
+      used+=1;
+      session.checkpoint={
+        cursor:session.cursor,
+        total:session.jobs.length,
+        checksum:stableHash(stableStringify({
+          cursor:session.cursor,
+          publishedArtifactIds:session.publishedArtifactIds,
+          failures:session.failures,
+        })),
+      };
+    }
+    session.state=session.cursor>=session.jobs.length?'COMPLETED':'CHECKPOINTED';
+    return deepClone(session);
+  }
+
   checkpoint({cursor=0,pendingWork=[]}={}) {
     return {
       kind:'MemoryConsolidationCheckpoint',
@@ -303,6 +362,8 @@ export class MemoryExperienceStore {
       currentReflectionByKey:[...this.currentReflectionByKey.entries()],
       sequence:this.sequence,
       reflectionSequence:this.reflectionSequence,
+      consolidationSequence:this.consolidationSequence,
+      consolidationSessions:[...this.consolidationSessions.entries()].map(([id,row])=>[id,deepClone(row)]),
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -316,6 +377,8 @@ export class MemoryExperienceStore {
     this.currentReflectionByKey=new Map(snapshot?.currentReflectionByKey??[]);
     this.sequence=Number(snapshot?.sequence??0);
     this.reflectionSequence=Number(snapshot?.reflectionSequence??0);
+    this.consolidationSequence=Number(snapshot?.consolidationSequence??0);
+    this.consolidationSessions=new Map((snapshot?.consolidationSessions??[]).map(([id,row])=>[id,deepClone(row)]));
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
   }
 }

@@ -87,6 +87,7 @@ export const MEMORY_LIMITS = Object.freeze({
   maxHistorianExcerptCharacters:1600,
   maxDiagnostics:128,
   maxCheckpointWorkUnits:32,
+  maxConsolidationJobs:4096,
   maxIndexedTermsPerArtifact:192,
 });
 

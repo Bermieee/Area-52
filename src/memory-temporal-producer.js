@@ -155,6 +155,16 @@ export class MemoryTemporalProducer {
     return this.historian.memoryRevisionRefs();
   }
 
+  startConsolidation(jobs=[]) {
+    return this.experienceStore.startConsolidation(jobs);
+  }
+
+  runConsolidation(sessionId,options={}) {
+    const result=this.experienceStore.runConsolidation(sessionId,options);
+    if (result.publishedArtifactIds.length) this.historian.build();
+    return result;
+  }
+
   checkpoint({cursor=0,pendingWork=[]}={}) {
     return this.experienceStore.checkpoint({cursor,pendingWork});
   }
@@ -174,6 +184,7 @@ export class MemoryTemporalProducer {
         'ENTITY_TRAVERSAL',
         'GREEN_ROOM_SHADOW',
         'REFLECTION_DERIVATION',
+        'BOUNDED_CONSOLIDATION_CHECKPOINT',
         'HISTORIAN_QUERY',
         'HISTORIAN_RESOLVER',
         'EXACT_EVIDENCE_DRILLBACK',

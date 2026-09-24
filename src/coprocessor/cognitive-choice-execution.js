@@ -11,8 +11,10 @@ export const CoprocessorChoiceExecutionState=Object.freeze({
 
 export function createCoprocessorChoiceExecutionTrace({proposal,runtimeRecords=[],swarmTraces=[],resultRoutes=[],providerExecutions=[],jevObservation=null,warmObservation=null,telemetry=null,maxReceiptBytes=32768}={}){
   if(proposal?.kind!=='CoprocessorChoiceProposal')throw new TypeError('CoprocessorChoiceProposal required');
-  const runtime=byTask(runtimeRecords),swarm=byTask(swarmTraces),provider=byTask(providerExecutions),routes=routesByTask(resultRoutes);
-  const facts=proposal.options.map(option=>fact(option,{runtime:runtime.get(option.taskId),swarm:swarm.get(option.taskId),provider:provider.get(option.taskId),routes:routes.get(option.taskId)??[]}));
+  const runtime=byIdentity(runtimeRecords),swarm=byIdentity(swarmTraces),provider=byIdentity(providerExecutions),routes=routesByIdentity(resultRoutes);
+  const facts=proposal.options.map(option=>fact(option,{
+    runtime:lookup(runtime,option),swarm:lookup(swarm,option),provider:lookup(provider,option),routes:lookup(routes,option)??[],
+  }));
   const executionCounts=counts(facts);
   const trace=freeze({
     kind:'CoprocessorChoiceExecutionTrace',contractVersion:COPROCESSOR_CHOICE_VERSION,
@@ -84,8 +86,10 @@ function normalizeJev(o,p){if(!o)return freeze({...clone(p),ran:false,status:p?.
       optionalOutcome:valueOrNull(o.measuredContribution.optionalOutcome),changedDecision:Boolean(o.measuredContribution.changedDecision),measurementClass:String(o.measuredContribution.measurementClass??'NOT_MEASURED')}):null,settlementAuthority:false});}
 function normalizeWarm(o,p){if(!o)return freeze({...clone(p),coreRevalidated:false,countedUseful:false});const valid=o.coreRevalidated===true;return freeze({...clone(p),freshness:o.freshness??p?.freshness??null,
   coreRevalidated:valid,countedUseful:valid&&o.countedUseful===true,preparationCostMs:numberOrNull(o.preparationCostMs),sendLatencySavedMs:numberOrNull(o.sendLatencySavedMs),measurementClass:valueOrNull(o.measurementClass)});}
-function byTask(rows){const m=new Map();for(const r of rows??[]){const id=r?.taskId??r?.task?.taskId??r?.obligation?.taskId;if(id)m.set(String(id),r);}return m;}
-function routesByTask(rows){const m=new Map();for(const r of rows??[]){const id=r?.result?.taskId??r?.taskId;if(!id)continue;const a=m.get(String(id))??[];a.push(r);m.set(String(id),a);}return m;}
+function identities(row){return [...new Set([row?.taskId,row?.task?.taskId,row?.obligation?.taskId,row?.optionId,row?.choiceOptionId,row?.metadata?.choiceOptionId,row?.result?.taskId,row?.result?.optionId,row?.result?.choiceOptionId].filter(Boolean).map(String))];}
+function byIdentity(rows){const m=new Map();for(const r of rows??[])for(const id of identities(r))m.set(id,r);return m;}
+function routesByIdentity(rows){const m=new Map();for(const r of rows??[])for(const id of identities(r)){const a=m.get(id)??[];a.push(r);m.set(id,a);}return m;}
+function lookup(map,option){if(option.taskId&&map.has(String(option.taskId)))return map.get(String(option.taskId));return map.get(String(option.optionId));}
 function counts(facts){const out=Object.fromEntries(Object.values(CoprocessorChoiceExecutionState).map(x=>[x,0]));for(const x of facts)out[x.state]++;return freeze(out);}
 function valueOrNull(v){return v==null?null:String(v);}function numberOrNull(v){if(v==null)return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function stable(v){if(Array.isArray(v))return'['+v.map(stable).join(',')+']';if(v&&typeof v==='object')return'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}';return JSON.stringify(v);}

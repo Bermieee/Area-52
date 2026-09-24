@@ -11,9 +11,10 @@ const files=[
   'src/memory-temporal-producer.js',
   'src/memory-integration-surface.js',
   'src/memory-summary-hierarchy.js',
+  'src/memory-evidence-bridge.js',
 ];
 
-test('Memory Wave 1 production modules are browser/SillyTavern safe',async()=>{
+test('Memory Wave 1+2+3 production modules are browser/SillyTavern safe',async()=>{
   for (const file of files) {
     const source=await readFile(file,'utf8');
     assert.doesNotMatch(source,/from\s+['"]node:/,file+' imports node:*');

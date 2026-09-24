@@ -220,7 +220,10 @@ export function normalizeJevDecisionReceipt(receipt,choice=null){
     });
     if(action==='REQUEST_OPERATOR')return choiceJevSummary(decision,JevOutcome.REQUEST_OPERATOR,'JEV_OPERATOR');
     if(action==='PRESERVE_UNRESOLVED')return choiceJevSummary(decision,JevOutcome.UNRESOLVED,'JEV_UNRESOLVED');
-    if(action==='INVOKE_JEV'||decision.invoked===true)return choiceJevSummary(decision,'INVOKED','JEV_INVOKED');
+    // An invocation request is not a completed Jev decision. Without a Jev receipt or an accepted
+    // Core summary carrying a terminal outcome, keep the decision stage unavailable rather than
+    // fabricating completion from intent alone.
+    if(action==='INVOKE_JEV'||action==='INVOKED'||decision.invoked===true)return null;
     return null;
   }
   const rawOutcome=String(receipt.outcome??receipt.status??receipt.decisionStatus??'INVALID').toUpperCase();
@@ -421,7 +424,7 @@ function buildNormalSummary({choice,sensory,truth,jev,precision,gather,seal,prom
 function mapStageState(value){const x=String(value??'COMPLETE').toUpperCase();if(STATES.has(x))return x;if(['READY','DONE','SUCCESS','SUCCEEDED','DECIDED'].includes(x))return CognitionStageState.COMPLETE;if(['RUNNING','WORKING','QUEUED'].includes(x))return CognitionStageState.ACTIVE;if(['ERROR'].includes(x))return CognitionStageState.FAILED;return CognitionStageState.COMPLETE;}
 function stateHealth(state){if(state===CognitionStageState.ACTIVE)return Wave6Health.WORKING;if([CognitionStageState.DEGRADED,CognitionStageState.STALE].includes(state))return Wave6Health.DEGRADED;if([CognitionStageState.INVALID,CognitionStageState.FAILED].includes(state))return Wave6Health.BLOCKED;if(state===CognitionStageState.UNAVAILABLE)return Wave6Health.UNAVAILABLE;return Wave6Health.READY;}
 function humanChoice(v){if(Array.isArray(v))return v.map(human).join(' + ');return v==null?null:human(v);}
-function human(v){return String(v??'').trim().replace(/[_:-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
+function human(v){const raw=String(v??'').trim();if(!raw)return '';const machine=/[_:-]/.test(raw)||raw===raw.toUpperCase();const spaced=raw.replace(/[_:-]+/g,' ');return machine?spaced.toLowerCase().replace(/\b\w/g,m=>m.toUpperCase()):spaced;}
 function isExplicitSkip(v){return Boolean(v&&(v.invoked===false||String(v.state??v.status??'').toUpperCase()==='SKIPPED'));}
 function numberOrNull(v){if(v==null)return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function first(...v){return v.find(x=>x!=null)??null;}

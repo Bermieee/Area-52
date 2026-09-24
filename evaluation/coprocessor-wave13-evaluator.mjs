@@ -68,7 +68,7 @@ export async function runCoprocessorWave13Evaluation(){
       name:scenario.name,proposalId:proposal.proposalId,resourceCount:proposal.resourceCount,resourceMode:proposal.resourceMode,
       nominated:proposal.counts.NOMINATED,skipped:proposal.counts.SKIPPED,deferred:proposal.counts.DEFERRED,unavailable:proposal.counts.UNAVAILABLE,
       nominatedOptions:proposal.options.filter(x=>x.disposition==='NOMINATED').map(x=>x.optionId),
-      jevDisposition:jev?.disposition??null,jevStatus:trace.jev?.status??null,correctiveDisposition:correction?.disposition??null,
+      jevDisposition:jev?.disposition??null,jevStatus:trace.jev?.status??null,jevFallbackType:jev?.fallback?.type??null,correctiveDisposition:correction?.disposition??null,
       warmFreshness:trace.warm?.freshness??null,warmCountedUseful:Boolean(trace.warm?.countedUseful),
       fixtureCriticalPathEstimateMs:fixtureLatency(proposal,proposal.resourceCount),
       hostPolicyEvaluationMs:now()-started,executionDegraded:trace.degraded,
@@ -78,16 +78,29 @@ export async function runCoprocessorWave13Evaluation(){
   }
   const wallMs=now()-wallStart,cpu=cpuStart&&typeof process!=='undefined'&&process.cpuUsage?process.cpuUsage(cpuStart):null,afterMem=typeof process!=='undefined'&&process.memoryUsage?process.memoryUsage().heapUsed:null;
   const one=rows.find(x=>x.name==='one-resource-load'),many=rows.find(x=>x.name==='multi-resource-load');
+  const policyTurn=turn('policy-compare');
+  const strictPolicy=planner.planChoice({turnEvent:policyTurn,text:'Check a current public fact if needed.',capabilityProfiles:baseProfiles,externalGroundingNeeded:true,externalGroundingPolicy:'DENY',choicePolicyVersion:'choice:strict'}).choiceProposal;
+  const allowedPolicy=planner.planChoice({turnEvent:policyTurn,text:'Check a current public fact if needed.',capabilityProfiles:baseProfiles,externalGroundingNeeded:true,externalGroundingPolicy:'ALLOW',choicePolicyVersion:'choice:external-allowed'}).choiceProposal;
+  const strictExternal=option(strictPolicy,'external-grounding'),allowedExternal=option(allowedPolicy,'external-grounding');
+  const ambiguous=rows.find(x=>x.name==='ambiguous-blade-jev'),providerFailure=rows.find(x=>x.name==='optional-provider-failure');
   const report={
     benchmark:'AREA52_COPROCESSOR_CHOICE_WAVE13',corpusCases:rows.length,
     providerConfiguration:{defaultPath:'LOCAL_SELF_CONTAINED',liveProviderSmoke:{status:'SKIPPED',reason:'NO_LIVE_PROVIDER_BOUND_CONFIGURED_IN_WAVE13_EVALUATOR'},fixtureProviderTiming:'SIMULATED_FIXTURE_ONLY'},
     correctness:{falseCertainty,falseSelections,bladeFatePreservedUnresolved:rows.find(x=>x.name==='ambiguous-blade-jev')?.jevStatus==='ABSTAINED',
       hotOnlyOptionalNominations:rows.find(x=>x.name==='hot-only')?.nominated??null,mixedCorrectiveNominated:rows.find(x=>x.name==='mixed-one-correction')?.correctiveDisposition==='NOMINATED',
       warmUsefulRequiresCoreRevalidation:rows.find(x=>x.name==='warm-fresh')?.warmCountedUseful===true,
+      providerFailureFallbackCorrect:Boolean(providerFailure?.executionDegraded&&providerFailure?.jevFallbackType==='PRESERVE_UNRESOLVED'&&providerFailure?.coreAuthorityCheck),
       allCoreAuthorityChecks:rows.every(x=>x.coreAuthorityCheck)},
     work:{nominated:totalNominated,skipped:totalSkipped,deferred:totalDeferred,unavailable:totalUnavailable,providerCallsSimulated,
       oneResourceCriticalPathEstimateMs:one?.fixtureCriticalPathEstimateMs??null,multiResourceCriticalPathEstimateMs:many?.fixtureCriticalPathEstimateMs??null,
       semanticResourceParity:JSON.stringify(one?.nominatedOptions??[])===JSON.stringify(many?.nominatedOptions??[])},
+    policyComparison:{measurementClass:'DETERMINISTIC_POLICY_REPLAY',strictPolicyVersion:strictPolicy.policyVersion,allowedPolicyVersion:allowedPolicy.policyVersion,
+      strictExternalDisposition:strictExternal?.disposition??null,allowedExternalDisposition:allowedExternal?.disposition??null,
+      changedOptions:strictExternal?.disposition===allowedExternal?.disposition?[]:['external-grounding'],authorityChanged:false},
+    pathComparison:{measurementClass:'SIMULATED_FIXTURE_ONLY',
+      deterministicOnly:{outcome:'UNRESOLVED',providerCalls:0,fixtureProviderLatencyMs:0},
+      optionalJev:{outcome:ambiguous?.jevStatus==='ABSTAINED'?'UNRESOLVED':ambiguous?.jevStatus,providerCalls:1,fixtureProviderLatencyMs:18,changedDecision:false},
+      providerFailure:{degraded:Boolean(providerFailure?.executionDegraded),fallbackContract:providerFailure?.jevFallbackType??null,outcome:'UNRESOLVED',fabricatedAuthority:false}},
     hostMeasurements:{measurementClass:'ACTUAL_NODE_HOST_PROCESS',wallMs,cpuMs:cpu?{user:cpu.user/1000,system:cpu.system/1000,total:(cpu.user+cpu.system)/1000}:null,
       heapDeltaBytes:beforeMem!=null&&afterMem!=null?afterMem-beforeMem:null},
     costAndTokens:{status:'NOT_MEASURED',reason:'no live provider usage/pricing receipt in deterministic Wave 13 evaluation'},

@@ -515,7 +515,7 @@ export class SpeculativeWarmCoordinator {
           recommendation: request.recommendation, identity: request.identity, context: request.context,
         })
         : null;
-      const compiledRepresentation = normalizeCompiledResult(compiledRaw, this.limits);
+      const compiledRepresentation = normalizeCompiledResult(compiledRaw, this.limits, request.identity);
       const stageCoverage = {
         retrieval: this.adapters.providerMode !== 'NATIVE_REFERENCE_ONLY',
         quality: true,
@@ -813,11 +813,21 @@ function boundedReceipt(value, stage, limits) {
   return deepFreeze(summary);
 }
 
-function normalizeCompiledResult(value, limits) {
+function normalizeCompiledResult(value, limits, identity = null) {
   if (value == null) return null;
   const candidate = value?.compiledRef ?? value?.artifactRef ?? value?.reference ?? value;
   if (candidate?.kind === 'ArtifactReference' && typeof candidate.artifactId === 'string') {
     const cloned = safeClone(candidate);
+    if (identity && !artifactReferenceMatchesIdentity(cloned, identity)) {
+      return deepFreeze({
+        kind: 'WarmCompiledReceipt',
+        contentHash: sha256Hex(JSON.stringify(cloned)),
+        sourceBytes: byteLength(cloned),
+        reusable: false,
+        reason: 'COMPILED_REFERENCE_FENCE_MISMATCH',
+        authority: 'NONE',
+      });
+    }
     const bytes = byteLength(cloned);
     if (bytes > limits.maxReceiptBytes) throw new RangeError('compiled ArtifactReference exceeds receipt budget');
     return deepFreeze({
@@ -838,6 +848,16 @@ function normalizeCompiledResult(value, limits) {
     reason: 'COMPILED_OUTPUT_NOT_REFERENCE_BACKED',
     authority: 'NONE',
   });
+}
+
+function artifactReferenceMatchesIdentity(reference, identity) {
+  if (reference.sceneRevision != null && Number(reference.sceneRevision) !== Number(identity.sceneRevision)) return false;
+  if (reference.worldRevision != null && Number(reference.worldRevision) !== Number(identity.worldRevision)) return false;
+  if (Array.isArray(reference.sourceRevisionSet) && reference.sourceRevisionSet.length) {
+    const have = new Set(identity.sourceRevisionSet);
+    if (reference.sourceRevisionSet.some((item) => !have.has(item))) return false;
+  }
+  return true;
 }
 
 function normalizeReusableCompiled(value) {

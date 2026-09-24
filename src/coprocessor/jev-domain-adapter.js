@@ -73,7 +73,7 @@ export class JevDomainAdapterService {
   #proposalReplay = new Map();
   #metrics = new Map();
 
-  constructor({ registry, core, replayLimit = 128 } = {}) {
+  constructor({ registry, core, replayLimit = 2048 } = {}) {
     if (!(registry instanceof JevDomainAdapterRegistry)) throw new TypeError('JevDomainAdapterService requires JevDomainAdapterRegistry');
     if (!core || typeof core.decide !== 'function') throw new TypeError('JevDomainAdapterService requires JevDecisionCore');
     if (!Number.isInteger(replayLimit) || replayLimit < 1 || replayLimit > 4096) throw new TypeError('Jev adapter replayLimit must be an integer between 1 and 4096');

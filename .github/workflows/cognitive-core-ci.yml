@@ -53,6 +53,10 @@ jobs:
         run: node scripts/wave6-acceptance-report.mjs
       - name: Phase 1 Wave 6 integration stress
         run: node scripts/wave6-stress-report.mjs
+      - name: Hybrid Sensory Net Wave 8 acceptance
+        run: node scripts/candidate-bus-wave8-acceptance-report.mjs
+      - name: Hybrid Sensory Net Wave 8 stress
+        run: node scripts/candidate-bus-wave8-stress-report.mjs
       - name: Phase 1 Gate V2 evidence
         run: node scripts/phase1-gate-v2-report.mjs
       - name: Phase 1 Integration gate evidence

@@ -1,0 +1,13 @@
+import {runWave8Acceptance} from '../tests/candidate-bus-wave8-harness.js';
+const r=runWave8Acceptance();
+for(const [name,pass] of Object.entries(r.metrics))console.log((pass?'PASS':'FAIL')+' '+name);
+console.log('Wave 8 Candidate Bus acceptance: '+Object.values(r.metrics).filter(Boolean).length+'/'+Object.values(r.metrics).length);
+console.log('longForm candidates: '+r.candidateBus.longForm.candidateCount);
+console.log('promise channels: '+JSON.stringify(r.candidateBus.longForm.candidates.find(x=>x.evidenceIdentity==='event:promise')?.channelNominations.map(x=>x.channelId).sort()??[]));
+console.log('distinct same-source claims: '+r.candidateBus.distinctClaims.candidateCount);
+console.log('conflict candidates: '+r.candidateBus.conflict.candidateCount);
+console.log('partial channel errors: '+r.failures.scatter.errors.length);
+console.log('index fresh verify: '+r.index.verifyFresh.overall);
+console.log('torn verify: '+r.index.torn.tornVerify.overall);
+console.log('continuity-only candidates: '+r.continuity.continuity.candidateCount);
+if(!r.pass)process.exitCode=1;

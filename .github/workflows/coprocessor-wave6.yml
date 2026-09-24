@@ -1,0 +1,47 @@
+name: Cognitive Coprocessor Wave 6
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full regression suite
+        run: npm test
+      - name: Wave 1 focused suite
+        run: npm run test:coprocessor
+      - name: Wave 2 focused suite
+        run: npm run test:wave2
+      - name: Wave 3 focused suite
+        run: npm run test:wave3
+      - name: Wave 4 focused suite
+        run: npm run test:wave4
+      - name: Wave 5 focused suite
+        run: npm run test:wave5
+      - name: Wave 6 Green Room
+        run: npm run test:wave6:green-room
+      - name: Wave 6 Consolidation
+        run: npm run test:wave6:consolidation
+      - name: Wave 6 goldens
+        run: npm run test:wave6:golden
+      - name: Historical stress suites
+        run: npm run test:stress
+      - name: Wave 5 pressure regression
+        run: npm run test:wave5:stress
+      - name: Wave 6 focused cognition stress
+        run: npm run test:wave6:stress
+      - name: Browser-like Wave 6 production paths
+        run: npm run test:browser:wave6
+      - name: JavaScript syntax validation
+        run: npm run check
+      - name: Coprocessor module import
+        run: node -e "import('./src/coprocessor/index.js').then(() => console.log('Coprocessor index import PASS'))"

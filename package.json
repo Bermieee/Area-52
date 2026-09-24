@@ -3,7 +3,7 @@
   "version": "0.4.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 1 Wave 5",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 1 Wave 6",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
@@ -20,6 +20,12 @@
     "report:wave4": "node scripts/wave4-acceptance-report.mjs",
     "test:wave5": "node --test tests/coprocessor-wave5.test.mjs",
     "test:wave5:stress": "node --test tests/coprocessor-wave5-stress.test.mjs",
-    "test:browser:wave5": "node --test --test-name-pattern='browser-safe|foreground return does not await' tests/coprocessor-wave5.test.mjs"
+    "test:browser:wave5": "node --test --test-name-pattern='browser-safe|foreground return does not await' tests/coprocessor-wave5.test.mjs",
+    "test:wave6:green-room": "node --test tests/coprocessor-wave6-green-room.test.mjs",
+    "test:wave6:consolidation": "node --test tests/coprocessor-wave6-consolidation.test.mjs",
+    "test:wave6:golden": "node --test tests/coprocessor-wave6-golden.test.mjs",
+    "test:wave6": "node --test tests/coprocessor-wave6-green-room.test.mjs tests/coprocessor-wave6-consolidation.test.mjs tests/coprocessor-wave6-golden.test.mjs",
+    "test:wave6:stress": "node --test tests/coprocessor-wave6-stress.test.mjs",
+    "test:browser:wave6": "node --test --test-name-pattern='browser-safe' tests/coprocessor-wave6-green-room.test.mjs tests/coprocessor-wave6-consolidation.test.mjs"
   }
 }

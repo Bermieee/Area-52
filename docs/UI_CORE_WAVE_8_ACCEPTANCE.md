@@ -92,7 +92,7 @@ The deterministic acceptance fixture contains:
 
 Wave 8 has typed optional seams for Worker-1/2 output.
 
-At the implementation baseline:
+Current contract status:
 
 - Candidate Bus/Sensory contracts exist;
 - TruthAssessment / correction contracts exist;
@@ -100,11 +100,12 @@ At the implementation baseline:
 - ContextSealReceipt exists;
 - PromptPlan/ContextReceipt/Forensic read models exist;
 - SceneUiReadModel exists on the Scene lane;
-- CognitiveChoiceReceipt is pending Worker 1;
-- JevDecisionReceipt is pending Worker 2;
-- assembled Gather/Lore-status proof is pending integration.
+- Worker 1 has landed canonical `CognitiveChoiceReceipt` v1.0.0 on `Development-Nexus`;
+- Worker 2 has landed canonical `JevDecisionReceipt` v1.0.0 on `Development-Sidecar/Jev`;
+- Wave 8 has focused contract-conformance tests for both receipts;
+- assembled live Gather/Lore-status and cross-lane producer proof remain integration dependencies.
 
-Until pending producers land, production UI shows UNAVAILABLE.
+The UI branch does not copy Worker 1/2 production code. Until Integration supplies the owning live readers on an assembled build, production UI shows UNAVAILABLE. Deterministic contract-shaped test/demo data remains explicitly FIXTURE.
 
 ## Regression requirements
 

@@ -24,6 +24,8 @@ jobs:
         run: find src/deployment -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
       - name: Focused deployment vertical slice
         run: node --test tests/deployment-brain.integration.test.mjs
+      - name: Reproducible deployment demo evidence
+        run: node scripts/development-deployment-demo.mjs
 
   repairs:
     runs-on: ubuntu-latest

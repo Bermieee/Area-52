@@ -47,3 +47,7 @@ export * from './wave7-explainability.js';
 export * from './wave7-forensics.js';
 export * from './wave7-workspaces.js';
 export * from './wave7-bindings.js';
+export * from './wave8-cognition.js';
+export * from './wave8-production-adapters.js';
+export * from './wave8-bindings.js';
+export * from './wave8-workspace.js';

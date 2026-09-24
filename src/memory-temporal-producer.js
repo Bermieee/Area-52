@@ -8,6 +8,7 @@ import {TemporalStateGraph} from './temporal-state-graph.js';
 import {MemoryGreenRoomStore} from './memory-green-room.js';
 import {MemoryExperienceStore} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';
+import {MemorySummaryHierarchy} from './memory-summary-hierarchy.js';
 
 export class MemoryTemporalProducer {
   constructor({
@@ -15,18 +16,22 @@ export class MemoryTemporalProducer {
     greenRoom=new MemoryGreenRoomStore(),
     experienceStore=null,
     historian=null,
+    summaryHierarchy=null,
     snapshot=null,
   }={}) {
     this.graph=graph;
     this.greenRoom=greenRoom;
     this.experienceStore=experienceStore??new MemoryExperienceStore({graph});
     this.historian=historian??new MemoryHistorianIndex({graph,experienceStore:this.experienceStore});
+    this.summaryHierarchy=summaryHierarchy??new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore});
     this.diagnostics=[];
     if (snapshot) this.restore(snapshot);
   }
 
   appendEvidence(input) {
-    return this.graph.appendEvidence(input);
+    const evidence=this.graph.appendEvidence(input);
+    this.summaryHierarchy.onEvidenceAppended(evidence);
+    return evidence;
   }
 
   appendRawExperience(input) {
@@ -38,11 +43,14 @@ export class MemoryTemporalProducer {
   }
 
   publishEpisode(input) {
-    return this.experienceStore.publishEpisode(input);
+    const episode=this.experienceStore.publishEpisode(input);
+    this.summaryHierarchy.onEpisodePublished(episode);
+    return episode;
   }
 
   applySettlement(envelope) {
     const result=this.graph.applySettlement(envelope);
+    this.summaryHierarchy.invalidateEvidenceRefs(envelope?.proposal?.evidenceIds??[],'SETTLEMENT_CHANGED');
     this.historian.build();
     return result;
   }
@@ -99,6 +107,7 @@ export class MemoryTemporalProducer {
     const graphResult=this.graph.invalidateSourceRevision(sourceRevisionId,options);
     const greenRoomResult=this.greenRoom.expire({invalidatedSourceRevisionRefs:[sourceRevisionId]});
     const derived=this.experienceStore.refreshFreshness();
+    const hierarchy=this.summaryHierarchy.invalidateSourceRevision(sourceRevisionId,options);
     this.historian.build();
     const receipt={
       kind:'MemoryDependencyInvalidationReceipt',
@@ -107,6 +116,8 @@ export class MemoryTemporalProducer {
       expiredGreenRoom:greenRoomResult.expired,
       staleEpisodeIds:derived.staleEpisodes,
       staleReflectionIds:derived.staleReflections,
+      staleSummaryArtifactIds:hierarchy.staleArtifactIds,
+      affectedSummaryScopeRefs:hierarchy.affectedScopeRefs,
       memoryRevisionRefs:this.memoryRevisionRefs(),
       unrelatedMemoryMutation:false,
     };
@@ -120,7 +131,7 @@ export class MemoryTemporalProducer {
 
   queryHistorian(request) {
     try {
-      return this.historian.query(request);
+      return this.summaryHierarchy.queryHistorian(request??{},(baseRequest)=>this.historian.query(baseRequest));
     } catch (error) {
       this.pushDiagnostic({kind:'MemoryHistorianDegraded',reason:error?.message??String(error)});
       return this.historian.degradedResult({query:request?.query??'',mode:request?.mode??'EXPLICIT_HISTORY',reason:error?.message??'HISTORIAN_FAILED'});
@@ -148,11 +159,41 @@ export class MemoryTemporalProducer {
   }
 
   drillDown(nominationOrRecordRef) {
-    return this.historian.drillDown(nominationOrRecordRef);
+    const summary=this.summaryHierarchy.drillDown(nominationOrRecordRef);
+    return summary.length?summary:this.historian.drillDown(nominationOrRecordRef);
+  }
+
+  defineSummaryScope(input) {
+    return this.summaryHierarchy.defineScope(input);
+  }
+
+  runSummaryCompaction(options={}) {
+    const result=this.summaryHierarchy.runCompaction(options);
+    return result;
+  }
+
+  summaryWorkUnits(options={}) {
+    return this.summaryHierarchy.nextWorkUnits(options);
+  }
+
+  compileSummaryWorkUnit(workUnit,options={}) {
+    return this.summaryHierarchy.compileWorkUnit(workUnit,options);
+  }
+
+  summaryArtifact(scopeRef,options={}) {
+    return this.summaryHierarchy.currentArtifact(scopeRef,options);
+  }
+
+  summaryHistory(scopeRef) {
+    return this.summaryHierarchy.artifactHistory(scopeRef);
+  }
+
+  summaryStatus() {
+    return this.summaryHierarchy.status();
   }
 
   memoryRevisionRefs() {
-    return this.historian.memoryRevisionRefs();
+    return [...this.historian.memoryRevisionRefs(),this.summaryHierarchy.revisionRef()].sort();
   }
 
   startConsolidation(jobs=[]) {
@@ -188,6 +229,9 @@ export class MemoryTemporalProducer {
         'HISTORIAN_QUERY',
         'HISTORIAN_RESOLVER',
         'EXACT_EVIDENCE_DRILLBACK',
+        'HIERARCHICAL_SUMMARY_COMPACTION',
+        'RESOLUTION_AWARE_HISTORIAN',
+        'SUMMARY_WORK_REVISION_FENCES',
         'SNAPSHOT_RELOAD',
       ],
       bounds:deepClone(MEMORY_LIMITS),
@@ -197,6 +241,7 @@ export class MemoryTemporalProducer {
         greenRoom:'INFERRED_EXPIRING',
         reflection:'INFERRED_DURABLE',
         historian:'NOMINATION_ONLY',
+        summaries:'DERIVED_NAVIGATION_ONLY',
         candidateBusAdmission:false,
         truthGate:false,
         settlement:false,
@@ -208,6 +253,7 @@ export class MemoryTemporalProducer {
         scene:'SceneExperienceProposal v1.0.0',
         greenRoom:'GreenRoomBatch v1.1.0',
         historian:'HistorianMemoryResolution v1.0.0 + CandidateNomination v1.0.0',
+        hierarchy:'MemoryHierarchicalSummary v1.0.0 + MemorySummaryCompactionWorkUnit v1.0.0',
       },
     };
   }
@@ -224,6 +270,7 @@ export class MemoryTemporalProducer {
       episodeCount:this.experienceStore.episodes.size,
       reflectionCount:this.experienceStore.reflections.size,
       historian:this.historian.status(),
+      summaryHierarchy:this.summaryHierarchy.status(),
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -241,6 +288,7 @@ export class MemoryTemporalProducer {
       greenRoom:this.greenRoom.snapshot(),
       experienceStore:this.experienceStore.snapshot(),
       historian:this.historian.snapshot(),
+      summaryHierarchy:this.summaryHierarchy.snapshot(),
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -250,6 +298,7 @@ export class MemoryTemporalProducer {
     this.greenRoom.restore(snapshot?.greenRoom??null);
     this.experienceStore=new MemoryExperienceStore({graph:this.graph,snapshot:snapshot?.experienceStore??null});
     this.historian=new MemoryHistorianIndex({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.historian??null});
+    this.summaryHierarchy=new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.summaryHierarchy??null});
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
   }
 

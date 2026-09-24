@@ -43,3 +43,14 @@ test('forensic bundle stores stable references rather than raw prompt/response c
 test('fidelity evaluator rejects fabricated late admission and missing transaction refs',()=>{const ledger=new CognitiveTransactionLedger(),t=ledger.append(tx({transactionType:CognitiveTransactionType.CONTEXT_SEALED,turnId:'t'})).transaction;const evaluator=new DiagnosticFidelityEvaluator({ledger}),bundle={bundleId:'b',turnId:'t',transactionRefs:[t.transactionId,'cognitive-tx:missing'],lateResultRefs:['r1'],staleResultRefs:[],contextSealRef:'seal',reconstructionReceipt:{packetHash:'hash'}};const receipt=evaluator.evaluateBundle(bundle,{sealReceipt:{id:'seal',packetHash:'hash',admittedResultIds:['r1']},resultRoutes:[],requiredTransactionTypes:[CognitiveTransactionType.CONTEXT_SEALED]});assert.equal(receipt.status,FidelityStatus.FAIL);assert.ok(receipt.failures.some(x=>x.code==='LATE_RESULT_FALSELY_ADMITTED'));assert.ok(receipt.failures.some(x=>x.code==='MISSING_TRANSACTION_REFERENCE'));});
 
 test('Ember Tavern forensic golden world reconstructs truthfully and rejects falsified stories',()=>{const r=runCognitiveAuditWave2GoldenWorld();assert.equal(r.pass,true,JSON.stringify(r.metrics,null,2));});
+
+
+test('diagnostic queries explain recorded rejection and Settlement receipt without inventing evidence',()=>{
+  const ledger=new CognitiveTransactionLedger(),reconstructor=new CognitiveReconstructor({ledger});ledger.append(tx({transactionType:CognitiveTransactionType.SETTLEMENT_REJECTED,correlationId:'reject-chain',decision:'REJECT',outcome:'REJECTED',receiptRefs:['settlement-audit:rejected'],reasonCode:'SETTLEMENT_REJECTED',metadata:{proposalId:'proposal:rejected',reason:'source revision is stale'}}));
+  const plane=new DiagnosticQueryPlane({ledger,reconstructor});const rejected=plane.whyRejected('proposal:rejected'),settled=plane.settlementExplanation('settlement-audit:rejected');assert.equal(rejected.status,DiagnosticStatus.OK);assert.match(rejected.explanation,/stale/);assert.equal(settled.status,DiagnosticStatus.OK);assert.match(settled.explanation,/stale/);
+});
+
+test('fidelity evaluator rejects falsified transaction ordering',()=>{
+  const ledger=new CognitiveTransactionLedger(),a=ledger.append(tx({correlationId:'order'})).transaction,b=ledger.append(tx({correlationId:'order',transactionType:CognitiveTransactionType.CONTEXT_SEALED,causationId:a.transactionId,turnId:'turn:order'})).transaction;const evaluator=new DiagnosticFidelityEvaluator({ledger});
+  const bundle={bundleId:'order-bundle',turnId:'turn:order',transactionRefs:[b.transactionId,a.transactionId],lateResultRefs:[],staleResultRefs:[],sourceRevisionRefs:[],truthDecisionRefs:[],precisionRefs:[],settlementRefs:[],gatherRef:null,contextSealRef:null,reconstructionReceipt:{}};const receipt=evaluator.evaluateBundle(bundle);assert.equal(receipt.status,FidelityStatus.FAIL);assert.ok(receipt.failures.some(x=>x.code==='TRANSACTION_ORDER_FALSIFIED'));
+});

@@ -11,7 +11,7 @@ export function runCognitiveAuditWave2GoldenWorld(){
     sidecarTelemetryReader:(turnId)=>turnId==='turn:w3:1'?[{id:'telemetry:w3:gather',type:'GATHER_DISAGREEMENT',provider:'fixture-reference'}]:[],
   });
   const stale=core.publication.receiveResult(createCognitiveResult({
-    id:'result:audit:stale',taskId:'audit:stale',turnId:'turn:audit:stale',correlationId:'corr:audit:stale',sourceSubsystem:'AUDIT_FIXTURE',workerId:'fixture',
+    id:'result:audit:stale',taskId:'audit:stale',turnId:'turn:w3:1',correlationId:'corr:w3:1',sourceSubsystem:'AUDIT_FIXTURE',workerId:'fixture',
     destinationOwner:null,resultType:'RETRIEVAL_CANDIDATE',resultClass:ResultClass.OPPORTUNISTIC,payloadClass:ResultPayloadClass.DERIVED_DATA,evidenceIds:[],provenance:{fixture:true},
     sourceRevisionIds:['w3:journal@1'],worldRevision:published.worldRevision,sceneRevision:published.sceneRevision,authorityClass:'UNRESOLVED',destination:ResultDestination.FOREGROUND,payload:{fixture:true},timing:{},
   }));
@@ -21,10 +21,12 @@ export function runCognitiveAuditWave2GoldenWorld(){
   const omission=core.audit.diagnostics.whyOmitted(delivered.plan.promptPlanId);
   const unresolvedTx=core.audit.ledger.list().find(t=>t.decision==='UNRESOLVED'||t.transactionType===CognitiveTransactionType.STATE_CONTRADICTED);
   const unresolvedTarget=unresolvedTx?.affectedArtifactIds?.[0]??'sun-blade';const unresolved=core.audit.diagnostics.whyUnresolved(unresolvedTarget);
-  const bundle=core.audit.createForensicBundle({turnId:'turn:w3:1',generationId:'audit-pressure',gatherRef:'gather:w3:disagreement',truthDecisionRefs:published.assessment.truthResults.map(x=>`truth:${x.candidateId}`),precisionRefs:published.precisionResults.map(x=>`precision:${x.candidateId}`),assemblyProvenanceRefs:['assembly:Development-Nexus@715fa7fc']});
-  const routes=core.publication.resultBus.results({turnId:'turn:w3:1'});const fidelity=core.audit.fidelity.evaluateBundle(bundle,{sealReceipt:published.sealReceipt,resultRoutes:routes,requiredTransactionTypes:[CognitiveTransactionType.CONTEXT_SEALED,CognitiveTransactionType.RESULT_LATE]});
+  const bundle=core.audit.createForensicBundle({turnId:'turn:w3:1',generationId:'audit-pressure',gatherRef:'telemetry:w3:gather',truthDecisionRefs:published.assessment.truthResults.map(x=>`truth:${x.candidateId}:${x.classification}`),precisionRefs:published.precisionResults.map(x=>`precision:${x.candidateId}:${x.finalRank}`),assemblyProvenanceRefs:['assembly:Development-Nexus@715fa7fc']});
+  const routes=core.publication.resultBus.results({turnId:'turn:w3:1'});const fidelity=core.audit.fidelity.evaluateBundle(bundle,{sealReceipt:published.sealReceipt,resultRoutes:routes,requiredTransactionTypes:[CognitiveTransactionType.CONTEXT_SEALED,CognitiveTransactionType.RESULT_LATE,CognitiveTransactionType.RESULT_STALE]});
   const falsified=structuredClone(bundle);falsified.lateResultRefs=[published.sealReceipt.admittedResultIds[0]];const falseReceipt=core.audit.fidelity.evaluateBundle(falsified,{sealReceipt:published.sealReceipt,resultRoutes:routes});
   const missing=structuredClone(bundle);missing.transactionRefs.push('cognitive-tx:missing:required');const missingReceipt=core.audit.fidelity.evaluateBundle(missing,{sealReceipt:published.sealReceipt,resultRoutes:routes,requiredTransactionTypes:[CognitiveTransactionType.CONTEXT_SEALED]});
+  const falseGather=structuredClone(bundle);falseGather.gatherRef='telemetry:not-recorded';const falseGatherReceipt=core.audit.fidelity.evaluateBundle(falseGather,{sealReceipt:published.sealReceipt,resultRoutes:routes});
+  const falseTruth=structuredClone(bundle);falseTruth.truthDecisionRefs=[...falseTruth.truthDecisionRefs,'truth:fabricated:CURRENT'];const falseTruthReceipt=core.audit.fidelity.evaluateBundle(falseTruth,{sealReceipt:published.sealReceipt,resultRoutes:routes});
   const sourceTrace=core.audit.reconstructor.traceSourceRevision('w3:journal@2'),oldTrace=core.audit.reconstructor.traceSourceRevision('w3:journal@1');
   const staleExplanation=core.audit.diagnostics.whyStale(stale.result.id),turnTrace=core.audit.diagnostics.traceTurn('turn:w3:1');
   const sealTx=core.audit.ledger.list({turnId:'turn:w3:1'}).find(x=>x.transactionType===CognitiveTransactionType.CONTEXT_SEALED),lateTx=core.audit.ledger.list({turnId:'turn:w3:1'}).find(x=>x.transactionType===CognitiveTransactionType.RESULT_LATE);
@@ -35,9 +37,9 @@ export function runCognitiveAuditWave2GoldenWorld(){
     sourceEditTrace:sourceTrace.transactions.some(x=>x.transactionType===CognitiveTransactionType.SOURCE_REVISION_ADMITTED)&&sourceTrace.transactions.some(x=>x.transactionType===CognitiveTransactionType.ARTIFACT_INVALIDATED),oldHistoryPreserved:oldTrace.transactions.length>0,
     unresolvedExplainable:unresolved.status==='OK',dependencyBlockedExplainable:blocked.status==='OK'&&blocked.metadata.dependencies.missingRequired.includes('missing-diagnostic-provider'),
     omissionExplainable:omission.status==='OK'&&omission.metadata.decisions.length>0,promptPlanReferenced:Boolean(bundle.promptPlanRef),runtimeReferenced:bundle.runtimeWorkRefs.includes('runtime:turn:w3:1'),sidecarTelemetryReferenced:bundle.reconstructionReceipt.telemetryRefs.includes('telemetry:w3:gather'),
-    gatherReferencePreserved:bundle.gatherRef==='gather:w3:disagreement',contextSealReferenced:bundle.contextSealRef===published.sealReceipt.id,lateReferencePreserved:bundle.lateResultRefs.includes(late.result.id),
-    fidelityPass:fidelity.status===FidelityStatus.PASS,falsifiedDiagnosticRejected:falseReceipt.status===FidelityStatus.FAIL,missingTransactionRejected:missingReceipt.status===FidelityStatus.FAIL,
+    gatherReferencePreserved:bundle.gatherRef==='telemetry:w3:gather',contextSealReferenced:bundle.contextSealRef===published.sealReceipt.id,lateReferencePreserved:bundle.lateResultRefs.includes(late.result.id),staleReferencePreserved:bundle.staleResultRefs.includes(stale.result.id),
+    fidelityPass:fidelity.status===FidelityStatus.PASS,falsifiedDiagnosticRejected:falseReceipt.status===FidelityStatus.FAIL,missingTransactionRejected:missingReceipt.status===FidelityStatus.FAIL,falsifiedGatherRejected:falseGatherReceipt.status===FidelityStatus.FAIL,falsifiedTruthRejected:falseTruthReceipt.status===FidelityStatus.FAIL,
     turnTraceBounded:turnTrace.evidenceRefs.length<=48,futureContextUsesNewRevision:future.packet.dependencies.includes('w3:journal@2'),oldSealStillStable:base.metrics.packetHashStableAfterEdit,
   };
-  return{pass:Object.values(metrics).every(Boolean),metrics,core,bundle,fidelity,falseReceipt,missingReceipt,stale,delivered,edit};
+  return{pass:Object.values(metrics).every(Boolean),metrics,core,bundle,fidelity,falseReceipt,missingReceipt,falseGatherReceipt,falseTruthReceipt,stale,delivered,edit};
 }

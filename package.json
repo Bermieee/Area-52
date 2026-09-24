@@ -1,12 +1,15 @@
 {
   "name": "area-52",
-  "version": "0.2.0-lore-wave1",
+  "version": "0.3.0-lore-wave2",
   "private": true,
   "type": "module",
-  "description": "Area-52 native Lore Study and cognitive memory architecture",
+  "description": "Area-52 native Lore Study and multi-resolution representation architecture",
   "scripts": {
-    "test": "node --test tests/lore-wave1.mjs tests/lore-browser-safe.mjs",
-    "test:lore": "node --test tests/lore-wave1.mjs",
-    "test:stress": "node tests/lore-wave1-stress.mjs"
+    "test": "node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-browser-safe.mjs",
+    "test:wave1": "node --test tests/lore-wave1.mjs",
+    "test:wave2": "node --test tests/lore-wave2.mjs",
+    "test:stress": "node tests/lore-wave1-stress.mjs && node tests/lore-wave2-stress.mjs",
+    "test:stress:wave1": "node tests/lore-wave1-stress.mjs",
+    "test:stress:wave2": "node tests/lore-wave2-stress.mjs"
   }
 }

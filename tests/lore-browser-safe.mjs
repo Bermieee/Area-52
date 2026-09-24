@@ -7,6 +7,10 @@ const productionFiles = [
   'src/lore-source-registry.js',
   'src/lore-study-engine.js',
   'src/lore-study-runtime.js',
+  'src/lore-representation-contracts.js',
+  'src/lore-representation-compiler.js',
+  'src/lore-representation-registry.js',
+  'src/lore-multi-resolution.js',
 ];
 
 test('integration-visible Lore production modules avoid Node-only runtime dependencies', async () => {

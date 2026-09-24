@@ -63,7 +63,15 @@ test('retrieval-heavy turn executes Lore and Graph on one resource before Candid
   });
   assert.equal(result.scatter.jobs.length, 2);
   assert.equal(result.scatter.resourceCount, 1);
-  assert.ok(result.published.candidateEnvelope.fusionReceipt.perChannelCounts.NATIVE_LORE_RUNTIME > 0);
+  assert.ok(
+    result.published.candidateEnvelope.fusionReceipt.perChannelCounts.NATIVE_LORE_RUNTIME > 0,
+    JSON.stringify({
+      prepared: brain.loreChannel.prepared.get('Tell me about Mara and the Ember Tavern history'),
+      channelReceipts: result.published.candidateEnvelope.metadata?.channelReceipts,
+      channelErrors: result.published.candidateEnvelope.metadata?.channelErrors,
+      runtimeResults: result.runtimeResults,
+    }, null, 2),
+  );
   assert.ok(result.published.candidates.some((row) => row.sourceRevisionRefs.length > 0));
   assert.equal(result.published.gatherReceipt.closedForForeground, true);
   assert.equal(brain.core.publication.seal.verify('turn:retrieval').hashMatches, true);
@@ -86,7 +94,7 @@ test('ambiguous Sun Blade turn invokes bounded Jev through Runtime and preserves
     mode: 'ambiguous',
   });
   assert.equal(result.scatter.jobs.some((row) => row.taskType === 'JEV_DECISION'), true);
-  assert.ok(result.jevProposal);
+  assert.ok(result.jevProposal, JSON.stringify({ runtimeResults: result.runtimeResults, planning: result.planning }, null, 2));
   assert.equal(result.jevProposal.abstained, true);
   assert.equal(result.jevProposal.mutationAuthority, false);
   assert.equal(result.jevProposal.requiresOwnerPolicy, true);
@@ -109,7 +117,7 @@ test('missing optional Jev degrades safely while Truth, Gather, Seal and PromptP
   });
   assert.equal(result.scatter.jobs.some((row) => row.taskType === 'JEV_DECISION'), false);
   assert.equal(result.jevProposal, null);
-  assert.equal(result.published.cognitiveChoiceReceipt.jev.unavailable, true);
+  assert.equal(result.published.cognitiveChoiceReceipt.jev.unavailable, true, JSON.stringify(result.published.cognitiveChoiceReceipt.jev, null, 2));
   assert.equal(brain.core.publication.seal.verify('turn:no-jev').sealed, true);
   assert.equal(result.delivery.ok, true);
   assert.ok(result.published.gatherReceipt);

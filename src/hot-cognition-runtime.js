@@ -11,6 +11,7 @@ const cap=(values,max)=>values.length<=max?values:values.slice(values.length-max
 const same=(a,b)=>stableJson(a)===stableJson(b);
 const object=(v)=>v&&typeof v==='object'&&!Array.isArray(v);
 const boundedText=(v,max=240)=>String(v??'').slice(0,max);
+function deepFreeze(value){if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))deepFreeze(child);Object.freeze(value);}return value;}
 
 function refsFrom(value){
   if(!value||typeof value!=='object')return[];
@@ -398,9 +399,9 @@ export class HotCognitionRuntime{
     const hot=snapshot??this.snapshot();if(!hot||!turnId)return null;
     const stored={turnId:String(turnId),contextSealId:sealReceipt?.id??null,packetHash:sealReceipt?.packetHash??null,snapshot:hot};
     this.sealedSnapshots.set(String(turnId),stored);while(this.sealedSnapshots.size>this.limits.maxSealedSnapshots)this.sealedSnapshots.delete(this.sealedSnapshots.keys().next().value);
-    return clone(stored);
+    return deepFreeze(clone(stored));
   }
-  snapshotForTurn(turnId){const row=this.sealedSnapshots.get(String(turnId));return row?clone(row):null;}
+  snapshotForTurn(turnId){const row=this.sealedSnapshots.get(String(turnId));return row?deepFreeze(clone(row)):null;}
 
   exportState(){
     return clone({kind:'HotCognitionPersistedState',version:1,activeChatNamespace:this.activeChatNamespace,states:[...this.states.values()].map(state=>({
@@ -453,13 +454,14 @@ export class HotCognitionRuntime{
   #listAuthority(rows){if(rows.some(x=>x.authorityClass===AuthorityClass.INFERRED))return AuthorityClass.INFERRED;if(rows.some(x=>x.authorityClass===AuthorityClass.OBSERVED))return AuthorityClass.OBSERVED;return AuthorityClass.UNRESOLVED;}
 
   #setSegment(state,kind,{value,sourceRevisionRefs=[],dependencyRevisionRefs=[],provenanceRefs=[],authorityClass=AuthorityClass.UNRESOLVED,owner='COGNITIVE_CORE',freshness=HotFreshness.FRESH,updateId,rebuild=false,changed,reused}){
-    const prior=state.segments[kind],sameMaterial=prior&&same({value:prior.value,sourceRevisionRefs:prior.sourceRevisionRefs,dependencyRevisionRefs:prior.dependencyRevisionRefs,provenanceRefs:prior.provenanceRefs,authorityClass:prior.authorityClass,owner:prior.owner,freshness:prior.freshness},{value,sourceRevisionRefs:uniq(sourceRevisionRefs),dependencyRevisionRefs:uniq(dependencyRevisionRefs),provenanceRefs:cap(uniq(provenanceRefs),this.limits.maxProvenanceRefs),authorityClass,owner,freshness});
+    const normalizedSourceRefs=uniq(sourceRevisionRefs),normalizedDependencyRefs=uniq(dependencyRevisionRefs),normalizedProvenance=cap(uniq(provenanceRefs),this.limits.maxProvenanceRefs);
+    const prior=state.segments[kind],sameMaterial=prior&&same({value:prior.value,sourceRevisionRefs:prior.sourceRevisionRefs,dependencyRevisionRefs:prior.dependencyRevisionRefs,authorityClass:prior.authorityClass,owner:prior.owner,freshness:prior.freshness},{value,sourceRevisionRefs:normalizedSourceRefs,dependencyRevisionRefs:normalizedDependencyRefs,authorityClass,owner,freshness});
     if(sameMaterial){
-      state.segments[kind]=createHotSegment({...prior,changeState:HotChangeState.REUSED,reuseCount:prior.reuseCount+1,lastUpdate:{updateId,hotRevision:state.hotRevision+1}});
+      state.segments[kind]=createHotSegment({...prior,provenanceRefs:mergeRefs(prior.provenanceRefs,normalizedProvenance,this.limits.maxProvenanceRefs),changeState:HotChangeState.REUSED,reuseCount:prior.reuseCount+1,lastUpdate:{updateId,hotRevision:state.hotRevision+1}});
       state.counters.reuses+=1;reused.push(kind);return false;
     }
     state.segments[kind]=createHotSegment({
-      kind,revision:(prior?.revision??0)+1,value,owner,authorityClass,sourceRevisionRefs:uniq(sourceRevisionRefs),dependencyRevisionRefs:uniq(dependencyRevisionRefs),provenanceRefs:cap(uniq(provenanceRefs),this.limits.maxProvenanceRefs),freshness,
+      kind,revision:(prior?.revision??0)+1,value,owner,authorityClass,sourceRevisionRefs:normalizedSourceRefs,dependencyRevisionRefs:normalizedDependencyRefs,provenanceRefs:normalizedProvenance,freshness,
       changeState:rebuild?HotChangeState.REBUILT:freshness===HotFreshness.UNAVAILABLE?HotChangeState.UNAVAILABLE:HotChangeState.UPDATED,
       lastUpdate:{updateId,hotRevision:state.hotRevision+1},invalidationReason:null,
       reuseCount:prior?.reuseCount??0,updateCount:(prior?.updateCount??0)+1,rebuildCount:(prior?.rebuildCount??0)+(rebuild?1:0),invalidationCount:prior?.invalidationCount??0,

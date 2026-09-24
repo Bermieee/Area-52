@@ -134,7 +134,7 @@ test('Green Room lifecycle deterministically expires scene, time, departure, con
     assert.equal(store.invalidate(reason),1);assert.equal(store.size(),0);
   }
   const ttl=new GreenRoomStore({defaultTtlTurns:1});
-  ttl.putBatch({sceneRevision:7,characters:[{characterRef:'Mara',evidenceRefs:['e1'],confidence:.7,dimensions:{}}]},{turnSequence:1});
+  ttl.putBatch({sceneRevision:7,characters:[{characterRef:'Mara',evidenceRefs:['e1'],confidence:.7,dimensions:{},expiryCondition:{ttlTurns:1}}]},{turnSequence:1});
   assert.equal(ttl.get('Mara',{sceneRevision:7,turnSequence:3}),null);
 });
 
@@ -150,7 +150,7 @@ test('prior Green Room inference cannot self-reinforce without new direct eviden
   store.putBatch({sceneRevision:7,characters:[{characterRef:'Mara',evidenceRefs:['e2'],sourceRevisionSet:['src:2'],confidence:.7,dimensions:{anger:.6}}]},{turnSequence:4});
   store.putBatch({sceneRevision:7,characters:[{characterRef:'Mara',evidenceRefs:['e3'],sourceRevisionSet:['src:3'],confidence:.7,dimensions:{anger:.5}}]},{turnSequence:5});
   const candidate=store.createReflectionCandidate('Mara',{minCompatibleObservations:3,contradictingEvidenceRefs:['e:contra']});
-  assert.equal(candidate.observationCount,3);assert.deepEqual(candidate.evidenceRefs.sort(),['e1','e2','e3']);assert.equal(candidate.durableMutation,false);
+  assert.equal(candidate.observationCount,3);assert.deepEqual([...candidate.evidenceRefs].sort(),['e1','e2','e3']);assert.equal(candidate.durableMutation,false);
   assert.deepEqual(candidate.contradictingEvidence,['e:contra']);
 });
 

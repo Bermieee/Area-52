@@ -1,19 +1,28 @@
 import { AuthorityClass } from './contracts.js';
-import { ResultClass,ResultDestination,ResultPayloadClass,SealFallbackState,createCognitiveResult } from './publication-contracts.js';
+import { CandidateFreshness } from './candidate-bus-contracts.js';
+import { ResultClass,ResultDestination,ResultPayloadClass,SealFallbackState,createCognitiveResult,createTruthAssessment } from './publication-contracts.js';
 import { ResultBus } from './result-bus.js';
 import { TruthPublicationGate,inferTruthNeed } from './truth-publication-gate.js';
 import { DeterministicPrecisionStub } from './precision-contract.js';
 import { PublicationContextCompiler } from './publication-context-compiler.js';
 import { GenerationContextSeal } from './context-seal.js';
 import { buildHotCognitionCompilerProjection,attachHotCognitionToPacket } from './hot-cognition-context.js';
-import { utf8ByteLength } from './browser-runtime-utils.js';
+import { stableHash,utf8ByteLength } from './browser-runtime-utils.js';
 
 const uniq=(values)=>[...new Set(values)].sort();
+const emptyAssessment=({turnId,query,intent,reason})=>createTruthAssessment({
+  id:`truth-assessment:skipped:${turnId}`,query,intent,confidence:'LOW',truthResults:[],correctiveRequest:null,
+  reason,admittedCandidateIds:[],supportCandidateIds:[],
+});
 
 export class GenerationPublicationPipeline {
-  constructor({core,sceneRevision=0}){
+  constructor({core,sceneRevision=0,cognitiveChoice=null,maxPublishedTurns=64}){
     this.core=core;
     this.sceneRevision=sceneRevision;
+    this.choice=cognitiveChoice??core.cognitiveChoice??null;
+    this.maxPublishedTurns=Math.max(8,Number(maxPublishedTurns)||64);
+    this.publishedTurns=new Map();
+    this.publishedOrder=[];
     this.seal=new GenerationContextSeal();
     this.resultBus=new ResultBus({
       registry:core.registry,
@@ -29,63 +38,112 @@ export class GenerationPublicationPipeline {
   setSceneRevision(revision){this.sceneRevision=Number(revision);}
 
   publish({
-    turnId,correlationId,query,intent='CURRENT',anchorEntityIds=[],
-    budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],
+    turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
+    budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,
   }){
+    const fingerprint=stableHash({
+      turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
+      precisionAvailable:Boolean(precisionAvailable),activeThreads,channelIds:channelIds?uniq(channelIds):null,
+    },{length:24});
+    const replay=this.publishedTurns.get(String(turnId));
+    if(replay){
+      if(replay.fingerprint!==fingerprint)throw new Error(`Turn ${turnId} is already sealed with different cognitive-choice inputs`);
+      const receipt=this.choice?.markDuplicate?.(turnId)??replay.output.cognitiveChoiceReceipt??null;
+      return{...replay.output,cognitiveChoiceReceipt:receipt,duplicate:true};
+    }
+
     const hotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
     if(hotSnapshot?.sceneRevision&&hotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=hotSnapshot.sceneRevision;
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot):null;
-    const primary=this.core.retrieval.retrieve(query,{intent,anchorEntityIds,worldRevision,sceneRevision});
-    const candidateEnvelope=this.core.retrieval.lastEnvelope??null;
-    for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
-      taskId:`retrieve:${turnId}`,turnId,correlationId,sourceSubsystem:'SENSORY_NET',
-      resultClass:ResultClass.REQUIRED,destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
-    });
+    const choiceSession=this.choice?.begin?.({
+      turnId,turnRevision,correlationId,query,intent,anchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
+      budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),
+    })??null;
 
-    let candidates=this.#freshForegroundCandidates(turnId);
-    let assessment=this.truth.assess(candidates,{
-      query,intent,worldRevision,sceneRevision,attempt:0,maxCorrectiveAttempts:1,
-    });
-    let corrective={executed:false,terminated:true,candidates:[]};
+    let primary=[],primaryEnvelope=null,correctiveEnvelope=null,candidates=[];
+    let assessment=null,publicationAssessment=null;
+    let corrective={executed:false,terminated:true,candidates:[],failed:false,error:null};
+    let precisionResults=[],precisionFailed=false;
 
-    if(assessment.correctiveRequest){
-      corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds});
-      for(const candidate of corrective.candidates)this.resultBus.receiveCandidate(candidate,{
-        taskId:`corrective:${turnId}`,turnId,correlationId,causationId:assessment.correctiveRequest.id,
-        sourceSubsystem:'TRUTH_CORRECTIVE_RETRIEVAL',resultClass:ResultClass.REQUIRED,
-        destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
+    if(choiceSession?.hotOnly){
+      publicationAssessment=emptyAssessment({turnId,query,intent,reason:'long-term retrieval and Truth were skipped because Hot Cognition satisfied the turn'});
+    }else{
+      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds,worldRevision,sceneRevision,channelIds});
+      this.choice?.observeRetrieval?.(choiceSession,primaryEnvelope,{phase:'PRIMARY'});
+      primary=primaryEnvelope.candidates.filter(candidate=>candidate.freshness===CandidateFreshness.FRESH);
+      for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
+        taskId:`retrieve:${turnId}`,turnId,correlationId,sourceSubsystem:'SENSORY_NET',
+        resultClass:ResultClass.REQUIRED,destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
       });
+
       candidates=this.#freshForegroundCandidates(turnId);
       assessment=this.truth.assess(candidates,{
-        query,intent,worldRevision,sceneRevision,attempt:1,maxCorrectiveAttempts:1,allowHistoricalSupport:true,
+        query,intent,worldRevision,sceneRevision,attempt:0,maxCorrectiveAttempts:1,
       });
+      this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:Boolean(assessment.correctiveRequest)});
+
+      if(assessment.correctiveRequest){
+        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds});
+        if(corrective.executed&&!corrective.failed){
+          correctiveEnvelope=this.core.retrieval.lastEnvelope??null;
+          if(correctiveEnvelope)this.choice?.observeRetrieval?.(choiceSession,correctiveEnvelope,{phase:'CORRECTIVE'});
+        }else if(corrective.executed){
+          choiceSession.correctionExecuted=true;choiceSession.correctionCount+=1;choiceSession.correctionFailed=true;
+        }
+        for(const candidate of corrective.candidates)this.resultBus.receiveCandidate(candidate,{
+          taskId:`corrective:${turnId}`,turnId,correlationId,causationId:assessment.correctiveRequest.id,
+          sourceSubsystem:'TRUTH_CORRECTIVE_RETRIEVAL',resultClass:ResultClass.REQUIRED,
+          destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
+        });
+        candidates=this.#freshForegroundCandidates(turnId);
+        assessment=this.truth.assess(candidates,{
+          query,intent,worldRevision,sceneRevision,attempt:1,maxCorrectiveAttempts:1,allowHistoricalSupport:true,
+        });
+        this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:false,correctionFailed:Boolean(corrective.failed)});
+        this.choice?.noteCorrectionLimit?.(choiceSession);
+      }
+
+      publicationAssessment=assessment.confidence==='LOW'
+        ?emptyAssessment({turnId,query,intent,reason:'retrieval quality LOW; weak long-term-memory evidence abstained from generation'})
+        :assessment;
+
+      if(assessment.confidence==='LOW')this.choice?.evaluateJev?.(choiceSession,[]);
+      else this.choice?.evaluateJev?.(choiceSession,assessment.truthResults);
+
+      const precisionDecision=this.choice?.decidePrecision?.(choiceSession,{
+        candidateCount:uniq([...(publicationAssessment.admittedCandidateIds??[]),...(publicationAssessment.supportCandidateIds??[])]).length,
+        quality:assessment.confidence,precisionAvailable,
+      })??{invoked:Boolean(precisionAvailable),required:true,fallback:!precisionAvailable};
+
+      if(precisionDecision.invoked){
+        try{precisionResults=this.precision.rank(candidates,{query,intent,worldRevision,sceneRevision});}
+        catch(error){precisionFailed=true;precisionResults=[];}
+      }
+      this.choice?.recordPrecisionOutcome?.(choiceSession,{failed:precisionFailed,resultCount:precisionResults.length});
+
+      for(const precisionResult of precisionResults){
+        this.resultBus.receive(createCognitiveResult({
+          id:`result:precision:${precisionResult.candidateId}:${correlationId}`,
+          taskId:`precision:${turnId}`,turnId,correlationId,causationId:null,
+          sourceSubsystem:'PRECISION',workerId:'deterministic-reference',destinationOwner:null,
+          resultType:'PRECISION_RESULT',resultClass:ResultClass.REQUIRED,payloadClass:ResultPayloadClass.DERIVED_DATA,
+          evidenceIds:[precisionResult.candidateId],provenance:{candidateId:precisionResult.candidateId},
+          sourceRevisionIds:precisionResult.sourceRevisionIds,worldRevision:precisionResult.worldRevision,
+          sceneRevision:precisionResult.sceneRevision,authorityClass:'UNRESOLVED',
+          destination:ResultDestination.FOREGROUND,payload:precisionResult,timing:{latencyMs:precisionResult.latencyMs},
+        }));
+      }
     }
 
-    let precisionResults=[];
-    let precisionFailed=false;
-    if(precisionAvailable){
-      try{precisionResults=this.precision.rank(candidates,{query,intent,worldRevision,sceneRevision});}
-      catch(error){precisionFailed=true;precisionResults=[];}
-    }
-    for(const precisionResult of precisionResults){
-      this.resultBus.receive(createCognitiveResult({
-        id:`result:precision:${precisionResult.candidateId}:${correlationId}`,
-        taskId:`precision:${turnId}`,turnId,correlationId,causationId:null,
-        sourceSubsystem:'PRECISION',workerId:'deterministic-reference',destinationOwner:null,
-        resultType:'PRECISION_RESULT',resultClass:ResultClass.REQUIRED,payloadClass:ResultPayloadClass.DERIVED_DATA,
-        evidenceIds:[precisionResult.candidateId],provenance:{candidateId:precisionResult.candidateId},
-        sourceRevisionIds:precisionResult.sourceRevisionIds,worldRevision:precisionResult.worldRevision,
-        sceneRevision:precisionResult.sceneRevision,authorityClass:'UNRESOLVED',
-        destination:ResultDestination.FOREGROUND,payload:precisionResult,timing:{latencyMs:precisionResult.latencyMs},
-      }));
-    }
     const usablePrecision=this.resultBus.foreground(turnId)
       .filter(x=>x.result.resultType==='PRECISION_RESULT')
       .map(x=>x.result.payload);
-    const unknownSlots=this.#unknownSlots(query,intent,anchorEntityIds);
+    const lowAbstention=assessment?.confidence==='LOW';
+    const unknownSlots=lowAbstention||choiceSession?.hotOnly?[]:this.#unknownSlots(query,intent,anchorEntityIds);
     let compiled=this.compiler.compile({
-      query,intent,truthAssessment:assessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,rawEvidence:candidates,activeThreads,
+      query,intent,truthAssessment:publicationAssessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,
+      rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,
     });
     let hotContributions=[];
     if(hotProjection?.facts?.length){
@@ -96,7 +154,9 @@ export class GenerationPublicationPipeline {
 
     const turnResults=this.resultBus.results({turnId});
     const candidateToResult=new Map(turnResults.map(x=>[x.result.payload?.candidateId,x]));
-    const admittedCandidateIds=uniq([...assessment.admittedCandidateIds,...assessment.supportCandidateIds]);
+    const admittedCandidateIds=uniq([
+      ...(publicationAssessment?.admittedCandidateIds??[]),...(publicationAssessment?.supportCandidateIds??[]),
+    ]);
     const admittedResultIds=uniq([
       ...admittedCandidateIds.map(id=>candidateToResult.get(id)?.result.id).filter(Boolean),
       ...turnResults.filter(x=>x.route.effectiveDestination===ResultDestination.FOREGROUND&&x.route.freshness==='FRESH'&&x.result.resultType==='PRECISION_RESULT').map(x=>x.result.id),
@@ -105,10 +165,11 @@ export class GenerationPublicationPipeline {
     const rejectedResultIds=uniq(turnResults.filter(x=>!x.route.accepted).map(x=>x.result.id));
 
     let fallbackState=SealFallbackState.NONE;
-    if(!precisionAvailable||precisionFailed)fallbackState=SealFallbackState.PRECISION_FALLBACK;
+    const precisionState=choiceSession?.precision??{};
+    if(precisionState.required&&(precisionState.fallback||precisionFailed))fallbackState=SealFallbackState.PRECISION_FALLBACK;
     if(compiled.receipt.fallbackUsed)fallbackState=SealFallbackState.RICH_CONTEXT;
     if(corrective.failed&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_FAILED;
-    else if(corrective.executed&&corrective.terminated&&assessment.confidence==='MIXED'&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_EXHAUSTED;
+    else if(corrective.executed&&corrective.terminated&&assessment?.confidence==='MIXED'&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_EXHAUSTED;
 
     const sealed=this.seal.seal({
       turnId,correlationId,packet:compiled.packet,sourceRevisionIds:compiled.packet.dependencies,
@@ -116,16 +177,29 @@ export class GenerationPublicationPipeline {
       fallbackState,deadline,sealedAt,dependencies:compiled.packet.dependencies,
     });
     if(hotSnapshot)this.core.hotCognition?.noteGenerationSeal?.({turnId,sealReceipt:sealed.receipt,snapshot:hotSnapshot});
-    return{
-      worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,corrective,
+
+    const finalRoutes=this.resultBus.results({turnId});
+    const cognitiveChoiceReceipt=this.choice?.finalize?.(choiceSession,{
+      assessment,publicationAssessment,corrective,packet:sealed.packet,sealReceipt:sealed.receipt,resultRoutes:finalRoutes,
+      precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,
+    })??null;
+
+    const output={
+      worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,publicationAssessment,corrective,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
-      candidateEnvelope,
+      candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,
-      hotContributions,resultRoutes:turnResults,
+      hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,duplicate:false,
     };
+    this.#rememberPublished(turnId,fingerprint,output);
+    return output;
   }
 
-  receiveResult(result){return this.resultBus.receive(result);}
+  receiveResult(result){
+    const received=this.resultBus.receive(result);
+    this.choice?.observeResultRoute?.(received);
+    return received;
+  }
 
   #freshForegroundCandidates(turnId){
     const rows=this.resultBus.foreground(turnId);
@@ -153,6 +227,12 @@ export class GenerationPublicationPipeline {
       });
     }
     return rows;
+  }
+
+  #rememberPublished(turnId,fingerprint,output){
+    const key=String(turnId);if(!this.publishedTurns.has(key))this.publishedOrder.push(key);
+    this.publishedTurns.set(key,{fingerprint,output});
+    while(this.publishedOrder.length>this.maxPublishedTurns){const old=this.publishedOrder.shift();this.publishedTurns.delete(old);}
   }
 }
 

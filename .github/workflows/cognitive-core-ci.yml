@@ -57,6 +57,10 @@ jobs:
         run: node scripts/candidate-bus-wave8-acceptance-report.mjs
       - name: Hybrid Sensory Net Wave 8 stress
         run: node scripts/candidate-bus-wave8-stress-report.mjs
+      - name: Cognitive Choice Wave 9 acceptance
+        run: node scripts/cognitive-choice-wave9-acceptance-report.mjs
+      - name: Cognitive Choice Wave 9 stress
+        run: node scripts/cognitive-choice-wave9-stress-report.mjs
       - name: Phase 1 Gate V2 evidence
         run: node scripts/phase1-gate-v2-report.mjs
       - name: Phase 1 Integration gate evidence

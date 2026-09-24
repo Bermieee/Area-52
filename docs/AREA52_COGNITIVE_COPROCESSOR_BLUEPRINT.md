@@ -523,3 +523,109 @@ Primary epic: #75
 > **One keypress may wake many sidecars, but the Main path waits only for the bounded foreground quorum.**
 
 Sidecars are specialized cognitive coprocessors. The runtime fans work out in parallel, gathers only what is fresh and useful before Context Seal, and lets late/deep cognition continue without blocking the user.
+
+
+---
+
+## 22. Wave 9 Core Cognitive Choice Controller
+
+`Development-Nexus` owns the deterministic Core half of the per-turn cognitive-choice path.
+
+The controller answers one bounded question:
+
+> Given the current turn, Hot Cognition, revision fences, capability availability, and retrieval outcome, which cognitive work is worth executing and which validated evidence may continue toward Gather / Context Compiler / Context Seal?
+
+It is **not** a canon authority, another Truth Gate, another Candidate Bus, another scheduler, or another Jev engine.
+
+### 22.1 Canonical per-turn path
+
+```text
+TURN_EVENT
+  -> Hot Cognition sufficiency check
+  -> candidate cognitive jobs
+  -> admit / skip / defer
+  -> Sensory Net + Candidate Bus when retrieval is required
+  -> retrieval quality
+       HIGH  -> Truth -> Precision only when useful
+       MIXED -> exactly one corrective retrieval -> reevaluate
+       LOW   -> abstain from weak long-term-memory evidence
+  -> bounded ambiguity check
+       -> Jev seam only when explicit unresolved alternatives remain
+       -> preserve UNRESOLVED when Jev is unavailable/abstains
+  -> Gather
+  -> Context Compiler
+  -> Context Seal
+```
+
+Hot-only turns do not perform fake retrieval to create activity. Skipping work and abstaining are successful bounded outcomes.
+
+### 22.2 `CognitiveChoiceReceipt`
+
+Each sealed turn exposes one revision-fenced structured receipt containing:
+
+- turn/correlation identity and turn revision;
+- considered, admitted, skipped, and deferred logical cognition jobs;
+- deterministic reason codes;
+- retrieval intents;
+- Sensory channels requested and actually used;
+- Candidate Bus nomination/normalization/dedupe counts;
+- retrieval quality and corrective-retrieval state;
+- Truth outcome counts;
+- Jev consideration/invocation/unavailable/abstention state;
+- Precision consideration/invocation/fallback state;
+- final generation-facing evidence references;
+- abstention/unresolved state;
+- latency/resource budget;
+- source/candidate/representation/world/scene revisions;
+- freshness/stale/late result state;
+- Context Seal publication boundary.
+
+The receipt explains Core routing. It grants no truth, settlement, canonical mutation, or Context Seal bypass authority.
+
+### 22.3 Hot-only admission
+
+Hot-only is intentionally conservative. It requires fresh revision-matching Hot Cognition and an explicitly local/current request that can be answered by the maintained Scene projection. Anchored long-term lookup, historical intent, unknown needs, or stale Hot state force the normal retrieval path.
+
+### 22.4 Adaptive retrieval routing
+
+Core consumes the existing retrieval-quality contract:
+
+- `HIGH` proceeds;
+- `MIXED` permits one and only one corrective pass;
+- `LOW` removes weak long-term-memory evidence from generation-facing compilation.
+
+Corrective retrieval re-enters the same Candidate Bus / Truth path. It cannot recurse.
+
+### 22.5 Truth, Jev, and Precision boundaries
+
+Truth classifications remain owned by Truth Gate. Retrieval scores, fusion strength, channel count, and recency cannot upgrade truth or authority.
+
+Jev is a bounded integration seam. Core may emit/invoke an explicit-alternatives request, but Jev does not receive canonical mutation authority. Missing or abstaining Jev preserves unresolved evidence.
+
+Precision runs only when the admitted set is broad/redundant or MIXED. A tiny exact set skips it. If required Precision is unavailable, Core uses the deterministic pre-Precision ordering as a safe fallback and records that fallback.
+
+### 22.6 Seal and replay semantics
+
+Context Seal closes the active foreground generation. Late results are routed by the Result Bus and appended only to decision telemetry; they cannot reopen the sealed packet. Stale results remain stale.
+
+Identical publication replay for an already sealed turn returns the sealed result without re-running retrieval, correction, Precision, or Jev. A replay with materially different cognitive-choice inputs is rejected.
+
+### 22.7 Ownership boundaries
+
+Core owns:
+
+- cognitive-choice policy and receipt;
+- adaptive retrieval routing;
+- Truth/Precision/Jev integration boundaries;
+- generation-facing evidence trace;
+- Gather/compiler/seal routing semantics.
+
+Core does not own:
+
+- Jev internals;
+- Historian, Graph Walker, Green Room, or Scene Intelligence implementations;
+- Worker Director scheduling/resource pools;
+- UI rendering;
+- canonical owner Settlement.
+
+The permanent invariants remain: logical jobs are not physical sidecars; relevance is not truth; Jev is not Settlement; skip and abstention are not failures; revisions fence every decision; and late work cannot mutate sealed context.

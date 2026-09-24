@@ -80,7 +80,7 @@ export class PublicationContextCompiler {
     const temporalClaims=requiredClaims.map(id=>this.graph.getClaim(id)).filter(c=>c&&c.temporal&&c.status!==KnowledgeStatus.CURRENT);
     const temporalFacts=[...packet.historical,...packet.unresolved];
     const temporalRetention=temporalClaims.length?temporalClaims.every(c=>temporalFacts.some(f=>f.id===c.id||(f.supportIds??[]).includes(c.id)))?1:0:1;
-    const threadRetention=(packet.activeThreads??[]).length===base.activeThreads.length?1:0;
+    const threadRetention=(packet.activeThreads??[]).length===(base.activeThreads??[]).length?1:0;
 
     const compactBytes=bytes(packet);
     const unsafe=factualRetention<1||temporalRetention<1||contradictionRetention<1||provenanceRetention<1||threadRetention<1;
@@ -106,7 +106,7 @@ export class PublicationContextCompiler {
       reason=unsafe?'compact representation failed retention checks; richer representation selected':'compact packet exceeded budget; correctness-preserving richer fallback selected rather than dropping required truth';
     }
 
-    const receipt=createCompilerReceipt({id:`compiler-receipt:${output.id}`,packetId:output.id,representation,rawBytes:bytes(rawEvidence??truthAssessment.truthResults),compiledBytes:bytes(output),budgetBytes,budgetExceeded,fallbackUsed,factualRetention,temporalRetention,contradictionRetention,provenanceRetention,relationshipRetention:1,admittedClaimIds:requiredClaims.sort(),droppedClaimIds:requiredClaims.filter(id=>!representedClaims.has(id)).sort(),reason});
+    const receipt=createCompilerReceipt({id:`compiler-receipt:${output.id}`,packetId:output.id,representation,rawBytes:bytes(rawEvidence??truthAssessment.truthResults),compiledBytes:bytes(output),budgetBytes,budgetExceeded,fallbackUsed,factualRetention,temporalRetention,contradictionRetention,provenanceRetention,relationshipRetention:1,admittedClaimIds:requiredClaims.sort(),droppedClaimIds:requiredClaims.filter(id=>!representedClaims.has(id)).sort(),reason,semanticSizing:compilerMetadata.semanticSizing??null,semanticPriority:compilerMetadata.semanticPriority??[],representationEligibility:compilerMetadata.representationEligibility??{},threadDiagnostics:compilerMetadata.threadDiagnostics??{}});
     return{packet:output,receipt};
   }
 }

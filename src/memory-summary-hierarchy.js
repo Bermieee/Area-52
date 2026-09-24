@@ -900,8 +900,8 @@ export class MemorySummaryHierarchy {
     return 'SCENE';
   }
 
-  summaryScore(artifact,queryTokens,activeEntityIds,preferred) {
-    const textTokens=new Set(tokens(artifact.representationText+' '+artifact.entityRefs.join(' ')));
+  summaryScore(artifact,queryTokens,activeEntityIds,preferred,precomputedTokens=null) {
+    const textTokens=new Set(precomputedTokens??tokens(artifact.representationText+' '+artifact.entityRefs.join(' ')));
     const matched=queryTokens.filter((token)=>textTokens.has(token));
     const lexical=queryTokens.length?matched.length/queryTokens.length:0;
     const entityHits=activeEntityIds.filter((id)=>artifact.entityRefs.includes(id)).length;
@@ -922,57 +922,18 @@ export class MemorySummaryHierarchy {
     };
   }
 
-  nominationsFromSummaries(request,preferred) {
-    const queryTokens=tokens(request.query);
-    const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
-    const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
-    const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
-    const all=this.currentArtifacts({freshOnly:true});
-    const tierOrder=preferred==='STORY'
+  tierOrder(preferred){
+    return preferred==='STORY'
       ? [['STORY'],['ARC'],['CHAPTER','SESSION'],['SCENE']]
       : preferred==='ARC'
         ? [['ARC'],['CHAPTER','SESSION'],['STORY'],['SCENE']]
         : preferred==='SCENE'
           ? [['SCENE'],['CHAPTER','SESSION'],['ARC'],['STORY']]
           : [[preferred],['SCENE'],['CHAPTER','SESSION'],['ARC'],['STORY']];
-    let examined=0;
-    let scored=[];
-    let selectedTier=[];
-    for (const tier of tierOrder) {
-      const tierScored=[];
-      for (const artifact of all) {
-        if (!tier.includes(artifact.scopeLevel)) continue;
-        examined+=1;
-        if (examined>MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
-        if (artifact.representationText.length>budget) continue;
-        if (perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE) {
-          const characterRef=perspective.characterRef??perspective.characterId;
-          if (!characterRef||!artifact.knowledgeFence.fullyKnownBy.includes(characterRef)) continue;
-        }
-        const score=this.summaryScore(artifact,queryTokens,activeEntityIds,preferred);
-        if (!score.eligible) continue;
-        tierScored.push({artifact,score});
-      }
-      if (tierScored.length) {
-        scored=tierScored;
-        selectedTier=tier;
-        break;
-      }
-      if (examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
-    }
-    this.costCounters.historianSummaryArtifactsExamined+=examined;
-    scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.resolutionFit-a.score.resolutionFit||a.artifact.scopeRef.localeCompare(b.artifact.scopeRef));
-    const deduped=[];
-    const coverage=new Set();
-    for (const item of scored) {
-      if (coverage.has(item.artifact.sourceRangeHash)) continue;
-      coverage.add(item.artifact.sourceRangeHash);
-      deduped.push(item);
-    }
-    const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(request.maxCandidates)||MEMORY_LIMITS.maxHistorianCandidates));
-    const picked=deduped.slice(0,cap);
-    const intentId=request.retrievalIntentId??('memory-intent:'+stableHash(String(request.mode??'EXPLICIT_HISTORY')+'|'+String(request.query??'').toLowerCase()));
-    const nominations=picked.map(({artifact,score})=>createCandidateNomination({
+  }
+
+  buildSummaryNominations({picked,intentId,perspective}){
+    return picked.map(({artifact,score})=>createCandidateNomination({
       nominationId:'memory-summary-nomination:' + stableHash(intentId+'|'+artifact.id),
       candidateId:'memory-summary-candidate:' + stableHash(artifact.id),
       evidenceIdentity:'summary-range:'+artifact.sourceRangeHash,
@@ -1042,7 +1003,210 @@ export class MemorySummaryHierarchy {
       worldRevision:artifact.sourceRange.worldRevision.end,
       sceneRevision:artifact.scopeLevel==='SCENE'?artifact.sourceRange.sceneRevision.end:null,
     }));
-    return {nominations,examined,matched:scored.length,selectedTier};
+  }
+
+  nominationsFromSummaries(request,preferred,{useCache=true}={}){
+    const started=nowMs();
+    const indexInfo=this.ensureQueryIndex();
+    const afterIndex=nowMs();
+    const queryTokens=tokens(request.query);
+    const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
+    const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
+    const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
+    const cacheKey=this.queryCacheKey(request,preferred);
+    if(useCache){
+      const cached=this.queryCache.get(cacheKey);
+      if(cached){
+        this.costCounters.queryCacheHits+=1;
+        const summary=deepClone(cached.summary);
+        summary.profile={
+          ...(summary.profile??{}),
+          cacheHit:true,
+          totalMs:nowMs()-started,
+          indexEnsureMs:afterIndex-started,
+          selectionMs:0,
+          scoringMs:0,
+          nominationBuildMs:0,
+        };
+        return summary;
+      }
+      this.costCounters.queryCacheMisses+=1;
+    }
+
+    const tiers=this.tierOrder(preferred);
+    let examined=0;
+    let scored=[];
+    let selectedTier=[];
+    const selectionStarted=nowMs();
+    for(const tier of tiers){
+      const tierIds=new Set();
+      for(const level of tier){
+        for(const id of this.queryIndex.levelToArtifactIds.get(level)??[])tierIds.add(id);
+      }
+      const candidateIds=new Set();
+      for(const token of queryTokens){
+        for(const id of this.queryIndex.tokenToArtifactIds.get(token)??[])if(tierIds.has(id))candidateIds.add(id);
+      }
+      for(const entity of activeEntityIds){
+        for(const id of this.queryIndex.entityToArtifactIds.get(entity)??[])if(tierIds.has(id))candidateIds.add(id);
+      }
+      if(!queryTokens.length&&!activeEntityIds.length)for(const id of tierIds)candidateIds.add(id);
+      if(!candidateIds.size)continue;
+
+      const tierScored=[];
+      for(const id of candidateIds){
+        if(examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
+        const artifact=this.artifacts.get(id);
+        if(!artifact||!this.artifactIsFresh(artifact))continue;
+        examined+=1;
+        if(artifact.representationText.length>budget)continue;
+        if(perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE){
+          const characterRef=perspective.characterRef??perspective.characterId;
+          if(!characterRef||!artifact.knowledgeFence.fullyKnownBy.includes(characterRef))continue;
+        }
+        const score=this.summaryScore(
+          artifact,queryTokens,activeEntityIds,preferred,
+          this.queryIndex.artifactTokens.get(id)??null,
+        );
+        if(!score.eligible)continue;
+        tierScored.push({artifact,score});
+      }
+      if(tierScored.length){
+        scored=tierScored;
+        selectedTier=tier;
+        break;
+      }
+      if(examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
+    }
+    const afterSelection=nowMs();
+    this.costCounters.historianSummaryArtifactsExamined+=examined;
+    this.costCounters.queryIndexedCandidatesExamined+=examined;
+    scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.resolutionFit-a.score.resolutionFit||a.artifact.scopeRef.localeCompare(b.artifact.scopeRef));
+    const deduped=[];
+    const coverage=new Set();
+    for(const item of scored){
+      if(coverage.has(item.artifact.sourceRangeHash))continue;
+      coverage.add(item.artifact.sourceRangeHash);
+      deduped.push(item);
+    }
+    const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(request.maxCandidates)||MEMORY_LIMITS.maxHistorianCandidates));
+    const picked=deduped.slice(0,cap);
+    const afterScoring=nowMs();
+    const intentId=request.retrievalIntentId??('memory-intent:'+stableHash(String(request.mode??'EXPLICIT_HISTORY')+'|'+String(request.query??'').toLowerCase()));
+    const nominations=this.buildSummaryNominations({picked,intentId,perspective});
+    const finished=nowMs();
+    const summary={
+      nominations,
+      examined,
+      matched:scored.length,
+      selectedTier,
+      profile:{
+        cacheHit:false,
+        indexRebuilt:indexInfo.rebuilt,
+        totalMs:finished-started,
+        indexEnsureMs:afterIndex-started,
+        selectionMs:afterSelection-selectionStarted,
+        scoringMs:afterScoring-afterSelection,
+        nominationBuildMs:finished-afterScoring,
+      },
+    };
+    if(useCache&&nominations.length)this.storeQueryCache(cacheKey,summary);
+    return summary;
+  }
+
+  nominationsFromSummariesLegacy(request,preferred){
+    const started=nowMs();
+    const queryTokens=tokens(request.query);
+    const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
+    const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
+    const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
+    const all=this.currentArtifacts({freshOnly:true});
+    const afterMaterialize=nowMs();
+    let examined=0,scored=[],selectedTier=[];
+    for(const tier of this.tierOrder(preferred)){
+      const tierScored=[];
+      for(const artifact of all){
+        if(!tier.includes(artifact.scopeLevel))continue;
+        examined+=1;
+        if(examined>MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
+        if(artifact.representationText.length>budget)continue;
+        if(perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE){
+          const characterRef=perspective.characterRef??perspective.characterId;
+          if(!characterRef||!artifact.knowledgeFence.fullyKnownBy.includes(characterRef))continue;
+        }
+        const score=this.summaryScore(artifact,queryTokens,activeEntityIds,preferred);
+        if(!score.eligible)continue;
+        tierScored.push({artifact,score});
+      }
+      if(tierScored.length){scored=tierScored;selectedTier=tier;break;}
+      if(examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
+    }
+    scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.resolutionFit-a.score.resolutionFit||a.artifact.scopeRef.localeCompare(b.artifact.scopeRef));
+    const coverage=new Set(),deduped=[];
+    for(const item of scored){if(coverage.has(item.artifact.sourceRangeHash))continue;coverage.add(item.artifact.sourceRangeHash);deduped.push(item);}
+    const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(request.maxCandidates)||MEMORY_LIMITS.maxHistorianCandidates));
+    const picked=deduped.slice(0,cap);
+    const intentId=request.retrievalIntentId??('memory-intent:'+stableHash(String(request.mode??'EXPLICIT_HISTORY')+'|'+String(request.query??'').toLowerCase()));
+    const nominations=this.buildSummaryNominations({picked,intentId,perspective});
+    const finished=nowMs();
+    return {
+      nominations,examined,matched:scored.length,selectedTier,
+      profile:{
+        totalMs:finished-started,
+        materializeAndFreshnessMs:afterMaterialize-started,
+        selectionRankingAndBuildMs:finished-afterMaterialize,
+      },
+    };
+  }
+
+  profileSummaryQuery(request={},{
+    iterations=40,
+    warmup=5,
+  }={}){
+    const preferred=this.classifyResolution(request);
+    if(preferred==='EXACT')return {
+      kind:'MemoryHierarchyQueryProfile',
+      status:'NOT_APPLICABLE',
+      reason:'EXACT_QUERY_BYPASSES_HIERARCHY',
+      preferred,
+    };
+    const count=Math.max(1,Math.min(MEMORY_LIMITS.maxHierarchyQueryProfileSamples,Number(iterations)||1));
+    const warm=Math.max(0,Math.min(32,Number(warmup)||0));
+    this.ensureQueryIndex();
+    for(let i=0;i<warm;i+=1){
+      this.nominationsFromSummariesLegacy(request,preferred);
+      this.nominationsFromSummaries(request,preferred,{useCache:false});
+    }
+    const before=[],after=[],warmCache=[];
+    let beforeExamined=0,afterExamined=0;
+    for(let i=0;i<count;i+=1){
+      const a=nowMs();const legacy=this.nominationsFromSummariesLegacy(request,preferred);before.push(nowMs()-a);beforeExamined=Math.max(beforeExamined,legacy.examined);
+      const b=nowMs();const indexed=this.nominationsFromSummaries(request,preferred,{useCache:false});after.push(nowMs()-b);afterExamined=Math.max(afterExamined,indexed.examined);
+    }
+    this.clearQueryCache();
+    this.nominationsFromSummaries(request,preferred,{useCache:true});
+    for(let i=0;i<count;i+=1){
+      const t=nowMs();this.nominationsFromSummaries(request,preferred,{useCache:true});warmCache.push(nowMs()-t);
+    }
+    return {
+      kind:'MemoryHierarchyQueryProfile',
+      status:'MEASURED',
+      preferred,
+      iterations:count,
+      before:{
+        p50Ms:percentile(before,50),p95Ms:percentile(before,95),
+        artifactsExamined:beforeExamined,
+      },
+      afterIndexedCold:{
+        p50Ms:percentile(after,50),p95Ms:percentile(after,95),
+        artifactsExamined:afterExamined,
+      },
+      afterWarmCache:{
+        p50Ms:percentile(warmCache,50),p95Ms:percentile(warmCache,95),
+        cacheEntries:this.queryCache.size,
+      },
+      tradeoff:'Indexed cold path avoids full current-artifact cloning; warm cache retains bounded nomination views and is revision/scope invalidated.',
+    };
   }
 
   applyBudgetToBase(base,request) {

@@ -1,0 +1,51 @@
+name: UI.Core Wave 6 validation
+on:
+  push:
+    branches: [Development-UI]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'tests/wave6*.mjs'
+      - 'tests/fixtures/**'
+      - 'docs/AREA52_UI_CORE_BLUEPRINT.md'
+      - 'docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md'
+      - 'docs/UI_CORE_WAVE_5_FRONT_FACE.md'
+      - 'docs/UI_CORE_WAVE_6_*.md'
+      - 'package.json'
+      - '.github/workflows/ui-core-wave6.yml'
+  pull_request:
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'tests/wave6*.mjs'
+      - 'docs/UI_CORE_WAVE_6_*.md'
+      - 'package.json'
+concurrency:
+  group: ui-core-wave6-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  wave6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full UI.Core regression
+        run: npm test
+      - name: Wave 6 focused acceptance
+        run: npm run test:ui:wave6
+      - name: Wave 6 signal / lifecycle stress
+        run: npm run test:ui:wave6:stress
+      - name: JavaScript syntax validation
+        run: find src/ui-core demo tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Browser-facing source guard
+        run: |
+          if grep -R -nE "from ['\"]node:|\\brequire\\s*\\(|\\bprocess\\." src/ui-core/wave6-*.js; then
+            echo "Node-only dependency detected in Wave 6 browser source"
+            exit 1
+          fi
+          echo "Wave 6 browser source guard PASS"
+      - name: UI.Core ESM import
+        run: node -e "import('./src/ui-core/index.js').then(() => console.log('UI.Core Wave 6 ESM import PASS'))"

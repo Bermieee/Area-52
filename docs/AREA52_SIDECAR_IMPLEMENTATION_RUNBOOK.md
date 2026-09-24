@@ -471,3 +471,24 @@ Observed final bounds in long replay:
 
 These are subsystem qualification results, not FT005 or FT006.
 
+---
+
+# 20. Wave 7 Historian / adaptive retrieval production record
+
+Canonical Historian: `src/coprocessor/historian-retrieval.js`.
+
+Canonical adaptive controller remains `src/coprocessor/retrieval-control-policy.js`, deepened in place.
+
+Wave 7 completes Worker 2's Coprocessor execution/control side of #205 and #49 while leaving Memory, Scene intent planning, Candidate Bus ownership and Graph Walker core with their owning lanes.
+
+Functional checkpoint `6025a488808c29242eb79b6392a0a9f241798ffe`, Actions run `35981298068`, is GREEN:
+- full regression 337/337;
+- Historian 21/21;
+- adaptive retrieval 18/18;
+- goldens 6/6;
+- authority negatives 11/11;
+- stress PASS;
+- browser/syntax/ESM PASS.
+
+Maximum foreground correction passes remain 1.
+

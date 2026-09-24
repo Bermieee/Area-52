@@ -606,3 +606,28 @@ See \`docs/CONTINUOUS_CONSOLIDATION_WORKER.md\`.
 
 Wave 6 does not implement Memory persistence, Lore, Sensory Net, Scene ownership, Runtime scheduling, visual UI or Phase 2 provider learning.
 
+---
+
+## 24. Phase 1 Wave 7 — Historian + adaptive retrieval cognition
+
+Wave 7 makes Historian a real HOT/L1 retrieval worker over Memory-owned, revisioned evidence and deepens the existing adaptive retrieval controller rather than replacing it.
+
+Production flow:
+
+```text
+retrieval intents
+ -> HistorianMemoryRequest
+ -> Memory resolver seam
+ -> bounded ArtifactReference evidence
+ -> provider-neutral Historian cognition
+ -> Candidate Bus-compatible nominations
+ -> intent-coverage quality
+ -> HIGH / one MIXED correction / LOW abstention
+ -> Truth / Precision
+ -> Gather
+```
+
+Perspective, temporal status, provenance, owner authority and revisions remain attached to evidence. Historian never turns retrieval score into truth, and Reflection remains inferential.
+
+See `docs/HISTORIAN_RETRIEVAL_WORKER.md` and `docs/ADAPTIVE_RETRIEVAL_CONTROL.md`.
+

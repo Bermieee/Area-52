@@ -110,6 +110,41 @@ function sourceEvidence(runtime, sourceId) {
     }
   }
 
+  const relationships = artifacts.filter((artifact) => artifact.artifactType === ArtifactType.RELATIONSHIP);
+  for (const left of relationships.filter((artifact) => artifact.payload?.predicate === 'leftAt')) {
+    const sentenceIndex = left.provenance?.span?.sentenceIndex;
+    const located = relationships.find((artifact) =>
+      artifact.payload?.predicate === 'locatedAt'
+      && artifact.payload?.subjectId === left.payload?.objectId
+      && artifact.provenance?.span?.sentenceIndex === sentenceIndex
+    );
+    if (!located) continue;
+    push({
+      evidenceId: 'composite:' + stableHash(left.id + '|' + located.id),
+      kind: 'TEMPORAL_RELATIONSHIP_COMPOSITE',
+      text: '[HISTORICAL] '
+        + humanize(left.payload.subjectId, labels) + ' left '
+        + humanize(left.payload.objectId, labels) + ' at '
+        + humanize(located.payload.objectId, labels) + '.',
+      critical: true,
+      sourceId,
+      sourceRevisionId: revision.id,
+      artifactRefs: [left.id, located.id],
+      claimRefs: [...new Set([...(left.payload.supportingClaimIds || []), ...(located.payload.supportingClaimIds || [])])],
+      relationshipRefs: [left.payload.relationshipId || left.semanticId, located.payload.relationshipId || located.semanticId],
+      entityRefs: [left.payload.subjectId, left.payload.objectId, located.payload.objectId].filter(Boolean),
+      temporalClass: TemporalClass.HISTORICAL,
+      unresolved: false,
+      provenance: {
+        kind: 'LoreCompositeEvidenceProvenance',
+        sourceId,
+        sourceRevisionId: revision.id,
+        derivedFromArtifactIds: [left.id, located.id],
+        sentenceIndex,
+      },
+    });
+  }
+
   for (const span of sentenceSpans(revision.exactContent)) {
     if (!/\b(cannot|can't|must|never|only|prohibited|required|immune|unable|must not|may not)\b/i.test(span.text)) continue;
     push({

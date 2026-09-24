@@ -42,7 +42,24 @@
   "integrationAdapters": [
     "src/deployment/brain.js"
   ],
-  "integrationOnlyPatches": [],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/publication-context-compiler.js",
+      "sourceDigest": "e321ef5a85d742ecae9db7631fcaf5ff414d05da",
+      "expectedDigest": "78a201a8fe21d8fb524686f0d10442271b6cd377",
+      "reason": "Deployment sequential-turn repair: rich fallback must dedupe repeated claim IDs before Context Seal so Prompt Integrity does not reject semantically duplicated facts."
+    }
+  ],
   "knownConflicts": [],
-  "note": "Development-Deployment was created directly from this accepted Core commit; Core is reconstructed by base ancestry rather than copied files."
+  "note": "Development-Deployment was created directly from this accepted Core commit; Core is reconstructed by base ancestry rather than copied files.",
+  "integrationReconciliations": [
+    {
+      "id": "DEPLOYMENT-RICH-FALLBACK-DEDUPE",
+      "sourceSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
+      "commit": "7089e792850cce26a29b98d827f923f7cb6cb1f4",
+      "reason": "Sequential simple -> retrieval -> ambiguous execution exposed repeated semantic claim IDs in the correctness-preserving rich fallback. Dedupe happens before Seal; Prompt Integrity remains strict.",
+      "ownerBranchTransferStatus": "PENDING",
+      "authorityChange": false
+    }
+  ]
 }

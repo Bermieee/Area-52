@@ -81,3 +81,27 @@ Implementation-checkpoint evidence:
 - Actions Wave 1 #39, Wave 2 #18 and Wave 3 #1 PASS.
 
 Shared Runtime/Core/Scene/Memory/UI/live-provider integration cards remain subject to their owning lanes. FT002 is Coprocessor-side ready only; FT005 is side ready only; FT006 is shadow-ready only.
+
+## Wave 4 precision corridor checkpoint
+
+Starting from accepted Wave 3 head `2d204c1f277124f06088cbeec1f11f4ea85c3d8b`, Worker 2 added the Phase 1 quality-control corridor between broad retrieval candidates and Truth/Gather-compatible bounded evidence.
+
+Green implementation checkpoint: `8eca22f0ae474a77914d8606148e433965aff205`.
+
+Wave 4 adds CandidateBus normalization/deduplication, bounded stale-fenced Precision Gateway stages, intent/temporal-opposite qualification, contradiction and required-evidence preservation, Adaptive Retrieval -> Precision integration, optional external precision adapter seams, Lore/Memory compatibility fixtures, provider-facing precision validation/fallback, bounded precision telemetry, and FT003/FT004/FT005/FT006 readiness contributions.
+
+Implementation-checkpoint evidence:
+
+- full regression 220/220 PASS;
+- Wave 1 focused 40/40 PASS;
+- Wave 2 focused 62/62 PASS;
+- Wave 3 focused 46/46 PASS;
+- Wave 4 focused 39/39 PASS;
+- stress 15/15 PASS;
+- browser-like Wave 4 production paths 2/2 PASS;
+- syntax and ESM import PASS;
+- Actions Wave 1 #43, Wave 2 #22, Wave 3 #5 and Wave 4 #3 PASS.
+
+Wave 4 stress processed 5,000 precision requests and 120,000 broad candidates while deduplicating 10,000 duplicate nominations, rejecting 1,000 stale candidates and preserving all 1,000 contradiction cases.
+
+Sensory Net, Scene Query Planner, Lore Study, Memory, Temporal State, Settlement, UI and Phase 2 Provider Intelligence remain outside this lane.

@@ -57,3 +57,20 @@ Wave 3 extends the same bounded telemetry surface with provider-neutral receipts
 - existing queue / execution / batch / yield / park / resume / retry / fallback / validation / stale-drop signals.
 
 The telemetry snapshot is counter-oriented. Raw source text, retrieved text, candidate bodies, full artifact bodies, prompts and provider responses remain blocked recursively. UI continues to own presentation.
+
+## Wave 4 precision counters
+
+The bounded telemetry surface now also covers:
+
+- precision request input/output candidate counts;
+- retrieval quality class and corrective-pass use;
+- precision stages used;
+- fallback stage;
+- bounded stage latency;
+- provider/capability identity as provenance only;
+- stale-candidate rejection;
+- authority-violation rejection;
+- final result destination;
+- multi-channel candidate dedupe counts.
+
+Raw candidate bodies, raw source text, full prompts, retrieved text and full provider responses remain excluded from continuous telemetry. Issue #86 remains shared with UI.Core for presentation/consumption acceptance.

@@ -69,3 +69,19 @@ Issue #42 remains open because the empirical relevance/intent-opposite benchmark
 The deterministic intent-opposite corpus is reused by Adaptive Retrieval / Truth / Precision qualification for enter/leave, intact/destroyed, trust/distrust, carry/drop, heal/injure, present/departed, and CURRENT/HISTORICAL distinctions.
 
 No external FlashRank or ColBERTv2 run was fabricated for Wave 3. The isolated provider-neutral precision adapter route remains available for a future real benchmark. Issue #42 therefore remains open.
+
+## Wave 4 precision gateway qualification
+
+Wave 4 adds a permanent 16-case intent-opposite acceptance corpus while retaining the accepted seven-case legacy deterministic baseline export.
+
+Deterministic fixture measurements:
+
+- broad similarity baseline: 3/16 (18.75%);
+- precision stage: 16/16 (100%);
+- synthetic accuracy gain: +81.25 percentage points;
+- temporal-opposite discrimination: 4/4 (100%);
+- deterministic two-stage precision: 100% -> 100%, zero measured accuracy gain, material gain false.
+
+These measurements qualify the Area-52 deterministic precision contract. They do not establish real-provider superiority.
+
+FlashRank and ColBERT-style adapters remain optional isolated benchmark capabilities. No executable external FlashRank/ColBERT runtime was available in the Wave 4 environment, so external model accuracy, latency and RAM remain NOT_MEASURED. Issue #42 stays open.

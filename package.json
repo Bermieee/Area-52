@@ -17,6 +17,8 @@
     "test:ui:wave10": "node --test tests/wave10.test.mjs",
     "test:ui:wave10:stress": "node tests/wave10-stress.mjs",
     "test:ui:wave11": "node --test tests/wave11-live-bindings.test.mjs",
-    "test:ui:wave11:stress": "node tests/wave11-live-bindings-stress.mjs"
+    "test:ui:wave11:stress": "node tests/wave11-live-bindings-stress.mjs",
+    "test:ui:wave12": "node --test tests/wave12-sillytavern-host.test.mjs",
+    "test:ui:wave12:stress": "node tests/wave12-sillytavern-host-stress.mjs"
   }
 }

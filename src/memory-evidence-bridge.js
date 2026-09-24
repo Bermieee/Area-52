@@ -390,7 +390,7 @@ export class MemoryExternalEvidenceBridge{
     if(proposal.contractVersion!=='1.0.0')throw new MemoryEvidenceBridgeError('MEMORY_BRIDGE_SCENE_CONTRACT_MISMATCH','Unsupported SceneExperienceProposal contract',{contractVersion:proposal.contractVersion});
     const bad=authorityViolation(proposal);
     if(bad)throw new MemoryEvidenceBridgeError('MEMORY_BRIDGE_AUTHORITY_VIOLATION','Scene proposal cannot grant authority',{field:bad});
-    const ownerArtifactRef=normalizeArtifactRef(proposal.sceneEpisodeRef,'SceneExperienceProposal.sceneEpisodeRef');
+    const ownerArtifactRef=normalizeArtifactRef({...proposal.sceneEpisodeRef,owner:proposal.sceneEpisodeRef?.owner??'SCENE_INTELLIGENCE'},'SceneExperienceProposal.sceneEpisodeRef');
     if(ownerArtifactRef.owner!=='SCENE_INTELLIGENCE')throw new MemoryEvidenceBridgeError(
       'MEMORY_BRIDGE_SCENE_OWNER_MISMATCH',
       'Scene episode owner must be SCENE_INTELLIGENCE',

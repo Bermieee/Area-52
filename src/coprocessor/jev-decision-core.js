@@ -108,7 +108,7 @@ export class JevProviderExecutor{
 
 export class JevDecisionCore{
   #replay=new Map();#metrics={decisions:0,invocations:0,skips:0,abstentions:0,escalations:0,operator:0,providerCalls:0,retries:0,timeouts:0,invalid:0,stale:0,late:0,totalLatencyMs:0,totalPayloadBytes:0};
-  constructor({providerExecutor=null,replayLimit=128}={}){
+  constructor({providerExecutor=null,replayLimit=2048}={}){
     if(!Number.isInteger(replayLimit)||replayLimit<1||replayLimit>4096)throw new TypeError('Jev replayLimit must be an integer between 1 and 4096');
     this.providerExecutor=providerExecutor;this.replayLimit=replayLimit;
   }

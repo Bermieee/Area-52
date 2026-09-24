@@ -73,11 +73,13 @@ export class JevDomainAdapterService {
   #proposalReplay = new Map();
   #metrics = new Map();
 
-  constructor({ registry, core } = {}) {
+  constructor({ registry, core, replayLimit = 128 } = {}) {
     if (!(registry instanceof JevDomainAdapterRegistry)) throw new TypeError('JevDomainAdapterService requires JevDomainAdapterRegistry');
     if (!core || typeof core.decide !== 'function') throw new TypeError('JevDomainAdapterService requires JevDecisionCore');
+    if (!Number.isInteger(replayLimit) || replayLimit < 1 || replayLimit > 4096) throw new TypeError('Jev adapter replayLimit must be an integer between 1 and 4096');
     this.registry = registry;
     this.core = core;
+    this.replayLimit = replayLimit;
   }
 
   async adjudicate(input, { currentRevisionState = null, sealed = false, signal = null } = {}) {
@@ -110,8 +112,13 @@ export class JevDomainAdapterService {
     const fingerprint = jevRequestFingerprint(request);
     const replayKey = `${adapter.adapterId}|${fingerprint}`;
     if (this.#proposalReplay.has(replayKey)) {
-      metric.replays += 1;
-      return this.#proposalReplay.get(replayKey);
+      const replayCurrent = await resolveCurrentState(currentRevisionState, request);
+      const replayFreshness = evaluateJevFreshness(request, replayCurrent);
+      const replaySealed = Boolean(typeof sealed === 'function' ? await sealed(request) : sealed);
+      if (replayFreshness.freshness === 'FRESH' && !replaySealed) {
+        metric.replays += 1;
+        return this.#proposalReplay.get(replayKey);
+      }
     }
 
     const deterministicAnswer = deterministicAnswerFor(precheck);
@@ -140,7 +147,7 @@ export class JevDomainAdapterService {
     if (receipt.providerProvenance?.providerId) metric.providerIds.add(receipt.providerProvenance.providerId);
 
     proposal = this.#boundedProposal(proposal);
-    this.#proposalReplay.set(replayKey, proposal);
+    this.#rememberProposal(replayKey, proposal);
     return proposal;
   }
 
@@ -204,6 +211,15 @@ export class JevDomainAdapterService {
     const key = domainKindKey(domain, decisionKind);
     if (!this.#metrics.has(key)) this.#metrics.set(key, { domain, decisionKind, decisions: 0, deterministicSkips: 0, jevInvoked: 0, abstentions: 0, unresolved: 0, escalations: 0, staleRejections: 0, adapterValidationFailures: 0, replays: 0, totalLatencyMs: 0, providerIds: new Set() });
     return this.#metrics.get(key);
+  }
+
+  #rememberProposal(key, proposal) {
+    if (!this.#proposalReplay.has(key) && this.#proposalReplay.size >= this.replayLimit) {
+      const oldest = this.#proposalReplay.keys().next().value;
+      if (oldest !== undefined) this.#proposalReplay.delete(oldest);
+    }
+    this.#proposalReplay.set(key, proposal);
+    return proposal;
   }
 
   #boundedProposal(proposal) {

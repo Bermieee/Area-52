@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  assembly:
+  focused:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -24,13 +24,37 @@ jobs:
       - name: Accepted Lore regressions
         run: node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs
       - name: Accepted Scene regressions
-        run: node tests/scene-wave1.mjs && node tests/scene-wave2.mjs && node tests/scene-wave3.mjs
+        run: node --test tests/scene-*.mjs
       - name: Accepted Runtime regressions
-        run: node tests/runtime-wave3.mjs
+        run: node --test tests/runtime*.mjs
       - name: Accepted Memory regressions
-        run: node --test tests/memory-wave1.test.mjs tests/memory-wave2.test.mjs
-      - name: Accepted UI live-binding regression
-        run: node --test tests/wave11-live-bindings.test.mjs
+        run: node --test tests/memory*.mjs
+      - name: Coprocessor Wave 13 choice regressions
+        run: node --test tests/coprocessor-wave13-*.test.mjs
+      - name: UI live-binding and SillyTavern host regressions
+        run: node --test tests/wave11-live-bindings*.mjs tests/wave12-sillytavern-host*.mjs
       - name: Browser-facing deployment imports
         run: |
-          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/ui-core/index.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"
+
+  full-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full assembled regression
+        run: npm test
+
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full assembled syntax
+        run: npm run check

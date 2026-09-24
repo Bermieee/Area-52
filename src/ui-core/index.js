@@ -53,3 +53,4 @@ export * from './wave8-bindings.js';
 export * from './wave8-workspace.js';
 
 export * from './wave11-live-bindings.js';
+export * from './wave12-sillytavern-host.js';

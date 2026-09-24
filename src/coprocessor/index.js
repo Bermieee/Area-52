@@ -30,6 +30,7 @@ export * from './runtime-benchmark.js';
 export * from './precision-benchmark.js';
 export * from './provider-qualification.js';
 export * from './speculative-warmer.js';
+export * from './speculative-warmer-coordinator.js';
 export * from './green-room.js';
 export * from './continuous-consolidation.js';
 export * from './scene-signal-adapter.js';

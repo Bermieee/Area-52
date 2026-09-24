@@ -22,6 +22,7 @@ import { ExplainabilityPresentationState } from './wave7-explainability.js';
 import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces } from './wave7-workspaces.js';
 import { Wave8CognitionProductionAdapter } from './wave8-production-adapters.js';
 import { registerWave8Actions, registerWave8Inspectors } from './wave8-workspace.js';
+import { createWave11LiveReceiptBinding, mergeWave11Bridges } from './wave11-live-bindings.js';
 
 export function createWave6ProductInterface({
   root,
@@ -31,8 +32,12 @@ export function createWave6ProductInterface({
   productTagline='Cognitive Story System',
   hostMountAdapter=null,
   fixture=null,
+  hostBindings=null,
 }={}){
   if(!root)throw new Error('Wave 6 product interface requires a host-adjacent root element');
+  if(fixture&&hostBindings)throw new TypeError('Fixture review mode and Wave 11 live host bindings are mutually exclusive');
+  const liveReceiptBinding=hostBindings?createWave11LiveReceiptBinding(hostBindings):null;
+  const effectiveBridges=liveReceiptBinding?mergeWave11Bridges(bridges,liveReceiptBinding.bridges):bridges;
   const signals=new SignalHub(),scheduler=new RenderScheduler(),widgetRegistry=new WidgetRegistry(),workspaceRegistry=new WorkspaceRegistry(),inspectorRegistry=new InspectorRegistry(),actionRouter=new ActionRouter();
   const extensionRegistry=new UIExtensionRegistry({workspaceRegistry,inspectorRegistry,actionRouter,scheduler});
   const overlays=new OverlayManager({document:root.ownerDocument,root:root.ownerDocument.body});
@@ -40,15 +45,15 @@ export function createWave6ProductInterface({
   const productPresentation=new ProductPresentationState({stateStore});
   const frontFacePresentation=new FrontFacePresentationState({stateStore});
   const explainabilityPresentation=new ExplainabilityPresentationState({stateStore});
-  const scene=bridges.scene?.readModel?new SceneProductionUIAdapter(bridges.scene):null;
-  const runtime=new RuntimeProductionUIAdapter(bridges.runtimeAdapter??null);
-  const coprocessor=new CoprocessorProductionUIAdapter(bridges.coprocessorTelemetry??bridges.coprocessorAdapter??null);
-  const promptPlan=new PromptPlanProductionUIAdapter(bridges.promptPlan??{});
-  const forensics=new ForensicsProductionUIAdapter(bridges.forensics??{});
-  const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(bridges.cognition??{})});
+  const scene=effectiveBridges.scene?.readModel?new SceneProductionUIAdapter(effectiveBridges.scene):null;
+  const runtime=new RuntimeProductionUIAdapter(effectiveBridges.runtimeAdapter??null);
+  const coprocessor=new CoprocessorProductionUIAdapter(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter??null);
+  const promptPlan=new PromptPlanProductionUIAdapter(effectiveBridges.promptPlan??{});
+  const forensics=new ForensicsProductionUIAdapter(effectiveBridges.forensics??{});
+  const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(effectiveBridges.cognition??{})});
   const productAdapter=new Wave6ProductAdapter({
     scene,runtime,coprocessor,promptPlan,forensics,
-    story:bridges.story??null,characters:bridges.characters??null,lore:bridges.lore??null,memory:bridges.memory??null,world:bridges.world??null,
+    story:effectiveBridges.story??null,characters:effectiveBridges.characters??null,lore:effectiveBridges.lore??null,memory:effectiveBridges.memory??null,world:effectiveBridges.world??null,
     presentationState:productPresentation,fixture,
   });
   let shell=null,controller=null,workspaceScope=new ResourceScope();
@@ -57,7 +62,7 @@ export function createWave6ProductInterface({
 
   registerPrimitiveWidgets(widgetRegistry);registerCognitiveWidgets(widgetRegistry);
   const widgetRuntime=new WidgetRuntime({registry:widgetRegistry,services:{signals,scheduler,actionRouter,overlays,notifications,productAdapter}});
-  if(bridges.knowledgeAdapter)registerKnowledgeInspectionActions(actionRouter,{adapter:bridges.knowledgeAdapter,signals});
+  if(effectiveBridges.knowledgeAdapter)registerKnowledgeInspectionActions(actionRouter,{adapter:effectiveBridges.knowledgeAdapter,signals});
   const releaseWave7Actions=registerWave7Actions(actionRouter,{presentation:explainabilityPresentation});
   const releaseWave8Actions=registerWave8Actions(actionRouter);
 
@@ -71,7 +76,7 @@ export function createWave6ProductInterface({
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
-      promptPlan,forensics,cognition,presentation:explainabilityPresentation,
+      promptPlan,forensics,cognition,presentation:explainabilityPresentation,liveReceiptBinding,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
       inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
       navigate(id){shell?.selectWorkspace(id);},
@@ -88,16 +93,33 @@ export function createWave6ProductInterface({
   controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName});
   controller.mount();
   const cognitionScope=new ResourceScope();
-  const cognitionRelease=cognition.subscribe(()=>scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'}));if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
+  let liveSelectionKey=null;
+  const applyLiveSelection=(update=null,{initial=false}={})=>{
+    const selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;
+    if(!selection)return;
+    const key=JSON.stringify([selection.chatId,selection.turnId,selection.generationId,selection.correlationId,selection.worldRevision,selection.sceneRevision,selection.sourceRevisionRefs]);
+    const switched=liveSelectionKey!==null&&key!==liveSelectionKey;liveSelectionKey=key;
+    if(initial||switched){
+      explainabilityPresentation.selectGeneration({generationId:selection.generationId??null,turnId:selection.turnId??null});
+      inspector.clear();scheduler.cancelPrefix('inspector');
+      signals.publish('UI_HOST_CONTEXT_CHANGED',{selection,switched},{source:'wave11-live-binding'});
+    }else if(inspector.selection)scheduler.invalidate('wave11:inspector-refresh',()=>inspector.render(),{cost:'NORMAL'});
+    scheduler.invalidate('wave11:host-refresh',()=>{if(shell?.currentWorkspace)shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
+  };
+  if(liveReceiptBinding)applyLiveSelection(null,{initial:true});
+  const cognitionRelease=cognition.subscribe((update)=>{
+    if(liveReceiptBinding)applyLiveSelection(update);
+    else scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
+  });if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
 
   const toastScope=new ResourceScope(),toastViewport=new ToastViewport({host:shell.nodes.toastHost,signals,scope:toastScope});toastViewport.mount();
 
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
-    productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,
+    productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,liveReceiptBinding,
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();cognition.destroy?.();forensics.destroy?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
   };
 }
 

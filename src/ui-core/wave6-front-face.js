@@ -49,7 +49,7 @@ export class HostAdjacentFrontFaceController{
     const health=s.brain?.overall??Wave6Health.UNAVAILABLE,scene=s.scene,attention=s.wave6?.attention??[];
     const brand=element(d,'div',{className:'a52-quick-dash__brand'});brand.append(element(d,'strong',{text:this.productName}),sourceModeBadge(d,overallSource(s)));
     const brain=makeHealthPill(d,{label:`Brain · ${human(health)}`,status:healthToken(health),detail:pulse?.currentFocus??''});
-    const sceneNode=element(d,'div',{className:'a52-quick-dash__scene'});sceneNode.append(element(d,'span',{className:'a52-eyebrow',text:'Current Scene'}),element(d,'strong',{text:scene?.title??'Not connected'}),scene?.narrativeTime?element(d,'span',{className:'a52-muted',text:scene.narrativeTime}):null);
+    const sceneNode=element(d,'div',{className:'a52-quick-dash__scene'});sceneNode.append(element(d,'span',{className:'a52-eyebrow',text:'Current Scene'}),element(d,'strong',{text:scene?.title??'Not connected'}));if(scene?.narrativeTime)sceneNode.append(element(d,'span',{className:'a52-muted',text:scene.narrativeTime}));
     const attentionNode=element(d,'div',{className:'a52-quick-dash__attention'});attentionNode.append(makeBadge(d,`Attention ${attention.length}`,attention.length?'warning':'ready'));
     const activity=element(d,'div',{className:'a52-quick-dash__activity',text:pulse?.activity?.[0]?.meaning??(pulse?.currentFocus??'Brain ready')});
     const button=createButton(d,{label:p.frontFaceMode===FrontFaceMode.COLLAPSED?'Expand':'Collapse',scope:this.scope,onPress:()=>this.presentation.toggle()});
@@ -60,7 +60,7 @@ export class HostAdjacentFrontFaceController{
     this.nodes.root.dataset.presentation=p.frontFaceMode;this.nodes.root.dataset.density=p.frontFaceDensity;
     this.nodes.root.style.width=`${expanded?p.frontFaceWidth:76}px`;
     this.nodes.quick.style.display='';this.nodes.expanded.style.display=expanded?'':'none';
-    this.nodes.shellRoot.classList.toggle('a52-density-compact',p.frontFaceDensity===FrontFaceDensity.COMPACT);
+    this.nodes.shellRoot.classList.toggle('a52-density-compact',p.frontFaceDensity===FrontFaceDensity.COMPACT);this.nodes.shellRoot.dataset.inspectorVisible=String(p.inspectorVisible);
     if(this.shell.nodes?.inspectorHost){this.shell.nodes.inspectorHost.style.display=p.inspectorVisible?'':'none';this.shell.nodes.inspectorHost.style.width=`${p.inspectorWidth}px`;}
     this.hostMountAdapter?.apply?.({mode:p.frontFaceMode,width:p.frontFaceWidth,collapsedWidth:76});
   }
@@ -107,7 +107,7 @@ function renderBrain(host,ctx){
   const d=host.ownerDocument,s=ctx.adapter.getSnapshot(),level=ctx.adapter.getDetailLevel(),pulse=ctx.brainPulse?.getSnapshot?.()??fallbackPulse(s);
   header(host,ctx,'Brain','What useful cognition is happening now; engineering machinery stays behind Advanced.');
   const hero=element(d,'section',{className:'a52-card a52-brain-pulse',attrs:{'aria-label':`Brain Pulse ${pulse.overall}`}});
-  hero.append(element(d,'div',{className:'a52-brain-pulse__head'},makeHealthPill(d,{label:`Brain · ${human(pulse.overall)}`,status:healthToken(pulse.overall),detail:pulse.currentFocus}),sourceModeBadge(d,overallSource(s))),element(d,'h2',{text:pulse.currentFocus}),element(d,'div',{className:'a52-brain-pulse__lanes'},pulseLane(d,'Foreground',pulse.foreground),pulseLane(d,'Background',pulse.background)));
+  const pulseHead=element(d,'div',{className:'a52-brain-pulse__head'});pulseHead.append(makeHealthPill(d,{label:`Brain · ${human(pulse.overall)}`,status:healthToken(pulse.overall),detail:pulse.currentFocus}),sourceModeBadge(d,overallSource(s)));const lanes=element(d,'div',{className:'a52-brain-pulse__lanes'});lanes.append(pulseLane(d,'Foreground',pulse.foreground),pulseLane(d,'Background',pulse.background));hero.append(pulseHead,element(d,'h2',{text:pulse.currentFocus}),lanes);
   host.append(hero);
   if(pulse.activity.length){host.append(section(d,'Meaningful activity'),renderActivity(d,pulse.activity));}
   if(pulse.attention.length)host.append(section(d,'Needs attention'),renderActivity(d,pulse.attention));

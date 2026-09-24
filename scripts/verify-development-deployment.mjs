@@ -41,6 +41,14 @@ for(const lanePath of rootManifest.laneManifests){
     unexpected++;failed=true;
     console.error(JSON.stringify({lane:lane.laneId,path:row.path,sourceDigest:row.sourceDigest,observedDigest:observed,expectedPatchDigest:patch?.expectedDigest??null}));
   }
+  for(const row of lane.renamedSourceCopies??[]){
+    const target=path.join(root,row.integrationPath);
+    if(!fs.existsSync(target)){missing++;failed=true;continue;}
+    const observed=gitBlobSha(target);
+    if(observed===row.expectedDigest&&observed===row.sourceDigest){exact++;continue;}
+    unexpected++;failed=true;
+    console.error(JSON.stringify({lane:lane.laneId,path:row.integrationPath,sourcePath:row.sourcePath,sourceDigest:row.sourceDigest,observedDigest:observed,expectedDigest:row.expectedDigest}));
+  }
   summary.push({lane:lane.laneId,mode:lane.mode??'COPIED_CHECKPOINT',exact,patched,missing,unexpected});
 }
 const out={kind:'DevelopmentDeploymentDigestVerification',status:failed?'FAIL':'PASS',deploymentBaseSha:rootManifest.deploymentBaseSha,summary};

@@ -27,6 +27,7 @@ large.gather={...large.gather,results:Array.from({length:10000},(_,i)=>({
   correlationId:large.selection.correlationId,worldRevision:large.selection.worldRevision,sceneRevision:large.selection.sceneRevision,
 })),admittedEvidenceRefs:[]};
 
+const switchTurns=turns.filter(x=>x!==large);
 const host=createWave11LiveHost(turns,'turn:0'),doc=new Doc(),root=new FakeNode('div',doc),storage=memory();
 const ui=createWave6ProductInterface({root,stateStore:new UIStateStore({storage,namespace:'wave11-live-stress'}),hostBindings:host.bundle});
 ui.presentation.patch({frontFaceMode:FrontFaceMode.EXPANDED,frontFaceWidth:900,inspectorVisible:true});
@@ -34,7 +35,7 @@ ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWor
 
 let maxPending=0,maxBrainNodes=0,maxForensicNodes=0;
 for(let i=0;i<600;i++){
-  host.switchTo('turn:'+(i%turns.length));
+  host.switchTo(switchTurns[i%switchTurns.length].selection.turnId);
   if(i%3===0)ui.presentation.setWidth([420,560,720,900][i%4]);
   if(i%5===0)ui.productAdapter.setDetailLevel([ProductDetailLevel.NORMAL,ProductDetailLevel.DETAIL,ProductDetailLevel.ADVANCED][i%3]);
   maxPending=Math.max(maxPending,ui.scheduler.pendingCount);assert.ok(ui.scheduler.pendingCount<=5,'host switch render queue must stay bounded');

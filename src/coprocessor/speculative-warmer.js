@@ -134,6 +134,17 @@ export class WarmPacketCache {
     return deepFreeze({ state: null, packetId: null, reason: 'MISS', salvageableRefs: [], compiledRepresentation: null, requiresForegroundRetrieval: true });
   }
 
+  peek(currentIdentity) {
+    const identity = createWarmIdentity(currentIdentity);
+    const exact = this.#entries.get(warmKey(identity));
+    if (exact) return exact.packet;
+    for (const entry of [...this.#entries.values()].reverse()) {
+      if (entry.packet.identity.intentFingerprint !== identity.intentFingerprint) continue;
+      return entry.packet;
+    }
+    return null;
+  }
+
   invalidate({ sceneRevision = null, intentFingerprint = null, sourceRevisionIds = [] } = {}) {
     const sources = new Set(sourceRevisionIds);
     let count = 0;

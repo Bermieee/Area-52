@@ -2,9 +2,9 @@ import { Signals } from './constants.js';
 import { createButton, createKeyValue, element, makeBadge, makeCard, makeHealthPill } from './primitives.js';
 import { VirtualListController } from './virtualization.js';
 import { ProductDetailLevel } from './wave5-product-model.js';
-import { createAuthorityPill, createProductHealthSurface, sourceStateMessage } from './wave6-presentation.js';
+import { createAuthorityPill, createProductHealthSurface, sourceModeBadge, sourceStateMessage } from './wave6-presentation.js';
 import { createForensicBookmark, diffGenerationContext, explainContextSeal, explainContextSection } from './wave7-explainability.js';
-import { ForensicMetadataIndex, forensicWhy, unresolvedConflictModel } from './wave7-forensics.js';
+import { ForensicMetadataIndex, buildForensicPath, forensicWhy, unresolvedConflictModel } from './wave7-forensics.js';
 
 export function registerWave7Actions(actionRouter,{presentation}={}){
   const releases=[];
@@ -24,9 +24,9 @@ export function registerWave7Actions(actionRouter,{presentation}={}){
   return()=>{for(const release of releases.reverse())try{release?.();}catch{}};
 }
 
-export function registerWave7Inspectors(registry,{forensics}={}){
+export function registerWave7Inspectors(registry,{forensics,promptPlan}={}){
   const releases=[];
-  if(!registry.has('wave7-generation'))releases.push(registry.register('wave7-generation',(object,ctx)=>renderGenerationInspector(object,ctx)));
+  if(!registry.has('wave7-generation'))releases.push(registry.register('wave7-generation',(object,ctx)=>renderGenerationInspector(object,ctx,forensics,promptPlan)));
   if(!registry.has('wave7-context-section'))releases.push(registry.register('wave7-context-section',(object,ctx)=>renderSectionInspector(object,ctx)));
   if(!registry.has('wave7-forensic-item'))releases.push(registry.register('wave7-forensic-item',(object,ctx)=>renderForensicInspector(object,ctx,forensics)));
   if(!registry.has('wave7-unresolved-conflict'))releases.push(registry.register('wave7-unresolved-conflict',(object,ctx)=>renderConflictInspector(object,ctx)));
@@ -45,14 +45,28 @@ export function registerWave7Workspaces(registry,{promptPlan,forensics,presentat
 }
 
 export function createWave7BrainLaunchers(doc,{ctx,currentGenerationId=null}={}){
-  const card=element(doc,'section',{className:'a52-card a52-wave7-launchers'});
-  card.append(element(doc,'span',{className:'a52-eyebrow',text:'Explainability'}),element(doc,'h2',{text:'Understand this generation'}),element(doc,'p',{className:'a52-muted',text:'Trace what context was included, excluded, reused, sealed, and why.'}));
+  const card=element(doc,'section',{className:'a52-card a52-wave7-launchers',attrs:{'aria-label':'Generation context explanation'}});
+  const read=ctx.promptPlan?.read?.(currentGenerationId?{generationId:currentGenerationId}:{})??null,explain=read?.data?.explainability??null;
+  card.append(element(doc,'span',{className:'a52-eyebrow',text:'Generation Context'}),element(doc,'h2',{text:'Why did this generation receive this context?'}));
+  if(!explain){
+    card.append(element(doc,'p',{className:'a52-muted',text:'PromptPlan/context readers have not published a completed generation explanation.'}));
+    if(read?.source)card.append(sourceStateMessage(doc,read.source));
+  }else{
+    const budget=contextBudget(explain),counts=explain.sectionCounts??{},head=element(doc,'div',{className:'a52-inline-status'});
+    head.append(sourceModeBadge(doc,read.source),makeHealthPill(doc,{label:`Context · ${read.source.health}`,status:read.source.statusToken,detail:read.source.impact}),makeBadge(doc,explain.generationId??'generation','observed'));
+    card.append(head,createKeyValue(doc,[
+      {key:'Budget',value:`${number(budget.allocated)} / ${number(budget.total)} tokens · ${number(budget.remaining)} remaining`},
+      {key:'Sections',value:`${explain.sections.length} · ${counts.REUSED??0} reused · ${counts.REBUILT??0} rebuilt · ${counts.UPDATED??0} updated`},
+      {key:'Omitted',value:`${counts.DROPPED??0} dropped · ${counts.DEFERRED??0} deferred`},
+      {key:'Model profile',value:explain.modelProfileId??'unavailable'},
+      {key:'Fallback',value:explain.fallbackState??'NONE'},
+      {key:'Final packet estimate',value:`${number(explain.usedOrEstimatedTokens)} tokens`},
+      {key:'Unresolved evidence',value:String(explain.unresolvedEvidence?.length??0)},
+    ]));
+  }
   const actions=element(doc,'div',{className:'a52-inline-status'});
-  actions.append(
-    createButton(doc,{label:'Why This Generation?',scope:ctx.scope,onPress:()=>openWorkspace(ctx,'generation-explainability')}),
-    createButton(doc,{label:'Forensics',scope:ctx.scope,variant:'quiet',onPress:()=>openWorkspace(ctx,'forensics')}),
-  );
-  if(currentGenerationId)actions.append(makeBadge(doc,currentGenerationId,'observed'));
+  if(explain)actions.append(createButton(doc,{label:'Inspect context plan',scope:ctx.scope,onPress:()=>ctx.inspect?.({kind:'wave7-generation',id:explain.generationId,title:'Generation Context',generation:explain})}));
+  actions.append(createButton(doc,{label:'Why This Generation?',scope:ctx.scope,onPress:()=>openWorkspace(ctx,'generation-explainability')}),createButton(doc,{label:'Forensics',scope:ctx.scope,variant:'quiet',onPress:()=>openWorkspace(ctx,'forensics')}));
   card.append(actions);return card;
 }
 
@@ -83,6 +97,7 @@ function renderForensicsWorkspace(host,ctx){
   if(!read.data?.timeline){host.append(sourceStateMessage(d,read.source));return;}
   const timeline=read.data.timeline;host.append(createProductHealthSurface(d,{source:read.source,label:'Forensic reconstruction',compact:true}));
   if(!timeline.complete)host.append(state(d,'Partial reconstruction','Missing stages/references remain explicit; Area-52 did not invent replacements.','warning'));
+  host.append(forensicPathCard(d,buildForensicPath(timeline),ctx));
   host.append(forensicFilters(d,ctx,timeline));
   const listHost=element(d,'section',{className:'a52-card a52-forensic-timeline',attrs:{'aria-label':'Cognitive forensic timeline'}});
   listHost.append(element(d,'h2',{text:`Cognitive timeline · ${timeline.rows.length} recorded/reference items`}));
@@ -115,9 +130,13 @@ function generationSelector(d,ctx,currentId,{compact=false}={}){
 }
 
 function generationHero(d,x,source){
-  const card=element(d,'section',{className:'a52-card a52-generation-hero'}),head=element(d,'div',{className:'a52-inline-status'});
-  head.append(makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','observed'));
-  card.append(head,element(d,'h2',{text:x.generationId??'Generation'}),createKeyValue(d,[{key:'Turn',value:x.turnId??'unavailable'},{key:'Context Seal',value:x.contextSealId??'unavailable'},{key:'PromptPlan',value:x.promptPlanId??'unavailable'},{key:'Model profile',value:x.modelProfileId??'unavailable'},{key:'Planned / used',value:`${number(x.plannedTokens)} / ${number(x.usedOrEstimatedTokens)} tokens`},{key:'Integrity',value:x.integrityState??'unavailable'},{key:'Fallback',value:x.fallbackState??'NONE'}]));
+  const card=element(d,'section',{className:'a52-card a52-generation-hero'}),head=element(d,'div',{className:'a52-inline-status'}),budget=contextBudget(x);
+  head.append(sourceModeBadge(d,source),makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','observed'));
+  card.append(head,element(d,'h2',{text:x.generationId??'Generation'}),createKeyValue(d,[
+    {key:'Available budget',value:`${number(budget.total)} tokens`},{key:'Allocated',value:`${number(budget.allocated)} tokens`},{key:'Remaining',value:`${number(budget.remaining)} tokens`},
+    {key:'Final packet estimate',value:`${number(x.usedOrEstimatedTokens)} tokens`},{key:'Model profile',value:x.modelProfileId??'unavailable'},{key:'Fallback',value:x.fallbackState??'NONE'},
+    {key:'Integrity',value:x.integrityState??'unavailable'},{key:'Turn',value:x.turnId??'unavailable'},
+  ]));
   return card;
 }
 
@@ -132,9 +151,9 @@ function whySummary(d,x,ctx){
 
 function contextSections(d,x,detail,ctx){
   const root=element(d,'div',{className:'a52-context-section-grid'});
-  for(const section of x.sections){
-    const explanation=explainContextSection(section),card=element(d,'article',{className:'a52-context-section-card',dataset:{state:explanation.state}});
-    const head=element(d,'div',{className:'a52-inline-status'});head.append(makeBadge(d,explanation.state,stateToken(explanation.state)),element(d,'strong',{text:human(explanation.slot)}));
+  for(const [index,section] of x.sections.entries()){
+    const explanation=explainContextSection(section),card=element(d,'article',{className:'a52-context-section-card',dataset:{state:explanation.state},attrs:{'aria-label':`Context section ${index+1}: ${human(explanation.slot)}`}});
+    const head=element(d,'div',{className:'a52-inline-status'});head.append(makeBadge(d,`#${index+1}`,'observed'),makeBadge(d,explanation.state,stateToken(explanation.state)),element(d,'strong',{text:human(explanation.slot)}),makeBadge(d,`${number(explanation.actualTokens??explanation.estimatedTokens)} tokens`,'observed'));
     card.append(head,element(d,'p',{text:explanation.impact}));
     if(explanation.reason)card.append(element(d,'p',{className:'a52-muted',text:explanation.reason}));else card.append(element(d,'p',{className:'a52-muted',text:'Reason not published by the owning context model.'}));
     if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Priority',value:explanation.priority??'unavailable'},{key:'Tokens',value:number(explanation.actualTokens??explanation.estimatedTokens)},{key:'Representation',value:explanation.representation??'unavailable'},{key:'Cache eligible',value:explanation.cacheEligible==null?'unavailable':String(explanation.cacheEligible)}]));

@@ -1,4 +1,5 @@
 import { FailureCode, TelemetryEvent } from './constants.js';
+import { utf8ByteLength } from '../browser-compat.js';
 import { createWorkerResult } from './contracts.js';
 import { specialistForTask } from './foreground-specialists.js';
 import { ProviderInvocationError } from './provider-adapters.js';
@@ -64,7 +65,7 @@ export class ProviderExecutionRouter {
   }
 }
 
-export function estimateTokens(value){return Math.max(1,Math.ceil(Buffer.byteLength(JSON.stringify(value??{}),'utf8')/4));}
+export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength(JSON.stringify(value??{}))/4));}
 
 function collectRefs(input){
   const refs=[];const visit=(v)=>{

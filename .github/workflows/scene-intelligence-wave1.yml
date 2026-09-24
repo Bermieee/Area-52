@@ -1,4 +1,4 @@
-name: Scene Intelligence Wave 1 validation
+name: Scene Intelligence Wave 1+2 validation
 on:
   push:
     branches: [Development-Scene-Scanner]
@@ -8,12 +8,12 @@ on:
       - 'tests/scene-*.mjs'
       - 'tests/cognitive-core.mjs'
       - 'docs/AREA52_SCENE_INTELLIGENCE_*'
-      - 'docs/SCENE_INTELLIGENCE_WAVE1_ACCEPTANCE.md'
+      - 'docs/SCENE_INTELLIGENCE_WAVE*.md'
       - 'package.json'
 jobs:
-  scene-wave1:
+  scene-wave1-wave2:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

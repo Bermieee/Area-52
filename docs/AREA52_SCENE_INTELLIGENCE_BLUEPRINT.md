@@ -131,3 +131,92 @@ Production Scene modules use browser-safe standard JavaScript only. Node-specifi
 ## Deferred work
 
 Wave 1 explicitly does not implement #103, #108–#113, #177, #182, #183 or #173.
+
+# Wave 2 — Lifecycle, Episodes, Graph, Retrieval and Host Intake
+
+## Continuity objective
+
+Wave 2 extends live perception into narrative continuity:
+
+NarrativeEvidence -> CurrentScene -> confirmed lifecycle transition -> SceneEpisode -> Scene Stack / Scene Graph -> retrieval + adjacency -> normalized Scene events -> prefetch recommendations.
+
+The host boundary is:
+
+SillyTavern activity -> NarrativeFeedAdapter -> immutable revisioned Area-52 evidence -> Scene Intelligence.
+
+Wave 2 remains Phase 1 backend cognition. It does not implement Scene Studio or UI.
+
+## Scene Stack
+
+Scene Stack is the bounded live topology view. Relationships are:
+
+- CONTINUES
+- PRECEDES
+- PARALLEL_TO
+- FLASHBACK_OF
+- INTERRUPTS
+- RESUMES
+
+Only one frame owns active narrative focus. Flashback, parallel and interruption suspend the prior resumable frame. RESUMES reactivates the same conceptual Scene ID. Unknown/non-resumable Scenes cannot resume. Closed frames are bounded in the live stack; durable relationship history belongs in Scene Graph.
+
+## SceneEpisode
+
+SceneEpisode is a DERIVED artifact keyed by sceneId + sceneRevision + source revision set. It retains source range/revisions, participants, location/time FieldStates, events, claims/signals, state/object transitions, threads, atmosphere trajectory, Scene relationships, compact retrieval text, provenance, and a reference-first artifact descriptor/digest.
+
+Compilation is deterministic/idempotent for the same revision. Source revision changes produce a new Episode revision rather than rewriting the old derivation. A SceneEpisode never becomes SOURCE_CANON merely because it is coherent.
+
+Memory decides how/when a SceneEpisode enters durable experience storage.
+
+## Clapperboard lifecycle
+
+Confirmed boundaries are coordinated by ClapperboardTransitionManager. Linear continuation closes the prior Scene, derives its Episode, records the graph relationship, opens the next Scene, publishes lifecycle events, and emits a speculative prefetch recommendation.
+
+FLASHBACK_OF, PARALLEL_TO and INTERRUPTS suspend rather than falsely close the prior conceptual Scene. RESUMES closes/finalizes the temporary Scene and reopens the original Scene ID.
+
+Transition delivery is candidate-deduplicated and revision-fenced. Duplicate confirmation cannot create duplicate Episodes, next Scenes, or graph edges. Episode compilation failure returns EPISODE_PENDING while retaining recoverable Scene lifecycle state.
+
+## Scene Graph
+
+Scene Graph is narrative topology, not the Temporal State Graph and not world ontology.
+
+Supported narrative edges include Scene precedes/continues/parallel/flashback/interrupt/resume plus entity/event/object/thread membership.
+
+Adjacency is never interpreted as causality. Edges carry evidence/provenance or derivation references.
+
+## Scene retrieval
+
+SceneRetrievalAdapter returns bounded SceneEpisode references and metadata rather than copying full Episodes. Scoring may use semantic overlap, entities, location, active threads, adjacency and recency. Results preserve source range/source revision references and relationship to the active Scene for drill-down.
+
+A relevant historical Episode remains historical evidence; retrieval does not mutate CurrentScene or world truth. Stale source-revision Episodes are fenced out.
+
+Retrieval exposes HIGH/MIXED/LOW quality classification for the shared retrieval-control policy without implementing a second CRAG/Self-RAG engine.
+
+## Prefetch
+
+ScenePrefetchTrigger produces expiring, revision-fenced recommendations only. Recommendations can include entity/location/thread/Scene refs, priority and evidence. They may be ignored or cancelled. Scene never directly wakes Sidecars.
+
+## Scene event production
+
+SceneEventPublisher produces immutable, versioned, deduplicated Scene events compatible with Runtime Event Spine metadata: event/type/version, producer, correlation/causation/turn identity, scene revision fence, source revisions, sequence, dedupe identity and payload.
+
+Scene events create signals/obligations; they grant no mutation authority.
+
+## Narrative Feed Adapter
+
+NarrativeFeedAdapter normalizes USER_SEND, ASSISTANT_GENERATION_COMPLETE, REGENERATE, SWIPE_SELECTED, EDIT, DELETE, CONTINUE, CHAT_LOAD, CHAT_SWITCH, NEW_CHAT, IMPORT_OR_RELOAD and LORE_CHANGE into host-neutral NarrativeEvidence.
+
+It preserves chat/message/revision/turn/source identities and causation/correlation/order. Edits append revisions. Regeneration and swipe replacement invalidate abandoned current evidence. Delete emits invalidation. Duplicate host delivery is idempotent. Chat IDs namespace evidence and CurrentScene identity.
+
+Unsupported/invalid host activity returns typed failure rather than fabricated narrative evidence.
+
+## Restart and revision fencing
+
+SceneRegistry, SceneStack, SceneEpisodeCompiler, SceneGraph, NarrativeFeedAdapter and Prefetch state expose serializable export/import contracts. Reconstruction preserves conceptual Scene IDs and source/evidence lineage.
+
+Late Scene events and transition work are revision-fenced. A result for an older Scene revision cannot become active state for a newer revision.
+
+## Nervous-system readiness
+
+SceneLifecycleRuntime composes the host-normalization and Scene-side lifecycle contracts without owning provider scheduling or Runtime execution. Its public signal artifact extends Wave 1 with Scene relationship, Episode refs, retrieval quality and prefetch recommendations for later Dynamic Fan-Out/Runtime adapters.
+
+The Wave 2 branch may report SCENE SIDE READY for FT002. Live FT002 remains an integration/main acceptance and is not claimed here.

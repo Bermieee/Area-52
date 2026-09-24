@@ -12,3 +12,15 @@ export * from './object-state.js';
 export * from './atmosphere.js';
 export * from './reconciliation.js';
 export * from './runtime.js';
+
+export * from './lifecycle-contracts.js';
+export * from './scene-stack.js';
+export * from './scene-episode.js';
+export * from './transition-manager.js';
+export * from './scene-graph.js';
+export * from './scene-retrieval.js';
+export * from './prefetch-trigger.js';
+export * from './event-publisher.js';
+export * from './narrative-feed-adapter.js';
+export * from './lifecycle-state.js';
+export * from './scene-lifecycle-runtime.js';

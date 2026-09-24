@@ -110,3 +110,68 @@ Do not close epic #97 while later Scene children remain deferred.
 - #182 SillyTavern live feed adapter;
 - #183 full long-run qualification;
 - #173 Phase 2 Scene Studio/authoring utilities.
+
+# Wave 2 Implementation / Validation
+
+## Implementation sequence
+
+1. non-linear Scene Stack;
+2. deterministic SceneEpisode compilation;
+3. Scene Graph;
+4. bounded Scene retrieval;
+5. speculative prefetch contract;
+6. immutable Scene event producer;
+7. SillyTavern-shaped Narrative Feed Adapter;
+8. Clapperboard lifecycle manager;
+9. serializable restart/reconstruction;
+10. Scene-side live-intake composition;
+11. Wave 2 golden worlds and metrics;
+12. long-run scale/recovery qualification;
+13. browser-style runtime execution;
+14. exact-SHA GitHub Actions.
+
+## Required Wave 2 negative proofs
+
+- duplicate boundary confirmation -> one transition;
+- stale Scene revision -> STALE/no mutation;
+- late historical Episode -> not CurrentScene;
+- A PRECEDES B -> not causality;
+- parallel -> not forced PRECEDES;
+- flashback -> no current-world-time advance;
+- unknown Scene -> cannot resume;
+- abandoned regenerate/swipe -> not CURRENT;
+- delete -> dependent Scene state invalidated;
+- duplicate host event -> one evidence revision;
+- stale source Episode -> rejected from active retrieval;
+- expired/superseded prefetch -> not active.
+
+## Browser runtime
+
+In addition to source scanning, tests execute the production Scene lifecycle/host path with globalThis.Buffer unavailable. Node-specific test tooling is not treated as production incompatibility.
+
+## Stress target
+
+Wave 2 qualifies at least:
+
+- 5,000 host events;
+- 2,500 Scene deltas;
+- 500 boundary candidates;
+- 100 transitions;
+- 100 SceneEpisodes;
+- 1,000 retrieval queries;
+- source-edit invalidation of closed Scenes;
+- event dedupe;
+- restart reconstruction;
+- explicit stack/prefetch/dedupe bounds.
+
+Actual values are captured in the exact CI log and Wave 2 acceptance document.
+
+## Closure discipline
+
+#108 and #111 are Scene-owned close candidates once exact-SHA CI is green. #115 may close only when the full deterministic scenario set and truthful metrics are green.
+
+#103 may close only if its own SceneEpisode acceptance is fully met without assuming Memory integration.
+
+#107/#109/#110/#112/#113/#182/#183/#184/#49/#93/#177 remain open when their shared/live acceptance is not yet proven.
+
+#173 is Phase 2 and is not implemented.

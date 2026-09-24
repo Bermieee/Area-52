@@ -34,6 +34,9 @@ export class SceneRegistry {
 
   resumeScene(sceneId, evidenceRefs = []) { const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.lifecycle=SceneLifecycle.OPEN; current.provenance=[...new Set([...current.provenance,...evidenceRefs])]; record.revision=current.revision; record.lifecycle=SceneLifecycle.OPEN; record.snapshots.push(current); return clone(record); }
 
+  exportState(){return clone({version:1,sequence:this.sequence,records:[...this.records.entries()]});}
+  static importState(state){const r=new SceneRegistry();r.sequence=state.sequence??0;r.records=new Map((state.records??[]).map(([id,record])=>[id,clone(record)]));return r;}
+
   reviseSource(sceneId, { sourceRevisionRef, affectedFields = [], evidenceRefs = [] }) {
     const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.sourceRevisionRefs=[...new Set([...current.sourceRevisionRefs,sourceRevisionRef])].slice(-128); current.updatedAt=Date.now(); current.provenance=[...new Set([...current.provenance,...evidenceRefs])].slice(-128);
     for(const field of affectedFields){if(current.fields[field]){current.fields[field]={...current.fields[field],observationClass:'UNRESOLVED',confidence:0,evidenceRefs:[...new Set(evidenceRefs)],revision:current.revision,provenance:[...new Set([...(current.fields[field].provenance??[]),...evidenceRefs])],metadata:{...(current.fields[field].metadata??{}),invalidatedBySourceEdit:true,previousEvidenceRefs:[...(current.fields[field].evidenceRefs??[])]}}; current.fieldEvidence[field]=[...new Set([...(current.fieldEvidence[field]??[]),...evidenceRefs])].slice(-64); if(!current.unresolvedFields.includes(field))current.unresolvedFields.push(field);}}

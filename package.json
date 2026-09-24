@@ -6,6 +6,8 @@
   "description": "Experimental cognitive memory core and canonical UI.Core platform for Nexus Area-52",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "test:ui": "node --test tests/ui-core.test.mjs"
+    "test:ui": "node --test tests/ui-core.test.mjs",
+    "test:ui:wave6": "node --test tests/wave6.test.mjs",
+    "test:ui:wave6:stress": "node tests/wave6-stress.mjs"
   }
 }

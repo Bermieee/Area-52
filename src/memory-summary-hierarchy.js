@@ -282,7 +282,6 @@ export class MemorySummaryHierarchy {
 
   queryCacheKey(request,preferred){
     return stableHash(stableStringify({
-      indexRevision:this.queryIndex.revision,
       preferred,
       query:String(request.query??''),
       mode:request.mode??'EXPLICIT_HISTORY',

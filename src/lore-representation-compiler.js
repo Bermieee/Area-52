@@ -17,6 +17,7 @@ import {
   createProfilePolicy,
   createRepresentationArtifact,
   measureText,
+  representationPolicyFingerprint,
   representationReuseKey,
 } from './lore-representation-contracts.js';
 
@@ -555,9 +556,13 @@ export class LoreRepresentationCompiler {
       throw new TypeError('CUSTOM_CAP requires a positive integer capCharacters');
     }
     const policy = this.policy(normalizedProfile, {policyRevision, baseProfile});
+    const policyFingerprint = representationPolicyFingerprint(policy);
     this.registry.refreshPolicyFreshness(this.runtime.registry, {
+      sourceId,
       profile: normalizedProfile,
+      capCharacters,
       policyRevision: policy.revision,
+      policyFingerprint,
       compilerRevision: this.compilerRevision,
     });
     const slices = sliceSource(sourceRevision.exactContent);
@@ -580,6 +585,7 @@ export class LoreRepresentationCompiler {
       profile: normalizedProfile,
       capCharacters,
       policyRevision: policy.revision,
+      policyFingerprint,
       compilerRevision: this.compilerRevision,
       semanticDependencyHash,
     });
@@ -698,6 +704,7 @@ export class LoreRepresentationCompiler {
       contributionIds: draft.contributionRefs,
       dependencyArtifactIds: contributionSet.dependencyArtifactIds,
       policyRevision: policy.revision,
+      policyFingerprint,
       compilerRevision: this.compilerRevision,
       semanticDependencyHash,
       qualityReceipt,

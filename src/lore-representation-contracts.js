@@ -124,6 +124,16 @@ export function createProfilePolicy({profile, revision = DEFAULT_POLICY_REVISION
   };
 }
 
+export function representationPolicyFingerprint(policy) {
+  if (!policy || typeof policy !== 'object') throw new TypeError('representation policy is required');
+  return stableHash(stableStringify({
+    profile: policy.profile,
+    revision: policy.revision,
+    baseProfile: policy.baseProfile ?? null,
+    classes: policy.classes ?? {},
+  }));
+}
+
 export function measureText(text) {
   const content = String(text || '');
   let bytes = 0;
@@ -212,6 +222,7 @@ export function representationReuseKey({
   profile,
   capCharacters = null,
   policyRevision,
+  policyFingerprint = null,
   compilerRevision,
   semanticDependencyHash,
 }) {
@@ -220,6 +231,7 @@ export function representationReuseKey({
     profile,
     capCharacters,
     policyRevision,
+    policyFingerprint,
     compilerRevision,
     semanticDependencyHash,
   }));
@@ -235,6 +247,7 @@ export function createRepresentationArtifact({
   contributionIds,
   dependencyArtifactIds,
   policyRevision,
+  policyFingerprint = null,
   compilerRevision,
   semanticDependencyHash,
   qualityReceipt,
@@ -244,6 +257,7 @@ export function createRepresentationArtifact({
     profile,
     capCharacters,
     policyRevision,
+    policyFingerprint,
     compilerRevision,
     semanticDependencyHash,
   });
@@ -270,6 +284,7 @@ export function createRepresentationArtifact({
       method: 'PROVIDER_NEUTRAL_CONTRIBUTION_COMPILER',
       compilerRevision,
       policyRevision,
+      policyFingerprint,
     },
     semanticDependencyHash,
     reuseKey,

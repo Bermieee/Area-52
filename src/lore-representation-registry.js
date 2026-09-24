@@ -90,15 +90,25 @@ export class LoreRepresentationRegistry {
     return deepClone(row);
   }
 
-  refreshPolicyFreshness(sourceRegistry, {profile, policyRevision = null, compilerRevision = null} = {}) {
+  refreshPolicyFreshness(sourceRegistry, {
+    sourceId = null,
+    profile,
+    capCharacters = undefined,
+    policyRevision = null,
+    policyFingerprint = null,
+    compilerRevision = null,
+  } = {}) {
     const changed = [];
     for (const row of this.representations.values()) {
       if (row.state !== 'CURRENT' || row.profile !== profile) continue;
+      if (sourceId && row.sourceId !== sourceId) continue;
+      if (capCharacters !== undefined && (row.capCharacters ?? null) !== capCharacters) continue;
       const source = sourceRegistry.currentRevision(row.sourceId, {allowMissing: true});
       let reason = null;
       if (!source || source.state === 'REMOVED') reason = 'SOURCE_REMOVED';
       else if (source.id !== row.sourceRevisionId) reason = 'SOURCE_REVISION_CHANGED';
       else if (policyRevision && row.generation.policyRevision !== policyRevision) reason = 'POLICY_REVISION_CHANGED';
+      else if (policyFingerprint && row.generation.policyFingerprint !== policyFingerprint) reason = 'POLICY_SEMANTICS_CHANGED';
       else if (compilerRevision && row.generation.compilerRevision !== compilerRevision) reason = 'COMPILER_REVISION_CHANGED';
       if (reason) {
         row.state = 'STALE';
@@ -108,6 +118,8 @@ export class LoreRepresentationRegistry {
           sourceRevisionId: row.sourceRevisionId,
           currentSourceRevisionId: source?.id || null,
           policyRevision: row.generation.policyRevision,
+          policyFingerprint: row.generation.policyFingerprint ?? null,
+          currentPolicyFingerprint: policyFingerprint,
           compilerRevision: row.generation.compilerRevision,
         });
         changed.push(row.id);

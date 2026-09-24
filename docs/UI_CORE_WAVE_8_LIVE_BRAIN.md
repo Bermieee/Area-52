@@ -102,7 +102,12 @@ The current Core reference lane already exposes production-compatible contracts 
 - `HotCognitionReadModel`
 - `SceneUiReadModel` on the Scene lane
 
-At the Wave 8 implementation baseline, canonical Worker-1 `CognitiveChoiceReceipt` and Worker-2 `JevDecisionReceipt` were not yet present on the checked heads. Those bindings therefore remain optional and production UI reports UNAVAILABLE until an owning producer exists.
+Worker 1 and Worker 2 subsequently landed the canonical Wave-8 contracts on their own read-only reference branches. The UI lane consumes those contracts by shape without copying their production implementations:
+
+- Worker 1 Core reference: `CognitiveChoiceReceipt` contract v1.0.0 from `Development-Nexus`.
+- Worker 2 Coprocessor reference: `JevDecisionReceipt` contract v1.0.0 from `Development-Sidecar/Jev`.
+
+Focused acceptance fixtures are contract-shaped from those canonical definitions. They prove normalization and presentation behavior, including Core summary-only cognition and Jev service states, but they are still FIXTURE evidence on the UI branch. The owning producers are not assembled into `Development-UI`, so production still reports UNAVAILABLE unless Integration supplies the optional live readers.
 
 The same rule applies to assembled Gather/Lore-status producers where a canonical read receipt is not yet bound.
 

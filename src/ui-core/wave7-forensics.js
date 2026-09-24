@@ -69,7 +69,7 @@ export function buildForensicPath(timeline){
     ['source','Source',row=>row.eventType==='SOURCE_REVISION_ADMITTED'||row.stage===ForensicStage.SOURCE],
     ['proposal','Proposal',row=>row.eventType==='PROPOSAL_CREATED'],
     ['validation','Validation',row=>row.eventType==='PROPOSAL_VALIDATED'],
-    ['settlement','Owner Settlement',row=>row.eventType==='SETTLEMENT_UNRESOLVED'||row.eventType==='SETTLEMENT_ACCEPTED'||row.eventType==='SETTLEMENT_REJECTED'||row.owner==='SETTLEMENT'],
+    ['settlement','Owner Settlement',row=>row.eventType==='SETTLEMENT_UNRESOLVED'||row.eventType==='SETTLEMENT_ACCEPTED'||row.eventType==='SETTLEMENT_REJECTED'||row.eventType==='STATE_CONTRADICTED'],
     ['change','State / Reflection',row=>['REFLECTION_CREATED','REFLECTION_REVISED','STATE_SUPERSEDED','STATE_CONTRADICTED'].includes(row.eventType)],
     ['retrieval','Retrieval',row=>row.eventType==='RETRIEVAL_COMPLETED'||row.eventType==='RETRIEVAL_SKIPPED'||row.eventType.includes('RETRIEVAL')],
     ['compiled','Compiled Context',row=>row.eventType==='CONTEXT_SECTION_COMPILED'],

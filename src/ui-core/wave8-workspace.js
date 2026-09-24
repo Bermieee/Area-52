@@ -3,7 +3,7 @@ import { createButton, createKeyValue, element, makeBadge, makeCard, makeHealthP
 import { VirtualListController } from './virtualization.js';
 import { ProductDetailLevel } from './wave5-product-model.js';
 import { ProductDataMode } from './wave6-contracts.js';
-import { createAuthorityPill, createProductHealthSurface, sourceStateMessage } from './wave6-presentation.js';
+import { createAuthorityPill, createProductHealthSurface, sourceModeBadge, sourceStateMessage } from './wave6-presentation.js';
 import { CognitionStageState, explainCognitionWhy } from './wave8-cognition.js';
 
 export function registerWave8Actions(actionRouter){
@@ -57,7 +57,7 @@ function sceneLoreStrip(d,path,sources,ctx){
   const scene=path.scene,sceneCard=element(d,'section',{className:'a52-card a52-wave8-status-card'});
   sceneCard.append(element(d,'span',{className:'a52-eyebrow',text:'Current Scene'}));
   if(scene){
-    sceneCard.append(element(d,'strong',{text:scene.title??scene.location??scene.sceneId??'Current Scene'}),element(d,'span',{className:'a52-muted',text:`Scene revision ${scene.revision??scene.sceneRevision??'unavailable'}`}));
+    sceneCard.append(sourceModeBadge(d,sources?.scene),element(d,'strong',{text:scene.title??scene.location??scene.sceneId??'Current Scene'}),element(d,'span',{className:'a52-muted',text:`Scene revision ${scene.revision??scene.sceneRevision??'unavailable'}`}));
     const cast=scene.cast??scene.activeCast??[];if(cast.length)sceneCard.append(element(d,'span',{text:cast.map(x=>typeof x==='string'?x:x.name??x.id).filter(Boolean).join(' · ')}));
   }else sceneCard.append(element(d,'strong',{text:'Scene Intelligence unavailable'}));
   grid.append(sceneCard);
@@ -65,7 +65,7 @@ function sceneLoreStrip(d,path,sources,ctx){
   const lore=path.lore,loreCard=element(d,'section',{className:'a52-card a52-wave8-status-card'});
   loreCard.append(element(d,'span',{className:'a52-eyebrow',text:'Lore'}));
   if(lore){
-    loreCard.append(element(d,'strong',{text:`${lore.sourceEntryCount??'—'} source entries`}),element(d,'span',{className:'a52-muted',text:`Representations: ${lore.learnedState??'unavailable'} · Index: ${lore.indexState??'unavailable'}`}),element(d,'span',{className:'a52-muted',text:`Revision: ${lore.lastRevision??'unavailable'}`}));
+    loreCard.append(sourceModeBadge(d,sources?.lore),element(d,'strong',{text:`${lore.sourceEntryCount??'—'} source entries`}),element(d,'span',{className:'a52-muted',text:`Representations: ${lore.learnedState??'unavailable'} · Index: ${lore.indexState??'unavailable'}`}),element(d,'span',{className:'a52-muted',text:`Revision: ${lore.lastRevision??'unavailable'}`}));
     loreCard.append(createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave8-lore',id:lore.lastRevision??'lore',title:'Lore cognition',item:lore})}));
   }else loreCard.append(element(d,'strong',{text:'Lore learning status unavailable'}));
   grid.append(loreCard);return grid;
@@ -77,7 +77,9 @@ function pipeline(d,path,ctx){
   const flow=element(d,'div',{className:'a52-wave8-pipeline__flow'});
   for(const stage of path.stages){
     const button=element(d,'button',{className:'a52-wave8-stage',attrs:{type:'button','aria-label':`${stage.label}: ${stage.state}. ${stage.summary}`},dataset:{state:stage.state}});
-    button.append(element(d,'span',{className:'a52-wave8-stage__mark',text:stageGlyph(stage.state)}),element(d,'strong',{text:stage.label}),makeBadge(d,stage.state,statusToken(stage.state)),element(d,'span',{className:'a52-muted',text:stage.summary||stage.reason||'No recorded detail'}));
+    button.append(element(d,'span',{className:'a52-wave8-stage__mark',text:stageGlyph(stage.state)}),element(d,'strong',{text:stage.label}),makeBadge(d,stage.state,statusToken(stage.state)));
+    if(stage.details?.mode)button.append(makeBadge(d,stage.details.mode,stage.details.mode===ProductDataMode.LIVE?'ready':stage.details.mode===ProductDataMode.DEGRADED?'warning':stage.details.mode===ProductDataMode.FIXTURE?'inferred':'offline'));
+    button.append(element(d,'span',{className:'a52-muted',text:stage.summary||stage.reason||'No recorded detail'}));
     ctx.scope.listen(button,'click',()=>inspectThroughRouter(ctx,{kind:'wave8-stage',id:stage.id,title:stage.label,item:stage}));
     flow.append(button);
   }
@@ -86,7 +88,8 @@ function pipeline(d,path,ctx){
 
 function normalSummary(d,path,ctx){
   const s=path.summary,grid=element(d,'div',{className:'a52-product-grid a52-wave8-summary'});
-  grid.append(summaryCard(d,'Brain chose',s.brainChoice??'Choice receipt unavailable',s.jobs?`${s.jobs.admitted} admitted · ${s.jobs.skipped} skipped · ${s.jobs.deferred} deferred`:'No job admission receipt'));
+  const saved=optimizationSummary(path.choice?.measurements);
+  grid.append(summaryCard(d,'Brain chose',s.brainChoice??'Choice receipt unavailable',s.jobs?`${s.jobs.admitted} admitted · ${s.jobs.skipped} skipped · ${s.jobs.deferred} deferred${saved?' · '+saved:''}`:'No job admission receipt'));
   grid.append(summaryCard(d,'Sensory',s.sensory?`${s.sensory.nominations} nominations → ${s.sensory.unique} unique`:'Unavailable',path.sensory?`${path.sensory.duplicateNominationCount} duplicates merged`:'No Candidate Bus receipt'));
   grid.append(summaryCard(d,'Retrieval',s.retrievalQuality??stageState(path,'RETRIEVAL_QUALITY'),retrievalMeaning(path)));
   grid.append(truthCard(d,path));
@@ -103,6 +106,7 @@ function choiceDetail(d,path,ctx){
   if(!choice){card.append(state(d,'Choice unavailable','No CognitiveChoiceReceipt is connected. Jobs are not inferred from worker activity.','offline'));return card;}
   card.append(element(d,'p',{text:choice.brainChoice?`Brain chose: ${choice.brainChoice}`:'Recorded cognitive choice'}));
   card.append(createKeyValue(d,[{key:'Candidate jobs',value:choice.candidateJobs.length},{key:'Admitted',value:choice.admitted.length},{key:'Skipped',value:choice.skipped.length},{key:'Deferred',value:choice.deferred.length}]));
+  const savings=optimizationRows(choice.measurements);if(savings.length)card.append(element(d,'h3',{text:'Measured avoided work'}),createKeyValue(d,savings),element(d,'p',{className:'a52-muted',text:'These savings are displayed only because the CognitiveChoiceReceipt published them; UI.Core does not estimate skipped backend work.'}));
   const groups=[['ADMITTED',choice.admitted],['SKIPPED',choice.skipped],['DEFERRED',choice.deferred]];
   for(const [label,rows] of groups){
     if(!rows.length)continue;card.append(element(d,'h3',{text:label}));
@@ -187,6 +191,7 @@ function advancedIdentity(d,path,ctx){
     {key:'Turn',value:path.turnId??'unavailable'},{key:'Generation',value:path.generationId??'unavailable'},{key:'Correlation',value:path.correlationId??'unavailable'},
     {key:'World / Scene revision',value:`${path.choice?.revisionIdentity?.worldRevision??path.sensory?.worldRevision??path.seal?.worldRevision??'—'} / ${path.choice?.revisionIdentity?.sceneRevision??path.sensory?.sceneRevision??path.seal?.sceneRevision??'—'}`},
     {key:'Context Seal',value:path.seal?.sealId??'unavailable'},{key:'PromptPlan',value:path.promptPlan?.promptPlanId??'unavailable'},
+    {key:'Bound chat / turn',value:`${path.bindingSelection?.chatId??'—'} / ${path.bindingSelection?.turnId??path.turnId??'—'}`},
   ]));
   if(path.jev?.confidence!=null)card.append(element(d,'p',{className:'a52-muted',text:`Jev confidence metadata: ${path.jev.confidence}. This is not a probability of truth and does not grant authority.`}));
   return card;
@@ -230,7 +235,11 @@ async function why(ctx,item){const result=await ctx.actionRouter.route({type:'wa
 async function inspectThroughRouter(ctx,object){const result=await ctx.actionRouter.route({type:'wave8.inspect',target:{object}});if(result.ok)ctx.inspect?.(result.result);}
 async function openWorkspace(ctx,id){const result=await ctx.actionRouter.route({type:'wave8.openWorkspace',target:{workspaceId:id}});if(result.ok&&result.result?.workspaceId)ctx.navigate?.(result.result.workspaceId);}
 function inspect(ctx,o){ctx.inspect?.(o);}
-function currentSelection(ctx){const bookmark=ctx.presentation?.get?.().bookmark??null;return bookmark?.generationId?{generationId:bookmark.generationId,turnId:bookmark.turnId}:{};}
+function currentSelection(ctx){
+  const bookmark=ctx.presentation?.get?.().bookmark??null;
+  if(bookmark?.generationId||bookmark?.turnId)return ctx.liveReceiptBinding?.selection?.({generationId:bookmark.generationId??null,turnId:bookmark.turnId??null})??{generationId:bookmark.generationId??null,turnId:bookmark.turnId??null};
+  return ctx.liveReceiptBinding?.selection?.()??{};
+}
 function retrievalMeaning(path){const q=path.truth?.retrievalQuality;if(q==='HIGH')return'Retrieval was sufficient.';if(q==='MIXED')return path.corrective?.executed?'Evidence was incomplete; one bounded corrective pass was performed.':'Evidence was incomplete; correction status unavailable.';if(q==='LOW')return'No trustworthy long-term-memory contribution was found.';const stage=path.stages.find(x=>x.id==='RETRIEVAL_QUALITY');return stage?.reason??stage?.summary??'Unavailable';}
 function gatherImpact(row){if(row.status==='LATE')return'Completed after Context Seal; not included in this generation.';if(row.status==='STALE')return'Revision fence is stale; excluded from active generation.';if(row.status==='INVALID')return'Structured result failed validation and was not admitted.';return'Not admitted to this generation.';}
 function stageState(path,id){return path.stages.find(x=>x.id===id)?.state??'UNAVAILABLE';}
@@ -245,3 +254,20 @@ function state(d,title,message,status='ready'){const r=element(d,'section',{clas
 function section(d,title){return element(d,'h2',{className:'a52-section-title',text:title});}
 function human(v){return String(v??'').replace(/[_:-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
 function number(v){return v==null?'unavailable':new Intl.NumberFormat('en-US').format(Number(v)||0);}
+
+function optimizationRows(measurements){
+  if(!measurements||typeof measurements!=='object')return[];
+  const fields=[
+    ['Avoided jobs',measurements.avoidedJobs??measurements.savedJobs],
+    ['Avoided channel calls',measurements.avoidedChannelCalls??measurements.savedChannelCalls],
+    ['Channel invocations',measurements.channelInvocations],
+    ['Optional-provider calls',measurements.optionalProviderCalls],
+    ['Execution resources',measurements.executionResources??measurements.resourceCount],
+    ['Elapsed',measurements.elapsedMs==null?null:String(measurements.elapsedMs)+' ms'],
+  ];
+  return fields.filter(([,value])=>value!=null).map(([key,value])=>({key,value}));
+}
+function optimizationSummary(measurements){
+  const rows=optimizationRows(measurements).filter(x=>x.key==='Avoided jobs'||x.key==='Avoided channel calls'||x.key==='Optional-provider calls');
+  return rows.map(x=>x.value+' '+x.key.toLowerCase()).join(' · ');
+}

@@ -6,11 +6,13 @@ Wave 6 is shared-contract closure, accepted-checkpoint control and integration r
 
 Starting accepted Core checkpoint: `eabf052b95d67752236365252420286d6323791f`.
 
-Functional Wave 6 checkpoint: `a374a45d71e22acbe0b463d4cb8bae2658a0c88d`.
+Primary functional checkpoint: `a374a45d71e22acbe0b463d4cb8bae2658a0c88d`.
 
-Functional CI: Cognitive Core CI `35966737529` — SUCCESS.
+Corrected accepted-contract reconciliation checkpoint: `e17e71cbedce17b933026e7f9fd208d88a20d202`.
 
-## Functional validation
+Exact reconciliation CI: Cognitive Core CI `35967412490` — **SUCCESS**.
+
+## Validation
 
 - full Node regression: **156/156 PASS**
 - Wave 4 integration: **32/32 PASS**
@@ -22,27 +24,47 @@ Functional CI: Cognitive Core CI `35966737529` — SUCCESS.
 - syntax: PASS
 - ESM import: PASS
 
+Wave 6 stress includes:
+
+- 10,000 event registry validations
+- 5,000 contract drift comparisons
+- 5,000 dependency state transitions
+- 5,000 integration rehearsal turns
+- 2,000 stale-result cases
+- 2,000 duplicate-event cases
+- 2,000 provider fallback cases
+- 2,000 assembly manifest validations
+- 1,000 integration-patch validations
+- 1,000 diagnostic reconstructions
+- 1,000 multi-turn FT006 replay sequences
+
 ## Contract reconciliation
 
-Overall: **5 COMPATIBLE / 15 PARTIAL / 52 BLOCKED_ON_OTHER_LANE / 0 MISMATCH**.
+Validated matrix: **8 COMPATIBLE / 26 PARTIAL / 38 BLOCKED_ON_OTHER_LANE / 0 MISMATCH**.
 
 Moving-head drift: **4 NO_CHANGE / 1 COMPATIBLE_EXTENSION / 0 REQUIRES_ADAPTER / 0 BREAKING_CHANGE / 0 UNKNOWN**. Scene is the compatible extension; accepted checkpoints remain the rehearsal inputs.
 
-## Shared issue status at functional checkpoint
+## Issue closure pass
 
-#46, #125 and #131 have cross-lane closure evidence on the accepted public contracts. Final issue-state mutation is performed only after the final documentation checkpoint also passes exact CI.
+Closed as completed on Wave 6 evidence:
 
-#13 remains open: `LIVE_ADAPTER_IMPLEMENTATION_READY / RUNTIME_CONNECTION_NOT_EXECUTED`.
+- **#46** Structured-output shared boundary
+- **#125** Service dependency graph
+- **#131** Event type registry / extensible event envelope
 
-#157 remains BLOCKED.
+Intentionally open:
 
-#177 and #180 have green assembly rehearsals but live execution remains pending.
+- **#13** Nexus shadow: live adapter implementation ready, runtime connection not executed
+- **#157** Phase 1 gate: BLOCKED
+- **#177** FT002: assembly rehearsal green, live SillyTavern pending
+- **#178** FT003: Memory/Sensory missing
+- **#179** FT004: Lore/Sensory missing
+- **#180** FT005: assembly rehearsal green, live provider execution pending
+- **#181** FT006: integrated representative qualification pending
+- **#185** browser host: live assembled-host gate pending
+- **#186** main assembly: real fresh main reconstruction pending
 
-#178/#179 remain blocked by their owner implementations.
-
-#181 remains an integration qualification card.
-
-#185 and #186 remain open until live browser/main reconstruction requirements are met.
+No Memory, Lore, Sensory or UI-owned card is closed by Core work.
 
 ## Integration result
 
@@ -52,16 +74,35 @@ FT002: **ASSEMBLY REHEARSAL GREEN / LIVE SILLYTAVERN PENDING**.
 
 FT005: **ASSEMBLY REHEARSAL GREEN / LIVE PROVIDER EXECUTION PENDING**.
 
-FT006 now has a richer deterministic replay dataset with independent metrics and no fabricated global RP score.
+FT006 has a richer deterministic replay dataset with independent metrics and `aggregateScore:null`; no fabricated global RP score exists.
 
-## Control-plane result
+## Accepted-checkpoint proof
 
-- moving unaccepted heads are refused;
-- every rehearsed source file has an origin receipt;
-- compatibility patches have an explicit registry;
-- undocumented integration drift remains CONFLICT;
-- browser evidence distinguishes executed/replayed/not-run;
-- clean-install/reload responsibilities are modeled;
-- Function Test blockers and Phase 1 remaining work are machine-readable;
-- Phase 1 gate V2 remains `BLOCKED`;
-- `phase2PromotionAllowed:false`.
+Coprocessor moving head `d9b1953...` is refused as an integration source; accepted `8eca22f...` is selected.
+
+Scene moving head `bee29f0...` is refused as an integration source; independently accepted `5ad7567...` is selected.
+
+The newer Scene public contract surface is still inspected via drift detection and classifies as `COMPATIBLE_EXTENSION`.
+
+## Assembly rehearsal
+
+The plan emits:
+
+- 4 COPY
+- 4 VERIFY_DIGEST
+- 1 APPLY_DOCUMENTED_PATCH
+- 3 CHECK_CONTRACT_VERSION
+- 4 RUN_BROWSER_GATE
+- 2 RUN_FUNCTION_TEST
+
+It always reports `mainMutationAllowed:false`.
+
+## Browser and host posture
+
+Core source/runtime execution is green. Accepted Scene/Coprocessor browser evidence is imported with explicit replay state. Runtime browser-host qualification remains NOT_RUN/NOT_MEASURED in Worker 1 evidence, so integration browser readiness is PARTIAL rather than falsely PASS.
+
+## Phase 1 gate
+
+Gate V2 remains **BLOCKED** and `phase2PromotionAllowed:false`.
+
+The remaining live blockers include FT002 live SillyTavern, real Memory, real Lore/Sensory, FT005 live provider execution, FT006 representative integrated workload, #185 live browser host and #186 real main reconstruction.

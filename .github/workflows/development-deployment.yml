@@ -5,6 +5,10 @@ on:
     branches: [Development-Deployment]
   workflow_dispatch:
 
+concurrency:
+  group: development-deployment-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deployment:
     runs-on: ubuntu-latest

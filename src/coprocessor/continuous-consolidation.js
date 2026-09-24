@@ -237,7 +237,17 @@ export function createConsolidationProviderInput(task, input = {}, limits = {}) 
   const maxExcerptChars = positiveInteger(limits.maxExcerptChars ?? 2400, 'maxExcerptChars');
   const unit = input.unit?.kind === 'ConsolidationUnit'
     ? input.unit
-    : createConsolidationUnit(input.unit ?? task.metadata?.batchSlice ?? input);
+    : createConsolidationUnit({
+      ...(task.metadata?.batchSlice??{}),
+      ...(input.unit??input),
+      unitId:input.unit?.unitId??input.unitId??task.metadata?.batchSlice?.unitId??task.taskId,
+      sourceRevisionSet:input.unit?.sourceRevisionSet??input.sourceRevisionSet??task.sourceRevisionSet,
+      worldRevision:input.unit?.worldRevision??input.worldRevision??task.worldRevision,
+      sceneRevision:input.unit?.sceneRevision??input.sceneRevision??task.sceneRevision,
+      characterStateRevision:input.unit?.characterStateRevision??input.characterStateRevision??task.characterStateRevision,
+      resumeIdentity:input.unit?.resumeIdentity??input.resumeIdentity??task.metadata?.resumeIdentity??('resume:'+task.taskId),
+      policyVersion:input.unit?.policyVersion??input.policyVersion??task.metadata?.policyVersion??CONSOLIDATION_POLICY_VERSION,
+    });
   const allowed = new Set(unit.artifactRefs.map((ref) => artifactIdentity(ref)));
   const evidenceSlices = [];
   for (const slice of input.evidenceSlices ?? input.artifactSlices ?? []) {

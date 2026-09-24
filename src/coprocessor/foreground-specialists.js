@@ -73,7 +73,7 @@ export function buildGreenRoomInput(task,input={}){
   });
   return promptEnvelope('Character Green Room',
     'Infer ephemeral scene-scoped character micro-state only. Never convert inference into personality/canon. Prior Green Room state is derived context, not new evidence. Return every requested active character in one strict JSON batch when practical.',
-    bounded);
+    {...bounded,characters:bounded.taskSlice.characters,sceneRevision:task.sceneRevision,expiry:input.expiry??{onSceneRevisionChange:true,ttlTurns:1,onCharacterExit:true}});
 }
 export function normalizeGreenRoom(text,{input,task}){
   const rawCharacters=input.characters??input.activeCast??(task.metadata?.activeCharacterRefs??[]).map((characterRef)=>({characterRef,presence:'PRESENT'}));
@@ -147,16 +147,12 @@ export class GreenRoomEphemeralStore {
     const batch={
       sceneRevision:Number(payload?.sceneRevision??payload?.characters?.[0]?.sceneRevision??0),
       characters:(payload?.characters??[]).map((row)=>({
+        ...row,
         characterRef:row.characterRef??row.characterId,
         sceneRevision:row.sceneRevision,
         evidenceRefs:row.evidenceRefs??[],
         sourceRevisionSet:row.sourceRevisionSet??[],
         confidence:row.confidence,
-        dimensions:row.dimensions??{
-          guardedness:row.guardedness,warmth:row.warmth,anger:row.anger,trustTrend:row.trustTrend,
-          anxiety:row.anxiety,latentIntent:row.latentIntent,attentionTarget:row.attentionTarget,
-          socialPressure:row.socialPressure,uncertainty:row.uncertainty,
-        },
         expiryCondition:row.expiry??row.expiryCondition??{},
       })),
     };

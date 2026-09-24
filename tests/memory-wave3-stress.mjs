@@ -165,8 +165,8 @@ for(let i=0;i<PROFILE_ITERATIONS;i++){
 const arc0Before=producer.summaryArtifact('ARC:w3-arc-0').id;
 const arc9Before=producer.summaryArtifact('ARC:w3-arc-9').id;
 producer.queryHistorian({query:'JourneyDistrict0 overview',resolutionHint:'ARC'});
-producer.queryHistorian({query:'JourneyDistrict20 overview',resolutionHint:'ARC'});
-const unrelatedWarmBefore=producer.queryHistorian({query:'JourneyDistrict20 overview',resolutionHint:'ARC'});
+producer.queryHistorian({query:'MemoryEvent2700 overview',resolutionHint:'ARC'});
+const unrelatedWarmBefore=producer.queryHistorian({query:'MemoryEvent2700 overview',resolutionHint:'ARC'});
 assert.equal(unrelatedWarmBefore.diagnostics.profile.cacheHit,true);
 
 const updateStarted=performance.now();
@@ -184,7 +184,7 @@ assert.equal(invalidation.affectedSummaryScopeRefs.includes('ARC:w3-arc-9'),fals
 assert.notEqual(producer.summaryArtifact('ARC:w3-arc-0').id,arc0Before);
 assert.equal(producer.summaryArtifact('ARC:w3-arc-9').id,arc9Before);
 
-const unrelatedAfter=producer.queryHistorian({query:'JourneyDistrict20 overview',resolutionHint:'ARC'});
+const unrelatedAfter=producer.queryHistorian({query:'MemoryEvent2700 overview',resolutionHint:'ARC'});
 assert.ok(unrelatedAfter.nominations.length>0);
 assert.equal(unrelatedAfter.diagnostics.profile.cacheHit,true);
 
@@ -227,7 +227,7 @@ assert.equal(producer.evidenceBridge.status().mappings,EXTERNAL_MAPPINGS);
 assert.equal(producer.evidenceBridge.status().currentMappings,EXTERNAL_MAPPINGS-1);
 assert.equal(producer.summaryStatus().pendingWorkUnits,0);
 
-const reloadQuery=producer.queryHistorian({query:'JourneyDistrict20 overview',resolutionHint:'ARC'});
+const reloadQuery=producer.queryHistorian({query:'MemoryEvent2700 overview',resolutionHint:'ARC'});
 assert.ok(reloadQuery.nominations.length>0);
 
 const status=producer.summaryStatus();

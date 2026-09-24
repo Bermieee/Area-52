@@ -63,7 +63,7 @@ export function createWave6ProductInterface({
 
   inspectorRegistry.register('*',(object,{document:doc})=>renderReadOnlyInspector(doc,object));
   inspectorRegistry.register('framework-artifact',renderGenericArtifactInspector);
-  const releaseWave7Inspectors=registerWave7Inspectors(inspectorRegistry,{forensics});
+  const releaseWave7Inspectors=registerWave7Inspectors(inspectorRegistry,{forensics,promptPlan});
   const releaseWave8Inspectors=registerWave8Inspectors(inspectorRegistry,{cognition,forensics});
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});

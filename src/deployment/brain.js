@@ -309,7 +309,7 @@ export class DevelopmentDeploymentBrain {
           sourceType: 'LOREBOOK_ENTRY',
           content,
           at,
-          metadata: { lorebookId: id, uid: this.lore.registry.getEntry(sourceId)?.uid ?? null, laneRevisionId: row.revision.id },
+          metadata: { ...(row.revision.metadata ?? {}), lorebookId: id, uid: this.lore.registry.getEntry(sourceId)?.uid ?? null, laneRevisionId: row.revision.id },
         });
       }
       const coreRevision = this.core.registry.getActiveRevision(sourceId);

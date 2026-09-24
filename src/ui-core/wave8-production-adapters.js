@@ -1,9 +1,9 @@
 import { ProductDataMode, Wave6Health, clone, createProductSourceStatus, deepFreeze } from './wave6-contracts.js';
 import { normalizeContextSealReceipt } from './wave7-explainability.js';
 import {
-  buildLiveCognitionPath, normalizeCognitiveChoiceReceipt, normalizeCorrectiveRetrievalReceipt, normalizeGatherReceipt,
-  normalizeJevDecisionReceipt, normalizeLoreStatus, normalizePrecisionReceipt, normalizeScatterReceipt,
-  normalizeSensoryReceipt, normalizeTruthAssessment,
+  buildLiveCognitionPath, normalizeCognitiveChoiceReceipt, normalizeCorrectiveRetrievalReceipt, normalizeGatherFromChoiceReceipt, normalizeGatherReceipt,
+  normalizeJevDecisionReceipt, normalizeLoreStatus, normalizePrecisionReceipt, normalizeScatterReceipt, normalizeSealFromChoiceReceipt,
+  normalizeSensoryFromChoiceReceipt, normalizeSensoryReceipt, normalizeTruthFromChoiceReceipt, normalizeTruthAssessment,
 } from './wave8-cognition.js';
 
 const optional=(fn)=>typeof fn==='function'?fn:null;
@@ -33,35 +33,39 @@ export class Wave8CognitionProductionAdapter{
     const scatter=normalizeScatterReceipt(rawScatter,choice);
 
     const sensoryInput=this.#sensoryInput(selection,errors);
-    const sensory=normalizeSensoryReceipt(sensoryInput);
+    const sensory=normalizeSensoryReceipt(sensoryInput)??normalizeSensoryFromChoiceReceipt(choice);
     const rawTruth=this.#safe('truth',this.readTruthAssessment,selection,errors);
-    const truth=normalizeTruthAssessment(rawTruth);
+    const truth=normalizeTruthAssessment(rawTruth)??normalizeTruthFromChoiceReceipt(choice);
     const rawCorrection=this.#safe('corrective',this.readCorrectiveRetrievalReceipt,selection,errors);
-    const corrective=normalizeCorrectiveRetrievalReceipt(rawCorrection,truth);
+    const corrective=normalizeCorrectiveRetrievalReceipt(rawCorrection??choice?.correctiveRetrieval,truth);
     const rawJev=this.#safe('jev',this.readJevDecisionReceipt,selection,errors);
     const jev=normalizeJevDecisionReceipt(rawJev,choice);
     const rawPrecision=this.#safe('precision',this.readPrecisionReceipt,selection,errors);
     const precision=normalizePrecisionReceipt(rawPrecision,choice);
     const rawGather=this.#safe('gather',this.readGatherReceipt,selection,errors);
-    const gather=normalizeGatherReceipt(rawGather);
+    const gather=normalizeGatherReceipt(rawGather)??normalizeGatherFromChoiceReceipt(choice);
     const rawSeal=this.#safe('seal',this.readContextSealReceipt,selection,errors);
     const sceneResult=this.scene?.read?.()??null;
     const scene=sceneResult?.data??null;
     const promptResult=this.promptPlan?.read?.(selection)??null;
     const promptPlan=promptResult?.data??null;
-    const seal=normalizeContextSealReceipt(rawSeal??promptPlan?.seal??null,{lateResultRefs:gather?.results?.filter(x=>x.status==='LATE').map(x=>x.resultId).filter(Boolean)??[]});
+    const seal=normalizeContextSealReceipt(rawSeal??promptPlan?.seal??null,{lateResultRefs:gather?.results?.filter(x=>x.status==='LATE').map(x=>x.resultId).filter(Boolean)??[]})??normalizeSealFromChoiceReceipt(choice);
     const hotCognition=clone(this.#safe('hotCognition',this.readHotCognitionReadModel,selection,errors));
     const lore=normalizeLoreStatus(this.#safe('lore',this.readLoreStatus,selection,errors));
 
+    const sensoryEvidence=sensoryInput??(sensory?.sourceReceipt==='CognitiveChoiceReceipt'?rawChoice:null),truthEvidence=rawTruth??(truth?.sourceReceipt==='CognitiveChoiceReceipt'?rawChoice:null);
+    const jevEvidence=rawJev??(jev&&choice?.jevDecision?rawChoice:null),precisionEvidence=rawPrecision??(precision?.sourceReceipt==='CognitiveChoiceReceipt'?rawChoice:null);
+    const gatherEvidence=rawGather??(gather?.sourceReceipt==='CognitiveChoiceReceipt'?rawChoice:null),sealEvidence=rawSeal??promptPlan?.seal??(seal?.sourceReceipt==='CognitiveChoiceReceipt'?rawChoice:null);
+    const correctiveEvidence=rawCorrection??(choice?.correctiveRetrieval?rawChoice:null);
     const modes={
       scene:sceneResult?.source?.mode??ProductDataMode.UNAVAILABLE,
-      choice:modeFor(rawChoice,errors.choice),scatter:modeFor(rawScatter,errors.scatter),sensory:modeFor(sensoryInput,errors.sensory),
-      truth:modeFor(rawTruth,errors.truth),jev:modeFor(rawJev,errors.jev),precision:modeFor(rawPrecision,errors.precision),
-      gather:modeFor(rawGather,errors.gather),seal:modeFor(rawSeal??promptPlan?.seal,errors.seal),promptPlan:promptResult?.source?.mode??ProductDataMode.UNAVAILABLE,
+      choice:modeFor(rawChoice,errors.choice),scatter:modeFor(rawScatter,errors.scatter),sensory:modeFor(sensoryEvidence,errors.sensory),
+      truth:modeFor(truthEvidence,errors.truth),jev:modeFor(jevEvidence,errors.jev),precision:modeFor(precisionEvidence,errors.precision),
+      gather:modeFor(gatherEvidence,errors.gather),seal:modeFor(sealEvidence,errors.seal),promptPlan:promptResult?.source?.mode??ProductDataMode.UNAVAILABLE,
       hotCognition:modeFor(hotCognition,errors.hotCognition),lore:modeFor(lore,errors.lore),
     };
     const path=buildLiveCognitionPath({scene,hotCognition,choice,scatter,sensory,truth,corrective,jev,precision,gather,seal,promptPlan,lore,modes});
-    const sources=sourceMap({sceneResult,rawChoice,rawScatter,sensoryInput,rawTruth,rawCorrection,rawJev,rawPrecision,rawGather,rawSeal,promptResult,hotCognition,lore,errors,modes});
+    const sources=sourceMap({sceneResult,rawChoice,rawScatter,sensoryInput:sensoryEvidence,rawTruth:truthEvidence,rawCorrection:correctiveEvidence,rawJev:jevEvidence,rawPrecision:precisionEvidence,rawGather:gatherEvidence,rawSeal:sealEvidence,promptResult,hotCognition,lore,errors,modes});
     const failed=Object.keys(errors).length;
     return deepFreeze({
       source:createProductSourceStatus({mode:failed?ProductDataMode.DEGRADED:path.source.mode,health:failed?Wave6Health.DEGRADED:path.source.health,label:'Live Brain Cognition',impact:failed?`${failed} cognitive producer read${failed===1?'':'s'} failed; remaining receipts are still shown truthfully.`:path.source.impact,producer:'Wave8CognitionProductionAdapter'}),

@@ -7,7 +7,7 @@ Wave 6 reconciles Core against accepted public checkpoints, while treating later
 | Lane | Accepted checkpoint | Moving head observed | Acceptance evidence |
 |---|---|---|---|
 | Core | `eabf052b95d67752236365252420286d6323791f` | Wave 6 work advances only on `Development-Nexus` | Cognitive Core CI `35964450102` |
-| Coprocessor | `8eca22f0ae474a77914d8606148e433965aff205` | `d9b195332671d802639e6f9e7174de74f23a4b1e` | Coprocessor Wave 4 `35963150929` |
+| Coprocessor | `d9b195332671d802639e6f9e7174de74f23a4b1e` | `d9b195332671d802639e6f9e7174de74f23a4b1e` | Coprocessor Wave 4 `35963531808`; historical implementation checkpoint `8eca22f0ae474a77914d8606148e433965aff205` |
 | Scene | `5ad7567225720292d759d4a75afe84479deb6c1a` | `bee29f03de586e7f77728a5a1b6b50dbec0fdf8b` | Scene Wave 1+2 `35958003150` |
 | Runtime | `890f8576bcfcc4c056b959271027242dc6af7d7c` | same at reconciliation | accepted handoff checkpoint |
 | UI | `14259dbd25601d2984846edd2d75b5ef4ec6a6d2` | same at reconciliation | accepted handoff checkpoint |

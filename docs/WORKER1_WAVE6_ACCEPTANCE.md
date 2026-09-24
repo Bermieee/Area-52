@@ -78,7 +78,7 @@ FT006 has a richer deterministic replay dataset with independent metrics and `ag
 
 ## Accepted-checkpoint proof
 
-Coprocessor moving head `d9b1953...` is refused as an integration source; accepted `8eca22f...` is selected.
+Coprocessor accepted Wave 4 checkpoint is `d9b1953...` (CI `35963531808`). Historical `8eca22f...` remains the green implementation checkpoint immediately beneath that documentation/acceptance commit.
 
 Scene moving head `bee29f0...` is refused as an integration source; independently accepted `5ad7567...` is selected.
 

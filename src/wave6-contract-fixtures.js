@@ -9,9 +9,9 @@ export const Wave6CheckpointCatalog=Object.freeze({
   }),
   coprocessor:createAcceptedCheckpointRecord({
     lane:'COPROCESSOR',branch:'Development-Sidecar/Jev',
-    branchHeadSha:'d9b195332671d802639e6f9e7174de74f23a4b1e',acceptedCheckpointSha:'8eca22f0ae474a77914d8606148e433965aff205',
-    acceptanceRun:'35963150929',acceptanceEvidenceRefs:['COPROCESSOR_WAVE4_ACCEPTANCE','Cognitive Coprocessor Wave 4:35963150929'],
-    notes:'branch head is acceptance/documentation-only advance beyond the green implementation checkpoint',
+    branchHeadSha:'d9b195332671d802639e6f9e7174de74f23a4b1e',acceptedCheckpointSha:'d9b195332671d802639e6f9e7174de74f23a4b1e',
+    acceptanceRun:'35963531808',acceptanceEvidenceRefs:['COPROCESSOR_WAVE4_ACCEPTANCE','Cognitive Coprocessor Wave 4:35963531808','historical implementation checkpoint:8eca22f0ae474a77914d8606148e433965aff205'],
+    notes:'d9b1953 is the Director-accepted Wave 4 checkpoint; 8eca22f remains the historical green implementation checkpoint immediately beneath it',
   }),
   scene:createAcceptedCheckpointRecord({
     lane:'SCENE',branch:'Development-Scene-Scanner',

@@ -4,7 +4,7 @@ const C=(family,{version='1.0.0',features=[],requiredFeatures=[],adapterRequired
 export function createPhase1ContractDeclarations({
   coreCheckpoint='eabf052b95d67752236365252420286d6323791f',
   sceneCheckpoint='5ad7567225720292d759d4a75afe84479deb6c1a',sceneAccepted=true,
-  coprocessorCheckpoint='8eca22f0ae474a77914d8606148e433965aff205',
+  coprocessorCheckpoint='d9b195332671d802639e6f9e7174de74f23a4b1e',
   runtimeCheckpoint='890f8576bcfcc4c056b959271027242dc6af7d7c',
   uiCheckpoint='14259dbd25601d2984846edd2d75b5ef4ec6a6d2',
   memoryCheckpoint='f3d2a4970fb159095b0bae12f5002d3ba2d2b598',

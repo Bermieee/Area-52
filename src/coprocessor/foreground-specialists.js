@@ -62,23 +62,25 @@ export function normalizeGraph(text,{input}){
 }
 
 export function buildGreenRoomInput(task,input={}){
+  const rawCharacters=input.characters??input.activeCast??(task.metadata?.activeCharacterRefs??[]).map((characterRef)=>({characterRef,presence:'PRESENT'}));
   const bounded=createGreenRoomProviderInput(task,{
     ...input,
-    characters:(input.characters??[]).map((c)=>({
+    characters:rawCharacters.map((c)=>typeof c==='string'?{characterRef:c,presence:'PRESENT'}:{
       ...c,
       characterRef:c.characterRef??c.characterId,
       sceneEvidenceRefs:c.sceneEvidenceRefs??c.recentSceneEvidenceRefs??[],
-    })),
+    }),
   });
   return promptEnvelope('Character Green Room',
     'Infer ephemeral scene-scoped character micro-state only. Never convert inference into personality/canon. Prior Green Room state is derived context, not new evidence. Return every requested active character in one strict JSON batch when practical.',
     bounded);
 }
 export function normalizeGreenRoom(text,{input,task}){
-  const characters=(input.characters??[]).map((c)=>({
+  const rawCharacters=input.characters??input.activeCast??(task.metadata?.activeCharacterRefs??[]).map((characterRef)=>({characterRef,presence:'PRESENT'}));
+  const characters=rawCharacters.map((c)=>typeof c==='string'?{characterRef:c,presence:'PRESENT'}:{
     ...c,
     characterRef:c.characterRef??c.characterId,
-  }));
+  });
   const knownCharacterRefs=characters.map((c)=>c.characterRef).filter(Boolean);
   const knownEvidenceRefs=[...new Set(characters.flatMap((c)=>[
     ...(c.evidenceRefs??[]),...(c.sceneEvidenceRefs??[]),...(c.recentSceneEvidenceRefs??[]),

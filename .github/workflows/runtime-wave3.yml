@@ -1,0 +1,34 @@
+name: Cognitive Runtime Wave 3
+
+on:
+  push:
+    branches:
+      - Development-Worker-Director
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-wave3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Runtime Wave 1 regression
+        run: npm run test:wave1
+      - name: Runtime Wave 2 regression
+        run: npm run test:wave2
+      - name: Runtime Wave 3 focused acceptance
+        run: npm run test:wave3
+      - name: Full Runtime regression
+        run: npm test
+      - name: Syntax and module-load sweep
+        run: npm run check
+      - name: Runtime index ESM import
+        run: node -e "import('./src/runtime/index.js').then(()=>console.log('Runtime index ESM import PASS'))"

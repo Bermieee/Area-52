@@ -44,6 +44,7 @@ export class CoprocessorTelemetry {
     const precision = { requests: 0, inputCandidates: 0, outputCandidates: 0, correctivePasses: 0, staleRejected: 0, authorityRejected: 0, deduped: 0, stages: {}, fallbacks: {} };
     let warmHit = 0, warmMiss = 0, retry = 0, fallback = 0, staleDrop = 0;
     const providerHealth={};
+    const choice={proposals:0,options:0,nominated:0,skipped:0,deferred:0,unavailable:0,executions:0,degraded:0,states:{}};
     for (const event of this.#events) {
       if (event.type === TelemetryEvent.WARM_HIT || (event.type === TelemetryEvent.CACHE_HIT && event.payload.cacheClass === 'WARM')) warmHit += 1;
       if (event.type === TelemetryEvent.WARM_MISS) warmMiss += 1;
@@ -62,6 +63,12 @@ export class CoprocessorTelemetry {
       if (event.type === TelemetryEvent.PRECISION_FALLBACK && event.payload.fallbackStage) precision.fallbacks[event.payload.fallbackStage] = (precision.fallbacks[event.payload.fallbackStage] ?? 0) + 1;
       if (event.type === TelemetryEvent.CANDIDATE_REJECTED) { if (event.payload.stale) precision.staleRejected += 1; if (event.payload.authorityViolation) precision.authorityRejected += 1; }
       if (event.type === TelemetryEvent.CANDIDATE_DEDUPED) precision.deduped += Number(event.payload.duplicateCount ?? 1);
+      if (event.type === TelemetryEvent.CHOICE_PROPOSED) choice.proposals += 1;
+      if (event.type === TelemetryEvent.CHOICE_OPTION) {
+        choice.options += 1; const d=event.payload.disposition; if(d==='NOMINATED')choice.nominated+=1; else if(d==='SKIPPED')choice.skipped+=1; else if(d==='DEFERRED')choice.deferred+=1; else if(d==='UNAVAILABLE')choice.unavailable+=1;
+      }
+      if (event.type === TelemetryEvent.CHOICE_EXECUTION) { choice.executions += 1; for (const [state,count] of Object.entries(event.payload)) if (typeof count==='number' && count>0) choice.states[state]=(choice.states[state]??0)+count; }
+      if (event.type === TelemetryEvent.CHOICE_DEGRADED) choice.degraded += 1;
     }
     return Object.freeze({
       totalEvents: this.#events.length,
@@ -75,6 +82,7 @@ export class CoprocessorTelemetry {
       staleDrop,
       resultDestinations: Object.freeze(resultDestinations),
       providerHealth: Object.freeze(providerHealth),
+      choice: Object.freeze({...choice,states:Object.freeze(choice.states)}),
     });
   }
 }

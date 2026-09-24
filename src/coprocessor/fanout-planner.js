@@ -1,6 +1,7 @@
 import { Capability, Placement, ResultClass } from './constants.js';
 import { createCognitiveTask } from './contracts.js';
 import { historianUrgency } from './historian-retrieval.js';
+import { buildCoprocessorChoiceProposal } from './cognitive-choice-proposal.js';
 
 export const INITIAL_ROLE_CATALOG = Object.freeze([
   Object.freeze({
@@ -226,6 +227,27 @@ export class DynamicFanOutPlanner {
       budget: budgetReceipt(foregroundCount, opportunisticCount, backgroundCount, costUsed, caps, deadlineExposureUsed),
       inputSignals: Object.freeze({ queryIntent, location, retrievalQuality, sceneTransitionType, uncertainSceneFieldCount: sceneUncertain.length, prefetchRecommendationCount: prefetch.length }),
     });
+  }
+
+
+  planChoice(input = {}) {
+    const {
+      capabilityProfiles = [], ownerSignals = {}, choicePolicyVersion = 'sidecar-choice-v1',
+      choiceLimits = {}, telemetry = null, ...plannerInput
+    } = input;
+    const fanOutPlan = this.plan(plannerInput);
+    const choiceProposal = buildCoprocessorChoiceProposal({
+      fanOutPlan,
+      turnEvent: plannerInput.turnEvent,
+      plannerInput: { ...plannerInput, expectedValueThreshold: this.expectedValueThreshold },
+      roleCatalog: this.roleCatalog,
+      capabilityProfiles,
+      ownerSignals,
+      policyVersion: choicePolicyVersion,
+      telemetry,
+      limits: choiceLimits,
+    });
+    return Object.freeze({ kind: 'FanOutChoicePlan', fanOutPlan, choiceProposal });
   }
 
   #caps(maxFanOut, resourceConstraint) {

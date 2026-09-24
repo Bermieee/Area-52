@@ -96,3 +96,20 @@ CognitionUiState is a read-only projection with mutationAuthority:false and the 
 
 Provider identity, health, latency, cost and quality remain observability/routing data only. None grants epistemic authority.
 
+## Wave 13 cognitive-choice counters
+
+Wave 13 adds bounded choice observability without copying raw prompts or evidence bodies.
+
+Events:
+
+- `COPROCESSOR_CHOICE_PROPOSED`
+- `COPROCESSOR_CHOICE_OPTION`
+- `COPROCESSOR_CHOICE_EXECUTION`
+- `COPROCESSOR_CHOICE_DEGRADED`
+
+The compact snapshot tracks proposal/option counts, NOMINATED/SKIPPED/DEFERRED/UNAVAILABLE dispositions, execution observations and degraded executions.
+
+Per-option telemetry is limited to IDs, typed disposition/reason codes, expected-value number and task identity where one already exists. Jev raw question text, provider prompt bodies, Candidate Bus bodies and owner Truth/Precision payloads remain excluded.
+
+A telemetry choice count is diagnostic only. It does not create Core admission, Truth, Precision, Settlement, scheduling or Context Seal authority.
+

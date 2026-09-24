@@ -3,7 +3,7 @@
   "version": "0.4.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Wave 10",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Wave 11",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
@@ -49,6 +49,13 @@
     "test:browser:wave10": "node --test tests/coprocessor-wave10-browser.test.mjs",
     "test:wave10": "node --test tests/coprocessor-wave10-corpus.test.mjs tests/coprocessor-wave10-provider.test.mjs tests/coprocessor-wave10-browser.test.mjs",
     "report:wave10": "node scripts/jev-wave10-evaluation.mjs",
-    "smoke:jev:live": "node scripts/jev-wave10-live-smoke.mjs"
+    "smoke:jev:live": "node scripts/jev-wave10-live-smoke.mjs",
+    "test:wave11:native": "node --test tests/coprocessor-wave11-native.test.mjs",
+    "test:wave11:evaluation": "node --test tests/coprocessor-wave11-evaluation.test.mjs",
+    "test:wave11:fallback": "node --test tests/coprocessor-wave11-fallback.test.mjs",
+    "test:browser:wave11": "node --test tests/coprocessor-wave11-browser.test.mjs",
+    "test:wave11": "node --test tests/coprocessor-wave11-native.test.mjs tests/coprocessor-wave11-evaluation.test.mjs tests/coprocessor-wave11-fallback.test.mjs tests/coprocessor-wave11-browser.test.mjs",
+    "report:wave11": "node scripts/jev-wave11-evaluation.mjs",
+    "example:wave11": "node scripts/wave11-host-example.mjs"
   }
 }

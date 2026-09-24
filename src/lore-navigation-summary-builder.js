@@ -205,7 +205,7 @@ function criticalKey(row) {
   return row.evidenceId + '|' + row.sourceRevisionId;
 }
 
-function buildScopeRequest({scope, runtime, registry}) {
+function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
   if (scope.sourceIds.length > LORE_WAVE3_LIMITS.maxSourceRefsPerSummary) {
     return {ok: false, failure: NavigationFailure.SOURCE_REF_LIMIT};
   }
@@ -215,7 +215,15 @@ function buildScopeRequest({scope, runtime, registry}) {
 
   const sourceRows = [];
   for (const sourceId of scope.sourceIds) {
-    const row = sourceEvidence(runtime, sourceId);
+    const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
+    const cacheKey = revision ? sourceId + '|' + revision.id : sourceId + '|missing';
+    let row = evidenceCache?.get(cacheKey) || null;
+    if (!row) {
+      row = sourceEvidence(runtime, sourceId);
+      if (evidenceCache && row.ok) evidenceCache.set(cacheKey, deepClone(row));
+    } else {
+      row = deepClone(row);
+    }
     if (!row.ok) return {ok: false, failure: row.reason, sourceId};
     sourceRows.push(row);
   }
@@ -451,12 +459,14 @@ export class LoreNavigationSummaryBuilder {
     this.generatorRevision = generatorRevision;
     this.sessions = new Map();
     this.scopeStates = new Map();
+    this.evidenceCache = new Map();
     this.sequence = 0;
     if (snapshot) this.restore(snapshot);
   }
 
   start(hierarchy) {
     this.registry.syncHierarchy({hierarchy, runtime: this.runtime});
+    this.evidenceCache = new Map();
     const id = 'navigation-build:' + stableHash(hierarchy.hierarchyRevision + '|' + (++this.sequence));
     const session = {
       kind: 'LoreNavigationBuildSession',
@@ -532,7 +542,7 @@ export class LoreNavigationSummaryBuilder {
       }
     }
 
-    const request = buildScopeRequest({scope, runtime: this.runtime, registry: this.registry});
+    const request = buildScopeRequest({scope, runtime: this.runtime, registry: this.registry, evidenceCache: this.evidenceCache});
     if (!request.ok) return {state: NavigationSummaryState.BLOCKED, reason: request.failure, details: request};
 
     const reusable = this.registry.findReusable({
@@ -622,5 +632,6 @@ export class LoreNavigationSummaryBuilder {
     this.sequence = Number(snapshot?.sequence || 0);
     this.sessions = new Map((snapshot?.sessions || []).map(([id, session]) => [id, deepClone(session)]));
     this.scopeStates = new Map((snapshot?.scopeStates || []).map(([id, state]) => [id, deepClone(state)]));
+    this.evidenceCache = new Map();
   }
 }

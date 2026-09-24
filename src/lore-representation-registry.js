@@ -87,6 +87,32 @@ export class LoreRepresentationRegistry {
     return deepClone(row);
   }
 
+  refreshPolicyFreshness(sourceRegistry, {profile, policyRevision = null, compilerRevision = null} = {}) {
+    const changed = [];
+    for (const row of this.representations.values()) {
+      if (row.state !== 'CURRENT' || row.profile !== profile) continue;
+      const source = sourceRegistry.currentRevision(row.sourceId, {allowMissing: true});
+      let reason = null;
+      if (!source || source.state === 'REMOVED') reason = 'SOURCE_REMOVED';
+      else if (source.id !== row.sourceRevisionId) reason = 'SOURCE_REVISION_CHANGED';
+      else if (policyRevision && row.generation.policyRevision !== policyRevision) reason = 'POLICY_REVISION_CHANGED';
+      else if (compilerRevision && row.generation.compilerRevision !== compilerRevision) reason = 'COMPILER_REVISION_CHANGED';
+      if (reason) {
+        row.state = 'STALE';
+        this.staleReasons.set(row.id, {
+          kind: 'LoreRepresentationStaleReason',
+          reason,
+          sourceRevisionId: row.sourceRevisionId,
+          currentSourceRevisionId: source?.id || null,
+          policyRevision: row.generation.policyRevision,
+          compilerRevision: row.generation.compilerRevision,
+        });
+        changed.push(row.id);
+      }
+    }
+    return changed.sort();
+  }
+
   refreshFreshness(sourceRegistry, {policyRevision = null, compilerRevision = null} = {}) {
     const changed = [];
     for (const row of this.representations.values()) {
@@ -139,19 +165,22 @@ export class LoreRepresentationRegistry {
       availableBudget,
       precisionNeed,
       available: [],
-      recommended: null,
+      requestedMatch: null,
       fallbackRepresentationRefs: [],
-      sourceDrillbackAvailable: Boolean(source),
+      sourceDrillbackAvailable: false,
       chooserAuthority: false,
     };
     const active = this.activeForSource(sourceId, sourceRegistry);
-    const order = [RepresentationProfile.LEAN, RepresentationProfile.BALANCED, RepresentationProfile.HEAVY, RepresentationProfile.CUSTOM_CAP];
-    const desired = desiredProfile ? active.find((row) => row.profile === desiredProfile && (availableBudget == null || row.size.characters <= availableBudget)) : null;
-    const candidates = active.filter((row) => availableBudget == null || row.size.characters <= availableBudget);
-    const recommended = desired || candidates.sort((a, b) => {
-      if (precisionNeed === 'HIGH') return order.indexOf(b.profile) - order.indexOf(a.profile) || b.size.characters - a.size.characters;
-      return a.size.characters - b.size.characters;
-    })[0] || null;
+    const withinBudget = active.filter((row) => availableBudget == null || row.size.characters <= availableBudget);
+    const requested = desiredProfile
+      ? withinBudget.filter((row) => row.profile === desiredProfile).sort((a, b) => (a.capCharacters || 0) - (b.capCharacters || 0))[0] || null
+      : null;
+    const drillbackOrder = [RepresentationProfile.LEAN, RepresentationProfile.BALANCED, RepresentationProfile.HEAVY, RepresentationProfile.CUSTOM_CAP];
+    const fallbacks = active
+      .filter((row) => !requested || row.id !== requested.id)
+      .sort((a, b) => drillbackOrder.indexOf(a.profile) - drillbackOrder.indexOf(b.profile) || a.size.characters - b.size.characters)
+      .map((row) => row.id);
+    fallbacks.push('source:' + source.id);
     return {
       kind: 'LoreRepresentationSelectionSurface',
       sourceId,
@@ -168,17 +197,14 @@ export class LoreRepresentationRegistry {
         representationRevision: row.representationRevision,
         capCharacters: row.capCharacters,
       })),
-      recommended: recommended ? {
-        representationRef: recommended.id,
-        profile: recommended.profile,
-        size: deepClone(recommended.size),
-        sourceRevisionId: recommended.sourceRevisionId,
-        qualityStatus: recommended.retentionReceipt.status,
+      requestedMatch: requested ? {
+        representationRef: requested.id,
+        profile: requested.profile,
+        size: deepClone(requested.size),
+        sourceRevisionId: requested.sourceRevisionId,
+        qualityStatus: requested.retentionReceipt.status,
       } : null,
-      fallbackRepresentationRefs: active
-        .filter((row) => !recommended || row.id !== recommended.id)
-        .sort((a, b) => a.size.characters - b.size.characters)
-        .map((row) => row.id),
+      fallbackRepresentationRefs: fallbacks,
       sourceDrillbackAvailable: true,
       chooserAuthority: false,
     };

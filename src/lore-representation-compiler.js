@@ -505,6 +505,11 @@ export class LoreRepresentationCompiler {
       throw new TypeError('CUSTOM_CAP requires a positive integer capCharacters');
     }
     const policy = this.policy(normalizedProfile, {policyRevision, baseProfile});
+    this.registry.refreshPolicyFreshness(this.runtime.registry, {
+      profile: normalizedProfile,
+      policyRevision: policy.revision,
+      compilerRevision: this.compilerRevision,
+    });
     const slices = sliceSource(sourceRevision.exactContent);
     const slicesReceipt = validateSlices(sourceRevision.exactContent, slices);
     if (!slicesReceipt.ok) return {

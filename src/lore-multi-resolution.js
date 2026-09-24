@@ -61,6 +61,11 @@ export class LoreMultiResolutionSystem {
   withPolicyOverride({profile, revision, classes, baseProfile = null}) {
     const policy = createProfilePolicy({profile, revision, classes, baseProfile});
     this.compiler.policyOverrides[profile] = deepClone(policy);
+    this.registry.refreshPolicyFreshness(this.runtime.registry, {
+      profile,
+      policyRevision: policy.revision,
+      compilerRevision: this.compiler.compilerRevision,
+    });
     return deepClone(policy);
   }
 

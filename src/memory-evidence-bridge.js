@@ -127,6 +127,8 @@ export class MemoryExternalEvidenceBridge{
     this.sequence=0;
     this.proposalSequence=0;
     this.eventSequence=0;
+    this.revisionCache=null;
+    this.revisionDirty=true;
     this.diagnostics=[];
     if(snapshot)this.restore(snapshot);
   }
@@ -327,6 +329,7 @@ export class MemoryExternalEvidenceBridge{
     this.mappings.set(id,mapping);
     this.historyByIdentity.set(identity,[...history,id]);
     this.currentByIdentity.set(identity,id);
+    this.revisionDirty=true;
 
     const affectedSceneProposalIds=this.affectedSceneProposals({
       ownerArtifactRef,
@@ -428,6 +431,7 @@ export class MemoryExternalEvidenceBridge{
       lastResolution:null,
     };
     this.sceneProposals.set(proposal.proposalId,record);
+    this.revisionDirty=true;
     return deepClone(record);
   }
 
@@ -495,6 +499,7 @@ export class MemoryExternalEvidenceBridge{
       createdSequence:++this.eventSequence,
     };
     this.sceneEvents.set(eventId,row);
+    this.revisionDirty=true;
     const key=sceneKey(row.sceneId,row.sceneRevision);
     if(eventType==='SCENE_BOUNDARY_CONFIRMED')this.boundaryBySceneRevision.set(key,eventId);
     if(eventType==='SCENE_EPISODE_READY')this.episodeReadyBySceneRevision.set(key,eventId);
@@ -626,6 +631,7 @@ export class MemoryExternalEvidenceBridge{
     mapping.freshness='STALE';
     mapping.staleReason=reason;
     if(this.currentByIdentity.get(mapping.identity)===mapping.id)this.currentByIdentity.delete(mapping.identity);
+    this.revisionDirty=true;
     const affectedSceneProposalIds=[...this.sceneProposals.values()].filter((record)=>
       record.lastResolution?.mappingIds?.includes(mapping.id)
       ||record.proposal.evidenceRefs?.includes(mapping.externalEvidenceRef)
@@ -735,14 +741,19 @@ export class MemoryExternalEvidenceBridge{
   }
 
   revisionRef(){
-    return 'memory-evidence-bridge:'+stableHash(stableStringify({
+    if(!this.revisionDirty&&this.revisionCache)return this.revisionCache;
+    this.revisionCache='memory-evidence-bridge:'+stableHash(stableStringify({
       mappingSequence:this.sequence,
       proposalSequence:this.proposalSequence,
       eventSequence:this.eventSequence,
-      currentMappings:[...this.currentByIdentity.entries()].sort(),
-      sceneBoundary:[...this.boundaryBySceneRevision.entries()].sort(),
-      episodeReady:[...this.episodeReadyBySceneRevision.entries()].sort(),
+      currentMappingCount:this.currentByIdentity.size,
+      latestMappingId:[...this.mappings.keys()].at(-1)??null,
+      latestSceneEventId:[...this.sceneEvents.keys()].at(-1)??null,
+      confirmedBoundaryCount:this.boundaryBySceneRevision.size,
+      episodeReadyCount:this.episodeReadyBySceneRevision.size,
     }));
+    this.revisionDirty=false;
+    return this.revisionCache;
   }
 
   status(){
@@ -797,6 +808,8 @@ export class MemoryExternalEvidenceBridge{
       sequence:this.sequence,
       proposalSequence:this.proposalSequence,
       eventSequence:this.eventSequence,
+      revisionCache:this.revisionCache,
+      revisionDirty:this.revisionDirty,
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -812,6 +825,8 @@ export class MemoryExternalEvidenceBridge{
     this.sequence=Number(snapshot?.sequence??0);
     this.proposalSequence=Number(snapshot?.proposalSequence??0);
     this.eventSequence=Number(snapshot?.eventSequence??0);
+    this.revisionCache=snapshot?.revisionCache??null;
+    this.revisionDirty=Boolean(snapshot?.revisionDirty??true);
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
   }
 }

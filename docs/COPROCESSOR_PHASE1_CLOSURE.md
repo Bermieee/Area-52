@@ -61,3 +61,23 @@ Preserved stress evidence:
 Complete Sidecar work does not imply every shared card can close. Runtime scheduling, UI, Scene Intelligence, Memory, real-provider qualification, and browser-host integration retain their documented ownership.
 
 The final handoff must use the exact final branch SHA and exact final Actions runs after documentation is committed.
+
+## Wave 3 adaptive cognition checkpoint
+
+Starting from accepted Wave 2 head `4b0a0382856a5306f716b1b0ec3f9d931322b0d0`, Worker 2 added Phase 1 adaptive cognition without beginning Phase 2 Provider Intelligence.
+
+Implementation checkpoint: `c51b35b0766d12616bfa357494988a37fb36deac`.
+
+Wave 3 adds bounded expected-value fan-out, revision/intent-fenced speculative warming, one-pass adaptive retrieval, bounded scene-local Green Room inference, proposal-only DEEP consolidation, multi-mode generation-side truth monitoring, expanded bounded telemetry, Scene/FT002 contract readiness, and Wave 3 qualification metrics.
+
+Implementation-checkpoint evidence:
+- full regression 178/178 PASS;
+- Wave 1 focused 40/40 PASS;
+- Wave 2 focused 62/62 PASS;
+- Wave 3 focused 46/46 PASS;
+- stress 12/12 PASS;
+- browser-like production paths 2/2 PASS;
+- syntax and ESM import PASS;
+- Actions Wave 1 #39, Wave 2 #18 and Wave 3 #1 PASS.
+
+Shared Runtime/Core/Scene/Memory/UI/live-provider integration cards remain subject to their owning lanes. FT002 is Coprocessor-side ready only; FT005 is side ready only; FT006 is shadow-ready only.

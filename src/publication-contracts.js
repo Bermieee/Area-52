@@ -91,16 +91,15 @@ export function createPrecisionResult({
 export function createCompilerReceipt({
   id,packetId,representation='COMPACT',rawBytes=0,compiledBytes=0,budgetBytes=null,budgetExceeded=false,
   fallbackUsed=false,factualRetention=1,temporalRetention=1,contradictionRetention=1,provenanceRetention=1,relationshipRetention=1,
-  admittedClaimIds=[],droppedClaimIds=[],reason='compiled safely',
+  admittedClaimIds=[],droppedClaimIds=[],reason='compiled safely',semanticSizing=null,semanticPriority=[],representationEligibility={},threadDiagnostics={},
 }){
   return{kind:'CompilerReceipt',id:req(id,'CompilerReceipt.id'),packetId:req(packetId,'CompilerReceipt.packetId'),representation:req(representation,'CompilerReceipt.representation'),
     rawBytes:Number(rawBytes),compiledBytes:Number(compiledBytes),budgetBytes:budgetBytes===null?null:Number(budgetBytes),budgetExceeded:Boolean(budgetExceeded),
     fallbackUsed:Boolean(fallbackUsed),factualRetention:Number(factualRetention),temporalRetention:Number(temporalRetention),
     contradictionRetention:Number(contradictionRetention),provenanceRetention:Number(provenanceRetention),relationshipRetention:Number(relationshipRetention),
     admittedClaimIds:strings(admittedClaimIds,'CompilerReceipt.admittedClaimIds'),droppedClaimIds:strings(droppedClaimIds,'CompilerReceipt.droppedClaimIds'),
-    reason:req(reason,'CompilerReceipt.reason')};
+    reason:req(reason,'CompilerReceipt.reason'),semanticSizing:serial(semanticSizing,'CompilerReceipt.semanticSizing'),semanticPriority:serial(semanticPriority,'CompilerReceipt.semanticPriority'),representationEligibility:serial(representationEligibility,'CompilerReceipt.representationEligibility'),threadDiagnostics:serial(threadDiagnostics,'CompilerReceipt.threadDiagnostics')};
 }
-
 export function createContextSealReceipt({
   id,turnId,correlationId,packetId,packetHash,sourceRevisionIds=[],worldRevision=0,sceneRevision=0,
   admittedResultIds=[],rejectedResultIds=[],staleResultIds=[],fallbackState=SealFallbackState.NONE,

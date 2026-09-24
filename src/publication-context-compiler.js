@@ -26,8 +26,8 @@ export class PublicationContextCompiler {
   constructor({graph,baseCompiler,maxFactsPerSection=12}){this.graph=graph;this.baseCompiler=baseCompiler;this.maxFactsPerSection=maxFactsPerSection;}
 
   compile({query,intent,truthAssessment,precisionResults=[],budgetBytes=2500,unknownSlots=[],rawEvidence=null,activeThreads=[]}){
-    const base=this.baseCompiler.compile({query,intent,truthResults:truthAssessment.truthResults,activeThreads});
-    const packet=clone(base);
+    const detailed=this.baseCompiler.compileDetailed?this.baseCompiler.compileDetailed({query,intent,truthResults:truthAssessment.truthResults,activeThreads}):{packet:this.baseCompiler.compile({query,intent,truthResults:truthAssessment.truthResults,activeThreads}),metadata:{}};
+    const base=detailed.packet,packet=clone(base),compilerMetadata=clone(detailed.metadata??{});
     const rank=new Map(precisionResults.filter(x=>x.freshness==='FRESH').map(x=>[x.candidateId,x.finalRank]));
     const truthByCandidate=new Map(truthAssessment.truthResults.map(x=>[x.candidateId,x]));
     const provenanceIndex={...packet.provenanceIndex};
@@ -65,8 +65,8 @@ export class PublicationContextCompiler {
     sortRows(packet.current,'current');sortRows(packet.historical,'historical');sortRows(packet.unresolved,'unresolved');
     packet.current=packet.current.slice(0,this.maxFactsPerSection);packet.historical=packet.historical.slice(0,this.maxFactsPerSection);packet.unresolved=packet.unresolved.slice(0,this.maxFactsPerSection);
     packet.provenanceIndex=provenanceIndex;packet.dependencies=[...dependencies].sort();
-    packet.semanticPriority=buildSemanticPriority({current:packet.current,historical:packet.historical,unresolved:packet.unresolved,activeThreads:packet.activeThreads??[]});
-    packet.semanticSizing=computeSemanticSizing(packet);
+    compilerMetadata.semanticPriority=buildSemanticPriority({current:packet.current,historical:packet.historical,unresolved:packet.unresolved,activeThreads:packet.activeThreads??[]});
+    compilerMetadata.semanticSizing=computeSemanticSizing(packet);
     const packetIdMaterial=[packet.current,packet.historical,packet.unresolved];if((packet.activeThreads??[]).length)packetIdMaterial.push(packet.activeThreads);
     packet.id=`packet:${intent.toLowerCase()}:pub:${hash(JSON.stringify(packetIdMaterial))}`;
 
@@ -102,7 +102,7 @@ export class PublicationContextCompiler {
       sortRows(richSections.current,'current');sortRows(richSections.historical,'historical');sortRows(richSections.unresolved,'unresolved');
       const richIdMaterial=[richSections.current,richSections.historical,richSections.unresolved];if((packet.activeThreads??[]).length)richIdMaterial.push(packet.activeThreads);
       output={...packet,id:`packet:${intent.toLowerCase()}:rich:${hash(JSON.stringify(richIdMaterial))}`,representation,...richSections,provenanceIndex,dependencies:[...dependencies].sort()};
-      output.semanticPriority=buildSemanticPriority({current:output.current,historical:output.historical,unresolved:output.unresolved,activeThreads:output.activeThreads??[]});output.semanticSizing=computeSemanticSizing(output);
+      compilerMetadata.semanticPriority=buildSemanticPriority({current:output.current,historical:output.historical,unresolved:output.unresolved,activeThreads:output.activeThreads??[]});compilerMetadata.semanticSizing=computeSemanticSizing(output);
       reason=unsafe?'compact representation failed retention checks; richer representation selected':'compact packet exceeded budget; correctness-preserving richer fallback selected rather than dropping required truth';
     }
 

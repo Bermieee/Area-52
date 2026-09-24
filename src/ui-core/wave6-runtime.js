@@ -18,6 +18,8 @@ import { BrainPulseModel } from './wave6-brain-pulse.js';
 import { CoprocessorProductionUIAdapter, ForensicsProductionUIAdapter, PromptPlanProductionUIAdapter, RuntimeProductionUIAdapter, SceneProductionUIAdapter, Wave6ProductAdapter } from './wave6-production-adapters.js';
 import { FrontFacePresentationState, HostAdjacentMountAdapter } from './wave6-presentation.js';
 import { HostAdjacentFrontFaceController, registerWave6FrontFaceWorkspaces } from './wave6-front-face.js';
+import { ExplainabilityPresentationState } from './wave7-explainability.js';
+import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces } from './wave7-workspaces.js';
 
 export function createWave6ProductInterface({
   root,
@@ -35,6 +37,7 @@ export function createWave6ProductInterface({
   const notifications=new NotificationCenter({signals});
   const productPresentation=new ProductPresentationState({stateStore});
   const frontFacePresentation=new FrontFacePresentationState({stateStore});
+  const explainabilityPresentation=new ExplainabilityPresentationState({stateStore});
   const scene=bridges.scene?.readModel?new SceneProductionUIAdapter(bridges.scene):null;
   const runtime=new RuntimeProductionUIAdapter(bridges.runtimeAdapter??null);
   const coprocessor=new CoprocessorProductionUIAdapter(bridges.coprocessorTelemetry??bridges.coprocessorAdapter??null);
@@ -52,15 +55,18 @@ export function createWave6ProductInterface({
   registerPrimitiveWidgets(widgetRegistry);registerCognitiveWidgets(widgetRegistry);
   const widgetRuntime=new WidgetRuntime({registry:widgetRegistry,services:{signals,scheduler,actionRouter,overlays,notifications,productAdapter}});
   if(bridges.knowledgeAdapter)registerKnowledgeInspectionActions(actionRouter,{adapter:bridges.knowledgeAdapter,signals});
+  const releaseWave7Actions=registerWave7Actions(actionRouter,{presentation:explainabilityPresentation});
 
   inspectorRegistry.register('*',(object,{document:doc})=>renderReadOnlyInspector(doc,object));
   inspectorRegistry.register('framework-artifact',renderGenericArtifactInspector);
+  const releaseWave7Inspectors=registerWave7Inspectors(inspectorRegistry,{forensics});
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});
   const renderWorkspace=(entry,host)=>{
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
+      promptPlan,forensics,presentation:explainabilityPresentation,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
       inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
       navigate(id){shell?.selectWorkspace(id);},
@@ -70,6 +76,7 @@ export function createWave6ProductInterface({
 
   registerWave6FrontFaceWorkspaces(workspaceRegistry,{adapter:productAdapter,brainPulse});
   registerProductionEngineeringWorkspaces(workspaceRegistry,{runtime,coprocessor,promptPlan,forensics});
+  registerWave7Workspaces(workspaceRegistry,{promptPlan,forensics,presentation:explainabilityPresentation,scheduler});
 
   shell=new ApplicationShell({root,workspaceRegistry,inspector,signals,stateStore,renderWorkspace,productName,productTagline});
   const mountAdapter=hostMountAdapter instanceof HostAdjacentMountAdapter?hostMountAdapter:new HostAdjacentMountAdapter(hostMountAdapter??{});
@@ -80,10 +87,10 @@ export function createWave6ProductInterface({
 
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
-    productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,
+    productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();forensics.destroy?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
   };
 }
 

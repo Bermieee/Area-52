@@ -108,10 +108,31 @@ export class JevProviderExecutor{
 
 export class JevDecisionCore{
   #replay=new Map();#metrics={decisions:0,invocations:0,skips:0,abstentions:0,escalations:0,operator:0,providerCalls:0,retries:0,timeouts:0,invalid:0,stale:0,late:0,totalLatencyMs:0,totalPayloadBytes:0};
-  constructor({providerExecutor=null}={}){this.providerExecutor=providerExecutor;}
+  constructor({providerExecutor=null,replayLimit=128}={}){
+    if(!Number.isInteger(replayLimit)||replayLimit<1||replayLimit>4096)throw new TypeError('Jev replayLimit must be an integer between 1 and 4096');
+    this.providerExecutor=providerExecutor;this.replayLimit=replayLimit;
+  }
   async decide(requestInput,{currentRevisionState=null,sealed=false,signal=null,deterministicAnswer=null}={}){
     const started=Date.now();const request=createJevDecisionRequest(requestInput);const fingerprint=jevRequestFingerprint(request);const replayKey=`${request.decisionId}|${fingerprint}`;
-    const replay=this.#replay.get(replayKey);if(replay)return replay;
+    const replay=this.#replay.get(replayKey);
+    if(replay){
+      const currentReplay=await resolveValue(currentRevisionState,request);const replayFreshness=evaluateJevFreshness(request,currentReplay);
+      if(replayFreshness.freshness!=='FRESH'){
+        this.#metrics.stale++;
+        return createJevDecisionReceipt({
+          outcome:JevOutcome.STALE,serviceStatus:JevServiceStatus.JEV_STALE,decisionCode:'STALE',
+          reasonCodes:[JevReasonCode.STALE_INPUT],providerProvenance:replay.providerProvenance,
+          latencyMetadata:replay.latencyMetadata,validationStatus:{schema:'PASS',deterministic:'PASS',freshness:replayFreshness.freshness},
+          requestFingerprint:fingerprint,
+        },request);
+      }
+      const replaySealed=Boolean(await resolveValue(sealed,false));
+      if(replaySealed){
+        this.#metrics.late++;
+        return createJevDecisionReceipt({...replay,admission:lateJevAdmission(replay,{sealed:true}),requestFingerprint:fingerprint},request);
+      }
+      return replay;
+    }
     this.#metrics.decisions++;
     const current=await resolveValue(currentRevisionState,request);const freshness=evaluateJevFreshness(request,current);
     if(freshness.freshness!=='FRESH'){
@@ -155,7 +176,13 @@ export class JevDecisionCore{
     this.#metrics.abstentions++;const outcome=gate.deterministicOutcome??JevOutcome.ABSTAINED;return this.#receipt(request,{outcome,serviceStatus:gate.serviceStatus??JevServiceStatus.JEV_ABSTAINED,decisionCode:outcome===JevOutcome.STALE?'STALE':outcome===JevOutcome.UNRESOLVED?JevDecisionShape.UNRESOLVED:JevDecisionShape.ABSTAIN,reasonCodes:gate.reasonCodes,abstained:outcome===JevOutcome.ABSTAINED,requestFingerprint:fingerprint},started);
   }
   #receipt(request,input,started){const total=Math.max(0,Date.now()-started);const receipt=createJevDecisionReceipt({...input,latencyMetadata:{...(input.latencyMetadata??{}),totalLatencyMs:Math.max(total,Number(input.latencyMetadata?.totalLatencyMs??0))}},request);this.#metrics.totalLatencyMs+=receipt.latencyMetadata.totalLatencyMs;return receipt;}
-  #remember(key,receipt){this.#replay.set(key,receipt);return receipt;}
+  #remember(key,receipt){
+    if(!this.#replay.has(key)&&this.#replay.size>=this.replayLimit){
+      const oldest=this.#replay.keys().next().value;
+      if(oldest!==undefined)this.#replay.delete(oldest);
+    }
+    this.#replay.set(key,receipt);return receipt;
+  }
 }
 
 function validateShape({request,outcome,decisionCode,selected,evidenceUsed,abstained,requiresOperator}){

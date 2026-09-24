@@ -343,7 +343,7 @@ export class DevelopmentDeploymentBrain {
       immediateObjects: field(objects, nextRevision, evidenceRef),
     };
     if (atmosphere != null) fields.atmosphere = field(atmosphere, nextRevision, evidenceRef, ObservationClass.INFERRED, 0.6);
-    this.scene.sceneRuntime.observe({
+    const observed = this.scene.sceneRuntime.observe({
       sceneId: scene.sceneId,
       proposalId: 'deployment-scene:' + evidenceRef,
       fields,
@@ -353,7 +353,11 @@ export class DevelopmentDeploymentBrain {
     const signal = this.scene.integrationSignal(String(chatId));
     if (this.core.hotCognition.activeChatNamespace !== String(chatId)) this.core.activateHotCognitionChat(String(chatId));
     this.core.consumeSceneSignal(signal, { chatNamespace: String(chatId) });
-    return signal;
+    return {
+      ...signal,
+      observationApplied: Boolean(observed.applied),
+      delta: clone(observed.delta ?? null),
+    };
   }
 
   admitMemoryEvidenceMapping(input = {}) {

@@ -35,11 +35,15 @@ export class MemoryTemporalProducer {
   }
 
   appendRawExperience(input) {
-    return this.experienceStore.appendRawExperience(input);
+    const evidence=this.experienceStore.appendRawExperience(input);
+    this.summaryHierarchy.onEvidenceAppended(evidence);
+    return evidence;
   }
 
   ingestSceneExperience(proposal,options={}) {
-    return this.experienceStore.ingestSceneExperience(proposal,options);
+    const episode=this.experienceStore.ingestSceneExperience(proposal,options);
+    this.summaryHierarchy.onEpisodePublished(episode);
+    return episode;
   }
 
   publishEpisode(input) {
@@ -93,12 +97,14 @@ export class MemoryTemporalProducer {
 
   reflectionFromGreenRoomProposal(proposal,options={}) {
     const reflection=this.experienceStore.reflectionFromGreenRoomProposal(proposal,options);
+    this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
     return reflection;
   }
 
   reviseReflection(input) {
     const reflection=this.experienceStore.reviseReflection(input);
+    this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
     return reflection;
   }

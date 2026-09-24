@@ -64,6 +64,27 @@ export const CognitiveReason=Object.freeze({
   DUPLICATE_PUBLICATION:'DUPLICATE_PUBLICATION',
 });
 
+export const CognitiveDisposition=Object.freeze({
+  ADMITTED:'ADMITTED',
+  SKIPPED:'SKIPPED',
+  DEFERRED:'DEFERRED',
+});
+
+export const CognitiveDeadlineClass=Object.freeze({
+  FOREGROUND_REQUIRED:'FOREGROUND_REQUIRED',
+  FOREGROUND_OPPORTUNISTIC:'FOREGROUND_OPPORTUNISTIC',
+  DEFERRED:'DEFERRED',
+});
+
+export const CognitiveFreshnessRequirement=Object.freeze({
+  TURN_CURRENT:'TURN_CURRENT',
+  SCENE_CURRENT:'SCENE_CURRENT',
+  WORLD_CURRENT:'WORLD_CURRENT',
+  SOURCE_CURRENT:'SOURCE_CURRENT',
+  PERSPECTIVE_ACCESSIBLE:'PERSPECTIVE_ACCESSIBLE',
+  NONE:'NONE',
+});
+
 export const JevAction=Object.freeze({
   SKIP_JEV:'SKIP_JEV',
   INVOKE_JEV:'INVOKE_JEV',
@@ -73,7 +94,7 @@ export const JevAction=Object.freeze({
   PRESERVE_UNRESOLVED:'PRESERVE_UNRESOLVED',
 });
 
-const PATHS=enumSet(CognitiveChoicePath),JEV_ACTIONS=enumSet(JevAction);
+const PATHS=enumSet(CognitiveChoicePath),JEV_ACTIONS=enumSet(JevAction),DISPOSITIONS=enumSet(CognitiveDisposition),DEADLINES=enumSet(CognitiveDeadlineClass),FRESHNESS=enumSet(CognitiveFreshnessRequirement);
 const countShape=(value={})=>({
   nominated:nonNegative(value.nominated??0,'candidateCounts.nominated'),
   normalized:nonNegative(value.normalized??0,'candidateCounts.normalized'),
@@ -83,13 +104,30 @@ const countShape=(value={})=>({
   finalGenerationFacing:nonNegative(value.finalGenerationFacing??0,'candidateCounts.finalGenerationFacing'),
 });
 
+export function createCognitiveFunctionDecision({
+  capability,disposition,reasonCode,expectedValue=0,resourceCost={},freshnessRequirement=CognitiveFreshnessRequirement.TURN_CURRENT,
+  deadlineClass=CognitiveDeadlineClass.FOREGROUND_OPPORTUNISTIC,requiredCapabilities=[],channelIds=[],metadata={},
+}={}){
+  const d=one(disposition,DISPOSITIONS,'CognitiveFunctionDecision.disposition');
+  const fresh=one(freshnessRequirement,FRESHNESS,'CognitiveFunctionDecision.freshnessRequirement');
+  const deadline=one(deadlineClass,DEADLINES,'CognitiveFunctionDecision.deadlineClass');
+  const value=Number(expectedValue);if(!Number.isFinite(value)||value<0||value>1)throw new TypeError('CognitiveFunctionDecision.expectedValue must be 0..1');
+  return frozen({
+    kind:'CognitiveFunctionDecision',capability:req(capability,'CognitiveFunctionDecision.capability'),disposition:d,
+    reasonCode:req(reasonCode,'CognitiveFunctionDecision.reasonCode'),expectedValue:value,
+    resourceCost:serial(resourceCost,'CognitiveFunctionDecision.resourceCost'),freshnessRequirement:fresh,deadlineClass:deadline,
+    requiredCapabilities:strings(requiredCapabilities,'CognitiveFunctionDecision.requiredCapabilities'),channelIds:strings(channelIds,'CognitiveFunctionDecision.channelIds'),
+    metadata:serial(metadata,'CognitiveFunctionDecision.metadata'),authorityGranted:false,canonicalMutationAuthority:false,
+  });
+}
+
 export function createCognitiveChoiceReceipt({
   id,receiptRevision=1,turnId,turnRevision=0,correlationId,paths=[],
   consideredCognitionOptions=[],admittedJobs=[],skippedJobs=[],deferredJobs=[],reasonCodes=[],
   retrievalIntents=[],sensoryChannelsRequested=[],sensoryChannelsUsed=[],candidateCounts={},
   retrievalQuality=null,correctiveRetrieval={},truthGate={},jev={},precision={},finalEvidenceRefs=[],
   abstained=false,unresolved=false,latencyResourceBudget={},revisions={},freshness={},seal={},
-  lateResultIds=[],staleResultIds=[],invalidResultIds=[],metadata={},
+  lateResultIds=[],staleResultIds=[],invalidResultIds=[],functionDecisions=[],executionPlan={},measurements={},degradedState={},metadata={},
 }={}){
   if(!Number.isInteger(receiptRevision)||receiptRevision<1)throw new TypeError('CognitiveChoiceReceipt.receiptRevision must be positive');
   if(!Number.isInteger(Number(turnRevision))||Number(turnRevision)<0)throw new TypeError('CognitiveChoiceReceipt.turnRevision must be a non-negative integer');
@@ -115,7 +153,9 @@ export function createCognitiveChoiceReceipt({
     revisions:serial(revisions,'CognitiveChoiceReceipt.revisions'),freshness:serial(freshness,'CognitiveChoiceReceipt.freshness'),
     seal:serial(seal,'CognitiveChoiceReceipt.seal'),lateResultIds:strings(lateResultIds,'CognitiveChoiceReceipt.lateResultIds'),
     staleResultIds:strings(staleResultIds,'CognitiveChoiceReceipt.staleResultIds'),invalidResultIds:strings(invalidResultIds,'CognitiveChoiceReceipt.invalidResultIds'),
-    metadata:serial(metadata,'CognitiveChoiceReceipt.metadata'),
+    functionDecisions:(functionDecisions??[]).map((row)=>row?.kind==='CognitiveFunctionDecision'?frozen(row):createCognitiveFunctionDecision(row)),
+    executionPlan:serial(executionPlan,'CognitiveChoiceReceipt.executionPlan'),measurements:serial(measurements,'CognitiveChoiceReceipt.measurements'),
+    degradedState:serial(degradedState,'CognitiveChoiceReceipt.degradedState'),metadata:serial(metadata,'CognitiveChoiceReceipt.metadata'),
     truthAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealBypass:false,
   };
   return frozen(receipt);

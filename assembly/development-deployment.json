@@ -1,0 +1,76 @@
+{
+  "kind": "DevelopmentDeploymentAssemblyManifest",
+  "schemaVersion": "1.0.0",
+  "repository": "Bermieee/Area-52",
+  "branch": "Development-Deployment",
+  "deploymentBaseSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
+  "manifestParentHead": "01d37104c99d0299366de0a6ae552d5426354a65",
+  "status": "ASSEMBLY_CANDIDATE_LIVE_DEMO_PENDING",
+  "mainMutationAllowed": false,
+  "sourceDigestAlgorithm": "git-blob-sha1",
+  "laneManifests": [
+    "assembly/lanes/core.json",
+    "assembly/lanes/lore.json",
+    "assembly/lanes/scene.json",
+    "assembly/lanes/runtime.json",
+    "assembly/lanes/jev.json",
+    "assembly/lanes/memory.json",
+    "assembly/lanes/ui.json"
+  ],
+  "repairOrigins": [
+    {
+      "issue": 190,
+      "sourceBranch": "Development-Repair-Validation",
+      "sourceRepairCommit": "ea7e2e3acd3e53224302c3e55b0540697936148a",
+      "deploymentTransferCommit": "26f38d160a070ebcfca145b4a175a86aff186f3b",
+      "reproducer": "tests/worker4-lore190-repro.test.mjs",
+      "ownerBranchTransferStatus": "PENDING"
+    },
+    {
+      "issue": 211,
+      "sourceBranch": "Development-Repair-Validation",
+      "sourceRepairCommit": "54fe8cff459c184a8a47f9e1c75bf7a7f963a58b",
+      "deploymentTransferCommit": "5968f4973ea772b0f8e99dddfe2d59e7751f72d7",
+      "reproducer": "tests/worker4-jev211-repro.test.mjs",
+      "ownerBranchTransferStatus": "PENDING"
+    }
+  ],
+  "integrationOwned": [
+    {
+      "path": "src/deployment/brain.js",
+      "originCommit": "1a86f43d41e9cb2f510fba057d88c5cd3e7802c1",
+      "reason": "Narrow assembly adapter"
+    },
+    {
+      "path": "src/deployment/index.js",
+      "originCommit": "1a86f43d41e9cb2f510fba057d88c5cd3e7802c1",
+      "reason": "Deployment public surface"
+    },
+    {
+      "path": "tests/deployment-brain.integration.test.mjs",
+      "originCommit": "90260613195a0842f15580f88c31fbd37ca5270d",
+      "reason": "Vertical-slice acceptance harness"
+    },
+    {
+      "path": ".github/workflows/development-deployment.yml",
+      "originCommit": "a97f5e0aff2ac91a388e81e25721f40277265150",
+      "reason": "Exact-head deployment CI"
+    }
+  ],
+  "liveGate": {
+    "issue": 224,
+    "status": "PENDING",
+    "reason": "No real SillyTavern live-host session executed in this environment."
+  },
+  "issueState": {
+    "190": "OPEN",
+    "211": "OPEN",
+    "224": "OPEN",
+    "FT005": "OPEN / unchanged"
+  },
+  "knownLimits": [
+    "Owner branches still need the Worker 4 Lore #190 and Jev #211 repairs transferred separately.",
+    "main is intentionally untouched.",
+    "A real SillyTavern generation is required before #224 or Phase 2 can be marked complete."
+  ]
+}

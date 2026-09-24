@@ -79,11 +79,11 @@ export class CoprocessorProductionUIAdapter{
 export class PromptPlanProductionUIAdapter{
   constructor({
     readPlan=null,readPromptPlanReadModel=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
-    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,
+    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',
   }={}){
     this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readSealReceipt=optional(readSealReceipt);
     this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);
-    this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.kind='PromptPlanProductionUIAdapter';
+    this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');this.kind='PromptPlanProductionUIAdapter';
   }
   #plan(selection){
     if(this.readPromptPlanReadModel)return this.readPromptPlanReadModel(selection??{});
@@ -109,9 +109,12 @@ export class PromptPlanProductionUIAdapter{
       const allocated=Number(plan.estimatedTokens??plan.budget?.allocated??plan.budget?.usedTokens??0),total=Number(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow??allocated);
       const reused=plan.sections.filter(x=>x.state==='REUSED').length,updated=plan.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).length;
       const health=normalizeWave6Health(raw.health?.state??plan.health?.state??(raw.status==='READY'?'READY':raw.integrityStatus==='ERROR'?'BLOCKED':'READY'),{fallback:Wave6Health.READY});
-      const degradedHealth=health!==Wave6Health.READY||Boolean(receipt?.fallbackState&&receipt.fallbackState!=='NONE');
+      const degradedHealth=[Wave6Health.DEGRADED,Wave6Health.STALE,Wave6Health.BLOCKED].includes(health)||Boolean(receipt?.fallbackState&&receipt.fallbackState!=='NONE');
+      const displayHealth=degradedHealth&&health===Wave6Health.READY?Wave6Health.DEGRADED:health;
+      const mode=this.fixture?ProductDataMode.FIXTURE:degradedHealth?ProductDataMode.DEGRADED:ProductDataMode.LIVE;
+      const baseImpact=degradedHealth?'Context was delivered with omissions, deferrals, fallback, stale evidence, or degraded integrity.':health===Wave6Health.WORKING?'Context delivery is still being assembled.':'Generation context is prepared and revision-fenced.';
       return deepFreeze({
-        source:createProductSourceStatus({mode:degradedHealth?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degradedHealth?Wave6Health.DEGRADED:health,label:'Context Delivery',impact:degradedHealth?'Context was delivered with omissions, deferrals, fallback, or degraded integrity.':'Generation context is prepared and revision-fenced.',producer:raw.kind==='PromptPlanReadModel'?'PromptPlanReadModel':'PromptPlan/ContextSeal',revision:plan.promptPlanId}),
+        source:createProductSourceStatus({mode,health:displayHealth,label:'Context Delivery',impact:this.fixture?`${this.fixtureLabel}. ${baseImpact}`:baseImpact,producer:raw.kind==='PromptPlanReadModel'?'PromptPlanReadModel':'PromptPlan/ContextSeal',revision:plan.promptPlanId}),
         data:{
           promptPlanId:plan.promptPlanId,generationId:plan.generationId??receipt?.generationId??null,turnId:plan.turnId??seal?.turnId??receipt?.turnId??null,
           totalTokens:allocated,budgetTotal:total,budgetUsage:total?allocated/total:0,reusedSegments:reused,updatedSegments:updated,
@@ -140,11 +143,11 @@ export class PromptPlanProductionUIAdapter{
 export class ForensicsProductionUIAdapter{
   constructor({
     listTransactions=null,listBundles=null,listForensicReadModels=null,readForensicReadModel=null,readTransaction=null,
-    reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyPayload=null,search=null,
+    reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyPayload=null,search=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',
   }={}){
     this.listTransactions=optional(listTransactions);this.listBundles=optional(listBundles);this.listForensicReadModels=optional(listForensicReadModels);this.readForensicReadModel=optional(readForensicReadModel);
     this.readTransaction=optional(readTransaction);this.reconstructGeneration=optional(reconstructGeneration);this.reconstructTransaction=optional(reconstructTransaction);
-    this.readRuntimeWork=optional(readRuntimeWork);this.readKnowledgeTrace=optional(readKnowledgeTrace);this.searchFn=optional(search);
+    this.readRuntimeWork=optional(readRuntimeWork);this.readKnowledgeTrace=optional(readKnowledgeTrace);this.searchFn=optional(search);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');
     this.detailCache=new LazyForensicDetailCache({loader:optional(readLazyPayload),maxEntries:32});this.indexCache=new Map();this.kind='ForensicsProductionUIAdapter';
   }
   read({limit=100}={}){
@@ -154,7 +157,9 @@ export class ForensicsProductionUIAdapter{
       const models=(this.listForensicReadModels?.({limit})??[]).slice(-Math.max(1,limit));
       const bundles=models.length?models:(this.listBundles?.({limit})??this.listBundles?.()??[]).slice(-Math.max(1,limit));
       const degradedRows=bundles.some(x=>x.health?.state==='DEGRADED'||x.complete===false);
-      return deepFreeze({source:createProductSourceStatus({mode:degradedRows?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degradedRows?Wave6Health.DEGRADED:Wave6Health.READY,label:'Forensics',impact:degradedRows?'Forensic reconstruction is partial; missing stages are shown rather than inferred.':'Decision and context trails are available for inspection.',producer:'ForensicReadModel/CognitiveTransactionLedger'}),data:{transactions:clone(transactions),bundles:clone(bundles)}});
+      const mode=this.fixture?ProductDataMode.FIXTURE:degradedRows?ProductDataMode.DEGRADED:ProductDataMode.LIVE;
+      const health=degradedRows?Wave6Health.DEGRADED:Wave6Health.READY;const impact=degradedRows?'Forensic reconstruction is partial; missing stages are shown rather than inferred.':'Decision and context trails are available for inspection.';
+      return deepFreeze({source:createProductSourceStatus({mode,health,label:'Forensics',impact:this.fixture?`${this.fixtureLabel}. ${impact}`:impact,producer:'ForensicReadModel/CognitiveTransactionLedger'}),data:{transactions:clone(transactions),bundles:clone(bundles)}});
     }catch(error){return degraded('Forensics','Forensic read failed.',{error:String(error?.message??error)});}
   }
   readGeneration(generationId,{limit=10000}={}){
@@ -170,7 +175,8 @@ export class ForensicsProductionUIAdapter{
       let transactions=this.listTransactions?.({generationId,limit})??this.listTransactions?.()??[];
       transactions=transactions.filter(x=>!x.generationId||x.generationId===generationId).slice(-Math.max(1,limit));
       const timeline=buildForensicTimeline({forensic:model,transactions});
-      return deepFreeze({source:createProductSourceStatus({mode:model.complete?ProductDataMode.LIVE:ProductDataMode.DEGRADED,health:model.complete?Wave6Health.READY:Wave6Health.DEGRADED,label:'Forensics',impact:model.complete?'Generation reconstruction references are available.':'Reconstruction is partial; missing references remain explicit.',producer:'ForensicReadModel',revision:model.bundleId}),data:{forensic:model,transactions:clone(transactions),timeline}});
+      const health=model.complete?Wave6Health.READY:Wave6Health.DEGRADED;const mode=this.fixture?ProductDataMode.FIXTURE:model.complete?ProductDataMode.LIVE:ProductDataMode.DEGRADED;const impact=model.complete?'Generation reconstruction references are available.':'Reconstruction is partial; missing references remain explicit.';
+      return deepFreeze({source:createProductSourceStatus({mode,health,label:'Forensics',impact:this.fixture?`${this.fixtureLabel}. ${impact}`:impact,producer:'ForensicReadModel',revision:model.bundleId}),data:{forensic:model,transactions:clone(transactions),timeline}});
     }catch(error){return degraded('Forensics','Generation reconstruction failed.',{error:String(error?.message??error)});}
   }
   queryTimeline(filters={},options={}){

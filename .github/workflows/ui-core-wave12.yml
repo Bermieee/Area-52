@@ -1,0 +1,74 @@
+name: UI.Core Wave 12 validation
+on:
+  push:
+    branches: [Development-UI]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'demo/wave12-host-harness/**'
+      - 'tests/wave7*.mjs'
+      - 'tests/wave8*.mjs'
+      - 'tests/wave9*.mjs'
+      - 'tests/wave10*.mjs'
+      - 'tests/wave11*.mjs'
+      - 'tests/wave12*.mjs'
+      - 'tests/fixtures/wave11*.mjs'
+      - 'docs/UI_CORE_WAVE_12_*.md'
+      - 'package.json'
+      - '.github/workflows/ui-core-wave12.yml'
+  pull_request:
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'demo/wave12-host-harness/**'
+      - 'tests/wave7*.mjs'
+      - 'tests/wave8*.mjs'
+      - 'tests/wave9*.mjs'
+      - 'tests/wave10*.mjs'
+      - 'tests/wave11*.mjs'
+      - 'tests/wave12*.mjs'
+      - 'tests/fixtures/wave11*.mjs'
+      - 'docs/UI_CORE_WAVE_12_*.md'
+      - 'package.json'
+      - '.github/workflows/ui-core-wave12.yml'
+concurrency:
+  group: ui-core-wave12-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  wave12:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full UI.Core regression
+        run: npm test
+      - name: Wave 7 explainability regression
+        run: npm run test:ui:wave7
+      - name: Wave 8 Brain regression
+        run: npm run test:ui:wave8
+      - name: Wave 9 Phase-2 shell regression
+        run: npm run test:ui:wave9
+      - name: Wave 10 context/forensics regression
+        run: npm run test:ui:wave10
+      - name: Wave 11 live binding acceptance
+        run: npm run test:ui:wave11
+      - name: Wave 12 SillyTavern host acceptance
+        run: npm run test:ui:wave12
+      - name: Wave 11 large-list and live-binding stress
+        run: npm run test:ui:wave11:stress
+      - name: Wave 12 host lifecycle stress
+        run: npm run test:ui:wave12:stress
+      - name: JavaScript syntax validation
+        run: find src/ui-core demo tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Browser-facing Wave 12 source guard
+        run: |
+          if grep -R -nE "from ['\"]node:|\\brequire\\s*\\(|\\bprocess\\." src/ui-core/wave12-sillytavern-host.js demo/wave12-host-harness/harness.js; then
+            echo 'Node-only dependency detected in Wave 12 browser source'
+            exit 1
+          fi
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/index.js')]).then(() => console.log('Wave 12 browser module import PASS'))"
+      - name: UI.Core ESM import
+        run: node -e "import('./src/ui-core/index.js').then(() => console.log('UI.Core Wave 12 ESM import PASS'))"

@@ -173,7 +173,7 @@ export class AdaptiveRetrievalController {
 
     return freeze({
       action:decision.action,attempts:1+correctivePasses,correctivePasses,result:structuredClone(result),quality:structuredClone(quality),
-      allowLongTermMemory:decision.allowLongTermMemory,reason:decision.reason,correctivePlan,correctionResult,abstention,canonicalTruthGranted:false,
+      allowLongTermMemory:decision.allowLongTermMemory,reason:decision.reason,correctivePlan:correctionPlan,correctionResult,abstention,canonicalTruthGranted:false,
     });
   }
 

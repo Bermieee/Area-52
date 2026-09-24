@@ -547,3 +547,62 @@ Implementation modules:
 - `src/coprocessor/benchmark.js` — deterministic swarm metrics.
 
 Wave 1 does not implement another scheduler, Work Ledger, Resource Governor, Batch Engine, Result Bus, Context Seal, or canonical Settlement authority. Those remain owned by their canonical lanes.
+
+---
+
+## 23. Phase 1 Wave 6 — real Character Cognition + Continuous Consolidation
+
+Wave 6 moves Green Room and Consolidation from starter contracts to executable cognitive workers while preserving the Wave 5 fabric.
+
+### Character Green Room
+
+Canonical implementation is now \`src/coprocessor/green-room.js\`.
+
+\`foreground-specialists.js\` remains compatibility-only for the older provider envelope and delegates to the canonical Green Room validator/provider-input/state model. \`GreenRoomEphemeralStore\` is a wrapper over \`GreenRoomStore\`, not a second independent state system.
+
+Production behavior:
+- HOT / L1 / normally OPPORTUNISTIC;
+- one bounded active-cast request for PRESENT and legitimate UNCERTAIN characters;
+- MENTIONED_ONLY does not activate automatically;
+- bounded reference-first Scene/dialogue/relationship/Character-State/unresolved evidence;
+- explicit INFERRED micro-state;
+- deterministic Scene/time/departure/contradiction/revision/TTL/chat/correction expiry;
+- prior inference kept separate from direct evidence;
+- reflection proposals count independent support identities rather than repeated guesses;
+- compact generation-facing projection;
+- post-Seal results cannot mutate current ephemeral foreground state.
+
+See \`docs/CHARACTER_GREEN_ROOM.md\`.
+
+### Continuous Consolidation
+
+Canonical implementation remains \`src/coprocessor/continuous-consolidation.js\`, deepened in place rather than replaced.
+
+Production behavior:
+- DEEP / L3 / DEFERRED;
+- revisioned ArtifactReference inputs;
+- bounded evidence slices;
+- provider-neutral execution;
+- multi-proposal semantic bundles;
+- per-proposal provenance/confidence/authority/temporal identity;
+- episode, atomic-claim, relationship/state, Reflection, compressed-representation and cross-episode/hypothesis proposal families;
+- deterministic proposal/unit dedupe and revision lineage;
+- stale-source invalidation;
+- checkpoint/yield/resume contracts;
+- bounded Sidecar-local backlog;
+- compact Memory owner handoff with no persistence/Settlement authority.
+
+See \`docs/CONTINUOUS_CONSOLIDATION_WORKER.md\`.
+
+### Real HOT + DEEP coexistence
+
+\`src/coprocessor/cognitive-worker-pipelines.js\` demonstrates actual cognition on the same provider-neutral execution layer:
+- \`CharacterCognitionWorker\` can contribute fresh Green Room state before seal;
+- \`ContinuousConsolidationWorker\` processes prior Experience/SceneEpisode evidence in background;
+- foreground Character cognition does not await DEEP consolidation;
+- both remain proposal/inference-only;
+- Runtime remains scheduler/Resource Governor/Work Ledger owner;
+- Memory remains durable Memory/Reflection/Temporal-State owner.
+
+Wave 6 does not implement Memory persistence, Lore, Sensory Net, Scene ownership, Runtime scheduling, visual UI or Phase 2 provider learning.
+

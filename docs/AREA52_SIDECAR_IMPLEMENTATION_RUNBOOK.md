@@ -377,3 +377,97 @@ Implemented native deterministic phases:
 The Wave 1 fixture deliberately delays Green Room to 220ms while REQUIRED Historian, Graph Walker and Truth/Precision complete at 32ms, 41ms and 57ms. Foreground closes at 57ms; the later Green Room result routes forward and cannot alter the sealed packet.
 
 The deterministic stress fixture executes 2,100 planned worker tasks across 525 turns with duplicate Turn Events, duplicate results, stale/future revisions, worker omissions/failures, deterministic fallback and bounded gather retention.
+
+---
+
+# 19. Wave 6 production cognition record
+
+Wave 6 completes the Coprocessor implementation work for runbook phases S5 (Character Green Room) and the Sidecar-worker portion of S6 (Continuous Consolidation).
+
+## S5 Character Green Room — production path
+
+Canonical path:
+
+\`\`\`text
+active Scene cast + bounded evidence refs
+ -> createGreenRoomTask
+ -> createGreenRoomProviderInput
+ -> SpecialistExecutionLayer
+ -> validateGreenRoomProviderOutput
+ -> GreenRoomStore
+ -> projectGreenRoomForGeneration
+\`\`\`
+
+Compatibility:
+- old \`foreground-specialists.js\` Green Room APIs remain supported;
+- they delegate to the canonical \`green-room.js\` path;
+- legacy \`characterId\` is an alias for canonical \`characterRef\`.
+
+Gate:
+- batched active cast;
+- INFERRED only;
+- bounded evidence;
+- deterministic expiry/invalidation;
+- anti-self-reinforcing support identity;
+- Reflection proposal seam;
+- generation projection;
+- safe OPPORTUNISTIC degradation;
+- post-Seal containment.
+
+## S6 Continuous Consolidation — Sidecar worker complete
+
+Canonical path:
+
+\`\`\`text
+ArtifactReferences + bounded slices
+ -> ConsolidationUnit
+ -> createConsolidationTask
+ -> SpecialistExecutionLayer
+ -> validateConsolidationProviderOutput
+ -> ConsolidationProposalBundle
+ -> dedupe / checkpoint
+ -> MemoryConsolidationProposalHandoff
+\`\`\`
+
+The Coprocessor side is complete, but full #79 remains dependent on the Memory owner for real admission/persistence.
+
+Runtime boundary:
+- Coprocessor defines cognitive task, proposal validation and checkpoint contents;
+- Runtime owns actual queueing, scheduling, preemption, Resource Governor and Work Ledger.
+
+Memory boundary:
+- Coprocessor emits proposals and handoff metadata;
+- Memory owns durable Experience/Memory, Temporal State, Reflection admission and reconsolidation.
+
+## Wave 6 validation fixture
+
+Functional checkpoint \`ce23d605f85b59677635d6f5257df266912271f3\`, Wave 6 Actions run \`35975330036\`:
+- full regression: 280/280;
+- Green Room focused: 13/13;
+- Consolidation focused: 18/18;
+- Character + Consolidation + combined HOT/DEEP goldens: 3/3;
+- historical stress: 15/15;
+- Wave 5 pressure regression: PASS;
+- Wave 6 cognition stress: PASS;
+- browser-like Wave 6: 2/2;
+- syntax: PASS;
+- ESM import: PASS.
+
+Wave 6 focused stress:
+- 2,000 Green Room batch validations;
+- 500 Green Room expiry sequences;
+- 500 contradiction/source-revision cases;
+- 1,500 consolidation units;
+- 3,000 proposal validations;
+- 500 dedupe/replay cases;
+- 500 stale/superseded cases;
+- 250 checkpoint/resume cycles;
+- one 5,000-update Green Room bounded-growth replay;
+- one 5,000-unit Consolidation backlog bounded-growth replay.
+
+Observed final bounds in long replay:
+- Green Room: 24 active / 64 history;
+- Consolidation backlog: 128 stored / 128 pending.
+
+These are subsystem qualification results, not FT005 or FT006.
+

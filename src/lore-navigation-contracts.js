@@ -59,6 +59,9 @@ export const LORE_WAVE3_LIMITS = Object.freeze({
   maxCommunityScopes: 256,
   maxTokensPerRecord: 192,
   maxCandidateTextCharacters: 1600,
+  maxCandidateSourceRefs: 64,
+  maxCandidateEvidenceRefs: 64,
+  maxCandidateDependencyRefs: 64,
 });
 
 export function makeScopeId(type, logicalKey) {

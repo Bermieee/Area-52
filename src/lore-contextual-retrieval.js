@@ -79,11 +79,11 @@ function candidateNomination({record, intentId, score, reason}) {
     evidenceIdentity: record.evidenceIdentity,
     artifactRef: {artifactId: record.artifactId, artifactType: record.artifactType},
     artifactRevision: Number(record.artifactRevision || 1),
-    sourceRevisionRefs: [...record.sourceRevisionRefs],
-    claimRefs: [...record.claimRefs],
+    sourceRevisionRefs: record.sourceRevisionRefs.slice(0, LORE_WAVE3_LIMITS.maxCandidateSourceRefs),
+    claimRefs: record.claimRefs.slice(0, 64),
     eventRefs: [],
-    entityRefs: [...record.entityRefs],
-    relationshipRefs: [...record.relationshipRefs],
+    entityRefs: record.entityRefs.slice(0, 64),
+    relationshipRefs: record.relationshipRefs.slice(0, 64),
     retrievalIntentIds: [intentId],
     rankSignals: {
       localLexicalOverlap: score.lexical,
@@ -97,9 +97,9 @@ function candidateNomination({record, intentId, score, reason}) {
     continuitySignals: [],
     authorityClass: record.authorityClass,
     truthStatusHint: record.truthStatusHint,
-    provenance: deepClone(record.provenance),
-    evidenceRefs: [...record.evidenceRefs],
-    dependencyRevisions: [...record.dependencyRevisions],
+    provenance: deepClone(record.provenance).slice(0, 16),
+    evidenceRefs: record.evidenceRefs.slice(0, LORE_WAVE3_LIMITS.maxCandidateEvidenceRefs),
+    dependencyRevisions: record.dependencyRevisions.slice(0, LORE_WAVE3_LIMITS.maxCandidateDependencyRefs),
     freshness: 'FRESH',
     representationRef: record.representationRef,
     representationRevision,
@@ -107,7 +107,10 @@ function candidateNomination({record, intentId, score, reason}) {
     metadata: {
       loreResolution: record.resolution,
       reason,
-      sourceDrillbackRefs: [...record.sourceIds],
+      sourceDrillbackRefs: record.sourceIds.slice(0, LORE_WAVE3_LIMITS.maxCandidateSourceRefs),
+      sourceRefTotal: record.sourceIds.length,
+      sourceRefsTruncated: record.sourceIds.length > LORE_WAVE3_LIMITS.maxCandidateSourceRefs,
+      retrievalRecordRef: record.id,
       retrievalRankAuthority: false,
       communityTruthAuthority: false,
       summaryTruthAuthority: false,
@@ -330,7 +333,10 @@ export class LoreContextualRetrievalIndex {
   }
 
   drillDown(nomination) {
-    const refs = nomination?.metadata?.sourceDrillbackRefs || [];
+    const record = nomination?.metadata?.retrievalRecordRef
+      ? this.records.get(nomination.metadata.retrievalRecordRef)
+      : null;
+    const refs = record?.sourceIds || nomination?.metadata?.sourceDrillbackRefs || [];
     return refs.slice(0, LORE_WAVE3_LIMITS.maxSourceRefsPerSummary).map((sourceId) => {
       const recordId = this.sourceRecordIds.get(sourceId);
       const record = recordId ? this.records.get(recordId) : null;

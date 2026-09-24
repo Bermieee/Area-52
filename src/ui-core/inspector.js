@@ -9,6 +9,7 @@ export class InspectorController {
     this.scheduler = scheduler;
     this.services = services;
     this.scope = new ResourceScope();
+    this.renderScope = new ResourceScope();
     this.selection = null;
   }
 
@@ -29,6 +30,8 @@ export class InspectorController {
   clear() { this.select(null); }
 
   render() {
+    this.renderScope.cleanup();
+    this.renderScope = new ResourceScope();
     const doc = this.host.ownerDocument;
     if (!this.selection) {
       const empty = doc.createElement('div');
@@ -42,9 +45,9 @@ export class InspectorController {
       this.host.textContent = `No inspector renderer for ${this.selection.kind}`;
       return;
     }
-    const rendered = renderer(this.selection, { document: doc, services: this.services });
+    const rendered = renderer(this.selection, { document: doc, services: this.services, scope: this.renderScope });
     this.host.replaceChildren(rendered);
   }
 
-  destroy() { this.scope.cleanup(); this.host.replaceChildren(); }
+  destroy() { this.renderScope.cleanup(); this.scope.cleanup(); this.host.replaceChildren(); }
 }

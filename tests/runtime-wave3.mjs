@@ -257,6 +257,46 @@ test('REQUIRED work with zero eligible resources terminates through deterministi
   assert.equal(fallback.authorityGranted, false);
 });
 
+test('expired soft deadline may select deterministic fallback without waiting for unavailable work', async () => {
+  const { director, host, results } = makeHost({ cpu: 1 });
+  const now = Date.now();
+  const t = turn('soft-deadline');
+  const required = job('soft-deadline', 'MISSING_CAPABILITY', {
+    turnId: t.turnId,
+    correlationId: t.correlationId,
+    softDeadline: now - 1,
+    hardDeadline: now + 5000,
+    fallback: { value: 'soft-fallback' },
+  });
+  host.publishTurn(t, [required]);
+  const quorum = await host.native.awaitForeground(t.turnId);
+  assert.ok(quorum.requiredFallback.includes(required.taskId));
+  const fallback = results.find((r) => r.taskId === required.taskId && r.executionOutcome === 'FALLBACK');
+  assert.equal(fallback.fallbackState.reason, 'SOFT_DEADLINE_FALLBACK');
+  assert.equal(director.ledger.get(required.taskId).lifecycleStatus, LIFECYCLE_STATUS.CANCELLED);
+});
+
+test('expired hard deadline closes REQUIRED foreground and prevents later provider success', async () => {
+  const { director, host, results } = makeHost({ cpu: 1 });
+  host.registerExecutionResource({ worker: resource('deadline-r', [CAPABILITIES.CPU_ANALYSIS]), adapter: adapter() });
+  const now = Date.now();
+  const t = turn('hard-deadline');
+  const required = job('hard-deadline', CAPABILITIES.CPU_ANALYSIS, {
+    turnId: t.turnId,
+    correlationId: t.correlationId,
+    softDeadline: now - 2,
+    hardDeadline: now - 1,
+    fallback: { value: 'hard-fallback' },
+  });
+  host.publishTurn(t, [required]);
+  const quorum = await host.native.awaitForeground(t.turnId);
+  assert.ok(quorum.requiredFallback.includes(required.taskId));
+  await director.drain();
+  assert.equal(results.filter((r) => r.taskId === required.taskId && r.executionOutcome === 'COMPLETED').length, 0);
+  assert.equal(results.filter((r) => r.taskId === required.taskId && r.executionOutcome === 'FALLBACK').length, 1);
+  assert.equal(director.ledger.get(required.taskId).lifecycleStatus, LIFECYCLE_STATUS.CANCELLED);
+});
+
 test('provider timeout degrades the selected resource and retries the same logical job on fallback resource', async () => {
   const { director, host, results } = makeHost({ cpu: 2, maxRetries: 2 });
   host.registerExecutionResource({ worker: resource('timeout-a', [CAPABILITIES.CPU_ANALYSIS], { latency: 1, provider: 'A' }), adapter: adapter({ delay: 80 }) });

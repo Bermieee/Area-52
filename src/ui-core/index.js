@@ -51,3 +51,5 @@ export * from './wave8-cognition.js';
 export * from './wave8-production-adapters.js';
 export * from './wave8-bindings.js';
 export * from './wave8-workspace.js';
+
+export * from './wave11-live-bindings.js';

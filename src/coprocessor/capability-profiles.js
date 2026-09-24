@@ -148,6 +148,7 @@ export class CapabilityProfileRegistry {
 export function toRuntimeCapabilityDescriptor(profile) {
   if (!profile) throw new TypeError('profile is required');
   return Object.freeze({
+    profileId: profile.profileId,
     workerId: profile.workerId,
     capabilities: [...profile.capabilities],
     capabilityDescriptors: structuredClone(profile.capabilityDescriptors),

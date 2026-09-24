@@ -12,7 +12,7 @@ export class SpecialistExecutionLayer {
     this.profiles=profiles;this.adapters=adapters;this.telemetry=telemetry;this.specialists=specialists;
   }
 
-  async execute(task,{input,attempt=1,signal=null,maxCostClass='HIGH'}={}){
+  async execute(task,{input,attempt=1,signal=null,maxCostClass='HIGH',profileId=null}={}){
     const specialist=this.specialists?.[task.taskType]??specialistForTask(task.taskType);
     if(!specialist)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No specialist contract for ${task.taskType}`);
     const providerInput=specialist.buildInput(task,input??{});
@@ -21,7 +21,9 @@ export class SpecialistExecutionLayer {
       expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal)})
       .filter(profile=>this.adapters.get(profile.providerId));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
-    const profile=eligible[0],adapter=this.adapters.get(profile.providerId);
+    const profile=profileId==null?eligible[0]:eligible.find((candidate)=>candidate.profileId===profileId);
+    if(!profile)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`Requested Runtime-selected profile is not eligible for ${task.taskId}`);
+    const adapter=this.adapters.get(profile.providerId);
     emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_SELECTED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
       workerCapability:[...task.requiredCapabilities],taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,
       requiredCapabilities:task.requiredCapabilities,contextTokens,expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),

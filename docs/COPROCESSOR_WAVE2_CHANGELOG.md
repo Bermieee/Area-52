@@ -1,48 +1,15 @@
-# Cognitive Coprocessor Wave 2 — Changelog
+# Coprocessor Phase 1 Backlog Wave 2 — Changelog
 
-## Added
-
-- provider-neutral adapter registry;
-- deterministic provider adapter;
-- OpenAI-compatible provider adapter;
-- external endpoint/key/model configuration;
-- abort/timeout/error normalization;
-- executable specialist contracts;
-- strict JSON-only structured-output parsing;
-- Historian reference selection;
-- bounded Graph Walker;
-- batched Character Green Room;
-- Truth / Precision conflict-preserving judgment;
-- live capability-profile health/availability/load controls;
-- local/remote and context/output-limit aware provider nomination;
-- explicit FUTURE_REVISION classification while retaining Wave 1 INVALID compatibility mapping;
-- intent-fingerprint freshness validation;
-- adaptive Sidecar Batch Adapter for Runtime's common Batch Engine;
-- partial slice result accounting;
-- complete fallback matrix;
-- per-turn/resource bounded fan-out;
-- duplicate-task-result containment;
-- typed GatherCompilerInput;
-- expanded benchmark metrics;
-- Function Test 001 API/fixtures;
-- manual OpenAI-compatible smoke harness;
-- >5,000-task Wave 2 stress;
-- bounded Streaming Truth OBSERVE prototype.
-
-## Preserved
-
-All accepted Wave 1 behavior and regression coverage remain active.
-
-## Deferred
-
-- production Memory consolidation;
-- predictive warmer implementation;
-- full Scene Scanner;
-- production Lore Study;
-- vector/graph database ownership;
-- Dapr;
-- Arrow/ZeroMQ/shared-memory optimization;
-- Runtime cache implementation;
-- Settlement/canonical mutation;
-- direct UI work;
-- Streaming Truth Verified Chunks / Hard Intercept.
+- Added `CapabilityNegotiation` and provider-neutral `CapabilityRequirement` structures.
+- Added profile-level incompatibility and constraint-failure diagnostics without returning a scheduling decision.
+- Added `profileId` to Runtime capability descriptors and a Runtime-selected provider execution option.
+- Added canonical Framework `CognitiveEventEnvelope` TURN_EVENT producer/consumer adapters with duplicate safety.
+- Expanded Runtime obligations with soft/hard deadline budget, quality weight, fallback contract, resource hints, HOT/DEEP placement, yield legality, checkpoint/resume identity and explicit no-authority flags.
+- Added Core-compatible exact-revision Artifact References, bounded slice retrieval and typed reference status.
+- Added browser-native Cognitive Data Plane transfer benchmarks and transport compatibility matrix.
+- Added integration benchmark measurement-state contract.
+- Added intent-opposite precision corpus and deterministic precision adapter seam for #42 follow-up.
+- Added FT005 provider qualification runner and external provider readiness script.
+- Added deterministic integration tests and Wave 2 integration stress tests.
+- Preserved Wave 1 browser-safe, freshness, Gather, Context Seal, Green Room and provider-neutral behavior.
+- No new branch, no Runtime/Core/Scene/Memory merge and no merge to `main`.

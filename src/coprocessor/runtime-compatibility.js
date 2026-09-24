@@ -1,11 +1,26 @@
 import { Placement, ResultClass } from './constants.js';
+import { createCapabilityRequirement } from './capability-negotiation.js';
+
+export const RUNTIME_OBLIGATION_CONTRACT_VERSION = '1.1.0';
 
 export function toRuntimeObligation(task, {
   owner = 'COGNITIVE_COPROCESSOR',
   producerId = 'SIDECAR_JEV',
   priority = task.resultClass === ResultClass.REQUIRED ? 90 : task.resultClass === ResultClass.OPPORTUNISTIC ? 60 : 30,
 } = {}) {
+  const qualityWeight = Number(task.metadata?.qualityWeight ?? (task.resultClass === ResultClass.REQUIRED ? 1 : task.resultClass === ResultClass.OPPORTUNISTIC ? 0.5 : 0.25));
+  const capabilityRequirement = createCapabilityRequirement(task, {
+    contextTokens: task.metadata?.contextTokens ?? 0,
+    expectedOutputTokens: task.metadata?.expectedOutputTokens ?? 0,
+    requireStructuredOutput: task.metadata?.requireStructuredOutput ?? true,
+    maxLatencyClass: task.metadata?.maxLatencyClass ?? null,
+    maxLatencyMs: task.metadata?.maxLatencyMs ?? null,
+    maxCostClass: task.metadata?.maxCostClass ?? 'HIGH',
+  });
+  const deep = task.placement === Placement.DEEP;
+  const resumeIdentity = task.metadata?.resumeIdentity ?? `resume:${task.taskId}:${task.dedupeKey}`;
   return Object.freeze({
+    contractVersion: RUNTIME_OBLIGATION_CONTRACT_VERSION,
     taskId: task.taskId,
     taskType: task.taskType,
     layer: task.cognitiveLayer,
@@ -18,12 +33,18 @@ export function toRuntimeObligation(task, {
       compilerLane: task.compilerLane,
       contextSealPolicy: task.contextSealPolicy,
       authority: 'NON_CANONICAL_WORKER_RESULT',
+      settlementAuthority: false,
+      contextSealBypass: false,
     },
-    runtimeClass: task.placement === Placement.DEEP ? 'DEEP' : 'HOT',
+    runtimeClass: deep ? 'DEEP' : 'HOT',
+    placement: task.placement,
+    resultClass: task.resultClass,
     requiredCapabilities: [...task.requiredCapabilities],
     capabilityRequests: structuredClone(task.capabilityRequests ?? []),
     fallbackCapabilitySets: structuredClone(task.fallbackCapabilitySets ?? []),
+    capabilityRequirement,
     resourceClass: task.metadata?.resourceClass ?? null,
+    resourceHints: structuredClone(task.metadata?.resourceHints ?? task.metadata?.resourceLimits ?? {}),
     resourceLimits: structuredClone(task.metadata?.resourceLimits ?? {}),
     sourceRevisions: structuredClone(task.metadata?.sourceRevisions ?? {}),
     sourceRevisionIds: [...task.sourceRevisionSet],
@@ -32,27 +53,41 @@ export function toRuntimeObligation(task, {
     revision: task.worldRevision,
     dependencies: [...(task.metadata?.dependencies ?? [])],
     priority,
+    softDeadline: task.softDeadline,
+    hardDeadline: task.hardDeadline,
     deadline: task.hardDeadline,
     deadlineClass: task.resultClass,
+    deadlineBudget: Object.freeze({ softDeadline: task.softDeadline, hardDeadline: task.hardDeadline, resultClass: task.resultClass, qualityWeight }),
+    qualityWeight,
+    fallbackContract: structuredClone(task.fallbackPolicy),
     foreground: task.resultClass !== ResultClass.DEFERRED,
     foregroundSensitivity: 'CONTEXT_SEAL',
     expectedCost: structuredClone(task.metadata?.expectedCost ?? {}),
     yieldPolicy: {
       mode: task.batchMetadata.yieldSafety,
+      legal: deep && task.batchMetadata.yieldSafety !== 'NOT_APPLICABLE',
+      checkpointBoundary: task.batchMetadata.checkpointBoundary,
+      partialResultSemantics: task.batchMetadata.partialResultSemantics,
+      resumeIdentity,
       maxUninterruptedSliceMs: task.metadata?.maxUninterruptedSliceMs ?? null,
     },
     checkpointPolicy: {
       boundary: task.batchMetadata.checkpointBoundary,
       maxUnitsPerCheckpoint: task.metadata?.maxUnitsPerCheckpoint ?? null,
+      resumeIdentity,
+      storageOwnedByRuntime: true,
     },
     batchHint: {
       batchable: task.batchMetadata.batchable,
       slicePolicy: task.batchMetadata.slicePolicy,
       maxSliceUnits: task.metadata?.maxSliceUnits ?? null,
       partialResultSemantics: task.batchMetadata.partialResultSemantics,
+      batchSlice: task.metadata?.batchSlice ?? null,
     },
     speculative: task.resultClass === ResultClass.OPPORTUNISTIC,
     dedupeKey: task.dedupeKey,
+    schedulingDecision: null,
+    authorityGranted: false,
     payload: {
       turnId: task.turnId,
       correlationId: task.correlationId,

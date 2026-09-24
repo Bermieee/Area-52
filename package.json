@@ -7,9 +7,10 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
-    "test:wave2": "node --test tests/coprocessor-wave2.test.mjs",
-    "test:stress": "node --test tests/coprocessor-stress.test.mjs tests/coprocessor-wave2-stress.test.mjs",
+    "test:wave2": "node --test tests/coprocessor-wave2.test.mjs tests/coprocessor-runtime-integration.test.mjs",
+    "test:stress": "node --test tests/coprocessor-stress.test.mjs tests/coprocessor-wave2-stress.test.mjs tests/coprocessor-runtime-integration-stress.test.mjs",
     "check": "find src tests scripts -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
-    "manual:provider": "node scripts/manual-provider-smoke.mjs"
+    "manual:provider": "node scripts/manual-provider-smoke.mjs",
+    "manual:ft005": "node scripts/ft005-provider-readiness.mjs"
   }
 }

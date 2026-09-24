@@ -122,8 +122,15 @@ export class Wave6ProductAdapter{
   subscribeDetailLevel(listener){return this.presentationState.subscribe(listener);}
   getSnapshot(){
     if(this.fixture){
-      const status=createProductSourceStatus({mode:ProductDataMode.FIXTURE,health:Wave6Health.READY,label:'Fixture',impact:'Deterministic test/demo data only.',producer:'Wave6 fixture'});
-      assertFixtureNotLive(status);return deepFreeze({...clone(this.fixture),wave6:{mode:ProductDataMode.FIXTURE,sources:{fixture:status}}});
+      const snapshot=clone(this.fixture),names=['story','scene','characters','lore','memory','world','runtime','coprocessor','promptPlan','forensics'],sources={};
+      for(const name of names){
+        const present=snapshot[name]!=null;
+        sources[name]=present
+          ? createProductSourceStatus({mode:ProductDataMode.FIXTURE,health:Wave6Health.READY,label:fixtureLabel(name),impact:'Deterministic test/demo data only — not live cognitive state.',producer:'Wave6 fixture'})
+          : createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label:fixtureLabel(name),impact:`${fixtureLabel(name)} is not included in this fixture.`,producer:null,connected:false});
+        assertFixtureNotLive(sources[name]);
+      }
+      return deepFreeze({...snapshot,wave6:{mode:ProductDataMode.FIXTURE,sources,attention:[]}});
     }
     const scene=read(this.sources.scene),runtime=read(this.sources.runtime),coprocessor=read(this.sources.coprocessor),promptPlan=read(this.sources.promptPlan),forensics=read(this.sources.forensics);
     const story=readGeneric('Story',this.sources.story),characters=readGeneric('Characters',this.sources.characters),lore=readGeneric('Lore',this.sources.lore),memory=readGeneric('Memory',this.sources.memory),world=readGeneric('World',this.sources.world);
@@ -140,6 +147,7 @@ export class Wave6ProductAdapter{
   }
 }
 
+function fixtureLabel(name){return({story:'Story',scene:'Scene',characters:'Characters',lore:'Lore',memory:'Memory',world:'World',runtime:'Runtime',coprocessor:'Coprocessor',promptPlan:'Context Delivery',forensics:'Forensics'})[name]??name;}
 function read(source){
   if(!source)return unavailable('Subsystem','Producer is not connected.');
   if(typeof source.read==='function')return source.read();

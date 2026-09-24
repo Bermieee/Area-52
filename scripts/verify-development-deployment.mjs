@@ -10,7 +10,7 @@ const rootManifest=JSON.parse(fs.readFileSync(path.join(root,'assembly','develop
 
 function gitBlobSha(filePath){
   const bytes=fs.readFileSync(filePath);
-  return crypto.createHash('sha1').update(Buffer.concat([Buffer.from('blob '+bytes.length+'\\0'),bytes])).digest('hex');
+  return crypto.createHash('sha1').update(Buffer.concat([Buffer.from('blob '+bytes.length+'\0'),bytes])).digest('hex');
 }
 
 let failed=false;

@@ -247,8 +247,8 @@ export class NativeTurnRuntime {
     const obligation = {
       taskId: job.taskId,
       taskType: job.taskType,
-      owner: job.metadata?.owner ?? job.taskType,
-      producerId: job.metadata?.producerId ?? 'COGNITIVE_COPROCESSOR',
+      owner: job.owner ?? job.metadata?.owner ?? job.taskType,
+      producerId: job.producerId ?? job.metadata?.producerId ?? 'COGNITIVE_COPROCESSOR',
       runtimeClass: 'NATIVE_COGNITIVE',
       layer: job.cognitiveLayer,
       requiredCapabilities: job.requiredCapabilities,

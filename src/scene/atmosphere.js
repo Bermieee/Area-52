@@ -3,6 +3,7 @@ import { ObservationClass, createFieldState } from './contracts.js';
 const DIMENSIONS = Object.freeze(['tension','danger','intimacy','urgency','uncertainty','humor','grief','hostility']);
 
 export class AtmosphereTracker {
+  nextScene({ revision, evidenceRefs = [], dimensions = {} } = {}) { return this.update({ revision, evidenceRefs, dimensions }); }
   update({ revision, evidenceRefs = [], dimensions = {} }) {
     const value = {};
     let minConfidence = 1;

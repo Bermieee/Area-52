@@ -139,3 +139,38 @@ SceneEpisode `artifactRef` now follows the shared ArtifactReference 1.0 field vo
 Scene retains compatibility aliases for its own diagnostics while the shared fields are sufficient for downstream normalization/resolution.
 
 Scene event envelopes expose both the Runtime Event Spine metadata needed by `emit(eventType,payload,meta)` and the shared CognitiveEventEnvelope revision vocabulary. Scene still does not own the Event Spine.
+
+# Wave 3 Reference
+
+## Public contracts
+
+- `SceneIntegrationSignal` — canonical downstream Scene signal.
+- `SceneContextInvalidationSignal` — transition/resume invalidation intent for Core.
+- `SceneGraphReferenceSet` — reference-only graph handoff.
+- `SceneExperienceProposal` — Memory-facing proposal, never a durable write.
+- `ObjectStateTransitionProposal` — Scene-local object transition proposal.
+- `SceneUiReadModel` — immutable UI observation snapshot.
+- `SceneWhyReferences` — evidence/revision/proposal/transition/event/artifact refs for diagnostics.
+- `SceneAssemblyLaneManifest` — explicit integration-owner copy manifest contribution.
+
+## Integration adapters
+
+`SceneEventPublisher` can describe/register Scene event types against both Runtime and Core event-registry surfaces and can expose a producer sink for Runtime EventSpine.emit.
+
+`SceneLifecycleRuntime.integrationSignal(chatId)`, `fanOutInput(chatId)` and `uiReadModel(chatId)` are projections over the same live Scene state.
+
+`SillyTavernHostBridge` maps configured host event names to HostActivity and supports source-revision-idempotent reattachment.
+
+## Freshness contracts
+
+- Scene event: exact Scene revision.
+- integration signal: exact Scene ID/revision/source set.
+- PrefetchRecommendation: ACTIVE, matching Scene revision and unexpired.
+- SceneEpisode: matching Scene revision/source revisions.
+- SceneExperienceProposal: matching Scene revision/source revisions.
+- UI read model: matching Scene ID/revision.
+- context invalidation: matching target Scene ID/revision.
+
+## Authority
+
+All Wave 3 contracts are deliberately authority-negative. They cannot settle truth, directly mutate Memory/Core context, schedule Runtime work or bypass Context Seal.

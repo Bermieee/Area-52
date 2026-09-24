@@ -4,9 +4,9 @@ import { SceneEventType, SceneRelationship, TransitionStatus } from './lifecycle
 const clone=(v)=>structuredClone(v);
 
 export class ClapperboardTransitionManager{
-  constructor({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger}={}){
+  constructor({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,contextInvalidationPublisher=null}={}){
     if(!registry||!stack||!episodeCompiler||!graph||!publisher)throw new TypeError('registry, stack, episodeCompiler, graph and publisher are required');
-    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.transitions=new Map();this.sequence=0;
+    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.contextInvalidationPublisher=contextInvalidationPublisher;this.transitions=new Map();this.sequence=0;
   }
 
   #publish(eventType,scene,sourceRevisionRefs,payload,meta={}){
@@ -43,8 +43,9 @@ export class ClapperboardTransitionManager{
 
     this.#publish(SceneEventType.SCENE_BOUNDARY_CONFIRMED,current,sourceRevisionRefs,{candidateId:decision.candidateId,boundaryType:decision.boundaryType,relationship},{dedupeKey:`boundary-confirmed:${decision.candidateId}`,correlationId,causationId,turnId});
 
-    let episode=null,partial=false,nextRecord=null,resumed=null;
+    let episode=null,partial=false,nextRecord=null,resumed=null,resumedFromRevision=null;
     if(relationship===SceneRelationship.RESUMES){
+      resumedFromRevision=this.registry.current(target)?.revision??null;
       const finalized=this.#finalize(fromSceneId,{evidenceRefs,sourceRevisionRefs,correlationId,causationId,turnId});episode=finalized.episode;partial=Boolean(finalized.error);
       resumed=this.stack.resume(target,{evidenceRefs,sourceRevisionRefs});
       const resumedRecord=this.registry.resumeScene(target,evidenceRefs);
@@ -68,12 +69,14 @@ export class ClapperboardTransitionManager{
       this.#publish(SceneEventType.SCENE_OPENED,nextScene,sourceRevisionRefs,{relationship,fromSceneId},{dedupeKey:`opened:${target}:1`,correlationId,causationId,turnId});
     }
 
+    let contextInvalidation=null;
+    if(this.contextInvalidationPublisher){const nextScene=nextRecord.snapshots.at(-1);contextInvalidation=this.contextInvalidationPublisher.publish({fromSceneId,fromRevision:current.revision,toSceneId:target,toRevision:nextScene.revision,relationship,resumedSceneRef:relationship===SceneRelationship.RESUMES?{sceneId:target,fromRevision:resumedFromRevision,toRevision:nextScene.revision,sceneRevision:nextScene.revision}:null,sourceRevisionRefs,evidenceRefs,reason:relationship===SceneRelationship.RESUMES?'SCENE_RESUMED':'SCENE_TRANSITION'});}
     let prefetch=null;
     if(this.prefetchTrigger){
-      const nextScene=nextRecord.snapshots.at(-1);prefetch=this.prefetchTrigger.recommend({sceneId:nextScene.sceneId,sceneRevision:nextScene.revision,trigger:`TRANSITION_${relationship}`,sceneRefs:[fromSceneId,target],priority:'HIGH',evidenceRefs});
+      const nextScene=nextRecord.snapshots.at(-1);prefetch=this.prefetchTrigger.recommend({sceneId:nextScene.sceneId,sceneRevision:nextScene.revision,trigger:`TRANSITION_${relationship}`,sceneRefs:[fromSceneId,target],priority:'HIGH',evidenceRefs,sourceRevisionRefs});
       this.#publish(SceneEventType.PREFETCH_RECOMMENDED,nextScene,sourceRevisionRefs,{recommendation:prefetch},{dedupeKey:prefetch.recommendationId,correlationId,causationId,turnId});
     }
-    const result={status:partial?TransitionStatus.EPISODE_PENDING:TransitionStatus.COMPLETE,fromSceneId,toSceneId:target,relationship,episodeRef:episode?.artifactRef??null,nextSceneRevision:nextRecord.revision,prefetchRef:prefetch?.recommendationId??null,resumed:Boolean(resumed)};
+    const result={status:partial?TransitionStatus.EPISODE_PENDING:TransitionStatus.COMPLETE,fromSceneId,toSceneId:target,relationship,episodeRef:episode?.artifactRef??null,nextSceneRevision:nextRecord.revision,prefetchRef:prefetch?.recommendationId??null,contextInvalidationId:contextInvalidation?.invalidationId??null,resumed:Boolean(resumed)};
     this.transitions.set(key,result);return clone(result);
   }
 

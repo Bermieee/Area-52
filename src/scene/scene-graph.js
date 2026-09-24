@@ -8,6 +8,7 @@ export class SceneGraph{
   addScene({sceneId,episodeRef=null,revision=1,metadata={}}){const prior=this.nodes.get(sceneId);this.nodes.set(sceneId,{kind:'SceneNode',sceneId,revision:Math.max(prior?.revision??0,revision),episodeRef:episodeRef??prior?.episodeRef??null,metadata:{...(prior?.metadata??{}),...clone(metadata)}});return clone(this.nodes.get(sceneId));}
   addRelationship({fromSceneId,toSceneId,relationship,evidenceRefs=[],provenance=[],derivedFrom=[]}){
     if(!Object.values(SceneRelationship).includes(relationship))throw new TypeError(`unsupported relationship ${relationship}`);
+    if(relationship===SceneRelationship.ISOLATED)throw new TypeError('ISOLATED host contexts are not narrative graph relationships');
     this.addScene({sceneId:fromSceneId});this.addScene({sceneId:toSceneId});
     const edgeType=relationEdge[relationship];const id=`${edgeType}:${fromSceneId}->${toSceneId}`;
     if(this.edges.has(id))return clone(this.edges.get(id));

@@ -5,10 +5,11 @@
   "type": "module",
   "description": "Experimental cognitive memory core for Nexus",
   "scripts": {
-    "test": "node --test tests/cognitive-core.mjs tests/scene-core.mjs tests/scene-golden.mjs tests/scene-wave2.mjs tests/scene-host-feed.mjs tests/scene-wave2-golden.mjs tests/scene-wave2-browser-runtime.mjs",
-    "test:scene": "node --test tests/scene-core.mjs tests/scene-golden.mjs tests/scene-wave2.mjs tests/scene-host-feed.mjs tests/scene-wave2-golden.mjs tests/scene-wave2-browser-runtime.mjs",
+    "test": "node --test tests/cognitive-core.mjs tests/scene-core.mjs tests/scene-golden.mjs tests/scene-wave2.mjs tests/scene-host-feed.mjs tests/scene-wave2-golden.mjs tests/scene-wave2-browser-runtime.mjs tests/scene-wave3.mjs tests/scene-wave3-preflight.mjs tests/scene-wave3-browser-runtime.mjs",
+    "test:scene": "node --test tests/scene-core.mjs tests/scene-golden.mjs tests/scene-wave2.mjs tests/scene-host-feed.mjs tests/scene-wave2-golden.mjs tests/scene-wave2-browser-runtime.mjs tests/scene-wave3.mjs tests/scene-wave3-preflight.mjs tests/scene-wave3-browser-runtime.mjs",
     "test:scene:wave2": "node --test tests/scene-wave2.mjs tests/scene-host-feed.mjs tests/scene-wave2-golden.mjs tests/scene-wave2-browser-runtime.mjs",
-    "test:scene:stress": "node tests/scene-stress.mjs && node tests/scene-wave2-stress.mjs",
+    "test:scene:wave3": "node --test tests/scene-wave3.mjs tests/scene-wave3-preflight.mjs tests/scene-wave3-browser-runtime.mjs",
+    "test:scene:stress": "node tests/scene-stress.mjs && node tests/scene-wave2-stress.mjs && node tests/scene-wave3-stress.mjs",
     "check": "find src tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check",
     "check:browser": "node tests/scene-browser-compat.mjs"
   }

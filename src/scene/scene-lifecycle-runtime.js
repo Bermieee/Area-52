@@ -10,15 +10,17 @@ import { ScenePrefetchTrigger } from './prefetch-trigger.js';
 import { NarrativeFeedAdapter } from './narrative-feed-adapter.js';
 import { SceneRetrievalAdapter } from './scene-retrieval.js';
 import { ClapperboardTransitionManager } from './transition-manager.js';
+import { SceneContextInvalidationPublisher } from './context-invalidation.js';
+import { buildSceneIntegrationSignal, buildSceneUiReadModel, fanOutSceneInput } from './scene-integration-view.js';
 
 const clone=(v)=>structuredClone(v);
 const relationForBoundary=(type)=>type===BoundaryType.FLASHBACK?SceneRelationship.FLASHBACK_OF:type===BoundaryType.PARALLEL?SceneRelationship.PARALLEL_TO:SceneRelationship.CONTINUES;
 
 export class SceneLifecycleRuntime{
-  constructor({registry=new SceneRegistry(),stack=new SceneStack(),episodeCompiler=new SceneEpisodeCompiler(),graph=new SceneGraph(),publisher=new SceneEventPublisher(),prefetchTrigger=new ScenePrefetchTrigger(),narrativeFeed=new NarrativeFeedAdapter()}={}){
-    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.narrativeFeed=narrativeFeed;
+  constructor({registry=new SceneRegistry(),stack=new SceneStack(),episodeCompiler=new SceneEpisodeCompiler(),graph=new SceneGraph(),publisher=new SceneEventPublisher(),prefetchTrigger=new ScenePrefetchTrigger(),narrativeFeed=new NarrativeFeedAdapter(),contextInvalidationPublisher=new SceneContextInvalidationPublisher()}={}){
+    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.narrativeFeed=narrativeFeed;this.contextInvalidationPublisher=contextInvalidationPublisher;
     this.sceneRuntime=new SceneIntelligenceRuntime({registry});
-    this.transitionManager=new ClapperboardTransitionManager({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger});
+    this.transitionManager=new ClapperboardTransitionManager({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,contextInvalidationPublisher});
     this.retrieval=new SceneRetrievalAdapter({episodeProvider:()=>episodeCompiler.list(),graph});
     this.chatScenes=new Map();this.chatSceneSeq=new Map();
   }
@@ -46,7 +48,7 @@ export class SceneLifecycleRuntime{
     this.publisher.publish({...base,eventType:SceneEventType.SCENE_STATE_DELTA,payload:{delta},dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}`});
     const map={location:SceneEventType.LOCATION_CHANGED,narrativeTime:SceneEventType.TIME_SHIFT_DETECTED,activeCast:SceneEventType.ACTIVE_CAST_CHANGED,activeRelationships:SceneEventType.RELATIONSHIP_SIGNAL,atmosphere:SceneEventType.VIBE_CHANGED,immediateObjects:SceneEventType.OBJECT_TRANSITION};
     for(const [name,change] of Object.entries(delta.changedFields??{})){const eventType=map[name];if(eventType)this.publisher.publish({...base,eventType,payload:{field:name,change},dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}`});}
-    const changed=Object.keys(delta.changedFields??{});if(changed.some((x)=>['location','activeCast','activeThreads'].includes(x))){const f=scene.fields;const rec=this.prefetchTrigger.recommend({sceneId:scene.sceneId,sceneRevision:scene.revision,trigger:`SCENE_DELTA:${changed.filter((x)=>['location','activeCast','activeThreads'].includes(x)).join('+')}`,entityRefs:(f.activeCast?.value??[]).filter((x)=>x.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),locationRefs:[f.location?.value?.location].filter(Boolean),threadRefs:(f.activeThreads?.value??[]).filter((x)=>typeof x==='string'),priority:changed.includes('location')?'HIGH':'NORMAL',evidenceRefs:[evidence.sourceRevisionId]});this.publisher.publish({...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,payload:{recommendation:rec},dedupeKey:rec.recommendationId});}
+    const changed=Object.keys(delta.changedFields??{});if(changed.some((x)=>['location','activeCast','activeThreads'].includes(x))){const f=scene.fields;const rec=this.prefetchTrigger.recommend({sceneId:scene.sceneId,sceneRevision:scene.revision,trigger:`SCENE_DELTA:${changed.filter((x)=>['location','activeCast','activeThreads'].includes(x)).join('+')}`,entityRefs:(f.activeCast?.value??[]).filter((x)=>x.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),locationRefs:[f.location?.value?.location].filter(Boolean),threadRefs:(f.activeThreads?.value??[]).filter((x)=>typeof x==='string'),priority:changed.includes('location')?'HIGH':'NORMAL',evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId]});this.publisher.publish({...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,payload:{recommendation:rec},dedupeKey:rec.recommendationId});}
   }
 
   ingestHostEvent(input,{extract=null}={}){
@@ -78,7 +80,8 @@ export class SceneLifecycleRuntime{
     return {...normalized,invalidated,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }
 
-  publicSignalArtifact(chatId){
-    const sceneId=this.chatScenes.get(chatId);if(!sceneId)return null;const base=this.sceneRuntime.publicSignals(sceneId);const current=this.stack.current();const episodes=this.episodeCompiler.list();const results=this.retrieval.retrieve({query:'',activeEntityRefs:(base.activeCast??[]).map((x)=>x.characterId).filter(Boolean),currentSceneId:sceneId,limit:3});return {...base,sceneRelationship:current?.relationshipToPrior??null,episodeRefs:episodes.slice(-4).map((x)=>x.artifactRef),retrievalQuality:this.retrieval.quality(results),prefetchRecommendations:this.prefetchTrigger.active({sceneId,sceneRevision:base.sceneRevision})};
-  }
+  integrationSignal(chatId){return buildSceneIntegrationSignal(this,chatId);}
+  publicSignalArtifact(chatId){return this.integrationSignal(chatId);}
+  fanOutInput(chatId){return fanOutSceneInput(this,chatId);}
+  uiReadModel(chatId){return buildSceneUiReadModel(this,chatId);}
 }

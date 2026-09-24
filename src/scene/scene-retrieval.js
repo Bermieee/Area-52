@@ -3,6 +3,7 @@ import { RetrievalQuality, SceneRelationship } from './lifecycle-contracts.js';
 const clone=(v)=>structuredClone(v);
 const words=(s)=>new Set(String(s??'').toLowerCase().match(/[a-z0-9_'-]+/g)??[]);
 const overlap=(a,b)=>{const aa=words(a),bb=words(b);if(!aa.size||!bb.size)return 0;let n=0;for(const x of aa)if(bb.has(x))n++;return n/Math.max(aa.size,bb.size);};
+const normalizedText=(v)=>String(v??'').trim().toLowerCase().replace(/\s+/g,' ');
 
 export class SceneRetrievalAdapter{
   constructor({episodeProvider,graph=null,maxResults=8,isSourceRevisionCurrent=()=>true}={}){this.episodeProvider=episodeProvider;this.graph=graph;this.maxResults=maxResults;this.isSourceRevisionCurrent=isSourceRevisionCurrent;}
@@ -10,6 +11,13 @@ export class SceneRetrievalAdapter{
 
   retrieve({query='',activeEntityRefs=[],locationRef=null,activeThreadRefs=[],currentSceneId=null,limit=this.maxResults,expectedSourceRevisionRefs=null}={}){
     const results=[];
+    const currentRelations=new Map();
+    if(currentSceneId&&this.graph){
+      for(const edge of this.graph.neighbors(currentSceneId)){
+        const other=edge.fromSceneId===currentSceneId?edge.toSceneId:edge.fromSceneId;
+        if(other&&!currentRelations.has(other))currentRelations.set(other,edge);
+      }
+    }
     for(const episode of this.allEpisodes()){
       if((episode.sourceRevisionRefs??[]).some((ref)=>!this.isSourceRevisionCurrent(ref)))continue;
       if(expectedSourceRevisionRefs){
@@ -23,12 +31,13 @@ export class SceneRetrievalAdapter{
       const threads=(episode.threadsCarried??[]).map((x)=>typeof x==='string'?x:JSON.stringify(x));
       const threadScore=activeThreadRefs.length?activeThreadRefs.filter((x)=>threads.some((t)=>t.includes(x))).length/activeThreadRefs.length:0;
       const semantic=overlap(query,`${episode.compactSummary} ${threads.join(' ')} ${loc??''}`);
-      const adjacency=currentSceneId&&this.graph?Math.min(1,(this.graph.neighbors(currentSceneId).some((e)=>e.fromSceneId===episode.sceneId||e.toSceneId===episode.sceneId)?1:0)):0;
+      const exactSemantic=normalizedText(query)!==''&&normalizedText(query)===normalizedText(episode.compactSummary)?1:0;
+      const adjacency=currentRelations.has(episode.sceneId)?1:0;
       const recency=Math.min(1,(episode.sceneRevision??1)/100);
-      const score=.4*semantic+.2*entityScore+.15*locationScore+.1*threadScore+.1*adjacency+.05*recency;
+      const score=.35*semantic+.2*exactSemantic+.15*entityScore+.1*locationScore+.08*threadScore+.07*adjacency+.05*recency;
       if(score<=0)continue;
-      const relationEdge=currentSceneId&&this.graph?this.graph.relation(episode.sceneId,currentSceneId)??this.graph.relation(currentSceneId,episode.sceneId):null;
-      results.push({kind:'SceneRetrievalCandidate',episodeRef:clone(episode.artifactRef??{artifactId:episode.episodeId,artifactType:'SceneEpisode',revision:episode.sceneRevision}),sceneId:episode.sceneId,score,scoreSignals:{semantic,entity:entityScore,location:locationScore,thread:threadScore,adjacency,recency},sourceRange:clone(episode.sourceRange),sourceRevisionRefs:[...(episode.sourceRevisionRefs??[])],relationshipToCurrentScene:relationEdge?.edgeType??(episode.sceneId===currentSceneId?SceneRelationship.CONTINUES:'HISTORICAL'),relevantEntityRefs:participantIds.filter((x)=>activeEntityRefs.includes(x)),relevantThreadRefs:activeThreadRefs.filter((x)=>threads.some((t)=>t.includes(x))),retrievalReason:semantic>=.5?'semantic':entityScore?'entity':locationScore?'location':threadScore?'thread':adjacency?'adjacency':'weak'});
+      const relationEdge=currentRelations.get(episode.sceneId)??null;
+      results.push({kind:'SceneRetrievalCandidate',episodeRef:clone(episode.artifactRef??{artifactId:episode.episodeId,artifactType:'SceneEpisode',revision:episode.sceneRevision}),sceneId:episode.sceneId,score,scoreSignals:{semantic,exactSemantic,entity:entityScore,location:locationScore,thread:threadScore,adjacency,recency},sourceRange:clone(episode.sourceRange),sourceRevisionRefs:[...(episode.sourceRevisionRefs??[])],relationshipToCurrentScene:relationEdge?.edgeType??(episode.sceneId===currentSceneId?SceneRelationship.CONTINUES:'HISTORICAL'),relevantEntityRefs:participantIds.filter((x)=>activeEntityRefs.includes(x)),relevantThreadRefs:activeThreadRefs.filter((x)=>threads.some((t)=>t.includes(x))),retrievalReason:semantic>=.5?'semantic':entityScore?'entity':locationScore?'location':threadScore?'thread':adjacency?'adjacency':'weak'});
     }
     results.sort((a,b)=>b.score-a.score||a.sceneId.localeCompare(b.sceneId));return results.slice(0,limit);
   }

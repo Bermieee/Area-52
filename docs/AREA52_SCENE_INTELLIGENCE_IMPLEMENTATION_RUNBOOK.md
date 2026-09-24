@@ -175,3 +175,47 @@ Actual values are captured in the exact CI log and Wave 2 acceptance document.
 #107/#109/#110/#112/#113/#182/#183/#184/#49/#93/#177 remain open when their shared/live acceptance is not yet proven.
 
 #173 is Phase 2 and is not implemented.
+
+# Wave 3 Integration Runbook
+
+## Implementation order
+
+1. revalidate Wave 2 exact checkpoint;
+2. refresh Core/Coprocessor/Runtime/Memory/UI contracts read-only;
+3. add authority-negative integration contracts;
+4. project live Scene into SceneIntegrationSignal;
+5. align Event Publisher to shared registries/Event Spine;
+6. align PrefetchRecommendation to Coprocessor Warmer;
+7. publish Context invalidation intent from Clapperboard;
+8. expose graph/Episode reference-only Memory proposal seam;
+9. add explicit object transition proposals;
+10. expose atmosphere without feedback/canonical promotion;
+11. add configurable SillyTavern host bridge and reattach semantics;
+12. expose SceneUiReadModel;
+13. add Why/diagnostic references;
+14. add Scene lane assembly manifest contribution;
+15. run FT002 Scene-side preflight;
+16. run 10k-event integration stress and browser execution;
+17. refresh all lane heads and issue state;
+18. squash Wave 3 onto accepted Wave 2 checkpoint;
+19. exact-final-SHA CI.
+
+## Permanent negative proofs
+
+- MENTIONED_ONLY cast/object does not become active Fan-Out input.
+- SceneIntegrationSignal cannot claim SOURCE_CANON/SETTLED authority.
+- ObjectStateTransitionProposal cannot settle itself.
+- Scene events cannot request Context Seal bypass.
+- UI model mutation cannot change Scene.
+- historical retrieval remains historical.
+- old event/Episode/Prefetch/UI/Memory proposal is detectable as stale.
+- context invalidation is idempotent and does not delete evidence.
+- cross-chat ISOLATED state is not a narrative Scene Graph edge.
+
+## Closure discipline
+
+#109/#112/#113 close only if their own shared public-contract acceptance is satisfied.
+
+#107/#110/#177/#182/#183/#184/#49/#93/#185/#186/#157/#97 remain open while their other-lane/live acceptance is outstanding.
+
+#173 Phase 2 remains untouched.

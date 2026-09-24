@@ -220,3 +220,48 @@ Late Scene events and transition work are revision-fenced. A result for an older
 SceneLifecycleRuntime composes the host-normalization and Scene-side lifecycle contracts without owning provider scheduling or Runtime execution. Its public signal artifact extends Wave 1 with Scene relationship, Episode refs, retrieval quality and prefetch recommendations for later Dynamic Fan-Out/Runtime adapters.
 
 The Wave 2 branch may report SCENE SIDE READY for FT002. Live FT002 remains an integration/main acceptance and is not claimed here.
+
+# Wave 3 — Integration Contracts
+
+Wave 3 does not add a new Scene cognition subsystem. It makes existing Scene cognition consumable through stable public contracts.
+
+The integration boundary is:
+
+```text
+Host Bridge -> NarrativeFeedAdapter -> CurrentScene
+                                   -> SceneIntegrationSignal
+                                   -> Scene events
+                                   -> Runtime / Fan-Out contracts
+
+CurrentScene -> SceneUiReadModel -> UI.Core
+Scene transition -> SceneContextInvalidationSignal -> Core Context owner
+SceneEpisode + Scene Graph refs -> SceneExperienceProposal -> Memory owner
+```
+
+## Canonical Scene integration signal
+
+Consumers should prefer `SceneIntegrationSignal` over direct access to Scene Registry, Stack, Graph or mutable Scene state. The signal is revision-fenced, immutable and descriptive only.
+
+PRESENT cast/object state is separated from MENTIONED_ONLY observations so downstream Fan-Out cannot treat a mention as active presence.
+
+## Context invalidation
+
+Clapperboard publishes an idempotent SceneContextInvalidationSignal after a confirmed transition/resume. The signal says which Scene-specific compiled/retrieval/identity/prompt scopes became stale. Core applies any actual cache/context mutation.
+
+Evidence history is retained.
+
+## Memory seam
+
+Scene emits exact SceneEpisode references and Scene Graph edge references. It never copies an entire graph into every proposal and never directly writes Memory.
+
+## UI seam
+
+SceneUiReadModel is a frozen, compact snapshot with Scene revision, epistemic field state, health, provenance and diagnostic refs. Phase 2 UI may consume it without reverse engineering Scene internals.
+
+## Host seam
+
+SillyTavernHostBridge is the only layer that knows host event-name bindings. Canonical Scene code sees HostActivity only. Missing host capabilities are reported explicitly rather than fabricated.
+
+## Shared-contract rule
+
+Scene integrates through accepted public contracts only. It does not import or duplicate Runtime scheduling, Coprocessor Fan-Out/Warmer, Core Settlement/Context, Memory persistence or UI widgets.

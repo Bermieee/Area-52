@@ -109,7 +109,7 @@ export class PromptPlanProductionUIAdapter{
       const allocated=Number(plan.estimatedTokens??plan.budget?.allocated??plan.budget?.usedTokens??0),total=Number(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow??allocated);
       const reused=plan.sections.filter(x=>x.state==='REUSED').length,updated=plan.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).length;
       const health=normalizeWave6Health(raw.health?.state??plan.health?.state??(raw.status==='READY'?'READY':raw.integrityStatus==='ERROR'?'BLOCKED':'READY'),{fallback:Wave6Health.READY});
-      const degradedHealth=health!==Wave6Health.READY||plan.dropped.length>0||plan.deferred.length>0||(receipt?.fallbackState&&receipt.fallbackState!=='NONE');
+      const degradedHealth=health!==Wave6Health.READY||Boolean(receipt?.fallbackState&&receipt.fallbackState!=='NONE');
       return deepFreeze({
         source:createProductSourceStatus({mode:degradedHealth?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degradedHealth?Wave6Health.DEGRADED:health,label:'Context Delivery',impact:degradedHealth?'Context was delivered with omissions, deferrals, fallback, or degraded integrity.':'Generation context is prepared and revision-fenced.',producer:raw.kind==='PromptPlanReadModel'?'PromptPlanReadModel':'PromptPlan/ContextSeal',revision:plan.promptPlanId}),
         data:{

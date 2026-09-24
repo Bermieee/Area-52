@@ -328,3 +328,25 @@ test('production bootstrap supports brand rename configuration without cognitive
   const doc=new Wave6Document(),root=new FakeNode('div',doc),ui=createWave6ProductInterface({root,productName:'Nexus',productTagline:'Cognitive Story System',bridges:{}});
   assert.match(textOf(ui.controller.nodes.quick),/Nexus/);assert.equal(ui.productAdapter.getSnapshot().wave6.mode,ProductDataMode.UNAVAILABLE);ui.destroy();
 });
+
+
+test('500 product workspace switches reuse one shell and clean replaced workspace scopes',()=>{
+  const doc=new Wave6Document(),root=new FakeNode('div',doc),ui=createWave6ProductInterface({root,bridges:{
+    scene:{readModel:sceneReadModel},runtimeAdapter:runtimeAdapter(),coprocessorTelemetry:coprocessorTelemetry(),
+    promptPlan:{readPlan:promptPlan,readSealReceipt:sealReceipt},forensics:{listTransactions:()=>forensics().transactions,listBundles:()=>forensics().bundles},
+    story:()=>({title:'Akira'}),characters:generic('Characters'),lore:generic('Lore'),memory:generic('Memory'),world:generic('World'),
+  }});
+  const shell=ui.shell,ids=['home','story','characters','lore','memory-product','world-product','brain'];
+  for(let i=0;i<500;i++)shell.selectWorkspace(ids[i%ids.length]);
+  assert.equal(ui.shell,shell);assert.equal(ui.workspaceRegistry.list({navigationLevel:'product'}).length,7);
+  assert.ok(ui.signals.listenerCount('UI_WORKSPACE_CHANGED')<=2);
+  ui.destroy();assert.equal(root.children.length,0);assert.equal(ui.signals.listenerCount('UI_WORKSPACE_CHANGED'),0);
+});
+
+test('500 Inspector select/clear cycles coalesce rendering and leave no subscription after destroy',()=>{
+  const doc=new Wave6Document(),root=new FakeNode('div',doc),ui=createWave6ProductInterface({root,bridges:{scene:{readModel:sceneReadModel},runtimeAdapter:runtimeAdapter(),coprocessorTelemetry:coprocessorTelemetry()}});
+  const before=ui.signals.listenerCount('UI_INSPECT_SELECTION_CHANGED');assert.ok(before>=1);
+  for(let i=0;i<500;i++){ui.shell.inspector.select({kind:'wave6-stress',id:`selection-${i}`,title:`Selection ${i}`});ui.shell.inspector.clear();}
+  assert.ok(ui.scheduler.pendingCount<=1);ui.scheduler.flush(1);assert.equal(ui.shell.inspector.selection,null);
+  ui.destroy();assert.equal(ui.signals.listenerCount('UI_INSPECT_SELECTION_CHANGED'),0);
+});

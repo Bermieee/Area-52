@@ -64,6 +64,17 @@ test('adapter receipt validation rejects forged authority even when decision IDs
   assert.throws(() => adapter.validateReceipt(forged, { input, request, currentRevisionState: currentFor(input), precheck: pre }), /authority boundary violated/);
 });
 
+
+test('explicit Jev escalation is translated to owner concern without forcing a winner', async () => {
+  const m = createJevDomainAdapterMatrix({ providerExecutor: providerExecutor(() => ({ payload: output({ outcome: 'ESCALATE_OWNER', decisionCode: 'ESCALATE', selected: [], rejected: [], evidenceUsed: ['lore:a', 'lore:b'], escalationTarget: 'OWNER', confidence: .2 }) })) });
+  const input = loreReconciliation('escalate-owner');
+  const p = await m.service.adjudicate(input, { currentRevisionState: currentFor(input) });
+  assert.equal(p.proposedOutcome, 'UNRESOLVED');
+  assert.equal(p.escalation, 'OWNER');
+  assert.equal(p.requiresOwnerPolicy, true);
+  assert.equal(p.mutationAuthority, false);
+});
+
 test('ABSTAIN is successful bounded behavior and never converted to default winner', async () => {
   const m = createJevDomainAdapterMatrix({ providerExecutor: providerExecutor(() => ({ payload: output({ outcome: 'ABSTAINED', decisionCode: 'ABSTAIN', selected: [], rejected: [], evidenceUsed: [], abstained: true, confidence: 0 }) })) });
   const input = loreReconciliation('abstain-authority');

@@ -1,0 +1,36 @@
+name: Development Deployment Assembly
+
+on:
+  push:
+    branches: [Development-Deployment]
+  workflow_dispatch:
+
+jobs:
+  assembly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deployment syntax
+        run: |
+          find src/deployment -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Focused deployment vertical slice
+        run: node --test tests/deployment-brain.integration.test.mjs
+      - name: Worker 4 focused repairs
+        run: node --test tests/worker4-lore190-repro.test.mjs tests/worker4-jev211-repro.test.mjs
+      - name: Accepted Lore regressions
+        run: node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs
+      - name: Accepted Scene regressions
+        run: node tests/scene-wave1.mjs && node tests/scene-wave2.mjs && node tests/scene-wave3.mjs
+      - name: Accepted Runtime regressions
+        run: node tests/runtime-wave3.mjs
+      - name: Accepted Memory regressions
+        run: node --test tests/memory-wave1.test.mjs tests/memory-wave2.test.mjs
+      - name: Accepted UI live-binding regression
+        run: node --test tests/wave11-live-bindings.test.mjs
+      - name: Browser-facing deployment imports
+        run: |
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/ui-core/index.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"

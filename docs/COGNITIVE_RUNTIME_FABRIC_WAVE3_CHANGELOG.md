@@ -19,6 +19,7 @@
 - `CognitiveRuntimeHost` exposes the native turn runtime and execution-resource registration.
 - Runtime package exports/scripts include Wave 3.
 - Foreground quorum distinguishes temporary single-resource contention from true no-progress/resource absence, allowing queued REQUIRED work to run sequentially before fallback.
+- Foreground fallback now cancels the still-open Runtime obligation after soft/hard/no-progress fallback, preventing post-fallback execution; explicit soft- and hard-deadline goldens cover the behavior.
 
 ## Preserved
 

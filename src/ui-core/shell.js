@@ -5,8 +5,10 @@ import { Signals } from './constants.js';
 import { element } from './primitives.js';
 
 export class ApplicationShell {
-  constructor({ root, workspaceRegistry, inspector, signals, stateStore, renderWorkspace }) {
+  constructor({ root, workspaceRegistry, inspector, signals, stateStore, renderWorkspace, productName = 'Area-52', productTagline = 'Cognitive Story System' }) {
     this.root = root;
+    this.productName = productName;
+    this.productTagline = productTagline;
     this.workspaceRegistry = workspaceRegistry;
     this.inspector = inspector;
     this.signals = signals;
@@ -23,7 +25,9 @@ export class ApplicationShell {
     const doc = this.root.ownerDocument;
     this.root.classList.add('a52-app');
     const header = element(doc, 'header', { className: 'a52-shell__header' });
-    const brand = element(doc, 'div', { className: 'a52-brand', text: 'Area-52' });
+    const brand = element(doc, 'div', { className: 'a52-brand', attrs: { 'aria-label': this.productTagline ? `${this.productName} — ${this.productTagline}` : this.productName } });
+    brand.append(element(doc, 'span', { className: 'a52-brand__name', text: this.productName }));
+    if (this.productTagline) brand.append(element(doc, 'span', { className: 'a52-brand__tagline', text: this.productTagline }));
     const brainState = element(doc, 'div', { className: 'a52-brain-state', attrs: { 'aria-live': 'polite' }, text: 'Brain State · READY' });
     const search = element(doc, 'input', { className: 'a52-search', attrs: { type: 'search', placeholder: 'Search UI…', 'aria-label': 'Search' } });
     header.append(brand, brainState, search);

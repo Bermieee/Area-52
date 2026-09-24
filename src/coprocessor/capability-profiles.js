@@ -220,7 +220,8 @@ function latencyScore(value) {
 function normalizeProviderHealth(value) {
   const text=String(value??'HEALTHY').toUpperCase();
   if(text==='HEALTHY')return 'HEALTHY';
-  if(text==='DEGRADED'||text==='UNHEALTHY')return 'DEGRADED';
+  if(text==='DEGRADED')return 'DEGRADED';
+  if(text==='UNHEALTHY')return 'UNAVAILABLE';
   if(['SATURATED','UNAVAILABLE','COOLDOWN','PROBE'].includes(text))return text;
   return 'UNAVAILABLE';
 }

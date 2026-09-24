@@ -142,7 +142,9 @@ export class CognitiveSwarm {
     });
 
     const alreadyLate=new Set();
-    for (const item of [...afterClosure, ...resolved.filter((item) => item.task.resultClass === ResultClass.DEFERRED)]) {
+    const resolvedLate=resolved.filter((item)=>item.task.resultClass===ResultClass.DEFERRED
+      || (item.task.resultClass===ResultClass.OPPORTUNISTIC && (item.result?.completedAt??Number.MAX_SAFE_INTEGER)>(closureAt??turnEvent.createdAt)));
+    for (const item of [...afterClosure, ...resolvedLate]) {
       if (!item.result||alreadyLate.has(item.result.resultId)) continue;alreadyLate.add(item.result.resultId);
       const bus = this.resultBus.receive(toNexusCognitiveResult(item.result, item.task));
       const late = await gather.accept(item.result, { arrivalAt: item.result.completedAt });

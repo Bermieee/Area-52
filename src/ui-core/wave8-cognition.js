@@ -245,6 +245,22 @@ export function buildLiveCognitionPath({
   });
 }
 
+export function explainCognitionWhy(item){
+  if(!item)return deepFreeze({kind:'CognitionWhy',available:false,summary:'No cognitive item selected.',facts:[]});
+  const facts=[];
+  const reason=item.reason??item.reasonCode??null;if(reason)facts.push(`Recorded reason: ${reason}.`);
+  if(item.disposition)facts.push(`Disposition: ${item.disposition}.`);
+  if(item.state)facts.push(`Recorded state: ${item.state}.`);
+  if(item.status)facts.push(`Recorded status: ${item.status}.`);
+  if(item.retrievalQuality)facts.push(`Retrieval quality: ${item.retrievalQuality}.`);
+  if(item.classification)facts.push(`Truth classification: ${item.classification}.`);
+  if(item.outcome)facts.push(`Jev outcome: ${item.outcome}.`);
+  if(item.freshness)facts.push(`Freshness: ${item.freshness}.`);
+  if(item.late===true)facts.push('Completed after the applicable publication boundary.');
+  if(item.accepted===false)facts.push('Not admitted to this generation.');
+  return deepFreeze({kind:'CognitionWhy',available:facts.length>0,summary:facts.join(' ')||'The owning producer did not publish a reason for this item.',facts,authority:'READ_ONLY'});
+}
+
 export function sourceModeForReceipt(value,explicitMode=null){
   if(explicitMode)return explicitMode;
   return value?ProductDataMode.LIVE:ProductDataMode.UNAVAILABLE;

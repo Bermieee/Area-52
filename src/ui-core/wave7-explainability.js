@@ -89,8 +89,12 @@ export function buildGenerationExplainability({promptPlan,contextReceipt=null,se
   const reasons=plan.sections.filter(x=>x.reason).map(x=>({slot:x.slot,state:x.state,reason:x.reason}));
   const unavailableReasonCount=plan.sections.filter(x=>!x.reason).length;
   const health=normalizeWave6Health(plan.health?.state??plan.integrityStatus??'READY',{fallback:Wave6Health.READY});
-  const degraded=health!==Wave6Health.READY||Boolean(seal&&seal.fallbackState!=='NONE');
-  const source=createProductSourceStatus({mode:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degraded?Wave6Health.DEGRADED:Wave6Health.READY,label:'Generation Explainability',impact:degraded?'Context was delivered with omissions, deferrals, fallback, or degraded integrity.':'Context delivery is explainable and healthy.',producer:'PromptPlanReadModel/ContextReceiptReadModel',revision:plan.promptPlanId});
+  const degraded=[Wave6Health.DEGRADED,Wave6Health.STALE,Wave6Health.BLOCKED].includes(health)||Boolean(seal&&seal.fallbackState!=='NONE');
+  const fixture=promptPlan?.fixture===true||promptPlan?.dataMode===ProductDataMode.FIXTURE||promptPlan?.dataMode==='FIXTURE';
+  const displayHealth=degraded&&health===Wave6Health.READY?Wave6Health.DEGRADED:health;
+  const mode=fixture?ProductDataMode.FIXTURE:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE;
+  const impact=degraded?'Context was delivered with omissions, deferrals, fallback, stale evidence, or degraded integrity.':health===Wave6Health.WORKING?'Context delivery is still being assembled.':'Context delivery is explainable and healthy.';
+  const source=createProductSourceStatus({mode,health:displayHealth,label:'Generation Explainability',impact,producer:'PromptPlanReadModel/ContextReceiptReadModel',revision:plan.promptPlanId});
   return deepFreeze({
     kind:'GenerationExplainability',generationId:plan.generationId,turnId:plan.turnId,contextSealId:plan.contextSealId??receipt?.contextSealId??seal?.sealId??null,promptPlanId:plan.promptPlanId,
     modelProfileId:plan.modelProfileId,budget:plan.budget,plannedTokens:plan.estimatedTokens,usedOrEstimatedTokens:receipt?.estimatedTokens??plan.estimatedTokens,

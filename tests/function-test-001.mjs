@@ -18,3 +18,15 @@ test('Phase 1 Function Test 001 passes end to end',async()=>{
   assert.ok(report.summary.packetHash);
   assert.ok(report.summary.promptPlanId);
 });
+
+
+test('Phase 1 Function Test 001 passes in a browser-like runtime without Node Buffer',async()=>{
+  const originalBuffer=globalThis.Buffer;
+  try{
+    globalThis.Buffer=undefined;
+    const report=await runPhase1FunctionTest001();
+    assert.equal(report.pass,true,JSON.stringify(report.checks.filter(x=>!x.pass),null,2));
+  } finally {
+    globalThis.Buffer=originalBuffer;
+  }
+});

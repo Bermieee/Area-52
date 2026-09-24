@@ -11,7 +11,17 @@ test('Wave 13 11-case cognitive choice corpus preserves authority, abstention an
   assert.equal(r.correctness.hotOnlyOptionalNominations,0);
   assert.equal(r.correctness.mixedCorrectiveNominated,true);
   assert.equal(r.correctness.warmUsefulRequiresCoreRevalidation,true);
+  assert.equal(r.correctness.providerFailureFallbackCorrect,true);
   assert.equal(r.correctness.allCoreAuthorityChecks,true);
+  assert.equal(r.policyComparison.strictExternalDisposition,'SKIPPED');
+  assert.equal(r.policyComparison.allowedExternalDisposition,'NOMINATED');
+  assert.deepEqual(r.policyComparison.changedOptions,['external-grounding']);
+  assert.equal(r.policyComparison.authorityChanged,false);
+  assert.equal(r.pathComparison.deterministicOnly.outcome,'UNRESOLVED');
+  assert.equal(r.pathComparison.optionalJev.outcome,'UNRESOLVED');
+  assert.equal(r.pathComparison.optionalJev.changedDecision,false);
+  assert.equal(r.pathComparison.providerFailure.fallbackContract,'PRESERVE_UNRESOLVED');
+  assert.equal(r.pathComparison.providerFailure.fabricatedAuthority,false);
   assert.equal(r.work.semanticResourceParity,true);
   assert.ok(r.work.oneResourceCriticalPathEstimateMs>=r.work.multiResourceCriticalPathEstimateMs);
   assert.equal(r.providerConfiguration.liveProviderSmoke.status,'SKIPPED');

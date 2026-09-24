@@ -184,7 +184,8 @@ export class HotCognitionRuntime{
     const id=updateId??('scene-signal:'+sceneId+':'+sceneRevision+':'+stableHash(signal,{length:16}));
     const duplicate=this.#duplicateReceipt(state,id,'SCENE_INTEGRATION_SIGNAL');if(duplicate)return duplicate;
     if(state.sceneId===sceneId&&sceneRevision<state.sceneRevision)return this.#stale(state,id,'SCENE_INTEGRATION_SIGNAL','scene revision '+sceneRevision+' is older than active '+state.sceneRevision,sceneRevision);
-    const sourceRevisionRefs=uniq(signal.sourceRevisionRefs??signal.sourceRevisionSet??[]);
+    const sourceRevisionRefs=uniq(signal.sourceRevisionRefs??signal.sourceRevisionSet??[]),inactiveSourceRefs=this.#knownInactiveSourceRefs(sourceRevisionRefs);
+    if(inactiveSourceRefs.length)return this.#stale(state,id,'SCENE_INTEGRATION_SIGNAL','Scene signal depends on inactive source revisions: '+inactiveSourceRefs.join(','),sceneRevision);
     const provenanceRefs=provenanceFrom(signal),transition=state.sceneId!==null&&state.sceneId!==sceneId;
     const changed=[],reused=[],invalidated=[];
 
@@ -196,7 +197,7 @@ export class HotCognitionRuntime{
     };
     this.#setSegment(state,HotSegmentKind.SCENE,{value:sceneValue,sourceRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.UNRESOLVED,owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
     const location=normalizeField(signal.location??null);
-    this.#setSegment(state,HotSegmentKind.LOCATION,{value:location.value,sourceRevisionRefs:mergeRefs(sourceRevisionRefs,location.evidenceRefs,this.limits.maxProvenanceRefs),provenanceRefs:mergeRefs(provenanceRefs,location.evidenceRefs,this.limits.maxProvenanceRefs),authorityClass:location.authorityClass,owner:'SCENE_INTELLIGENCE',freshness:location.value==null?HotFreshness.UNAVAILABLE:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
+    this.#setSegment(state,HotSegmentKind.LOCATION,{value:location.value,sourceRevisionRefs,provenanceRefs:mergeRefs(provenanceRefs,location.evidenceRefs,this.limits.maxProvenanceRefs),authorityClass:location.authorityClass,owner:'SCENE_INTELLIGENCE',freshness:location.value==null?HotFreshness.UNAVAILABLE:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
     const cast=normalizePresenceList(signal.activeCast??[],{excludeMentioned:true});
     this.#setSegment(state,HotSegmentKind.ACTIVE_CAST,{value:cast,sourceRevisionRefs,provenanceRefs:mergeRefs(provenanceRefs,cast.flatMap(x=>x.evidenceRefs),this.limits.maxProvenanceRefs),authorityClass:this.#listAuthority(cast),owner:'SCENE_INTELLIGENCE',freshness:HotFreshness.FRESH,updateId:id,rebuild,changed,reused});
     const entities=cap(normalizePresenceList(signal.objects??[],{excludeMentioned:true}),this.limits.maxActiveEntities);
@@ -240,7 +241,8 @@ export class HotCognitionRuntime{
     const eventWorld=Number(event.worldRevision??event.revisionFences?.worldRevision??event.payload?.worldRevision??state.worldRevision);
     if(['STATE_SETTLED','WORLD_STATE_SETTLED','KNOWLEDGE_INVALIDATED'].includes(eventType)&&Number.isFinite(eventWorld)&&eventWorld<state.worldRevision)return this.#stale(state,updateId,eventType,'event world revision is stale',sceneRevision,eventWorld);
     const payload=clone(event.payload??{}),sourceRevisionRefs=uniq(event.sourceRevisionSet??event.sourceRevisionIds??event.revisionFences?.sourceRevisionIds??[]);
-    const provenanceRefs=uniq([event.eventId,event.correlationId,event.causationId].filter(Boolean));
+    const provenanceRefs=uniq([event.eventId,event.correlationId,event.causationId].filter(Boolean)),inactiveSourceRefs=this.#knownInactiveSourceRefs(sourceRevisionRefs);
+    if(inactiveSourceRefs.length)return this.#stale(state,updateId,eventType,'event depends on inactive source revisions: '+inactiveSourceRefs.join(','),sceneRevision,eventWorld);
     const changed=[],reused=[],invalidated=[];
 
     if(payload.sceneSignal&&['SCENE_OPENED','SCENE_STATE_DELTA','LOCATION_CHANGED','ACTIVE_CAST_CHANGED'].includes(eventType)){
@@ -350,7 +352,8 @@ export class HotCognitionRuntime{
     if(!chatNamespace||!this.states.has(chatNamespace))return null;const state=this.states.get(chatNamespace);
     const id=String(updateId??('world:'+worldRevision+':'+stableHash(artifactRefs,{length:12}))),duplicate=this.#duplicateReceipt(state,id,eventType);if(duplicate)return duplicate;
     const revision=Number(worldRevision);if(Number.isFinite(revision)&&revision<state.worldRevision)return this.#stale(state,id,eventType,'world revision is older than active world state',state.sceneRevision,revision);
-    const current=state.segments[HotSegmentKind.WORLD_REFERENCES].value??[],rows=artifactRefs.map(ref=>typeof ref==='string'?{ref,authorityClass:AuthorityClass.SETTLED}:{...clone(ref),ref:identityOf(ref),authorityClass:observationOf(ref,AuthorityClass.SETTLED)}).filter(x=>x.ref);
+    const inactiveSourceRefs=this.#knownInactiveSourceRefs(sourceRevisionRefs);if(inactiveSourceRefs.length)return this.#stale(state,id,eventType,'world update depends on inactive source revisions: '+inactiveSourceRefs.join(','),state.sceneRevision,revision);
+    const current=state.segments[HotSegmentKind.WORLD_REFERENCES].value??[],rows=artifactRefs.map(ref=>typeof ref==='string'?{ref,authorityClass:AuthorityClass.SETTLED,temporalStatus:'CURRENT'}:{...clone(ref),ref:identityOf(ref),authorityClass:observationOf(ref,AuthorityClass.SETTLED),temporalStatus:ref.temporalStatus??'CURRENT'}).filter(x=>x.ref&&x.temporalStatus==='CURRENT');
     const merged=cap([...new Map([...current,...rows].map(x=>[x.ref,x])).values()].sort((a,b)=>a.ref.localeCompare(b.ref)),this.limits.maxWorldRefs),changed=[],reused=[];
     this.#setSegment(state,HotSegmentKind.WORLD_REFERENCES,{value:merged,sourceRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.SETTLED,owner:'WORLD_STATE',freshness:HotFreshness.FRESH,updateId:id,changed,reused});
     state.worldRevision=Math.max(state.worldRevision,Number.isFinite(revision)?revision:state.worldRevision);
@@ -417,8 +420,7 @@ export class HotCognitionRuntime{
       if(sceneRevision!=null&&Number(sceneRevision)!==state.sceneRevision)this.#invalidateSegments(state,[HotSegmentKind.SCENE,HotSegmentKind.LOCATION,HotSegmentKind.ACTIVE_CAST,HotSegmentKind.ACTIVE_ENTITIES,HotSegmentKind.ACTIVE_THREADS],{reason:'RECONSTRUCTION_SCENE_REVISION_MISMATCH',updateId:'restore:scene',invalidated});
       if(worldRevision!=null&&Number(worldRevision)!==state.worldRevision)this.#invalidateSegments(state,[HotSegmentKind.WORLD_REFERENCES,HotSegmentKind.GRAPH_NEIGHBORHOOD],{reason:'RECONSTRUCTION_WORLD_REVISION_MISMATCH',updateId:'restore:world',invalidated});
       if(activeSourceRevisionRefs){
-        const active=new Set(activeSourceRevisionRefs);
-        for(const kind of Object.values(HotSegmentKind)){const seg=state.segments[kind];if(seg.sourceRevisionRefs.some(ref=>!active.has(ref)))this.#invalidateSegments(state,[kind],{reason:'RECONSTRUCTION_SOURCE_REVISION_MISMATCH',updateId:'restore:source',invalidated});}
+        for(const kind of Object.values(HotSegmentKind)){const seg=state.segments[kind];if(this.#knownInactiveSourceRefs(seg.sourceRevisionRefs).length)this.#invalidateSegments(state,[kind],{reason:'RECONSTRUCTION_SOURCE_REVISION_MISMATCH',updateId:'restore:source',invalidated});}
       }
       if(invalidated.length){state.hotRevision+=1;state.counters.rebuilds+=1;state.reconstructionState='RESTORED_WITH_INVALIDATION';}
     }
@@ -438,6 +440,8 @@ export class HotCognitionRuntime{
     }
     return {snapshot:this.snapshot(namespace),receipt};
   }
+
+  #knownInactiveSourceRefs(refs){if(!this.sourceRegistry)return[];return uniq(refs).filter(ref=>this.sourceRegistry.getRevision?.(ref)&&!this.sourceRegistry.isActiveRevision(ref));}
 
   #newState(chatNamespace){
     return {stateId:'hot-state:'+stableHash(chatNamespace,{length:16,alreadyString:true}),chatNamespace,hotRevision:0,sceneId:null,sceneRevision:0,worldRevision:Math.max(0,Number(this.getWorldRevision())||0),characterStateRevision:null,segments:initialSegments(),lastAcceptedUpdateId:null,counters:{updates:0,reuses:0,invalidations:0,rebuilds:0,duplicates:0,staleRejects:0,sceneTransitions:0},reconstructionState:'EMPTY',dedupe:new Map(),lastAccessSequence:++this.sequence};

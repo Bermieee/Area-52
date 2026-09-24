@@ -25,3 +25,7 @@ The report intentionally emits:
 Wave 4 Core evidence leaves the program gate BLOCKED because assembled-main/live function tests, visual UI acceptance, full Runtime/Scene integration and representative live workload evidence remain external requirements. This is expected and is not a Core failure.
 
 The aggregator is evidence for #157; it does not close #157 and does not start Phase 2.
+
+## Wave 5 knowledge readiness dimensions
+
+The report now tracks knowledge readiness independently for `CORE`, `MEMORY_OWNER`, `LORE_OWNER`, `SENSORY`, `PRECISION`, and `LIVE_ASSEMBLED_MAIN`. This prevents `CORE SIDE READY FOR FT003/FT004` from being misreported as a live Function Test PASS. At the Wave 5 functional checkpoint Core is ready, while owner/live dimensions remain explicitly partial or blocked.

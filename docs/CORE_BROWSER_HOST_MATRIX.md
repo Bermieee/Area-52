@@ -31,3 +31,7 @@ Functional pre-documentation acceptance: **56/56 Core source modules PASS**.
 Functional pre-documentation acceptance: **7/7 PASS**.
 
 Node-only CLI/benchmark tooling remains isolated under `scripts/`. No new live SillyTavern acceptance is claimed; #185 still requires assembled `main` plus live host smoke/update/reload evidence.
+
+## Wave 5 knowledge path
+
+The browser-visible manifest now includes `knowledge-evidence.js`, `knowledge-integration-spine.js`, and `nexus-shadow-adapter.js`. At Wave 5 functional checkpoint `5c34d9ae6f8bc880a2c8d13ddc00c1a20bf87956`, the source gate is **71/71 PASS** and browser runtime remains **7/7 PASS**. This is Core/browser compatibility evidence only; assembled-main live SillyTavern acceptance for #185 remains pending.

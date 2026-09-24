@@ -19,11 +19,13 @@ export class CapabilityProfileRegistry {
   #state = new Map();
 
   register(input = {}) {
-    if (!input.profileId) throw new TypeError('profileId is required');
-    if (this.#profiles.has(input.profileId)) throw new Error(`Capability profile already registered: ${input.profileId}`);
+    const profileId=input.profileId??input.providerProfileId;
+    if (!profileId) throw new TypeError('profileId/providerProfileId is required');
+    if (this.#profiles.has(profileId)) throw new Error(`Capability profile already registered: ${profileId}`);
     const capabilities=[...new Set(input.capabilities ?? [])];
     const profile = Object.freeze({
-      profileId: String(input.profileId),
+      profileId: String(profileId),
+      providerProfileId: String(profileId),
       workerId: String(input.workerId ?? input.profileId),
       providerId: String(input.providerId ?? 'provider:unknown'),
       modelId: input.modelId == null ? null : String(input.modelId),
@@ -35,22 +37,30 @@ export class CapabilityProfileRegistry {
         metadata: Object.freeze({ ...(input.capabilityMetadata?.[id] ?? {}) }),
       }))),
       resourceProfile: Object.freeze({ ...(input.resourceProfile ?? { CPU: 1 }) }),
+      resourceClass: input.resourceClass ?? 'STANDARD',
       supportedLayers: Object.freeze([...(input.supportedLayers ?? ['L0','L1','L2','L3','L4'])]),
       placements: Object.freeze([...(input.placements ?? [Placement.HOT, Placement.DEEP])]),
       latencyClass: input.latencyClass ?? 'MEDIUM',
       reliability: Number(input.reliability ?? 1),
-      structuredOutput: input.structuredOutput !== false,
+      structuredOutput: input.structuredOutputSupport ?? input.structuredOutput ?? true,
+      structuredOutputSupport: input.structuredOutputSupport ?? input.structuredOutput ?? true,
       streamingSupport: Boolean(input.streamingSupport),
       abortSupport: input.abortSupport !== false,
-      maxContextTokens: Number(input.maxContextTokens ?? Number.MAX_SAFE_INTEGER),
-      maxOutputTokens: Number(input.maxOutputTokens ?? Number.MAX_SAFE_INTEGER),
+      maxContextTokens: Number(input.maxContext ?? input.maxContextTokens ?? Number.MAX_SAFE_INTEGER),
+      maxContext: Number(input.maxContext ?? input.maxContextTokens ?? Number.MAX_SAFE_INTEGER),
+      maxOutputTokens: Number(input.maxOutput ?? input.maxOutputTokens ?? Number.MAX_SAFE_INTEGER),
+      maxOutput: Number(input.maxOutput ?? input.maxOutputTokens ?? Number.MAX_SAFE_INTEGER),
       local: Boolean(input.local),
       costMetadata: Object.freeze({ ...(input.costMetadata ?? {}) }),
-      costClass: input.costClass ?? 'MEDIUM',
-      concurrencyCapacity: Math.max(1, Number(input.concurrencyCapacity ?? 1)),
+      costClass: input.estimatedCostClass ?? input.costClass ?? 'MEDIUM',
+      estimatedCostClass: input.estimatedCostClass ?? input.costClass ?? 'MEDIUM',
+      concurrencyCapacity: Math.max(1, Number(input.maxConcurrency ?? input.concurrencyCapacity ?? 1)),
+      maxConcurrency: Math.max(1, Number(input.maxConcurrency ?? input.concurrencyCapacity ?? 1)),
       currentLoad: Math.max(0, Number(input.currentLoad ?? 0)),
       health: input.health ?? 'healthy',
-      available: input.available !== false,
+      providerHealth: normalizeProviderHealth(input.health ?? 'HEALTHY'),
+      availability: input.availability ?? (input.available !== false ? 'AVAILABLE' : 'UNAVAILABLE'),
+      available: input.availability === 'UNAVAILABLE' ? false : input.available !== false,
       fallbackCapabilities: Object.freeze([...(input.fallbackCapabilities ?? [])]),
       implementationId: input.implementationId ?? input.providerId ?? input.workerId ?? input.profileId,
       qualityScore: Number(input.qualityScore ?? 0),
@@ -59,14 +69,14 @@ export class CapabilityProfileRegistry {
       backgroundEligible: input.backgroundEligible !== false,
     });
     this.#profiles.set(profile.profileId, profile);
-    this.#state.set(profile.profileId,{health:profile.health,available:profile.available,currentLoad:profile.currentLoad});
+    this.#state.set(profile.profileId,{health:profile.health,providerHealth:profile.providerHealth,availability:profile.availability,available:profile.available,currentLoad:profile.currentLoad});
     return this.get(profile.profileId);
   }
 
   get(profileId) { const p=this.#profiles.get(profileId);if(!p)return null;return Object.freeze({...p,...this.#state.get(profileId)}); }
   list() { return [...this.#profiles.keys()].map(id=>this.get(id)); }
-  setHealth(profileId,health){this.#requiredState(profileId).health=health;}
-  setAvailability(profileId,available){this.#requiredState(profileId).available=Boolean(available);}
+  setHealth(profileId,health){const state=this.#requiredState(profileId);state.health=health;state.providerHealth=normalizeProviderHealth(health);}
+  setAvailability(profileId,available){const state=this.#requiredState(profileId);state.available=Boolean(available);state.availability=state.available?'AVAILABLE':'UNAVAILABLE';}
   setLoad(profileId,currentLoad){this.#requiredState(profileId).currentLoad=Math.max(0,Number(currentLoad)||0);}
 
   eligibleProfiles(task, options = {}) {
@@ -108,7 +118,7 @@ export class CapabilityProfileRegistry {
     preferLocal = false,
   } = {}) {
     return this.list().filter((profile) => {
-      if (!profile.available || profile.health !== 'healthy') return false;
+      if (!profile.available || !providerHealthEligible(profile.providerHealth ?? profile.health)) return false;
       if (profile.currentLoad >= profile.concurrencyCapacity) return false;
       if (task.resultClass === ResultClass.DEFERRED ? !profile.backgroundEligible : !profile.foregroundEligible) return false;
       if (!profile.supportedLayers.includes(task.cognitiveLayer)) return false;
@@ -149,6 +159,7 @@ export function toRuntimeCapabilityDescriptor(profile) {
   if (!profile) throw new TypeError('profile is required');
   return Object.freeze({
     profileId: profile.profileId,
+    providerProfileId: profile.providerProfileId ?? profile.profileId,
     workerId: profile.workerId,
     capabilities: [...profile.capabilities],
     capabilityDescriptors: structuredClone(profile.capabilityDescriptors),
@@ -160,20 +171,28 @@ export function toRuntimeCapabilityDescriptor(profile) {
     implementationId: profile.implementationId,
     model: profile.modelId,
     concurrencyCapacity: profile.concurrencyCapacity,
+    maxConcurrency: profile.maxConcurrency ?? profile.concurrencyCapacity,
     currentLoad: profile.currentLoad,
     latencyScore: latencyScore(profile.latencyClass),
     latencyClass: profile.latencyClass,
     reliability:profile.reliability,
     structuredOutput:profile.structuredOutput,
+    structuredOutputSupport:profile.structuredOutputSupport ?? profile.structuredOutput,
     maxContextTokens:profile.maxContextTokens,
+    maxContext:profile.maxContext ?? profile.maxContextTokens,
     maxOutputTokens:profile.maxOutputTokens,
+    maxOutput:profile.maxOutput ?? profile.maxOutputTokens,
     local:profile.local,
+    resourceClass:profile.resourceClass ?? 'STANDARD',
     costClass:profile.costClass,
+    estimatedCostClass:profile.estimatedCostClass ?? profile.costClass,
     qualityScore: profile.qualityScore,
     profileMetadata: { ...profile.profileMetadata },
     foregroundEligible: profile.foregroundEligible,
     backgroundEligible: profile.backgroundEligible,
     health: profile.health,
+    providerHealth: profile.providerHealth ?? normalizeProviderHealth(profile.health),
+    availability: profile.availability ?? (profile.available?'AVAILABLE':'UNAVAILABLE'),
     available: profile.available,
   });
 }
@@ -196,4 +215,16 @@ function primaryRequests(task){
 }
 function latencyScore(value) {
   return ({ ULTRA_LOW: 10, LOW: 25, MEDIUM: 100, HIGH: 300 })[value] ?? 100;
+}
+
+function normalizeProviderHealth(value) {
+  const text=String(value??'HEALTHY').toUpperCase();
+  if(text==='HEALTHY')return 'HEALTHY';
+  if(text==='DEGRADED'||text==='UNHEALTHY')return 'DEGRADED';
+  if(['SATURATED','UNAVAILABLE','COOLDOWN','PROBE'].includes(text))return text;
+  return 'UNAVAILABLE';
+}
+function providerHealthEligible(value) {
+  const state=normalizeProviderHealth(value);
+  return state==='HEALTHY'||state==='DEGRADED';
 }

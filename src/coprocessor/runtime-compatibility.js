@@ -37,7 +37,11 @@ export function toRuntimeObligation(task, {
       contextSealBypass: false,
     },
     runtimeClass: deep ? 'DEEP' : 'HOT',
+    executionClass: deep ? 'DEEP' : 'HOT',
     placement: task.placement,
+    preemptionPolicy: deep ? 'YIELD_TO_FOREGROUND' : 'FOREGROUND_PRIORITY',
+    resumeRequired: deep && task.batchMetadata.yieldSafety !== 'NOT_APPLICABLE',
+    foregroundReserveEligibility: !deep,
     resultClass: task.resultClass,
     requiredCapabilities: [...task.requiredCapabilities],
     capabilityRequests: structuredClone(task.capabilityRequests ?? []),
@@ -145,6 +149,7 @@ export function toRuntimeTurnEventEmission(turnEvent, payload = {}) {
       sceneRevision: turnEvent.sceneRevision,
       createdAt: turnEvent.createdAt,
       dedupeKey: turnEvent.dedupeKey,
+      eventVersion: turnEvent.eventVersion ?? '1.0.0',
     },
   });
 }

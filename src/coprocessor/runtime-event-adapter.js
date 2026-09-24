@@ -16,7 +16,7 @@ export function toFrameworkTurnEventEnvelope(turnEvent, payload = {}) {
     kind: 'CognitiveEventEnvelope',
     eventId: event.eventId,
     eventType: 'TURN_EVENT',
-    eventVersion: RUNTIME_TURN_EVENT_CONTRACT_VERSION,
+    eventVersion: event.eventVersion ?? RUNTIME_TURN_EVENT_CONTRACT_VERSION,
     producer: 'COGNITIVE_COPROCESSOR',
     causationId: event.causationId,
     correlationId: event.correlationId,
@@ -50,6 +50,7 @@ function normalizeRuntimeEvent(input) {
     return {
       eventId: required(input.eventId, 'eventId'),
       eventType: 'TURN_EVENT',
+      eventVersion: input.eventVersion ?? RUNTIME_TURN_EVENT_CONTRACT_VERSION,
       turnId: required(input.turnId, 'turnId'),
       causationId: input.causationId ?? null,
       correlationId: required(input.correlationId, 'correlationId'),
@@ -69,7 +70,7 @@ function normalizeRuntimeEvent(input) {
     assertMajorOne(input.meta.schemaVersion ?? '1.0', 'schemaVersion');
     const payload = input.payload ?? {};
     return {
-      eventId: required(input.meta.eventId, 'eventId'), eventType: 'TURN_EVENT',
+      eventId: required(input.meta.eventId, 'eventId'), eventType: 'TURN_EVENT', eventVersion: input.meta.eventVersion ?? input.meta.schemaVersion ?? RUNTIME_TURN_EVENT_CONTRACT_VERSION,
       turnId: required(input.meta.turnId, 'turnId'), causationId: input.meta.causationId ?? null,
       correlationId: required(input.meta.correlationId, 'correlationId'),
       sourceRevisionSet: [...(input.meta.revisionFences?.sourceRevisionIds ?? [])],

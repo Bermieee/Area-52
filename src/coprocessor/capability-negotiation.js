@@ -15,6 +15,9 @@ export function createCapabilityRequirement(task, options = {}) {
     contractVersion: CAPABILITY_NEGOTIATION_VERSION,
     taskId: task.taskId,
     capabilityRequests: structuredClone(task.capabilityRequests ?? []),
+    requiredCapabilities: [...(task.requiredCapabilities ?? [])],
+    optionalCapabilities: [...(task.optionalCapabilities ?? [])],
+    fallbackCapabilities: [...(task.fallbackCapabilities ?? [])],
     fallbackCapabilitySets: structuredClone(task.fallbackCapabilitySets ?? []),
     cognitiveLayer: task.cognitiveLayer,
     placement: task.placement,
@@ -29,6 +32,8 @@ export function createCapabilityRequirement(task, options = {}) {
     }),
     costBudget: options.maxCostClass ?? task.metadata?.maxCostClass ?? 'HIGH',
     resourceHints: structuredClone(task.metadata?.resourceHints ?? task.metadata?.resourceLimits ?? {}),
+    resourceClass: options.resourceClass ?? task.metadata?.resourceClass ?? null,
+    latencyClass: options.latencyClass ?? task.metadata?.latencyClass ?? null,
     resultClass: task.resultClass,
     authorityGranted: false,
     schedulingDecision: null,
@@ -70,17 +75,27 @@ export function negotiateCapabilities(registry, task, options = {}) {
     const failures = profileConstraintFailures(profile, task, requirement);
     if (failures.length) constraintFailures.push(Object.freeze({ profileId: profile.profileId, failures: Object.freeze(failures) }));
   }
+  const optionalCapabilities=requirement.optionalCapabilities;
+  const optionalAvailable=optionalCapabilities.filter((capability)=>discovery.profiles.some((profile)=>profile.capabilities.includes(capability)));
+  const healthDegraded=discovery.profiles.some((profile)=>String(profile.providerHealth??profile.health).toUpperCase()==='DEGRADED');
+  const status=discovery.profiles.length?(discovery.degraded||healthDegraded?'DEGRADED':'SATISFIED'):'UNSATISFIED';
+  const missingRequirements=Object.freeze({requiredCapabilities:Object.freeze([...new Set(missingCapabilities)].sort()),constraintFailures:Object.freeze(constraintFailures),optionalCapabilities:Object.freeze(optionalCapabilities.filter((capability)=>!optionalAvailable.includes(capability)))});
   return Object.freeze({
     kind: 'CapabilityNegotiation',
     contractVersion: CAPABILITY_NEGOTIATION_VERSION,
     taskId: task.taskId,
+    status,
     requestedCapabilities: structuredClone(requested),
     eligibleImplementations: Object.freeze(discovery.profiles.map(toRuntimeCapabilityDescriptor)),
-    degraded: Boolean(discovery.degraded),
+    eligibleProfiles: Object.freeze(discovery.profiles.map(toRuntimeCapabilityDescriptor)),
+    degradedAlternatives: Object.freeze((discovery.degraded||healthDegraded)?discovery.profiles.map(toRuntimeCapabilityDescriptor):[]),
+    degraded: Boolean(discovery.degraded||healthDegraded),
     fallbackSetUsed: discovery.degraded ? discovery.fallbackIndex : null,
     missingCapabilities: Object.freeze([...new Set(missingCapabilities)].sort()),
     incompatibilities: Object.freeze(incompatibilities),
     constraintFailures: Object.freeze(constraintFailures),
+    missingRequirements,
+    optionalCapabilitiesAvailable: Object.freeze(optionalAvailable),
     revision: CAPABILITY_NEGOTIATION_VERSION,
     requirement,
     authorityGranted: false,
@@ -96,7 +111,7 @@ function capabilitySatisfied(profile, request) {
 function profileConstraintFailures(profile, task, requirement) {
   const failures = [];
   if (!profile.available) failures.push('UNAVAILABLE');
-  if (profile.health !== 'healthy') failures.push('UNHEALTHY');
+  if (!['HEALTHY','DEGRADED'].includes(String(profile.providerHealth??profile.health).toUpperCase())) failures.push('UNHEALTHY');
   if (profile.currentLoad >= profile.concurrencyCapacity) failures.push('CONCURRENCY_FULL');
   if (task.resultClass === ResultClass.DEFERRED ? !profile.backgroundEligible : !profile.foregroundEligible) {
     failures.push(task.resultClass === ResultClass.DEFERRED ? 'BACKGROUND_INELIGIBLE' : 'FOREGROUND_INELIGIBLE');

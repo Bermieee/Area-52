@@ -36,19 +36,33 @@ export class CognitiveSwarm {
       emitTelemetry(this.telemetry,TelemetryEvent.TASK_PLANNED, telemetryTask(task));
     }
 
-    const dispatches = plan.tasks.map((task) => {
+    const dispatchEntries = plan.tasks.map((task) => {
       emitTelemetry(this.telemetry,TelemetryEvent.TASK_STARTED, telemetryTask(task));
-      return Promise.resolve()
+      const promise=Promise.resolve()
         .then(() => this.executionRouter.dispatch(task, { attempt: 1, turnEvent }))
         .then((raw) => ({ task, raw, error: null, attempt: 1 }))
         .catch((error) => ({ task, raw: null, error, attempt: 1 }));
+      return {task,promise};
     });
-    const firstOutcomes = await Promise.all(dispatches);
+    const requiredEntries=dispatchEntries.filter((entry)=>entry.task.resultClass===ResultClass.REQUIRED);
+    const nonBlockingEntries=dispatchEntries.filter((entry)=>entry.task.resultClass!==ResultClass.REQUIRED);
+    const requiredSettled=[];const nonBlockingSettled=[];
+    for(const entry of requiredEntries)entry.promise.then((outcome)=>requiredSettled.push(outcome));
+    for(const entry of nonBlockingEntries)entry.promise.then((outcome)=>nonBlockingSettled.push(outcome));
+    const foregroundBudget=Math.max(0,Math.min(30000,requiredEntries.length?Math.max(...requiredEntries.map((entry)=>entry.task.hardDeadline-turnEvent.createdAt)):0));
+    if(requiredEntries.length)await Promise.race([Promise.all(requiredEntries.map((entry)=>entry.promise)),delay(foregroundBudget)]);
+    const settledRequiredIds=new Set(requiredSettled.map((outcome)=>outcome.task.taskId));
+    const firstOutcomes=[...requiredSettled];
+    for(const entry of requiredEntries){
+      if(settledRequiredIds.has(entry.task.taskId))continue;
+      const error=new Error('foreground required task exceeded hard deadline');error.code=FailureCode.DEADLINE_MISS;
+      firstOutcomes.push({task:entry.task,raw:null,error,attempt:1});
+    }
     const resolved = [];
     const taskTraces = [];
 
     for (const outcome of firstOutcomes) {
-      const next = await this.#resolveOutcome(outcome, turnEvent, semanticValidators[outcome.task.taskType]);
+      const next = await this.#resolveOutcome(outcome, turnEvent, semanticValidators[outcome.task.taskType], true);
       resolved.push(next);
       taskTraces.push(next.trace);
     }
@@ -77,7 +91,7 @@ export class CognitiveSwarm {
     }
 
     if (!gather.quorumSatisfied()) {
-      const hardDeadline = plan.tasks.reduce((value, task) => Math.max(value, task.hardDeadline), turnEvent.deadline);
+      const hardDeadline = plan.tasks.filter((task)=>task.resultClass===ResultClass.REQUIRED).reduce((value, task) => Math.max(value, task.hardDeadline), turnEvent.deadline);
       for (const task of gather.missingRequired()) {
         const fallback = await this.fallbackResolver(task, { turnEvent, failure: resolved.find((item) => item.task.taskId === task.taskId)?.failure ?? null, at: hardDeadline });
         if (fallback) {
@@ -90,6 +104,17 @@ export class CognitiveSwarm {
         }
       }
       closureAt = hardDeadline;
+    }
+
+    // Opportunistic results that completed before quorum may join foreground, but are never awaited.
+    for(const outcome of [...nonBlockingSettled].sort((a,b)=>a.task.taskId.localeCompare(b.task.taskId))){
+      const next=await this.#resolveOutcome(outcome,turnEvent,semanticValidators[outcome.task.taskType],false);
+      if(!resolved.some((item)=>item.task.taskId===next.task.taskId)){resolved.push(next);taskTraces.push(next.trace);}
+      const completedAt=next.result?.completedAt??Number.MAX_SAFE_INTEGER;
+      if(next.result&&next.task.resultClass===ResultClass.OPPORTUNISTIC&&completedAt<=(closureAt??turnEvent.createdAt)){
+        const route=this.resultBus.receive(toNexusCognitiveResult(next.result,next.task));const external=gather.recordExternalRoute(next.result,route?.route);
+        if(!external)await gather.accept(next.result,{arrivalAt:completedAt});
+      }
     }
 
     const bundle = gather.close({ at: closureAt ?? turnEvent.createdAt, reason: gather.quorumSatisfied() ? 'FOREGROUND_QUORUM' : 'HARD_DEADLINE_DEGRADED' });
@@ -116,14 +141,26 @@ export class CognitiveSwarm {
       turnId: turnEvent.turnId, correlationId: turnEvent.correlationId, packetHash: seal.receipt.packetHash,
     });
 
+    const alreadyLate=new Set();
     for (const item of [...afterClosure, ...resolved.filter((item) => item.task.resultClass === ResultClass.DEFERRED)]) {
-      if (!item.result) continue;
+      if (!item.result||alreadyLate.has(item.result.resultId)) continue;alreadyLate.add(item.result.resultId);
       const bus = this.resultBus.receive(toNexusCognitiveResult(item.result, item.task));
       const late = await gather.accept(item.result, { arrivalAt: item.result.completedAt });
       emitTelemetry(this.telemetry,TelemetryEvent.LATE_ROUTED, {
         ...telemetryTask(item.task), resultId: item.result.resultId,
         destination: bus?.route?.effectiveDestination ?? late.destination,
       });
+    }
+    const settledTaskIds=new Set(resolved.map((item)=>item.task.taskId));
+    for(const entry of dispatchEntries){
+      if(settledTaskIds.has(entry.task.taskId))continue;
+      entry.promise.then(async(outcome)=>{
+        const next=await this.#resolveOutcome(outcome,turnEvent,semanticValidators[outcome.task.taskType],false);
+        if(!next.result)return;
+        const bus=this.resultBus.receive(toNexusCognitiveResult(next.result,next.task));
+        const late=await gather.accept(next.result,{arrivalAt:next.result.completedAt});
+        emitTelemetry(this.telemetry,TelemetryEvent.LATE_ROUTED,{...telemetryTask(next.task),resultId:next.result.resultId,destination:bus?.route?.effectiveDestination??late.destination});
+      }).catch(()=>{});
     }
 
     const finalBundle = gather.bundle();
@@ -134,7 +171,7 @@ export class CognitiveSwarm {
     });
   }
 
-  async #resolveOutcome(outcome, turnEvent, semanticValidator) {
+  async #resolveOutcome(outcome, turnEvent, semanticValidator, allowRetry = true) {
     const { task } = outcome;
     let attempt = outcome.attempt;
     let raw = outcome.raw;
@@ -150,7 +187,7 @@ export class CognitiveSwarm {
           providerId:error?.providerId??null,message: error?.message ?? String(error), attempt, retryable,
           details:{providerCode:rawCode},
         });
-        if (!failure.retryable) {
+        if (!failure.retryable || !allowRetry) {
           if(maxRetries>0&&attempt>maxRetries)failure=createWorkerFailure({code:FailureCode.RETRY_EXHAUSTED,taskId:task.taskId,turnId:task.turnId,
             correlationId:task.correlationId,providerId:error?.providerId??null,message:'provider retry budget exhausted',attempt,retryable:false,
             details:{lastFailureCode:rawCode}});
@@ -168,7 +205,7 @@ export class CognitiveSwarm {
           return { task, result: validation.result, failure: validation.failure, trace: passedTrace(task, validation.result, validation.freshness) };
         }
         emitTelemetry(this.telemetry,TelemetryEvent.VALIDATION_FAILED, { ...telemetryTask(task), attempt, reason: validation.failure.code });
-        if (!validation.failure.retryable) return { task, failure: validation.failure, result: null, trace: failedTrace(task, validation.failure) };
+        if (!validation.failure.retryable || !allowRetry) return { task, failure: validation.failure, result: null, trace: failedTrace(task, validation.failure) };
         emitTelemetry(this.telemetry,TelemetryEvent.RETRY, { ...telemetryTask(task), attempt: attempt + 1, reason: validation.failure.code });
       }
 
@@ -209,3 +246,5 @@ function failedTrace(task, failure) {
     deadlineMiss: true, fallbackUsed: false, failureCode: failure.code,
   };
 }
+
+function delay(ms){return new Promise((resolve)=>setTimeout(resolve,Math.max(0,Number(ms)||0)));}

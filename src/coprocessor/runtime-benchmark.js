@@ -1,6 +1,6 @@
 import { utf8ByteLength } from './browser-compat.js';
 
-export const MeasurementStatus = Object.freeze({ MEASURED: 'MEASURED', NOT_MEASURED: 'NOT_MEASURED', NOT_APPLICABLE: 'NOT_APPLICABLE' });
+export const MeasurementStatus = Object.freeze({ MEASURED: 'MEASURED', REPLAYED: 'REPLAYED', NOT_MEASURED: 'NOT_MEASURED', NOT_APPLICABLE: 'NOT_APPLICABLE' });
 
 export function summarizeCoprocessorIntegrationBenchmarks({
   traces = null,

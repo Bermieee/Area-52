@@ -46,3 +46,14 @@ export * from './precision-truth-boundary.js';
 export * from './precision-telemetry.js';
 export * from './precision-external-adapters.js';
 export * from './wave4-benchmark.js';
+
+export * from './provider-health.js';
+export * from './foreground-quorum-policy.js';
+export * from './placement-runtime-policy.js';
+export * from './execution-safety.js';
+export * from './provider-payload-boundary.js';
+export * from './provider-execution-contract.js';
+export * from './usage-receipt.js';
+export * from './coprocessor-ui-read-model.js';
+export * from './native-event-spine-baseline.js';
+export * from './wave5-benchmark.js';

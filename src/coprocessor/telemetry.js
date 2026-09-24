@@ -3,6 +3,8 @@ import { TelemetryEvent } from './constants.js';
 const BLOCKED_KEYS = new Set([
   'prompt', 'rawPrompt', 'rawResponse', 'fullResponse', 'response', 'payload', 'messages', 'candidateBodies',
   'candidateText', 'sourceText', 'retrievedSourceText', 'retrievedText', 'fullArtifact', 'rawArtifact',
+  'conversation', 'fullConversation', 'chatHistory', 'lorebook', 'fullLorebook', 'memory', 'allMemory',
+  'privateDiagnostics', 'chainOfThought', 'reasoning',
 ]);
 const DEFAULT_BOUNDS = Object.freeze({ maxDepth: 5, maxKeys: 64, maxArray: 64, maxString: 768 });
 
@@ -41,12 +43,14 @@ export class CoprocessorTelemetry {
     const resultDestinations = {};
     const precision = { requests: 0, inputCandidates: 0, outputCandidates: 0, correctivePasses: 0, staleRejected: 0, authorityRejected: 0, deduped: 0, stages: {}, fallbacks: {} };
     let warmHit = 0, warmMiss = 0, retry = 0, fallback = 0, staleDrop = 0;
+    const providerHealth={};
     for (const event of this.#events) {
       if (event.type === TelemetryEvent.WARM_HIT || (event.type === TelemetryEvent.CACHE_HIT && event.payload.cacheClass === 'WARM')) warmHit += 1;
       if (event.type === TelemetryEvent.WARM_MISS) warmMiss += 1;
       if (event.type === TelemetryEvent.RETRY) retry += 1;
       if (event.type === TelemetryEvent.FALLBACK_USED) fallback += 1;
       if (event.type === TelemetryEvent.STALE_DROPPED) staleDrop += 1;
+      if (event.type === TelemetryEvent.PROVIDER_HEALTH && typeof event.payload.providerProfileId === 'string') providerHealth[event.payload.providerProfileId]=event.payload.health;
       if (event.type === TelemetryEvent.RETRIEVAL_QUALITY && retrieval[event.payload.quality] != null) retrieval[event.payload.quality] += 1;
       if (event.type === TelemetryEvent.RESULT_ROUTED && typeof event.payload.destination === 'string') resultDestinations[event.payload.destination] = (resultDestinations[event.payload.destination] ?? 0) + 1;
       if (event.type === TelemetryEvent.PRECISION_REQUEST) {
@@ -70,6 +74,7 @@ export class CoprocessorTelemetry {
       fallback,
       staleDrop,
       resultDestinations: Object.freeze(resultDestinations),
+      providerHealth: Object.freeze(providerHealth),
     });
   }
 }

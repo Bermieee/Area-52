@@ -239,3 +239,50 @@ The dashboard/workspace form is the default for expanded product workspaces. Ins
 ## Planning handoff
 
 Card-ready Phase 2 UI work is defined in `docs/UI_CORE_PHASE2_PROJECT_CARD_HANDOFF.md`. That handoff must be used with #187 so new cards extend existing subsystem issues rather than duplicating backend architecture.
+
+# Wave 6 Addendum — Health, Authority, and Host Density
+
+Wave 6 applies the accepted visual system to the host-adjacent product interface.
+
+## Health presentation
+
+Health is encoded with text, status structure and restrained color:
+
+- READY — teal/green;
+- WORKING — cyan/blue;
+- DEGRADED / STALE — amber;
+- BLOCKED — restrained red;
+- UNAVAILABLE — muted/recessed;
+- IDLE — historical/recessed.
+
+A health surface should answer:
+
+1. is the capability available?
+2. what is its current health?
+3. what does that affect?
+4. what can the operator inspect?
+
+NORMAL surfaces describe impact first. Provider, worker, task, queue and correlation detail remain Advanced.
+
+## Authority presentation
+
+Authority is never color-only.
+
+Wave 6 uses both glyph and border grammar:
+
+- SOURCE CANON / SETTLED / CURRENT — solid;
+- OBSERVED — solid neutral/blue;
+- INFERRED — dotted;
+- UNRESOLVED / UNCERTAIN — divided/double treatment;
+- HISTORICAL / SUPERSEDED — dashed/recessed;
+- SHADOW / EXPERIMENTAL — explicitly non-authoritative glyph/label.
+
+Confidence and retrieval rank do not alter authority styling.
+
+## Host density
+
+The collapsed Quick Dash is intentionally narrow and low-information.
+
+Expanded mode preserves compact card geometry, rounded corners, cyan/teal accents, crisp high-contrast text and muted support copy. It does not introduce a second typography system or subsystem-specific palette.
+
+Reduced-motion behavior is preserved.

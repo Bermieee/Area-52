@@ -1,4 +1,4 @@
-name: Memory Wave 1+2 CI
+name: Memory Wave 1+2+3 CI
 
 on:
   push:
@@ -23,13 +23,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Focused Memory Wave 1+2 goldens
+      - name: Focused Memory Wave 1+2+3 goldens
         run: npm run test:focused
 
       - name: Browser-like production portability
         run: npm run test:browser
 
-      - name: Representative Memory Wave 1+2 stress
+      - name: Representative Memory Wave 1+2+3 stress
         run: npm run test:stress
 
       - name: Full Memory regression target
@@ -38,9 +38,9 @@ jobs:
       - name: JavaScript syntax
         shell: bash
         run: |
-          for f in src/*.js tests/*.mjs; do
+          for f in src/*.js tests/*.mjs tests/fixtures/*.js; do
             node --check "$f"
           done
 
       - name: ESM module import
-        run: node -e "Promise.all(['memory-contracts','temporal-state-graph','memory-green-room','memory-experience-store','memory-historian','memory-temporal-producer','memory-integration-surface','memory-summary-hierarchy'].map(x => import('./src/' + x + '.js'))).then(() => console.log('MEMORY_WAVE1_ESM_IMPORT_PASS'))"
+        run: node -e "Promise.all(['memory-contracts','temporal-state-graph','memory-green-room','memory-experience-store','memory-historian','memory-temporal-producer','memory-integration-surface','memory-summary-hierarchy','memory-evidence-bridge'].map(x => import('./src/' + x + '.js'))).then(() => console.log('MEMORY_WAVE3_ESM_IMPORT_PASS'))"

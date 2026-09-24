@@ -88,7 +88,8 @@ export class MemoryExperienceStore {
     requiredString(logicalId,'episode.logicalId');
     const sources=uniqStrings(sourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
     const evidence=uniqStrings(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    for (const id of evidence) if (!this.graph.evidenceRecord(id)) throw new Error('MEMORY_EPISODE_EVIDENCE_UNKNOWN:'+id);
+    const unresolvedEvidenceRefs=evidence.filter((id)=>!this.graph.evidenceRecord(id));
+    const resolvedEvidenceRefs=evidence.filter((id)=>this.graph.evidenceRecord(id));
     const history=this.episodeHistoryByLogical.get(logicalId)??[];
     const revision=history.length+1;
     const id='memory-episode:' + stableHash(logicalId+'|'+revision+'|'+sources.join('|')+'|'+evidence.join('|')+'|'+summary);
@@ -108,6 +109,8 @@ export class MemoryExperienceStore {
       sceneRevision:sceneRevision==null?null:Number(sceneRevision),
       sourceRevisionRefs:sources,
       evidenceRefs:evidence,
+      resolvedEvidenceRefs,
+      unresolvedEvidenceRefs,
       participants:uniqStrings(participants,64),
       knownBy:uniqStrings(knownBy,64),
       significance:unitNumber(significance,'episode.significance'),
@@ -118,7 +121,7 @@ export class MemoryExperienceStore {
       provenance:deepClone(provenance),
       admissionSource,
       state:'CURRENT',
-      freshness:freshBySources(this.graph,sources)?'FRESH':'STALE',
+      freshness:(freshBySources(this.graph,sources) && unresolvedEvidenceRefs.length===0 && resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id)))?'FRESH':'STALE',
       authorityClass:AuthorityClass.OBSERVED,
       currentWorldTruthAuthority:false,
       settlementAuthority:false,
@@ -228,7 +231,10 @@ export class MemoryExperienceStore {
     const staleReflections=[];
     for (const episode of this.episodes.values()) {
       if (episode.state!=='CURRENT') continue;
-      const fresh=freshBySources(this.graph,episode.sourceRevisionRefs) && episode.evidenceRefs.every((id)=>this.graph.evidenceFresh(id));
+      const unresolved=episode.evidenceRefs.filter((id)=>!this.graph.evidenceRecord(id));
+      episode.unresolvedEvidenceRefs=unresolved;
+      episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>this.graph.evidenceRecord(id));
+      const fresh=freshBySources(this.graph,episode.sourceRevisionRefs) && unresolved.length===0 && episode.resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id));
       if (!fresh) {
         episode.freshness='STALE';
         staleEpisodes.push(episode.id);

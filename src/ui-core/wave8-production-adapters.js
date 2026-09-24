@@ -40,7 +40,7 @@ export class Wave8CognitionProductionAdapter{
     const rawCorrection=this.#safe('corrective',this.readCorrectiveRetrievalReceipt,selection,errors);
     const corrective=normalizeCorrectiveRetrievalReceipt(rawCorrection??(this.strictReceiptCoherence?null:choice?.correctiveRetrieval),truth);
     const rawJev=this.#safe('jev',this.readJevDecisionReceipt,selection,errors);
-    const jev=normalizeJevDecisionReceipt(rawJev,choice);
+    const jev=normalizeJevDecisionReceipt(rawJev,this.strictReceiptCoherence?strictJevChoice(choice):choice);
     const rawPrecision=this.#safe('precision',this.readPrecisionReceipt,selection,errors);
     const precision=normalizePrecisionReceipt(rawPrecision,this.strictReceiptCoherence?strictPrecisionChoice(choice):choice);
     const rawGather=this.#safe('gather',this.readGatherReceipt,selection,errors);
@@ -158,5 +158,12 @@ function strictPrecisionChoice(choice){
   const decision=choice?.precisionDecision;
   if(!decision)return null;
   if(decision.invoked===false||decision.skipped===true||decision.available===false||decision.failed===true||decision.fallback===true)return choice;
+  return null;
+}
+
+function strictJevChoice(choice){
+  const decision=choice?.jevDecision;
+  if(!decision)return null;
+  if(decision.invoked===false||decision.skipped===true||decision.unavailable===true)return choice;
   return null;
 }

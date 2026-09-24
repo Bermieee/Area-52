@@ -47,8 +47,9 @@ export function createKnowledgeActionBar(doc, { ref, actionRouter, permissions =
     [KnowledgeActions.EVIDENCE, 'Evidence'],
   ];
   for (const [type, label] of actions) {
-    const button = element(doc, 'button', { className: 'a52-action-chip', text: label, attrs: { type: 'button' }, dataset: { action: type } });
-    const press = () => actionRouter.route({ type, target: ref }, { permissions });
+    const available = actionRouter?.hasAction?.(type) ?? false;
+    const button = element(doc, 'button', { className: 'a52-action-chip', text: label, attrs: { type: 'button', disabled: !available, 'aria-disabled': String(!available), title: available ? label : `${label} unavailable — producer/action not connected` }, dataset: { action: type, availability: available ? 'LIVE' : 'UNAVAILABLE' } });
+    const press = () => available ? actionRouter.route({ type, target: ref }, { permissions }) : Promise.resolve({ ok:false, status:'NOT_FOUND', error:'inspection-action-unavailable' });
     if (scope) scope.listen(button, 'click', press); else button.addEventListener('click', press);
     root.append(button);
   }

@@ -24,9 +24,10 @@ const identity = ({
   retrievalPolicyRevision='policy:1',
 }={})=>({sceneRevision,worldRevision,characterStateRevision,sourceRevisionSet,intentFingerprint,retrievalPolicyRevision});
 
-const artifactRef=(id='compiled:tavern',revision=1)=>({
+const artifactRef=(id='compiled:tavern',revision=1,ident=identity())=>({
   kind:'ArtifactReference',artifactId:id,artifactType:'CompiledContextCandidate',owner:'CORE',
-  revision,storageDomain:'compiled',sourceRevisionSet:['src:scene:7'],worldRevision:12,sceneRevision:7,
+  revision,storageDomain:'compiled',sourceRevisionSet:[...ident.sourceRevisionSet],
+  worldRevision:ident.worldRevision,sceneRevision:ident.sceneRevision,
 });
 
 function fullAdapters({delay=null,compileValue=null,truthValue=null}={}){
@@ -45,7 +46,7 @@ function fullAdapters({delay=null,compileValue=null,truthValue=null}={}){
     evaluateQuality:async(refs)=>{await wait('quality');return{status:'OK',quality:refs.candidateRefs.length?'HIGH':'LOW'};},
     truthCheck:async()=>{await wait('truth');return truthValue??{status:'VERIFIED',checked:true,conflictState:'RESOLVED'};},
     precisionRank:async(refs)=>{await wait('precision');return{status:'RANKED',ranked:true,count:refs.candidateRefs.length};},
-    compile:async()=>{await wait('compile');return compileValue??{compiledRef:artifactRef()};},
+    compile:async({identity:ident})=>{await wait('compile');return compileValue??{compiledRef:artifactRef('compiled:tavern',1,ident)};},
   };
 }
 

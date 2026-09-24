@@ -2,7 +2,8 @@ import { Signals } from './constants.js';
 import { ResourceScope } from './lifecycle.js';
 import { createButton, createKeyValue, element, makeBadge, makeCard, makeHealthPill } from './primitives.js';
 import { VirtualListController } from './virtualization.js';
-import { ProductDetailLevel } from './wave5-product-model.js';\nimport { createKnowledgeActionBar } from './provenance-ui.js';
+import { ProductDetailLevel } from './wave5-product-model.js';
+import { createKnowledgeActionBar } from './provenance-ui.js';
 import { ProductDataMode, Wave6Health, authorityDescriptor } from './wave6-contracts.js';
 import { FrontFaceMode, FrontFaceDensity, WorkspaceComposition, createAuthorityPill, createComposition, createProductHealthSurface, sourceModeBadge, sourceStateMessage } from './wave6-presentation.js';
 

@@ -78,7 +78,7 @@ test('credible contradiction survives score differences for Truth/Gather', async
 test('Ember Tavern golden set preserves current destruction, historical Blade location and unresolved fate', async () => {
   const fixture = createEmberTavernPrecisionFixture();
   const gateway = new PrecisionGateway({ caps: { input: 16, lateInteraction: 8, semanticJudge: 6, final: 5 } });
-  const out = await gateway.run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets, query: fixture.candidateSet.query });
+  const out = await gateway.run({ candidateSet: fixture.candidateSet, currentRevisionSet: fixture.currentRevisionSet, conflictSets: fixture.conflictSets, requiredCandidateIds: fixture.requiredCandidateIds, query: fixture.candidateSet.query });
   const byId = new Map(out.results.map((row) => [row.candidateRef, row]));
   assert.equal(byId.get('tavern:destroyed')?.truthStatus, 'CURRENT'); assert.equal(byId.get('blade:tavern-history')?.truthStatus, 'HISTORICAL');
   assert.equal(byId.get('blade:destroyed')?.truthStatus, 'UNRESOLVED'); assert.equal(byId.get('blade:removed')?.truthStatus, 'UNRESOLVED');

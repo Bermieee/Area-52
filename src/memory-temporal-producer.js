@@ -442,9 +442,20 @@ export class MemoryTemporalProducer {
     }
   }
 
-  drillDown(nominationOrRecordRef) {
+  drillDown(nominationOrRecordRef,options={}) {
     const summary=this.summaryHierarchy.drillDown(nominationOrRecordRef);
-    return summary.length?summary:this.historian.drillDown(nominationOrRecordRef);
+    const rows=summary.length?summary:this.historian.drillDown(nominationOrRecordRef);
+    const perspective=options.perspectiveConstraint
+      ??(typeof nominationOrRecordRef==='object'?nominationOrRecordRef?.metadata?.perspective:null)
+      ??{scope:'WORLD'};
+    if(perspective?.scope!=='CHARACTER_KNOWLEDGE')return rows;
+    const characterRef=perspective.characterRef??perspective.characterId??null;
+    if(!characterRef)return [];
+    return rows.filter((row)=>(row.knownBy??[]).includes(characterRef));
+  }
+
+  profileHierarchyQuery(request,options={}) {
+    return this.summaryHierarchy.profileSummaryQuery(request,options);
   }
 
   defineSummaryScope(input) {

@@ -44,7 +44,7 @@ export class MemoryExperienceStore {
     return this.graph.appendEvidence({...input,kind:input.kind??MemoryArtifactKind.EXPERIENCE});
   }
 
-  ingestSceneExperience(proposal,{summary=null,participants=[],knownBy=[],significance=0.5,timeStart=null,timeEnd=null}={}) {
+  ingestSceneExperience(proposal,{summary=null,participants=[],knownBy=[],significance=0.5,timeStart=null,timeEnd=null,bridgeResolution=null}={}) {
     if (!proposal || proposal.kind!=='SceneExperienceProposal') throw new TypeError('SceneExperienceProposal required');
     if (proposal.contractVersion!=='1.0.0') throw new Error('MEMORY_SCENE_HANDOFF_CONTRACT_MISMATCH:'+String(proposal.contractVersion));
     if (proposal.authorityGranted || proposal.memoryMutationAuthority || proposal.settlementAuthority) throw new Error('MEMORY_SCENE_HANDOFF_AUTHORITY_VIOLATION');
@@ -53,8 +53,13 @@ export class MemoryExperienceStore {
       logicalId,
       sceneId:proposal.sceneId,
       sceneRevision:Number(proposal.sceneRevision),
-      sourceRevisionRefs:proposal.sourceRevisionRefs??[],
-      evidenceRefs:proposal.evidenceRefs??[],
+      sourceRevisionRefs:bridgeResolution?.memorySourceRevisionRefs??proposal.sourceRevisionRefs??[],
+      evidenceRefs:bridgeResolution?.memoryEvidenceIds??proposal.evidenceRefs??[],
+      externalEvidenceRefs:proposal.evidenceRefs??[],
+      externalSourceRevisionRefs:proposal.sourceRevisionRefs??[],
+      mappingRefs:bridgeResolution?.mappingIds??[],
+      bridgeResolutionStatus:bridgeResolution?.status??null,
+      bridgeReasonCodes:bridgeResolution?.details?.reasons??[],
       participants,
       knownBy,
       significance,
@@ -74,6 +79,11 @@ export class MemoryExperienceStore {
     sceneRevision=null,
     sourceRevisionRefs=[],
     evidenceRefs=[],
+    externalEvidenceRefs=[],
+    externalSourceRevisionRefs=[],
+    mappingRefs=[],
+    bridgeResolutionStatus=null,
+    bridgeReasonCodes=[],
     participants=[],
     knownBy=[],
     significance=0.5,
@@ -90,10 +100,20 @@ export class MemoryExperienceStore {
     const evidence=uniqStrings(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
     const unresolvedEvidenceRefs=evidence.filter((id)=>!this.graph.evidenceRecord(id));
     const resolvedEvidenceRefs=evidence.filter((id)=>this.graph.evidenceRecord(id));
+    const externalEvidence=uniqStrings(externalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
+    const externalSources=uniqStrings(externalSourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+    const mappings=uniqStrings(mappingRefs,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
+    const bridgeReasons=uniqStrings(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
     const history=this.episodeHistoryByLogical.get(logicalId)??[];
-    const revision=history.length+1;
-    const id='memory-episode:' + stableHash(logicalId+'|'+revision+'|'+sources.join('|')+'|'+evidence.join('|')+'|'+summary);
+    const publicationFingerprint=stableHash(stableStringify({
+      logicalId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,mappings,
+      bridgeResolutionStatus,bridgeReasons,participants,knownBy,significance,timeStart,timeEnd,summary,
+      sceneEpisodeRef,graphReferenceSet,admissionSource,
+    }));
     const prior=currentRevisionFor(this.episodeHistoryByLogical,this.currentEpisodeByLogical,logicalId,this.episodes);
+    if (prior&&prior.publicationFingerprint===publicationFingerprint) return deepClone(prior);
+    const revision=history.length+1;
+    const id='memory-episode:' + stableHash(logicalId+'|'+revision+'|'+publicationFingerprint);
     if (prior) {
       prior.state='HISTORICAL';
       prior.freshness='STALE';
@@ -111,6 +131,11 @@ export class MemoryExperienceStore {
       evidenceRefs:evidence,
       resolvedEvidenceRefs,
       unresolvedEvidenceRefs,
+      externalEvidenceRefs:externalEvidence,
+      externalSourceRevisionRefs:externalSources,
+      mappingRefs:mappings,
+      bridgeResolutionStatus,
+      bridgeReasonCodes:bridgeReasons,
       participants:uniqStrings(participants,64),
       knownBy:uniqStrings(knownBy,64),
       significance:unitNumber(significance,'episode.significance'),
@@ -121,7 +146,11 @@ export class MemoryExperienceStore {
       provenance:deepClone(provenance),
       admissionSource,
       state:'CURRENT',
-      freshness:(freshBySources(this.graph,sources) && unresolvedEvidenceRefs.length===0 && resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id)))?'FRESH':'STALE',
+      freshness:(freshBySources(this.graph,sources)
+        && unresolvedEvidenceRefs.length===0
+        && resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))
+        && bridgeResolutionStatus!=='WITHHELD')?'FRESH':'STALE',
+      publicationFingerprint,
       authorityClass:AuthorityClass.OBSERVED,
       currentWorldTruthAuthority:false,
       settlementAuthority:false,
@@ -234,7 +263,10 @@ export class MemoryExperienceStore {
       const unresolved=episode.evidenceRefs.filter((id)=>!this.graph.evidenceRecord(id));
       episode.unresolvedEvidenceRefs=unresolved;
       episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>this.graph.evidenceRecord(id));
-      const fresh=freshBySources(this.graph,episode.sourceRevisionRefs) && unresolved.length===0 && episode.resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id));
+      const fresh=freshBySources(this.graph,episode.sourceRevisionRefs)
+        && unresolved.length===0
+        && episode.resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))
+        && episode.bridgeResolutionStatus!=='WITHHELD';
       if (!fresh) {
         episode.freshness='STALE';
         staleEpisodes.push(episode.id);

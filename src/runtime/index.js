@@ -15,3 +15,7 @@ export * from './sleep-runtime.js';
 export * from './obligation-producers.js';
 export * from './worker-director.js';
 export * from './runtime-host.js';
+
+export * from './provider-execution.js';
+export * from './foreground-quorum.js';
+export * from './native-swarm.js';

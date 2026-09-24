@@ -48,7 +48,7 @@ export class BatchEngine {
     this.ledger.appendBatchUnits(taskId, normalized);
   }
 
-  async runOneSlice(taskId, executor, signals = {}, freshnessCheck = () => true) {
+  async runOneSlice(taskId, executor, signals = {}, freshnessCheck = () => true, executionContext = {}) {
     const record = this.ledger.get(taskId);
     if (record.recoveryState === 'commit-reconciliation-required') {
       return { status: 'blocked', reason: 'commit-reconciliation-required' };
@@ -73,7 +73,7 @@ export class BatchEngine {
     let output;
     const started = Date.now();
     try {
-      output = await executor.execute({ task: record.obligation, units, sliceId });
+      output = await executor.execute({ task: record.obligation, units, sliceId, ...executionContext });
     } catch (error) {
       this.ledger.failSlice(taskId, sliceId, error);
       return { status: 'failed', error, sliceId, retryable: true };
@@ -81,7 +81,7 @@ export class BatchEngine {
 
     let valid = true;
     try {
-      valid = executor.validate ? await executor.validate({ task: record.obligation, units, output, sliceId }) : true;
+      valid = executor.validate ? await executor.validate({ task: record.obligation, units, output, sliceId, ...executionContext }) : true;
     } catch (error) {
       this.ledger.failSlice(taskId, sliceId, error, { validation: true });
       return { status: 'failed-validation', error, sliceId, retryable: true };
@@ -103,7 +103,7 @@ export class BatchEngine {
     let receipt = { idempotencyKey, committed: true };
     try {
       if (executor.commit) {
-        const externalReceipt = await executor.commit({ task: record.obligation, units, output, sliceId, idempotencyKey });
+        const externalReceipt = await executor.commit({ task: record.obligation, units, output, sliceId, idempotencyKey, ...executionContext });
         if (externalReceipt != null) receipt = { ...receipt, external: externalReceipt };
       }
     } catch (error) {

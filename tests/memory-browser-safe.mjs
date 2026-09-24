@@ -10,6 +10,7 @@ const files=[
   'src/memory-historian.js',
   'src/memory-temporal-producer.js',
   'src/memory-integration-surface.js',
+  'src/memory-summary-hierarchy.js',
 ];
 
 test('Memory Wave 1 production modules are browser/SillyTavern safe',async()=>{

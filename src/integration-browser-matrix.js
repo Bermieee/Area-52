@@ -11,4 +11,9 @@ export function evaluateBrowserDeclaration(declaration,{sources={},availableWebA
   const blocked=missingRequiredApis.length||missingHostCapabilities.length||missingPaths.length||violations.length;
   return{kind:'BrowserCompatibilityResult',subsystem:declaration.subsystem,checkpoint:declaration.checkpoint,state:blocked?BrowserMatrixState.BLOCKED:executed?BrowserMatrixState.PASS:BrowserMatrixState.PARTIAL,executed:Boolean(executed),missingRequiredApis,missingHostCapabilities,missingPaths,violations:clone(violations),nodeOnlyToolPaths:[...declaration.nodeOnlyToolPaths],optionalWebApis:declaration.optionalWebApis.map(api=>({api,available:required.has(api)}))};
 }
+export function createImportedBrowserEvidenceResult({subsystem,checkpoint,state=BrowserMatrixState.PARTIAL,evidenceRefs=[],measurementState='REPLAYED',notes=null}={}){
+  if(!Object.values(BrowserMatrixState).includes(state))throw new TypeError('invalid browser matrix state');
+  return{kind:'BrowserCompatibilityResult',subsystem:req(subsystem,'subsystem'),checkpoint:req(checkpoint,'checkpoint'),state,executed:false,measurementState,
+    evidenceRefs:[...new Set(evidenceRefs)].sort(),missingRequiredApis:[],missingHostCapabilities:[],missingPaths:[],violations:[],nodeOnlyToolPaths:[],optionalWebApis:[],notes};
+}
 export function buildIntegrationBrowserMatrix(results=[]){return{kind:'IntegrationBrowserMatrix',results:clone(results),counts:Object.fromEntries(Object.values(BrowserMatrixState).map(s=>[s,results.filter(x=>x.state===s).length])),integrationAcceptance:results.length&&results.every(x=>x.state===BrowserMatrixState.PASS)?'PASS':'PARTIAL'};}

@@ -16,6 +16,8 @@ export const IntegrationContractFamily=Object.freeze({
   CONTEXT_SEAL:'CONTEXT_SEAL_ADMISSION',
   PROMPT_PLAN:'PROMPT_PLAN_IDENTITY',
   DIAGNOSTIC_FORENSIC:'DIAGNOSTIC_FORENSIC_REFERENCES',
+  KNOWLEDGE_EVIDENCE:'KNOWLEDGE_EVIDENCE',
+  CHECKPOINT_PROVENANCE:'CHECKPOINT_PROVENANCE',
 });
 
 export function createContractDeclaration({lane,checkpoint,accepted=true,contracts=[]}={}){
@@ -32,10 +34,10 @@ export function compareContractFamily(family,left,right){
   if(a.adapterRequired||b.adapterRequired||!a.liveAccepted||!b.liveAccepted)return{family,status:IntegrationCompatibilityStatus.PARTIAL,reason:a.adapterRequired||b.adapterRequired?'ADAPTER_OR_INTEGRATION_REQUIRED':'LIVE_ACCEPTANCE_PENDING',left:clone(a),right:clone(b)};
   return{family,status:IntegrationCompatibilityStatus.COMPATIBLE,reason:'CONTRACTS_COMPATIBLE',left:clone(a),right:clone(b)};
 }
-export function buildIntegrationContractMatrix({core,scene,coprocessor,runtime,ui}={}){
-  const pairs=[['CORE_SCENE',core,scene],['CORE_COPROCESSOR',core,coprocessor],['CORE_RUNTIME',core,runtime],['CORE_UI_OBSERVATION',core,ui]];
+export function buildIntegrationContractMatrix({core,scene,coprocessor,runtime,ui,memory=null,lore=null}={}){
+  const pairs=[['CORE_SCENE',core,scene],['CORE_COPROCESSOR',core,coprocessor],['CORE_RUNTIME',core,runtime],['CORE_UI_OBSERVATION',core,ui],['CORE_MEMORY_FUTURE',core,memory],['CORE_LORE_FUTURE',core,lore]];
   const families=Object.values(IntegrationContractFamily),rows=[];
   for(const [pair,left,right] of pairs)for(const family of families)rows.push({pair,...compareContractFamily(family,left,right)});
   const counts=Object.fromEntries(Object.values(IntegrationCompatibilityStatus).map(s=>[s,rows.filter(x=>x.status===s).length]));
-  return{kind:'Phase1IntegrationContractMatrix',rows,counts,hasMismatch:counts.MISMATCH>0,blocked:counts.BLOCKED_ON_OTHER_LANE>0,ready:counts.MISMATCH===0,checkpoints:{core:core?.checkpoint??null,scene:scene?.checkpoint??null,coprocessor:coprocessor?.checkpoint??null,runtime:runtime?.checkpoint??null,ui:ui?.checkpoint??null}};
+  return{kind:'Phase1IntegrationContractMatrix',rows,counts,hasMismatch:counts.MISMATCH>0,blocked:counts.BLOCKED_ON_OTHER_LANE>0,ready:counts.MISMATCH===0,checkpoints:{core:core?.checkpoint??null,scene:scene?.checkpoint??null,coprocessor:coprocessor?.checkpoint??null,runtime:runtime?.checkpoint??null,ui:ui?.checkpoint??null,memory:memory?.checkpoint??null,lore:lore?.checkpoint??null}};
 }

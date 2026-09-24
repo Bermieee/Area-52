@@ -1,0 +1,11 @@
+import {runWave6Acceptance} from '../tests/wave6-integration-harness.js';
+const r=runWave6Acceptance();
+for(const [name,pass] of Object.entries(r.metrics))console.log((pass?'PASS':'FAIL')+' '+name);
+console.log('Wave 6 acceptance: '+Object.values(r.metrics).filter(Boolean).length+'/'+Object.values(r.metrics).length);
+console.log('Contract matrix: '+JSON.stringify(r.matrix.counts));
+console.log('Drift matrix: '+JSON.stringify(r.drift.counts));
+console.log('FT002: '+r.ft002.summary.status+' / LIVE SILLYTAVERN PENDING');
+console.log('FT005: '+r.ft005.summary.status+' / LIVE PROVIDER EXECUTION PENDING');
+console.log('Nexus live seam: '+r.nexusStatus.implementation+' / '+r.nexusStatus.runtimeConnection);
+console.log('Phase 1 gate V2: '+r.gate.state);
+if(!r.pass)process.exitCode=1;

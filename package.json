@@ -12,6 +12,9 @@
     "test:ui:wave8": "node --test tests/wave8.test.mjs",
     "test:ui:wave8:stress": "node tests/wave8-stress.mjs",
     "test:ui:wave9": "node --test tests/wave9.test.mjs",
-    "test:ui:wave9:stress": "node tests/wave9-stress.mjs"
+    "test:ui:wave9:stress": "node tests/wave9-stress.mjs",
+    "test:ui:wave7": "node --test tests/wave7.test.mjs",
+    "test:ui:wave10": "node --test tests/wave10.test.mjs",
+    "test:ui:wave10:stress": "node tests/wave10-stress.mjs"
   }
 }

@@ -1,0 +1,46 @@
+name: Memory Wave 1 CI
+
+on:
+  push:
+    branches:
+      - Development-Memory
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memory-wave1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Focused Memory and golden suite
+        run: npm run test:focused
+
+      - name: Browser-like production portability
+        run: npm run test:browser
+
+      - name: Representative Memory stress
+        run: npm run test:stress
+
+      - name: Full Memory test target
+        run: npm test
+
+      - name: JavaScript syntax
+        shell: bash
+        run: |
+          for f in src/*.js tests/*.mjs; do
+            node --check "$f"
+          done
+
+      - name: ESM module import
+        run: node -e "Promise.all(['memory-contracts','temporal-state-graph','memory-green-room','memory-experience-store','memory-historian','memory-temporal-producer','memory-integration-surface'].map(x => import('./src/' + x + '.js'))).then(() => console.log('MEMORY_WAVE1_ESM_IMPORT_PASS'))"

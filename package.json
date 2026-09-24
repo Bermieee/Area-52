@@ -1,10 +1,13 @@
 {
   "name": "area-52",
-  "version": "0.1.0-dev",
+  "version": "0.5.0-memory-wave1",
   "private": true,
   "type": "module",
-  "description": "Experimental cognitive memory core for Nexus",
+  "description": "Area-52 native temporal Memory, reflection and Historian producer",
   "scripts": {
-    "test": "node tests/cognitive-core.mjs"
+    "test": "node --test tests/memory-wave1.mjs tests/memory-browser-safe.mjs",
+    "test:focused": "node --test tests/memory-wave1.mjs",
+    "test:browser": "node --test tests/memory-browser-safe.mjs",
+    "test:stress": "node tests/memory-wave1-stress.mjs"
   }
 }

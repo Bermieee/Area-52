@@ -39,10 +39,17 @@ export class Wave11LiveReceiptBinding{
 
   selection(explicit={}){
     const q=normalizeLiveSelection(explicit);
+    const historicalGeneration=Boolean(q.generationId&&this.current.generationId&&q.generationId!==this.current.generationId);
+    const historicalTurn=Boolean(q.turnId&&this.current.turnId&&q.turnId!==this.current.turnId);
+    const detached=historicalGeneration||historicalTurn;
     return deepFreeze({
-      chatId:q.chatId??this.current.chatId,turnId:q.turnId??this.current.turnId,generationId:q.generationId??this.current.generationId,
-      correlationId:q.correlationId??this.current.correlationId,worldRevision:q.worldRevision??this.current.worldRevision,
-      sceneRevision:q.sceneRevision??this.current.sceneRevision,sourceRevisionRefs:q.sourceRevisionRefs.length?q.sourceRevisionRefs:this.current.sourceRevisionRefs,
+      chatId:q.chatId??this.current.chatId,
+      turnId:q.turnId??(detached?null:this.current.turnId),
+      generationId:q.generationId??(historicalTurn?null:this.current.generationId),
+      correlationId:q.correlationId??(detached?null:this.current.correlationId),
+      worldRevision:q.worldRevision??(detached?null:this.current.worldRevision),
+      sceneRevision:q.sceneRevision??(detached?null:this.current.sceneRevision),
+      sourceRevisionRefs:q.sourceRevisionRefs.length?q.sourceRevisionRefs:(detached?[]:this.current.sourceRevisionRefs),
     });
   }
 

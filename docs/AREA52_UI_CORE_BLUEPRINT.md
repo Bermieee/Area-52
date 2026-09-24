@@ -149,3 +149,46 @@ Ledger / Forensic readers -> ForensicsProductionUIAdapter
 Missing bindings become UNAVAILABLE, never implicit fixtures.
 
 Presentation state remains strictly separate from cognitive state.
+
+# Wave 8 — Live Brain Cognition Layer
+
+Wave 8 extends the existing Brain workspace with one read-only cognitive path:
+
+~~~text
+Scene
+ -> Cognitive Choice
+ -> Scatter
+ -> Sensory / Candidate Bus
+ -> Retrieval Quality
+ -> Truth
+ -> optional Jev
+ -> Precision
+ -> Gather
+ -> Context Seal
+ -> PromptPlan
+~~~
+
+This is a UI consumption layer, not cognition ownership.
+
+The production path is:
+
+~~~text
+owning backend receipt/read model
+        |
+        v
+Wave8CognitionProductionAdapter
+        |
+        v
+normalized LiveBrainCognitionPath
+        |
+        +--> existing Brain workspace
+        +--> existing Inspector
+        +--> existing Why/Forensics
+        +--> existing RenderScheduler
+~~~
+
+Absent producers remain UNAVAILABLE. Explicit demo/test fixtures remain FIXTURE.
+
+The UI never derives execution from architectural existence and never derives truth/authority from retrieval score, channel count, Precision score, or Jev confidence.
+
+Logical cognitive job meaning appears before physical execution resource identity. Runtime/resource/provider detail remains Advanced.

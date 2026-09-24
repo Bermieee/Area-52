@@ -2,7 +2,7 @@ import { Signals } from './constants.js';
 import { ResourceScope } from './lifecycle.js';
 import { createButton, createKeyValue, element, makeBadge, makeCard, makeHealthPill } from './primitives.js';
 import { VirtualListController } from './virtualization.js';
-import { ProductDetailLevel } from './wave5-product-model.js';
+import { ProductDetailLevel } from './wave5-product-model.js';\nimport { createKnowledgeActionBar } from './provenance-ui.js';
 import { ProductDataMode, Wave6Health, authorityDescriptor } from './wave6-contracts.js';
 import { FrontFaceMode, FrontFaceDensity, WorkspaceComposition, createAuthorityPill, createComposition, createProductHealthSurface, sourceModeBadge, sourceStateMessage } from './wave6-presentation.js';
 
@@ -90,7 +90,7 @@ function renderScene(host,ctx){
   host.append(card);
   if(x.uncertainFields?.length)host.append(state(d,'Unresolved Scene fields',x.uncertainFields.join(' · '),'warning'));
   if(level!==ProductDetailLevel.NORMAL){host.append(section(d,'Scene continuity'),createKeyValue(d,[{key:'Boundary',value:x.boundary?.state??'STABLE'},{key:'Prior relationship',value:x.relationshipToPrior??'—'},{key:'Prefetch',value:`${x.prefetchState?.count??0} active recommendations`},{key:'Latest change',value:x.latestDeltaSummary?.changedFields?.join(', ')??'—'}]));}
-  if(level===ProductDetailLevel.ADVANCED){host.append(createButton(d,{label:'Why / evidence',scope:ctx.scope,onPress:()=>inspect(ctx,{kind:'scene-read-model',id:x.id,title:x.title,scene:x,diagnosticRefs:x.diagnosticRefs,provenanceRefs:x.provenanceRefs})}));}
+  if(level===ProductDetailLevel.ADVANCED){host.append(createButton(d,{label:'Why / evidence',scope:ctx.scope,onPress:()=>inspect(ctx,{kind:'scene-read-model',id:x.id,title:x.title,scene:x,diagnosticRefs:x.diagnosticRefs,provenanceRefs:x.provenanceRefs})}));if(ctx.actionRouter)host.append(createKnowledgeActionBar(d,{ref:{id:x.id,kind:'scene',state:x.lifecycle},actionRouter:ctx.actionRouter,scope:ctx.scope}));}
 }
 
 function renderGeneric(title,key){

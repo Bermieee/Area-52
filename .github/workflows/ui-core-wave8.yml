@@ -1,0 +1,55 @@
+name: UI.Core Wave 8 validation
+on:
+  push:
+    branches: [Development-UI]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'tests/wave8*.mjs'
+      - 'tests/fixtures/wave8*.mjs'
+      - 'docs/AREA52_UI_CORE_BLUEPRINT.md'
+      - 'docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md'
+      - 'docs/UI_CORE_WAVE_8_*.md'
+      - 'package.json'
+      - '.github/workflows/ui-core-wave8.yml'
+  pull_request:
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'tests/wave8*.mjs'
+      - 'tests/fixtures/wave8*.mjs'
+      - 'docs/UI_CORE_WAVE_8_*.md'
+      - 'package.json'
+concurrency:
+  group: ui-core-wave8-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  wave8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full UI.Core regression
+        run: npm test
+      - name: Wave 8 focused acceptance
+        run: npm run test:ui:wave8
+      - name: Wave 6 focused regression
+        run: npm run test:ui:wave6
+      - name: Wave 6 lifecycle stress
+        run: npm run test:ui:wave6:stress
+      - name: Wave 8 cognition stress
+        run: npm run test:ui:wave8:stress
+      - name: JavaScript syntax validation
+        run: find src/ui-core demo tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Browser-facing Wave 8 source guard
+        run: |
+          if grep -R -nE "from ['\"]node:|\\brequire\\s*\\(|\\bprocess\\." src/ui-core/wave8-*.js; then
+            echo "Node-only dependency detected in Wave 8 browser source"
+            exit 1
+          fi
+          echo "Wave 8 browser source guard PASS"
+      - name: UI.Core ESM import
+        run: node -e "import('./src/ui-core/index.js').then(() => console.log('UI.Core Wave 8 ESM import PASS'))"

@@ -175,6 +175,7 @@ test('one physical resource sequentially services heterogeneous jobs including J
   ];
   host.publishTurn(t, jobs);
   const quorum = await host.native.awaitForeground(t.turnId);
+  console.log('SINGLE_RESOURCE_DIAGNOSTIC', JSON.stringify({ quorum, graph: director.ledger.get('task:graph'), results: results.filter((r) => r.taskId === 'task:graph') }));
   assert.deepEqual(new Set(quorum.requiredSatisfied), new Set(['task:historian', 'task:graph']));
   await director.drain();
   for (const j of jobs) assert.equal(director.ledger.get(j.taskId).lifecycleStatus, LIFECYCLE_STATUS.SATISFIED);

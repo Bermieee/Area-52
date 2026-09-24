@@ -22,7 +22,13 @@ The design must remain readable beside an active host chat. Compact density is a
 
 Visible branding is configurable at the shell boundary. The current product name is Area-52, but product surfaces must remain ready for the planned post-Phase-2 Nexus rename without changing cognitive or UI.Core contracts. The existing `a52-` implementation namespace is an internal compatibility namespace, not a visible branding requirement.
 
-See `docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md`.
+Canonical Phase 2 UI planning references:
+
+- `docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md` — visual language, Front Face composition, widget health, density and brand readiness;
+- `docs/UI_CORE_WAVE_5_FRONT_FACE.md` — product workspace foundation and Quick Dash / Expanded Front Face target;
+- `docs/UI_CORE_PHASE2_PROJECT_CARD_HANDOFF.md` — card-ready implementation breakdown and existing-card mapping.
+
+Phase 2 project cards should be cut from that handoff under #187 rather than inventing subsystem-local UI requirements.
 
 ## Runtime layers
 

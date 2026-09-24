@@ -120,6 +120,35 @@ export function validateSlices(content, slices) {
   };
 }
 
+export function validateProviderSliceResults(slices, results) {
+  const failures = [];
+  if (!Array.isArray(results)) {
+    return {
+      kind: 'LoreProviderSliceResultReceipt',
+      ok: false,
+      failures: [QualityFailure.MALFORMED_OUTPUT],
+      expectedSliceRefs: slices.map((slice) => slice.id),
+      receivedSliceRefs: [],
+    };
+  }
+  const expected = new Set(slices.map((slice) => slice.id));
+  const seen = new Set();
+  for (const row of results) {
+    const ref = row?.sliceRef;
+    if (!expected.has(ref)) failures.push(QualityFailure.UNKNOWN_SLICE_REF);
+    if (seen.has(ref)) failures.push(QualityFailure.DUPLICATE_SLICE_REF);
+    if (ref) seen.add(ref);
+  }
+  for (const ref of expected) if (!seen.has(ref)) failures.push(QualityFailure.MISSING_SLICE_REF);
+  return {
+    kind: 'LoreProviderSliceResultReceipt',
+    ok: failures.length === 0,
+    failures: [...new Set(failures)],
+    expectedSliceRefs: [...expected],
+    receivedSliceRefs: [...seen],
+  };
+}
+
 function artifactContributionText(artifact, labels) {
   if (artifact.artifactType === ArtifactType.ENTITY) {
     return artifact.payload.canonicalName + ' is a ' + String(artifact.payload.entityType || 'world entity').toLowerCase() + '.';
@@ -159,12 +188,27 @@ function claimSemanticClass(artifact) {
   return SemanticClass.LOAD_BEARING_FACT;
 }
 
-function sourceTextureContributions({sourceId, sourceRevisionId, content}) {
+function sourceTextureContributions({sourceId, sourceRevisionId, content, slices}) {
   const out = [];
   const spans = sentenceSpans(content);
+  const perSlice = new Map();
   for (const row of spans) {
     const text = row.text;
-    const sourceSpan = {start: row.start, end: row.end, sentenceIndex: row.index, textHash: stableHash(text)};
+    const ownerSlice = (slices || []).find((slice) => row.start >= slice.start && row.end <= slice.end)
+      || (slices || []).find((slice) => row.start < slice.end && row.end > slice.start)
+      || null;
+    if (ownerSlice) {
+      const count = perSlice.get(ownerSlice.id) || 0;
+      if (count >= LORE_REPRESENTATION_LIMITS.contributionsPerSlice) continue;
+      perSlice.set(ownerSlice.id, count + 1);
+    }
+    const sourceSpan = {
+      start: row.start,
+      end: row.end,
+      sentenceIndex: row.index,
+      textHash: stableHash(text),
+      sliceId: ownerSlice?.id || null,
+    };
     const add = (semanticClass, refs = {}) => out.push(createContribution({
       sourceId,
       sourceRevisionId,
@@ -203,7 +247,7 @@ function sourceTextureContributions({sourceId, sourceRevisionId, content}) {
   return out;
 }
 
-export function buildGroundedContributions({runtime, sourceId}) {
+export function buildGroundedContributions({runtime, sourceId, slices = null}) {
   const source = runtime.registry.getEntry(sourceId);
   if (!source) throw new Error('Unknown Lore source: ' + sourceId);
   const revision = runtime.registry.currentRevision(sourceId);
@@ -211,6 +255,7 @@ export function buildGroundedContributions({runtime, sourceId}) {
   if (!learned || learned.sourceRevisionId !== revision.id || learned.state !== 'CURRENT') throw new Error('SOURCE_NOT_CURRENTLY_LEARNED');
 
   const artifacts = runtime.store.artifactsForLearnedRevision(learned.id);
+  const sourceSlices = slices || sliceSource(revision.exactContent);
   const labels = new Map(
     artifacts
       .filter((artifact) => artifact.artifactType === ArtifactType.ENTITY)
@@ -263,6 +308,7 @@ export function buildGroundedContributions({runtime, sourceId}) {
     sourceId,
     sourceRevisionId: revision.id,
     content: revision.exactContent,
+    slices: sourceSlices,
   }));
 
   const deduped = new Map();
@@ -524,7 +570,7 @@ export class LoreRepresentationCompiler {
       reused: false,
     };
 
-    const contributionSet = buildGroundedContributions({runtime: this.runtime, sourceId});
+    const contributionSet = buildGroundedContributions({runtime: this.runtime, sourceId, slices});
     const semanticDependencyHash = stableHash(stableStringify({
       contributionFingerprint: contributionSet.contributionFingerprint,
       dependencyArtifactIds: contributionSet.dependencyArtifactIds,

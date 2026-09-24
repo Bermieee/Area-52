@@ -12,6 +12,7 @@ import {
   DeterministicRepresentationProvider,
   LORE_REPRESENTATION_LIMITS,
   sliceSource,
+  validateProviderSliceResults,
   validateSlices,
 } from '../src/lore-representation-compiler.js';
 import {LoreStudyRuntime} from '../src/lore-study-runtime.js';
@@ -61,6 +62,24 @@ test('Wave 2 source slicing is deterministic, bounded, and covers every source c
   assert.equal(receipt.ok, true);
   assert.equal(receipt.everySliceAccountedFor, true);
   assert.equal(receipt.sourceCharacters, source.length);
+});
+
+
+test('future slice-backed providers must account for every exact slice ref exactly once', () => {
+  const source = Array.from({length: 80}, (_, i) => 'Slice sentence ' + i + ' carries lore.').join(' ');
+  const slices = sliceSource(source);
+  const valid = validateProviderSliceResults(slices, slices.map((slice) => ({sliceRef: slice.id, contributions: []})));
+  assert.equal(valid.ok, true);
+
+  const invalid = validateProviderSliceResults(slices, [
+    {sliceRef: slices[0].id, contributions: []},
+    {sliceRef: slices[0].id, contributions: []},
+    {sliceRef: 'slice:invented', contributions: []},
+  ]);
+  assert.equal(invalid.ok, false);
+  assert.ok(invalid.failures.includes(QualityFailure.DUPLICATE_SLICE_REF));
+  assert.ok(invalid.failures.includes(QualityFailure.UNKNOWN_SLICE_REF));
+  assert.ok(invalid.failures.includes(QualityFailure.MISSING_SLICE_REF));
 });
 
 test('Lean, Balanced, Heavy and Custom Cap coexist without replacing exact source', () => {

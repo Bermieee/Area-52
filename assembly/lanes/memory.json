@@ -120,7 +120,8 @@
     "src/memory-historian.js",
     "src/memory-integration-surface.js",
     "src/memory-summary-hierarchy.js",
-    "src/memory-temporal-producer.js"
+    "src/memory-temporal-producer.js",
+    "src/memory-temporal-state-graph.js"
   ],
   "nodeOnlyToolPaths": [],
   "requiredWebApis": [],
@@ -140,6 +141,22 @@
   "integrationAdapters": [
     "src/deployment/brain.js"
   ],
-  "integrationOnlyPatches": [],
-  "knownConflicts": []
+  "integrationOnlyPatches": [
+    {
+      "path": "src/memory-temporal-producer.js",
+      "sourceDigest": "2c1bc89a80e19588adf3b813003325ad3c05f71a",
+      "expectedDigest": "91b9ec2c4423b9401ee64e14d6c5961175d7e4db",
+      "reason": "Deployment namespace seam: Memory must bind its accepted TemporalStateGraph contract without replacing Core's authoritative src/temporal-state-graph.js"
+    }
+  ],
+  "knownConflicts": [],
+  "renamedSourceCopies": [
+    {
+      "sourcePath": "src/temporal-state-graph.js",
+      "sourceDigest": "440cdf7e18beca1588cba7ac7b660d0a3cadced7",
+      "integrationPath": "src/memory-temporal-state-graph.js",
+      "expectedDigest": "440cdf7e18beca1588cba7ac7b660d0a3cadced7",
+      "reason": "Exact accepted Memory TemporalStateGraph copied under a namespaced integration path to avoid Core path collision"
+    }
+  ]
 }

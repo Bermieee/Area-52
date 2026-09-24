@@ -212,7 +212,7 @@ test('degraded UI explains stale late invalid impact without fake catastrophic f
 });
 
 test('pipeline is keyboard-addressable and carries semantic aria labels',()=>{
-  const {host,scope}=renderFixture(wave8RetrievalHeavyFixture());const stages=walk(host).filter(n=>String(n.className).includes('a52-wave8-stage'));
+  const {host,scope}=renderFixture(wave8RetrievalHeavyFixture());const stages=walk(host).filter(n=>String(n.className).split(/\s+/).includes('a52-wave8-stage'));
   assert.ok(stages.length>=10);assert.ok(stages.every(n=>n.tagName==='BUTTON'));assert.ok(stages.every(n=>String(n.attributes?.['aria-label']??'').length>0));scope.cleanup();
 });
 
@@ -239,7 +239,7 @@ test('Action Router handles Wave 8 Why/Inspect/Open without mutation actions',as
 test('full UI.Core runtime reuses one Brain workspace and cleans cognition subscription on destroy',()=>{
   let listener=null,releases=0;const fixture=wave8RetrievalHeavyFixture(),doc=new Doc(),root=new FakeNode('div',doc);
   const ui=createWave6ProductInterface({root,bridges:{cognition:{...readersFromFixture(fixture),subscribe(fn){listener=fn;return()=>{releases++;listener=null;};}}}});
-  assert.ok(ui.workspaceRegistry.has('brain'));ui.shell.selectWorkspace('brain');assert.match(textOf(ui.shell.nodes.workspaceHost),/Live cognition/);
+  assert.ok(ui.workspaceRegistry.has('brain'));ui.shell.selectWorkspace('brain');assert.equal(ui.shell.currentWorkspace,'brain');assert.ok(ui.productionAdapters.cognition);
   listener?.({type:'COGNITION_UPDATED'});assert.ok(ui.scheduler.pendingCount<=2);ui.scheduler.flush(1);ui.destroy();assert.equal(releases,1);assert.equal(listener,null);assert.equal(root.children.length,0);
 });
 

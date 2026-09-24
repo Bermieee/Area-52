@@ -19,6 +19,12 @@ test('Wave 10 bridge accepts public Scene signal and excludes mentioned-only anc
  const hot=c.hotCognitionSnapshot();assert.deepEqual(hot.segments.ACTIVE_CAST.value.map(x=>x.id),['mara']);
 });
 
+test('native SceneDelta FieldState collections normalize through the public event bridge',()=>{
+ const c=core();c.consumeSceneSignal(signal({sceneRevision:1,cast:['mara']}));
+ const source='chat:m2@1',event={kind:'CognitiveEventEnvelope',eventId:'delta:native:2',eventType:'SCENE_STATE_DELTA',eventVersion:'1.0.0',producer:'SCENE_INTELLIGENCE',correlationId:'corr:native:2',causationId:'host:m2',turnId:'turn:m2',sceneId:'scene:a',sceneRevision:2,sourceRevisionSet:[source],dedupeIdentity:'delta:native:2',payload:{delta:{kind:'SceneDelta',sceneId:'scene:a',fromRevision:1,toRevision:2,changedFields:{activeCast:{value:[{characterId:'mara',state:'PRESENT'},{characterId:'eris',state:'PRESENT'}],confidence:1,evidenceRefs:[source],observationClass:'OBSERVED',revision:2},activeThreads:{value:['native-thread'],confidence:1,evidenceRefs:[source],observationClass:'OBSERVED',revision:2},immediateObjects:{value:[{objectRef:'blade',state:'PRESENT'}],confidence:1,evidenceRefs:[source],observationClass:'OBSERVED',revision:2}}}},payloadSchemaVersion:'1.0.0'};
+ const r=c.consumeCognitiveEvent(event),hot=c.hotCognitionSnapshot();assert.notEqual(r.status,HotUpdateStatus.REJECTED);assert.deepEqual(hot.segments.ACTIVE_CAST.value.map(x=>x.id),['eris','mara']);assert.deepEqual(hot.segments.ACTIVE_THREADS.value.map(x=>x.threadId),['native-thread']);assert.deepEqual(hot.segments.ACTIVE_ENTITIES.value.map(x=>x.id),['blade']);
+});
+
 test('Scene revision fence is per Scene identity, so new Scene r1 can follow old Scene r9',()=>{
  const c=core();c.consumeSceneSignal(signal({sceneId:'scene:a',sceneRevision:9,source:'a@9'}));
  const opened=c.consumeCognitiveEvent({kind:'CognitiveEventEnvelope',eventId:'open:b',eventType:'SCENE_OPENED',eventVersion:'1.0.0',producer:'SCENE_INTELLIGENCE',correlationId:'corr:b',causationId:'boundary:a',turnId:'turn:b',sceneId:'scene:b',sceneRevision:1,sourceRevisionSet:['b@1'],revisionFences:{sourceRevisionIds:['b@1'],sceneRevision:1},dedupeIdentity:'open:b',payload:{relationship:'CONTINUES',fromSceneId:'scene:a'},payloadSchemaVersion:'1.0.0'});

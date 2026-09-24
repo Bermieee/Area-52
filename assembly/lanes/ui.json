@@ -1,0 +1,654 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "ui",
+  "branch": "Development-UI",
+  "acceptedSha": "3bd0dc1bca7dcec19669a1eea9ba0d13fab88ff9",
+  "acceptanceRuns": [
+    {
+      "id": "36064690324",
+      "name": "UI.Core Wave 12 validation"
+    },
+    {
+      "id": "36064690171",
+      "name": "UI.Core Wave 4 validation"
+    },
+    {
+      "id": "36064690090",
+      "name": "UI.Core Wave 5 validation"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "demo/brain-dashboard.html",
+      "sourceDigest": "c48bf7f97e019bfef03b96a2b780de59bb1e8f06"
+    },
+    {
+      "path": "demo/brain-dashboard.js",
+      "sourceDigest": "b8de4cc25dc238d90f406c1fd8ee549786edc6d0"
+    },
+    {
+      "path": "demo/phase2-shell/README.md",
+      "sourceDigest": "fd59466cfbd33d644e3a07a9751e133d5cf14419"
+    },
+    {
+      "path": "demo/phase2-shell/app.js",
+      "sourceDigest": "706ec67a3ea4ac5a70f036611ad5391598e36648"
+    },
+    {
+      "path": "demo/phase2-shell/index.html",
+      "sourceDigest": "989d14edd633a579b3a7c0e5c6adec4dbadd616d"
+    },
+    {
+      "path": "demo/phase2-shell/review-workspaces.js",
+      "sourceDigest": "1308db8182986ddec7aba677427a6b15d20800d5"
+    },
+    {
+      "path": "demo/phase2-shell/review.css",
+      "sourceDigest": "a0b75d9b5d460effdd18579321d272611ec35bd8"
+    },
+    {
+      "path": "demo/phase2-shell/scenarios/index.js",
+      "sourceDigest": "3638d080db47658c37b4951204f825edade03772"
+    },
+    {
+      "path": "demo/phase2-shell/scenarios/wave10-context-trace.js",
+      "sourceDigest": "0e10c11e4b11af6e1062d33fc920375ccfda9696"
+    },
+    {
+      "path": "demo/wave12-host-harness/harness.css",
+      "sourceDigest": "78b4afb8133f1539cf79e0ca47bd6ba62688b3c9"
+    },
+    {
+      "path": "demo/wave12-host-harness/harness.js",
+      "sourceDigest": "26f5d594133a2146d75bdc72f0fe246ff7b67619"
+    },
+    {
+      "path": "demo/wave12-host-harness/index.html",
+      "sourceDigest": "d045bd86892bff9b9f1cf44cfb232ccdc2907c9a"
+    },
+    {
+      "path": "demo/wave6-front-face.html",
+      "sourceDigest": "e2ae3c0883fa8d4decd4972912397c87c1d7dc9c"
+    },
+    {
+      "path": "demo/wave6-front-face.js",
+      "sourceDigest": "8500a4eeac6b1a709eca51ec7ebc789197d89913"
+    },
+    {
+      "path": "demo/wave8-brain.html",
+      "sourceDigest": "b6fb824ffcd34f9ef055241e8876871f66962f8e"
+    },
+    {
+      "path": "demo/wave8-brain.js",
+      "sourceDigest": "a1d06bd7e27c2d74d8fa824d24b8682e492623d0"
+    },
+    {
+      "path": "docs/UI_CORE_IMPLEMENTATION_WAVE_1.md",
+      "sourceDigest": "baf3d86b8bb946febcaebfc522479e5fce69b845"
+    },
+    {
+      "path": "docs/UI_CORE_PHASE2_PROJECT_CARD_HANDOFF.md",
+      "sourceDigest": "f2b9bcd19873bae489babdb339960efdd2a63698"
+    },
+    {
+      "path": "docs/UI_CORE_PHASE2_VISUAL_SYSTEM.md",
+      "sourceDigest": "1e10aaf3cc605ec509b601a6b03879d5c6baf8c4"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_10_ACCEPTANCE.md",
+      "sourceDigest": "51dea644373979e3ba94ce4e757116c8db00a399"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_10_CHANGELOG.md",
+      "sourceDigest": "aec0eacf8131491c4b7ad4f526cae65b3c37a058"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_10_CONTEXT_FORENSICS.md",
+      "sourceDigest": "221b57b64a34c9ca926c10c51e3831f95f805cb7"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_11_LIVE_BINDINGS.md",
+      "sourceDigest": "bc06d4e5990ec2f4d89d447f63e874a44204e7c1"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_12_SILLYTAVERN_HOST.md",
+      "sourceDigest": "6c16459aee66880e5af95112f47ca1881f966f16"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_2_ACCEPTANCE.md",
+      "sourceDigest": "d4984eb7b5a981067431b4a63494961e9ebe8fa7"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_2_ADAPTER_CONTRACTS.md",
+      "sourceDigest": "ef21a168cf5458d84ae6af0eb615d3e8f32d151a"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_2_TEST_EVIDENCE.md",
+      "sourceDigest": "1a726bd143659b6cae418dc1334fbb1423b4c7da"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_3_ACCEPTANCE.md",
+      "sourceDigest": "42dcddb8d13ee9a93c992a5c62464cf588d47c40"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_3_ADAPTER_CONTRACTS.md",
+      "sourceDigest": "92308e0a9ff37aec4730569e88b82a8ba96dd45f"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_3_ISSUE_STATUS.md",
+      "sourceDigest": "9bb12836f1944176e46988e41dfc85e06ecdb2a3"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_3_TEST_EVIDENCE.md",
+      "sourceDigest": "74dd0a2d3e9b5bc1efdee7ebc19a5850a859ee7a"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_4_ACCEPTANCE.md",
+      "sourceDigest": "881b6214e5f312a82162f49cf717df6e7c0195ff"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_4_ARCHITECTURE.md",
+      "sourceDigest": "3d564586953cfd3924fff2bc7e1468d8cc0e0bef"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_4_EXTENSION_CONTRACT.md",
+      "sourceDigest": "1d432d721a189748d29132e38b4114bc8f1e92ef"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_4_ISSUE_STATUS.md",
+      "sourceDigest": "0c0e4700a283590e30596ee8b5071141015e49b6"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_4_RUNTIME_INTEGRATION.md",
+      "sourceDigest": "d7338639e0d9072fd8e9e1004bae03f8f5c20f09"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_4_TEST_EVIDENCE.md",
+      "sourceDigest": "9417590f442800bb5db47608410b64156b6efcec"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_5_ACCEPTANCE.md",
+      "sourceDigest": "7d087fb7cef14184416b6901565e8696b907d4e3"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_5_CHANGELOG.md",
+      "sourceDigest": "9b05b7047c088e5677018085250684874a68fe2a"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_5_FRONT_FACE.md",
+      "sourceDigest": "8bb9ee28ee655b57da0d25b764dbd5b64f736b68"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_5_PRODUCT_ACTIVITY.md",
+      "sourceDigest": "c9f90abe91f1fe6d2bef1436f489991e591e4b55"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_5_PROGRESSIVE_DISCLOSURE.md",
+      "sourceDigest": "0fea4d734bf997391ad720e2400eb90eb3410721"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_5_TEST_EVIDENCE.md",
+      "sourceDigest": "15c38b9e1e8ef4ba719eddb1b52242f363fd19bc"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_6_ACCEPTANCE.md",
+      "sourceDigest": "ea962aa5c14606a7a28da1a14011f8192efa7b9e"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_6_LIVE_WIRING.md",
+      "sourceDigest": "74287510639bb21a9e53e745b1aede69f8e95f1d"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_8_ACCEPTANCE.md",
+      "sourceDigest": "db2ad3f60db0e1b85a5fb57af4ffbeb72253dbf9"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_8_LIVE_BRAIN.md",
+      "sourceDigest": "c9fd42c4f272e113919664b4e5913ac037e457a8"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_9_ACCEPTANCE.md",
+      "sourceDigest": "d03b2e2cc9074ed5527f42428ffd93b82467ad72"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_9_CHANGELOG.md",
+      "sourceDigest": "650cfdb6dd7503743ec04bd9956e2c6cb35844a1"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_9_PHASE2_DEMO_SHELL.md",
+      "sourceDigest": "fea34f4e3d692b834372e320c8984d88d2101ec1"
+    },
+    {
+      "path": "docs/UI_CORE_WIDGET_CONTRACTS.md",
+      "sourceDigest": "754f24dbb0f06c25e3a5a9a1492dcb440a6b302c"
+    },
+    {
+      "path": "src/ui-core/accessibility.js",
+      "sourceDigest": "b0208e96b9d860643c1f4728be903fddf9b9dfcf"
+    },
+    {
+      "path": "src/ui-core/action-router.js",
+      "sourceDigest": "5fd4190ec58d3fbb1f14ee86dd56cfce939bfdc3"
+    },
+    {
+      "path": "src/ui-core/cognitive-widgets.js",
+      "sourceDigest": "d511c6a16aa24a215db9c663573a3e36845ca78d"
+    },
+    {
+      "path": "src/ui-core/constants.js",
+      "sourceDigest": "948ff2c809df772aa4e013fdb4e6031c17533c67"
+    },
+    {
+      "path": "src/ui-core/dashboard.js",
+      "sourceDigest": "8d489e1fbe9e619c665b78d341aba299b470a795"
+    },
+    {
+      "path": "src/ui-core/ember-tavern-wave2.js",
+      "sourceDigest": "2fc97be3cbe5e538b8a721a8ab1ec537267f3045"
+    },
+    {
+      "path": "src/ui-core/ember-tavern-wave3.js",
+      "sourceDigest": "0fe698a29f60e296b8ceeb6447fa12252336d499"
+    },
+    {
+      "path": "src/ui-core/index.js",
+      "sourceDigest": "28c6b9173e93867e24f88a64b22eb8b74074ef1a"
+    },
+    {
+      "path": "src/ui-core/inspector.js",
+      "sourceDigest": "9febbec5ef5c1526016091ea13b2c5c943a4053d"
+    },
+    {
+      "path": "src/ui-core/lifecycle.js",
+      "sourceDigest": "9c9a60bc6af0b4343a07a6cf9e440c9847480982"
+    },
+    {
+      "path": "src/ui-core/mock-brain.js",
+      "sourceDigest": "2c488a1d26ed57a5af543ee33b4b67d044e2716c"
+    },
+    {
+      "path": "src/ui-core/notifications.js",
+      "sourceDigest": "32300471dfda498ed3188513dbeb63d6d767b28e"
+    },
+    {
+      "path": "src/ui-core/overlay.js",
+      "sourceDigest": "f22f9e4ed617056ddf1f7c79f2ab5f98185f0fe0"
+    },
+    {
+      "path": "src/ui-core/persistence.js",
+      "sourceDigest": "a0d57c9b8b0773073e903843f62a492440506148"
+    },
+    {
+      "path": "src/ui-core/primitives.js",
+      "sourceDigest": "15b28248dfa8da1334118d1457188827a990cb7e"
+    },
+    {
+      "path": "src/ui-core/provenance-ui.js",
+      "sourceDigest": "208eef84548a5f141ce1704822b90f2631f8604d"
+    },
+    {
+      "path": "src/ui-core/registry.js",
+      "sourceDigest": "53a6b78ef7d4fcb4a121f9a16ad1d753d7475afc"
+    },
+    {
+      "path": "src/ui-core/render-scheduler.js",
+      "sourceDigest": "5a9a33aed528db8ee5acb2debf745eb4d3980b24"
+    },
+    {
+      "path": "src/ui-core/responsive.js",
+      "sourceDigest": "c4f17c5b5867112de15e30fca40f876bb3a56483"
+    },
+    {
+      "path": "src/ui-core/shell.js",
+      "sourceDigest": "1d5c68410849d99bf4b30a1d8fc543f1731ac148"
+    },
+    {
+      "path": "src/ui-core/signals.js",
+      "sourceDigest": "01fc7a6cc4bed50b6d0e554f86443e3c4bd877f7"
+    },
+    {
+      "path": "src/ui-core/virtualization.js",
+      "sourceDigest": "f4e5108d4bbaa69114a2290a7cb7bc29aa4570c1"
+    },
+    {
+      "path": "src/ui-core/wave11-live-bindings.js",
+      "sourceDigest": "a476296e8586f32fa0d9c35c2b47d987742ac296"
+    },
+    {
+      "path": "src/ui-core/wave12-sillytavern-host.js",
+      "sourceDigest": "02118b2a865cc40775358c5496520fc44553eb06"
+    },
+    {
+      "path": "src/ui-core/wave2-adapters.js",
+      "sourceDigest": "26e017e1b323e81cc10a9631b8ef90acb4a6051a"
+    },
+    {
+      "path": "src/ui-core/wave2-coprocessor-workspace.js",
+      "sourceDigest": "d7fd4de43485f5460e2032e24f0a177446e3361d"
+    },
+    {
+      "path": "src/ui-core/wave2-hot-inspector.js",
+      "sourceDigest": "a569a39717542a7e8ce58aa7bb94ceb21cdff923"
+    },
+    {
+      "path": "src/ui-core/wave2-models.js",
+      "sourceDigest": "b53b8f2e256d432d9c0e718cb75a3437ac55c553"
+    },
+    {
+      "path": "src/ui-core/wave2-runtime-workspace.js",
+      "sourceDigest": "15e01536587daa8b865907256f204bce0fa5dba2"
+    },
+    {
+      "path": "src/ui-core/wave2-scene-workspace.js",
+      "sourceDigest": "315250cd2ef391f94c7b894f37e5cd9663e15ff6"
+    },
+    {
+      "path": "src/ui-core/wave2-workspaces.js",
+      "sourceDigest": "26e4c404237685d8782eb3efc225461a4aeba352"
+    },
+    {
+      "path": "src/ui-core/wave3-adapters.js",
+      "sourceDigest": "195dbeb4cf06dac9ed42bcf3aaa07142dcff2713"
+    },
+    {
+      "path": "src/ui-core/wave3-coprocessor-workspace.js",
+      "sourceDigest": "d0f714d6f5857b6bebafddc032a970d1d814e2de"
+    },
+    {
+      "path": "src/ui-core/wave3-inspector.js",
+      "sourceDigest": "a32f884c41292f673c770e6559dd8c2b9824ce1e"
+    },
+    {
+      "path": "src/ui-core/wave3-memory-workspace.js",
+      "sourceDigest": "a17183ea12112c86873b1d7beafb9f4e309c36e1"
+    },
+    {
+      "path": "src/ui-core/wave3-models.js",
+      "sourceDigest": "7119a97b7a3c6906ce9a60cc2d9da02e93da67cf"
+    },
+    {
+      "path": "src/ui-core/wave3-precision-workspace.js",
+      "sourceDigest": "45363501cb3e52fe6cd731020c041efacee2192a"
+    },
+    {
+      "path": "src/ui-core/wave3-runtime-workspace.js",
+      "sourceDigest": "5fecc90a23b7b036d892e9c50380c50dcf413497"
+    },
+    {
+      "path": "src/ui-core/wave3-workspaces.js",
+      "sourceDigest": "9ae5b3773ac6d4949cd7c791850edafa4778152e"
+    },
+    {
+      "path": "src/ui-core/wave4-extension-registry.js",
+      "sourceDigest": "db836df036e9bee29df7b2ee45944b8493a80cf7"
+    },
+    {
+      "path": "src/ui-core/wave4-generic-inspection.js",
+      "sourceDigest": "c66182313a1a8a4912a6b60bf3a77c390f6ef714"
+    },
+    {
+      "path": "src/ui-core/wave4-runtime-adapter.js",
+      "sourceDigest": "a8413e7ebf614888e0c8e636f9f18cc6b4e04af1"
+    },
+    {
+      "path": "src/ui-core/wave5-fixtures.js",
+      "sourceDigest": "c443cded28c0a7bb3eab6547bb5c766c2076b72c"
+    },
+    {
+      "path": "src/ui-core/wave5-front-face.js",
+      "sourceDigest": "0d782a3775e9ffa15eebe1df141dcd2d76a73631"
+    },
+    {
+      "path": "src/ui-core/wave5-product-model.js",
+      "sourceDigest": "5cb267985a23e307629e0c9d00e6109b8ad46e1c"
+    },
+    {
+      "path": "src/ui-core/wave6-brain-pulse.js",
+      "sourceDigest": "87cef3c7e7d06cef24a6929da73d5c4caa91e2d1"
+    },
+    {
+      "path": "src/ui-core/wave6-contracts.js",
+      "sourceDigest": "9dd4871afe798ac092ffeb0b636174ba4e448f44"
+    },
+    {
+      "path": "src/ui-core/wave6-front-face.js",
+      "sourceDigest": "7a4384c03b4c84159fc1cc1b89e23a7e4c21da7c"
+    },
+    {
+      "path": "src/ui-core/wave6-presentation.js",
+      "sourceDigest": "14b1f76a6de9f828d4004bb0a1ff2ca62581ff5c"
+    },
+    {
+      "path": "src/ui-core/wave6-production-adapters.js",
+      "sourceDigest": "93fa3d88fa4fec685d1d225c39adbfe8a04afc05"
+    },
+    {
+      "path": "src/ui-core/wave6-runtime.js",
+      "sourceDigest": "2b643f5bdf066dc692b61634cfaa52c3895b0055"
+    },
+    {
+      "path": "src/ui-core/wave7-bindings.js",
+      "sourceDigest": "0c79327da7e2db00414d2bcd0d89e03c92112b44"
+    },
+    {
+      "path": "src/ui-core/wave7-explainability.js",
+      "sourceDigest": "03ab946ad3e396e063e449e36f04d33e750546b7"
+    },
+    {
+      "path": "src/ui-core/wave7-forensics.js",
+      "sourceDigest": "c7ac36b5be02bcd3451a7ec25421e8395cd7aad9"
+    },
+    {
+      "path": "src/ui-core/wave7-workspaces.js",
+      "sourceDigest": "2f4ed30654c048768bee02983df815ce5c9cd1c7"
+    },
+    {
+      "path": "src/ui-core/wave8-bindings.js",
+      "sourceDigest": "f49141ed67df31412aab54671b63e160cabb0fcd"
+    },
+    {
+      "path": "src/ui-core/wave8-cognition.js",
+      "sourceDigest": "2fae81c5822629f00857299801918df9eab51946"
+    },
+    {
+      "path": "src/ui-core/wave8-production-adapters.js",
+      "sourceDigest": "5897d37536ec40ecca28e70b13516d747d6a763d"
+    },
+    {
+      "path": "src/ui-core/wave8-workspace.js",
+      "sourceDigest": "89e60ad9a3bf75b76ade074da222d59b12046bb1"
+    },
+    {
+      "path": "tests/fixtures/wave11-live-receipts.mjs",
+      "sourceDigest": "645356f6816c29487c3dd0e88c554212397c927b"
+    },
+    {
+      "path": "tests/fixtures/wave4-synthetic-extension.mjs",
+      "sourceDigest": "b41105855197178637cd865c6000edd44ec9123d"
+    },
+    {
+      "path": "tests/fixtures/wave8-cognition-fixtures.mjs",
+      "sourceDigest": "bf04080d697e6983bc66234a712f65f063cacd9c"
+    },
+    {
+      "path": "tests/ui-core.test.mjs",
+      "sourceDigest": "c639e96bfc28669c6a1037d7faaba4cdc5320fb2"
+    },
+    {
+      "path": "tests/wave10-stress.mjs",
+      "sourceDigest": "93259aa85c1f429e7192e5b9c3d16f9ebd9f82df"
+    },
+    {
+      "path": "tests/wave10.test.mjs",
+      "sourceDigest": "4b4afaa2a9f77f2162d2fed3d87059b54a8462f4"
+    },
+    {
+      "path": "tests/wave11-live-bindings-stress.mjs",
+      "sourceDigest": "f7ec09be38dd0f879e6896b19f0a043d6bb7e861"
+    },
+    {
+      "path": "tests/wave11-live-bindings.test.mjs",
+      "sourceDigest": "02cfd824bbacd71f4d9958ff0f509544130f8113"
+    },
+    {
+      "path": "tests/wave12-sillytavern-host-stress.mjs",
+      "sourceDigest": "10414627e46b52c03a42b21e5e6d9aca78bac391"
+    },
+    {
+      "path": "tests/wave12-sillytavern-host.test.mjs",
+      "sourceDigest": "7d15ac75671caf15493568e2f0ce277c32ea3288"
+    },
+    {
+      "path": "tests/wave2.test.mjs",
+      "sourceDigest": "4d963e9f3828c58a18cd5673041638c093f392fa"
+    },
+    {
+      "path": "tests/wave3.test.mjs",
+      "sourceDigest": "228d195b828acaf64f0e0dfc7928c8a769afa726"
+    },
+    {
+      "path": "tests/wave4.test.mjs",
+      "sourceDigest": "ac290ac9ecd8e4a89b9c2f457ab5f9b7acca4cf2"
+    },
+    {
+      "path": "tests/wave5.test.mjs",
+      "sourceDigest": "149102072214634540cbca2f6acbe27c5e991d67"
+    },
+    {
+      "path": "tests/wave6-stress.mjs",
+      "sourceDigest": "5d8803cc93fbe738a919539e0ef46070fa6fc553"
+    },
+    {
+      "path": "tests/wave6.test.mjs",
+      "sourceDigest": "e672d31742df0a2a524770a69514556b985549be"
+    },
+    {
+      "path": "tests/wave7.test.mjs",
+      "sourceDigest": "a941baf0fa552454edb7df55cbb724e3e627f59a"
+    },
+    {
+      "path": "tests/wave8-stress.mjs",
+      "sourceDigest": "54487d90c596ef2c84dd661828d517ae1203460d"
+    },
+    {
+      "path": "tests/wave8.test.mjs",
+      "sourceDigest": "bec32a8e39105e20837e2371017b73f6b16ebcde"
+    },
+    {
+      "path": "tests/wave9-stress.mjs",
+      "sourceDigest": "cde88d3a50f7ad192585d6d580ab5dbcb10864f3"
+    },
+    {
+      "path": "tests/wave9.test.mjs",
+      "sourceDigest": "16433a27ce7775f54bc80f37dc0d812a1fe654e2"
+    }
+  ],
+  "browserRuntimePaths": [
+    "demo/brain-dashboard.html",
+    "demo/brain-dashboard.js",
+    "demo/phase2-shell/README.md",
+    "demo/phase2-shell/app.js",
+    "demo/phase2-shell/index.html",
+    "demo/phase2-shell/review-workspaces.js",
+    "demo/phase2-shell/review.css",
+    "demo/phase2-shell/scenarios/index.js",
+    "demo/phase2-shell/scenarios/wave10-context-trace.js",
+    "demo/wave12-host-harness/harness.css",
+    "demo/wave12-host-harness/harness.js",
+    "demo/wave12-host-harness/index.html",
+    "demo/wave6-front-face.html",
+    "demo/wave6-front-face.js",
+    "demo/wave8-brain.html",
+    "demo/wave8-brain.js",
+    "src/ui-core/accessibility.js",
+    "src/ui-core/action-router.js",
+    "src/ui-core/cognitive-widgets.js",
+    "src/ui-core/constants.js",
+    "src/ui-core/dashboard.js",
+    "src/ui-core/ember-tavern-wave2.js",
+    "src/ui-core/ember-tavern-wave3.js",
+    "src/ui-core/index.js",
+    "src/ui-core/inspector.js",
+    "src/ui-core/lifecycle.js",
+    "src/ui-core/mock-brain.js",
+    "src/ui-core/notifications.js",
+    "src/ui-core/overlay.js",
+    "src/ui-core/persistence.js",
+    "src/ui-core/primitives.js",
+    "src/ui-core/provenance-ui.js",
+    "src/ui-core/registry.js",
+    "src/ui-core/render-scheduler.js",
+    "src/ui-core/responsive.js",
+    "src/ui-core/shell.js",
+    "src/ui-core/signals.js",
+    "src/ui-core/virtualization.js",
+    "src/ui-core/wave11-live-bindings.js",
+    "src/ui-core/wave12-sillytavern-host.js",
+    "src/ui-core/wave2-adapters.js",
+    "src/ui-core/wave2-coprocessor-workspace.js",
+    "src/ui-core/wave2-hot-inspector.js",
+    "src/ui-core/wave2-models.js",
+    "src/ui-core/wave2-runtime-workspace.js",
+    "src/ui-core/wave2-scene-workspace.js",
+    "src/ui-core/wave2-workspaces.js",
+    "src/ui-core/wave3-adapters.js",
+    "src/ui-core/wave3-coprocessor-workspace.js",
+    "src/ui-core/wave3-inspector.js",
+    "src/ui-core/wave3-memory-workspace.js",
+    "src/ui-core/wave3-models.js",
+    "src/ui-core/wave3-precision-workspace.js",
+    "src/ui-core/wave3-runtime-workspace.js",
+    "src/ui-core/wave3-workspaces.js",
+    "src/ui-core/wave4-extension-registry.js",
+    "src/ui-core/wave4-generic-inspection.js",
+    "src/ui-core/wave4-runtime-adapter.js",
+    "src/ui-core/wave5-fixtures.js",
+    "src/ui-core/wave5-front-face.js",
+    "src/ui-core/wave5-product-model.js",
+    "src/ui-core/wave6-brain-pulse.js",
+    "src/ui-core/wave6-contracts.js",
+    "src/ui-core/wave6-front-face.js",
+    "src/ui-core/wave6-presentation.js",
+    "src/ui-core/wave6-production-adapters.js",
+    "src/ui-core/wave6-runtime.js",
+    "src/ui-core/wave7-bindings.js",
+    "src/ui-core/wave7-explainability.js",
+    "src/ui-core/wave7-forensics.js",
+    "src/ui-core/wave7-workspaces.js",
+    "src/ui-core/wave8-bindings.js",
+    "src/ui-core/wave8-cognition.js",
+    "src/ui-core/wave8-production-adapters.js",
+    "src/ui-core/wave8-workspace.js"
+  ],
+  "nodeOnlyToolPaths": [],
+  "requiredWebApis": [
+    "DOM"
+  ],
+  "optionalWebApis": [],
+  "hostCapabilities": [
+    "SillyTavern getContext()",
+    "SillyTavern eventSource",
+    "Adjacent DOM mount beside #sheld"
+  ],
+  "artifactContracts": [
+    {
+      "name": "SillyTavern host adapter",
+      "version": "1.0.0"
+    },
+    {
+      "name": "Wave 11 live receipt binding",
+      "version": "accepted Wave 11"
+    }
+  ],
+  "requiredAdapters": [
+    "Deployment owner hostBindings -> UI.Core live binding",
+    "SillyTavern getContext/eventSource -> Wave 12 host adapter"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js",
+    "src/ui-core/wave12-sillytavern-host.js"
+  ],
+  "integrationOnlyPatches": [],
+  "knownConflicts": []
+}

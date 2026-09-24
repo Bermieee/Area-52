@@ -6,6 +6,8 @@ import {
   MEMORY_CONTRACT_VERSION,
   MEMORY_HIERARCHY_API_VERSION,
   MEMORY_HIERARCHY_CONTRACT_VERSION,
+  MEMORY_EVIDENCE_BRIDGE_API_VERSION,
+  MEMORY_EVIDENCE_BRIDGE_CONTRACT_VERSION,
   SCENE_MEMORY_HANDOFF_COMPAT_VERSION,
   deepClone,
 } from './memory-contracts.js';
@@ -26,14 +28,20 @@ export function createMemoryIntegrationSurface(producer) {
       historian:HISTORIAN_COMPAT_VERSION,
       candidateNomination:'1.0.0',
       hierarchy:MEMORY_HIERARCHY_CONTRACT_VERSION,
+      evidenceBridge:MEMORY_EVIDENCE_BRIDGE_CONTRACT_VERSION,
     },
     adapters:{
-      applyCoreSettlement:(envelope)=>producer.applySettlement(envelope),
+      applyCoreSettlement:(envelope,options={})=>producer.applyCoreSettlement(envelope,options),
+      applyMemoryNativeSettlement:(envelope)=>producer.applySettlement(envelope),
+      admitExternalEvidenceMapping:(input)=>producer.admitExternalEvidenceMapping(input),
+      invalidateExternalEvidenceMapping:(input)=>producer.invalidateExternalEvidenceMapping(input),
+      acceptSceneOwnerEvent:(event,options={})=>producer.acceptSceneOwnerEvent(event,options),
       acceptSceneExperience:(proposal,options={})=>producer.ingestSceneExperience(proposal,options),
       acceptGreenRoomBatch:(batch,options={})=>producer.ingestGreenRoomBatch(batch,options),
       resolveHistorian:(request)=>producer.resolveHistorianMemoryRequest(request),
       queryHistorian:(request)=>producer.queryHistorian(request),
-      drillDown:(nominationOrRecordRef)=>producer.drillDown(nominationOrRecordRef),
+      drillDown:(nominationOrRecordRef,options={})=>producer.drillDown(nominationOrRecordRef,options),
+      profileHierarchyQuery:(request,options={})=>producer.profileHierarchyQuery(request,options),
       defineSummaryScope:(input)=>producer.defineSummaryScope(input),
       runSummaryCompaction:(options={})=>producer.runSummaryCompaction(options),
       summaryWorkUnits:(options={})=>producer.summaryWorkUnits(options),
@@ -48,13 +56,13 @@ export function createMemoryIntegrationSurface(producer) {
     directorAdapterNotes:[
       {
         seam:'SCENE_EVIDENCE_RESOLUTION',
-        status:'ADAPTER_REQUIRED_AT_ASSEMBLY_IF_SCENE_REFS_ARE_NOT_ALREADY_IN_MEMORY_EVIDENCE',
-        behavior:'Memory admits reference-first SceneExperienceProposal records but withholds them from fresh Historian retrieval until every evidence/source revision resolves.',
+        status:'MEMORY_BRIDGE_READY_FOR_ASSEMBLY',
+        behavior:'Admit owner artifact + exact source/evidence mapping, route SCENE_BOUNDARY_CONFIRMED / SCENE_EPISODE_READY, then route SceneExperienceProposal. Memory withholds the episode until exact refs, source revisions and Scene boundary fences resolve.',
       },
       {
         seam:'CORE_SETTLEMENT_EVIDENCE',
-        status:'EXACT_EVIDENCE_REQUIRED',
-        behavior:'Memory accepts canonical mutation only after the owner Settlement envelope refers to evidence/source revisions already admitted into Memory.',
+        status:'MEMORY_BRIDGE_READY_FOR_ASSEMBLY',
+        behavior:'Admit each Core owner evidence artifact through the exact bridge, then call applyCoreSettlement with explicit owner artifact descriptors. Mapping is prerequisite only; the existing proposal/decision/receipt validator remains the canonical gate.',
       },
       {
         seam:'GREEN_ROOM',
@@ -82,6 +90,8 @@ export function createMemoryIntegrationSurface(producer) {
       runtimeScheduling:false,
       summaryAuthority:false,
       summaryContextSeal:false,
+      evidenceMappingAuthority:false,
+      evidenceBridgeApiVersion:MEMORY_EVIDENCE_BRIDGE_API_VERSION,
     },
   };
 }
@@ -100,6 +110,8 @@ export function createMemoryIntegrationFixture(producer) {
     historianStatus:deepClone(status.historian),
     summaryHierarchyStatus:deepClone(status.summaryHierarchy),
     hierarchyApiVersion:MEMORY_HIERARCHY_API_VERSION,
+    evidenceBridgeStatus:deepClone(status.evidenceBridge),
+    evidenceBridgeApiVersion:MEMORY_EVIDENCE_BRIDGE_API_VERSION,
     ownership:deepClone(api.ownership),
     adapters:deepClone(api.adapters),
   };

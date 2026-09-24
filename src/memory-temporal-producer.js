@@ -10,6 +10,7 @@ import {MemoryGreenRoomStore} from './memory-green-room.js';
 import {MemoryExperienceStore} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';
 import {MemorySummaryHierarchy} from './memory-summary-hierarchy.js';
+import {MemoryExternalEvidenceBridge} from './memory-evidence-bridge.js';
 
 export class MemoryTemporalProducer {
   constructor({
@@ -18,6 +19,7 @@ export class MemoryTemporalProducer {
     experienceStore=null,
     historian=null,
     summaryHierarchy=null,
+    evidenceBridge=null,
     snapshot=null,
   }={}) {
     this.graph=graph;
@@ -25,6 +27,7 @@ export class MemoryTemporalProducer {
     this.experienceStore=experienceStore??new MemoryExperienceStore({graph});
     this.historian=historian??new MemoryHistorianIndex({graph,experienceStore:this.experienceStore});
     this.summaryHierarchy=summaryHierarchy??new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore});
+    this.evidenceBridge=evidenceBridge??new MemoryExternalEvidenceBridge({graph:this.graph});
     this.diagnostics=[];
     if (snapshot) this.restore(snapshot);
   }
@@ -42,9 +45,119 @@ export class MemoryTemporalProducer {
   }
 
   ingestSceneExperience(proposal,options={}) {
-    const episode=this.experienceStore.ingestSceneExperience(proposal,options);
+    const record=this.evidenceBridge.registerSceneProposal(proposal,options);
+    return this.refreshSceneExperienceProposal(record.proposalId,{currentSceneRevision:options.currentSceneRevision??null});
+  }
+
+  refreshSceneExperienceProposal(proposalId,{currentSceneRevision=null}={}) {
+    const record=this.evidenceBridge.sceneProposals.get(proposalId);
+    if (!record) throw new Error('MEMORY_SCENE_PROPOSAL_UNKNOWN:'+String(proposalId));
+    const resolution=this.evidenceBridge.resolveSceneProposal(proposalId,{currentSceneRevision});
+    const episode=this.experienceStore.ingestSceneExperience(record.proposal,{
+      ...(record.options??{}),
+      bridgeResolution:resolution,
+    });
     this.summaryHierarchy.onEpisodePublished(episode);
+    if (episode.freshness==='FRESH'&&resolution.status==='RESOLVED') this.ensureSceneSummaryScope(record.proposal,episode,resolution);
+    this.historian.build();
     return episode;
+  }
+
+  ensureSceneSummaryScope(proposal,episode,resolution) {
+    const scopeRef='SCENE:'+proposal.sceneId;
+    const desiredEvidence=[...(episode.evidenceRefs??[])].sort();
+    const desiredEpisodes=[episode.logicalId].sort();
+    const existing=this.summaryHierarchy.scope(scopeRef);
+    if (
+      existing
+      && stableStringify([...(existing.evidenceRefs??[])].sort())===stableStringify(desiredEvidence)
+      && stableStringify([...(existing.episodeLogicalIds??[])].sort())===stableStringify(desiredEpisodes)
+    ) return existing;
+    return this.summaryHierarchy.defineScope({
+      level:'SCENE',
+      scopeId:proposal.sceneId,
+      evidenceRefs:desiredEvidence,
+      episodeLogicalIds:desiredEpisodes,
+      narrativeTimeRange:episode.timeBounds,
+      provenance:[
+        'scene-proposal:'+proposal.proposalId,
+        ...(resolution.mappingIds??[]).map((id)=>'evidence-map:'+id),
+        ...(resolution.sceneBoundaryEventId?['scene-boundary:'+resolution.sceneBoundaryEventId]:[]),
+      ],
+    });
+  }
+
+  admitExternalEvidenceMapping(input) {
+    const receipt=this.evidenceBridge.admitMapping(input);
+    const materializedSceneEpisodes=[];
+    if (receipt.status==='ADMITTED') {
+      const evidence=this.graph.evidenceRecord(receipt.memoryEvidenceId);
+      if (evidence) this.summaryHierarchy.onEvidenceAppended(evidence);
+      for (const proposalId of receipt.affectedSceneProposalIds??[]) {
+        materializedSceneEpisodes.push(this.refreshSceneExperienceProposal(proposalId));
+      }
+      if (materializedSceneEpisodes.length) this.historian.build();
+    }
+    return {
+      ...receipt,
+      materializedSceneEpisodes:materializedSceneEpisodes.map((episode)=>({
+        id:episode.id,
+        logicalId:episode.logicalId,
+        revision:episode.revision,
+        freshness:episode.freshness,
+      })),
+      memoryRevisionRefs:this.memoryRevisionRefs(),
+    };
+  }
+
+  acceptSceneOwnerEvent(event,options={}) {
+    const receipt=this.evidenceBridge.acceptSceneEvent(event,options);
+    const materializedSceneEpisodes=[];
+    if (['ACCEPTED','RECORDED_NONCONFIRMING'].includes(receipt.status)) {
+      const ids=new Set(receipt.affectedSceneProposalIds??[]);
+      if (options.currentSceneRevision!=null) {
+        for (const record of this.evidenceBridge.sceneProposals.values()) {
+          if (record.proposal.sceneId===event.sceneId) ids.add(record.proposalId);
+        }
+      }
+      for (const proposalId of ids) {
+        materializedSceneEpisodes.push(this.refreshSceneExperienceProposal(proposalId,{
+          currentSceneRevision:options.currentSceneRevision??null,
+        }));
+      }
+    }
+    return {
+      ...receipt,
+      materializedSceneEpisodes:materializedSceneEpisodes.map((episode)=>({
+        id:episode.id,
+        logicalId:episode.logicalId,
+        revision:episode.revision,
+        freshness:episode.freshness,
+      })),
+      memoryRevisionRefs:this.memoryRevisionRefs(),
+    };
+  }
+
+  invalidateExternalEvidenceMapping(input={}) {
+    const bridgeReceipt=this.evidenceBridge.invalidateMapping(input);
+    if (bridgeReceipt.status!=='INVALIDATED') return bridgeReceipt;
+    const dependency=this.invalidateSourceRevision(bridgeReceipt.sourceRevisionId,{
+      replacedBy:input.replacedBySourceRevisionId??null,
+      removed:Boolean(input.removed),
+      reason:input.reason??'OWNER_EVIDENCE_INVALIDATED',
+    });
+    const refreshed=[];
+    for (const proposalId of bridgeReceipt.affectedSceneProposalIds??[]) {
+      refreshed.push(this.refreshSceneExperienceProposal(proposalId));
+    }
+    return {
+      ...bridgeReceipt,
+      dependencyInvalidation:dependency,
+      refreshedSceneEpisodes:refreshed.map((episode)=>({
+        id:episode.id,logicalId:episode.logicalId,revision:episode.revision,freshness:episode.freshness,
+      })),
+      memoryRevisionRefs:this.memoryRevisionRefs(),
+    };
   }
 
   publishEpisode(input) {
@@ -58,6 +171,47 @@ export class MemoryTemporalProducer {
     this.summaryHierarchy.invalidateEvidenceRefs(envelope?.proposal?.evidenceIds??[],'SETTLEMENT_CHANGED');
     this.historian.build();
     return result;
+  }
+
+  applyCoreSettlement(envelope,options={}) {
+    try {
+      const mapped=this.evidenceBridge.mapCoreSettlementEnvelope(envelope,options);
+      const settlement=this.applySettlement(mapped.mappedEnvelope);
+      return {
+        kind:'MemoryCoreSettlementAdapterReceipt',
+        contractVersion:'1.0.0',
+        status:settlement?.kind==='MemorySettlementReplayReceipt'?'REPLAYED':'APPLIED',
+        externalProposalId:mapped.externalProposalId,
+        externalEvidenceIds:mapped.externalEvidenceIds,
+        memoryEvidenceIds:mapped.memoryEvidenceIds,
+        mappingIds:mapped.mappingIds,
+        settlement:deepClone(settlement),
+        reasonCode:null,
+        authorityGranted:false,
+        settlementAuthority:false,
+        canonicalMutationAuthority:false,
+        contextSealAuthority:false,
+      };
+    } catch (error) {
+      const receipt={
+        kind:'MemoryCoreSettlementAdapterReceipt',
+        contractVersion:'1.0.0',
+        status:'REJECTED',
+        externalProposalId:envelope?.proposal?.id??null,
+        externalEvidenceIds:[...(envelope?.proposal?.evidenceIds??[])],
+        memoryEvidenceIds:[],
+        mappingIds:[],
+        settlement:null,
+        reasonCode:error?.code??error?.message??'MEMORY_CORE_SETTLEMENT_ADAPTER_FAILED',
+        details:deepClone(error?.details??{}),
+        authorityGranted:false,
+        settlementAuthority:false,
+        canonicalMutationAuthority:false,
+        contextSealAuthority:false,
+      };
+      this.pushDiagnostic(receipt);
+      return receipt;
+    }
   }
 
   currentProjection(options={}) {
@@ -288,9 +442,20 @@ export class MemoryTemporalProducer {
     }
   }
 
-  drillDown(nominationOrRecordRef) {
+  drillDown(nominationOrRecordRef,options={}) {
     const summary=this.summaryHierarchy.drillDown(nominationOrRecordRef);
-    return summary.length?summary:this.historian.drillDown(nominationOrRecordRef);
+    const rows=summary.length?summary:this.historian.drillDown(nominationOrRecordRef);
+    const perspective=options.perspectiveConstraint
+      ??(typeof nominationOrRecordRef==='object'?nominationOrRecordRef?.metadata?.perspective:null)
+      ??{scope:'WORLD'};
+    if(perspective?.scope!=='CHARACTER_KNOWLEDGE')return rows;
+    const characterRef=perspective.characterRef??perspective.characterId??null;
+    if(!characterRef)return [];
+    return rows.filter((row)=>(row.knownBy??[]).includes(characterRef));
+  }
+
+  profileHierarchyQuery(request,options={}) {
+    return this.summaryHierarchy.profileSummaryQuery(request,options);
   }
 
   defineSummaryScope(input) {
@@ -323,7 +488,7 @@ export class MemoryTemporalProducer {
   }
 
   memoryRevisionRefs() {
-    return [...this.historian.memoryRevisionRefs(),this.summaryHierarchy.revisionRef()].sort();
+    return [...this.historian.memoryRevisionRefs(),this.summaryHierarchy.revisionRef(),this.evidenceBridge.revisionRef()].sort();
   }
 
   startConsolidation(jobs=[]) {
@@ -360,6 +525,9 @@ export class MemoryTemporalProducer {
         'HISTORIAN_RESOLVER',
         'EXACT_EVIDENCE_DRILLBACK',
         'HIERARCHICAL_SUMMARY_COMPACTION',
+        'EXTERNAL_EVIDENCE_IDENTITY_BRIDGE',
+        'SCENE_EVIDENCE_LATE_RESOLUTION',
+        'CORE_SETTLEMENT_EVIDENCE_MAPPING',
         'RESOLUTION_AWARE_HISTORIAN',
         'SUMMARY_WORK_REVISION_FENCES',
         'SNAPSHOT_RELOAD',
@@ -372,6 +540,7 @@ export class MemoryTemporalProducer {
         reflection:'INFERRED_DURABLE',
         historian:'NOMINATION_ONLY',
         summaries:'DERIVED_NAVIGATION_ONLY',
+        evidenceBridge:'IDENTITY_AND_EXACT_CONTENT_ONLY',
         candidateBusAdmission:false,
         truthGate:false,
         settlement:false,
@@ -384,6 +553,7 @@ export class MemoryTemporalProducer {
         greenRoom:'GreenRoomBatch v1.1.0',
         historian:'HistorianMemoryResolution v1.0.0 + CandidateNomination v1.0.0',
         hierarchy:'MemoryHierarchicalSummary v1.0.0 + MemorySummaryCompactionWorkUnit v1.0.0',
+        evidenceBridge:'MemoryExternalEvidenceMapping v1.0.0 + MemoryCoreSettlementAdapterReceipt v1.0.0',
       },
     };
   }
@@ -401,6 +571,7 @@ export class MemoryTemporalProducer {
       reflectionCount:this.experienceStore.reflections.size,
       historian:this.historian.status(),
       summaryHierarchy:this.summaryHierarchy.status(),
+      evidenceBridge:this.evidenceBridge.status(),
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -419,6 +590,7 @@ export class MemoryTemporalProducer {
       experienceStore:this.experienceStore.snapshot(),
       historian:this.historian.snapshot(),
       summaryHierarchy:this.summaryHierarchy.snapshot(),
+      evidenceBridge:this.evidenceBridge.snapshot(),
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -429,6 +601,7 @@ export class MemoryTemporalProducer {
     this.experienceStore=new MemoryExperienceStore({graph:this.graph,snapshot:snapshot?.experienceStore??null});
     this.historian=new MemoryHistorianIndex({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.historian??null});
     this.summaryHierarchy=new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.summaryHierarchy??null});
+    this.evidenceBridge=new MemoryExternalEvidenceBridge({graph:this.graph,snapshot:snapshot?.evidenceBridge??null});
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
   }
 

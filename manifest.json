@@ -1,0 +1,12 @@
+{
+  "display_name": "Area-52 Phase 1 Function Test",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Bermieee / Area-52",
+  "version": "0.1.0-alpha.1",
+  "homePage": "https://github.com/Bermieee/Area-52",
+  "auto_update": false
+}

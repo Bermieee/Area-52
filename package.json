@@ -1,10 +1,12 @@
 {
   "name": "area-52",
-  "version": "0.1.0-dev",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "type": "module",
-  "description": "Experimental cognitive memory core for Nexus",
+  "description": "Area-52 Phase 1 integrated function-test and SillyTavern extension assembly",
   "scripts": {
-    "test": "node tests/cognitive-core.mjs"
+    "test": "node --test tests/function-test-001.mjs",
+    "test:function-001": "node --test tests/function-test-001.mjs",
+    "check": "find src tests -type f \\( -name '*.js' -o -name '*.mjs' \\) -print0 | xargs -0 -n1 node --check"
   }
 }

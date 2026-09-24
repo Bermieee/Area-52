@@ -57,3 +57,14 @@ The current direction is explicitly hybrid: lore study, sparse + dense retrieval
 **0.1-dev — blueprint phase.**
 
 Implementation is subordinate to the blueprint. Area-52 remains isolated from production Nexus until the cognitive contracts and invariants are proven.
+
+
+## SillyTavern direct install
+
+Phase 1 Function Test 001 is assembled on `main` as a SillyTavern UI extension. In SillyTavern, open **Extensions → Install Extension** and paste:
+
+`https://github.com/Bermieee/Area-52`
+
+The accepted worker-lane files are copied into `main`; their source branches remain intact. After installation, open the Extensions panel, find **Area-52 — Phase 1**, and press **Run Test**. The same test is available from the browser console as `Area52.runFunctionTest001()`.
+
+Function Test 001 exercises the copied Coprocessor, Runtime Fabric, Nexus Result Bus/Context Seal, and Adaptive Context Runtime/PromptPlan boundaries using the deterministic Ember Tavern / Sun Blade fixture.

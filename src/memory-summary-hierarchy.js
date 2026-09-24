@@ -791,19 +791,38 @@ export class MemorySummaryHierarchy {
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
-    const scored=[];
+    const all=this.currentArtifacts({freshOnly:true});
+    const tierOrder=preferred==='STORY'
+      ? [['STORY'],['ARC'],['CHAPTER','SESSION'],['SCENE']]
+      : preferred==='ARC'
+        ? [['ARC'],['CHAPTER','SESSION'],['STORY'],['SCENE']]
+        : preferred==='SCENE'
+          ? [['SCENE'],['CHAPTER','SESSION'],['ARC'],['STORY']]
+          : [[preferred],['SCENE'],['CHAPTER','SESSION'],['ARC'],['STORY']];
     let examined=0;
-    for (const artifact of this.currentArtifacts({freshOnly:true})) {
-      examined+=1;
-      if (examined>MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
-      if (artifact.representationText.length>budget) continue;
-      if (perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE) {
-        const characterRef=perspective.characterRef??perspective.characterId;
-        if (!characterRef||!artifact.knowledgeFence.fullyKnownBy.includes(characterRef)) continue;
+    let scored=[];
+    let selectedTier=[];
+    for (const tier of tierOrder) {
+      const tierScored=[];
+      for (const artifact of all) {
+        if (!tier.includes(artifact.scopeLevel)) continue;
+        examined+=1;
+        if (examined>MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
+        if (artifact.representationText.length>budget) continue;
+        if (perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE) {
+          const characterRef=perspective.characterRef??perspective.characterId;
+          if (!characterRef||!artifact.knowledgeFence.fullyKnownBy.includes(characterRef)) continue;
+        }
+        const score=this.summaryScore(artifact,queryTokens,activeEntityIds,preferred);
+        if (!score.eligible) continue;
+        tierScored.push({artifact,score});
       }
-      const score=this.summaryScore(artifact,queryTokens,activeEntityIds,preferred);
-      if (!score.eligible) continue;
-      scored.push({artifact,score});
+      if (tierScored.length) {
+        scored=tierScored;
+        selectedTier=tier;
+        break;
+      }
+      if (examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
     }
     this.costCounters.historianSummaryArtifactsExamined+=examined;
     scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.resolutionFit-a.score.resolutionFit||a.artifact.scopeRef.localeCompare(b.artifact.scopeRef));
@@ -818,8 +837,8 @@ export class MemorySummaryHierarchy {
     const picked=deduped.slice(0,cap);
     const intentId=request.retrievalIntentId??('memory-intent:'+stableHash(String(request.mode??'EXPLICIT_HISTORY')+'|'+String(request.query??'').toLowerCase()));
     const nominations=picked.map(({artifact,score})=>createCandidateNomination({
-      nominationId:'memory-summary-nomination:'+stableHash(intentId+'|'+artifact.id),
-      candidateId:'memory-summary-candidate:'+stableHash(artifact.id),
+      nominationId:'memory-summary-nomination:' + stableHash(intentId+'|'+artifact.id),
+      candidateId:'memory-summary-candidate:' + stableHash(artifact.id),
       evidenceIdentity:'summary-range:'+artifact.sourceRangeHash,
       artifactRef:createArtifactReference({
         artifactId:artifact.id,
@@ -875,6 +894,7 @@ export class MemorySummaryHierarchy {
         navigationOnly:true,
         unresolvedSetRefs:[...artifact.unresolvedSetRefs],
         perspective:deepClone(perspective),
+        retrievalRecordRef:'memory-summary-record:'+artifact.id,
         retrievalRankAuthority:false,
         truthAuthorityGranted:false,
         memoryMutation:false,
@@ -886,7 +906,7 @@ export class MemorySummaryHierarchy {
       worldRevision:artifact.sourceRange.worldRevision.end,
       sceneRevision:artifact.scopeLevel==='SCENE'?artifact.sourceRange.sceneRevision.end:null,
     }));
-    return {nominations,examined,matched:scored.length};
+    return {nominations,examined,matched:scored.length,selectedTier};
   }
 
   applyBudgetToBase(base,request) {

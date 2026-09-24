@@ -18,6 +18,13 @@ export function makeBadge(doc, text, status = 'ready') {
   return element(doc, 'span', { className: 'a52-badge', text, dataset: { status } });
 }
 
+export function makeHealthPill(doc, { label = 'Healthy', status = 'ready', detail = '' } = {}) {
+  const pill = element(doc, 'span', { className: 'a52-health-pill', attrs: { role: 'status', 'aria-label': detail ? `${label}: ${detail}` : label }, dataset: { status } });
+  pill.append(element(doc, 'span', { text: label }));
+  if (detail) pill.append(element(doc, 'span', { className: 'a52-health-pill__detail', text: detail }));
+  return pill;
+}
+
 export function makeStatusDot(doc, status, label = status) {
   return element(doc, 'span', { className: 'a52-status-dot', attrs: { role: 'img', 'aria-label': label }, dataset: { status } });
 }
@@ -30,8 +37,8 @@ export function makeCard(doc, { title, body, status, interactive = false } = {})
   return card;
 }
 
-export function createButton(doc, { label = 'Button', icon = '', ariaLabel, disabled = false, onPress, scope, className = 'a52-button' } = {}) {
-  const node = element(doc, 'button', { className, text: `${icon ? `${icon} ` : ''}${label}`, attrs: { type: 'button', disabled, 'aria-label': ariaLabel ?? label } });
+export function createButton(doc, { label = 'Button', icon = '', ariaLabel, disabled = false, onPress, scope, className = 'a52-button', variant = 'secondary', size = 'md' } = {}) {
+  const node = element(doc, 'button', { className, text: `${icon ? `${icon} ` : ''}${label}`, attrs: { type: 'button', disabled, 'aria-label': ariaLabel ?? label }, dataset: { variant, size } });
   if (onPress) {
     if (scope) scope.listen(node, 'click', onPress);
     else node.addEventListener('click', onPress);
@@ -164,6 +171,7 @@ export function registerPrimitiveWidgets(registry) {
   registry.register(domWidget('primitive.Button', P, cheap, (doc, p, scope) => createButton(doc, { ...p, scope })));
   registry.register(domWidget('primitive.IconButton', P, cheap, (doc, p, scope) => createButton(doc, { ...p, label: p.label ?? '', ariaLabel: p.ariaLabel ?? p.title ?? 'Icon button', scope, className: 'a52-icon-button' })));
   registry.register(domWidget('primitive.Badge', P, cheap, (doc, p) => makeBadge(doc, p.text ?? p.label ?? '', p.status)));
+  registry.register(domWidget('primitive.HealthPill', P, cheap, (doc, p) => makeHealthPill(doc, p)));
   registry.register(domWidget('primitive.StatusDot', P, cheap, (doc, p) => makeStatusDot(doc, p.status ?? 'ready', p.label)));
   registry.register(domWidget('primitive.TextField', P, cheap, (doc, p) => createTextField(doc, p)));
   registry.register(domWidget('primitive.SearchField', P, cheap, (doc, p) => createTextField(doc, { ...p, type: 'search', label: p.label ?? 'Search' })));

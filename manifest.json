@@ -1,0 +1,12 @@
+{
+  "display_name": "Area-52 Development Deployment",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Bermieee / Area-52",
+  "version": "0.2.0-development-deployment",
+  "homePage": "https://github.com/Bermieee/Area-52",
+  "auto_update": false
+}

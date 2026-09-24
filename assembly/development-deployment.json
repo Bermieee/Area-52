@@ -73,12 +73,47 @@
       "originCommit": "90260613195a0842f15580f88c31fbd37ca5270d",
       "reason": "Vertical-slice acceptance harness including native Scene revision/delta",
       "latestCommit": "9bef503efbc15e8b21265cbceedf32e89174bcb7"
+    },
+    {
+      "path": "manifest.json",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "SillyTavern install manifest for live #224 evidence capture"
+    },
+    {
+      "path": "index.js",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Live host controls and operator evidence export"
+    },
+    {
+      "path": "style.css",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Minimal SillyTavern settings-panel controls"
+    },
+    {
+      "path": "src/deployment/sillytavern-live.js",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Integration-owned real-host evidence seam; uses assembled owner APIs without changing owner authority"
+    },
+    {
+      "path": "tests/deployment-live-host.test.mjs",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Browser-shaped host-message / PromptPlan-injection / degraded-path regression"
+    },
+    {
+      "path": "docs/DEVELOPMENT_DEPLOYMENT_LIVE_DEMO_EVIDENCE.md",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Real SillyTavern #224 runbook and evidence boundary"
+    },
+    {
+      "path": "docs/DEVELOPMENT_DEPLOYMENT_MAIN_REVIEW.md",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Divergence-aware main review, rollback and owner-transfer package"
     }
   ],
   "liveGate": {
     "issue": 224,
-    "status": "PENDING",
-    "reason": "No real SillyTavern live-host session executed in this environment."
+    "status": "PENDING_REAL_SILLYTAVERN_RUN",
+    "reason": "Loadable live-evidence capture is packaged, but no real SillyTavern session was executed by this environment."
   },
   "issueState": {
     "190": "OPEN",
@@ -107,5 +142,13 @@
       "reason": "Restore omitted accepted Jev evaluation assets and reconcile bounded #211 replay retention with accepted Wave 8 stress.",
       "ownerAuthorityChanged": false
     }
-  ]
+  ],
+  "mainReview": {
+    "status": "DRAFT_REVIEW_REQUIRED",
+    "mainHeadAtPackagingStart": "daad62cc62c27acd12f7d77bf1fec5bdfc06ca45",
+    "mergeBaseAtPackagingStart": "f600c09011091ec8472104f22e89bb32152847c0",
+    "aheadByAtPackagingStart": 188,
+    "behindByAtPackagingStart": 6,
+    "reason": "main contains six valid Phase 1 live-package commits that must be reconciled rather than overwritten"
+  }
 }

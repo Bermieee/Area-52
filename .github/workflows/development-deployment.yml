@@ -170,3 +170,18 @@ jobs:
           node-version: 22
       - name: Full assembled regression
         run: npm test
+
+  live-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Host-driven live evidence package regression
+        run: node --test tests/deployment-live-host.test.mjs
+      - name: Root SillyTavern extension imports without Node Buffer
+        run: node -e "globalThis.Buffer=undefined; import('./index.js').then(()=>console.log('Development Deployment extension import PASS'))"

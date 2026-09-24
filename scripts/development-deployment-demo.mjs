@@ -122,7 +122,7 @@ assert.ok(ambiguous.jevProposal);
 assert.equal(ambiguous.jevProposal.abstained, true);
 assert.equal(ambiguous.jevProposal.mutationAuthority, false);
 assert.ok(ambiguous.published.packet.unresolved.length > 0);
-assert.equal(ambiguous.delivery.ok, true);
+assert.equal(ambiguous.delivery.ok, true, JSON.stringify({ status: ambiguous.delivery.status, failure: ambiguous.delivery.failure, integrityReceipt: ambiguous.delivery.integrityReceipt }, null, 2));
 
 const degraded = prepare({ resourceCount: 1, jevAvailable: false, chatId: 'chat:deployment-demo-degraded' });
 const noJev = await degraded.brain.runTurn({

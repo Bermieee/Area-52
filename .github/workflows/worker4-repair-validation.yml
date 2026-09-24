@@ -1,0 +1,24 @@
+name: Worker 4 Repair Validation
+on:
+  push:
+    branches: [Development-Repair-Validation]
+  workflow_dispatch:
+jobs:
+  worker4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Lore accepted regressions
+        run: node --test tests/lore-wave1.mjs tests/lore-wave2.mjs
+      - name: Jev accepted regressions
+        run: node --test tests/coprocessor-wave8-jev.test.mjs tests/coprocessor-wave9-lore.test.mjs tests/coprocessor-wave9-scene.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/coprocessor-wave9-cross-domain.test.mjs tests/coprocessor-wave9-authority.test.mjs
+      - name: UI Wave 9 independent focused validation
+        run: node --test tests/wave9.test.mjs tests/wave9-stress.mjs
+      - name: Browser/source syntax guard
+        run: |
+          find src/coprocessor src/ui-core demo/phase2-shell -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./demo/phase2-shell/app.js'),import('./demo/phase2-shell/review-workspaces.js'),import('./demo/phase2-shell/scenarios/index.js')]).then(() => console.log('Wave 9 browser module import PASS'))"

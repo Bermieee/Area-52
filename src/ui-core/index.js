@@ -43,3 +43,6 @@ export * from './wave6-brain-pulse.js';
 export * from './wave6-presentation.js';
 export * from './wave6-front-face.js';
 export * from './wave6-runtime.js';
+export * from './wave7-explainability.js';
+export * from './wave7-forensics.js';
+export * from './wave7-workspaces.js';

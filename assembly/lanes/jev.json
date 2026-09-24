@@ -1,0 +1,986 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "jev",
+  "branch": "Development-Sidecar/Jev",
+  "acceptedSha": "daa3d7218b2a1d90e68fcab01217559a512180c1",
+  "acceptanceRuns": [
+    {
+      "id": "36065381775",
+      "name": "Cognitive Coprocessor Wave 13"
+    },
+    {
+      "id": "36065381933",
+      "name": "Cognitive Coprocessor Wave 12"
+    },
+    {
+      "id": "36065381479",
+      "name": "Cognitive Coprocessor Wave 9"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "docs/ADAPTIVE_RETRIEVAL_CONTROL.md",
+      "sourceDigest": "e2ce1a89a7ed8f36e891a54a14bf21e9c7d18635"
+    },
+    {
+      "path": "docs/ADAPTIVE_RETRIEVAL_POLICY.md",
+      "sourceDigest": "3ac465d856a11b370179d22d75b7ff024d41e6b7"
+    },
+    {
+      "path": "docs/ARTIFACT_REFERENCE_CONTRACT.md",
+      "sourceDigest": "7329015ecb3021ad6a524bd2eb1e7753d3ab9865"
+    },
+    {
+      "path": "docs/CANDIDATE_BUS_COPROCESSOR_INTERFACE.md",
+      "sourceDigest": "421869f06beae7e662ac8412359a7c9aa3ac3b7e"
+    },
+    {
+      "path": "docs/CAPABILITY_NEGOTIATION_RUNTIME_CONTRACT.md",
+      "sourceDigest": "cfeda5a496b4d76aba4a0cb38f946593e4564e4e"
+    },
+    {
+      "path": "docs/CAPABILITY_PROFILE_REGISTRY.md",
+      "sourceDigest": "d785d82d9e22063534bdde3022927fe78c2d4d0c"
+    },
+    {
+      "path": "docs/CHARACTER_GREEN_ROOM.md",
+      "sourceDigest": "e64bd849ad10f2f87eda54877fdea95bf2addea0"
+    },
+    {
+      "path": "docs/CHARACTER_GREEN_ROOM_CONTRACT.md",
+      "sourceDigest": "f47118559cee3a2c6915db0241e49235dc11f245"
+    },
+    {
+      "path": "docs/COGNITIVE_DATA_PLANE.md",
+      "sourceDigest": "8916023a12327a53261b97b211d42d38d8dc8e0a"
+    },
+    {
+      "path": "docs/CONTINUOUS_CONSOLIDATION_CONTRACT.md",
+      "sourceDigest": "6f20c7e0264337cd06f02c28cfba4864e99175d0"
+    },
+    {
+      "path": "docs/CONTINUOUS_CONSOLIDATION_WORKER.md",
+      "sourceDigest": "35096ce19109f487db01635521539b56c63acad3"
+    },
+    {
+      "path": "docs/COPROCESSOR_BATCH_ADAPTER.md",
+      "sourceDigest": "a08f5d3b57129d40ed4bf6cfc8801e36e7721c21"
+    },
+    {
+      "path": "docs/COPROCESSOR_BENCHMARKS_WAVE2.md",
+      "sourceDigest": "667c14d70d62efd9ea990108420ebccf98417428"
+    },
+    {
+      "path": "docs/COPROCESSOR_BROWSER_COMPATIBILITY.md",
+      "sourceDigest": "66512f94835e4ed70fd820e5665b367e9a848718"
+    },
+    {
+      "path": "docs/COPROCESSOR_CAPABILITY_NEGOTIATION.md",
+      "sourceDigest": "d9e1f0b2379a2f64473a3ac703e66a86b396bfc5"
+    },
+    {
+      "path": "docs/COPROCESSOR_COGNITIVE_CHOICE_CONTRACT.md",
+      "sourceDigest": "97d0fdaf8ce96c6c87ee4af5b305b82ec4360a13"
+    },
+    {
+      "path": "docs/COPROCESSOR_FAILURE_FALLBACK_MATRIX.md",
+      "sourceDigest": "c72fbeaa03a9adfc1be31c781cc8480844a5c186"
+    },
+    {
+      "path": "docs/COPROCESSOR_INTEGRATION_COMPATIBILITY.md",
+      "sourceDigest": "e9abb0f5443040a63b40ae8bcac420fb98df7489"
+    },
+    {
+      "path": "docs/COPROCESSOR_PHASE1_CLOSURE.md",
+      "sourceDigest": "bb03a2875bffd384f469efcbe1795cbb53a171c4"
+    },
+    {
+      "path": "docs/COPROCESSOR_PRECISION_BENCHMARK.md",
+      "sourceDigest": "bf61fe9a1c83e3faf448260aa6809f6d8186b1ad"
+    },
+    {
+      "path": "docs/COPROCESSOR_PROVIDER_ADAPTERS.md",
+      "sourceDigest": "c6f75d9fe421898b760290bd3a1a9ac43ade119b"
+    },
+    {
+      "path": "docs/COPROCESSOR_TELEMETRY_CONTRACT.md",
+      "sourceDigest": "38166813d8d1bbdc51448d663b255f1dc6905047"
+    },
+    {
+      "path": "docs/COPROCESSOR_TURN_SWARM_CONTRACT.md",
+      "sourceDigest": "957dde4e9cd4b7843eb9ebc77599d5a4bc6e8e88"
+    },
+    {
+      "path": "docs/COPROCESSOR_UI_READ_MODEL.md",
+      "sourceDigest": "428e4a47f44f50f47b6c5bfbc198c7f2466cefe0"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE1.md",
+      "sourceDigest": "76d156f8adf90cd4c039ae8ebbb42900a56463ab"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE10_ACCEPTANCE.md",
+      "sourceDigest": "5361cafe62c20b7ce637f3dac5f7193c364ecadc"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE10_CHANGELOG.md",
+      "sourceDigest": "0480a1fbaadbb8562a2f7f020bb1c25442a37095"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE11_ACCEPTANCE.md",
+      "sourceDigest": "024007032df5ad275e5fb69ec686d089987c88c2"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE11_CHANGELOG.md",
+      "sourceDigest": "eaee9c987a5ca1df8bb2bbf32804cb61fe833b6d"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE12_ACCEPTANCE.md",
+      "sourceDigest": "d3575b3fc690e92cf24b2dc609c1884e909ed177"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE12_CHANGELOG.md",
+      "sourceDigest": "c45b338b14979d941a9c8d56fe51bd6d61d84534"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE13_ACCEPTANCE.md",
+      "sourceDigest": "1f3b790dca1e12b8fcc2d844e068f943794a475e"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE13_CHANGELOG.md",
+      "sourceDigest": "42a4a55a998f6b4908ea8ef207a342ab46c9f372"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE1_ACCEPTANCE.md",
+      "sourceDigest": "41b9087785f184b855a623fd4ecc45b8e9dcc052"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE1_CHANGELOG.md",
+      "sourceDigest": "c3b63c9d072f02f27cd5307c4d76bc71ab1f34df"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE1_TEST_EVIDENCE.md",
+      "sourceDigest": "439de807111fa089273e46d317a1ecd659cd9007"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE2.md",
+      "sourceDigest": "246653ddc7e416c758742123a9ee1dbdd67ed711"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "2e3d704c7f40f1cacf0d2eda36c4caf2ef9b1350"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE2_CHANGELOG.md",
+      "sourceDigest": "52f551142a691de7a40e0ad906d09f2fdda6dea4"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE2_RUNTIME_INTEGRATION.md",
+      "sourceDigest": "26e67ac08a655b3dfb71f3c8cada5c012132fdba"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE2_TEST_EVIDENCE.md",
+      "sourceDigest": "c141cc203eb2640e1d1755029eafae14861e4ac3"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "128b53d82a658c8226265b81bc9033547cfff7b6"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE3_BENCHMARKS.md",
+      "sourceDigest": "1c635a9ac40b2d81dd0bf5b82d0632993acec277"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE3_CHANGELOG.md",
+      "sourceDigest": "c599ce7b0f762404079bbb1b2b0aefbe808a20cf"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE4_ACCEPTANCE.md",
+      "sourceDigest": "5ce2afd764c31c7821fb33eb1e7fdb21d8862060"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE4_CHANGELOG.md",
+      "sourceDigest": "3b934c4997f70dfd698c5cb13df70e7f0cda3520"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE5_ACCEPTANCE.md",
+      "sourceDigest": "39852af6a1134cbed5a4c42c7bb8dd8e4ea7f126"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE6_ACCEPTANCE.md",
+      "sourceDigest": "124ee7b3882313ba1864db85d197e5770c376cd6"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE6_CHANGELOG.md",
+      "sourceDigest": "1ed3963f621660cc82184ef0f79ba84b8863578f"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE7_ACCEPTANCE.md",
+      "sourceDigest": "cf2967a94c6384dfa2afd2f7970c8ae2d9361c39"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE7_CHANGELOG.md",
+      "sourceDigest": "108f5deeff2b99ba140ff13c7e75753625179140"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE8_ACCEPTANCE.md",
+      "sourceDigest": "522910e1ea0a5f1fe2e17103941e7be64f405f00"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE8_CHANGELOG.md",
+      "sourceDigest": "41456b174e93d1db721947910277fc7f7ee75249"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE9_ACCEPTANCE.md",
+      "sourceDigest": "a314c23191e2dc497094de885a0465e526bbf92c"
+    },
+    {
+      "path": "docs/COPROCESSOR_WAVE9_CHANGELOG.md",
+      "sourceDigest": "210b56e301c226f8e9f5ebf7da8977cafa78f31e"
+    },
+    {
+      "path": "docs/COPROCESSOR_WORKER_CONTRACT.md",
+      "sourceDigest": "671b27fd207e4841a985271a5093b861c5848b4c"
+    },
+    {
+      "path": "docs/DYNAMIC_FANOUT_CONTRACT.md",
+      "sourceDigest": "39538ef84907d3a409d83ea9b6854ec7f7f81118"
+    },
+    {
+      "path": "docs/FOREGROUND_QUORUM_POLICY.md",
+      "sourceDigest": "952716037d23196b78168a6cef6a7b350643670e"
+    },
+    {
+      "path": "docs/FOREGROUND_SPECIALIST_CONTRACTS.md",
+      "sourceDigest": "9ff589e36a055f4a458dcc65ca30c5c7efa2e5fe"
+    },
+    {
+      "path": "docs/HISTORIAN_RETRIEVAL_WORKER.md",
+      "sourceDigest": "c00206ffaa41609045183f9174700b7a0ffbb90e"
+    },
+    {
+      "path": "docs/HOT_DEEP_PLACEMENT_POLICY.md",
+      "sourceDigest": "b20845eb3e26794a13c2dcdb1c471774897a099f"
+    },
+    {
+      "path": "docs/HOT_DEEP_RUNTIME_CONTRACT.md",
+      "sourceDigest": "b184c3ee3c81c9f56239e64015a85d2f27fe638d"
+    },
+    {
+      "path": "docs/JEV_CAPABILITY_MIGRATION.md",
+      "sourceDigest": "ba27261379466a4d6dddcfd400dfd8aac5bffdad"
+    },
+    {
+      "path": "docs/JEV_WAVE10_EVALUATION.md",
+      "sourceDigest": "2c6ad0ea512aa4701b0da7999152526caf31d670"
+    },
+    {
+      "path": "docs/JEV_WAVE11_NATIVE_OPTIONAL_ARCHITECTURE.md",
+      "sourceDigest": "13f97b6d0c854f18603e5d71e41ee935343bd89c"
+    },
+    {
+      "path": "docs/JEV_WAVE9_DOMAIN_ADAPTER_MATRIX.md",
+      "sourceDigest": "f163b4ae196010981e0f877460d9ee78eeadea1f"
+    },
+    {
+      "path": "docs/LORE_CANDIDATE_COMPATIBILITY.md",
+      "sourceDigest": "5c725a1a3510d23b0c26b74ea94fe761a4e4cfb9"
+    },
+    {
+      "path": "docs/MEMORY_CANDIDATE_COMPATIBILITY.md",
+      "sourceDigest": "7731d152408151ec3c497df62010291e1a656dc7"
+    },
+    {
+      "path": "docs/PRECISION_BENCHMARKS_WAVE4.md",
+      "sourceDigest": "584302667fb5e6ea330c46ec3a58eb55d8a1d1cc"
+    },
+    {
+      "path": "docs/PRECISION_FALLBACK_POLICY.md",
+      "sourceDigest": "a419e18f113a0cd023f34610279c26e93cb6f425"
+    },
+    {
+      "path": "docs/PRECISION_GATEWAY_CONTRACT.md",
+      "sourceDigest": "414cb074b4cdf1aae42398a70b2fac831d49473f"
+    },
+    {
+      "path": "docs/PRECISION_TRUTH_BOUNDARY.md",
+      "sourceDigest": "605eab940c215510c52e09de81323e85940ee6f7"
+    },
+    {
+      "path": "docs/PROVIDER_EXECUTION_ADAPTER.md",
+      "sourceDigest": "29a308ccc2f6b743523c006e2e57b08cde566151"
+    },
+    {
+      "path": "docs/PROVIDER_HEALTH_AND_FALLBACK.md",
+      "sourceDigest": "1ad14bf19e4762faf2967c576d850f8edc6b8ce7"
+    },
+    {
+      "path": "docs/SPECULATIVE_WARMER_CONTRACT.md",
+      "sourceDigest": "73cdecd09fe9a3f8896d37f6eaac12c42539073a"
+    },
+    {
+      "path": "docs/STREAMING_TRUTH_MONITOR.md",
+      "sourceDigest": "e64d9e769b51cd1a4016d0aa4e32e0629e0c1e45"
+    },
+    {
+      "path": "docs/TURN_EVENT_COPROCESSOR_CONTRACT.md",
+      "sourceDigest": "57dcf3dd3f1e3d31739f5646af74c949205cb33d"
+    },
+    {
+      "path": "evaluation/coprocessor-wave13-evaluator.mjs",
+      "sourceDigest": "049115a733236a8eb5b4019f9b084c8dcaecad90"
+    },
+    {
+      "path": "scripts/coprocessor-wave13-evaluation.mjs",
+      "sourceDigest": "239c0edbfe58fce588b8297542240ae978274d41"
+    },
+    {
+      "path": "scripts/ft005-provider-readiness.mjs",
+      "sourceDigest": "c8f4e1ac94ed462c1bc5385ca5e3c52143acaf11"
+    },
+    {
+      "path": "scripts/jev-wave10-evaluation.mjs",
+      "sourceDigest": "13cd87d44cd1a0951e3d00cf96b714d664daa097"
+    },
+    {
+      "path": "scripts/jev-wave10-live-smoke.mjs",
+      "sourceDigest": "6c9ea578536fe71960ecc3303566f2cf3aab8ccf"
+    },
+    {
+      "path": "scripts/jev-wave11-evaluation.mjs",
+      "sourceDigest": "048ef8857b88864e220eb7faf7c1aec6bbd622b1"
+    },
+    {
+      "path": "scripts/manual-provider-smoke.mjs",
+      "sourceDigest": "9d76a620b594617c9cf84f7dd99c3ad2dd782659"
+    },
+    {
+      "path": "scripts/speculative-warmer-wave12-evaluation.mjs",
+      "sourceDigest": "d515dce9064803419852bcc62445d05d1718fdd0"
+    },
+    {
+      "path": "scripts/wave11-host-example.mjs",
+      "sourceDigest": "a5dc6177225955b7675811ff60ca58b8028b2688"
+    },
+    {
+      "path": "src/coprocessor/artifact-reference.js",
+      "sourceDigest": "369cee22a1244d8d7a8aedb3d553c049ce041195"
+    },
+    {
+      "path": "src/coprocessor/batch-adapter.js",
+      "sourceDigest": "3395f6bab4b3d84c5e3e77e5cf3c4f7fa2e01ac3"
+    },
+    {
+      "path": "src/coprocessor/benchmark.js",
+      "sourceDigest": "ef35f000c4b4c25a010fa8a8202851e6120de5d2"
+    },
+    {
+      "path": "src/coprocessor/browser-compat.js",
+      "sourceDigest": "fabf115bad09cd152653f4a2bb0be96a7b40d08b"
+    },
+    {
+      "path": "src/coprocessor/candidate-bus.js",
+      "sourceDigest": "4073178b58776d05b1f4faf7c6808beeea4bb064"
+    },
+    {
+      "path": "src/coprocessor/capability-negotiation.js",
+      "sourceDigest": "7759e008f07228bc915fd3d77c4a37ca0d4d5c9c"
+    },
+    {
+      "path": "src/coprocessor/capability-profiles.js",
+      "sourceDigest": "fdffa6864c73e07b39849a1f2d6d9989bbbbcdac"
+    },
+    {
+      "path": "src/coprocessor/cognitive-choice-execution.js",
+      "sourceDigest": "145a517adf906ddbac8d6b5c3ac27f010f4f0e5f"
+    },
+    {
+      "path": "src/coprocessor/cognitive-choice-proposal.js",
+      "sourceDigest": "a542ec6764e69f8903bf0fc71a29aeb1b1a0e46c"
+    },
+    {
+      "path": "src/coprocessor/cognitive-data-plane.js",
+      "sourceDigest": "4feada204a18c46b403f4b43f183092e358011fd"
+    },
+    {
+      "path": "src/coprocessor/cognitive-worker-pipelines.js",
+      "sourceDigest": "ed313a7e9fa77233764645ecdd5c80a280a3889d"
+    },
+    {
+      "path": "src/coprocessor/constants.js",
+      "sourceDigest": "7cddfadd9d09117bf20f578e9f43a0707f9ea69e"
+    },
+    {
+      "path": "src/coprocessor/continuous-consolidation.js",
+      "sourceDigest": "ad225ea7e0f50aa6c10778a48b87d218d9bc9ae0"
+    },
+    {
+      "path": "src/coprocessor/contracts.js",
+      "sourceDigest": "0321968fe36a08a261ca9495b19c2e3d188ccbd2"
+    },
+    {
+      "path": "src/coprocessor/coprocessor-ui-read-model.js",
+      "sourceDigest": "576b4584fd3268b3fe2a3f50d17eae033ef470e5"
+    },
+    {
+      "path": "src/coprocessor/deadline-policy.js",
+      "sourceDigest": "8c11b40d6e94c49abcde8ce634a718b445a31448"
+    },
+    {
+      "path": "src/coprocessor/execution-safety.js",
+      "sourceDigest": "54cb0b8629342879f7844e501fdd1efeb2163dfa"
+    },
+    {
+      "path": "src/coprocessor/fallback-policy.js",
+      "sourceDigest": "a12c71e800469123feff3a81de4469f83b363fdc"
+    },
+    {
+      "path": "src/coprocessor/fanout-planner.js",
+      "sourceDigest": "f3a0cf60a39ea717c75abff5db953e65a58b6e36"
+    },
+    {
+      "path": "src/coprocessor/foreground-quorum-policy.js",
+      "sourceDigest": "1bf7ac226163bdc9003345a91db94f7f0bd7b488"
+    },
+    {
+      "path": "src/coprocessor/foreground-specialists.js",
+      "sourceDigest": "6adb8dd23f9181d8878f84c62e36eaa6ca544fad"
+    },
+    {
+      "path": "src/coprocessor/function-test-001.js",
+      "sourceDigest": "16e7fb12f5a40d5753c8b989985994816f8bfb5c"
+    },
+    {
+      "path": "src/coprocessor/gather-coordinator.js",
+      "sourceDigest": "cb239d051254ac0c7b5343ae40fca3e08ac56a3a"
+    },
+    {
+      "path": "src/coprocessor/green-room.js",
+      "sourceDigest": "dbf5da28f54760aa7552abf8cbdcbdb883a05dbd"
+    },
+    {
+      "path": "src/coprocessor/historian-retrieval.js",
+      "sourceDigest": "494f62bf4a680a1dbd34a36dffd550594494a7fc"
+    },
+    {
+      "path": "src/coprocessor/index.js",
+      "sourceDigest": "cd5663fa258f5aa63a0bf776ea58bbca5b0fe4e5"
+    },
+    {
+      "path": "src/coprocessor/integration-adapters.js",
+      "sourceDigest": "972aef1074b88d7dc56db91bf668b5158234dd92"
+    },
+    {
+      "path": "src/coprocessor/jev-adapter-matrix.js",
+      "sourceDigest": "8b91c697ef03b4ff3c70e91d37f173182ba02e3a"
+    },
+    {
+      "path": "src/coprocessor/jev-contracts.js",
+      "sourceDigest": "7a344cb4053f86461b25b270f9b25ce605918a43"
+    },
+    {
+      "path": "src/coprocessor/jev-decision-core.js",
+      "sourceDigest": "644b274029e2c410c0de8739dd962a0032c2e403"
+    },
+    {
+      "path": "src/coprocessor/jev-domain-adapter.js",
+      "sourceDigest": "3bbeab2946cceeae530a810d9da0ec9802ad30b2"
+    },
+    {
+      "path": "src/coprocessor/jev-invocation-gate.js",
+      "sourceDigest": "c61f7b50ab34a2f28fae001f1f0e80280e6277e6"
+    },
+    {
+      "path": "src/coprocessor/jev-lore-adapter.js",
+      "sourceDigest": "731f781617502189a758003c431bfdd8eef589a7"
+    },
+    {
+      "path": "src/coprocessor/jev-migration.js",
+      "sourceDigest": "c82b3ac5340492a8722790ff3e27193aa96e76b8"
+    },
+    {
+      "path": "src/coprocessor/jev-retrieval-truth-adapter.js",
+      "sourceDigest": "93b1f411e88569e17a1119ba2a6f812909a60e57"
+    },
+    {
+      "path": "src/coprocessor/jev-scene-adapter.js",
+      "sourceDigest": "f62b6e61ef26aa077203b3f3a1b64a327cf0e612"
+    },
+    {
+      "path": "src/coprocessor/native-coprocessor-bootstrap.js",
+      "sourceDigest": "40b7cfd999b1595e2c0094f840a67f3c61af09b3"
+    },
+    {
+      "path": "src/coprocessor/native-event-spine-baseline.js",
+      "sourceDigest": "40f5b8e122fdd754b7b8d4f9975bac12603c5b1f"
+    },
+    {
+      "path": "src/coprocessor/placement-policy.js",
+      "sourceDigest": "459a20aad81fb36ae45d5dcd9c2a8b7e5eb4afc0"
+    },
+    {
+      "path": "src/coprocessor/placement-runtime-policy.js",
+      "sourceDigest": "36961735774f4b4d7cbf3414a63ab697680d1c3c"
+    },
+    {
+      "path": "src/coprocessor/precision-benchmark.js",
+      "sourceDigest": "104280762a2def9d62fa4670984241d3536bca95"
+    },
+    {
+      "path": "src/coprocessor/precision-external-adapters.js",
+      "sourceDigest": "30abda54198a73c2401261bf0e2988bb5d84459b"
+    },
+    {
+      "path": "src/coprocessor/precision-fixtures.js",
+      "sourceDigest": "089419ed4dcab9fab827c4ca85dca7a27e6327bc"
+    },
+    {
+      "path": "src/coprocessor/precision-gateway.js",
+      "sourceDigest": "738e6ca41c4e6e29b5015035db62faf5430be24b"
+    },
+    {
+      "path": "src/coprocessor/precision-retrieval-pipeline.js",
+      "sourceDigest": "93bdc0f90487d02e0bf982befe931e0c63d68dd1"
+    },
+    {
+      "path": "src/coprocessor/precision-specialists.js",
+      "sourceDigest": "b64be6c611abc00132ba95c8c591f5c23ef1899a"
+    },
+    {
+      "path": "src/coprocessor/precision-telemetry.js",
+      "sourceDigest": "9b9accb8bbfe069a4b0a5aa37fb5694aa06d0c15"
+    },
+    {
+      "path": "src/coprocessor/precision-truth-boundary.js",
+      "sourceDigest": "ca1959469ac440e3d07234365affefda3f2dd545"
+    },
+    {
+      "path": "src/coprocessor/precision-validation.js",
+      "sourceDigest": "4b0fdd3f9fb06fb4dbf4a9aadc8f13663a9a594a"
+    },
+    {
+      "path": "src/coprocessor/provider-adapters.js",
+      "sourceDigest": "0547e06aac167cc3b7ef68eba61d1754e42bd239"
+    },
+    {
+      "path": "src/coprocessor/provider-execution-contract.js",
+      "sourceDigest": "ce20497b2f1e28ba4024fbe3fe07d9338218c588"
+    },
+    {
+      "path": "src/coprocessor/provider-execution.js",
+      "sourceDigest": "1455c4160948eeeaeefb716d9d0f68ecebd251a1"
+    },
+    {
+      "path": "src/coprocessor/provider-health.js",
+      "sourceDigest": "a91f508e4ae20c28798f1f28200fa9bf4d29b2d2"
+    },
+    {
+      "path": "src/coprocessor/provider-payload-boundary.js",
+      "sourceDigest": "ff376e94f21c1c5762f70d166afc3294924c56e4"
+    },
+    {
+      "path": "src/coprocessor/provider-qualification.js",
+      "sourceDigest": "395d42b41db0fae7c373c34e10ac675e4e1cf2e5"
+    },
+    {
+      "path": "src/coprocessor/retrieval-control-policy.js",
+      "sourceDigest": "8841bac2f57903f6ae8cfd3d9add67624ce51bb6"
+    },
+    {
+      "path": "src/coprocessor/runtime-benchmark.js",
+      "sourceDigest": "e998fd4e92e15d495c45e4d1bdbb17a2b8d5bd70"
+    },
+    {
+      "path": "src/coprocessor/runtime-compatibility.js",
+      "sourceDigest": "9ecb688e0a4009969a9373f855d1af990a9e059a"
+    },
+    {
+      "path": "src/coprocessor/runtime-event-adapter.js",
+      "sourceDigest": "c89ea0b241b6c146ef4db6a964a383a47557dcc1"
+    },
+    {
+      "path": "src/coprocessor/scene-signal-adapter.js",
+      "sourceDigest": "d8269c6a7f472d005ae27248a27064511bf55b9e"
+    },
+    {
+      "path": "src/coprocessor/speculative-warmer-coordinator.js",
+      "sourceDigest": "5dd162125002814b04fd0b7f8f125b756f844b72"
+    },
+    {
+      "path": "src/coprocessor/speculative-warmer.js",
+      "sourceDigest": "3391ecb01d745b0088d9c4a77e82eae0aaeb8db8"
+    },
+    {
+      "path": "src/coprocessor/streaming-truth-observer.js",
+      "sourceDigest": "e5b886eae939d4f52c6b68878694b421f3eaf1b4"
+    },
+    {
+      "path": "src/coprocessor/swarm.js",
+      "sourceDigest": "08177b928205a145d4aec77de1d903f6758b7468"
+    },
+    {
+      "path": "src/coprocessor/telemetry.js",
+      "sourceDigest": "b290becd8bbc5c8a6e8a0fc3973a1c581b1429f0"
+    },
+    {
+      "path": "src/coprocessor/turn-event-hub.js",
+      "sourceDigest": "5be35599d78175826261199d87ef0dc55bb93a61"
+    },
+    {
+      "path": "src/coprocessor/usage-receipt.js",
+      "sourceDigest": "a9e9432ecc41d07cf49e7a107bd3f245bcf322d8"
+    },
+    {
+      "path": "src/coprocessor/validation.js",
+      "sourceDigest": "34c83f81c558edaa857f66e925f871147f06c712"
+    },
+    {
+      "path": "src/coprocessor/wave3-benchmark.js",
+      "sourceDigest": "9be7a48351c1a729489da3e87b2a3fbd969ba415"
+    },
+    {
+      "path": "src/coprocessor/wave3-specialists.js",
+      "sourceDigest": "00462ff8d35ae287efd76b3c1d037f2d886d3203"
+    },
+    {
+      "path": "src/coprocessor/wave3-telemetry-helpers.js",
+      "sourceDigest": "12056dac4b359d6cc9498b316a6d5573d4b4cc2b"
+    },
+    {
+      "path": "src/coprocessor/wave4-benchmark.js",
+      "sourceDigest": "df729fb184f4b4f656a66be60f24d6f314ce1721"
+    },
+    {
+      "path": "src/coprocessor/wave5-benchmark.js",
+      "sourceDigest": "ed1912edeb093a9644c8d3c0bd4c10274e58461c"
+    },
+    {
+      "path": "tests/coprocessor-phase1-closure.test.mjs",
+      "sourceDigest": "6d8abdf1bb06dc232732c565640bfd1d3f916e2a"
+    },
+    {
+      "path": "tests/coprocessor-runtime-integration-stress.test.mjs",
+      "sourceDigest": "75bdf70550d394fa600d95356cdd7f96aa1d713f"
+    },
+    {
+      "path": "tests/coprocessor-runtime-integration.test.mjs",
+      "sourceDigest": "5558d27c51c255b8f5b4d5fbd79ce96857632cfe"
+    },
+    {
+      "path": "tests/coprocessor-stress.test.mjs",
+      "sourceDigest": "7494ac86bd0d7d9332b184b7ad0b1d302aadd65d"
+    },
+    {
+      "path": "tests/coprocessor-wave1.test.mjs",
+      "sourceDigest": "1f5257af5c27b0156139d74b735067fa242934dc"
+    },
+    {
+      "path": "tests/coprocessor-wave10-browser.test.mjs",
+      "sourceDigest": "575eccc5e7ef3c8a25d1086cdbe5472f77002fe2"
+    },
+    {
+      "path": "tests/coprocessor-wave10-corpus.test.mjs",
+      "sourceDigest": "c337989fcd628bf3bf54bec44b431f1c12e4f367"
+    },
+    {
+      "path": "tests/coprocessor-wave10-provider.test.mjs",
+      "sourceDigest": "156ab0f9a20ff3f236fa3bbd6acecab05f4bc4c5"
+    },
+    {
+      "path": "tests/coprocessor-wave11-browser.test.mjs",
+      "sourceDigest": "4534a8180b85f1b4ee16e19f4d91a5f8e250d5b2"
+    },
+    {
+      "path": "tests/coprocessor-wave11-evaluation.test.mjs",
+      "sourceDigest": "6c4814b7953b393c919cbe27121d341ff80cc856"
+    },
+    {
+      "path": "tests/coprocessor-wave11-fallback.test.mjs",
+      "sourceDigest": "7501d6f5fda5f823adb56981aafcb4903230e2c0"
+    },
+    {
+      "path": "tests/coprocessor-wave11-native.test.mjs",
+      "sourceDigest": "ede25fa6824bd8e1ddab61252473b60e0266c3a3"
+    },
+    {
+      "path": "tests/coprocessor-wave12-browser.test.mjs",
+      "sourceDigest": "56140f8f8c6a5ea7993462432a224f0cd53bd4cb"
+    },
+    {
+      "path": "tests/coprocessor-wave12-evaluation.test.mjs",
+      "sourceDigest": "de0ecb3df8e530447209fbc0b1967ab14bc86172"
+    },
+    {
+      "path": "tests/coprocessor-wave12-stress.test.mjs",
+      "sourceDigest": "a4bad76c6e6fab9a342999d57a5058784c194799"
+    },
+    {
+      "path": "tests/coprocessor-wave12-warmer.test.mjs",
+      "sourceDigest": "84e2662c2c80cecb044a2734c4d93e1bbd4e49be"
+    },
+    {
+      "path": "tests/coprocessor-wave13-browser.test.mjs",
+      "sourceDigest": "5c8e3a178d0515ed53ad216c81d4af45618a5d5c"
+    },
+    {
+      "path": "tests/coprocessor-wave13-choice.test.mjs",
+      "sourceDigest": "4cafa05bae7958dd56f1c45b68fb21bf8ce320d9"
+    },
+    {
+      "path": "tests/coprocessor-wave13-evaluation.test.mjs",
+      "sourceDigest": "27cff1a0223e575c6f2d6a794f905265faaa9bc4"
+    },
+    {
+      "path": "tests/coprocessor-wave13-stress.test.mjs",
+      "sourceDigest": "a2cbbb96364e37fcc1aac7cf8757da5e92466240"
+    },
+    {
+      "path": "tests/coprocessor-wave2-stress.test.mjs",
+      "sourceDigest": "53b37fb8453864aa8534599302ec95e635164d07"
+    },
+    {
+      "path": "tests/coprocessor-wave2.test.mjs",
+      "sourceDigest": "dcee767149756f4b62b1cf2963f76ffd1eafb574"
+    },
+    {
+      "path": "tests/coprocessor-wave3-stress.test.mjs",
+      "sourceDigest": "88b9b515f8cde03d068bcad02cd12b7a4f187872"
+    },
+    {
+      "path": "tests/coprocessor-wave3.test.mjs",
+      "sourceDigest": "c7390e33f18e4a6e2300c4238093c95bdb23bff3"
+    },
+    {
+      "path": "tests/coprocessor-wave4-stress.test.mjs",
+      "sourceDigest": "8a30118cb09f53ea155f58c22eaf34829cf84094"
+    },
+    {
+      "path": "tests/coprocessor-wave4.test.mjs",
+      "sourceDigest": "22062f10a78341164ba5bd7fe1c09a0a47c06206"
+    },
+    {
+      "path": "tests/coprocessor-wave5-stress.test.mjs",
+      "sourceDigest": "89d111d56fd497f35131c0ea78d059fe9288c056"
+    },
+    {
+      "path": "tests/coprocessor-wave5.test.mjs",
+      "sourceDigest": "3409e1756e5e9a8733fb15ff06e681f39eac2661"
+    },
+    {
+      "path": "tests/coprocessor-wave6-consolidation.test.mjs",
+      "sourceDigest": "a0315206e066f29f9a7841080710f53d73700be0"
+    },
+    {
+      "path": "tests/coprocessor-wave6-golden.test.mjs",
+      "sourceDigest": "b58c4a759f2e946c320f2ca9902a3edc7890392e"
+    },
+    {
+      "path": "tests/coprocessor-wave6-green-room.test.mjs",
+      "sourceDigest": "0910065ee34da7ce4932e5f239a5896ada712ad6"
+    },
+    {
+      "path": "tests/coprocessor-wave6-stress.test.mjs",
+      "sourceDigest": "73debf0c1f9de9a46cb67c71e6e2b8a2d002c0b6"
+    },
+    {
+      "path": "tests/coprocessor-wave7-adaptive-retrieval.test.mjs",
+      "sourceDigest": "aa82a97c97650eba4621c21859ebdb3168a61132"
+    },
+    {
+      "path": "tests/coprocessor-wave7-authority.test.mjs",
+      "sourceDigest": "67936985fc52bfca55d95480b4e70c94692e32de"
+    },
+    {
+      "path": "tests/coprocessor-wave7-golden.test.mjs",
+      "sourceDigest": "0869205e8fd7e25c723ba8761585ee37f561159d"
+    },
+    {
+      "path": "tests/coprocessor-wave7-historian.test.mjs",
+      "sourceDigest": "b27bb40fe09ea802013ed8ef296df15bf46f0039"
+    },
+    {
+      "path": "tests/coprocessor-wave7-stress.test.mjs",
+      "sourceDigest": "b9a5957983a2f35d801fe6068c7539fe96065a9c"
+    },
+    {
+      "path": "tests/coprocessor-wave8-authority.test.mjs",
+      "sourceDigest": "531861cf59132024aaa3071b510e028e7e6ab4d3"
+    },
+    {
+      "path": "tests/coprocessor-wave8-golden.test.mjs",
+      "sourceDigest": "54a594b8d43b9474de1a39e2aef760b5cbba6c27"
+    },
+    {
+      "path": "tests/coprocessor-wave8-jev.test.mjs",
+      "sourceDigest": "3bf8ec5035228277978f96dce8ed6dd85ddf02fb"
+    },
+    {
+      "path": "tests/coprocessor-wave8-stress.test.mjs",
+      "sourceDigest": "248009e431906c76ef9aae0319032ddc4066d670"
+    },
+    {
+      "path": "tests/coprocessor-wave9-authority.test.mjs",
+      "sourceDigest": "6b41d10eabcf05e2e27cf05ef58898e88869de31"
+    },
+    {
+      "path": "tests/coprocessor-wave9-browser.test.mjs",
+      "sourceDigest": "7e07b51ccccd614a040cad7b65b076ead288251e"
+    },
+    {
+      "path": "tests/coprocessor-wave9-cross-domain.test.mjs",
+      "sourceDigest": "78709cbacc5d276aa7120fec02abc0d6dcc32bda"
+    },
+    {
+      "path": "tests/coprocessor-wave9-lore.test.mjs",
+      "sourceDigest": "06ce272dccf233db5632328efe28bdae1e11b786"
+    },
+    {
+      "path": "tests/coprocessor-wave9-retrieval-truth.test.mjs",
+      "sourceDigest": "9ea040b7203dcd5a8d52cd1e8434d17181d608ea"
+    },
+    {
+      "path": "tests/coprocessor-wave9-scene.test.mjs",
+      "sourceDigest": "f6c05d438443809ee1ca0737c84ba75d056ce209"
+    },
+    {
+      "path": "tests/coprocessor-wave9-stress.test.mjs",
+      "sourceDigest": "c11eae032c4faf0e2b145a74b8f58251bfcc6fb2"
+    },
+    {
+      "path": "tests/fixtures/ember-tavern-wave1.mjs",
+      "sourceDigest": "e9e2567c451221f777f15fe31111dc3629a857a0"
+    },
+    {
+      "path": "tests/wave9-fixtures.mjs",
+      "sourceDigest": "28461ca87d4f9ab00288a37a8fd4848208a25bd7"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/coprocessor/artifact-reference.js",
+    "src/coprocessor/batch-adapter.js",
+    "src/coprocessor/benchmark.js",
+    "src/coprocessor/browser-compat.js",
+    "src/coprocessor/candidate-bus.js",
+    "src/coprocessor/capability-negotiation.js",
+    "src/coprocessor/capability-profiles.js",
+    "src/coprocessor/cognitive-choice-execution.js",
+    "src/coprocessor/cognitive-choice-proposal.js",
+    "src/coprocessor/cognitive-data-plane.js",
+    "src/coprocessor/cognitive-worker-pipelines.js",
+    "src/coprocessor/constants.js",
+    "src/coprocessor/continuous-consolidation.js",
+    "src/coprocessor/contracts.js",
+    "src/coprocessor/coprocessor-ui-read-model.js",
+    "src/coprocessor/deadline-policy.js",
+    "src/coprocessor/execution-safety.js",
+    "src/coprocessor/fallback-policy.js",
+    "src/coprocessor/fanout-planner.js",
+    "src/coprocessor/foreground-quorum-policy.js",
+    "src/coprocessor/foreground-specialists.js",
+    "src/coprocessor/function-test-001.js",
+    "src/coprocessor/gather-coordinator.js",
+    "src/coprocessor/green-room.js",
+    "src/coprocessor/historian-retrieval.js",
+    "src/coprocessor/index.js",
+    "src/coprocessor/integration-adapters.js",
+    "src/coprocessor/jev-adapter-matrix.js",
+    "src/coprocessor/jev-contracts.js",
+    "src/coprocessor/jev-decision-core.js",
+    "src/coprocessor/jev-domain-adapter.js",
+    "src/coprocessor/jev-invocation-gate.js",
+    "src/coprocessor/jev-lore-adapter.js",
+    "src/coprocessor/jev-migration.js",
+    "src/coprocessor/jev-retrieval-truth-adapter.js",
+    "src/coprocessor/jev-scene-adapter.js",
+    "src/coprocessor/native-coprocessor-bootstrap.js",
+    "src/coprocessor/native-event-spine-baseline.js",
+    "src/coprocessor/placement-policy.js",
+    "src/coprocessor/placement-runtime-policy.js",
+    "src/coprocessor/precision-benchmark.js",
+    "src/coprocessor/precision-external-adapters.js",
+    "src/coprocessor/precision-fixtures.js",
+    "src/coprocessor/precision-gateway.js",
+    "src/coprocessor/precision-retrieval-pipeline.js",
+    "src/coprocessor/precision-specialists.js",
+    "src/coprocessor/precision-telemetry.js",
+    "src/coprocessor/precision-truth-boundary.js",
+    "src/coprocessor/precision-validation.js",
+    "src/coprocessor/provider-adapters.js",
+    "src/coprocessor/provider-execution-contract.js",
+    "src/coprocessor/provider-execution.js",
+    "src/coprocessor/provider-health.js",
+    "src/coprocessor/provider-payload-boundary.js",
+    "src/coprocessor/provider-qualification.js",
+    "src/coprocessor/retrieval-control-policy.js",
+    "src/coprocessor/runtime-benchmark.js",
+    "src/coprocessor/runtime-compatibility.js",
+    "src/coprocessor/runtime-event-adapter.js",
+    "src/coprocessor/scene-signal-adapter.js",
+    "src/coprocessor/speculative-warmer-coordinator.js",
+    "src/coprocessor/speculative-warmer.js",
+    "src/coprocessor/streaming-truth-observer.js",
+    "src/coprocessor/swarm.js",
+    "src/coprocessor/telemetry.js",
+    "src/coprocessor/turn-event-hub.js",
+    "src/coprocessor/usage-receipt.js",
+    "src/coprocessor/validation.js",
+    "src/coprocessor/wave3-benchmark.js",
+    "src/coprocessor/wave3-specialists.js",
+    "src/coprocessor/wave3-telemetry-helpers.js",
+    "src/coprocessor/wave4-benchmark.js",
+    "src/coprocessor/wave5-benchmark.js"
+  ],
+  "nodeOnlyToolPaths": [
+    "evaluation/coprocessor-wave13-evaluator.mjs",
+    "scripts/coprocessor-wave13-evaluation.mjs",
+    "scripts/ft005-provider-readiness.mjs",
+    "scripts/jev-wave10-evaluation.mjs",
+    "scripts/jev-wave10-live-smoke.mjs",
+    "scripts/jev-wave11-evaluation.mjs",
+    "scripts/manual-provider-smoke.mjs",
+    "scripts/speculative-warmer-wave12-evaluation.mjs",
+    "scripts/wave11-host-example.mjs"
+  ],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [
+    "Optional semantic provider slot",
+    "Native/no-provider path remains valid"
+  ],
+  "artifactContracts": [
+    {
+      "name": "CoprocessorChoiceProposal",
+      "version": "1.0.0"
+    }
+  ],
+  "requiredAdapters": [
+    "Coprocessor cognitive-choice proposal -> Core final choice admission",
+    "Optional Jev proposal -> Core owner policy"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/coprocessor/jev-decision-core.js",
+      "sourceDigest": "644b274029e2c410c0de8739dd962a0032c2e403",
+      "expectedDigest": "f01d498f51538775094baa8038a76a4d5b1bf12b",
+      "reason": "Worker 4 Jev #211 replay revision/seal freshness and bounded retention"
+    },
+    {
+      "path": "src/coprocessor/jev-domain-adapter.js",
+      "sourceDigest": "3bbeab2946cceeae530a810d9da0ec9802ad30b2",
+      "expectedDigest": "6f04fb8435a77c86b3a98a57345081c6adcdad05",
+      "reason": "Worker 4 Jev #211 adapter replay revalidation and bounded retention"
+    }
+  ],
+  "knownConflicts": [],
+  "repairOrigin": {
+    "issue": 211,
+    "sourceBranch": "Development-Repair-Validation",
+    "sourceCommit": "54fe8cff459c184a8a47f9e1c75bf7a7f963a58b",
+    "deploymentTransferCommit": "5968f4973ea772b0f8e99dddfe2d59e7751f72d7",
+    "ownerTransferStatus": "PENDING"
+  }
+}

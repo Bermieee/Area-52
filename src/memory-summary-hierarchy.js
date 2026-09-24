@@ -42,6 +42,13 @@ const SUMMARY_KIND=Object.freeze({
 
 const TOKEN_RE=/[a-z0-9][a-z0-9'-]{1,}/g;
 const STOP=new Set(['the','a','an','and','or','of','to','in','on','at','for','with','is','was','were','be','been','about','tell','me','what','who','where','when','how','did','does','do']);
+const nowMs=()=>globalThis.performance?.now?.()??Date.now();
+const percentile=(values,p)=>{
+  if(!values.length)return 0;
+  const sorted=[...values].sort((a,b)=>a-b);
+  const index=Math.min(sorted.length-1,Math.max(0,Math.ceil((p/100)*sorted.length)-1));
+  return sorted[index];
+};
 
 function tokens(value) {
   return [...new Set((String(value??'').toLowerCase().match(TOKEN_RE)??[]).filter((t)=>!STOP.has(t)))];
@@ -161,6 +168,21 @@ export class MemorySummaryHierarchy {
     this.artifactSequence=0;
     this.workSequence=0;
     this.diagnostics=[];
+    this.queryIndex={
+      revision:null,
+      tokenToArtifactIds:new Map(),
+      entityToArtifactIds:new Map(),
+      levelToArtifactIds:new Map(),
+      artifactTokens:new Map(),
+      artifactIds:[],
+      indexedTerms:0,
+      estimatedUtf16Bytes:0,
+    };
+    this.queryIndexDirty=true;
+    this.queryCache=new Map();
+    this.queryCacheSequence=0;
+    this.revisionCache=null;
+    this.revisionDirty=true;
     this.costCounters={
       compileWorkUnits:0,
       compileEvidenceExamined:0,
@@ -169,8 +191,122 @@ export class MemorySummaryHierarchy {
       historianSummaryArtifactsExamined:0,
       historianBaseQueriesAvoided:0,
       historianBaseQueriesUsed:0,
+      queryIndexBuilds:0,
+      queryIndexBuildMs:0,
+      queryCacheHits:0,
+      queryCacheMisses:0,
+      queryCacheEvictions:0,
+      queryIndexedCandidatesExamined:0,
     };
     if (snapshot) this.restore(snapshot);
+  }
+
+  markRevisionDirty(){
+    this.revisionDirty=true;
+  }
+
+  evictQueryCache(scopeRefs=null){
+    if(scopeRefs==null){
+      const removed=this.queryCache.size;
+      this.queryCache.clear();
+      this.costCounters.queryCacheEvictions+=removed;
+      return removed;
+    }
+    const refs=new Set(scopeRefs);
+    let removed=0;
+    for(const [key,row] of this.queryCache.entries()){
+      if((row.scopeRefs??[]).some((ref)=>refs.has(ref))){
+        this.queryCache.delete(key);
+        removed+=1;
+      }
+    }
+    this.costCounters.queryCacheEvictions+=removed;
+    return removed;
+  }
+
+  invalidateQueryViews(scopeRefs=null){
+    this.queryIndexDirty=true;
+    this.markRevisionDirty();
+    this.evictQueryCache(scopeRefs);
+  }
+
+  clearQueryCache(){
+    this.evictQueryCache(null);
+    return 0;
+  }
+
+  ensureQueryIndex(){
+    const started=nowMs();
+    if(!this.queryIndexDirty)return {rebuilt:false,buildMs:0,revision:this.queryIndex.revision};
+    this.refreshFreshness();
+    const tokenToArtifactIds=new Map();
+    const entityToArtifactIds=new Map();
+    const levelToArtifactIds=new Map();
+    const artifactTokens=new Map();
+    const artifactIds=[];
+    let indexedTerms=0;
+    for(const [scopeRef,id] of this.currentByScope.entries()){
+      const artifact=this.artifacts.get(id);
+      if(!artifact||!this.artifactIsFresh(artifact))continue;
+      artifactIds.push(id);
+      const levelIds=levelToArtifactIds.get(artifact.scopeLevel)??new Set();
+      levelIds.add(id);levelToArtifactIds.set(artifact.scopeLevel,levelIds);
+      const rowTokens=tokens(artifact.representationText+' '+artifact.entityRefs.join(' '));
+      artifactTokens.set(id,rowTokens);
+      for(const token of rowTokens){
+        if(!tokenToArtifactIds.has(token)&&tokenToArtifactIds.size>=MEMORY_LIMITS.maxHierarchyQueryIndexTerms)continue;
+        const ids=tokenToArtifactIds.get(token)??new Set();ids.add(id);tokenToArtifactIds.set(token,ids);
+      }
+      for(const entity of artifact.entityRefs??[]){
+        const ids=entityToArtifactIds.get(entity)??new Set();ids.add(id);entityToArtifactIds.set(entity,ids);
+      }
+    }
+    indexedTerms=tokenToArtifactIds.size;
+    const revision='memory-summary-query-index:'+stableHash(stableStringify(
+      artifactIds.sort().map((id)=>[id,this.artifacts.get(id)?.dependencyFingerprint,this.artifacts.get(id)?.freshness]),
+    ));
+    const estimatedUtf16Bytes=stableStringify({
+      revision,
+      tokenToArtifactIds:[...tokenToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
+      entityToArtifactIds:[...entityToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
+      levelToArtifactIds:[...levelToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
+      artifactTokens:[...artifactTokens.entries()],
+    }).length*2;
+    this.queryIndex={revision,tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,estimatedUtf16Bytes};
+    this.queryIndexDirty=false;
+    const buildMs=nowMs()-started;
+    this.costCounters.queryIndexBuilds+=1;
+    this.costCounters.queryIndexBuildMs+=buildMs;
+    return {rebuilt:true,buildMs,revision};
+  }
+
+  queryCacheKey(request,preferred){
+    return stableHash(stableStringify({
+      indexRevision:this.queryIndex.revision,
+      preferred,
+      query:String(request.query??''),
+      mode:request.mode??'EXPLICIT_HISTORY',
+      retrievalIntentId:request.retrievalIntentId??null,
+      activeEntityIds:[...(request.activeEntityIds??[])].sort(),
+      perspectiveConstraint:request.perspectiveConstraint??{scope:PerspectiveScope.WORLD},
+      maxCandidates:Number(request.maxCandidates??MEMORY_LIMITS.maxHistorianCandidates),
+      budgetCharacters:request.budgetCharacters??null,
+    }));
+  }
+
+  storeQueryCache(key,summary){
+    const scopeRefs=[...new Set((summary.nominations??[]).map((row)=>row.metadata?.summaryScopeRef).filter(Boolean))].sort();
+    this.queryCache.set(key,{
+      summary:deepClone(summary),
+      scopeRefs,
+      sequence:++this.queryCacheSequence,
+    });
+    while(this.queryCache.size>MEMORY_LIMITS.maxHierarchyQueryCacheEntries){
+      const oldest=[...this.queryCache.entries()].sort((a,b)=>a[1].sequence-b[1].sequence)[0];
+      if(!oldest)break;
+      this.queryCache.delete(oldest[0]);
+      this.costCounters.queryCacheEvictions+=1;
+    }
   }
 
   defineScope({

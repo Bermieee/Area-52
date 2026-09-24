@@ -9,7 +9,7 @@ function expectedSet(rows){return new Set((rows??[]).map(factKey));}
 function measuredRatio(hit,total){return total===0?metric(ShadowMeasurementState.NOT_APPLICABLE,null):metric(ShadowMeasurementState.MEASURED,Number((hit/total).toFixed(6)));}
 function candidateFacts(c){return[...(c.facts??c.current??[]),...(c.historical??[]),...(c.unresolved??[])];}
 function scoreCandidate(candidate,truth){
-  const facts=candidateFacts(candidate),keys=new Set(facts.map(factKey)),relevant=expectedSet(truth.relevantFacts),continuity=expectedSet(truth.continuityFacts),current=expectedSet(truth.currentFacts),historical=expectedSet(truth.historicalFacts);
+  const facts=candidateFacts(candidate),keys=new Set(facts.map(factKey)),relevant=expectedSet(truth.relevantFacts),continuity=expectedSet(truth.continuityFacts),current=expectedSet(truth.currentFacts),historical=expectedSet(truth.historicalFacts),actualCurrent=new Set((candidate.current??[]).map(factKey)),actualHistorical=new Set((candidate.historical??[]).map(factKey));
   const unresolvedExpected=new Set(truth.unresolvedThreadIds??[]),unresolvedActual=new Set((candidate.unresolvedThreads??candidate.activeThreads??[]).map(x=>x.threadId??x.id??String(x)));
   const activeSources=new Set(truth.activeSourceRevisionRefs??[]),candidateSources=uniq(candidate.sourceRevisionRefs??candidate.dependencies??[]);
   const expectedProv=new Set(truth.requiredProvenanceRefs??[]),actualProv=new Set(candidate.provenanceRefs??Object.values(candidate.provenanceIndex??{}).flat());

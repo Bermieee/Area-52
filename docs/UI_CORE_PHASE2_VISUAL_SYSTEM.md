@@ -286,3 +286,27 @@ The collapsed Quick Dash is intentionally narrow and low-information.
 Expanded mode preserves compact card geometry, rounded corners, cyan/teal accents, crisp high-contrast text and muted support copy. It does not introduce a second typography system or subsystem-specific palette.
 
 Reduced-motion behavior is preserved.
+
+# Wave 8 Addendum — Cognitive Path Visual Grammar
+
+Wave 8 uses the existing UI.Core visual language.
+
+Pipeline stage state is encoded with text, glyph and structure:
+
+- COMPLETE — check / healthy solid edge;
+- ACTIVE — active marker / cyan accent;
+- SKIPPED — dash / dashed edge;
+- DEFERRED — forward marker / dotted edge;
+- UNAVAILABLE — hollow/recessed;
+- DEGRADED / STALE — amber structured warning;
+- INVALID / FAILED — restrained red + double/failure edge.
+
+Status never relies on color alone.
+
+NORMAL remains meaning-first and does not lead with worker IDs, provider IDs, model IDs, queue depth, or raw scores.
+
+DETAIL explains cognition mechanics.
+
+ADVANCED exposes exact identities, revisions, resource/provider data, candidate metadata, diagnostic references and forensic cross-links.
+
+Jev confidence and retrieval/Precision score use neutral metadata styling rather than authority styling.

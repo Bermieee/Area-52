@@ -31,6 +31,8 @@ export * from './precision-benchmark.js';
 export * from './provider-qualification.js';
 export * from './speculative-warmer.js';
 export * from './speculative-warmer-coordinator.js';
+export * from './cognitive-choice-proposal.js';
+export * from './cognitive-choice-execution.js';
 export * from './green-room.js';
 export * from './continuous-consolidation.js';
 export * from './scene-signal-adapter.js';

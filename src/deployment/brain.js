@@ -546,17 +546,18 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
-  async #invokeRuntime({ task }) {
-    if (task.taskType === 'LORE_RETRIEVAL') {
-      const prepared = this.loreChannel.prepare(task.metadata.query, { intent: task.metadata.intent ?? 'AUTO' });
+  async #invokeRuntime({ task, job }) {
+    const cognitiveTask = job ?? task;
+    if (cognitiveTask.taskType === 'LORE_RETRIEVAL') {
+      const prepared = this.loreChannel.prepare(cognitiveTask.metadata.query, { intent: cognitiveTask.metadata.intent ?? 'AUTO' });
       return { value: 'LORE_PREPARED', nominationCount: prepared.nominations.length, retrievalIntentId: prepared.laneResult.retrievalIntentId };
     }
-    if (task.taskType === 'GRAPH_LOOKUP') {
+    if (cognitiveTask.taskType === 'GRAPH_LOOKUP') {
       const model = this.core.currentWorldModel();
       return { value: 'GRAPH_SNAPSHOT', worldRevision: model.revision, currentCount: model.current.length, unresolvedCount: model.unresolved.length };
     }
-    if (task.taskType === 'JEV_DECISION') {
-      const input = task.metadata.jevInput;
+    if (cognitiveTask.taskType === 'JEV_DECISION') {
+      const input = cognitiveTask.metadata.jevInput;
       const currentRevisionState = {
         sourceRevisionSet: input.sourceRevisionSet,
         worldRevision: input.worldRevision,
@@ -567,12 +568,12 @@ export class DevelopmentDeploymentBrain {
       };
       const proposal = await this.jev.service.adjudicate(input, {
         currentRevisionState,
-        sealed: () => this.core.publication.seal.isTurnSealed(task.turnId),
+        sealed: () => this.core.publication.seal.isTurnSealed(cognitiveTask.turnId),
       });
-      this.pendingJev.set(task.turnId, clone(proposal));
+      this.pendingJev.set(cognitiveTask.turnId, clone(proposal));
       return { value: proposal.proposedOutcome, proposal };
     }
-    return { value: 'NO_OP', taskType: task.taskType };
+    return { value: 'NO_OP', taskType: cognitiveTask.taskType };
   }
 
   #makeJevInput({ turn, query, planning }) {

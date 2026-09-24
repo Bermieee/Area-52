@@ -6,6 +6,8 @@ export const GREEN_ROOM_COMPAT_VERSION = '1.1.0';
 export const HISTORIAN_COMPAT_VERSION = '1.0.0';
 export const MEMORY_HIERARCHY_API_VERSION = '1.0.0';
 export const MEMORY_HIERARCHY_CONTRACT_VERSION = '1.0.0';
+export const MEMORY_EVIDENCE_BRIDGE_API_VERSION = '1.0.0';
+export const MEMORY_EVIDENCE_BRIDGE_CONTRACT_VERSION = '1.0.0';
 
 export const AuthorityClass = Object.freeze({
   OPERATOR:'OPERATOR',
@@ -107,6 +109,14 @@ export const MEMORY_LIMITS = Object.freeze({
   maxSummaryRepresentativeEvidence:24,
   maxSummaryWorkUnits:32,
   maxSummaryDrillbackRows:256,
+  maxExternalEvidenceMappings:8192,
+  maxExternalMappingHistoryPerIdentity:32,
+  maxExternalSceneProposals:2048,
+  maxExternalOwnerEvents:4096,
+  maxExternalRawInputCharacters:32768,
+  maxHierarchyQueryCacheEntries:128,
+  maxHierarchyQueryIndexTerms:32768,
+  maxHierarchyQueryProfileSamples:256,
 });
 
 export function deepClone(value) {

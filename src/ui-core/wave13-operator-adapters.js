@@ -97,12 +97,12 @@ export class Wave13LoreStudyUIAdapter{
     this.service=bindings.loreIntelligenceService??bindings.loreStudyService??null;
     this.host=bindings.loreOperatorHost??bindings.loreStudyHost??bindings.loreHost??operatorHostFromService(this.service);
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
-    this.readFn=fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus'])??fn(this.host?.read,['surface','status','loreStudy']);
+    this.readFn=fn(this.host?.read,['surface','status','loreStudy'])??fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus']);
     this.selectionFn=fn(bindings,['readSelectedLorebookSelection']);
     this.discoverFn=fn(bindings,['discoverSelectedLorebook']);
-    this.acceptFn=fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook'])??fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook']);
-    this.runFn=fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
-    this.retryFn=fn(bindings,['retryLoreStudy'])??fn(this.host?.actions,['retryLoreStudy']);
+    this.acceptFn=fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook'])??fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook']);
+    this.runFn=fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
+    this.retryFn=fn(this.host?.actions,['retryLoreStudy'])??fn(bindings,['retryLoreStudy']);
     this.subscribeFn=fn(bindings,['subscribeLoreStudy','subscribeLoreStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     if(this.runtime){
       this.readFn??=()=>buildLoreSurfaceFromRuntime(this.runtime);

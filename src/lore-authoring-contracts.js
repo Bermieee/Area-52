@@ -9,6 +9,36 @@ export const LoreReviewState = Object.freeze({
   BLOCKED: 'BLOCKED',
 });
 
+export const LoreOperatorDecision = Object.freeze({
+  ACCEPT: 'ACCEPT',
+  CHANGE: 'CHANGE',
+  DEFER: 'DEFER',
+  REJECT: 'REJECT',
+});
+
+export const LoreAuthoringStage = Object.freeze({
+  BUILDING: 'BUILDING',
+  CHECKPOINTED: 'CHECKPOINTED',
+  DRAFT_REVIEW: 'DRAFT_REVIEW',
+  FINAL_PREVIEW: 'FINAL_PREVIEW',
+  READY_TO_SETTLE: 'READY_TO_SETTLE',
+  SETTLING: 'SETTLING',
+  SETTLED: 'SETTLED',
+  RESTORING: 'RESTORING',
+  RESTORED: 'RESTORED',
+  FAILED: 'FAILED',
+});
+
+export const LoreSettlementState = Object.freeze({
+  PENDING: 'PENDING',
+  APPLYING: 'APPLYING',
+  CHECKPOINTED: 'CHECKPOINTED',
+  SETTLED: 'SETTLED',
+  RESTORING: 'RESTORING',
+  RESTORED: 'RESTORED',
+  FAILED: 'FAILED',
+});
+
 export const LoreTreeAction = Object.freeze({
   CREATE_NODE: 'CREATE_NODE',
   MOVE_ENTRY: 'MOVE_ENTRY',

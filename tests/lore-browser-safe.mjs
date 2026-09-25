@@ -24,6 +24,7 @@ const productionFiles = [
   'src/lore-structure-planner.js',
   'src/lore-merge-preview.js',
   'src/lore-authoring-service.js',
+  'src/lore-authoring-lifecycle.js',
 ];
 
 test('integration-visible Lore production modules avoid Node-only runtime dependencies', async () => {

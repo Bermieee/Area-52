@@ -1,11 +1,11 @@
 {
   "name": "area-52",
-  "version": "0.7.0-lore-wave6",
+  "version": "0.8.0-lore-wave7",
   "private": true,
   "type": "module",
-  "description": "Area-52 native Lore Intelligence and authoring: exact-source study, semantic edit impact, human Tree proposals, and provenance-safe merge preview",
+  "description": "Area-52 native Lore Intelligence and reviewed authoring: semantic preflight, Draft Review, guarded Settlement, resumable merge/Tree application, and restoration",
   "scripts": {
-    "test": "node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs tests/lore-wave4.mjs tests/lore-wave5.mjs tests/lore-wave6.mjs tests/lore-browser-safe.mjs",
+    "test": "node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs tests/lore-wave4.mjs tests/lore-wave5.mjs tests/lore-wave6.mjs tests/lore-wave7.mjs tests/lore-browser-safe.mjs",
     "test:wave1": "node --test tests/lore-wave1.mjs",
     "test:wave2": "node --test tests/lore-wave2.mjs",
     "test:wave3": "node --test tests/lore-wave3.mjs",
@@ -15,6 +15,8 @@
     "test:stress:wave3": "node tests/lore-wave3-stress.mjs",
     "test:wave4": "node --test tests/lore-wave4.mjs",
     "test:wave5": "node --test tests/lore-wave5.mjs",
-    "test:wave6": "node --test tests/lore-wave6.mjs"
+    "test:wave6": "node --test tests/lore-wave6.mjs",
+    "test:wave7": "node --test tests/lore-wave7.mjs",
+    "test:stress:wave7": "node tests/lore-wave7-stress.mjs"
   }
 }

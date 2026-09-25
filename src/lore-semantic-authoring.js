@@ -224,7 +224,8 @@ function ontologyAffected(diff) {
     || types.has(ArtifactType.COMMUNITY)
     || types.has(ArtifactType.RELATIONSHIP)
     || types.has(ArtifactType.ENTITY)
-    || types.has(ArtifactType.ALIAS);
+    || types.has(ArtifactType.ALIAS)
+    || types.has(ArtifactType.STRUCTURE);
 }
 
 export class LoreSemanticCompiler {
@@ -388,6 +389,7 @@ export class LoreSemanticCompiler {
         retrievalForms,
         minimalityRule: 'Only artifacts fenced by the changed source revision, or semantic aggregates that depend on them, are invalidated.',
         unrelatedSourcesInvalidated: false,
+        authoritativePreflight: true,
         destructiveMutationAuthority: false,
       },
       rawSemanticDiff: deepClone(baseDiff),

@@ -82,3 +82,5 @@ export * from './native-hot-deep-scheduler.js';
 export * from './owner-integration.js';
 export * from './jev-memory-temporal-adapter.js';
 export * from './wave18-read-model.js';
+
+export * from './runtime-director-bridge.js';

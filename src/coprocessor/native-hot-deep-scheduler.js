@@ -22,13 +22,14 @@ export class NativeHotDeepScheduler {
   #activeHot=0;
   #activeDeep=0;
   #metrics={
-    hotRuns:0,hotSkips:0,deepQueued:0,deepSlices:0,deepCompleted:0,deepYields:0,deepResumes:0,deepOwnerParks:0,deepStaleRejects:0,
+    hotRuns:0,hotSkips:0,deepQueued:0,deepDeferred:0,deepBackpressureRejected:0,deepSlices:0,deepCompleted:0,deepYields:0,deepResumes:0,deepOwnerParks:0,deepStaleRejects:0,
     totalHotQueueMs:0,totalHotExecutionMs:0,totalDeepQueueMs:0,totalDeepExecutionMs:0,foregroundBlockedMs:0,
   };
 
-  constructor({resourceSlots=1,foregroundReserve=1,now=()=>globalThis.performance?.now?.()??Date.now(),maxHistory=128}={}){
+  constructor({resourceSlots=1,foregroundReserve=1,maxDeepQueue=128,now=()=>globalThis.performance?.now?.()??Date.now(),maxHistory=128}={}){
     this.resourceSlots=positiveInt(resourceSlots,'resourceSlots');
     this.foregroundReserve=Math.min(this.resourceSlots,positiveInt(foregroundReserve,'foregroundReserve'));
+    this.maxDeepQueue=positiveInt(maxDeepQueue,'maxDeepQueue');
     this.now=typeof now==='function'?now:(()=>Date.now());
     this.maxHistory=Math.max(16,Number(maxHistory)||128);
   }
@@ -37,6 +38,10 @@ export class NativeHotDeepScheduler {
     if(!task||typeof task!=='object')throw new TypeError('task is required');
     const deep=task.placement===Placement.DEEP||task.resultClass===ResultClass.DEFERRED;
     const optional=task.resultClass!==ResultClass.REQUIRED;
+    if(deep&&this.#pendingDeepCount()>=this.maxDeepQueue){
+      this.#metrics.deepDeferred+=1;
+      return freeze({decision:'DEFER',executionClass:'DEEP',reason:'DEEP_QUEUE_BACKPRESSURE',queueDepth:this.#pendingDeepCount(),maxDeepQueue:this.maxDeepQueue,authority:'NONE'});
+    }
     if(optional&&Number(expectedValue)<Number(minimumExpectedValue)){
       this.#metrics.hotSkips+=deep?0:1;
       return freeze({decision:'SKIP',executionClass:deep?'DEEP':'HOT',reason:'EXPECTED_VALUE_BELOW_THRESHOLD',authority:'NONE'});
@@ -96,6 +101,7 @@ export class NativeHotDeepScheduler {
     const id=required(workId,'workId');
     if(typeof runSlice!=='function')throw new TypeError('runSlice must be a function');
     if(this.#deep.has(id))throw new Error('deep work already queued: '+id);
+    if(this.#pendingDeepCount()>=this.maxDeepQueue){this.#metrics.deepBackpressureRejected+=1;throw new RangeError('deep work queue capacity exhausted');}
     const at=this.now();
     const row={
       workId:id,runSlice,checkpoint:clone(checkpoint),metadata:safeMetadata(metadata),status:NativeWorkState.QUEUED,
@@ -183,7 +189,7 @@ export class NativeHotDeepScheduler {
   readModel(){
     return freeze({
       kind:'NativeHotDeepSchedulerReadModel',contractVersion:HOT_DEEP_SCHEDULER_VERSION,
-      resourceSlots:this.resourceSlots,foregroundReserve:this.foregroundReserve,foregroundActive:this.#foregroundRequests>0,
+      resourceSlots:this.resourceSlots,foregroundReserve:this.foregroundReserve,maxDeepQueue:this.maxDeepQueue,foregroundActive:this.#foregroundRequests>0,
       activeHot:this.#activeHot,activeDeep:this.#activeDeep,
       deepWork:[...this.#deep.values()].map(row=>this.readDeepWork(row.workId)),
       metrics:clone(this.#metrics),history:clone(this.#history),
@@ -191,6 +197,7 @@ export class NativeHotDeepScheduler {
     });
   }
 
+  #pendingDeepCount(){let count=0;for(const row of this.#deep.values())if(![NativeWorkState.COMPLETED,NativeWorkState.REJECTED_STALE,NativeWorkState.FAILED,NativeWorkState.SKIPPED].includes(row.status))count+=1;return count;}
   #waitForCapacity(){return new Promise(resolve=>this.#waiters.push(resolve));}
   #notifyCapacity(){for(const resolve of this.#waiters.splice(0))try{resolve();}catch{}}
   #record(event){

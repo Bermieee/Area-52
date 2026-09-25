@@ -86,6 +86,32 @@ export function createMemoryConsolidationDeepWork({memoryOwner,jobs=[],options={
   };
 }
 
+export async function adjudicateJevForOwner({service,input,currentRevisionState=null,sealed=false,signal=null,ownerReview=null}={}){
+  if(!service||typeof service.adjudicate!=='function')throw new TypeError('JevDomainAdapterService is required');
+  const proposal=await service.adjudicate(input,{currentRevisionState,sealed,signal});
+  const stale=proposal?.staleState==='STALE';
+  const late=Boolean(proposal?.details?.late||proposal?.details?.foregroundEligible===false);
+  if(stale||late){
+    return freeze({
+      kind:'JevOwnerAdmissionReceipt',contractVersion:COPROCESSOR_OWNER_INTEGRATION_VERSION,
+      status:stale?'REJECTED_STALE':'REJECTED_POST_SEAL',domain:proposal?.domain??input?.domain??null,
+      proposalType:proposal?.proposalType??null,proposal,ownerReviewInvoked:false,ownerDecision:'REJECTED',
+      accepted:false,rejected:true,reasonCode:stale?'STALE_REVISION':'CONTEXT_SEALED',
+      settlementPerformed:false,canonicalMutation:false,jevSettlementPerformed:false,mutationAuthority:false,
+      authority:'OWNER_REQUIRED',
+    });
+  }
+  const review=await requestJevOwnerReview({proposal,ownerReview});
+  return freeze({
+    kind:'JevOwnerAdmissionReceipt',contractVersion:COPROCESSOR_OWNER_INTEGRATION_VERSION,
+    status:review.status,domain:proposal.domain,proposalType:proposal.proposalType,proposal,
+    ownerReviewInvoked:typeof ownerReview==='function',ownerDecision:review.ownerDecision,
+    accepted:Boolean(review.accepted),rejected:Boolean(review.rejected),reasonCode:review.reasonCode??null,
+    settlementPerformed:Boolean(review.settlementPerformed),canonicalMutation:Boolean(review.canonicalMutation),
+    jevSettlementPerformed:false,mutationAuthority:false,authority:'OWNER_REVIEW_RECEIPT',
+  });
+}
+
 export async function requestJevOwnerReview({proposal,ownerReview=null}={}){
   if(!proposal||proposal.requiresOwnerPolicy!==true||proposal.mutationAuthority!==false)throw new TypeError('bounded Jev owner proposal is required');
   if(typeof ownerReview!=='function')return freeze({

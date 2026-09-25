@@ -20,7 +20,8 @@ export class SpecialistExecutionLayer {
     const contextTokens=estimateTokens(providerInput);
     const eligibilityOptions={contextTokens,maxCostClass,requireStructuredOutput:true,
       expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal),
-      maxLatencyMs:positiveFiniteOrNull(task.metadata?.latencyBudgetMs),maxLatencyClass:task.metadata?.maxLatencyClass??null};
+      maxLatencyMs:positiveFiniteOrNull(task.metadata?.latencyBudgetMs??task.metadata?.maxLatencyMs),maxLatencyClass:task.metadata?.maxLatencyClass??null,
+      resourceLimits:structuredClone(task.metadata?.resourceLimits??task.metadata?.resourceHints??{}),resourceClass:task.metadata?.resourceClass??null};
     const eligible=(profileId!=null&&leaseHeld
       ? [this.profiles.get(profileId)].filter(Boolean)
       : profileId==null
@@ -86,16 +87,19 @@ export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength
 
 function positiveFiniteOrNull(value){const n=Number(value);return Number.isFinite(n)&&n>0?n:null;}
 
-function profileSatisfiesExecutionLimits(profile,{contextTokens=0,maxCostClass='HIGH',maxLatencyClass=null,maxLatencyMs=null,requireStructuredOutput=true,expectedOutputTokens=0}={}){
+function profileSatisfiesExecutionLimits(profile,{contextTokens=0,maxCostClass='HIGH',maxLatencyClass=null,maxLatencyMs=null,requireStructuredOutput=true,expectedOutputTokens=0,resourceLimits={},resourceClass=null}={}){
   if(!profile)return false;
   if(requireStructuredOutput&&!profile.structuredOutput)return false;
   if(Number(contextTokens)>Number(profile.maxContextTokens??Number.MAX_SAFE_INTEGER))return false;
   if(Number(expectedOutputTokens)>Number(profile.maxOutputTokens??Number.MAX_SAFE_INTEGER))return false;
+  if(resourceClass!=null&&profile.resourceClass!==resourceClass)return false;
+  if(!resourcesWithinLimits(profile.resourceProfile,resourceLimits))return false;
   if(costRank(profile.costClass)>costRank(maxCostClass))return false;
   if(maxLatencyClass!=null&&latencyRank(profile.latencyClass)>latencyRank(maxLatencyClass))return false;
   if(maxLatencyMs!=null&&latencyMs(profile.latencyClass)>Number(maxLatencyMs))return false;
   return true;
 }
+function resourcesWithinLimits(profileResources={},limits={}){for(const[resource,rawLimit]of Object.entries(limits??{})){const limit=Number(rawLimit);if(Number.isFinite(limit)&&Number(profileResources?.[resource]??0)>limit)return false;}return true;}
 function costRank(value){return({FREE:0,LOW:1,MEDIUM:2,HIGH:3})[String(value??'MEDIUM').toUpperCase()]??99;}
 function latencyRank(value){return({ULTRA_LOW:0,LOW:1,MEDIUM:2,HIGH:3})[String(value??'MEDIUM').toUpperCase()]??99;}
 function latencyMs(value){return({ULTRA_LOW:10,LOW:25,MEDIUM:100,HIGH:300})[String(value??'MEDIUM').toUpperCase()]??100;}

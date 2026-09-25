@@ -143,6 +143,8 @@ export class CapabilityProfileRegistry {
     requireStructuredOutput = true,
     expectedOutputTokens = 0,
     preferLocal = false,
+    resourceLimits = {},
+    resourceClass = null,
   } = {}) {
     return this.list().filter((profile) => {
       if (!profile.available || !providerHealthEligible(profile.providerHealth ?? profile.health)) return false;
@@ -153,6 +155,8 @@ export class CapabilityProfileRegistry {
       if (requireStructuredOutput && !profile.structuredOutput) return false;
       if (contextTokens > profile.maxContextTokens) return false;
       if (Number(expectedOutputTokens)>profile.maxOutputTokens) return false;
+      if (resourceClass != null && profile.resourceClass !== resourceClass) return false;
+      if (!resourcesWithinLimits(profile.resourceProfile, resourceLimits)) return false;
       if ((COST[profile.costClass] ?? 99) > (COST[maxCostClass] ?? 99)) return false;
       if (maxLatencyClass!=null && (LATENCY[profile.latencyClass]??99)>(LATENCY[maxLatencyClass]??99)) return false;
       if (maxLatencyMs!=null && latencyScore(profile.latencyClass)>Number(maxLatencyMs)) return false;
@@ -258,3 +262,11 @@ function providerHealthEligible(value) {
 }
 
 function qualifiedLimit(value,fallback){ const n=Number(value); return Number.isFinite(n)&&n>0?n:fallback; }
+
+function resourcesWithinLimits(profileResources={}, limits={}) {
+  for (const [resource, rawLimit] of Object.entries(limits ?? {})) {
+    const limit=Number(rawLimit);
+    if (Number.isFinite(limit) && Number(profileResources?.[resource] ?? 0) > limit) return false;
+  }
+  return true;
+}

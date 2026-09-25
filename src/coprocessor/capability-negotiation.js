@@ -28,9 +28,10 @@ export function createCapabilityRequirement(task, options = {}) {
     structuredOutputRequirement: Boolean(requireStructuredOutput),
     latencyBudget: Object.freeze({
       maxClass: options.maxLatencyClass ?? task.metadata?.maxLatencyClass ?? null,
-      maxMs: finiteOrNull(options.maxLatencyMs ?? task.metadata?.maxLatencyMs),
+      maxMs: finiteOrNull(options.maxLatencyMs ?? task.metadata?.latencyBudgetMs ?? task.metadata?.maxLatencyMs),
     }),
     costBudget: options.maxCostClass ?? task.metadata?.maxCostClass ?? 'HIGH',
+    resourceLimits: structuredClone(options.resourceLimits ?? task.metadata?.resourceLimits ?? task.metadata?.resourceHints ?? {}),
     resourceHints: structuredClone(task.metadata?.resourceHints ?? task.metadata?.resourceLimits ?? {}),
     resourceClass: options.resourceClass ?? task.metadata?.resourceClass ?? null,
     latencyClass: options.latencyClass ?? task.metadata?.latencyClass ?? null,
@@ -53,6 +54,8 @@ export function negotiateCapabilities(registry, task, options = {}) {
     maxLatencyMs: requirement.latencyBudget.maxMs,
     maxCostClass: requirement.costBudget,
     preferLocal: Boolean(options.preferLocal ?? task.metadata?.preferLocal),
+    resourceLimits: requirement.resourceLimits,
+    resourceClass: requirement.resourceClass,
   });
   const requested = discovery.capabilityRequests ?? requirement.capabilityRequests;
   const allProfiles = registry.list();
@@ -121,6 +124,8 @@ function profileConstraintFailures(profile, task, requirement) {
   if (requirement.structuredOutputRequirement && !profile.structuredOutput) failures.push('STRUCTURED_OUTPUT_UNAVAILABLE');
   if (requirement.contextRequirement.tokens > profile.maxContextTokens) failures.push('CONTEXT_TOO_LARGE');
   if (requirement.outputRequirement.tokens > profile.maxOutputTokens) failures.push('OUTPUT_TOO_LARGE');
+  if (requirement.resourceClass != null && profile.resourceClass !== requirement.resourceClass) failures.push('RESOURCE_CLASS_MISMATCH');
+  if (!resourcesWithinLimits(profile.resourceProfile, requirement.resourceLimits)) failures.push('RESOURCE_LIMIT_EXCEEDED');
   if ((COST[profile.costClass] ?? 99) > (COST[requirement.costBudget] ?? 99)) failures.push('COST_BUDGET_EXCEEDED');
   if (requirement.latencyBudget.maxClass != null && (LATENCY[profile.latencyClass] ?? 99) > (LATENCY[requirement.latencyBudget.maxClass] ?? 99)) failures.push('LATENCY_CLASS_EXCEEDED');
   if (requirement.latencyBudget.maxMs != null && latencyScore(profile.latencyClass) > requirement.latencyBudget.maxMs) failures.push('LATENCY_BUDGET_EXCEEDED');
@@ -133,3 +138,11 @@ function finiteOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 function latencyScore(value) { return ({ ULTRA_LOW: 10, LOW: 25, MEDIUM: 100, HIGH: 300 })[value] ?? 100; }
+
+function resourcesWithinLimits(profileResources={}, limits={}) {
+  for (const [resource, rawLimit] of Object.entries(limits ?? {})) {
+    const limit=Number(rawLimit);
+    if (Number.isFinite(limit) && Number(profileResources?.[resource] ?? 0) > limit) return false;
+  }
+  return true;
+}

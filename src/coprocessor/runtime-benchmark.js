@@ -61,3 +61,55 @@ function present(value) { return value == null ? notMeasured('measurement input 
 function checks(values) { return values == null ? notMeasured('check set not supplied') : measuredMetric({ passed: values.filter(Boolean).length, total: values.length, ratio: ratio(values) }); }
 function optionalMeasured(value, reason) { return value == null ? notMeasured(reason) : measuredMetric(value); }
 function ratio(values) { return values.length ? values.filter(Boolean).length / values.length : null; }
+
+export function summarizeBackendRuntimeClosureBenchmarks({
+  routingReceipts=[],
+  placementReceipts=[],
+  fallbackReceipts=[],
+  staleChecks=[],
+  resourceUse={},
+  measurementClass='LOCAL_DETERMINISTIC',
+}={}){
+  const routes=Array.isArray(routingReceipts)?routingReceipts:[];
+  const placements=Array.isArray(placementReceipts)?placementReceipts:[];
+  const fallbacks=Array.isArray(fallbackReceipts)?fallbackReceipts:[];
+  const stale=Array.isArray(staleChecks)?staleChecks:[];
+  const routeStable=routes.map(row=>Boolean(row?.meaningPreserved));
+  const interchangeable=routes.map(row=>Boolean(row?.interchangeable));
+  const foregroundBlocked=placements.map(row=>Number(row?.foregroundBlockedMs??0)).filter(Number.isFinite);
+  const yieldLatency=placements.map(row=>Number(row?.yieldLatencyMs)).filter(Number.isFinite);
+  const queueLatency=placements.map(row=>Number(row?.queueMs)).filter(Number.isFinite);
+  const boundedFallback=fallbacks.map(row=>{
+    const attempts=Number(row?.attempts??row?.attemptCount??0),max=Number(row?.maxProviders??row?.maxAttempts??0);
+    return Number.isFinite(attempts)&&Number.isFinite(max)&&max>0&&attempts<=max;
+  });
+  const staleRejected=stale.map(row=>typeof row==='boolean'?row:Boolean(row?.rejected));
+  return Object.freeze({
+    kind:'BackendRuntimeClosureBenchmarkSummary',
+    measurementClass,
+    deterministic:measurementClass!=='MEASURED_LIVE',
+    liveProviderLatencyMeasured:measurementClass==='MEASURED_LIVE'&&Boolean(resourceUse?.providerLatencyMs),
+    liveProviderCostMeasured:measurementClass==='MEASURED_LIVE'&&Boolean(resourceUse?.providerCost),
+    metrics:Object.freeze({
+      routingStability:measuredMetric({passed:routeStable.filter(Boolean).length,total:routeStable.length,ratio:ratio(routeStable)}),
+      providerInterchangeability:measuredMetric({passed:interchangeable.filter(Boolean).length,total:interchangeable.length,ratio:ratio(interchangeable)}),
+      foregroundBlockingMs:measuredMetric(distribution(foregroundBlocked)),
+      queueLatencyMs:measuredMetric(distribution(queueLatency)),
+      deepYieldLatencyMs:yieldLatency.length?measuredMetric(distribution(yieldLatency)):notMeasured('no yield latency receipts supplied'),
+      boundedFallback:measuredMetric({passed:boundedFallback.filter(Boolean).length,total:boundedFallback.length,ratio:ratio(boundedFallback)}),
+      staleRejection:measuredMetric({passed:staleRejected.filter(Boolean).length,total:staleRejected.length,ratio:ratio(staleRejected)}),
+      deferredByBackpressure:measuredMetric(placements.filter(row=>row?.decision==='DEFER'||row?.reason==='DEEP_QUEUE_BACKPRESSURE').length),
+      skippedByPolicy:measuredMetric(placements.filter(row=>row?.decision==='SKIP').length),
+      cpuMs:optionalMeasured(resourceUse?.cpuMs,'CPU instrumentation unavailable'),
+      peakRamMb:optionalMeasured(resourceUse?.peakRamMb,'RAM instrumentation unavailable'),
+      llmInputTokens:measurementClass==='MEASURED_LIVE'?optionalMeasured(resourceUse?.llmInputTokens,'live provider usage unavailable'):notMeasured('deterministic benchmark does not claim live provider tokens'),
+      llmOutputTokens:measurementClass==='MEASURED_LIVE'?optionalMeasured(resourceUse?.llmOutputTokens,'live provider usage unavailable'):notMeasured('deterministic benchmark does not claim live provider tokens'),
+      estimatedCost:measurementClass==='MEASURED_LIVE'?optionalMeasured(resourceUse?.estimatedCost,'live provider cost unavailable'):notMeasured('deterministic benchmark does not claim live provider cost'),
+    }),
+  });
+}
+
+function distribution(values){
+  if(!values.length)return{count:0,min:null,max:null,average:null};
+  return{count:values.length,min:Math.min(...values),max:Math.max(...values),average:values.reduce((a,b)=>a+b,0)/values.length};
+}

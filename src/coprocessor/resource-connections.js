@@ -389,7 +389,7 @@ export class CoprocessorResourceConnections{
     const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,preferLocal,requireStructuredOutput:true,
       expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
       maxLatencyMs:positiveFiniteOrNull(maxLatencyMs??task?.metadata?.latencyBudgetMs),
-      maxLatencyClass:maxLatencyClass??task?.metadata?.maxLatencyClass??null})
+      maxLatencyClass:maxLatencyClass??task?.metadata?.maxLatencyClass??null,resourceLimits:task?.metadata?.resourceLimits??task?.metadata?.resourceHints??{},resourceClass:task?.metadata?.resourceClass??null})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
       .slice(0,Math.max(1,Number(maxProviders)||1));
     return deepFreeze({
@@ -411,7 +411,7 @@ export class CoprocessorResourceConnections{
   async executeTask(task,{input={},profileId=null,signal=null,attempt=1,maxCostClass='HIGH'}={}){
     const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,
       expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
-      maxLatencyMs:positiveFiniteOrNull(task?.metadata?.latencyBudgetMs),maxLatencyClass:task?.metadata?.maxLatencyClass??null})
+      maxLatencyMs:positiveFiniteOrNull(task?.metadata?.latencyBudgetMs),maxLatencyClass:task?.metadata?.maxLatencyClass??null,resourceLimits:task?.metadata?.resourceLimits??task?.metadata?.resourceHints??{},resourceClass:task?.metadata?.resourceClass??null})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)));
     const profile=profileId==null?eligible[0]:eligible.find(x=>x.profileId===profileId);
     if(!profile)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'No connected resource satisfies task capabilities',{providerId:null});
@@ -442,7 +442,7 @@ export class CoprocessorResourceConnections{
   async executeTaskWithFallback(task,{input={},signal=null,attempt=1,maxCostClass='HIGH',maxProviders=2}={}){
     const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,
       expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
-      maxLatencyMs:positiveFiniteOrNull(task?.metadata?.latencyBudgetMs),maxLatencyClass:task?.metadata?.maxLatencyClass??null})
+      maxLatencyMs:positiveFiniteOrNull(task?.metadata?.latencyBudgetMs),maxLatencyClass:task?.metadata?.maxLatencyClass??null,resourceLimits:task?.metadata?.resourceLimits??task?.metadata?.resourceHints??{},resourceClass:task?.metadata?.resourceClass??null})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
       .slice(0,Math.max(1,Number(maxProviders)||1));
     const attempts=[];let lastError=null;

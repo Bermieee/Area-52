@@ -513,6 +513,19 @@ export class Area52NativeBrain{
   async #syncLoreForTurn({query,intent}){
     if(!this.loreInterface)return{kind:'NativeBrainLoreSyncReceipt',status:'NOT_ATTACHED',queried:false,admitted:0,unchanged:0,skipped:0,sourceRevisionFence:[],authorityGranted:false};
     try{
+      let lifecycleUpdated=0,lifecycleRemoved=0;
+      if(typeof this.loreInterface.sourceRevision==='function'){
+        for(const row of this.knowledge.currentRecords({channelFamily:'LORE'})){
+          const ownerRevision=await this.loreInterface.sourceRevision(row.sourceId);
+          if(ownerRevision?.state==='REMOVED'){
+            this.removeLore(row.sourceId,{reason:'LORE_OWNER_SOURCE_REMOVED'});lifecycleRemoved++;continue;
+          }
+          const priorOwnerRevision=row.evidence?.extensions?.metadata?.externalSourceRevisionId??null;
+          if(ownerRevision?.id&&ownerRevision.id!==priorOwnerRevision&&typeof ownerRevision.exactContent==='string'&&ownerRevision.exactContent.length){
+            this.acceptLore({sourceId:row.sourceId,sourceType:'LORE_ENTRY',exactContent:ownerRevision.exactContent,provenanceRefs:[ownerRevision.id],metadata:{representationText:ownerRevision.exactContent,externalSourceRevisionId:ownerRevision.id,loreInterfaceKind:'LoreBrainRetrievalInterface'}});lifecycleUpdated++;
+          }
+        }
+      }
       const packet=await this.loreInterface.query({query,intent});
       if(!packet||packet.kind!=='LoreBrainRetrievalPacket'||Number(packet.contractVersion)!==1)throw new Error('LORE_BRAIN_PACKET_CONTRACT_MISMATCH');
       let admitted=0,unchanged=0,skipped=0;
@@ -534,7 +547,7 @@ export class Area52NativeBrain{
           admitted++;
         }
       }
-      return{kind:'NativeBrainLoreSyncReceipt',status:'SYNCED',queried:true,admitted,unchanged,skipped,sourceRevisionFence:uniq(packet.sourceRevisionFence??[]),ontologyRevision:packet.ontologyRevision??null,indexRevision:packet.indexRevision??null,authorityGranted:false};
+      return{kind:'NativeBrainLoreSyncReceipt',status:'SYNCED',queried:true,admitted,unchanged,skipped,lifecycleUpdated,lifecycleRemoved,sourceRevisionFence:uniq(packet.sourceRevisionFence??[]),ontologyRevision:packet.ontologyRevision??null,indexRevision:packet.indexRevision??null,authorityGranted:false};
     }catch(error){
       return{kind:'NativeBrainLoreSyncReceipt',status:'DEGRADED',queried:true,admitted:0,unchanged:0,skipped:0,sourceRevisionFence:[],reason:error?.message??String(error),authorityGranted:false};
     }

@@ -516,6 +516,7 @@ function diagnosticSource(read){
     hotActivity:data.hotActivity??null,deepActivity:data.deepActivity??null,activeTaskCount:data.activeTaskCount??null,
     queuedObligations:data.queuedObligations??null,blockedRecoveringWork:data.blockedRecoveringWork??null,activeBatches:data.activeBatches??null,
     warm:data.warm?cloneSafe(data.warm):null,fallback:data.fallback??null,staleDrop:data.staleDrop??null,retry:data.retry??null,
+    resourceTelemetry:data.resources?cloneSafe(data.resources):null,providerCalls:data.providerCalls?cloneSafe(data.providerCalls):null,eventCounts:data.eventCounts?cloneSafe(data.eventCounts):null,
     promptPlanId:data.promptPlanId??null,totalTokens:data.totalTokens??null,budgetTotal:data.budgetTotal??null,
     segmentCount:Array.isArray(data.segments)?data.segments.length:null,droppedCount:Array.isArray(data.dropped)?data.dropped.length:null,deferredCount:Array.isArray(data.deferred)?data.deferred.length:null,
     sealedState:data.seal?.sealedState??null,

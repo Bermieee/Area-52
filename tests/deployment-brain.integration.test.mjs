@@ -325,6 +325,7 @@ test('deployment host exports live resource controls, split Lore lifecycle, and 
   const accepted = bindings.acceptLorebook({
     id: 'unrelated-live-lore',
     title: 'Unrelated Live Lore',
+    discovery: { kind: 'DeploymentTestDiscovery', stableId: 'unrelated-live-lore', exactAuthoredSource: true },
     entries: [
       { uid: 'archive', content: 'The Harbor Archive stores tide records.', metadata: { title: 'Harbor Archive', treePath: ['Places', 'Harbor'] } },
     ],

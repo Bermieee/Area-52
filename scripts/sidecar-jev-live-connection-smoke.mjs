@@ -61,13 +61,17 @@ const ambiguousReceipt=await core.decide(ambiguous,{currentRevisionState:fresh(a
 const afterAmbiguous=core.metricsSnapshot();
 
 const invalidStatuses=new Set(['JEV_INVALID','JEV_UNAVAILABLE','JEV_STALE']);
+const realProviderCallObserved=afterAmbiguous.providerCalls-afterClear.providerCalls>=1&&ambiguousReceipt.providerProvenance?.measurementClass==='MEASURED_LIVE';
 const passed=!invalidStatuses.has(ambiguousReceipt.serviceStatus)
   && afterClear.providerCalls-before.providerCalls===0
-  && afterAmbiguous.providerCalls-afterClear.providerCalls>=1;
+  && realProviderCallObserved;
 
 const report={
   status:passed?'PASS':'FAILED',
   measurementClass:'MEASURED_LIVE',
+  realProviderCallObserved,
+  jevLivePass:passed,
+  usefulness:{deterministicBaseline:'UNRESOLVED',optionalOutcome:ambiguousReceipt.outcome,changedDecision:['DECIDED','PARTIAL'].includes(ambiguousReceipt.outcome),safeAbstention:ambiguousReceipt.outcome==='ABSTAINED'||ambiguousReceipt.outcome==='UNRESOLVED'},
   connection:{
     resourceId:connection.resourceId,state:connection.state,providerProfileId:connection.providerProfileId,
     modelId:connection.modelId,activeCapabilities:connection.activeCapabilities,lastHealthLatencyMs:connection.lastHealthLatencyMs,

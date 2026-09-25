@@ -157,7 +157,7 @@ export class CoprocessorResourceConnections{
       lastHealthCheckAt:null,lastHealthLatencyMs:null,lastHealthResult:null,lastTest:null,lastExecution:null,lastFailure:null,
       endpoint:safeEndpoint(endpoint),credentialConfigured:Boolean(input.apiKey),credentialRequired,credentialStorage:ResourceCredentialStorage.SESSION_MEMORY_ONLY,credentialVersion:Boolean(input.apiKey)?1:0,
       local,selectedModelQualified:kind===ResourceKind.DETERMINISTIC_LOCAL,qualifiedAt:kind===ResourceKind.DETERMINISTIC_LOCAL?at:null,actualModelId:kind===ResourceKind.DETERMINISTIC_LOCAL?modelId:null,actualProvider:null,
-      modelSelectionMode:kind===ResourceKind.DETERMINISTIC_LOCAL?'LOCAL_DETERMINISTIC':'LEGACY_UNVERIFIED',
+      modelSelectionMode:kind===ResourceKind.DETERMINISTIC_LOCAL?'LOCAL_DETERMINISTIC':'CONFIGURED_UNQUALIFIED',
       modelDiscovery:createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode}),
       diagnostics:[],
     };
@@ -190,7 +190,7 @@ export class CoprocessorResourceConnections{
     });
     try{
       const discovery=await adapter.discoverModels({signal,timeoutMs:input.timeoutMs??10000});
-      return deepFreeze(discoveryResultFromAdapter(discovery,{endpoint,identity,transportMode,credentialConfigured:Boolean(input.apiKey)}));
+      return deepFreeze(discoveryResultFromAdapter(discovery,{endpoint,identity,transportMode,resourceCapabilities:qualifiedTransportCapabilities(declared,transportMode,kind),credentialConfigured:Boolean(input.apiKey)}));
     }catch(error){
       return deepFreeze(discoveryFailure(error,{endpoint,identity,transportMode,credentialConfigured:Boolean(input.apiKey)}));
     }
@@ -212,7 +212,7 @@ export class CoprocessorResourceConnections{
     this.#notify('RESOURCE_DISCOVERY',row);
     try{
       const adapter=this.adapters.get(row.providerId);const discovery=await adapter.discoverModels({signal,timeoutMs:this.privateConfig.get(row.resourceId)?.healthTimeoutMs});
-      const result=discoveryResultFromAdapter(discovery,{endpoint:row.endpoint,identity:row.providerIdentity,transportMode:row.transportMode,credentialConfigured:row.credentialConfigured});
+      const result=discoveryResultFromAdapter(discovery,{endpoint:row.endpoint,identity:row.providerIdentity,transportMode:row.transportMode,resourceCapabilities:row.routableCapabilities,credentialConfigured:row.credentialConfigured});
       row.modelDiscovery=createDiscoveryReadModel(result.state,{...result,models:result.models});
       this.#diagnostic(row,'MODEL_DISCOVERY_'+result.state,result.reason??'Model discovery completed.',{modelCount:result.models.length});
     }catch(error){
@@ -231,6 +231,7 @@ export class CoprocessorResourceConnections{
     if(typeof value!=='string'||!value.trim())throw new ProviderInvocationError(FailureCode.CREDENTIAL_REQUIRED,'credential must be a non-empty string',{providerId:row.providerId});
     const adapter=this.adapters.get(row.providerId);if(typeof adapter?.setCredential!=='function')throw new TypeError('resource adapter does not support session credentials');
     adapter.setCredential(value);row.credentialConfigured=true;row.credentialVersion+=1;
+    const privateConfig=this.privateConfig.get(row.resourceId);if(privateConfig)privateConfig.hasCredential=true;
     this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.CREDENTIAL_UPDATED,reason:'Session credential replaced; model qualification must be repeated.'});
     this.#diagnostic(row,'CREDENTIAL_UPDATED','Session credential replaced.',{credentialVersion:row.credentialVersion,storage:row.credentialStorage});
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_CREDENTIAL,{...this.#telemetryRow(row),credentialConfigured:true,credentialVersion:row.credentialVersion,action:'REPLACED'});
@@ -242,6 +243,7 @@ export class CoprocessorResourceConnections{
     const adapter=this.adapters.get(row.providerId);adapter?.clearCredential?.();
     for(const controller of this.controllers.get(resourceId)??[])if(!controller.signal.aborted)controller.abort('credential-revoked');
     this.controllers.delete(resourceId);row.credentialConfigured=false;row.credentialVersion+=1;
+    const privateConfig=this.privateConfig.get(row.resourceId);if(privateConfig)privateConfig.hasCredential=false;
     this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.CREDENTIAL_REVOKED,reason:safeMessage(reason),unavailable:row.credentialRequired});
     this.#diagnostic(row,'CREDENTIAL_REVOKED','Session credential revoked.',{credentialVersion:row.credentialVersion,storage:row.credentialStorage});
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_CREDENTIAL,{...this.#telemetryRow(row),credentialConfigured:false,credentialVersion:row.credentialVersion,action:'REVOKED'});
@@ -254,12 +256,13 @@ export class CoprocessorResourceConnections{
     const row=this.#row(resourceId);const value=req(modelId,'modelId');
     const discovery=row.modelDiscovery??createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode:row.transportMode});
     const found=(discovery.models??[]).find(model=>model.id===value);
-    if([ResourceModelDiscoveryState.READY,ResourceModelDiscoveryState.EMPTY].includes(discovery.state)&&!found){
-      throw new ProviderInvocationError(FailureCode.MODEL_UNAVAILABLE,'Selected model is not present in the discovered provider model list',{providerId:row.providerId,status:404});
-    }
+    if(discovery.state===ResourceModelDiscoveryState.READY&&!found)throw new ProviderInvocationError(FailureCode.MODEL_UNAVAILABLE,'Selected model is not present in the discovered provider model list',{providerId:row.providerId,status:404});
     if(discovery.state===ResourceModelDiscoveryState.EMPTY)throw new ProviderInvocationError(FailureCode.MODEL_UNAVAILABLE,'Provider model discovery returned no selectable models',{providerId:row.providerId});
+    if(![ResourceModelDiscoveryState.READY,ResourceModelDiscoveryState.UNSUPPORTED].includes(discovery.state)){
+      throw new ProviderInvocationError(FailureCode.MODEL_DISCOVERY_UNSUPPORTED,'Load/Refresh Models must complete before selecting a model; manual entry is allowed only when discovery is unsupported',{providerId:row.providerId});
+    }
     const adapter=this.adapters.get(row.providerId);adapter?.setModelId?.(value);this.profiles.setModelId(row.providerProfileId,value);row.modelId=value;
-    row.modelSelectionMode=found?'DISCOVERED':discovery.state===ResourceModelDiscoveryState.UNSUPPORTED?'MANUAL_FALLBACK':'LEGACY_UNVERIFIED';
+    row.modelSelectionMode=found?'DISCOVERED':'MANUAL_FALLBACK';
     this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.MODEL_SELECTED,reason:'Model selected; authenticated qualification is required.'});
     this.#diagnostic(row,'MODEL_SELECTED','Model selection updated.',{selectionMode:row.modelSelectionMode});
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_MODEL_SELECTED,{...this.#telemetryRow(row),selectionMode:row.modelSelectionMode});
@@ -574,10 +577,10 @@ function createDiscoveryReadModel(state,input={}){
   return deepFreeze({kind:'ResourceModelDiscoveryReadModel',state,models:Object.freeze((input.models??[]).map(clone)),manualModelEntryAllowed:Boolean(input.manualModelEntryAllowed??state===ResourceModelDiscoveryState.UNSUPPORTED),
     reasonCode:input.reasonCode??discoveryReasonCode(state),reason:input.reason??discoveryReason(state),transportMode:input.transportMode??null,at:input.at??Date.now()});
 }
-function discoveryResultFromAdapter(discovery,{endpoint=null,identity=null,transportMode=null,credentialConfigured=false}={}){
+function discoveryResultFromAdapter(discovery,{endpoint=null,identity=null,transportMode=null,resourceCapabilities=[],credentialConfigured=false}={}){
   const state=discovery?.state===ProviderModelDiscoveryState.UNSUPPORTED?ResourceModelDiscoveryState.UNSUPPORTED
     :discovery?.state===ProviderModelDiscoveryState.EMPTY?ResourceModelDiscoveryState.EMPTY:ResourceModelDiscoveryState.READY;
-  const models=(discovery?.models??[]).map(model=>deepFreeze({...clone(model),capabilities:transportMode===ProviderTransportMode.EMBEDDINGS?[Capability.EMBED]:Object.freeze([...(model.capabilities??[])])}));
+  const models=(discovery?.models??[]).map(model=>deepFreeze({...clone(model),capabilities:Object.freeze(transportMode===ProviderTransportMode.EMBEDDINGS?[Capability.EMBED]:[...new Set(resourceCapabilities.length?resourceCapabilities:(model.capabilities??[]))])}));
   return {kind:'ResourceModelDiscoveryResult',state,models,manualModelEntryAllowed:state===ResourceModelDiscoveryState.UNSUPPORTED,reasonCode:discoveryReasonCode(state),reason:discoveryReason(state),
     endpoint:safeEndpoint(endpoint),providerIdentity:clone(identity),transportMode,local:isLocalEndpoint(endpoint),credentialConfigured,credentialStorage:ResourceCredentialStorage.SESSION_MEMORY_ONLY,latencyMs:finiteOrNull(discovery?.latencyMs)};
 }

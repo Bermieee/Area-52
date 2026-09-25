@@ -768,7 +768,7 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "b79afe920c3eb4392ca405098f9bc8a6c69c798d",
+      "expectedDigest": "916de2bdac4e9105a18a9206cead28b52d25effc",
       "reason": "Director-authorized demo UI: separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration plus fan-out/Gather."
     },
     {
@@ -780,7 +780,7 @@
     {
       "path": "styles/ui-core-wave13.css",
       "sourceDigest": "d57ca9001035067bc10d15b8c22d6587d3c73a4d",
-      "expectedDigest": "6827756534000a76e5946b835b26561e481082cf",
+      "expectedDigest": "d0a544fbb5ca05cab9accd52ad28a4de3e7eebc0",
       "reason": "Director-authorized demo UI: Area-52 blue/dark rail, visible side-edge resize grip, scroll-safe panels, and three connection slots."
     },
     {
@@ -798,13 +798,13 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "fa7d76317d0eff424c1dd96bfacc5e6f2a06365c",
+      "expectedDigest": "c47b8e2fb715aaee17467a8cade627437bfe8f04",
       "reason": "Acceptance coverage for attached blue navigation, side-edge resize, independent scrolling, Jev/Sidecar/Vectoring slot separation and locked owner configurations."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "57e4e7263a1566b0ee7b38d41707cf388f06d44e",
+      "expectedDigest": "ffddc7042a27510eec8016e68bf3d04771814370",
       "reason": "Director-authorized demo UI: map the Vectoring slot to Worker 2 supported RETRIEVAL/EMBED capabilities without taking routing authority."
     }
   ],

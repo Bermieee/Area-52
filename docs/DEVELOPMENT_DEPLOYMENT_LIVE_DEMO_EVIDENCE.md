@@ -6,7 +6,7 @@
 
 Area-52 remains one SillyTavern extension. Jev and sidecars are optional execution resources; no external database, Redis, Dapr, remote provider, or second install is required for native Brain operation.
 
-The first demo's HTTP 500 is consistent with SillyTavern's supported updater encountering a divergent installed Git checkout: SillyTavern performs a normal pull of the extension's current branch and reports pull failure as HTTP 500. Area-52 must not hide that condition with a force reset.
+The first demo's HTTP 500 plus the later missing Update control points to the installed extension no longer being a healthy Git-managed checkout. SillyTavern's updater requires the extension directory to be a Git repository and reports update exceptions as HTTP 500; its version probe returns blank branch/commit metadata for a non-repository. A divergent checkout can also make the normal pull fail. The SillyTavern server log distinguishes those cases. Area-52 must not hide either condition with a force reset.
 
 1. Open **Manage Extensions**.
 2. For a healthy Git install, use **Switch branch** and select `Development-Deployment`.

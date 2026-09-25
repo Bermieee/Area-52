@@ -19,7 +19,7 @@ function normalizeMessage(row,index){
   };
 }
 
-function coverageForMessage(message,coverage,chatId){
+function coverageForMessage(message,coverage,chatId,isSourceRevisionCurrent=null){
   const reasons=[];
   if(!coverage||typeof coverage!=='object')return{ok:false,reasons:['COVERAGE_MISSING']};
   const kind=String(coverage.kind??coverage.artifactType??'').toUpperCase();
@@ -31,6 +31,10 @@ function coverageForMessage(message,coverage,chatId){
   const sourceRevisionRefs=uniq(coverage.sourceRevisionRefs??[]);
   const provenanceRefs=uniq(coverage.provenanceRefs??[]);
   if(!sourceRevisionRefs.length)reasons.push('SOURCE_REVISIONS_MISSING');
+  if(sourceRevisionRefs.length&&typeof isSourceRevisionCurrent==='function'){
+    const staleRefs=sourceRevisionRefs.filter(ref=>{try{return isSourceRevisionCurrent(ref)!==true;}catch{return true;}});
+    if(staleRefs.length)reasons.push('COVERAGE_SOURCE_REVISION_STALE');
+  }
   if(!provenanceRefs.length)reasons.push('PROVENANCE_MISSING');
   const covers=uniq(coverage.coversMessageIds??coverage.messageIds??[]);
   if(!covers.includes(message.messageId))reasons.push('MESSAGE_NOT_COVERED');
@@ -55,9 +59,10 @@ function protectedMessage(message){
 }
 
 export class NativeContextRetirementPolicy{
-  constructor({defaultRecentWindow=6,transitionTail=2}={}){
+  constructor({defaultRecentWindow=6,transitionTail=2,isSourceRevisionCurrent=null}={}){
     this.defaultRecentWindow=Math.max(1,Number(defaultRecentWindow)||6);
     this.transitionTail=Math.max(0,Number(transitionTail)||2);
+    this.isSourceRevisionCurrent=typeof isSourceRevisionCurrent==='function'?isSourceRevisionCurrent:null;
   }
 
   evaluate({chatId,messages=[],coverage=[],recentWindow=this.defaultRecentWindow,sceneTransition=null}={}){
@@ -72,7 +77,7 @@ export class NativeContextRetirementPolicy{
       if(recentIds.has(message.messageId))reasons.push('RECENT_VERBATIM_WINDOW');
       if(protectedMessage(message))reasons.push('PROTECTED_CONTEXT');
       const matches=coverageRows.filter(row=>(row?.coversMessageIds??row?.messageIds??[]).map(String).includes(message.messageId));
-      const proofs=matches.map(row=>coverageForMessage(message,row,chat));
+      const proofs=matches.map(row=>coverageForMessage(message,row,chat,this.isSourceRevisionCurrent));
       const valid=proofs.find(row=>row.ok)??null;
       if(!reasons.length&&!valid){
         reasons.push(...uniq(proofs.flatMap(row=>row.reasons)));

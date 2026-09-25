@@ -1,4 +1,4 @@
-import { KnowledgeStatus } from './contracts.js';
+import { KnowledgeStatus, createTruthGateResult } from './contracts.js';
 const unresolved=new Set([KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN]);
 const historical=new Set([KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED]);
 

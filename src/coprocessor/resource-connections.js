@@ -5,7 +5,7 @@ import {
   DeterministicProviderAdapter, OpenAICompatibleProviderAdapter, ProviderAdapterRegistry, ProviderInvocationError,
 } from './provider-adapters.js';
 import { SpecialistExecutionLayer } from './provider-execution.js';
-import { JevProviderExecutor } from './jev-decision-core.js';
+import { JevProviderExecutor, createJevCognitiveTask, createJevProviderInput } from './jev-decision-core.js';
 import { emitTelemetry } from './telemetry.js';
 
 export const RESOURCE_CONNECTION_VERSION='1.0.0';
@@ -238,7 +238,45 @@ export class CoprocessorResourceConnections{
   }
 
   createJevProviderExecutor(options={}){
-    return new JevProviderExecutor({profiles:this.profiles,adapters:this.adapters,...options});
+    const owner=this;
+    const base=new JevProviderExecutor({profiles:this.profiles,adapters:this.adapters,...options});
+    return Object.freeze({
+      hasEligibleProvider(request,prefilter){
+        return base.hasEligibleProvider(request,prefilter);
+      },
+      async execute(request,{prefilter=null,signal=null,attempt=1,profileId=null}={}){
+        const task=createJevCognitiveTask(request,{prefilter});
+        const input=createJevProviderInput(request,prefilter);
+        const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(JSON.stringify(input)).length/4));
+        const candidates=owner.profiles.eligibleProfiles(task,{
+          contextTokens,maxCostClass:options.maxCostClass??'HIGH',requireStructuredOutput:true,expectedOutputTokens:700,
+        }).filter(profile=>owner.adapters.get(profile.providerId)&&owner.#resourceByProfile(profile.profileId)&&owner.#isExecutable(owner.#resourceByProfile(profile.profileId)));
+        const profile=profileId==null?candidates[Math.min(Math.max(0,Number(attempt??1)-1),Math.max(0,candidates.length-1))]:candidates.find(x=>x.profileId===profileId);
+        if(!profile)throw new ProviderInvocationError(FailureCode.PROVIDER_UNAVAILABLE,'No connected resource satisfies Jev',{providerId:null});
+        const row=owner.#resourceByProfile(profile.profileId);
+        if(row.activeExecutions>=row.maxConcurrency)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Jev resource capacity exhausted',{providerId:row.providerId});
+        const controller=new AbortController();const detach=linkAbort(signal,controller);const set=owner.controllers.get(row.resourceId)??new Set();set.add(controller);owner.controllers.set(row.resourceId,set);
+        row.activeExecutions+=1;owner.profiles.setLoad(row.providerProfileId,row.activeExecutions);owner.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:owner.now()});
+        const started=owner.now();
+        try{
+          const execution=await base.execute(request,{prefilter,signal:controller.signal,attempt,profileId:profile.profileId});
+          const latency=Math.max(0,owner.now()-started);
+          row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:latency,providerId:profile.providerId,workerId:profile.workerId,measurementClass:row.measurementClass};
+          owner.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:owner.now()});
+          emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),taskId:task.taskId,taskType:'JEV_DECISION',status:'SUCCESS',latencyMs:latency,workerId:profile.workerId,providerId:profile.providerId});
+          return execution;
+        }catch(error){
+          row.lastExecution={status:'FAIL',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:Math.max(0,owner.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
+          owner.#observeFailure(row,error);
+          emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),taskId:task.taskId,taskType:'JEV_DECISION',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
+          throw error;
+        }finally{
+          detach();set.delete(controller);if(!set.size)owner.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
+          owner.profiles.setLoad(row.providerProfileId,row.activeExecutions);owner.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:owner.now()});
+          owner.#notify('RESOURCE_EXECUTION',row);
+        }
+      },
+    });
   }
 
   listResources(){

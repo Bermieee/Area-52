@@ -15,7 +15,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   if(!registry.has('connections'))registry.register({
     id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','connect','disconnect','test'],
     render(host,ctx){
-      host.append(header(host.ownerDocument,'Connections','Connect Jev and sidecar execution resources, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
+      host.append(header(host.ownerDocument,'Connections','Connect Jev, Sidecar, and Vectoring resources separately, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
       if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter});
       else host.append(message(host.ownerDocument,'Connections unavailable','Worker 2 resource host is not exported by this assembly. Native Brain operation remains available.','offline'));
       renderFanoutGatherSurface(host,{...ctx,cognition});

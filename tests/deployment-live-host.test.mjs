@@ -13,7 +13,7 @@ function makeHost() {
   const context = {
     chatId: 'chat:observatory',
     chat: [],
-    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', GENERATION_STOPPED: 'generation_stopped' },
+    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', GENERATION_STOPPED: 'generation_stopped' },
     eventSource: {
       on(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
       removeListener(type, fn) { listeners.get(type)?.delete(fn); },
@@ -62,6 +62,10 @@ function fakeNativeBrain(){
           {slot:'USER_INPUT',representation:'RICH',text:input.query},
         ]},
         contextSealReceipt:{id:'native-seal:'+input.turnId,sealedState:true},
+        rendered:{kind:'RenderedModelInput',format:'messages',messages:[
+          {role:'system',content:'[CURRENT_WORLD_STATE]\nThe sealed owner state says the harbor lantern is lit.'},
+          {role:'user',content:'[USER_INPUT]\n'+input.query},
+        ]},
       };
       for(const fn of listeners)fn({kind:'NativeBrainReceiptUpdate',stage:'TURN_PREPARED',selection,rawPromptIncluded:false,rawResponseIncluded:false});
       return prepared;
@@ -145,13 +149,17 @@ test('native Brain host lifecycle seals before model request and learns complete
   const {sillyTavern,context,promptCalls,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
   session.start();
-  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size??0,0);
+  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('chat_completion_prompt_ready')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size??0,0);
   pushUser(context,'At Moonlit Observatory, tell me what the lantern shows.');
   await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
-  assert.equal(nativeBrain.calls.prepare.length,1);assert.equal(promptCalls.length,1);
-  assert.match(String(promptCalls[0][1]),/sealed native Brain context/i);
-  assert.match(String(promptCalls[0][1]),/harbor lantern is lit/i);
-  assert.doesNotMatch(String(promptCalls[0][1]),/tell me what the lantern shows/i);
+  assert.equal(nativeBrain.calls.prepare.length,1);assert.equal(promptCalls.length,0);
+  const actualRequest={chat:[{role:'system',content:'SillyTavern host policy'},{role:'user',content:'At Moonlit Observatory, tell me what the lantern shows.'}],dryRun:false};
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
+  assert.deepEqual(actualRequest.chat.slice(1,3),[
+    {role:'system',content:'[CURRENT_WORLD_STATE]\nThe sealed owner state says the harbor lantern is lit.'},
+    {role:'user',content:'[USER_INPUT]\nAt Moonlit Observatory, tell me what the lantern shows.'},
+  ]);
+  assert.equal(session.exportEvidence().nativeBrainIntegration.exactPreparedRenderedObserved,true);
   assert.equal(session.exportEvidence().nativeBrainIntegration.pendingCount,1);
   const assistantIndex=pushAssistant(context,'The lantern throws a steady blue light across the observatory floor.');
   await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
@@ -169,6 +177,8 @@ test('native Brain completion rejects cross-chat response instead of learning in
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});session.start();
   pushUser(context,'At Moonlit Observatory, continue.');
   await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  const request={chat:[{role:'user',content:'At Moonlit Observatory, continue.'}],dryRun:false};
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(request)));
   context.chatId='chat:harbor';context.chat=[];const assistantIndex=pushAssistant(context,'A harbor reply appears in another story.');
   await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
   assert.equal(nativeBrain.calls.complete.length,0);

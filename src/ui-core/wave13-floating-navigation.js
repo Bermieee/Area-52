@@ -60,6 +60,11 @@ export class VerticalRailPopoutController{
     this.scope.listen(d,'keydown',(event)=>{
       if(event.key==='Escape'&&this.presentation.get().frontFaceMode===FrontFaceMode.EXPANDED){event.preventDefault?.();this.close();}
     });
+    const win=d.defaultView??globalThis.window;
+    if(win&&typeof win.addEventListener==='function'){
+      this.scope.listen(win,'resize',()=>this.scheduleLayout());
+      this.scope.listen(win,'orientationchange',()=>this.scheduleLayout());
+    }
     this.#ensureInitialPosition();
     this.#applyLayout();
     this.#syncSelected(this.shell.currentWorkspace);

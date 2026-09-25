@@ -3,7 +3,7 @@ import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 
 export const DEVELOPMENT_DEPLOYMENT_PROMPT_ID = 'area52-development-deployment';
-export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.2.0';
+export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.3.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
@@ -237,13 +237,28 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   };
 }
 
-function scenarioReady(row, mode) {
-  if (!row || row.mode !== mode || !row.delivery?.ok || !row.delivery?.sealVerified) return false;
-  if (!row.delivery?.promptInjection?.succeeded) return false;
-  if (mode === 'simple' && row.runtime.jobCount !== 0) return false;
-  if (mode === 'retrieval' && row.runtime.jobCount < 2) return false;
-  if (mode === 'ambiguous' && !row.cognition?.jev) return false;
+function liveTurnReady(row) {
+  if (!row?.host?.chatId || !row?.selection?.turnId || !row?.selection?.generationId) return false;
+  if (!row.delivery?.ok || !row.delivery?.sealVerified || !row.delivery?.promptInjection?.succeeded) return false;
+  if (!row.cognition?.choice || !row.cognition?.truth || !row.cognition?.gather) return false;
+  if (!row.scene?.sceneId || row.scene?.extractionPolicy !== 'GENERIC_HOST_EVIDENCE_ONLY') return false;
   return true;
+}
+
+function storyCoverage(turns) {
+  const byChat = new Map();
+  for (const row of turns) {
+    const chatId = clean(row?.host?.chatId);
+    if (!chatId) continue;
+    const current = byChat.get(chatId) ?? { chatId, turnCount: 0, readyTurnCount: 0, modes: new Set() };
+    current.turnCount += 1;
+    if (liveTurnReady(row)) current.readyTurnCount += 1;
+    if (row?.mode) current.modes.add(row.mode);
+    byChat.set(chatId, current);
+  }
+  return [...byChat.values()]
+    .map((row) => ({ ...row, modes: [...row.modes].sort(), ready: row.readyTurnCount > 0 }))
+    .sort((a, b) => a.chatId.localeCompare(b.chatId));
 }
 
 export class DevelopmentDeploymentSillyTavernSession {
@@ -393,20 +408,26 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   exportEvidence() {
     const uiDiagnostics = this.uiHost?.diagnostics?.() ?? null;
-    const scenarioChecks = {
-      simple: scenarioReady(this.scenarios.simple, 'simple'),
-      retrieval: scenarioReady(this.scenarios.retrieval, 'retrieval'),
-      ambiguous: scenarioReady(this.scenarios.ambiguous, 'ambiguous'),
-      degraded: Boolean(this.degraded?.safe),
+    const modeCoverage = {
+      simple: liveTurnReady(this.scenarios.simple),
+      retrieval: liveTurnReady(this.scenarios.retrieval),
+      ambiguous: liveTurnReady(this.scenarios.ambiguous),
     };
-    const executionReady = Object.values(scenarioChecks).every(Boolean);
-    const storyChatIds = [...new Set(this.turnEvidence.map((row) => row?.host?.chatId).filter(Boolean))].sort();
+    const stories = storyCoverage(this.turnEvidence);
+    const storyChatIds = stories.map((row) => row.chatId);
+    const liveTurnChecks = {
+      anyReadyTurn: this.turnEvidence.some(liveTurnReady),
+      twoUnrelatedStories: stories.filter((row) => row.ready).length >= 2,
+      promptDeliveryObserved: this.turnEvidence.some((row) => row.delivery?.promptInjection?.succeeded === true),
+      sealedContextObserved: this.turnEvidence.some((row) => row.delivery?.sealVerified === true),
+      genericScenePolicyObserved: this.turnEvidence.some((row) => row.scene?.extractionPolicy === 'GENERIC_HOST_EVIDENCE_ONLY'),
+    };
+    const executionReady = Object.values(liveTurnChecks).every(Boolean);
     const operatorReady = this.operatorReview.promptInspectorConfirmed
       && this.operatorReview.uiTraceReviewed
       && this.operatorReview.liveSillyTavernConfirmed;
     const operatorLiveChecksCaptured = executionReady
       && operatorReady
-      && storyChatIds.length >= 2
       && Boolean(uiDiagnostics?.mounted ?? this.uiHost);
     const latest = this.turnEvidence.at(-1) ?? null;
     const jevExecutions = this.turnEvidence.map((row) => row?.cognition?.jevExecution).filter(Boolean);
@@ -450,7 +471,14 @@ export class DevelopmentDeploymentSillyTavernSession {
       twoStoryCoverage: storyChatIds.length >= 2,
       loreIngestion: this.loreIngestion,
       degraded: this.degraded,
-      checks: scenarioChecks,
+      checks: liveTurnChecks,
+      modeCoverage,
+      storyCoverage: stories,
+      deterministicFixtureEvidence: {
+        modeCoverage,
+        simulatedJevFailureSafe: Boolean(this.degraded?.safe),
+        acceptanceAuthority: false,
+      },
       capabilityEvidence,
       providerEvidence: {
         jev: liveJevExecution ? 'MEASURED_LIVE_PROVIDER' : 'DETERMINISTIC_LOCAL_FIXTURE',

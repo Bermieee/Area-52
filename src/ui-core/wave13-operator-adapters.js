@@ -376,7 +376,7 @@ export class Wave13OperationalStatusAdapter{
       deliveryReceipt:delivery,learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
       hostLifecycle:cloneSafe(hostLifecycle),
     });
-    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
+    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,inspection:generationInspectionSummary(generation,selection),waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
   }
   #cognition(selection){try{return this.adapters.cognition?.read?.(selection)??null;}catch{return null;}}
   #generation(selection){
@@ -516,6 +516,7 @@ export class Wave13DiagnosticsCenterAdapter{
       kind:'Wave13DiagnosticsCenter',selection,
       host:{connected:Boolean(operations?.hostConnected),waitingForTurn:Boolean(operations?.waitingForTurn),liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
       pipeline:cloneSafe(operations?.pipeline??{}),
+      generationInspection:cloneSafe(operations?.inspection??null),
       producers:{active:Number(operations?.active??0),failures:Number(operations?.failures??0),stages:cloneSafe(operations?.stages??[])},
       runtime:diagnosticSource(runtimeRead),coprocessor:diagnosticSource(coprocessorRead),promptPlan:diagnosticSource(promptPlanRead),
       resources:{
@@ -736,6 +737,37 @@ function diagnosticSource(read){
     sealedState:data.seal?.sealedState??null,
   }});
 }
+function generationInspectionSummary(generation,selection={}){
+  if(!generation)return null;
+  const meta=(value,listKeys=[])=>{
+    if(!value)return null;
+    const counts={};
+    for(const key of listKeys){
+      const row=value?.[key];
+      if(Array.isArray(row))counts[key]=row.length;
+      else if(row&&typeof row==='object')counts[key]=Object.keys(row).length;
+      else if(Number.isFinite(Number(row)))counts[key]=Number(row);
+    }
+    return deepFreeze({
+      kind:text(value?.kind)??null,status:text(value?.status??value?.state)??null,reasonCode:text(value?.reasonCode??value?.code)??null,
+      counts,
+    });
+  };
+  const rejected=generation.rejectedEvidence;
+  const rejectedCount=Array.isArray(rejected)?rejected.length:Array.isArray(rejected?.items)?rejected.items.length:Number(rejected?.count??rejected?.rejectedCount??0)||0;
+  return deepFreeze({
+    sourceRevisionFenceCount:Array.isArray(selection?.sourceRevisionRefs)?selection.sourceRevisionRefs.length:0,
+    identityResolution:meta(generation.identityResolution,['entities','resolved','unresolved','aliases']),
+    graphTraversal:meta(generation.graphTraversal,['visitedNodeIds','visitedEdgeIds','paths','nodes','edges']),
+    retrievalBudget:meta(generation.retrievalBudget,['admitted','deferred','dropped','candidates']),
+    rejectedEvidence:rejected?deepFreeze({kind:text(rejected?.kind)??'RejectedEvidence',count:rejectedCount,reasonCode:text(rejected?.reasonCode??rejected?.code)??null}):null,
+    loreSync:meta(generation.loreSync,['sourceRevisionRefs','accepted','rejected']),
+    memorySync:meta(generation.memorySync,['sourceRevisionRefs','accepted','rejected']),
+    rawPromptIncluded:false,
+    rawEvidenceIncluded:false,
+  });
+}
+
 function stageFromSource(id,label,source,selection,{readerPresent=false,reason=null}={}){
   if(!source)return stage(id,label,readerPresent?OperatorProducerState.IDLE:OperatorProducerState.UNAVAILABLE,reason??(readerPresent?'No current owner data.':'Producer not connected.'),selection,null,readerPresent?'NO_DATA':'ASSEMBLY_CONTRACT_MISSING');
   const explicit=source.operationalState;if(explicit&&Object.values(OperatorProducerState).includes(explicit))return stage(id,label,explicit,reason??source.impact??source.reason,selection,source.freshness,source.errorCode??null,source);

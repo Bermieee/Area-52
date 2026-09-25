@@ -236,6 +236,52 @@ test('Lore submission validates arbitrary source and never accepts invalid JSON 
   assert.equal(plain.entries.length,1);assert.equal(plain.entries[0].content,'Captain Vale keeps the blue ledger.');
 });
 
+test('Lore READY CURRENT entry with semanticDiff does not show stale source revision warning',()=>{
+  const owner=liveOwner();
+  owner.bindings.readLoreStatus=()=>({
+    kind:'LorePublicIntegrationSurface',
+    entries:[{
+      sourceId:'lore:moon:captain',lorebookId:'moon',uid:'captain',
+      sourceRevisionId:'lore:moon:captain@r2',sourceState:'CURRENT',
+      learnedRevisionId:'learned:lore:moon:captain@r2',freshness:'CURRENT',
+      operatorState:'READY',studyState:'COMPLETED',studyAttempts:1,studyError:null,
+      semanticDiff:{changed:true,claims:{added:['claim:2'],removed:['claim:1']}},
+      artifactIds:['retrieval:captain'],
+      retrievalRepresentations:[{artifactId:'retrieval:captain',sourceRevisionId:'lore:moon:captain@r2',authorityClass:'DERIVED',temporalClass:'CURRENT',unresolved:false,provenance:{sourceRevisionId:'lore:moon:captain@r2'}}],
+      representations:[],representationReady:true,retrievalReady:true,
+    }],
+    artifacts:[],conflicts:[],counts:{READY:1,ACCEPTED:0,STUDYING:0,FAILED:0,REMOVED:0},
+    lifecycle:{counts:{DUE:0,PENDING:0,ACTIVE:0,CHECKPOINTED:0,COMPLETED:1,SUPERSEDED:0,STALE:0,INVALID:0},due:0,active:0},
+  });
+  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Learned representations are current and the Lore owner reports this entry retrieval-ready/);
+  assert.doesNotMatch(body,/Source revision changed/);
+  ui.destroy();
+});
+
+test('Lore stale learned revision still shows source revision warning',()=>{
+  const owner=liveOwner();
+  owner.bindings.readLoreStatus=()=>({
+    kind:'LorePublicIntegrationSurface',
+    entries:[{
+      sourceId:'lore:moon:captain',lorebookId:'moon',uid:'captain',
+      sourceRevisionId:'lore:moon:captain@r2',sourceState:'CURRENT',
+      learnedRevisionId:'learned:lore:moon:captain@r1',freshness:'STALE_OR_UNLEARNED',
+      operatorState:'ACCEPTED',studyState:'DUE',studyAttempts:1,studyError:null,
+      semanticDiff:{changed:true},
+      artifactIds:[],retrievalRepresentations:[],representations:[],representationReady:false,retrievalReady:false,
+    }],
+    artifacts:[],conflicts:[],counts:{READY:0,ACCEPTED:1,STUDYING:0,FAILED:0,REMOVED:0},
+    lifecycle:{counts:{DUE:1,PENDING:0,ACTIVE:0,CHECKPOINTED:0,COMPLETED:0,SUPERSEDED:0,STALE:0,INVALID:0},due:1,active:0},
+  });
+  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Source revision changed/);
+  assert.match(body,/not treated as current until the Lore owner re-studies and publishes readiness/);
+  ui.destroy();
+});
+
 test('Lore owner lifecycle distinguishes accepted source from learned retrieval-ready state',async()=>{
   const owner=liveOwner({withLore:true}),adapter=new Wave13LoreStudyUIAdapter({bindings:owner.bindings,selectionProvider:owner.bindings.readSelection});
   let read=adapter.read();assert.equal(read.data.entries.length,0);

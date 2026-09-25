@@ -92,7 +92,8 @@ test('attached rail/panel keyboard movement, resize, collapse, restore and close
   const c=ui.floatingController;c.open('story');ui.scheduler.flush(1);
   const before=c.diagnostics();c.nodes.railHandle.dispatch('keydown',{key:'ArrowLeft'});c.nodes.cardHandle.dispatch('keydown',{key:'ArrowUp'});ui.scheduler.flush(2);
   const moved=c.diagnostics();assert.ok(moved.rail.x<=before.rail.x);assert.ok(moved.rail.y<=before.rail.y);assert.equal(moved.card.attached,true);
-  const width=ui.presentation.get().frontFaceWidth;c.nodes.resizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowLeft':'ArrowRight'});assert.ok(ui.presentation.get().frontFaceWidth<=width);\n  const sideWidth=ui.presentation.get().frontFaceWidth;c.nodes.sideResizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowRight':'ArrowLeft'});assert.ok(ui.presentation.get().frontFaceWidth>=sideWidth);
+  const width=ui.presentation.get().frontFaceWidth;c.nodes.resizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowLeft':'ArrowRight'});assert.ok(ui.presentation.get().frontFaceWidth<=width);
+  const sideWidth=ui.presentation.get().frontFaceWidth;c.nodes.sideResizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowRight':'ArrowLeft'});assert.ok(ui.presentation.get().frontFaceWidth>=sideWidth);
   c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,true);assert.equal(ui.shell.currentWorkspace,'story');assert.equal(c.nodes.minimize.textContent,'Expand');
   c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,false);assert.equal(c.nodes.minimize.textContent,'Collapse');
   c.nodes.close.dispatch('click');assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.COLLAPSED);

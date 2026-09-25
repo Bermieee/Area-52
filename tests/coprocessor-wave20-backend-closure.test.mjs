@@ -165,7 +165,7 @@ test('#124 actual WorkerDirector executes through two interchangeable qualified 
 });
 
 test('#88 actual WorkerDirector preserves foreground reserve and performs Deep safe-yield checkpoint park/resume under generation contention',async()=>{
-  const r=registry(),director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1},maxRetries:0});
+  const r=registry(),director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1},maxOutstanding:2,maxRetries:0});
   const scheduler=new NativeHotDeepScheduler({resourceSlots:1,foregroundReserve:1,maxDeepQueue:4});
   const bridge=new RuntimeDirectorAdmissionBridge({director,capabilityRegistry:r,placementScheduler:scheduler});
   bridge.registerProfiles({profiles:[r.get('profile:alpha')]});
@@ -191,6 +191,9 @@ test('#88 actual WorkerDirector preserves foreground reserve and performs Deep s
 
   const hotTask=task('director-hot');
   const hot=bridge.admit(hotTask,{executor:{execute:async()=>({ok:true}),validate:()=>true,commit:()=>({})}});assert.equal(hot.status,'ADMITTED');
+  const overflowTask=task('director-overflow',{placement:Placement.DEEP,resultClass:ResultClass.DEFERRED});
+  const overflow=bridge.admit(overflowTask,{executor:{execute:async()=>({ok:true}),validate:()=>true,commit:()=>({})}});
+  assert.equal(overflow.status,'REJECTED');assert.equal(overflow.submitted,false);assert.equal(overflow.directorAdmission.reason,'backpressure');
   await director.runCycle({waitForTaskIds:[hotTask.taskId]});
   assert.equal(director.ledger.get(hotTask.taskId).executionStatus,'COMPLETE');
   assert.equal(director.governor.snapshot().generationActive,true);

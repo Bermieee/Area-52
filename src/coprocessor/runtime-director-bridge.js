@@ -172,7 +172,8 @@ export class RuntimeDirectorAdmissionBridge{
     };
     const obligation=toWorkerDirectorObligation(task,{placementDecision:plan.placement,owner,priority});
     const directorAdmission=this.director.submit(obligation,{...wrapped,...(units==null?{}:{units})});
-    return freeze({kind:'RuntimeDirectorAdmissionReceipt',status:directorAdmission?.accepted===false?'REJECTED':'ADMITTED',submitted:true,
+    const accepted=directorAdmission?.accepted!==false;
+    return freeze({kind:'RuntimeDirectorAdmissionReceipt',status:accepted?'ADMITTED':'REJECTED',submitted:accepted,
       plan,obligation,directorAdmission:clone(directorAdmission),authority:'NONE'});
   }
   beginGeneration(meta={}){if(typeof this.director.beginGeneration!=='function')throw new TypeError('director.beginGeneration is required');return clone(this.director.beginGeneration(meta));}

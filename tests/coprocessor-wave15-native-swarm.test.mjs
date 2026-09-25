@@ -193,3 +193,16 @@ test('swarm telemetry reports placement/result/provider measurement without raw 
   const serialized=JSON.stringify(telemetry.list());
   assert.equal(serialized.includes('The sensor remains mounted at the current location.'),false);
 });
+
+test('zero optional resources preserves native Brain path and reports optional work unavailable without throwing',async()=>{
+  const registry=new CoprocessorResourceConnections();
+  const swarm=new NativeSidecarSwarm({connections:registry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:250,defaultHardBudgetMs:500})});
+  const t=turn('native-only');
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION'},currentRevisionState:t});
+  assert.equal(registry.readModel().readyResourceCount,0);
+  assert.equal(registry.readModel().nativePathRequired,true);
+  assert.equal(result.contribution.resultsForOwner.length,0);
+  assert.equal(result.contribution.ownerAdmissionRequired,true);
+  assert.ok(result.contribution.choiceContribution.consideredOptions.some(x=>x.disposition==='UNAVAILABLE'));
+  assert.equal(result.contribution.finalChoiceAuthority,false);
+});

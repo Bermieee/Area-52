@@ -23,7 +23,7 @@ import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces 
 import { Wave8CognitionProductionAdapter } from './wave8-production-adapters.js';
 import { registerWave8Actions, registerWave8Inspectors } from './wave8-workspace.js';
 import { createWave11LiveReceiptBinding, mergeWave11Bridges } from './wave11-live-bindings.js';
-import { Wave13CoprocessorStateUIAdapter, Wave13LoreStudyUIAdapter, Wave13OperationalStatusAdapter, Wave13OwnerReadModelAdapter, Wave13ResourceControlAdapter, Wave13RuntimeReceiptUIAdapter } from './wave13-operator-adapters.js';
+import { Wave13CoprocessorStateUIAdapter, Wave13DiagnosticsCenterAdapter, Wave13LoreStudyUIAdapter, Wave13OperationalStatusAdapter, Wave13OwnerReadModelAdapter, Wave13ResourceControlAdapter, Wave13RuntimeReceiptUIAdapter } from './wave13-operator-adapters.js';
 import { installWave13OperatorSurfaces, registerWave13OperatorActions } from './wave13-operator-surfaces.js';
 import { VerticalRailPopoutController } from './wave13-floating-navigation.js';
 
@@ -89,7 +89,7 @@ export function createWave6ProductInterface({
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
-      promptPlan,forensics,cognition,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,floatingController,
+      promptPlan,forensics,cognition,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,diagnostics,floatingController,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
       inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
       navigate(id){shell?.selectWorkspace(id);},
@@ -98,8 +98,10 @@ export function createWave6ProductInterface({
   };
 
   registerWave6FrontFaceWorkspaces(workspaceRegistry,{adapter:productAdapter,brainPulse});
-  const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},loreStudy,resources}):null;
-  const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,actionRouter,cognition,frontFacePresentation});
+  const productionAdapters={scene,runtime,coprocessor,promptPlan,forensics,cognition};
+  const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters,loreStudy,resources}):null;
+  const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,cognition,liveReceiptBinding,productionAdapters}):null;
+  const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,diagnostics,actionRouter,cognition,frontFacePresentation});
   registerProductionEngineeringWorkspaces(workspaceRegistry,{runtime,coprocessor,promptPlan,forensics});
   registerWave7Workspaces(workspaceRegistry,{promptPlan,forensics,presentation:explainabilityPresentation,scheduler});
 
@@ -128,7 +130,7 @@ export function createWave6ProductInterface({
     else scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
   });if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
   const operatorRefresh=(scopeKey)=>scheduler.invalidate('wave13:'+scopeKey+'-refresh',()=>{
-    if(shell?.currentWorkspace==='brain'||shell?.currentWorkspace==='connections'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
+    if(shell?.currentWorkspace==='brain'||shell?.currentWorkspace==='connections'||shell?.currentWorkspace==='settings'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
     controller?.scheduleQuickDash?.();
   },{cost:'NORMAL'});
   const resourceRelease=resources?.subscribe?.(()=>operatorRefresh('resources'));if(typeof resourceRelease==='function')cognitionScope.add(resourceRelease);
@@ -139,7 +141,7 @@ export function createWave6ProductInterface({
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
     productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,liveReceiptBinding,
-    floatingController,operator:{operations,resources,loreStudy},
+    floatingController,operator:{operations,resources,loreStudy,diagnostics},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
     destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},

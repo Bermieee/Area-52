@@ -1,0 +1,96 @@
+name: Lore Wave 7 Assembly CI
+
+on:
+  push:
+    branches:
+      - Integration-Lore-Wave7
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lore-assembly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record exact head
+        run: |
+          echo "LORE_ASSEMBLY_EXACT_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lore Waves 1-7 plus assembly acceptance
+        run: >
+          node --test
+          tests/lore-wave1.mjs
+          tests/lore-wave2.mjs
+          tests/lore-wave3.mjs
+          tests/lore-wave4.mjs
+          tests/lore-wave5.mjs
+          tests/lore-wave6.mjs
+          tests/lore-wave7.mjs
+          tests/lore-browser-safe.mjs
+          tests/lore-assembly-integration.test.mjs
+
+      - name: Lore stress regressions
+        run: |
+          node tests/lore-wave1-stress.mjs
+          node tests/lore-wave2-stress.mjs
+          node tests/lore-wave3-stress.mjs
+          node tests/lore-wave7-stress.mjs
+
+      - name: Host and Worker 3 contract regressions
+        run: >
+          node --test
+          tests/deployment-brain.integration.test.mjs
+          tests/deployment-live-host.test.mjs
+          tests/wave12-sillytavern-host.test.mjs
+          tests/wave13-operator-ui.test.mjs
+
+      - name: Preserved main Lore integration regressions
+        run: >
+          node --test
+          tests/worker4-lore190-repro.test.mjs
+          tests/coprocessor-wave9-lore.test.mjs
+
+      - name: Assembly manifest and digests
+        run: node scripts/verify-lore-wave7-assembly.mjs
+
+      - name: Worker 3 UI ownership fence
+        run: |
+          git diff --name-only c671fbf7ff603b04311f9fe7e82ca050049354f2 HEAD -- src/ui-core | tee /tmp/lore-ui-diff
+          test ! -s /tmp/lore-ui-diff
+
+      - name: JavaScript syntax
+        shell: bash
+        run: |
+          for f in src/lore-*.js src/deployment/brain.js src/deployment/sillytavern-live.js tests/lore-*.mjs scripts/verify-lore-wave7-assembly.mjs; do
+            node --check "$f"
+          done
+
+      - name: ESM import
+        run: >
+          node -e "Promise.all([
+          './src/lore-intelligence-service.js',
+          './src/lore-authoring-contracts.js',
+          './src/lore-semantic-authoring.js',
+          './src/lore-structure-planner.js',
+          './src/lore-merge-preview.js',
+          './src/lore-authoring-lifecycle.js',
+          './src/lore-authoring-service.js',
+          './src/deployment/brain.js',
+          './src/deployment/sillytavern-live.js'
+          ].map(x=>import(x))).then(()=>console.log('LORE_ASSEMBLY_ESM_IMPORT_PASS'))"

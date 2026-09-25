@@ -8,6 +8,8 @@ import {
   createRetrievalChannelDescriptor,
 } from '../candidate-bus-contracts.js';
 import { LoreStudyRuntime } from '../lore-study-runtime.js';
+import { LoreIntelligenceService } from '../lore-intelligence-service.js';
+import { LoreAuthoringService } from '../lore-authoring-service.js';
 import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
@@ -256,13 +258,25 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
     this.resourceCount = resourceCount;
     this.jevAvailable = Boolean(jevAvailable);
     this.core = new Area52CognitiveCore();
-    this.lore = new LoreStudyRuntime();
-    this.loreSystem = new LoreHierarchyRetrievalSystem({ runtime: this.lore });
+    if (loreOwnerSnapshot?.intelligence) {
+      this.loreIntelligence = LoreIntelligenceService.fromSnapshot(loreOwnerSnapshot.intelligence);
+      this.lore = this.loreIntelligence.runtime;
+      this.loreSystem = this.loreIntelligence.hierarchy;
+      this.loreAuthoring = loreOwnerSnapshot.authoring
+        ? LoreAuthoringService.fromSnapshot(loreOwnerSnapshot.authoring, { intelligence: this.loreIntelligence })
+        : new LoreAuthoringService({ intelligence: this.loreIntelligence });
+    } else {
+      this.lore = new LoreStudyRuntime();
+      this.loreSystem = new LoreHierarchyRetrievalSystem({ runtime: this.lore });
+      this.loreIntelligence = new LoreIntelligenceService({ runtime: this.lore, hierarchy: this.loreSystem });
+      this.loreAuthoring = new LoreAuthoringService({ intelligence: this.loreIntelligence });
+    }
+    this.loreSettlementEvents = clone(loreOwnerSnapshot?.settlementEvents ?? []);
     this.scene = new SceneLifecycleRuntime();
     this.memory = new MemoryTemporalProducer();
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
@@ -344,18 +358,20 @@ export class DevelopmentDeploymentBrain {
     this.pendingJev = new Map();
   }
 
-  acceptLorebook({ id = 'operator-lore', title = 'Operator Lore', entries = [] } = {}) {
-    const rows = this.lore.ingestLorebook({ id, title, entries, fullSnapshot: true });
-    this.loreSystem.rebuild();
+  acceptLorebook(input = {}) {
+    const ownerReceipt = this.loreIntelligence.acceptLorebook(input);
+    this.loreSystem = this.loreIntelligence.hierarchy;
     const result = {
       kind: 'DeploymentLoreAcceptanceReceipt',
       accepted: true,
       processed: false,
       retrievable: false,
-      lorebookId: String(id),
-      entryCount: entries.length,
-      changedCount: rows.filter((row) => row.changed !== false).length,
+      lorebookId: ownerReceipt.lorebookId,
+      entryCount: ownerReceipt.acceptedEntryCount,
+      changedCount: ownerReceipt.changes.filter((row) => row.changed !== false).length,
+      ownerReceipt: clone(ownerReceipt),
       study: this.lore.publicSurface(),
+      intelligence: this.loreIntelligence.status(),
       retrieval: this.loreSystem.diagnostics(),
     };
     this.#emit({ type: 'LORE_ACCEPTED', result });
@@ -363,24 +379,24 @@ export class DevelopmentDeploymentBrain {
   }
 
   runLoreStudy({ scope = 'DUE' } = {}) {
-    const due = this.lore.dueObligations();
-    const completed = [];
-    for (const obligation of due) completed.push(this.lore.run(obligation.id));
+    const ownerReceipt = this.loreIntelligence.runStudy({ scope });
     for (const entry of this.lore.registry.listEntries({ includeRemoved: false })) {
       const revision = this.lore.registry.currentRevision(entry.sourceId, { allowMissing: true });
       if (!revision || revision.state === 'REMOVED') continue;
       this.#syncLoreRevision(revision);
     }
-    this.loreSystem.rebuild();
+    this.loreSystem = this.loreIntelligence.hierarchy;
     const diagnostics = this.loreSystem.diagnostics();
     const result = {
       kind: 'DeploymentLoreStudyReceipt',
       accepted: this.lore.registry.listEntries({ includeRemoved: true }).length > 0,
       processed: true,
       requestedScope: String(scope),
-      completedObligationCount: completed.length,
+      completedObligationCount: ownerReceipt.results?.length ?? 0,
       retrievable: this.sourceMap.size > 0,
+      ownerReceipt: clone(ownerReceipt),
       lane: this.lore.publicSurface(),
+      intelligence: this.loreIntelligence.status(),
       retrieval: diagnostics,
       coreWorld: this.core.currentWorldModel(),
       mappingCount: this.sourceMap.size,
@@ -394,6 +410,16 @@ export class DevelopmentDeploymentBrain {
   ingestLorebook(input = {}) {
     this.acceptLorebook(input);
     return this.runLoreStudy({ scope: 'DUE' });
+  }
+
+  snapshotLoreOwner() {
+    return {
+      kind: 'DevelopmentDeploymentLoreOwnerSnapshot',
+      contractVersion: 1,
+      intelligence: this.loreIntelligence.snapshot(),
+      authoring: this.loreAuthoring.snapshot(),
+      settlementEvents: clone(this.loreSettlementEvents),
+    };
   }
 
   ensureScene({ chatId, sourceRevisionId } = {}) {
@@ -671,17 +697,48 @@ export class DevelopmentDeploymentBrain {
       return () => this.listeners.delete(listener);
     };
     const loreStudyHost = Object.freeze({
+      ...this.loreIntelligence.operatorInterface(),
       kind: 'DevelopmentDeploymentLoreStudyHost',
       read: Object.freeze({
         status: (selection) => this.readLoreStatus(selection),
         surface: (selection) => this.readLoreStatus(selection),
         loreStudy: (selection) => this.readLoreStatus(selection),
+        intelligence: () => this.loreIntelligence.status(),
       }),
       actions: Object.freeze({
         acceptLorebook: (input) => this.acceptLorebook(input),
+        submitLorebook: (input) => this.acceptLorebook(input),
+        ingestLorebook: (input) => this.acceptLorebook(input),
         runLoreStudy: (input) => this.runLoreStudy(input),
+        startLoreStudy: (input) => this.runLoreStudy(input),
+        retryLoreStudy: (input) => this.loreIntelligence.retryStudy(input || {}),
       }),
       subscribe: subscribeOwner,
+    });
+    const baseAuthoringHost = this.loreAuthoring.operatorContract();
+    const settlementAction = (name) => (request) => {
+      const result = baseAuthoringHost.actions[name](request);
+      if (result?.ok && result.value?.settlementId) this.#recordLoreSettlement(result.value);
+      return result;
+    };
+    const loreAuthoringHost = Object.freeze({
+      ...baseAuthoringHost,
+      read: Object.freeze({
+        ...baseAuthoringHost.read,
+        availability: () => ({
+          kind: 'LoreAuthoringAvailability',
+          contractVersion: 1,
+          available: true,
+          blocked: false,
+          integrationStatus: baseAuthoringHost.integrationStatus,
+          sourceBranch: 'Development-Lorebook-Editor',
+        }),
+      }),
+      actions: Object.freeze({
+        ...baseAuthoringHost.actions,
+        applySettlement: settlementAction('applySettlement'),
+        restoreSettlement: settlementAction('restoreSettlement'),
+      }),
     });
     return {
       readSelection: () => clone(get()?.selection ?? {}),
@@ -689,8 +746,16 @@ export class DevelopmentDeploymentBrain {
       resourceHost: this.optionalResources,
       coprocessorResourceHost: this.optionalResources,
       coprocessorTelemetry: this.coprocessorTelemetry,
+      loreIntelligenceService: this.loreIntelligence,
+      loreStudyService: this.loreIntelligence,
+      loreOperatorHost: loreStudyHost,
       loreStudyHost,
       loreHost: loreStudyHost,
+      loreBrainInterface: this.loreIntelligence.brainInterface(),
+      loreAuthoringService: this.loreAuthoring,
+      loreAuthoringHost,
+      loreAuthoringOperator: loreAuthoringHost,
+      snapshotLoreOwner: () => this.snapshotLoreOwner(),
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),
@@ -749,6 +814,11 @@ export class DevelopmentDeploymentBrain {
       selectedTurnId: this.selectedTurnId,
       turnCount: this.turns.size,
       lore: this.loreSystem.diagnostics(),
+      loreIntelligence: this.loreIntelligence.status(),
+      loreAuthoring: {
+        contract: this.loreAuthoring.worker3AuthoringContract(),
+        settlementEventCount: this.loreSettlementEvents.length,
+      },
       sceneCount: this.scene.registry.list().length,
       runtime: this.runtimeDirector.diagnostics?.() ?? null,
       sensory: this.core.sensoryDiagnostics(),
@@ -760,6 +830,42 @@ export class DevelopmentDeploymentBrain {
       memory: this.memory.status(),
       mainMutationAuthority: false,
     };
+  }
+
+  #recordLoreSettlement(readModel) {
+    const settlementId = readModel?.settlementId;
+    if (!settlementId) return null;
+    const worker1 = this.loreAuthoring.worker1SettlementReceipts({ settlementId });
+    const seen = new Set(this.loreSettlementEvents.map((row) => row.eventKey));
+    const accepted = [];
+    for (const event of worker1.revisionEvents ?? []) {
+      const eventKey = [event.settlementId, event.operationKind, event.restoration ? 'RESTORE' : 'APPLY', event.sourceId, event.sourceRevisionId].join('|');
+      if (seen.has(eventKey)) continue;
+      seen.add(eventKey);
+      this.sourceMap.delete(event.sourceId);
+      if (event.sourceState === 'REMOVED') {
+        const source = this.core.registry.getSource(event.sourceId);
+        if (source && !this.core.registry.isSourceRetired(event.sourceId)) {
+          this.core.registry.retireSource(event.sourceId, { reason: 'lore-owner:' + event.operationKind });
+        }
+      }
+      const row = { eventKey, event: clone(event), settlementId };
+      this.loreSettlementEvents.push(row);
+      accepted.push(clone(event));
+    }
+    this.loreSystem = this.loreIntelligence.hierarchy;
+    const result = {
+      kind: 'DevelopmentDeploymentLoreSettlementReceipt',
+      contractVersion: 1,
+      settlementId,
+      state: readModel.state,
+      acceptedRevisionEvents: accepted,
+      worker1: clone(worker1),
+      studyDue: this.lore.dueObligations().map((row) => row.id),
+      unrelatedSourcesInvalidated: Boolean(worker1.unrelatedSourcesInvalidated),
+    };
+    this.#emit({ type: 'LORE_AUTHORING_SETTLEMENT', result });
+    return result;
   }
 
   #syncLoreRevision(revision) {
@@ -879,6 +985,7 @@ export function createGoldenDeploymentLorebook() {
   return {
     id: 'ember-golden',
     title: 'Ember Tavern Golden',
+    discovery: { kind: 'DevelopmentDeploymentFixture', stableId: 'ember-golden', exactAuthoredSource: true },
     entries: [
       { uid: 'mara', content: 'Mara opens the Ember Tavern at River District.', metadata: { title: 'Mara and Ember Tavern', at: 1, treePath: ['People', 'Mara'] } },
       { uid: 'eris', content: 'The Sun Blade was left inside the Ember Tavern.', metadata: { title: 'Eris and Sun Blade', at: 2, treePath: ['Objects', 'Sun Blade'] } },

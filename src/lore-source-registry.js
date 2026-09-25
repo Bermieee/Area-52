@@ -6,13 +6,21 @@ import {
 } from './lore-contracts.js';
 
 function normalizedMetadata(metadata = {}) {
+  const passthrough = {};
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (['title', 'treePath', 'tags', 'scope', 'order', 'extra'].includes(key)) continue;
+    passthrough[key] = deepClone(value);
+  }
   return {
     title: metadata.title == null ? null : String(metadata.title),
     treePath: Array.isArray(metadata.treePath) ? metadata.treePath.map(String) : [],
     tags: Array.isArray(metadata.tags) ? [...new Set(metadata.tags.map(String))].sort() : [],
     scope: metadata.scope == null ? null : String(metadata.scope),
     order: Number.isFinite(metadata.order) ? metadata.order : null,
-    extra: metadata.extra && typeof metadata.extra === 'object' ? deepClone(metadata.extra) : {},
+    extra: {
+      ...(metadata.extra && typeof metadata.extra === 'object' ? deepClone(metadata.extra) : {}),
+      ...passthrough,
+    },
   };
 }
 

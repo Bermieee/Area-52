@@ -288,6 +288,32 @@ test('Memory Wave 3 exact-evidence bridge is available without granting Core or 
 });
 
 
+test('deployment optional resource host feeds bounded coprocessor telemetry for Jev Sidecar and Vectoring controls', async () => {
+  const brain = new DevelopmentDeploymentBrain({ resourceCount: 1 });
+  const bindings = brain.hostBindings();
+  assert.equal(bindings.coprocessorTelemetry, brain.coprocessorTelemetry);
+  const configs = [
+    { resourceId:'jev:telemetry', providerProfileId:'profile:jev:telemetry', providerId:'provider:jev:telemetry', modelId:'local-jev', workerId:'worker:jev:telemetry', kind:'DETERMINISTIC_LOCAL', capabilities:['SEMANTIC_JUDGMENT'] },
+    { resourceId:'sidecar:telemetry', providerProfileId:'profile:sidecar:telemetry', providerId:'provider:sidecar:telemetry', modelId:'local-sidecar', workerId:'worker:sidecar:telemetry', kind:'DETERMINISTIC_LOCAL', capabilities:['STRUCTURED_EXTRACTION'] },
+    { resourceId:'vector:telemetry', providerProfileId:'profile:vector:telemetry', providerId:'provider:vector:telemetry', modelId:'local-vector', workerId:'worker:vector:telemetry', kind:'DETERMINISTIC_LOCAL', capabilities:['RETRIEVAL','EMBED'] },
+  ];
+  for (const config of configs) {
+    bindings.resourceHost.actions.addResource(config);
+    await bindings.resourceHost.actions.connectResource(config.resourceId);
+    const tested = await bindings.resourceHost.actions.testResource(config.resourceId);
+    assert.equal(tested.result.ok, true);
+  }
+  const telemetry = bindings.coprocessorTelemetry.snapshot();
+  assert.equal(telemetry.resources.configured, 3);
+  assert.equal(telemetry.resources.testsPassed, 3);
+  assert.ok(telemetry.resources.ready >= 3);
+  assert.equal(telemetry.providerCalls.invoked, 0);
+  assert.equal(brain.diagnostics().coprocessorTelemetry.totalEvents, telemetry.totalEvents);
+  const model = bindings.resourceHost.read.resources();
+  assert.equal(model.readyResourceCount, 3);
+  assert.equal(model.nativePathRequired, false);
+});
+
 test('deployment host exports live resource controls, split Lore lifecycle, and selection-aware Memory reads', () => {
   const brain = new DevelopmentDeploymentBrain({ resourceCount: 1 });
   const bindings = brain.hostBindings();

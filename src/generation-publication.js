@@ -30,6 +30,7 @@ export class GenerationPublicationPipeline {
       getWorldRevision:()=>core.graph.revision,
       getSceneRevision:()=>this.sceneRevision,
       isTurnSealed:(turnId)=>this.seal.isTurnSealed(turnId),
+      isSourceRevisionCurrent:(revisionId)=>core.isSourceRevisionCurrent?.(revisionId)??core.registry.isActiveRevision(revisionId),
     });
     this.truth=new TruthPublicationGate({truthGate:core.truthGate,graph:core.graph});
     this.precision=new DeterministicPrecisionStub({graph:core.graph});

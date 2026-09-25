@@ -409,7 +409,7 @@ function normalizeWorker2ResourceConfig(input={}){
   if(!resourceIdValue){const e=new TypeError('Resource ID is required.');e.code='RESOURCE_ID_REQUIRED';throw e;}
   const role=String(input.role??input.resourceRole??input.kind??'SIDECAR').toUpperCase();
   const supplied=Array.isArray(input.capabilities)?input.capabilities:String(input.capabilities??'').split(',').map(x=>x.trim()).filter(Boolean);
-  const capabilities=[...new Set((supplied.length?supplied:(role==='JEV'?['SEMANTIC_JUDGMENT']:['STRUCTURED_EXTRACTION'])).map(String))];
+  const defaults=role==='JEV'?['SEMANTIC_JUDGMENT']:role==='VECTORING'?['RETRIEVAL','EMBED']:['STRUCTURED_EXTRACTION'];\n  const capabilities=[...new Set((supplied.length?supplied:defaults).map(String))];
   const transport=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(String(input.transportKind??input.kind??'').toUpperCase())?String(input.transportKind??input.kind).toUpperCase():'OPENAI_COMPATIBLE';
   const out={
     resourceId:resourceIdValue,displayName:text(input.displayName)??resourceIdValue,kind:transport,capabilities,

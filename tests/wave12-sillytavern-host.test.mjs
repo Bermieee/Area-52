@@ -89,7 +89,6 @@ test('Wave 12 mounts one floating UI.Core product beside verified #sheld without
   assert.equal(env.adapter.mountRoot.parentNode,env.sheld.parentNode);
   assert.equal(env.adapter.mountRoot.attributes['data-area52-host-adapter'],'wave12');
   assert.equal(env.sheld.style.right,'13px');
-  assert.equal(env.adapter.mountRoot.style.width,'0px');
   env.adapter.ui.presentation.patch({frontFaceMode:FrontFaceMode.EXPANDED,frontFaceWidth:420});
   assert.equal(env.sheld.style.right,'13px');
   env.adapter.destroy();

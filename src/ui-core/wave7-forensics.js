@@ -33,7 +33,7 @@ export function normalizeCognitiveTransaction(row){
   if(!row)return null;const type=row.transactionType??row.type??'UNKNOWN',authority=authorityFrom(row.authorityContext);
   return deepFreeze({
     kind:'ForensicTimelineItem',id:row.transactionId??row.id??`tx:${row.sequence??'unknown'}`,sequence:Number(row.sequence??0),timestamp:row.timestamp??null,
-    eventType:type,stage:TYPE_STAGE[type]??ForensicStage.UNKNOWN,subsystem:row.subsystem??null,owner:row.owner??null,turnId:row.turnId??null,generationId:row.generationId??null,
+    eventType:type,stage:TYPE_STAGE[type]??ForensicStage.UNKNOWN,subsystem:row.subsystem??null,owner:row.owner??null,chatId:row.chatId??row.chatNamespace??row.conversationId??null,turnId:row.turnId??null,generationId:row.generationId??null,
     taskId:row.taskId??null,correlationId:row.correlationId??null,causationId:row.causationId??null,beforeRevision:row.beforeRevision??null,afterRevision:row.afterRevision??null,
     sourceRevisionRefs:[...(row.sourceRevisionIds??[])],affectedArtifactIds:[...(row.affectedArtifactIds??[])],authority,decision:clone(row.decision??null),outcome:clone(row.outcome??null),
     receiptRefs:[...(row.receiptRefs??[])],reasonCode:row.reasonCode??null,provenance:clone(row.provenance??{}),retentionClass:row.retentionClass??null,

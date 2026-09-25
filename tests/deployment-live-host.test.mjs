@@ -190,7 +190,7 @@ test('installed native host exposes provenance/runtime/memory readers through th
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
   const native=session.exportEvidence().nativeBrainIntegration,names=native.installedUiReaderNames;
   for(const name of ['readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readLoreStatus','readMemoryStatus','readRuntimeStatus','readGeneration'])assert.ok(names.includes(name),name);
-  assert.equal(names.includes('listResources'),false);assert.deepEqual(native.installedOptionalOwners,{resources:false,loreStudy:false,loreAuthoring:false,memory:false});
+  assert.equal(names.includes('listResources'),true);assert.deepEqual(native.installedOptionalOwners,{resources:true,loreStudy:true,loreAuthoring:true,memory:true});
   session.destroy();
 });
 

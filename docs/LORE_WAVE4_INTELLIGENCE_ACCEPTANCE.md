@@ -45,7 +45,7 @@ service.acceptLorebook({
 });
 ```
 
-No fallback lorebook id or generated UID is created at this handoff boundary.
+Acceptance requires a Worker 3 discovery/origin receipt. No fallback lorebook id or generated UID is created at this handoff boundary; the legacy `operator-lore` fallback is explicitly rejected by this backend.
 
 `operatorInterface()` exports the host shape Worker 3's Wave 13 adapter already understands:
 
@@ -223,7 +223,7 @@ The representation compiler is now part of the ordinary accepted-source -> studi
 
 ## Not certified by this branch
 
-This branch does not prove installed SillyTavern discovery/UI wiring on `main`; Worker 3 owns that integration surface.
+This branch does not prove installed SillyTavern discovery/UI wiring on `main`; Worker 3 owns that integration surface. At the time of this handoff, current `main` still exposes a manual Lorebook ID + pasted text/JSON form and its parser can fall back to `operator-lore` / `entry-1`. That path does not satisfy this Wave 4 ordinary-source contract and will be rejected until Worker 3 supplies the actual discovered lorebook identity, UIDs, exact contents and discovery receipt. Current `main` also does not yet render the new per-entry `FAILED` / `operatorState` contract.
 
 It does not prove external-provider semantic extraction quality. The current provider-neutral/deterministic compiler validates lifecycle and contracts, not measured external-model quality.
 

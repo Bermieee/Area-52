@@ -437,6 +437,152 @@ function mergeActionRows(preview, intelligence, sessionSeed) {
   });
 }
 
+function sourceMutationActionRows(proposals, intelligence, sessionSeed) {
+  const registry = intelligence.runtime.registry;
+  const books = new Set((registry.snapshot().books || []).map((row) => row.id));
+  return (proposals || []).map((raw, index) => {
+    const proposal = deepClone(raw || {});
+    const action = String(proposal.action || '').toUpperCase();
+    if (!Object.values(LoreSourceAction).includes(action)) {
+      throw Object.assign(new TypeError('Unsupported source mutation action: ' + proposal.action), {
+        code: 'LORE_SOURCE_ACTION_INVALID',
+      });
+    }
+
+    let targetSourceId = null;
+    let targetIdentity = null;
+    let lorebookId = null;
+    let uid = null;
+    let proposedOutput = null;
+    let evidenceSourceIds = unique(proposal.evidenceSourceIds || []);
+    const absenceFences = [];
+
+    if (action === LoreSourceAction.CREATE_ENTRY) {
+      lorebookId = proposal.lorebookId == null ? null : String(proposal.lorebookId);
+      uid = proposal.uid == null ? null : String(proposal.uid);
+      if (!lorebookId || !uid || typeof proposal.content !== 'string') {
+        throw Object.assign(new TypeError('CREATE_ENTRY requires lorebookId, uid, and string content'), {
+          code: 'LORE_SOURCE_CREATE_FIELDS_REQUIRED',
+        });
+      }
+      if (!books.has(lorebookId)) {
+        throw Object.assign(new Error('CREATE_ENTRY target Lorebook does not exist: ' + lorebookId), {
+          code: 'LORE_SOURCE_CREATE_BOOK_UNKNOWN',
+        });
+      }
+      targetSourceId = 'lore:' + lorebookId + ':' + uid;
+      if (registry.getEntry(targetSourceId)) {
+        throw Object.assign(new Error('CREATE_ENTRY target already exists: ' + targetSourceId), {
+          code: 'LORE_SOURCE_CREATE_TARGET_EXISTS',
+        });
+      }
+      if (!evidenceSourceIds.length) {
+        throw Object.assign(new Error('CREATE_ENTRY requires at least one learned evidence source'), {
+          code: 'LORE_SOURCE_CREATE_EVIDENCE_REQUIRED',
+        });
+      }
+      absenceFences.push({sourceId: targetSourceId, lorebookId, uid, expected: 'ABSENT'});
+      proposedOutput = {
+        action,
+        sourceId: targetSourceId,
+        lorebookId,
+        uid,
+        content: proposal.content,
+        metadata: deepClone(proposal.metadata || {}),
+        evidenceSourceIds,
+        reason: proposal.reason == null ? null : String(proposal.reason),
+      };
+    } else {
+      targetSourceId = proposal.sourceId == null ? null : String(proposal.sourceId);
+      if (!targetSourceId) {
+        throw Object.assign(new TypeError(action + ' requires sourceId'), {code: 'LORE_SOURCE_ID_REQUIRED'});
+      }
+      targetIdentity = sourceRevisionIdentity(registry, targetSourceId);
+      if (targetIdentity.state === 'REMOVED') {
+        throw Object.assign(new Error(action + ' cannot target a removed source'), {code: 'LORE_SOURCE_TARGET_REMOVED'});
+      }
+      if (proposal.expectedSourceRevisionId && String(proposal.expectedSourceRevisionId) !== targetIdentity.sourceRevisionId) {
+        throw Object.assign(new Error('Source proposal expected revision is already stale'), {
+          code: 'LORE_SOURCE_PROPOSAL_STALE',
+        });
+      }
+      lorebookId = targetIdentity.lorebookId;
+      uid = targetIdentity.uid;
+      evidenceSourceIds = unique([targetSourceId, ...evidenceSourceIds]);
+      if (action === LoreSourceAction.UPDATE_ENTRY) {
+        const current = registry.currentRevision(targetSourceId);
+        proposedOutput = {
+          action,
+          sourceId: targetSourceId,
+          lorebookId,
+          uid,
+          expectedSourceRevisionId: targetIdentity.sourceRevisionId,
+          content: proposal.content == null ? current.exactContent : proposal.content,
+          metadata: proposal.metadata == null ? deepClone(current.metadata || {}) : deepClone(proposal.metadata),
+          evidenceSourceIds,
+          reason: proposal.reason == null ? null : String(proposal.reason),
+        };
+        if (typeof proposedOutput.content !== 'string') {
+          throw Object.assign(new TypeError('UPDATE_ENTRY requires string content'), {code: 'LORE_SOURCE_CONTENT_REQUIRED'});
+        }
+      } else {
+        proposedOutput = {
+          action,
+          sourceId: targetSourceId,
+          lorebookId,
+          uid,
+          expectedSourceRevisionId: targetIdentity.sourceRevisionId,
+          evidenceSourceIds,
+          reason: proposal.reason == null ? 'operator-reviewed-delete' : String(proposal.reason),
+        };
+      }
+    }
+
+    const identities = unique(evidenceSourceIds).map((sourceId) => sourceRevisionIdentity(registry, sourceId));
+    const treeNodes = targetIdentity ? [pathArray(targetIdentity.metadata?.treePath)] : [pathArray(proposedOutput.metadata?.treePath)];
+    const evidenceReceipt = proposalEvidenceReceipt(
+      intelligence,
+      identities,
+      proposedOutput,
+      treeNodes,
+      {
+        impactAnalysis: {
+          targetSourceId,
+          targetAction: action,
+          targetAbsenceFence: absenceFences[0] || null,
+        },
+      },
+    );
+    return {
+      kind: 'LoreAuthoringReviewAction',
+      id: stableActionId('SOURCE', sessionSeed, proposal.proposalId || stableHash({index, proposedOutput})),
+      type: 'SOURCE',
+      sequence: index + 1,
+      origin: proposal.origin || 'SYSTEM_PROPOSAL',
+      proposalId: proposal.proposalId || 'source-proposal:' + stableHash({index, proposedOutput}),
+      action,
+      mutationLorebookIds: [lorebookId],
+      inputLorebookIds: unique(identities.map((row) => row.lorebookId)),
+      inputSourceIds: identities.map((row) => row.sourceId),
+      inputUids: unique(identities.map((row) => row.uid)),
+      inputSourceRevisions: sourceFenceFromIdentities(identities),
+      absenceFences,
+      affectedTreeNodes: treeNodes,
+      semanticDependencies: {
+        evidenceSourceIds: identities.map((row) => row.sourceId),
+        evidenceSourceRevisionIds: identities.map((row) => row.sourceRevisionId),
+      },
+      evidenceReceipt,
+      originalProposal: deepClone(proposedOutput),
+      proposedOutput,
+      decision: null,
+      decisionRecord: null,
+      reviewState: LoreReviewState.NEEDS_REVIEW,
+      materialized: false,
+    };
+  });
+}
+
 function readSession(session, settlement = null) {
   return {
     kind: 'LoreAuthoringProgressReadModel',

@@ -331,8 +331,11 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
   ])assert.equal((await ui.actionRouter.route({type:'wave13.resource.connect',payload:config})).ok,true);
   for(const row of ui.operator.resources.read().data.resources)assert.equal((await ui.actionRouter.route({type:'wave13.resource.test',target:row})).ok,true);
   ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);
-  const body=textOf(ui.shell.nodes.workspace);
+  let body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/not a complete forensic transaction timeline/i);assert.match(body,/raw prompts and credentials are never collected/i);
+  assert.doesNotMatch(body,/jev:diag|sidecar:diag|vector:diag/);
+  ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/jev:diag/);assert.match(body,/sidecar:diag/);assert.match(body,/vector:diag/);
   const snap=ui.operator.diagnostics.read();
   assert.equal(snap.telemetry.rawPromptTelemetry,false);assert.equal(snap.host.rawPromptTelemetry,false);
   assert.deepEqual(snap.resources.lanes.map(x=>[x.kind,x.connected]),[['JEV',1],['SIDECAR',1],['VECTORING',1]]);

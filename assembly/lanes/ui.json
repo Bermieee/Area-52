@@ -824,7 +824,7 @@
   "backlogClosureAudit": {
     "kind": "Worker3UiHostCheckpoint",
     "recordedDate": "2026-09-25",
-    "directMainParent": "79091ab8c7adce61a7b99258696aa89f8d020989",
+    "directMainParent": "256bafe751e9d5f958491e9c6b31ac7d6731b78e",
     "installedLanePins": {
       "core": {
         "branch": "Development-Nexus",
@@ -864,7 +864,7 @@
       },
       "jev": {
         "branch": "Development-Sidecar/Jev",
-        "sha": "1f5521f37520907e9ffb3e93af4e124a608bb1e4",
+        "sha": "b25ead2c6edf7262aa81f461633473e8bed50c9b",
         "installed": false
       },
       "memory": {

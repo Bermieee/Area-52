@@ -360,12 +360,15 @@ export class Area52NativeBrain{
       readScene:(selection={})=>this.#readStage(selection,record=>this.core.sceneIntegrationSnapshot(record.chatId)),
       readHotCognition:(selection={})=>this.#readStage(selection,record=>this.core.hotCognitionSnapshot(record.chatId)),
       readCognitiveChoice:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt??null),
+      readScatter:(selection={})=>this.#readStage(selection,record=>this.#uiScatterReceipt(record)),
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
       readTruth:(selection={})=>this.#readStage(selection,record=>record.published?.publicationAssessment??record.published?.assessment??null),
       readCorrectiveRetrieval:(selection={})=>this.#readStage(selection,record=>record.published?.corrective??null),
-      readGather:(selection={})=>this.#readStage(selection,record=>record.published?.gatherReceipt??null),
+      readJev:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt?.jev??null),
+      readPrecision:(selection={})=>this.#readStage(selection,record=>this.#uiPrecisionReceipt(record)),
+      readGather:(selection={})=>this.#readStage(selection,record=>this.#uiGatherReceipt(record)),
       readContextSeal:(selection={})=>this.#readStage(selection,record=>record.published?.sealReceipt??null),
       readLoreStatus:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainLoreStatus',...this.#selection(record),sync:clone(record.loreSync??null),fallbackStore:this.loreInterface?null:this.knowledge.diagnostics(),authorityGranted:false})),
       readMemoryStatus:(selection={})=>this.#readStage(selection,record=>this.#memoryReadModel(record,selection)),
@@ -557,6 +560,23 @@ export class Area52NativeBrain{
     const upper=String(kind).toUpperCase(),attached=upper==='LORE'?Boolean(this.loreInterface):Boolean(this.memoryInterface);
     if(!attached)return{kind:'OwnerKnowledgeRetrievalReceipt',channelId:upper==='LORE'?OWNER_KNOWLEDGE_CHANNELS.LORE:OWNER_KNOWLEDGE_CHANNELS.MEMORY,status:'NOT_ATTACHED',queried:false,nominationCount:0,sourceRevisionFence:[],authorityGranted:false};
     return upper==='LORE'?this.ownerLoreChannel.receipt():this.ownerMemoryChannel.receipt();
+  }
+
+  #uiScatterReceipt(record){
+    const choice=record.published?.cognitiveChoiceReceipt??{},jobs=(choice.admittedJobs??[]).map((jobId,index)=>({jobId:String(jobId),sequence:index+1,status:'EXECUTED',owner:'COGNITIVE_CORE'}));
+    return{kind:'RuntimeTurnReceipt',...this.#selection(record),jobs,admittedJobCount:jobs.length,resourceCount:1,resourceIds:['native-brain-local-cpu'],requiredFallback:0,opportunisticPending:0,executionComplete:true,authorityGranted:false};
+  }
+
+  #uiGatherReceipt(record){
+    const receipt=record.published?.gatherReceipt;if(!receipt)return null;
+    const results=(record.published?.resultRoutes??[]).map((row)=>({resultId:row?.result?.id??null,accepted:Boolean(row?.route?.accepted),freshness:row?.route?.freshness??null,destination:row?.route?.effectiveDestination??row?.result?.destination??null}));
+    return{...clone(receipt),...this.#selection(record),results};
+  }
+
+  #uiPrecisionReceipt(record){
+    const results=record.published?.precisionResults??[];
+    if(!results.length&&!record.published?.precisionFailed)return null;
+    return{kind:'PrecisionReceipt',...this.#selection(record),results:clone(results),failed:Boolean(record.published?.precisionFailed),authorityGranted:false};
   }
 
   #memoryReadModel(record,selection={}){

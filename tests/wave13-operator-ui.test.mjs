@@ -14,7 +14,7 @@ class Node extends FakeNode{
   remove(){const p=this.parentNode,i=p?.children?.indexOf(this)??-1;if(i>=0)p.children.splice(i,1);this.parentNode=null;}
 }
 class Doc extends FakeDocument{
-  constructor(width=1280,height=800){super();this.body=new Node('body',this);this.documentElement=new Node('html',this);this.documentElement.clientWidth=width;this.documentElement.clientHeight=height;this.body.clientWidth=width;this.body.clientHeight=height;this.defaultView={innerWidth:width,innerHeight:height};}
+  constructor(width=1280,height=800){super();this.body=new Node('body',this);this.documentElement=new Node('html',this);this.documentElement.clientWidth=width;this.documentElement.clientHeight=height;this.body.clientWidth=width;this.body.clientHeight=height;const listeners=new Map();this.defaultView={innerWidth:width,innerHeight:height,addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn);},removeEventListener(type,fn){listeners.get(type)?.delete(fn);},dispatch(type,event={}){for(const fn of listeners.get(type)??[])fn({type,...event});},listenerCount(type){return listeners.get(type)?.size??0;}};}
   createElement(tag){return new Node(tag,this);}
   createDocumentFragment(){return new Node('fragment',this);}
   dispatch(type,event={}){for(const handler of this.listeners.get(type)??[])handler({type,target:this,preventDefault(){},...event});}
@@ -111,6 +111,21 @@ test('narrow viewport clamps rail and attached card to reachable bounds even nea
   if(d.card.side==='RIGHT')assert.equal(d.card.x,d.rail.x+d.rail.width);else assert.equal(d.card.x+d.card.width,d.rail.x);
   assert.ok(d.card.y>=8&&d.card.y<620);
   ui.destroy();
+});
+
+test('browser viewport resize automatically reclamps the floating rail and attached panel',()=>{
+  let viewport={width:1100,height:760};
+  const owner=liveOwner(),{ui,document}=mount(owner,{width:1100,height:760});
+  ui.floatingController.viewportProvider=()=>viewport;
+  ui.floatingController.open('brain');ui.scheduler.flush(1);
+  viewport={width:390,height:560};document.defaultView.dispatch('resize');ui.scheduler.flush(2);
+  const d=ui.floatingController.diagnostics();
+  assert.ok(d.rail.x>=8&&d.rail.x+d.rail.width<=382);
+  assert.ok(d.card.x>=8&&d.card.x+d.card.width<=382);
+  assert.ok(d.card.y>=8&&d.card.y+d.card.height<=552);
+  assert.equal(d.card.attached,true);
+  assert.equal(document.defaultView.listenerCount('resize'),1);
+  ui.destroy();assert.equal(document.defaultView.listenerCount('resize'),0);
 });
 
 test('panel outer side edge supports pointer resize in addition to the bottom handle',()=>{

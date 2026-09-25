@@ -1006,6 +1006,8 @@ function renderLoreEntries(d,entries,scope,{showIds=false}={}){
     const details=[{key:'Study state',value:row.studyState??humanLabel(state)},{key:'Representations',value:row.retrievalRepresentations?.length??0}];
     if(showIds)details.push({key:'Entry UID',value:row.uid??'—'},{key:'Source revision',value:row.sourceRevisionId??'—'},{key:'Learned revision',value:row.learnedRevisionId??'—'});
     card.append(element(d,'p',{text:explanation}),createKeyValue(d,details));
+    const revisionChanged=Boolean(row.sourceRevisionId&&row.learnedRevisionId&&row.freshness!=='CURRENT');
+    if(revisionChanged||row.semanticDiff)card.append(message(d,'Source revision changed','The authored source revision differs from the learned/current representation. Existing derived Lore is not treated as current until the Lore owner re-studies and publishes readiness.','warning'));
     if(row.studyError)card.append(message(d,'Study error',row.studyError.message??row.studyError.code??'Owner reported a study failure.','warning'));
     if(row.retrievalRepresentations?.some(x=>x.unresolved))card.append(makeBadge(d,'UNRESOLVED','warning'));root.append(card);
   }

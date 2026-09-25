@@ -94,7 +94,7 @@ export class NativeGraphNeighborhoodRetriever{
         revisionRules:{sourceRevisionRefsRequired:true,dependenciesMustBeCurrent:true,worldFenceCheckedWhenPresent:true,sceneFenceCheckedWhenPresent:true,staleRejectedBeforeCandidateBus:true},
         provenanceRules:{sourceRevisionRefsAreAlwaysCarriedAsProvenance:true,traversalPathAddedByCore:true,providerAndOwnerIdentityPreserved:true},
       },
-      authority:{providerOwnsSourceSemantics:true,coreOwnsTraversal:false,graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false},
+      authority:{providerOwnsSourceSemantics:true,coreOwnsTraversal:true,graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false},
       lifecycle:{providerFunctionsPersistedByCore:false,reattachProviderAfterBrainRestore:true,optionalCoprocessorMayWrapSameContract:true,nativeForegroundPathRequiresNoCoprocessor:true},
     });
   }

@@ -310,6 +310,14 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
   restoredWarm.observeScene('chat:aster-graph',scene('glass-spire-shifted',4,{location:'Glass Spire Annex',activeCast:[{entityId:ids.ash,canonicalEntityId:ids.ash,name:'Ash'}]}));
   assert.notEqual(restoredWarm.core.hotCognitionSnapshot('chat:aster-graph').segments.GRAPH_NEIGHBORHOOD.freshness,'FRESH');
 
+  const worldBefore=brain.core.graph.revision;
+  await brain.completeTurn({
+    turnId:'aster-graph:3',response:'Ash takes the Moon Key back from Lio.',knownBy:[ids.ash,ids.lio],
+    observations:[{subjectId:ids.key,predicate:'possessor',value:ids.ash,at:3}],
+  });
+  assert.ok(brain.core.graph.revision>worldBefore);
+  assert.notEqual(brain.core.hotCognitionSnapshot('chat:aster-graph').segments.GRAPH_NEIGHBORHOOD.freshness,'FRESH');
+
   console.log('GRAPH_WAVE_METRIC',JSON.stringify({
     currentPossessionCandidates:currentPossession.candidateCount,
     historicalPossessionCandidates:historicalPossession.candidateCount,

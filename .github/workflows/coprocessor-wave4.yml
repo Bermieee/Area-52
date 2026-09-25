@@ -1,0 +1,35 @@
+name: Cognitive Coprocessor Wave 4
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full regression suite
+        run: npm test
+      - name: Wave 1 focused suite
+        run: npm run test:coprocessor
+      - name: Wave 2 focused suite
+        run: npm run test:wave2
+      - name: Wave 3 focused suite
+        run: npm run test:wave3
+      - name: Wave 4 focused suite
+        run: npm run test:wave4
+      - name: Stress suites
+        run: npm run test:stress
+      - name: Browser-like Wave 4 production paths
+        run: npm run test:browser:wave4
+      - name: JavaScript syntax validation
+        run: npm run check
+      - name: Coprocessor module import
+        run: node -e "import('./src/coprocessor/index.js').then(() => console.log('Coprocessor index import PASS'))"

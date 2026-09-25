@@ -1,0 +1,48 @@
+name: Cognitive Coprocessor Wave 9
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 8 regression
+        run: npm run test:wave8
+      - name: Wave 8 stress regression
+        run: npm run test:wave8:stress
+      - name: Lore adapter focused suite
+        run: npm run test:wave9:lore
+      - name: Scene adapter focused suite
+        run: npm run test:wave9:scene
+      - name: Retrieval Truth adapter focused suite
+        run: npm run test:wave9:retrieval
+      - name: Cross-domain same-core and Ember Tavern suite
+        run: npm run test:wave9:cross-domain
+      - name: Authority negative suite
+        run: npm run test:wave9:authority
+      - name: Wave 9 focused suite
+        run: npm run test:wave9
+      - name: Wave 9 stress
+        run: npm run test:wave9:stress
+      - name: Browser-like production path
+        run: npm run test:browser:wave9
+      - name: Full Coprocessor regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"

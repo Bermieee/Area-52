@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Area-52 — Wave 6 Host-Adjacent Front Face</title>
+  <link rel="stylesheet" href="../styles/ui-core.css">
+  <link rel="stylesheet" href="../styles/ui-core-wave2.css">
+  <link rel="stylesheet" href="../styles/ui-core-wave3.css">
+  <link rel="stylesheet" href="../styles/ui-core-wave4.css">
+  <link rel="stylesheet" href="../styles/ui-core-wave5.css">
+  <link rel="stylesheet" href="../styles/ui-core-wave6.css">
+</head>
+<body>
+  <main style="display:grid;grid-template-columns:minmax(0,1fr) auto;height:100vh">
+    <section aria-label="Synthetic host chat area" style="padding:2rem">
+      <h1>Host conversation remains host-owned</h1>
+      <p>This region represents SillyTavern. Wave 6 does not render or own chat.</p>
+      <p>The Area-52 dock at right is using an explicit <strong>FIXTURE</strong> demo snapshot.</p>
+    </section>
+    <div id="area52-wave6-root"></div>
+  </main>
+  <script type="module" src="./wave6-front-face.js"></script>
+</body>
+</html>

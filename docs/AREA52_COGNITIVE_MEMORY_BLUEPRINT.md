@@ -1390,3 +1390,165 @@ Implementation should remain subordinate to this blueprint. Any future subsystem
 - and how it fails safely
 
 is not ready to enter the Area-52 architecture.
+
+
+---
+
+# ADVANCED BRAIN EXTENSIONS — MEMORY PLASTICITY, CAUSALITY + LORE COMPILATION
+
+The Area-52 Brain is intentionally extensible.
+
+Three advanced systems deepen existing cognitive organs without creating alternate authority paths.
+
+## Memory reconsolidation
+
+Memory retrieval and use may create eligibility to reorganize **derived memory structure**.
+
+Possible effects:
+
+- strengthen or weaken derived associations;
+- refine retrieval representations;
+- adjust hot/warm/cold priority;
+- split or merge derived memory;
+- reevaluate Reflections;
+- rebuild communities/hierarchies.
+
+Usage is operational feedback.
+
+Usage is not independent evidence.
+
+Reconsolidation never rewrites exact source and never grants canonical authority.
+
+Canonical reference:
+
+`docs/AREA52_MEMORY_RECONSOLIDATION_MATURATION_FORGETTING.md`
+
+Project card: #118.
+
+## Memory maturation and value-aware forgetting
+
+Derived memory may mature from fresh observation into episodic memory, repeatedly supported patterns and durable learned representations.
+
+Maturity remains distinct from authority.
+
+Forgetting means reducing active retrieval/residency cost before deleting any rebuildable derived representation.
+
+Canonical source, required provenance and historical truth are protected.
+
+## Causal / Event Memory
+
+Temporal State answers *what was true and when*.
+
+Causal/Event Memory adds *what happened, what caused it, what enabled it, and which explanations remain plausible*.
+
+Chronology and causality remain distinct.
+
+Competing explanations are represented as explicit hypothesis sets with support and contradiction evidence.
+
+No hypothesis is promoted to canon merely because it has the highest confidence.
+
+Canonical reference:
+
+`docs/AREA52_CAUSAL_EVENT_MEMORY_AND_HYPOTHESES.md`
+
+Project card: #119.
+
+## Semantic Lore Compiler
+
+Lorebooks remain curriculum.
+
+The Lore Study pipeline may compile exact lore source into multiple typed machine representations:
+
+- entities;
+- aliases;
+- claims;
+- properties;
+- relationships;
+- rules;
+- capabilities;
+- restrictions;
+- events;
+- ontology;
+- hierarchy/community;
+- retrieval forms;
+- dependency edges.
+
+Compilation never replaces exact source.
+
+### Lore Tree is preserved
+
+The traditional **Lore Tree remains first-class**.
+
+It continues to provide human-facing organization, navigation and editing through folders, categories and nested entries.
+
+Area-52's learned ontology, graph, semantic communities and retrieval hierarchies coexist with the Lore Tree.
+
+They augment it.
+
+They do not replace it or silently rearrange operator-authored structure.
+
+## Semantic diff and impact analysis
+
+A source edit should eventually be understandable at the level of meaning:
+
+```text
+source revision changed
+ -> claims/rules/relationships changed
+ -> dependency cone identified
+ -> affected derived artifacts rebuilt
+ -> unrelated artifacts preserved
+```
+
+Semantic diff complements ordinary text diff.
+
+Impact preview may show likely affected/unaffected knowledge before propagation, while final validated recompilation remains authoritative.
+
+Canonical reference:
+
+`docs/AREA52_LORE_COMPILER_SEMANTIC_DIFF.md`
+
+Project card: #120.
+
+## Combined Brain loop
+
+These systems extend the canonical loop:
+
+```text
+SOURCE + EXPERIENCE
+        |
+        v
+STUDY / SEMANTIC COMPILE
+        |
+        +--------------------------+
+        |                          |
+        v                          v
+TEMPORAL + CAUSAL WORLD MODEL   EPISODIC MEMORY
+        |                          |
+        |                          v
+        |                    REFLECTION
+        |                          |
+        +------------+-------------+
+                     |
+                     v
+               RETRIEVAL / USE
+                     |
+             +-------+-------+
+             |               |
+             v               v
+       TRUTH/PRECISION   LEARNING FEEDBACK
+             |               |
+             |               v
+             |         RECONSOLIDATION
+             |               |
+             +-------+-------+
+                     |
+                     v
+              CONTEXT COMPILER
+                     |
+                     v
+                    MAIN
+```
+
+The critical invariant remains:
+
+> **Models propose. Schemas validate. Provenance explains. Revisions fence. Owners settle. Golden worlds test.**

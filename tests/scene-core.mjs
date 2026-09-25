@@ -1,0 +1,58 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  ActiveCastResolver, AtmosphereTracker, BoundaryStatus, CastPresence, ObjectPresence, ObjectStateTracker, ObservationClass,
+  SceneDeltaEngine, SceneIntelligenceRuntime, SceneStateExtractor, SceneReconciler, SceneRegistry, SemanticBoundaryDetector, SpatialStateTracker, TemporalStateTracker,
+  createCurrentScene, createFieldState, createSceneObservationProposal,
+} from '../src/scene/index.js';
+
+const field=(value,revision=2,observationClass=ObservationClass.OBSERVED,confidence=1,evidenceRefs=['e:1'],metadata={})=>createFieldState({value,revision,observationClass,confidence,evidenceRefs,metadata});
+
+test('non-UNKNOWN field state requires evidence',()=>{assert.throws(()=>createFieldState({value:'x',revision:1,observationClass:ObservationClass.OBSERVED,confidence:1,evidenceRefs:[]}),/evidenceRefs/)});
+
+test('SceneStateExtractor attaches evidence without converting inference into observation',()=>{const scene=createCurrentScene({sceneId:'s1'});const p=new SceneStateExtractor().propose({scene,evidence:{id:'turn:1',sourceRevisionId:'chat:r1'},provider:'model-x',fields:{atmosphere:{value:{tension:.8},confidence:1,observationClass:ObservationClass.INFERRED}}});assert.equal(p.fields.atmosphere.observationClass,ObservationClass.INFERRED);assert.equal(p.fields.atmosphere.confidence,1);assert.deepEqual(p.fields.atmosphere.evidenceRefs,['turn:1'])});
+
+test('later mention does not downgrade a PRESENT character',()=>{const r=new ActiveCastResolver();let state=r.resolve({observations:[r.enter('Mara','e:enter')],revision:2});state=r.resolve({previous:state.value,observations:[r.mention('Mara','e:mention')],revision:3});assert.equal(state.value[0].state,CastPresence.PRESENT)});
+
+test('later mention does not erase stronger object presence/possession',()=>{const o=new ObjectStateTracker();let state=o.update({observations:[o.pickup('Blade','Eris','e:pickup')],revision:2});state=o.update({previous:state.value,observations:[o.mention('Blade','e:mention')],revision:3});assert.equal(state.value[0].state,ObjectPresence.HELD);assert.equal(state.value[0].holderId,'Eris')});
+
+test('false-cut recovery is explicit and evidence-backed',()=>{const runtime=new SceneIntelligenceRuntime({boundaryDetector:new SemanticBoundaryDetector({emitThreshold:.05})});runtime.open({sceneId:'s1'});const b=runtime.boundary({sceneId:'s1',evidenceRefs:['e:door'],signals:{doorway:1}});const recovered=runtime.boundaryVerifier.recoverFalseCut(b.candidate.candidateId,['e:continuation']);assert.equal(recovered.status,BoundaryStatus.RECOVERED);assert.ok(recovered.evidenceRefs.includes('e:continuation'))});
+
+test('CurrentScene begins revisioned with field epistemology',()=>{const s=createCurrentScene({sceneId:'s1'});assert.equal(s.revision,1);assert.equal(s.fields.location.observationClass,ObservationClass.UNKNOWN);assert.deepEqual(s.unresolvedFields,[])});
+
+test('Delta Engine changes only proposed fields',()=>{const s=createCurrentScene({sceneId:'s1',fields:{location:field({location:'Ember Tavern'},1)}});const engine=new SceneDeltaEngine();const p=createSceneObservationProposal({proposalId:'p1',sceneId:'s1',baseRevision:1,evidenceRefs:['e:2'],fields:{activeThreads:field(['Find Sun Blade'],2)}});const r=engine.apply(s,p);assert.equal(r.applied,true);assert.equal(r.scene.revision,2);assert.equal(r.scene.fields.location.value.location,'Ember Tavern');assert.deepEqual(r.scene.fields.activeThreads.value,['Find Sun Blade']);assert.equal(Object.keys(r.delta.changedFields).length,1)});
+
+test('stale proposal cannot mutate CurrentScene',()=>{const s=createCurrentScene({sceneId:'s1'});const engine=new SceneDeltaEngine();const p=createSceneObservationProposal({proposalId:'p1',sceneId:'s1',baseRevision:2,fields:{location:field({location:'x'},3)}});assert.throws(()=>engine.apply(s,p),/stale proposal/)});
+
+test('drift requests bounded full refresh rather than stacking impossible location',()=>{const s=createCurrentScene({sceneId:'s1'});const engine=new SceneDeltaEngine();const p=createSceneObservationProposal({proposalId:'p1',sceneId:'s1',baseRevision:1,fields:{location:field({location:'Begaritt'},2,ObservationClass.INFERRED,.5,['e:jump'],{impossibleTransition:true})}});const r=engine.apply(s,p);assert.equal(r.applied,false);assert.equal(r.delta.fullRefreshRequired,true);assert.ok(r.delta.refreshReasons.includes('IMPOSSIBLE_TRANSITION'));assert.equal(r.scene.revision,1)});
+
+test('Active Cast mention is not presence',()=>{const resolver=new ActiveCastResolver();const state=resolver.resolve({previous:[],observations:[resolver.mention('Rudeus','e:remember')],revision:2});assert.equal(state.value[0].state,CastPresence.MENTIONED_ONLY);assert.notEqual(state.value[0].state,CastPresence.PRESENT)});
+
+test('Active Cast explicit entrance and exit remain explicit',()=>{const r=new ActiveCastResolver();let state=r.resolve({previous:[],observations:[r.enter('Mara','e:enter')],revision:2});assert.equal(state.value[0].state,CastPresence.PRESENT);state=r.resolve({previous:state.value,observations:[r.exit('Mara','e:exit')],revision:3});assert.equal(state.value[0].state,CastPresence.DEPARTED)});
+
+test('Spatial viewed location does not become current location',()=>{const t=new SpatialStateTracker();const prev=field({location:'Ember Tavern'},1);const next=t.viewedLocation({previous:prev,viewedLocation:'City Walls',revision:2,evidenceRefs:['e:view']});assert.equal(next.value.location,'Ember Tavern');assert.equal(next.value.relation.viewedLocation,'City Walls')});
+
+test('Temporal inference cannot self-validate',()=>{const t=new TemporalStateTracker();const a=t.update({sceneId:'s1',revision:2,evidenceRefs:['e:guess'],proposal:{anchor:'evening',observationClass:ObservationClass.INFERRED,confidence:.45}});const b=t.update({sceneId:'s1',previous:a,revision:3,evidenceRefs:['e:self'],proposal:{anchor:'23:00',derivedFromPriorInference:true,observationClass:ObservationClass.INFERRED,confidence:.8}});assert.equal(b.observationClass,ObservationClass.UNRESOLVED);assert.ok(b.confidence<.5);assert.equal(b.metadata.sequenceBroken,true)});
+
+test('Temporal correction preserves correction provenance rather than erasing history',()=>{const t=new TemporalStateTracker();const prev=t.update({sceneId:'s1',revision:2,evidenceRefs:['e:guess'],proposal:{anchor:'evening',observationClass:ObservationClass.INFERRED,confidence:.4}});const next=t.correction({sceneId:'s1',previous:prev,revision:3,evidenceRefs:['e:explicit'],anchor:'14:00'});assert.equal(next.value.correctionOf,'evening');assert.equal(next.observationClass,ObservationClass.OBSERVED);assert.deepEqual(next.evidenceRefs,['e:explicit'])});
+
+test('Atmosphere is always scene-scoped inference',()=>{const a=new AtmosphereTracker().update({revision:2,evidenceRefs:['e:tone'],dimensions:{tension:{score:.8,confidence:.7}}});assert.equal(a.observationClass,ObservationClass.INFERRED);assert.equal(a.metadata.sceneScoped,true);assert.equal(a.metadata.canonical,false)});
+
+test('Object mention does not imply presence or possession',()=>{const t=new ObjectStateTracker();const state=t.update({observations:[t.mention('SunBlade','e:ask')],revision:2});assert.equal(state.value[0].state,ObjectPresence.MENTIONED_ONLY);assert.equal(state.value[0].holderId,null)});
+
+test('Object pickup is a scene observation with durable proposal only',()=>{const t=new ObjectStateTracker();const state=t.update({observations:[t.pickup('Dagger','Eris','e:pickup')],revision:2});assert.equal(state.value[0].state,ObjectPresence.HELD);assert.equal(state.value[0].holderId,'Eris');assert.equal(state.value[0].durableProposal.type,'OBJECT_STATE_CHANGE')});
+
+test('doorway alone produces weak boundary candidate that remains pending/rejectable',()=>{const runtime=new SceneIntelligenceRuntime({boundaryDetector:new SemanticBoundaryDetector({emitThreshold:.05})});runtime.open({sceneId:'s1'});const b=runtime.boundary({sceneId:'s1',evidenceRefs:['e:door'],signals:{doorway:1}});assert.equal(b.decision.status,BoundaryStatus.PENDING);const rejected=runtime.boundaryVerifier.observe(b.candidate.candidateId,{contradict:1,evidenceRefs:['e:continue']});assert.equal(rejected.status,BoundaryStatus.REJECTED)});
+
+test('strong explicit transition can confirm immediately',()=>{const runtime=new SceneIntelligenceRuntime();runtime.open({sceneId:'s1'});const b=runtime.boundary({sceneId:'s1',evidenceRefs:['e:later'],signals:{majorTimeJump:{strength:1,explicit:true}}});assert.equal(b.decision.status,BoundaryStatus.CONFIRMED)});
+
+test('Scene Registry preserves stable scene ID across revisions and source edits',()=>{const reg=new SceneRegistry();reg.openScene({sceneId:'s1'});const scene=reg.current('s1');scene.revision=2;scene.fields.location=field({location:'Tavern'},2);reg.commit(scene);reg.reviseSource('s1',{sourceRevisionRef:'src:r2',affectedFields:['location'],evidenceRefs:['edit:1']});const record=reg.get('s1');assert.equal(record.sceneId,'s1');assert.equal(record.revision,3);assert.equal(record.snapshots.length,3);assert.equal(record.snapshots[1].fields.location.value.location,'Tavern');assert.equal(record.snapshots[2].fields.location.observationClass,ObservationClass.UNRESOLVED)});
+
+test('Reconciler targeted rollback does not erase unrelated fields',()=>{const rec=new SceneReconciler();const s=createCurrentScene({sceneId:'s1',fields:{location:field({location:'Tavern'},1),activeThreads:field(['Blade'],1)}});rec.markKnownGood(s);const bad=structuredClone(s);bad.revision=2;bad.fields.location=field({location:'Begaritt'},2,ObservationClass.INFERRED,.4,['e:bad'],{impossibleTransition:true});bad.fields.activeThreads=field(['Blade'],2);const out=rec.rollbackField(bad,'location',{evidenceRefs:['e:rollback']});assert.equal(out.scene.fields.location.value.location,'Tavern');assert.deepEqual(out.scene.fields.activeThreads.value,['Blade']);assert.equal(out.scene.revision,3)});
+
+test('Runtime exposes stable UI/Fan-Out facing signal contract without DOM state',()=>{const rt=new SceneIntelligenceRuntime();rt.open({sceneId:'s1'});const out=rt.publicSignals('s1');assert.equal(out.sceneId,'s1');assert.equal(out.sceneRevision,1);assert.ok('activeCast' in out && 'location' in out && 'activeThreads' in out && 'uncertainFields' in out && 'boundaryState' in out)});
+
+
+test('source-edit invalidation carries edit evidence at field level',()=>{const reg=new SceneRegistry();reg.openScene({sceneId:'edit-evidence'});const scene=reg.current('edit-evidence');scene.revision=2;scene.fields.location=field({location:'Tavern'},2,ObservationClass.OBSERVED,1,['turn:1']);reg.commit(scene);reg.reviseSource('edit-evidence',{sourceRevisionRef:'chat:r2',affectedFields:['location'],evidenceRefs:['edit:1']});const next=reg.current('edit-evidence');assert.equal(next.fields.location.observationClass,ObservationClass.UNRESOLVED);assert.deepEqual(next.fields.location.evidenceRefs,['edit:1']);assert.ok(next.fields.location.metadata.previousEvidenceRefs.includes('turn:1'))});
+
+test('active snapshot provenance and source revision references are bounded',()=>{let scene=createCurrentScene({sceneId:'bounded'});const engine=new SceneDeltaEngine({maxUncertainChain:100000});for(let i=0;i<180;i++){const evidence=`e:${i}`;const p=createSceneObservationProposal({proposalId:`p:${i}`,sceneId:'bounded',baseRevision:scene.revision,sourceRevisionRefs:[`r:${i}`],evidenceRefs:[evidence],fields:{activeThreads:field([`t:${i}`],scene.revision+1,ObservationClass.OBSERVED,1,[evidence])}});scene=engine.apply(scene,p,{allowWhenRefreshRequired:true}).scene;}assert.ok(scene.provenance.length<=128);assert.ok(scene.sourceRevisionRefs.length<=128)});

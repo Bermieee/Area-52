@@ -1,0 +1,137 @@
+name: Main Owner Integration
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: main-owner-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Cross-owner integration contract
+        run: node --test tests/main-owner-integration.test.mjs
+      - name: Two-world installed narrative path
+        run: node --test --test-name-pattern='two unrelated chats' tests/deployment-live-host.test.mjs
+      - name: Full assembled regression
+        run: npm test
+      - name: Full syntax sweep
+        run: npm run check
+
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Native Brain core
+        run: node --test tests/native-brain.mjs tests/native-brain-identity-retrieval.mjs
+      - name: Core ESM/browser-facing imports
+        run: node -e "globalThis.Buffer=undefined; Promise.all([import('./src/cognitive-core.js'),import('./src/native-brain.js'),import('./src/graph-neighborhood-retriever.js')]).then(()=>console.log('CORE IMPORT PASS'))"
+
+  lore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Lore Waves 1-7 and assembly
+        run: >
+          node --test
+          tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs
+          tests/lore-wave4.mjs tests/lore-wave5.mjs tests/lore-wave6.mjs tests/lore-wave7.mjs
+          tests/lore-browser-safe.mjs tests/lore-assembly-integration.test.mjs
+      - name: Host Lore integration
+        run: node --test tests/worker4-lore190-repro.test.mjs tests/deployment-brain.integration.test.mjs tests/deployment-live-host.test.mjs
+
+  sidecar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wave 20 Director/runtime closure
+        run: npm run test:wave20
+      - name: Preserve Wave 19 standing wiring
+        run: npm run test:wave19
+      - name: Historical Jev replay four-case gate
+        run: >
+          node --test
+          --test-name-pattern='adapter replay rechecks|Decision Core replay re-evaluates|Decision Core replay retention|domain-adapter proposal replay retention'
+          tests/worker4-jev211-repro.test.mjs
+      - name: Preserve Wave 17 owner handoff
+        run: npm run test:wave17
+
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Installed UI/operator regressions
+        run: node --test tests/wave12-sillytavern-host.test.mjs tests/wave13-operator-ui.test.mjs tests/deployment-live-host.test.mjs
+      - name: Browser-facing UI/import gate
+        run: >
+          node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined;
+          Promise.all([
+          import('./src/ui-core/index.js'),
+          import('./src/ui-core/wave12-sillytavern-host.js'),
+          import('./src/ui-core/wave13-operator-surfaces.js'),
+          import('./src/deployment/sillytavern-live.js'),
+          import('./index.js')
+          ]).then(()=>console.log('INSTALLED UI IMPORT PASS'))"
+
+  deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deployment vertical slice
+        run: node --test tests/deployment-brain.integration.test.mjs tests/deployment-live-host.test.mjs tests/deployment-install-contract.test.mjs
+      - name: Installed root import
+        run: node -e "globalThis.Buffer=undefined; import('./index.js').then(()=>console.log('INSTALLED ROOT IMPORT PASS'))"
+      - name: Development assembly verification
+        run: node scripts/verify-development-deployment.mjs

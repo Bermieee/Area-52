@@ -1,0 +1,1 @@
+import {runDeliveryLearningStress} from '../tests/delivery-learning-stress-harness.js';const r=runDeliveryLearningStress();console.log(JSON.stringify(r.metrics,null,2));console.log(`Delivery Learning stress: ${r.pass?'PASS':'FAIL'}`);if(!r.pass)process.exitCode=1;

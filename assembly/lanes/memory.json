@@ -1,0 +1,199 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "memory",
+  "branch": "Development-Memory",
+  "acceptedSha": "51aa0d6e7293ddeaa3899e81f6699794d0c22b2c",
+  "acceptanceRuns": [
+    {
+      "id": "36065342394",
+      "name": "Memory Wave 1+2+3 CI"
+    },
+    {
+      "id": "36080637986",
+      "name": "Memory Wave 1+2+3+4 source-head CI — focused/browser pass; stress bound repaired at deployment seam"
+    },
+    {
+      "id": "OWNER-94669e65",
+      "name": "Worker 1 canonical follow-up: consolidation-wide revision bound + UI selector bound"
+    },
+    {
+      "id": "OWNER-51aa0d6e",
+      "name": "Worker 1 final head: Wave 4 docs complete; source/test content unchanged from accepted 94669e65"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "docs/MEMORY_WAVE1_ACCEPTANCE.md",
+      "sourceDigest": "2274e2dde8c49526d339f1b5578904df59ddd14c"
+    },
+    {
+      "path": "docs/MEMORY_WAVE1_CHANGELOG.md",
+      "sourceDigest": "ce6d6160eb2712640763d5913ce66552245ab4fa"
+    },
+    {
+      "path": "docs/MEMORY_WAVE1_TEMPORAL_PRODUCER.md",
+      "sourceDigest": "1cb53b45db157b18a12fa847bb74165e450f0fd1"
+    },
+    {
+      "path": "docs/MEMORY_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "9e5513b4031f4a057e480b7f0f9db11404017559"
+    },
+    {
+      "path": "docs/MEMORY_WAVE2_CHANGELOG.md",
+      "sourceDigest": "ad7ba697dea849b3dfb0db1cd4aabb76b5f5e95d"
+    },
+    {
+      "path": "docs/MEMORY_WAVE2_HIERARCHICAL_PRODUCER.md",
+      "sourceDigest": "c570c8743c5a57e8cd31dc2e13db0b5bc0ffc672"
+    },
+    {
+      "path": "docs/MEMORY_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "3dd4e28750940880d854b193c490980c2009a55d"
+    },
+    {
+      "path": "docs/MEMORY_WAVE3_CHANGELOG.md",
+      "sourceDigest": "1244327e6799e7be7538820fd4a1e8969145a0a5"
+    },
+    {
+      "path": "docs/MEMORY_WAVE3_EVIDENCE_BRIDGE.md",
+      "sourceDigest": "16b921065dde7b56e988feff7282f13ce813d6a9"
+    },
+    {
+      "path": "src/memory-contracts.js",
+      "sourceDigest": "e0200764c2c30c2f9c85e78cac4ed9df084885fa"
+    },
+    {
+      "path": "src/memory-evidence-bridge.js",
+      "sourceDigest": "95df1fd9c99b9405cdcb5c469362ec900ec31bb6"
+    },
+    {
+      "path": "src/memory-experience-store.js",
+      "sourceDigest": "de119c615e6b645f404bafccc345b7e8caf20fe5"
+    },
+    {
+      "path": "src/memory-green-room.js",
+      "sourceDigest": "163b15a6f96b40bf248e3b4182eabd7a7c40d3f2"
+    },
+    {
+      "path": "src/memory-historian.js",
+      "sourceDigest": "5e18ca8067d3b6a7c3862a325fa977b6a027f57a"
+    },
+    {
+      "path": "src/memory-integration-surface.js",
+      "sourceDigest": "fc129643f492beaf9f34d13cb6bd249c21d6b720"
+    },
+    {
+      "path": "src/memory-summary-hierarchy.js",
+      "sourceDigest": "18ada1528f14ad51185ed617077889df6fd609cb"
+    },
+    {
+      "path": "src/memory-temporal-producer.js",
+      "sourceDigest": "685dfe4c3b7122536b92e255a780f1829e715b1f"
+    },
+    {
+      "path": "src/memory-ui-read-model.js",
+      "sourceDigest": "f215de8376f107da25c9c5eed6f9fe2369afc246"
+    },
+    {
+      "path": "tests/fixtures/memory-wave3-owner-shapes.js",
+      "sourceDigest": "b7d96a2dce277d6380a701586ffe80641bf9a8bc"
+    },
+    {
+      "path": "tests/memory-browser-safe.mjs",
+      "sourceDigest": "ecf16b0ff0932c1f443c4fd0127060cc2b95e794"
+    },
+    {
+      "path": "tests/memory-wave1-stress.mjs",
+      "sourceDigest": "9a9dcc87a1769a66da1a2c67c38046c4c4947272"
+    },
+    {
+      "path": "tests/memory-wave1.mjs",
+      "sourceDigest": "368414345471af777465a192175a68ec9eac4d07"
+    },
+    {
+      "path": "tests/memory-wave2-stress.mjs",
+      "sourceDigest": "9128bbaf57df5cf81bf65c65878d78f92c633947"
+    },
+    {
+      "path": "tests/memory-wave2.mjs",
+      "sourceDigest": "3d33bdada0771153ce2b2c933f4d5c6a4adfe7f3"
+    },
+    {
+      "path": "tests/memory-wave3-stress.mjs",
+      "sourceDigest": "e57e4b48c87858ce33036b04b33c7dc0c9c28f77"
+    },
+    {
+      "path": "tests/memory-wave3.mjs",
+      "sourceDigest": "448f32b98a5edc14d6548fa084f5f3f60e25bf68"
+    },
+    {
+      "path": "tests/memory-wave4-stress.mjs",
+      "sourceDigest": "89671037fcaf5f6f929e0fba53fbd5067a343fa7"
+    },
+    {
+      "path": "tests/memory-wave4.mjs",
+      "sourceDigest": "44e0ac4df13550d7992815aaae28c791e2e8bab7"
+    },
+    {
+      "path": "docs/MEMORY_WAVE4_ACCEPTANCE.md",
+      "sourceDigest": "2450cae79f4444aa6c2afdfd1d0ba5f3c5d9fcd6"
+    },
+    {
+      "path": "docs/MEMORY_WAVE4_CHANGELOG.md",
+      "sourceDigest": "5127723d32caa49d51a4b4b1ac27cf5e1670b2db"
+    },
+    {
+      "path": "docs/MEMORY_WAVE4_GENERAL_WORLD_PRODUCER.md",
+      "sourceDigest": "cd267b094367cb42e1891b1f7ebc0f7b573510a3"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/memory-contracts.js",
+    "src/memory-evidence-bridge.js",
+    "src/memory-experience-store.js",
+    "src/memory-green-room.js",
+    "src/memory-historian.js",
+    "src/memory-integration-surface.js",
+    "src/memory-summary-hierarchy.js",
+    "src/memory-temporal-producer.js",
+    "src/memory-temporal-state-graph.js",
+    "src/memory-ui-read-model.js"
+  ],
+  "nodeOnlyToolPaths": [],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [],
+  "artifactContracts": [
+    {
+      "name": "MemoryExternalEvidenceMapping / evidence bridge",
+      "version": "1.0.0"
+    }
+  ],
+  "requiredAdapters": [
+    "Scene exact evidence -> Memory evidence bridge",
+    "Core Settlement evidence descriptors -> Memory bridge",
+    "Memory Historian nominations -> Candidate Bus"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/memory-temporal-producer.js",
+      "sourceDigest": "685dfe4c3b7122536b92e255a780f1829e715b1f",
+      "expectedDigest": "0d5c3253c99399182618e3e5ef3741a360842d82",
+      "reason": "Deployment namespace seam: Memory binds its accepted TemporalStateGraph under src/memory-temporal-state-graph.js so Core authority path is not replaced."
+    }
+  ],
+  "knownConflicts": [],
+  "renamedSourceCopies": [
+    {
+      "sourcePath": "src/temporal-state-graph.js",
+      "sourceDigest": "440cdf7e18beca1588cba7ac7b660d0a3cadced7",
+      "integrationPath": "src/memory-temporal-state-graph.js",
+      "expectedDigest": "440cdf7e18beca1588cba7ac7b660d0a3cadced7",
+      "reason": "Exact accepted Memory TemporalStateGraph copied under a namespaced integration path to avoid Core path collision"
+    }
+  ]
+}

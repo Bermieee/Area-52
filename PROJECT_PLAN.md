@@ -4,6 +4,8 @@
 **Repository:** `Bermieee/Area-52`  
 **Planning model:** dependency-gated, architecture-first  
 **Canonical architecture:** `docs/AREA52_COGNITIVE_MEMORY_BLUEPRINT.md`
+**Subsystem board map:** `docs/AREA52_SUBSYSTEM_BOARD_MAP.md`
+**Research map:** `docs/REFERENCE_RESEARCH_MAP.md`
 
 ---
 
@@ -653,3 +655,27 @@ A subsystem is not done unless it documents:
 **First target:** complete P0 contracts and the first golden-world fixture, then implement the smallest end-to-end vertical slice.
 
 The project should resist the temptation to perfect embeddings, graph storage, rerankers, or UI before that slice proves that the complete cognitive lifecycle is coherent.
+
+
+# Cognitive Coprocessor execution package
+
+**Epic:** #75  
+**Owner lane:** `Development-Sidecar/Jev`
+
+Canonical documents:
+- `docs/AREA52_COGNITIVE_COPROCESSOR_BLUEPRINT.md`
+- `docs/AREA52_SIDECAR_REFERENCE_DOCUMENTATION.md`
+- `docs/AREA52_SIDECAR_IMPLEMENTATION_RUNBOOK.md`
+
+The first sidecar milestone is the **One-Key Swarm**: one Turn Event dynamically fans out to multiple capability workers, a Gather Coordinator closes on a bounded foreground quorum/deadline, Context Compiler receives structured lanes, and late results are rerouted without crossing Context Seal.
+
+The sidecar implementation sequence is contract-first:
+1. typed worker/result contracts and correlation envelope;
+2. native mock fan-out/gather;
+3. Runtime Fabric integration;
+4. real cognitive workers;
+5. speculative warming / Green Room / consolidation / streaming truth;
+6. Dapr and data-plane benchmarks;
+7. full coprocessor evaluation.
+
+No infrastructure framework is adopted until it wins against Area-52 golden-world, latency, durability and operational-complexity tests.

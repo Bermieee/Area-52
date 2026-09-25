@@ -1,0 +1,27 @@
+name: Cognitive Coprocessor Wave 1
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deterministic Wave 1 suite
+        run: npm test
+      - name: Focused One-Key Swarm suite
+        run: npm run test:coprocessor
+      - name: Stress suite
+        run: npm run test:stress
+      - name: JavaScript syntax validation
+        run: npm run check
+      - name: Coprocessor module import
+        run: node -e "import('./src/coprocessor/index.js').then(() => console.log('Coprocessor index import PASS'))"

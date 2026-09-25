@@ -429,10 +429,10 @@ export class DevelopmentDeploymentSillyTavernSession {
       const received=context.eventTypes?.MESSAGE_RECEIVED??context.event_types?.MESSAGE_RECEIVED;
       const stopped=context.eventTypes?.GENERATION_STOPPED??context.event_types?.GENERATION_STOPPED;
       if(!before||!requestReady||!received)throw new Error('Native Brain live integration requires GENERATION_AFTER_COMMANDS, CHAT_COMPLETION_PROMPT_READY, and MESSAGE_RECEIVED events');
-      const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_PREPARE'});this.#notify();}};
+      const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;this.#recordHostNarrativeEvent('MESSAGE_SENT',[]);try{await this.prepareNativeGeneration({generationType:type});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_PREPARE'});this.#notify();}};
       const requestHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeModelRequest(eventData);}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_MODEL_REQUEST'});this.#notify();}};
-      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_COMPLETE'});this.#notify();}};
-      const stoppedHandler=()=>{this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
+      const receivedHandler=async(index)=>{this.#recordHostNarrativeEvent('MESSAGE_RECEIVED',[index]);try{await this.completeNativeGeneration({messageIndex:index});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_COMPLETE'});this.#notify();}};
+      const stoppedHandler=(...args)=>{this.#recordHostNarrativeEvent('GENERATION_STOPPED',args);this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
       context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
@@ -440,11 +440,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     }else{
       const eventName=context.eventTypes?.MESSAGE_SENT??context.event_types?.MESSAGE_SENT;
       if(!eventName)throw new Error('No supported SillyTavern pre-generation event is available');
-      const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
+      const handler=async(...args)=>{this.#recordHostNarrativeEvent('MESSAGE_SENT',args);try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
       context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
     }
-    const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'];
+    const observedHostEvents=['MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'];
+    const functionalObservedEvents=this.nativeBrain?new Set(['MESSAGE_RECEIVED','GENERATION_STOPPED']):new Set();
     for(const key of observedHostEvents){
+      if(functionalObservedEvents.has(key))continue;
       const eventName=context.eventTypes?.[key]??context.event_types?.[key];
       if(!eventName)continue;
       const observer=(...args)=>this.#recordHostNarrativeEvent(key,args);

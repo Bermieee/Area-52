@@ -1,12 +1,12 @@
 # Development Deployment — Live #224 Evidence Runbook
 
-**Branch state at handoff:** assembled and CI-green at `caacd3e417c343207567d5ea3e49f631ec6cc4f4`.
+**Install state:** the assembled extension was promoted to `main` from CI-green deployment head `ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9`. The prior Phase 1 `main` remains recoverable at tag `pre-deployment-main-2026-09-24`.
 
 **Gate state:** **LIVE DEMO PENDING** until a real SillyTavern session completes the operator steps below. The browser-shaped test and deterministic rehearsal are prerequisites, not substitutes for the live gate.
 
 ## What this package adds
 
-The deployment branch is now a directly loadable SillyTavern extension surface:
+The repository's default `main` branch is now a directly loadable SillyTavern extension surface:
 
 - root `manifest.json`, `index.js`, and `style.css`;
 - the production Wave 12 host-adjacent UI;
@@ -21,14 +21,14 @@ The deployment branch is now a directly loadable SillyTavern extension surface:
 
 The extension never marks GitHub #224 complete. It emits a `DevelopmentDeploymentLiveDemoEvidence` record and leaves final acceptance to the Director.
 
-## Install the exact branch without touching `main`
+## Install from `main`
 
-Because SillyTavern's Git installer normally checks out a repository's default branch, do **not** use the repository URL for this pre-merge candidate. Place an explicit checkout of `Development-Deployment` in the SillyTavern third-party extensions directory, then restart/reload SillyTavern.
+Use SillyTavern's Git extension installer with `https://github.com/Bermieee/Area-52`, or place a checkout of `main` in the SillyTavern third-party extensions directory. Restart or reload SillyTavern after installation. The previous development-branch-only instruction no longer applies.
 
 Example Git operation from the target extensions directory:
 
 ```bash
-git clone --branch Development-Deployment --single-branch <authenticated Area-52 repository URL> area52-development-deployment
+git clone --branch main --single-branch https://github.com/Bermieee/Area-52.git area52
 ```
 
 Confirm the loaded extension says **Area-52 — Development Deployment**.

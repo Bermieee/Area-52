@@ -103,6 +103,7 @@ export async function init() {
     confirmOperatorReview: (options) => session?.confirmOperatorReview(options),
     attachNativeBrain: (brain) => session?.attachNativeBrain(brain),
     detachNativeBrain: () => session?.detachNativeBrain(),
+    acceptLoreRevisionChange: (event) => session?.acceptLoreRevisionChange(event),
   });
   return session;
 }

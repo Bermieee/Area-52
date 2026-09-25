@@ -81,12 +81,13 @@ export function normalizeWave6Health(value,{fallback=Wave6Health.UNAVAILABLE}={}
 
 export function healthStatusToken(value){return HEALTH_STATUS[normalizeWave6Health(value)]??'offline';}
 
-export function createProductSourceStatus({mode=ProductDataMode.UNAVAILABLE,health=null,label=null,impact='',reason='',producer=null,revision=null,connected=null}={}){
+export function createProductSourceStatus({mode=ProductDataMode.UNAVAILABLE,health=null,label=null,impact='',reason='',producer=null,revision=null,connected=null,operationalState=null,selection=null,freshness=null,errorCode=null}={}){
   if(!MODE.has(mode))throw new TypeError(`Unsupported product data mode: ${mode}`);
   const normalizedHealth=normalizeWave6Health(health??(mode===ProductDataMode.LIVE?Wave6Health.READY:mode===ProductDataMode.DEGRADED?Wave6Health.DEGRADED:mode===ProductDataMode.FIXTURE?Wave6Health.READY:Wave6Health.UNAVAILABLE));
   return deepFreeze({
     kind:'ProductSourceStatus',mode,health:normalizedHealth,statusToken:healthStatusToken(normalizedHealth),
     label:label??mode,impact:String(impact??''),reason:String(reason??''),producer:producer??null,revision:revision??null,
+    operationalState:operationalState??null,selection:selection==null?null:clone(selection),freshness:freshness??null,errorCode:errorCode??null,
     connected:connected??(mode===ProductDataMode.LIVE||mode===ProductDataMode.DEGRADED),fixture:mode===ProductDataMode.FIXTURE,
   });
 }

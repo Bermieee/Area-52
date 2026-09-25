@@ -91,6 +91,7 @@
     "test:wave18": "node --test tests/coprocessor-wave18-acceptance.test.mjs tests/coprocessor-wave18-browser.test.mjs",
     "test:browser:wave18": "node --test tests/coprocessor-wave18-browser.test.mjs",
     "test:wave18:stress": "node --test tests/coprocessor-wave18-stress.test.mjs",
-    "report:wave18": "node scripts/coprocessor-wave18-evaluation.mjs"
+    "report:wave18": "node scripts/coprocessor-wave18-evaluation.mjs",
+    "test:wave19": "node --test tests/coprocessor-wave19-standing-wiring.test.mjs"
   }
 }

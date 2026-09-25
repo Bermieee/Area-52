@@ -208,6 +208,7 @@ export class NativeKnowledgeStore{
     const row=this.records.get(String(evidenceId));
     if(!row||this.currentBySource.get(row.sourceId)!==row.evidenceId)return null;
     if(!this.registry.isActiveRevision(row.sourceRevisionId))return null;
+    if(!(row.evidence.dependencyRevisionRefs??[]).every(ref=>!this.registry.getRevision(ref)||this.registry.isActiveRevision(ref)))return null;
     return clone(row.evidence);
   }
 
@@ -219,6 +220,7 @@ export class NativeKnowledgeStore{
   currentRecords({channelFamily=null}={}){
     const rows=[...this.currentBySource.values()].map(id=>this.records.get(id)).filter(Boolean)
       .filter(row=>this.registry.isActiveRevision(row.sourceRevisionId))
+      .filter(row=>(row.evidence.dependencyRevisionRefs??[]).every(ref=>!this.registry.getRevision(ref)||this.registry.isActiveRevision(ref)))
       .filter(row=>!channelFamily||row.channelFamily===String(channelFamily).toUpperCase())
       .sort((a,b)=>a.sequence-b.sequence);
     return rows.map(clone);

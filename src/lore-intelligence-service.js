@@ -2,6 +2,7 @@ import {deepClone, StudyState} from './lore-contracts.js';
 import {LoreStudyRuntime} from './lore-study-runtime.js';
 import {LoreMultiResolutionSystem} from './lore-multi-resolution.js';
 import {LoreRepresentationRegistry} from './lore-representation-registry.js';
+import {LoreWorldOntology} from './lore-world-ontology.js';
 import {LoreHierarchyRetrievalSystem} from './lore-hierarchy-retrieval-system.js';
 import {QualityStatus, RepresentationProfile} from './lore-representation-contracts.js';
 
@@ -99,10 +100,12 @@ export class LoreIntelligenceService {
     runtime = new LoreStudyRuntime(),
     multiResolution = null,
     hierarchy = null,
+    ontology = null,
   } = {}) {
     this.runtime = runtime;
     this.multiResolution = multiResolution || new LoreMultiResolutionSystem({runtime});
     this.hierarchy = hierarchy || new LoreHierarchyRetrievalSystem({runtime});
+    this.ontology = ontology || new LoreWorldOntology({runtime});
     this.compileFailures = new Map();
     this.lastAcceptance = null;
     this.lastStudyRun = null;
@@ -123,6 +126,7 @@ export class LoreIntelligenceService {
 
     const results = this.runtime.ingestLorebook(book);
     const staleRepresentationIds = this.multiResolution.refreshFreshness();
+    this.ontology.rebuild();
     this.hierarchy.refreshHierarchy();
     this.hierarchy.refreshRetrieval();
 
@@ -214,6 +218,7 @@ export class LoreIntelligenceService {
       }
     }
 
+    const ontology = this.ontology.rebuild();
     let retrieval = this.hierarchy.diagnostics();
     if (rebuildRetrieval) {
       this.hierarchy.rebuild();
@@ -227,6 +232,7 @@ export class LoreIntelligenceService {
       results: deepClone(results),
       compilations,
       retrieval,
+      ontology,
       status: this.status(),
     };
     this.lastStudyRun = deepClone(receipt);
@@ -298,6 +304,7 @@ export class LoreIntelligenceService {
       conflicts: deepClone(surface.conflicts),
       lifecycle: deepClone(surface.lifecycle),
       retrieval: retrievalStatus,
+      ontology: this.ontology.current(),
       exactSourcePreserved: true,
       derivedArtifactsAreCanon: false,
       externalProviderRequired: false,
@@ -335,9 +342,13 @@ export class LoreIntelligenceService {
       intent: result.intent,
       retrievalIntentId: result.retrievalIntentId,
       indexRevision: result.indexRevision,
+      ontologyRevision: this.ontology.current().ontologyRevision,
       desiredProfile,
       sourceRevisionFence,
       nominations,
+      thematicCommunities: this.ontology.communitiesForSources(
+        [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceId)))],
+      ),
       conflicts: this.runtime.store.conflicts(this.runtime.registry),
       provenanceRequired: true,
       exactSourceDrillbackAvailable: true,
@@ -387,6 +398,7 @@ export class LoreIntelligenceService {
       runtime: this.runtime.snapshot(),
       multiResolution: this.multiResolution.snapshot(),
       hierarchy: this.hierarchy.snapshot(),
+      ontology: this.ontology.current(),
       compileFailures: [...this.compileFailures.entries()].map(([sourceId, failures]) => [sourceId, deepClone(failures)]),
       lastAcceptance: deepClone(this.lastAcceptance),
       lastStudyRun: deepClone(this.lastStudyRun),
@@ -407,7 +419,9 @@ export class LoreIntelligenceService {
       runtime,
       snapshot: snapshot.hierarchy,
     });
-    const service = new LoreIntelligenceService({runtime, multiResolution, hierarchy});
+    const ontology = new LoreWorldOntology({runtime});
+    ontology.snapshotValue = deepClone(snapshot.ontology || null);
+    const service = new LoreIntelligenceService({runtime, multiResolution, hierarchy, ontology});
     service.compileFailures = new Map((snapshot.compileFailures || []).map(([sourceId, failures]) => [sourceId, deepClone(failures)]));
     service.lastAcceptance = deepClone(snapshot.lastAcceptance || null);
     service.lastStudyRun = deepClone(snapshot.lastStudyRun || null);

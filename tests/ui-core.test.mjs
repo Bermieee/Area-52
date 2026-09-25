@@ -20,8 +20,22 @@ import {
   WidgetRegistry,
   WorkspaceRegistry,
   computeVirtualWindow,
+  element,
   resolveResponsiveMode,
 } from '../src/ui-core/index.js';
+
+test('element writes readonly input list through setAttribute instead of assigning HTMLInputElement.list', () => {
+  const attrs = {};
+  const input = {
+    tagName: 'INPUT',
+    dataset: {},
+    get list() { return null; },
+    setAttribute(name, value) { attrs[name] = String(value); },
+  };
+  const document = { createElement(tag) { assert.equal(tag, 'input'); return input; } };
+  assert.doesNotThrow(() => element(document, 'input', { attrs: { type: 'text', list: 'a52-models' } }));
+  assert.equal(attrs.list, 'a52-models');
+});
 
 test('SignalHub publishes small envelopes and unsubscribe removes listener', () => {
   const signals = new SignalHub();

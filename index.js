@@ -71,6 +71,7 @@ export async function init() {
       onEvidence: (evidence) => renderEvidence(root, evidence),
       nativeBrain: globalThis.Area52NativeBrainOwner ?? null,
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
+      persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
     });
     renderEvidence(root, session.exportEvidence());
   } catch (error) {

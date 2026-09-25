@@ -1015,9 +1015,14 @@ export class DevelopmentDeploymentBrain {
     await this.resourceDirector.runCycle({ waitForTaskIds: [task.taskId] });
     this.#syncOptionalDirectorProfiles();
     if (executionError) throw executionError;
+    const directorRecord = this.resourceDirector.ledger.get(task.taskId);
+    if (directorRecord?.executionStatus !== 'COMPLETE') {
+      const error = new Error('Optional resource execution was not completed by the Runtime Director: ' + String(directorRecord?.executionStatus ?? 'UNKNOWN'));
+      error.code = 'OPTIONAL_RESOURCE_DIRECTOR_INCOMPLETE';
+      throw error;
+    }
     if (!execution) {
-      const record = this.resourceDirector.ledger.get(task.taskId);
-      const error = new Error('Optional resource execution did not produce a provider result: ' + String(record?.executionStatus ?? 'UNKNOWN'));
+      const error = new Error('Optional resource execution did not produce a provider result: ' + String(directorRecord?.executionStatus ?? 'UNKNOWN'));
       error.code = 'OPTIONAL_RESOURCE_EXECUTION_MISSING';
       throw error;
     }

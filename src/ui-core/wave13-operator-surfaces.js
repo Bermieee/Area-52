@@ -253,12 +253,15 @@ function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifi
   const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health}});
   const top=element(d,'div',{className:'a52-inline-status'});
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
+  const qualification=row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
   card.append(top,createKeyValue(d,[
-    {key:'Connection',value:row.state??(row.connected?'READY':'DISCONNECTED')},{key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
+    {key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},{key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
+    {key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
     {key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
   ]));
+  if(row.connected&&!row.callable)card.append(message(d,'Connected is not qualified','Worker 2 reports a transport/configuration connection, but this resource is not currently callable. Run Test and follow the owner health result before treating it as working.','warning'));
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
   if(caps.connect&&!row.connected)actions.append(createButton(d,{label:'Reconnect',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource connection');refresh?.();}}));
   if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportResourceTest(notifications,result,'Resource test');refresh?.();}}));

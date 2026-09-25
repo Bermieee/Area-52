@@ -133,21 +133,22 @@ export class OpenAICompatibleProviderAdapter {
       capabilities:Object.freeze([...this.capabilities]),transportMode:this.transportMode,actualProvider:qualification.actualProvider??null,
     });
   }
-  async invoke(task,input,{signal=null,timeoutMs=this.timeoutMs,maxOutputTokens=null,temperature=0}={}){
+  async invoke(task,input,{signal=null,timeoutMs=this.timeoutMs,maxOutputTokens=null,temperature=null}={}){
     if(this.transportMode!==ProviderTransportMode.CHAT_COMPLETIONS){
       throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Embeddings transport cannot execute chat-completion specialist work',{providerId:this.providerId});
     }
     const startedAt=Date.now();
     try{
       const messages=normalizeMessages(input);
-      const body={model:this.modelId,messages,temperature:Number(temperature)};
-      const limit=maxOutputTokens??this.outputLimit;if(Number.isFinite(Number(limit)))body.max_tokens=Number(limit);
+      const body={model:this.modelId,messages};
+      if(temperature!=null&&Number.isFinite(Number(temperature)))body.temperature=Number(temperature);
+      const limit=maxOutputTokens??this.outputLimit;if(Number.isFinite(Number(limit))&&Number(limit)>0&&Number(limit)<Number.MAX_SAFE_INTEGER)body.max_tokens=Math.trunc(Number(limit));
       const response=await providerFetch(this.fetchImpl,`${this.endpoint}/chat/completions`,{
         method:'POST',headers:this.#requestHeaders({'content-type':'application/json'}),body:JSON.stringify(body),signal,
       },{signal,timeoutMs,providerId:this.providerId,operation:'chat completion'});
       if(!response?.ok)throw httpError(Number(response?.status??0),{providerId:this.providerId,operation:'chat completion'});
-      const json=await parseProviderJson(response,this.providerId,'chat completion');const text=json?.choices?.[0]?.message?.content;
-      if(typeof text!=='string')throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'provider response did not contain message.content text',{providerId:this.providerId});
+      const json=await parseProviderJson(response,this.providerId,'chat completion');const text=completionText(json);
+      if(typeof text!=='string')throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'provider response did not contain final completion text',{providerId:this.providerId});
       const completedAt=Date.now();const actualModelId=typeof json?.model==='string'&&json.model?json.model:this.modelId;
       return Object.freeze({providerId:this.providerId,modelId:actualModelId,text,usage:structuredClone(json.usage??{}),
         finishReason:json?.choices?.[0]?.finish_reason??null,startedAt,completedAt,latencyMs:completedAt-startedAt,
@@ -253,6 +254,17 @@ function normalizeTransportError(error,{providerId=null,operation='provider requ
 async function parseProviderJson(response,providerId,operation){
   try{return await response.json();}
   catch(error){throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,`${operation} returned invalid JSON`,{providerId,cause:error});}
+}
+function completionText(json){
+  const choice=Array.isArray(json?.choices)?json.choices[0]:null;
+  const content=choice?.message?.content;
+  if(typeof content==='string')return content;
+  if(Array.isArray(content)){
+    const parts=content.map((part)=>typeof part==='string'?part:typeof part?.text==='string'?part.text:typeof part?.content==='string'?part.content:'').filter(Boolean);
+    if(parts.length)return parts.join('');
+  }
+  if(typeof choice?.text==='string')return choice.text;
+  return null;
 }
 function normalizeDiscoveredModel(row,transportMode){
   const id=typeof row?.id==='string'?row.id.trim():'';if(!id)return null;

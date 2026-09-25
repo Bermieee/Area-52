@@ -28,7 +28,7 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'readRuntimeStatus','readCognitionUiState','readCoprocessorChoiceContribution',
   'resourceHost','coprocessorResourceHost','resourceConnectionsHost',
   'listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus','listResourceConfigurations','listAvailableResources',
-  'addResource','configureResource','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection','subscribeResources','subscribeResourceStatus',
+  'addResource','configureResource','discoverModels','loadModels','listProviderModels','refreshModels','refreshResourceModels','setCredential','setResourceCredential','clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential','selectModel','selectResourceModel','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection','subscribeResources','subscribeResourceStatus',
   'loreIntelligenceService','loreStudyService','loreOperatorHost','loreStudyHost','loreHost','loreStudyRuntime','loreRuntime',
   'loreAuthoringService','loreAuthoringHost','loreAuthoringOperator',
   'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy','subscribeLoreStudy','subscribeLoreStatus',
@@ -56,7 +56,7 @@ const FAMILY_KEYS=Object.freeze({
   runtime:['runtimeAdapter','readRuntimeStatus','readScatter','readRuntimeTurn'],
   coprocessor:['coprocessorTelemetry','coprocessorAdapter','readCognitionUiState','readCoprocessorChoiceContribution'],
   resources:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'],
-  resourceActions:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','addResource','configureResource','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection'],
+  resourceActions:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','addResource','configureResource','discoverModels','loadModels','listProviderModels','refreshModels','refreshResourceModels','setCredential','setResourceCredential','clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential','selectModel','selectResourceModel','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection'],
   memory:['memory','readMemoryStatus'],
 });
 

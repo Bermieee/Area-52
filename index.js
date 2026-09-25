@@ -83,7 +83,7 @@ export async function init() {
     }
   });
   root.querySelector('[data-a52-run]')?.addEventListener('click', () => void session.processCurrentTurn().catch(() => {}));
-  root.querySelector('[data-a52-confirm]')?.addEventListener('click', () => session.confirmOperatorReview());
+  root.querySelector('[data-a52-confirm]')?.addEventListener('click', () => session.confirmOperatorReview({ liveSillyTavernConfirmed: true }));
   root.querySelector('[data-a52-copy]')?.addEventListener('click', async () => {
     const text = JSON.stringify(session.exportEvidence(), null, 2);
     try { await navigator.clipboard.writeText(text); }

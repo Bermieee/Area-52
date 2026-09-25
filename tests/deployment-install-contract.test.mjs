@@ -18,12 +18,14 @@ test('live adapter never imports the deterministic golden lore fixture', () => {
 });
 
 
-test('installed entry auto-starts the SillyTavern turn bridge instead of requiring a hidden manual arm step', () => {
+test('installed entry auto-starts the SillyTavern turn bridge without a visible demo arm/disarm harness', () => {
   const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
   const createAt = source.indexOf('session = createDevelopmentDeploymentSillyTavernSession');
   const startAt = source.indexOf('session.start();', createAt);
-  const renderAt = source.indexOf('renderEvidence(root, session.exportEvidence())', createAt);
+  const contractAt = source.indexOf('installProgrammaticContract();', startAt);
   assert.ok(createAt >= 0);
   assert.ok(startAt > createAt, 'installed session must start immediately after creation');
-  assert.ok(renderAt > startAt, 'initial installed evidence must be rendered after the live event bridge is active');
+  assert.ok(contractAt > startAt, 'programmatic host controls must be published only after bridge startup is attempted');
+  assert.doesNotMatch(source, /renderEvidence\s*\(/);
+  assert.doesNotMatch(source, /Arm\s*\/\s*Disarm|Disarm\s*\/\s*Arm/i);
 });

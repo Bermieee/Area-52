@@ -144,13 +144,21 @@ function runtimeLifecycleSnapshot(raw){
   const queuedObligations=Object.values(queueDepth).reduce((sum,value)=>sum+(Number(value)||0),0);
   const hotLayers=new Set(['HOT','L0','L1']),deepLayers=new Set(['DEEP','L2','L3','L4']);
   const activeRows=lifecycle.filter(row=>['ACTIVE','YIELDING'].includes(String(row.executionStatus??'').toUpperCase()));
+  const durations=lifecycle.map(row=>Number(row.lastSliceDurationMs)).filter(value=>Number.isFinite(value)&&value>=0);
+  const latencyMs=durations.length?{
+    samples:durations.length,
+    average:Math.round(durations.reduce((sum,value)=>sum+value,0)/durations.length),
+    max:Math.max(...durations),
+  }:{samples:0,average:null,max:null};
   return deepFreeze({
     lifecycle:cloneSafe(lifecycle),lifecycleCounts:counts,queueDepth,
     queuedObligations,
     blockedRecoveringWork:lifecycle.filter(row=>['BLOCKED','RECOVERING'].includes(String(row.executionStatus??'').toUpperCase())).length,
     activeBatches:activeRows.length,
+    yielding:lifecycle.filter(row=>String(row.executionStatus??'').toUpperCase()==='YIELDING'||row.yieldRequested===true).length,
     hotActivity:activeRows.filter(row=>hotLayers.has(String(row.layer??'').toUpperCase())).length,
     deepActivity:activeRows.filter(row=>deepLayers.has(String(row.layer??'').toUpperCase())).length,
+    latencyMs,
     resources:cloneSafe(raw.resources??null),workers:cloneSafe(raw.workers??null),dependencies:cloneSafe(raw.dependencies??null),
     telemetry:cloneSafe(raw.telemetry??null),eventTypes:Array.isArray(raw.eventTypes)?[...raw.eventTypes]:[],
     batchProgressAvailable:false,lateResultHistoryAvailable:false,
@@ -230,6 +238,7 @@ export class Wave13LoreStudyUIAdapter{
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
     this.readFn=fn(this.host?.read,['surface','status','loreStudy'])??fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus']);
     this.selectionFn=fn(bindings,['readSelectedLorebookSelection']);
+    this.selectionSubscribeFn=fn(bindings,['subscribeSelectedLorebookSelection']);
     this.discoverFn=fn(bindings,['discoverSelectedLorebook']);
     this.acceptFn=fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook'])??fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook']);
     this.runFn=fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
@@ -242,21 +251,63 @@ export class Wave13LoreStudyUIAdapter{
       this.acceptFn??=(input)=>this.runtime.ingestLorebook(input);
       this.runFn??=(input)=>runLoreRuntime(this.runtime,input);
     }
-    this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;
+    this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;this.discoveredLorebookKey=null;this.discoveryEpoch=0;this.discoveryInflight=null;this.discoveryState={status:'IDLE',key:null,error:null};
   }
-  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),summaries:Boolean(this.summaryFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),summaries:Boolean(this.summaryFn),subscribe:Boolean(this.subscribeFn),selectionSubscribe:Boolean(this.selectionSubscribeFn)});}
+  subscribeSelection(listener){
+    if(typeof listener!=='function'||!this.selectionSubscribeFn)return()=>{};
+    const release=this.selectionSubscribeFn(listener);return typeof release==='function'?release:()=>{};
+  }
   selectedLorebook(){
-    const selected=safeRead(this.selectionFn,null);
-    return deepFreeze({selection:cloneSafe(selected),snapshot:cloneSafe(this.discoveredLorebook)});
+    const selected=safeRead(this.selectionFn,null),key=this.#selectedLorebookKey(selected);
+    const snapshot=key&&key===this.discoveredLorebookKey?this.discoveredLorebook:null;
+    return deepFreeze({selection:cloneSafe(selected),snapshot:cloneSafe(snapshot),discovery:cloneSafe(this.discoveryState)});
   }
-  async discoverSelectedLorebook(){
+  async ensureSelectedLorebook({force=false}={}){
     this.lastError=null;
     if(!this.discoverFn){const e=new Error('SillyTavern selected-Lorebook discovery is not exported by the host.');e.code='LORE_DISCOVERY_UNAVAILABLE';this.lastError=e;throw e;}
-    try{
-      const result=await this.discoverFn();
-      this.discoveredLorebook=cloneSafe(result);this.lastAction={type:'DISCOVER',result:cloneSafe(result?.discovery??null)};
+    const selected=safeRead(this.selectionFn,null),key=this.#selectedLorebookKey(selected);
+    if(!selected?.selected||!key){
+      this.discoveryEpoch+=1;this.discoveryInflight=null;this.discoveredLorebook=null;this.discoveredLorebookKey=null;
+      this.discoveryState={status:'NO_SELECTION',key:null,error:null};
+      return null;
+    }
+    if(!force&&this.discoveredLorebook&&this.discoveredLorebookKey===key){
+      this.discoveryState={status:'READY',key,error:null};
+      return cloneSafe(this.discoveredLorebook);
+    }
+    if(!force&&this.discoveryInflight?.key===key)return this.discoveryInflight.promise;
+    const epoch=++this.discoveryEpoch;
+    this.discoveryState={status:'LOADING',key,error:null};
+    const promise=Promise.resolve().then(()=>this.discoverFn()).then((result)=>{
+      const current=safeRead(this.selectionFn,null),currentKey=this.#selectedLorebookKey(current);
+      if(epoch!==this.discoveryEpoch||currentKey!==key){
+        const e=new Error('Selected Lorebook changed while Area-52 was loading it.');e.code='LORE_DISCOVERY_STALE_SELECTION';throw e;
+      }
+      const expectedId=String(current?.lorebookId??current?.title??'').trim(),actualId=String(result?.id??result?.discovery?.lorebookId??'').trim();
+      if(expectedId&&actualId&&expectedId!==actualId){
+        const e=new Error('SillyTavern returned a different Lorebook than the current selection.');e.code='LORE_DISCOVERY_IDENTITY_MISMATCH';throw e;
+      }
+      this.discoveredLorebook=cloneSafe(result);this.discoveredLorebookKey=key;
+      this.discoveryState={status:'READY',key,error:null};this.lastAction={type:'DISCOVER',result:cloneSafe(result?.discovery??null)};
       return cloneSafe(result);
-    }catch(error){this.lastError=error;throw error;}
+    }).catch((error)=>{
+      if(epoch===this.discoveryEpoch){
+        if(error?.code!=='LORE_DISCOVERY_STALE_SELECTION'){
+          this.lastError=error;this.discoveredLorebook=null;this.discoveredLorebookKey=null;
+          this.discoveryState={status:'ERROR',key,error:{code:error?.code??'LORE_DISCOVERY_FAILED',message:String(error?.message??error)}};
+        }
+      }
+      throw error;
+    }).finally(()=>{if(this.discoveryInflight?.epoch===epoch)this.discoveryInflight=null;});
+    this.discoveryInflight={key,epoch,promise};return promise;
+  }
+  async discoverSelectedLorebook(){return this.ensureSelectedLorebook({force:true});}
+  #selectedLorebookKey(selected){
+    if(!selected?.selected)return null;
+    const lorebookId=String(selected?.lorebookId??selected?.title??'').trim();if(!lorebookId)return null;
+    const selection=this.selectionProvider?.()??{},chatId=String(selection?.chatId??'').trim();
+    return chatId+'|'+lorebookId;
   }
   read(){
     const selection=this.selectionProvider?.()??{};
@@ -918,7 +969,7 @@ function diagnosticSource(read){
     warm:data.warm?cloneSafe(data.warm):null,fallback:data.fallback??null,staleDrop:data.staleDrop??null,retry:data.retry??null,
     lifecycleCounts:data.lifecycleCounts?cloneSafe(data.lifecycleCounts):null,queueDepth:data.queueDepth?cloneSafe(data.queueDepth):null,
     borrowedBackgroundLeases:data.resources?.borrowedBackgroundLeases??null,retainedSignals:data.telemetry?.retainedSignals??null,telemetrySinkFailures:data.telemetry?.sinkFailures??null,
-    batchProgressAvailable:data.batchProgressAvailable??null,lateResultHistoryAvailable:data.lateResultHistoryAvailable??null,
+    batchProgressAvailable:data.batchProgressAvailable??null,lateResultHistoryAvailable:data.lateResultHistoryAvailable??null,latencyMs:data.latencyMs?cloneSafe(data.latencyMs):null,yielding:data.yielding??null,
     resourceTelemetry:data.resources?cloneSafe(data.resources):null,providerCalls:data.providerCalls?cloneSafe(data.providerCalls):null,eventCounts:data.eventCounts?cloneSafe(data.eventCounts):null,
     queue:data.queue?cloneSafe(data.queue):null,physicalExecution:data.physicalExecution?cloneSafe(data.physicalExecution):null,lifecycle:data.lifecycle?cloneSafe(data.lifecycle):null,
     resultDestinations:data.resultDestinations?cloneSafe(data.resultDestinations):null,ownerAcceptanceCount:Array.isArray(data.ownerAcceptance)?data.ownerAcceptance.length:null,validationFailures:data.validationFailures??null,lateResults:data.lateResults??null,

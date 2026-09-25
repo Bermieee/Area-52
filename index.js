@@ -1,61 +1,16 @@
 import { createDevelopmentDeploymentSillyTavernSession } from './src/deployment/sillytavern-live.js';
 import { Area52NativeBrain } from './src/native-brain.js';
 
-const ROOT_ID = 'area52-development-deployment-controls';
 let session = null;
 let initialized = false;
-
-function hostRoot() {
-  return document.querySelector('#extensions_settings2')
-    ?? document.querySelector('#extensions_settings')
-    ?? document.body;
-}
-
-function setText(root, selector, value) {
-  const node = root?.querySelector?.(selector);
-  if (node) node.textContent = value;
-}
-
-function setGate(root,name,passed,pending='Pending'){
-  const node=root?.querySelector?.('[data-a52-gate="'+name+'"]');
-  if(!node)return;
-  node.textContent=(passed?'✓ ':'○ ')+(passed?'Observed':pending);
-  node.dataset.status=passed?'ready':'pending';
-}
-
-function renderEvidence(root, evidence) {
-  setText(root, '[data-a52-live-status]', evidence.status);
-  const manualRun=root?.querySelector?.('[data-a52-run]');
-  if(manualRun){const native=Boolean(evidence.nativeBrainIntegration?.ownerAvailable);manualRun.disabled=native;manualRun.textContent=native?'Native mode: use SillyTavern Send':'Process current turn';}
-  setGate(root,'native-multiturn',Boolean(evidence.nativeBrainIntegration?.multiTurnObserved),'Run two learned turns in one selected story');
-  setGate(root,'lore-study',Boolean(evidence.loreOperatorEvidence?.selected?.selected&&Number(evidence.loreOperatorEvidence?.retrievalReady??0)>0),'Select, accept, and study a SillyTavern Lorebook');
-  setGate(root,'lore-revision',Boolean(evidence.nativeBrainIntegration?.loreRevisionInvalidations?.length),'Route one corrected Lore revision before the next turn');
-  const measuredResources=evidence.resourceOperatorEvidence?.resources??[];
-  setGate(root,'optional-provider',Boolean(measuredResources.some(row=>['JEV','SIDECAR'].includes(String(row.kind))&&row.callable&&row.measurementClass==='MEASURED_LIVE')),'Qualify and exercise one optional Jev or Sidecar resource');
-  setGate(root,'vectoring',Boolean(measuredResources.some(row=>String(row.kind)==='VECTORING'&&row.callable&&row.measurementClass==='MEASURED_LIVE'&&(row.capabilities??[]).some(cap=>['EMBED','RETRIEVAL','RETRIEVAL_QUALITY','RERANK'].includes(String(cap))))),'Qualify a measured Vectoring resource with owner-advertised retrieval/embed capability');
-  setGate(root,'provider-failure',Boolean(evidence.resourceOperatorEvidence?.resources?.some(row=>row.lastFailure)||evidence.providerEvidence?.failedLiveAttempt),'Exercise one provider failure/fallback');
-  setGate(root,'navigation',Boolean(evidence.navigationEvidence?.mounted&&evidence.operatorReview?.uiTraceReviewed),'Review rail/panel navigation in SillyTavern');
-  for(const id of ['FT177','FT178','FT179','FT180'])setGate(root,id.toLowerCase(),evidence.functionTestObservations?.[id]?.status==='OBSERVED',id+' owner path pending');
-  const output = root?.querySelector?.('[data-a52-live-output]');
-  if (output) output.textContent = JSON.stringify({
-    status: evidence.status,
-    checks: evidence.checks,
-    nativeBrainIntegration: evidence.nativeBrainIntegration,
-    providerEvidence: evidence.providerEvidence,
-    loreIngestion: evidence.loreIngestion,
-    loreOperatorEvidence: evidence.loreOperatorEvidence,
-    resourceOperatorEvidence: evidence.resourceOperatorEvidence,
-    authoringOperatorEvidence: evidence.authoringOperatorEvidence,
-    navigationEvidence: evidence.navigationEvidence,
-    operatorReview: evidence.operatorReview,
-    liveEvidenceComplete: evidence.liveEvidenceComplete,
-    liveEvidenceCompleteReason: evidence.liveEvidenceCompleteReason,
-    errors: evidence.errors,
-  }, null, 2);
-}
+let startupError = null;
 
 export function getSession() {
   return session;
+}
+
+export function getStartupError() {
+  return startupError ? { ...startupError } : null;
 }
 
 export async function processCurrentTurn(options) {
@@ -68,92 +23,10 @@ export function exportLiveEvidence() {
   return session.exportEvidence();
 }
 
-export async function init() {
-  if (initialized || typeof document === 'undefined') return session;
-  initialized = true;
-  const root = document.createElement('section');
-  root.id = ROOT_ID;
-  root.className = 'a52-deployment-controls';
-  root.innerHTML = [
-    '<div class="a52-deployment-head">',
-    '<div><strong>Area-52 — Development Deployment</strong><div class="a52-deployment-sub">#224 live evidence capture / main review candidate</div></div>',
-    '<button type="button" class="menu_button" data-a52-arm>Arm</button>',
-    '</div>',
-    '<div class="a52-deployment-status" data-a52-live-status>INITIALIZING</div>',
-    '<div class="a52-deployment-actions">',
-    '<button type="button" class="menu_button" data-a52-run>Process current turn</button>',
-    '<button type="button" class="menu_button" data-a52-confirm>Confirm Prompt Inspector + UI trace</button>',
-    '<button type="button" class="menu_button" data-a52-copy>Copy evidence</button>',
-    '</div>',
-    '<details class="a52-deployment-acceptance">',
-    '<summary>Live acceptance sequence</summary>',
-    '<ol>',
-    '<li><span data-a52-gate="native-multiturn">○ Pending</span> — Arm Area-52, send two ordinary turns in one selected story, and verify Generation delivery then Learning write-back in Brain.</li>',
-    '<li><span data-a52-gate="lore-study">○ Pending</span> — Select a real SillyTavern Lorebook, open Lore, Load selected Lorebook → Accept for study → Run pending study until owner state is READY.</li>',
-    '<li><span data-a52-gate="lore-revision">○ Pending</span> — After the Settlement-backed Lore owner is integrated, apply one approved correction and route its LoreSourceRevisionChanged receipt before the next generation.</li>',
-    '<li><span data-a52-gate="optional-provider">○ Pending</span> — In Connections, discover/select/qualify/test one Jev or Sidecar and exercise it on a live turn.</li>',
-    '<li><span data-a52-gate="vectoring">○ Pending</span> — Separately qualify Vectoring with owner-advertised retrieval/embed capability; a Jev/Sidecar pass does not satisfy this gate.</li>',
-    '<li><span data-a52-gate="provider-failure">○ Pending</span> — Exercise an unreachable/invalid provider and verify failure/fallback is shown without a false healthy state.</li>',
-    '<li><span data-a52-gate="navigation">○ Pending</span> — Drag, resize, collapse, keyboard-navigate, switch workspaces, and narrow the SillyTavern viewport; confirm the panel stays reachable.</li>',
-    '</ol>',
-    '<p><strong>Function-test observations (not acceptance):</strong></p>',
-    '<ul>',
-    '<li><span data-a52-gate="ft177">○ Pending</span> — FT177 Scene owner → Runtime execution → Context Seal observed in the selected live turn.</li>',
-    '<li><span data-a52-gate="ft178">○ Pending</span> — FT178 Memory owner → retrieval → Context Seal observed in the selected live turn.</li>',
-    '<li><span data-a52-gate="ft179">○ Pending</span> — FT179 retrieval-ready Lore → Truth → Context Seal observed in the selected live turn.</li>',
-    '<li><span data-a52-gate="ft180">○ Pending</span> — FT180 measured-live provider execution observed; function-test owner still decides pass/fail.</li>',
-    '</ul>',
-    '<p>No item is auto-promoted from fixture-only evidence. Copy evidence after the operator checks are complete.</p>',
-    '</details>',
-    '<pre class="a52-deployment-output" data-a52-live-output></pre>',
-  ].join('');
-  hostRoot().appendChild(root);
-
-  try {
-    session = createDevelopmentDeploymentSillyTavernSession({
-      onEvidence: (evidence) => renderEvidence(root, evidence),
-      nativeBrain: globalThis.Area52NativeBrainOwner ?? new Area52NativeBrain(),
-      ownerBindings: globalThis.Area52OwnerBindings ?? {},
-      persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
-    });
-    // The installed product must listen to the host turn lifecycle immediately.
-    // Lore/Connections can render without this bridge, which previously made a
-    // stopped session look partially healthy while real chat turns were ignored.
-    session.start();
-    const armButton=root.querySelector('[data-a52-arm]');
-    if(armButton)armButton.textContent='Disarm';
-    renderEvidence(root, session.exportEvidence());
-  } catch (error) {
-    setText(root, '[data-a52-live-status]', 'UNAVAILABLE');
-    setText(root, '[data-a52-live-output]', String(error?.stack ?? error));
-    throw error;
-  }
-
-  root.querySelector('[data-a52-arm]')?.addEventListener('click', () => {
-    try{
-      if (session.running) {
-        session.stop();
-        root.querySelector('[data-a52-arm]').textContent = 'Arm';
-      } else {
-        session.start();
-        root.querySelector('[data-a52-arm]').textContent = 'Disarm';
-      }
-    }catch(error){
-      setText(root,'[data-a52-live-status]','ARM FAILED');
-      setText(root,'[data-a52-live-output]',String(error?.message??error));
-      root.querySelector('[data-a52-arm]').textContent='Arm';
-    }
-  });
-  root.querySelector('[data-a52-run]')?.addEventListener('click', () => void session.processCurrentTurn().catch(() => {}));
-  root.querySelector('[data-a52-confirm]')?.addEventListener('click', () => session.confirmOperatorReview({ liveSillyTavernConfirmed: true }));
-  root.querySelector('[data-a52-copy]')?.addEventListener('click', async () => {
-    const text = JSON.stringify(session.exportEvidence(), null, 2);
-    try { await navigator.clipboard.writeText(text); }
-    catch { console.info('[Area-52] Live demo evidence', session.exportEvidence()); }
-  });
-
+function installProgrammaticContract() {
   globalThis.Area52DevelopmentDeployment = Object.freeze({
     getSession,
+    getStartupError,
     processCurrentTurn,
     exportLiveEvidence,
     confirmOperatorReview: (options) => session?.confirmOperatorReview(options),
@@ -161,13 +34,40 @@ export async function init() {
     detachNativeBrain: () => session?.detachNativeBrain(),
     acceptLoreRevisionChange: (event) => session?.acceptLoreRevisionChange(event),
   });
+}
+
+export async function init() {
+  if (initialized || typeof document === 'undefined') return session;
+  initialized = true;
+  startupError = null;
+
+  try {
+    session = createDevelopmentDeploymentSillyTavernSession({
+      nativeBrain: globalThis.Area52NativeBrainOwner ?? new Area52NativeBrain(),
+      ownerBindings: globalThis.Area52OwnerBindings ?? {},
+      persistNativeBrain: typeof globalThis.Area52PersistNativeBrain === 'function' ? globalThis.Area52PersistNativeBrain : null,
+    });
+
+    // Installed Area-52 always listens to the SillyTavern turn lifecycle.
+    // This is intentionally not coupled to a visible Arm/Disarm test harness.
+    session.start();
+  } catch (error) {
+    startupError = Object.freeze({
+      code: error?.code ?? 'AREA52_STARTUP_FAILED',
+      message: String(error?.message ?? error),
+      stage: 'HOST_BRIDGE_START',
+    });
+    try { console.error('[Area-52] host bridge startup failed', startupError); } catch {}
+  }
+
+  installProgrammaticContract();
   return session;
 }
 
 export function destroy() {
   session?.destroy?.();
   session = null;
-  document?.getElementById?.(ROOT_ID)?.remove?.();
+  startupError = null;
   initialized = false;
 }
 

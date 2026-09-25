@@ -1,4 +1,5 @@
 import { SignalHub } from './signals.js';
+import { Signals } from './constants.js';
 import { RenderScheduler } from './render-scheduler.js';
 import { WidgetRegistry, WorkspaceRegistry, InspectorRegistry } from './registry.js';
 import { WidgetRuntime, ResourceScope } from './lifecycle.js';
@@ -124,6 +125,22 @@ export function createWave6ProductInterface({
   controller.mount();
   floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
   const cognitionScope=new ResourceScope();
+  const captureDiagnostics=()=>{try{diagnostics?.read?.();}catch{}};
+  const operatorRefresh=(scopeKey)=>scheduler.invalidate('wave13:'+scopeKey+'-refresh',()=>{
+    captureDiagnostics();
+    if(shell?.currentWorkspace==='brain'||shell?.currentWorkspace==='connections'||shell?.currentWorkspace==='settings'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||(scopeKey==='memory'&&shell?.currentWorkspace==='memory')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
+    controller?.scheduleQuickDash?.();
+  },{cost:'NORMAL'});
+  const syncSelectedLorebook=({force=false}={})=>{
+    if(!loreStudy?.ensureSelectedLorebook)return;
+    let pending;
+    try{pending=loreStudy.ensureSelectedLorebook({force});}
+    catch{operatorRefresh('lore');return;}
+    operatorRefresh('lore');
+    Promise.resolve(pending).then(()=>operatorRefresh('lore')).catch((error)=>{
+      if(error?.code!=='LORE_DISCOVERY_STALE_SELECTION')operatorRefresh('lore');
+    });
+  };
   let liveSelectionKey=null;
   const applyLiveSelection=(update=null,{initial=false}={})=>{
     const selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;
@@ -135,20 +152,28 @@ export function createWave6ProductInterface({
       inspector.clear();scheduler.cancelPrefix('inspector');
       signals.publish('UI_HOST_CONTEXT_CHANGED',{selection,switched},{source:'wave11-live-binding'});
     }else if(inspector.selection)scheduler.invalidate('wave11:inspector-refresh',()=>inspector.render(),{cost:'NORMAL'});
+    captureDiagnostics();
     scheduler.invalidate('wave11:host-refresh',()=>{if(shell?.currentWorkspace)shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
   };
   if(liveReceiptBinding)applyLiveSelection(null,{initial:true});
   const cognitionRelease=cognition.subscribe((update)=>{
     if(liveReceiptBinding)applyLiveSelection(update);
-    else scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
+    else{captureDiagnostics();scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});}
   });if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
-  const operatorRefresh=(scopeKey)=>scheduler.invalidate('wave13:'+scopeKey+'-refresh',()=>{
-    if(shell?.currentWorkspace==='brain'||shell?.currentWorkspace==='connections'||shell?.currentWorkspace==='settings'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||(scopeKey==='memory'&&shell?.currentWorkspace==='memory')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
-    controller?.scheduleQuickDash?.();
-  },{cost:'NORMAL'});
   const resourceRelease=resources?.subscribe?.(()=>operatorRefresh('resources'));if(typeof resourceRelease==='function')cognitionScope.add(resourceRelease);
   const loreRelease=loreStudy?.subscribe?.(()=>operatorRefresh('lore'));if(typeof loreRelease==='function')cognitionScope.add(loreRelease);
   const memoryRelease=memoryOwner?.subscribe?.(()=>operatorRefresh('memory'));if(typeof memoryRelease==='function')cognitionScope.add(memoryRelease);
+  const loreSelectionRelease=loreStudy?.subscribeSelection?.(()=>syncSelectedLorebook());if(typeof loreSelectionRelease==='function')cognitionScope.add(loreSelectionRelease);
+  cognitionScope.subscribe(signals,Signals.UI_WORKSPACE_CHANGED,({payload})=>{if(payload?.workspaceId==='lore')syncSelectedLorebook();});
+  const loreHostRelease=liveReceiptBinding?.subscribe?.((update)=>{
+    const hostEvent=update?.event?.hostEvent??update?.event?.event?.hostEvent??null;
+    if(['CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED'].includes(String(hostEvent)))syncSelectedLorebook();
+    else if(String(hostEvent)==='WORLDINFO_UPDATED'&&shell?.currentWorkspace==='lore')syncSelectedLorebook({force:true});
+    captureDiagnostics();
+  });
+  if(typeof loreHostRelease==='function')cognitionScope.add(loreHostRelease);
+  if(shell?.currentWorkspace==='lore')syncSelectedLorebook();
+  captureDiagnostics();
 
   const toastScope=new ResourceScope(),toastViewport=new ToastViewport({host:shell.nodes.toastHost,signals,scope:toastScope});toastViewport.mount();
 

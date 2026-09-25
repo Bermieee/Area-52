@@ -458,6 +458,35 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
   ui.destroy();assert.equal(host.listenerCount(),0);
 });
 
+test('Diagnostics Center renders compact bounded metadata-only telemetry plots',()=>{
+  const owner=liveOwner();
+  owner.bindings.readCognitionUiState=()=>({
+    kind:'CognitionUiState',health:'WORKING',activeTasks:[{taskId:'job:plot',layer:'L1'}],
+    warmHits:6,warmMisses:2,fallbackCount:1,staleDrops:2,retryCount:3,
+    providerCalls:{invoked:4,failed:1},rawPromptIncluded:false,rawPayloadIncluded:false,credentialIncluded:false,
+    ...owner.bindings.readSelection(),
+  });
+  owner.bindings.readRuntimeStatus=()=>({
+    kind:'WorkerDirectorSnapshot',
+    lifecycle:[
+      {taskId:'queued',layer:'HOT',executionStatus:'QUEUED',lastSliceDurationMs:4},
+      {taskId:'active',layer:'HOT',executionStatus:'ACTIVE',lastSliceDurationMs:8},
+      {taskId:'yielding',layer:'DEEP',executionStatus:'YIELDING',yieldRequested:true,lastSliceDurationMs:12},
+      {taskId:'parked',layer:'DEEP',executionStatus:'PARKED',lastSliceDurationMs:16},
+      {taskId:'complete',layer:'L1',executionStatus:'COMPLETE',lastSliceDurationMs:20},
+    ],
+    queueDepth:{HOT:1,DEEP:0},resources:{borrowedBackgroundLeases:0},telemetry:{retainedSignals:9,sinkFailures:0},
+  });
+  const{ui}=mount(owner);ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Coprocessor activity plot/);assert.match(body,/Runtime lifecycle plot/);assert.match(body,/Runtime slice latency plot/);
+  assert.match(body,/Bounded metadata-only owner snapshot/);assert.match(body,/Warm hit/);assert.match(body,/Average/);assert.match(body,/Maximum/);
+  assert.doesNotMatch(body,/rawPromptIncluded|rawPayloadIncluded|credentialIncluded|job:plot/);
+  const plots=walk(ui.shell.nodes.workspace).filter(node=>node.getAttribute?.('aria-label')?.endsWith('plot'));
+  assert.ok(plots.length>=3);assert.ok(plots.every(node=>walk(node).length<80));
+  ui.destroy();
+});
+
 test('Diagnostics Center follows chat switches and rejects stale turn telemetry',()=>{
   const owner=liveOwner(),oldSelection=owner.bindings.readSelection(),staleScatter=scatter(oldSelection);
   owner.bindings.readScatter=()=>staleScatter;

@@ -300,6 +300,7 @@ export class Wave12SillyTavernHostAdapter{
         readSelection:()=>this.selectionBridge.readSelection(),
         readSelectedLorebookSelection:()=>readSelectedSillyTavernLorebookSelection(this.document),
         discoverSelectedLorebook:()=>discoverSelectedSillyTavernLorebook({document:this.document,getContext:this.getContext}),
+        subscribeSelectedLorebookSelection:(listener)=>subscribeSelectedSillyTavernLorebookSelection(this.document,listener),
         subscribe:(listener)=>this.selectionBridge.subscribe(listener),
       };
       this.ui=createWave6ProductInterface({
@@ -401,6 +402,7 @@ export function createWave12SillyTavernHostBindings({getContext,hostBindings={}}
       readSelection:()=>bridge.readSelection(),
       readSelectedLorebookSelection:()=>readSelectedSillyTavernLorebookSelection(globalThis.document??null),
       discoverSelectedLorebook:()=>discoverSelectedSillyTavernLorebook({document:globalThis.document??null,getContext}),
+      subscribeSelectedLorebookSelection:(listener)=>subscribeSelectedSillyTavernLorebookSelection(globalThis.document??null,listener),
       subscribe:(listener)=>bridge.subscribe(listener),
     },
     destroy:()=>bridge.destroy(),
@@ -414,6 +416,15 @@ export function readSelectedSillyTavernLorebookSelection(document=globalThis.doc
   const title=cleanText(selected?.textContent??selected?.text??selected?.label);
   if(!title||title==='--- None ---')return Object.freeze({kind:'SillyTavernLorebookSelection',selected:false,lorebookId:null,title:null,reason:'No Lorebook is selected in SillyTavern.'});
   return Object.freeze({kind:'SillyTavernLorebookSelection',selected:true,lorebookId:title,title,entryCount:null,source:'SILLYTAVERN_WORLD_INFO_EDITOR'});
+}
+
+export function subscribeSelectedSillyTavernLorebookSelection(document=globalThis.document??null,listener){
+  if(typeof listener!=='function')return()=>{};
+  const select=document?.querySelector?.('#world_editor_select')??document?.getElementById?.('world_editor_select')??null;
+  if(!select||typeof select.addEventListener!=='function')return()=>{};
+  const handler=()=>{try{listener(readSelectedSillyTavernLorebookSelection(document));}catch{}};
+  select.addEventListener('change',handler);
+  return()=>{try{select.removeEventListener?.('change',handler);}catch{}};
 }
 
 export async function discoverSelectedSillyTavernLorebook({document=globalThis.document??null,getContext}={}){

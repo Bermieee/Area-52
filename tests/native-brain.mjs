@@ -191,9 +191,10 @@ test('DETERMINISTIC: snapshot reload preserves source, truth, runtime state, and
   assert.equal(restored.readTurn('reload:1').learningReceipt.rawExperienceRecoverable,true);
 
   const turn=restored.readTurn('reload:1');
+  const sealedHashBefore=restored.core.publication.seal.getReceipt('reload:1').packetHash;
   const late=createCognitiveResult({
     id:'late:reload:1',taskId:'late-task',turnId:'reload:1',correlationId:turn.correlationId,
-    sourceSubsystem:'OPTIONAL_TEST',destinationOwner:'CONTEXT',resultType:'OPTIONAL_LATE',
+    sourceSubsystem:'JEV_SIDECAR',destinationOwner:'CONTEXT',resultType:'JEV_LATE',
     resultClass:ResultClass.OPPORTUNISTIC,payloadClass:ResultPayloadClass.DERIVED_DATA,
     evidenceIds:[],provenance:{},sourceRevisionIds:[],worldRevision:turn.worldRevision,sceneRevision:turn.sceneRevision,
     authorityClass:'UNRESOLVED',destination:ResultDestination.FOREGROUND,payload:{text:'must not enter sealed generation'},
@@ -203,6 +204,8 @@ test('DETERMINISTIC: snapshot reload preserves source, truth, runtime state, and
   assert.equal(routed.route.late,true);
   assert.notEqual(routed.route.effectiveDestination,ResultDestination.FOREGROUND);
   assert.equal(restored.core.publication.seal.isTurnSealed('reload:1'),true);
+  assert.equal(restored.core.publication.seal.getReceipt('reload:1').packetHash,sealedHashBefore);
+  assert.doesNotMatch(JSON.stringify(restored.core.publication.seal.getPacket('reload:1')),/must not enter sealed generation/i);
 });
 
 test('DETERMINISTIC: interrupted native feedback work survives reload and completes without duplicate publication',async()=>{
@@ -618,4 +621,27 @@ test('DETERMINISTIC: Lore and Memory owner failures degrade independently',async
   assert.ok(channelIds(prepared).has('OWNER_MEMORY'));
   assert.match(JSON.stringify(prepared.promptPlan),/copper bridge/i);
   assert.ok(prepared.contextSealReceipt?.sealedState);
+});
+
+
+test('DETERMINISTIC: cancelled native learning work stays cancelled across drain and reload',async()=>{
+  const brain=new Area52NativeBrain();
+  await brain.prepareTurn({
+    chatId:'chat:cancel-feedback',turnId:'cancel-feedback:1',generationId:'gen:cancel-feedback:1',query:'Continue.',
+    scene:scene('cancel-dock',1,{location:'Cancel Dock',activeCast:['Iri']}),executionLabel:'DETERMINISTIC',
+  });
+  const learned=await brain.completeTurn({
+    turnId:'cancel-feedback:1',response:'Iri watches the harbor lights without changing course.',knownBy:['Iri'],autoDrain:false,
+  });
+  assert.ok(learned.runtimeTaskId);
+  assert.equal(brain.readTurn('cancel-feedback:1').feedback,null);
+  assert.equal(brain.runtimeDirector.cancelTask(learned.runtimeTaskId,'test-cancelled-after-completion'),true);
+  await brain.runtimeDirector.drain({maxCycles:128});
+  assert.equal(brain.readTurn('cancel-feedback:1').feedback,null);
+  assert.equal(brain.runtimeDirector.snapshot().lifecycle.find(row=>row.taskId===learned.runtimeTaskId)?.lifecycleStatus,'CANCELLED');
+
+  const restored=Area52NativeBrain.fromSnapshot(brain.snapshot());
+  await restored.runtimeDirector.drain({maxCycles:128});
+  assert.equal(restored.readTurn('cancel-feedback:1').feedback,null);
+  assert.equal(restored.runtimeDirector.snapshot().lifecycle.find(row=>row.taskId===learned.runtimeTaskId)?.lifecycleStatus,'CANCELLED');
 });

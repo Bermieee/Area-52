@@ -768,7 +768,7 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "f6cb18f11561a8605253f77cfc50b6f8869fb050",
+      "expectedDigest": "2329b6f8031f2e9588e6a285282923bea22bcf95",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {

@@ -81,6 +81,11 @@ export class RetrievalChannelRegistry{
       if([RetrievalChannelHealth.DEGRADED,RetrievalChannelHealth.STALE].includes(row.health))degradedChannels.push(id);
       let count=0,status='OK';
       for(const intent of intents){
+        if(budget!==null&&now()-started>=budget){
+          skippedChannels.push(id);degradedChannels.push(id);
+          status=count>0?'PARTIAL_LATENCY_BUDGET':'SKIPPED_LATENCY_BUDGET';
+          break;
+        }
         if(!this.supportsIntent(row.descriptor,intent.intentKind??intent.kind??'GENERAL'))continue;
         try{
           const value=await row.provider.retrieve(frozen(intent),frozen(context));
@@ -112,6 +117,11 @@ export class RetrievalChannelRegistry{
       if([RetrievalChannelHealth.DEGRADED,RetrievalChannelHealth.STALE].includes(row.health))degradedChannels.push(id);
       let count=0,status='OK';
       for(const intent of intents){
+        if(budget!==null&&now()-started>=budget){
+          skippedChannels.push(id);degradedChannels.push(id);
+          status=count>0?'PARTIAL_LATENCY_BUDGET':'SKIPPED_LATENCY_BUDGET';
+          break;
+        }
         if(!this.supportsIntent(row.descriptor,intent.intentKind??intent.kind??'GENERAL'))continue;
         try{
           const value=row.provider.retrieve(frozen(intent),frozen(context));

@@ -45,6 +45,8 @@ export class CoprocessorTelemetry {
     let warmHit = 0, warmMiss = 0, retry = 0, fallback = 0, staleDrop = 0;
     const providerHealth={};
     const choice={proposals:0,options:0,nominated:0,skipped:0,deferred:0,unavailable:0,executions:0,degraded:0,states:{}};
+    const resources={configured:0,connecting:0,ready:0,disconnected:0,testsPassed:0,testsFailed:0,executionsSucceeded:0,executionsFailed:0,states:{},measurementClasses:{}};
+    const providerCalls={invoked:0,failed:0,usageReceipts:0,costMeasured:0,costNotMeasured:0,measurementClasses:{}};
     for (const event of this.#events) {
       if (event.type === TelemetryEvent.WARM_HIT || (event.type === TelemetryEvent.CACHE_HIT && event.payload.cacheClass === 'WARM')) warmHit += 1;
       if (event.type === TelemetryEvent.WARM_MISS) warmMiss += 1;
@@ -69,6 +71,16 @@ export class CoprocessorTelemetry {
       }
       if (event.type === TelemetryEvent.CHOICE_EXECUTION) { choice.executions += 1; for (const [state,count] of Object.entries(event.payload)) if (typeof count==='number' && count>0) choice.states[state]=(choice.states[state]??0)+count; }
       if (event.type === TelemetryEvent.CHOICE_DEGRADED) choice.degraded += 1;
+      if (event.type === TelemetryEvent.RESOURCE_CONFIGURED) resources.configured += 1;
+      if (event.type === TelemetryEvent.RESOURCE_CONNECTING) resources.connecting += 1;
+      if (event.type === TelemetryEvent.RESOURCE_READY) resources.ready += 1;
+      if (event.type === TelemetryEvent.RESOURCE_DISCONNECTED) resources.disconnected += 1;
+      if (event.type === TelemetryEvent.RESOURCE_TESTED) { if (event.payload.testStatus === 'PASS') resources.testsPassed += 1; else if (event.payload.testStatus === 'FAIL') resources.testsFailed += 1; }
+      if (event.type === TelemetryEvent.RESOURCE_EXECUTION) { if (event.payload.status === 'SUCCESS') resources.executionsSucceeded += 1; else if (event.payload.status === 'FAIL') resources.executionsFailed += 1; }
+      if ([TelemetryEvent.RESOURCE_CONFIGURED,TelemetryEvent.RESOURCE_CONNECTING,TelemetryEvent.RESOURCE_READY,TelemetryEvent.RESOURCE_DISCONNECTED,TelemetryEvent.RESOURCE_TESTED,TelemetryEvent.RESOURCE_EXECUTION].includes(event.type)) { const state=event.payload.state; if(state)resources.states[state]=(resources.states[state]??0)+1; const m=event.payload.measurementClass; if(m)resources.measurementClasses[m]=(resources.measurementClasses[m]??0)+1; }
+      if (event.type === TelemetryEvent.PROVIDER_INVOKED) { providerCalls.invoked += 1; const m=event.payload.measurementClass; if(m)providerCalls.measurementClasses[m]=(providerCalls.measurementClasses[m]??0)+1; }
+      if (event.type === TelemetryEvent.PROVIDER_FAILED) providerCalls.failed += 1;
+      if (event.type === TelemetryEvent.PROVIDER_USAGE) { providerCalls.usageReceipts += 1; const status=event.payload.usageReceipt?.cost?.status; if(status==='MEASURED')providerCalls.costMeasured+=1; else providerCalls.costNotMeasured+=1; const m=event.payload.measurementClass; if(m)providerCalls.measurementClasses[m]=(providerCalls.measurementClasses[m]??0)+1; }
     }
     return Object.freeze({
       totalEvents: this.#events.length,
@@ -83,6 +95,8 @@ export class CoprocessorTelemetry {
       resultDestinations: Object.freeze(resultDestinations),
       providerHealth: Object.freeze(providerHealth),
       choice: Object.freeze({...choice,states:Object.freeze(choice.states)}),
+      resources: Object.freeze({...resources,states:Object.freeze(resources.states),measurementClasses:Object.freeze(resources.measurementClasses)}),
+      providerCalls: Object.freeze({...providerCalls,measurementClasses:Object.freeze(providerCalls.measurementClasses)}),
     });
   }
 }

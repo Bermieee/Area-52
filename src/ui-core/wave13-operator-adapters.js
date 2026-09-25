@@ -179,7 +179,7 @@ export class Wave13ResourceControlAdapter{
       const op=connected?degradedRows.length?OperatorProducerState.DEGRADED:OperatorProducerState.LIVE:OperatorProducerState.DISCONNECTED;
       return deepFreeze({
         source:createProductSourceStatus({mode:degradedRows.length?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health,label:'Optional resources',operationalState:op,impact:connected?connected+' optional execution resource'+(connected===1?' is':'s are')+' connected.':'No optional Jev or sidecar resource is connected; native Brain remains usable.',producer:raw?.kind??'Worker2ResourceStatus',revision:raw?.sequence??null,connected:true}),
-        data:{resources,configurations:this.configurations(),nativePathAvailable:raw?.nativePathRequired!==false||connected===0},
+        data:{resources,configurations:this.configurations(),nativePathAvailable:true,nativePathRequired:Boolean(raw?.nativePathRequired)},
       });
     }catch(error){return degraded('Optional resources','Resource status could not be read.','Worker2ResourceStatus',{},error,{resources:[],configurations:[],nativePathAvailable:true});}
   }

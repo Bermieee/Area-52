@@ -36,6 +36,7 @@ export * from './cognitive-choice-execution.js';
 export * from './resource-connections.js';
 export * from './resource-host-adapter.js';
 export * from './native-sidecar-swarm.js';
+export * from './swarm-owner-handoff.js';
 export * from './green-room.js';
 export * from './continuous-consolidation.js';
 export * from './scene-signal-adapter.js';

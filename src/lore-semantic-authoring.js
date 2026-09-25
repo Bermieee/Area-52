@@ -411,10 +411,12 @@ export class LoreSemanticCompiler {
       });
 
     const preview = LoreIntelligenceService.fromSnapshot(this.intelligence.snapshot());
-    const discovery = deepClone(book.metadata?.discovery
-      || this.intelligence.lastAcceptance?.lorebookId === source.lorebookId
-        ? this.intelligence.lastAcceptance?.discovery
-        : null);
+    const discovery = deepClone(
+      book.metadata?.discovery
+        || (this.intelligence.lastAcceptance?.lorebookId === source.lorebookId
+          ? this.intelligence.lastAcceptance?.discovery
+          : null),
+    );
     if (!discovery) {
       throw Object.assign(new Error('Source discovery identity is not persisted for this Lorebook'), {code: 'LORE_AUTHORING_DISCOVERY_IDENTITY_MISSING'});
     }

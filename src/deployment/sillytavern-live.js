@@ -49,7 +49,7 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
 export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef } = {}) {
   const raw = clean(text);
   const fields = {};
-  const locationMatch = raw.match(/\b(?:at|inside|within|outside|near)\s+(?:the\s+)?([A-Z][\p{L}\p{N}'’_-]*(?:\s+(?:[A-Z][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
   if (locationMatch?.[1]) {
     const location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
     if (location) fields.location = sceneField({ location }, revision, evidenceRef);
@@ -291,6 +291,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       processed: true,
       entryCount: lorebook.entries.length,
       mappingCount: result.mappingCount,
+      rawSourceOnlyCount: result.rawSourceOnlyCount ?? 0,
+      semanticExtractionCount: result.semanticExtractionCount ?? 0,
       retrievable: result.mappingCount > 0,
       hierarchyRevision: result.retrieval?.hierarchyRevision ?? null,
     };

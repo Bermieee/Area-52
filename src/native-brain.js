@@ -291,6 +291,7 @@ export class Area52NativeBrain{
 
     const settlements=[];
     for(let index=0;index<observations.length;index++)settlements.push(this.#settleObservation(record,experience,observations[index],index));
+    const memorySettlementReceipts=this.#mirrorSettlementsToMemory(record,experience,settlements);
     const reflectionRows=[];
     for(let index=0;index<reflections.length;index++){
       const item=reflections[index],statement=req(item?.statement,'reflection.statement');

@@ -127,6 +127,24 @@ test('Coprocessor absent from assembly is UNAVAILABLE with a contract reason, no
   assert.equal(row.state,'UNAVAILABLE');assert.match(row.reason,/does not export|Assembly/i);ui.destroy();
 });
 
+test('exported Worker 2 CognitionUiState becomes live selected-turn Coprocessor telemetry',()=>{
+  const owner=liveOwner();
+  owner.bindings.readCognitionUiState=()=>({kind:'CognitionUiState',health:'WORKING',activeTasks:[{taskId:'sidecar-job',layer:'L1'}],warmHits:3,fallbackCount:0,...owner.bindings.readSelection()});
+  const{ui}=mount(owner),snap=ui.productAdapter.getSnapshot(),row=ui.operator.operations.read().stages.find(x=>x.id==='coprocessor');
+  assert.equal(snap.wave6.sources.coprocessor.mode,'LIVE');assert.equal(snap.coprocessor.hotActivity,1);assert.equal(snap.coprocessor.warm.hit,3);
+  assert.equal(row.state,'WORKING');ui.destroy();
+});
+
+test('mounted resource controls route through UI ActionRouter into owner actions only',async()=>{
+  const owner=liveOwner({withResources:true}),{ui}=mount(owner);
+  assert.equal(ui.actionRouter.hasAction('wave13.resource.connect'),true);
+  assert.equal(ui.actionRouter.hasAction('wave13.resource.test'),true);
+  assert.equal(ui.actionRouter.hasAction('wave13.resource.disconnect'),true);
+  const connected=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{profileId:'sidecar:second',kind:'SIDECAR',endpoint:'http://127.0.0.1:9000'}});
+  assert.equal(connected.ok,true);assert.ok(owner.calls.some(x=>x[0]==='connect'&&x[1].profileId==='sidecar:second'));
+  ui.destroy();
+});
+
 test('chat switch cannot retain the previous story Scene as current',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('story');ui.scheduler.flush(1);
   assert.match(textOf(ui.shell.nodes.workspace),/Moon Harbor/);

@@ -433,6 +433,7 @@ function readSession(session, settlement = null) {
     finalPreviewId: session.finalPreview?.finalPreviewId || null,
     finalPreviewReady: Boolean(session.finalPreview?.validation?.ok),
     approval: deepClone(session.approval || null),
+    storyScope: deepClone(session.storyScope || null),
     settlement: settlement ? {
       settlementId: settlement.id,
       state: settlement.state,
@@ -595,7 +596,7 @@ export class LoreAuthoringLifecycle {
     return [...this.settlements.values()].find((row) => row.sessionId === String(sessionId)) || null;
   }
 
-  startTreeBuild({lorebookIds = null} = {}) {
+  startTreeBuild({lorebookIds = null, storyScope = null} = {}) {
     const plan = this.structure.plan({lorebookIds});
     const sessionId = this._nextSessionId('TREE', {
       lorebookIds: lorebookIds || [],
@@ -614,6 +615,7 @@ export class LoreAuthoringLifecycle {
       inputLorebookIds: unique(plan.sourceIdentities.map((row) => row.lorebookId)),
       inputSourceFence: sourceFenceFromIdentities(inputIdentities),
       dependencyFence: dependencyFenceFor(this.intelligence, 'TREE'),
+      storyScope: deepClone(storyScope),
       baseProposal: deepClone(plan),
       actions,
       reviewItems: deepClone(plan.reviewItems || []),
@@ -636,7 +638,7 @@ export class LoreAuthoringLifecycle {
     return this.progress(session.id);
   }
 
-  startMergeBuild({lorebookIds, outputLorebookId, outputTitle = null} = {}) {
+  startMergeBuild({lorebookIds, outputLorebookId, outputTitle = null, storyScope = null} = {}) {
     if (!outputLorebookId || String(outputLorebookId).trim() === '') {
       throw Object.assign(new TypeError('outputLorebookId is required'), {code: 'LORE_MERGE_OUTPUT_BOOK_REQUIRED'});
     }
@@ -667,6 +669,7 @@ export class LoreAuthoringLifecycle {
       inputLorebookIds: unique(lorebookIds),
       inputSourceFence: sourceFenceFromIdentities(inputIdentities),
       dependencyFence: dependencyFenceFor(this.intelligence, 'MERGE'),
+      storyScope: deepClone(storyScope),
       outputLorebookId: outputId,
       outputTitle: outputTitle == null ? outputId : String(outputTitle),
       baseProposal: deepClone(preview),
@@ -736,6 +739,7 @@ export class LoreAuthoringLifecycle {
       inputLorebookIds: [...session.inputLorebookIds],
       inputSourceFence: deepClone(session.inputSourceFence),
       dependencyFence: deepClone(session.dependencyFence),
+      storyScope: deepClone(session.storyScope || null),
       actions: session.actions.filter((row) => row.materialized || session.build.complete).map(deepClone),
       reviewItems: deepClone(session.reviewItems),
       taxonomyEdits: deepClone(session.taxonomyEdits),
@@ -1183,6 +1187,12 @@ export class LoreAuthoringLifecycle {
       inputSourceFence: session.inputSourceFence,
       dependencyFence: session.dependencyFence,
       decisions: session.actions.map((row) => [row.id, row.decision, row.decisionRecord?.operatorDecisionId || null]),
+      storyScope: deepClone(session.storyScope || null),
+      proposalEvidenceReceipts: session.actions.map((row) => ({
+        actionId: row.id,
+        decision: row.decision,
+        evidenceReceipt: deepClone(row.evidenceReceipt || null),
+      })),
       output: body.output,
       validation: body.validation,
     };
@@ -1285,6 +1295,7 @@ export class LoreAuthoringLifecycle {
       operatorApprovalId: session.approval.operatorApprovalId,
       inputSourceFence: deepClone(session.inputSourceFence),
       dependencyFence: deepClone(session.dependencyFence),
+      storyScope: deepClone(session.storyScope || null),
       operations,
       cursor: 0,
       receipts: [],
@@ -1769,6 +1780,7 @@ export class LoreAuthoringLifecycle {
       state: settlement.state,
       finalPreviewId: settlement.finalPreviewId,
       operatorApprovalId: settlement.operatorApprovalId,
+      storyScope: deepClone(settlement.storyScope || null),
       cursor: settlement.cursor,
       operationCount: settlement.operations.length,
       receipts: deepClone(settlement.receipts),
@@ -1790,6 +1802,7 @@ export class LoreAuthoringLifecycle {
       kind: 'LoreWorker1SettlementReceipts',
       contractVersion: 1,
       settlementId: read.settlementId,
+      storyScope: deepClone(read.storyScope || null),
       revisionEvents: [
         ...read.revisionEvents,
         ...(restoration?.revisionEvents || []),

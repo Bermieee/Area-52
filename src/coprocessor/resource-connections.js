@@ -59,6 +59,7 @@ export const ResourceConnectionReason=Object.freeze({
   EXECUTION_FAILED:'EXECUTION_FAILED',
   PROVIDER_TIMEOUT:'PROVIDER_TIMEOUT',
   PROVIDER_UNAVAILABLE:'PROVIDER_UNAVAILABLE',
+  PROVIDER_UNAUTHORIZED:'PROVIDER_UNAUTHORIZED',
   PROVIDER_ABORTED:'PROVIDER_ABORTED',
   MALFORMED_OUTPUT:'MALFORMED_OUTPUT',
   TEST_PASSED:'TEST_PASSED',
@@ -364,7 +365,8 @@ export class CoprocessorResourceConnections{
       return deepFreeze({kind:'ResourceEmbeddingResult',resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,workerId:row.workerId,requestedModelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,embeddings:execution.vectors,vectorCount:execution.vectors.length,dimensions:execution.dimensions,usageReceipt,latencyMs:execution.latencyMs,measurementClass:row.measurementClass,authority:'NONE'});
     }catch(error){
       row.lastExecution={status:'FAIL',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
-      this.#observeFailure(row,error);emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
+      this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Embedding provider qualification is no longer valid.'),unavailable:true});
+      emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:null,taskType:'EMBEDDING',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});throw error;
     }finally{
       detach();set.delete(controller);if(!set.size)this.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
@@ -391,7 +393,8 @@ export class CoprocessorResourceConnections{
       return result;
     }catch(error){
       row.lastExecution={status:'FAIL',taskId:task.taskId,taskType:task.taskType,at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
-      this.#observeFailure(row,error);emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:task.taskId,taskType:task.taskType,status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
+      this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Provider qualification is no longer valid.'),unavailable:true});
+      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:task.taskId,taskType:task.taskType,status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
       throw error;
     }finally{
       detach();set.delete(controller);if(!set.size)this.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
@@ -450,7 +453,7 @@ export class CoprocessorResourceConnections{
           return execution;
         }catch(error){
           row.lastExecution={status:'FAIL',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:Math.max(0,owner.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
-          owner.#observeFailure(row,error);
+          owner.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))owner.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Jev provider qualification is no longer valid.'),unavailable:true});
           emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),taskId:task.taskId,taskType:'JEV_DECISION',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
           throw error;
         }finally{
@@ -550,13 +553,16 @@ function normalizeMeasurementClass(value){const v=String(value);if(!MEASUREMENT_
 function reasonFromError(error){
   const code=error?.code;
   if(code===FailureCode.CREDENTIAL_REQUIRED)return ResourceConnectionReason.CREDENTIAL_REQUIRED;
-  if(code===FailureCode.PROVIDER_UNAUTHORIZED)return ResourceConnectionReason.MODEL_DISCOVERY_UNAUTHORIZED;
+  if(code===FailureCode.PROVIDER_UNAUTHORIZED)return ResourceConnectionReason.PROVIDER_UNAUTHORIZED;
   if(code===FailureCode.MODEL_UNAVAILABLE)return ResourceConnectionReason.MODEL_UNAVAILABLE;
   if(code===FailureCode.PROVIDER_TIMEOUT)return ResourceConnectionReason.PROVIDER_TIMEOUT;
   if(code===FailureCode.PROVIDER_ABORTED)return ResourceConnectionReason.PROVIDER_ABORTED;
   if([FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED].includes(code))return ResourceConnectionReason.MALFORMED_OUTPUT;
   if([FailureCode.PROVIDER_UNAVAILABLE,FailureCode.CAPABILITY_UNAVAILABLE].includes(code))return ResourceConnectionReason.PROVIDER_UNAVAILABLE;
   return ResourceConnectionReason.EXECUTION_FAILED;
+}
+function qualificationInvalidatingFailure(error){
+  return [FailureCode.CREDENTIAL_REQUIRED,FailureCode.PROVIDER_UNAUTHORIZED,FailureCode.MODEL_UNAVAILABLE].includes(error?.code);
 }
 function normalizeTransportMode(value,capabilities,kind){
   if(kind===ResourceKind.DETERMINISTIC_LOCAL)return'DETERMINISTIC';

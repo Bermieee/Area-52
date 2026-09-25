@@ -524,3 +524,98 @@ test('DETERMINISTIC: Worker 3 live-binding surface exposes coherent selection an
   assert.ok(events.every(event=>event.rawPromptIncluded===false&&event.rawResponseIncluded===false));
   assert.equal(prepared.selection.chatId,'chat:ui-bind');
 });
+
+
+test('DETERMINISTIC: authored Lore correction distrust survives stale owner retrieval and reload while unrelated Lore remains admissible',async()=>{
+  let currentGate={id:'lore:reef-gate@r1',state:'CURRENT',exactContent:'The reef gate opens only at dawn.',contentHash:'hash:r1'};
+  let packetGate={...currentGate};
+  const unrelated={id:'lore:harbor-bells@r1',state:'CURRENT',exactContent:'Harbor bells ring twice at noon.',contentHash:'hash:bells:r1'};
+  const loreInterface={
+    kind:'LoreBrainRetrievalInterface',contractVersion:1,
+    sourceRevision(sourceId){return structuredClone(sourceId==='lore:reef-gate'?currentGate:unrelated);},
+    query(){
+      const rows=[
+        {sourceId:'lore:reef-gate',sourceRevisionId:packetGate.id,exactAuthoredText:packetGate.exactContent,representationRef:'source:'+packetGate.id,selectedRepresentation:{representationRevision:1},provenance:[{sourceRevisionId:packetGate.id}]},
+        {sourceId:'lore:harbor-bells',sourceRevisionId:unrelated.id,exactAuthoredText:unrelated.exactContent,representationRef:'source:'+unrelated.id,selectedRepresentation:{representationRevision:1},provenance:[{sourceRevisionId:unrelated.id}]},
+      ];
+      return{kind:'LoreBrainRetrievalPacket',contractVersion:1,indexRevision:'idx:'+packetGate.id,ontologyRevision:'onto:1',sourceRevisionFence:rows.map(row=>row.sourceRevisionId),nominations:[{drillback:rows}]};
+    },
+  };
+  const brain=new Area52NativeBrain({loreInterface});
+  const first=await brain.prepareTurn({
+    chatId:'chat:lore-distrust',turnId:'lore-distrust:1',generationId:'gen:lore-distrust:1',
+    query:'When does the reef gate open?',intent:'CURRENT',
+    scene:scene('reef-gate',1,{location:'Reef Gate',activeCast:['Vale']}),executionLabel:'DETERMINISTIC',
+  });
+  assert.match(JSON.stringify(first.promptPlan),/only at dawn/i);
+  await brain.completeTurn({turnId:'lore-distrust:1',response:'Vale waits beside the reef gate.',knownBy:['Vale']});
+
+  currentGate={id:'lore:reef-gate@r2',state:'CURRENT',exactContent:'The reef gate now opens only at moonrise.',contentHash:'hash:r2'};
+  const invalidated=brain.acceptLoreRevisionChange({
+    kind:'LoreSourceRevisionChanged',sourceId:'lore:reef-gate',lorebookId:'reef-laws',uid:'gate-hours',
+    previousSourceRevisionId:'lore:reef-gate@r1',sourceRevisionId:'lore:reef-gate@r2',contentHash:'hash:r2',
+  });
+  assert.equal(invalidated.nextRevisionTrusted,false);
+
+  const stale=await brain.prepareTurn({
+    chatId:'chat:lore-distrust',turnId:'lore-distrust:2',generationId:'gen:lore-distrust:2',
+    query:'What do the reef gate law and harbor bells say?',intent:'CURRENT',
+    scene:scene('reef-gate-night',2,{location:'Reef Gate',activeCast:['Vale'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(stale.selection.ownerSourceRevisionRefs.includes('lore:reef-gate@r1'),false);
+  assert.ok(stale.selection.ownerSourceRevisionRefs.includes('lore:harbor-bells@r1'));
+  assert.doesNotMatch(JSON.stringify(stale.promptPlan),/only at dawn/i);
+  assert.match(JSON.stringify(stale.promptPlan),/bells ring twice/i);
+  assert.ok(stale.loreSync.rejectedRevisionRefs.includes('lore:reef-gate@r1'));
+
+  const restored=Area52NativeBrain.fromSnapshot(brain.snapshot(),{loreInterface});
+  const staleAfterReload=await restored.prepareTurn({
+    chatId:'chat:lore-distrust',turnId:'lore-distrust:3',generationId:'gen:lore-distrust:3',
+    query:'When does the reef gate open now?',intent:'CURRENT',
+    scene:scene('reef-gate-moon',3,{location:'Reef Gate',activeCast:['Vale'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(staleAfterReload.selection.ownerSourceRevisionRefs.includes('lore:reef-gate@r1'),false);
+  assert.doesNotMatch(JSON.stringify(staleAfterReload.promptPlan),/only at dawn/i);
+  assert.ok(restored.diagnostics().loreRevisionTrust.pending.includes('lore:reef-gate'));
+
+  packetGate={...currentGate};
+  const fresh=await restored.prepareTurn({
+    chatId:'chat:lore-distrust',turnId:'lore-distrust:4',generationId:'gen:lore-distrust:4',
+    query:'When does the reef gate open now?',intent:'CURRENT',
+    scene:scene('reef-gate-moonrise',4,{location:'Reef Gate',activeCast:['Vale'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.ok(fresh.selection.ownerSourceRevisionRefs.includes('lore:reef-gate@r2'));
+  assert.equal(fresh.selection.ownerSourceRevisionRefs.includes('lore:reef-gate@r1'),false);
+  assert.match(JSON.stringify(fresh.promptPlan),/only at moonrise/i);
+  assert.ok(restored.diagnostics().loreRevisionTrust.trusted.includes('lore:reef-gate'));
+});
+
+test('DETERMINISTIC: Lore and Memory owner failures degrade independently',async()=>{
+  const exactMemory={id:'memory:independent@r1',sourceRevisionId:'memory:independent@r1',exactContent:'Rook previously crossed the copper bridge.',knownBy:['Rook'],metadata:{chatId:'chat:owner-independent'}};
+  const memoryInterface={kind:'MemoryIntegrationSurface',contractVersion:'1.0.0',adapters:{
+    queryHistorian:()=>({kind:'HistorianQueryResult',status:'OK',historianRevision:'historian:1',nominations:[{
+      kind:'CandidateNomination',candidateId:'memory:independent',evidenceIdentity:'memory:independent',
+      artifactRef:{artifactId:'episode:independent',artifactType:'Episode',revision:1},artifactRevision:1,
+      sourceRevisionRefs:['memory:independent@r1'],claimRefs:[],eventRefs:[],entityRefs:['Rook'],relationshipRefs:[],
+      rankSignals:{intentMatch:1},normalizedRank:1,temporalHints:[{status:'HISTORICAL'}],continuitySignals:[],
+      authorityClass:'OBSERVED',truthStatusHint:'HISTORICAL',provenance:[{ref:'memory:independent@r1'}],evidenceRefs:[exactMemory.id],
+      dependencyRevisions:[],representationRef:'episode:independent',representationRevision:1,representationText:exactMemory.exactContent,
+      metadata:{historianChannel:'EPISODIC_MEMORY',perspective:{scope:'WORLD'}},
+    }]}),
+    drillDown:()=>[exactMemory],
+  }};
+  const brain=new Area52NativeBrain({
+    loreInterface:{kind:'LoreBrainRetrievalInterface',contractVersion:1,query(){throw new Error('LORE_OFFLINE_ONLY');}},
+    memoryInterface,
+  });
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:owner-independent',turnId:'owner-independent:1',generationId:'gen:owner-independent:1',
+    query:'What happened when Rook crossed the copper bridge?',intent:'HISTORICAL',
+    scene:scene('copper-bridge',1,{location:'Copper Bridge',activeCast:['Rook']}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.loreSync.status,'DEGRADED');
+  assert.equal(prepared.memorySync.status,'SYNCED');
+  assert.ok(channelIds(prepared).has('OWNER_MEMORY'));
+  assert.match(JSON.stringify(prepared.promptPlan),/copper bridge/i);
+  assert.ok(prepared.contextSealReceipt?.sealedState);
+});

@@ -89,8 +89,14 @@ export class Area52NativeBrain{
     this.feedback=new NativeLearningFeedback({snapshot:snapshot?.feedback??null});
     this.knowledge=new NativeKnowledgeStore({registry:this.core.registry,snapshot:snapshot?.knowledge??null});
     this.ownerEvidence=new Map();
+    this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));
+    this.rejectedLoreRevisionIds=new Set(clone(snapshot?.rejectedLoreRevisionIds??[]));
     this.loreInterface=null;this.memoryInterface=null;
-    this.ownerLoreChannel=new LoreOwnerRetrievalChannel({getInterface:()=>this.loreInterface,evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence)});
+    this.ownerLoreChannel=new LoreOwnerRetrievalChannel({
+      getInterface:()=>this.loreInterface,
+      evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
+      revisionGuard:(source)=>this.#admitLoreOwnerRevision(source),
+    });
     this.ownerMemoryChannel=new MemoryOwnerRetrievalChannel({getInterface:()=>this.memoryInterface,evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence)});
     this.core.registerExternalKnowledgeResolver((candidate)=>this.#resolveKnowledgeEvidence(candidate));
     this.attachLoreInterface(loreInterface);
@@ -153,8 +159,17 @@ export class Area52NativeBrain{
     const uid=req(String(event.uid??''),'LoreSourceRevisionChanged.uid');
     const previousSourceRevisionId=req(event.previousSourceRevisionId,'LoreSourceRevisionChanged.previousSourceRevisionId');
     const sourceRevisionId=req(event.sourceRevisionId,'LoreSourceRevisionChanged.sourceRevisionId');
-    req(event.contentHash,'LoreSourceRevisionChanged.contentHash');
+    const contentHash=req(event.contentHash,'LoreSourceRevisionChanged.contentHash');
     if(previousSourceRevisionId===sourceRevisionId)throw new Error('LORE_REVISION_CHANGE_REUSED_REVISION_ID');
+    const previousTrust=this.loreRevisionTrust.get(sourceId)??null;
+    this.rejectedLoreRevisionIds.add(previousSourceRevisionId);
+    if(previousTrust?.trustedSourceRevisionId&&previousTrust.trustedSourceRevisionId!==sourceRevisionId)this.rejectedLoreRevisionIds.add(previousTrust.trustedSourceRevisionId);
+    if(previousTrust?.pendingSourceRevisionId&&previousTrust.pendingSourceRevisionId!==sourceRevisionId)this.rejectedLoreRevisionIds.add(previousTrust.pendingSourceRevisionId);
+    this.loreRevisionTrust.set(sourceId,{
+      sourceId,lorebookId,uid,previousSourceRevisionId,pendingSourceRevisionId:sourceRevisionId,
+      trustedSourceRevisionId:null,contentHash,status:'PENDING_EXACT_RETRIEVAL',
+      changedAtTurnSequence:this.turnSequence,
+    });
     const invalidatedChats=[],checkedChats=[];
     const persisted=this.core.hotCognition.exportState();
     for(const state of persisted?.states??[]){
@@ -171,11 +186,12 @@ export class Area52NativeBrain{
       const refs=uniq([...(evidence?.sourceRevisionRefs??[]),...(evidence?.dependencyRevisionRefs??[])]);
       if(refs.includes(previousSourceRevisionId))this.ownerEvidence.delete(evidenceId);
     }
-    this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>ref!==previousSourceRevisionId));
+    const distrusted=new Set([previousSourceRevisionId,previousTrust?.trustedSourceRevisionId,previousTrust?.pendingSourceRevisionId].filter(Boolean));
+    this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>!distrusted.has(ref)));
     return{
       kind:'NativeBrainLoreRevisionInvalidationReceipt',contractVersion:1,status:'INVALIDATED',sourceId,lorebookId,uid,
       previousSourceRevisionId,sourceRevisionId,checkedChats:uniq(checkedChats),invalidatedChats:uniq(invalidatedChats),
-      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,
+      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,revisionTrustStatus:'PENDING_EXACT_RETRIEVAL',
       authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealAuthority:false,
     };
   }
@@ -432,6 +448,12 @@ export class Area52NativeBrain{
       world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),
       knowledge:this.knowledge.diagnostics(),feedback:this.feedback.diagnostics(),
       loreInterface:{attached:Boolean(this.loreInterface),kind:this.loreInterface?.kind??null,contractVersion:this.loreInterface?.contractVersion??null},
+      loreRevisionTrust:{
+        tracked:this.loreRevisionTrust.size,
+        pending:[...this.loreRevisionTrust.values()].filter((row)=>row.status==='PENDING_EXACT_RETRIEVAL').map((row)=>row.sourceId).sort(),
+        trusted:[...this.loreRevisionTrust.values()].filter((row)=>row.status==='TRUSTED').map((row)=>row.sourceId).sort(),
+        rejectedRevisionIds:[...this.rejectedLoreRevisionIds].sort(),
+      },
       memoryInterface:{attached:Boolean(this.memoryInterface),kind:this.memoryInterface?.kind??null,contractVersion:this.memoryInterface?.contractVersion??null},
       ownerEvidence:{retained:this.ownerEvidence.size,currentSourceRevisionRefs:this.core.externalCurrentSourceRevisionIds()},
       runtime:this.runtimeDirector.snapshot(),
@@ -449,6 +471,7 @@ export class Area52NativeBrain{
         contextSeal:this.core.publication.seal.exportState(),
       },
       knowledge:this.knowledge.exportState(),feedback:this.feedback.exportState(),
+      loreRevisionTrust:[...this.loreRevisionTrust.entries()],rejectedLoreRevisionIds:[...this.rejectedLoreRevisionIds],
       turns:[...this.turns.entries()],turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
       runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,
     });
@@ -591,6 +614,25 @@ export class Area52NativeBrain{
     const evidenceId=candidate?.metadata?.knowledgeEvidenceId??candidate?.channelNominations?.map(row=>row?.metadata?.knowledgeEvidenceId).find(Boolean)??null;
     if(evidenceId&&this.ownerEvidence.has(String(evidenceId)))return clone(this.ownerEvidence.get(String(evidenceId)));
     return this.knowledge.evidenceForCandidate(candidate);
+  }
+
+  #admitLoreOwnerRevision(source={}){
+    const sourceId=String(source?.sourceId??'').trim(),sourceRevisionId=String(source?.sourceRevisionId??'').trim();
+    if(!sourceId||!sourceRevisionId)return{admit:false,reason:'LORE_REVISION_IDENTITY_MISSING'};
+    if(this.rejectedLoreRevisionIds.has(sourceRevisionId))return{admit:false,reason:'LORE_REPLACED_REVISION_DISTRUSTED'};
+    const trust=this.loreRevisionTrust.get(sourceId);
+    if(!trust)return{admit:true,status:'UNTRACKED_OWNER_CURRENT'};
+    if(trust.status==='PENDING_EXACT_RETRIEVAL'){
+      if(sourceRevisionId!==trust.pendingSourceRevisionId)return{admit:false,reason:'LORE_REPLACEMENT_AWAITING_EXACT_RETRIEVAL'};
+      if(typeof source.exactAuthoredText!=='string'||!source.exactAuthoredText.trim())return{admit:false,reason:'LORE_REPLACEMENT_EXACT_SOURCE_MISSING'};
+      if(source.ownerRevision&&String(source.ownerRevision.id??'')!==sourceRevisionId)return{admit:false,reason:'LORE_OWNER_CURRENT_REVISION_MISMATCH'};
+      if(source.ownerRevision?.state==='REMOVED')return{admit:false,reason:'LORE_REPLACEMENT_REMOVED'};
+      if(source.ownerRevision?.contentHash&&trust.contentHash&&String(source.ownerRevision.contentHash)!==String(trust.contentHash))return{admit:false,reason:'LORE_REPLACEMENT_CONTENT_HASH_MISMATCH'};
+      this.loreRevisionTrust.set(sourceId,{...trust,status:'TRUSTED',trustedSourceRevisionId:sourceRevisionId,pendingSourceRevisionId:null,trustedAtTurnSequence:this.turnSequence+1});
+      return{admit:true,status:'TRUSTED_AFTER_EXACT_RETRIEVAL'};
+    }
+    if(trust.trustedSourceRevisionId&&sourceRevisionId!==trust.trustedSourceRevisionId)return{admit:false,reason:'LORE_REVISION_CHANGE_EVENT_REQUIRED'};
+    return{admit:true,status:'TRUSTED_CURRENT'};
   }
 
   #ownerRetrievalReceipt(kind){

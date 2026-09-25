@@ -65,9 +65,10 @@ class OwnerChannelBase{
 }
 
 export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
-  constructor({getInterface,evidenceSink,maxCandidates=48}={}){
+  constructor({getInterface,evidenceSink,revisionGuard=null,maxCandidates=48}={}){
     super({channelId:'OWNER_LORE',capabilities:[RetrievalChannelCapability.SPARSE,RetrievalChannelCapability.SPECIALIZED_STORE],evidenceSink,maxCandidates});
     this.getInterface=typeof getInterface==='function'?getInterface:()=>null;
+    this.revisionGuard=typeof revisionGuard==='function'?revisionGuard:null;
   }
 
   retrieve(intent,context={}){
@@ -80,14 +81,31 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
       const packet=syncValue(owner.query({query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO'}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
       if(!packet||packet.kind!=='LoreBrainRetrievalPacket'||Number(packet.contractVersion)!==1)throw new Error('LORE_BRAIN_PACKET_CONTRACT_MISMATCH');
       const fence=new Set(uniq(packet.sourceRevisionFence??[]));
-      const out=[];
+      const out=[],rejected=[];
       for(const group of packet.nominations??[]){
         for(const source of group?.drillback??[]){
           const sourceId=source?.sourceId==null?null:String(source.sourceId);
           const sourceRevisionId=source?.sourceRevisionId==null?null:String(source.sourceRevisionId);
           const exact=source?.exactAuthoredText;
           if(!sourceId||!sourceRevisionId||typeof exact!=='string'||!exact.trim())continue;
-          if(!fence.has(sourceRevisionId))continue;
+          if(!fence.has(sourceRevisionId)){rejected.push({sourceId,sourceRevisionId,reason:'OWNER_PACKET_REVISION_NOT_FENCED'});continue;}
+          let ownerRevision=null;
+          if(typeof owner.sourceRevision==='function'){
+            try{ownerRevision=syncValue(owner.sourceRevision(sourceId),'LORE_OWNER_SOURCE_REVISION_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');}
+            catch(error){rejected.push({sourceId,sourceRevisionId,reason:error?.message??String(error)});continue;}
+            if(ownerRevision&&(String(ownerRevision.id??'')!==sourceRevisionId||ownerRevision.state==='REMOVED')){
+              rejected.push({sourceId,sourceRevisionId,reason:'OWNER_CURRENT_REVISION_MISMATCH'});continue;
+            }
+            if(ownerRevision&&typeof ownerRevision.exactContent==='string'&&ownerRevision.exactContent!==exact){
+              rejected.push({sourceId,sourceRevisionId,reason:'OWNER_EXACT_SOURCE_MISMATCH'});continue;
+            }
+          }
+          if(this.revisionGuard){
+            let guard=null;
+            try{guard=this.revisionGuard({sourceId,sourceRevisionId,exactAuthoredText:exact,ownerRevision:clone(ownerRevision),packetIndexRevision:packet.indexRevision??null,packetOntologyRevision:packet.ontologyRevision??null});}
+            catch(error){rejected.push({sourceId,sourceRevisionId,reason:error?.message??String(error)});continue;}
+            if(guard===false||guard?.admit===false){rejected.push({sourceId,sourceRevisionId,reason:guard?.reason??'BRAIN_REVISION_GUARD_REJECTED'});continue;}
+          }
           const artifactRef=source.representationRef??('lore-source:'+sourceRevisionId);
           const evidenceId='owner-lore:'+stableHash({sourceId,sourceRevisionId},{length:24});
           const evidence=this.publishEvidence(createKnowledgeEvidence({
@@ -140,6 +158,8 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
       this.lastReceipt={
         kind:'OwnerKnowledgeRetrievalReceipt',channelId:this.channelId,status:'SYNCED',queried:true,
         nominationCount:out.length,sourceRevisionFence:uniq(out.flatMap((row)=>row.sourceRevisionRefs)),
+        rejectedCount:rejected.length,rejectedRevisionRefs:uniq(rejected.map((row)=>row.sourceRevisionId)),
+        rejectionReasons:uniq(rejected.map((row)=>row.reason)),
         ownerIndexRevision:packet.indexRevision??null,ownerOntologyRevision:packet.ontologyRevision??null,
         authorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
       };

@@ -26,7 +26,7 @@ export class SpecialistExecutionLayer {
         ? this.profiles.eligibleProfiles(task,eligibilityOptions)
         : this.profiles.discover(task,eligibilityOptions).profiles)
       .filter(profile=>this.adapters.get(profile.providerId))
-      .filter(profile=>profileSatisfiesTask(profile,task));
+      .filter(profile=>profileSatisfiesTask(profile,task,{allowCapabilityFallback:profileId!=null&&!leaseHeld}));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
     const profile=profileId==null?eligible[0]:eligible.find((candidate)=>candidate.profileId===profileId);
     if(!profile)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`Requested Runtime-selected profile is not eligible for ${task.taskId}`);
@@ -81,10 +81,10 @@ export class ProviderExecutionRouter {
 
 export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength(JSON.stringify(value??{}))/4));}
 
-function profileSatisfiesTask(profile,task){
+function profileSatisfiesTask(profile,task,{allowCapabilityFallback=false}={}){
   if(!profile)return false;
   const capabilities=new Set(profile.capabilities??[]);
-  if((task.requiredCapabilities??[]).some(capability=>!capabilities.has(capability)))return false;
+  if(!allowCapabilityFallback&&(task.requiredCapabilities??[]).some(capability=>!capabilities.has(capability)))return false;
   if(!(profile.supportedLayers??[]).includes(task.cognitiveLayer))return false;
   if(!(profile.placements??[]).includes(task.placement))return false;
   if(task.resultClass==='DEFERRED'&&profile.backgroundEligible===false)return false;

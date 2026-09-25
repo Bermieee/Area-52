@@ -66,7 +66,12 @@ function boundedNumber(value,{min=-Infinity,max=Infinity,fallback=0}={}) {
 
 function normalizeSelector(input={}) {
   const numberOrNull=(value)=>value==null?null:Number(value);
+  const stringOrNull=(value)=>value==null||value===''?null:String(value);
   return {
+    chatId:stringOrNull(input.chatId??input.chatNamespace??input.conversationId),
+    turnId:stringOrNull(input.turnId),
+    generationId:stringOrNull(input.generationId),
+    correlationId:stringOrNull(input.correlationId),
     appendSequenceStart:numberOrNull(input.appendSequenceStart),
     appendSequenceEnd:numberOrNull(input.appendSequenceEnd),
     worldRevisionStart:numberOrNull(input.worldRevisionStart),
@@ -88,6 +93,16 @@ function within(value,start,end) {
 function selectorMatches(selector,row) {
   const hasSelector=Object.values(selector).some((value)=>value!=null);
   if (!hasSelector) return false;
+  const meta=row?.metadata??{};
+  const identities={
+    chatId:meta.chatId??meta.chatNamespace??meta.conversationId??null,
+    turnId:meta.turnId??null,
+    generationId:meta.generationId??null,
+    correlationId:meta.correlationId??null,
+  };
+  for(const key of ['chatId','turnId','generationId','correlationId']){
+    if(selector[key]!=null&&String(identities[key]??'')!==String(selector[key]))return false;
+  }
   return within(row.appendSequence,selector.appendSequenceStart,selector.appendSequenceEnd)
     && within(row.worldRevision,selector.worldRevisionStart,selector.worldRevisionEnd)
     && within(row.sceneRevision,selector.sceneRevisionStart,selector.sceneRevisionEnd)
@@ -290,6 +305,7 @@ export class MemorySummaryHierarchy {
       perspectiveConstraint:request.perspectiveConstraint??{scope:PerspectiveScope.WORLD},
       maxCandidates:Number(request.maxCandidates??MEMORY_LIMITS.maxHistorianCandidates),
       budgetCharacters:request.budgetCharacters??null,
+      allowedEvidenceHash:request.allowedEvidenceIds==null?null:stableHash(stableStringify([...request.allowedEvidenceIds].sort())),
     }));
   }
 
@@ -1023,6 +1039,11 @@ export class MemorySummaryHierarchy {
     const queryTokens=tokens(request.query);
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
+    const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
+    const artifactAllowed=(artifact)=>!allowedEvidence||(
+      (artifact?.exactEvidenceRefs??[]).length>0
+      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
+    );
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const cacheKey=this.queryCacheKey(request,preferred);
     if(useCache){
@@ -1068,7 +1089,7 @@ export class MemorySummaryHierarchy {
       for(const id of candidateIds){
         if(examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
         const artifact=this.artifacts.get(id);
-        if(!artifact||!this.artifactIsFresh(artifact))continue;
+        if(!artifact||!this.artifactIsFresh(artifact)||!artifactAllowed(artifact))continue;
         examined+=1;
         if(artifact.representationText.length>budget)continue;
         if(perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE){
@@ -1130,6 +1151,11 @@ export class MemorySummaryHierarchy {
     const queryTokens=tokens(request.query);
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
+    const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
+    const artifactAllowed=(artifact)=>!allowedEvidence||(
+      (artifact?.exactEvidenceRefs??[]).length>0
+      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
+    );
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const all=this.currentArtifacts({freshOnly:true});
     const afterMaterialize=nowMs();
@@ -1137,7 +1163,7 @@ export class MemorySummaryHierarchy {
     for(const tier of this.tierOrder(preferred)){
       const tierScored=[];
       for(const artifact of all){
-        if(!tier.includes(artifact.scopeLevel))continue;
+        if(!tier.includes(artifact.scopeLevel)||!artifactAllowed(artifact))continue;
         examined+=1;
         if(examined>MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
         if(artifact.representationText.length>budget)continue;

@@ -3,11 +3,15 @@
   "schemaVersion": "2",
   "laneId": "memory",
   "branch": "Development-Memory",
-  "acceptedSha": "a6d7cac76d5bb9fae7c9b2d67c2b7a6342db96b2",
+  "acceptedSha": "22d59f3062b495cb837841a2a8cb01aea7575ce5",
   "acceptanceRuns": [
     {
       "id": "36065342394",
       "name": "Memory Wave 1+2+3 CI"
+    },
+    {
+      "id": "36080637986",
+      "name": "Memory Wave 1+2+3+4 source-head CI — focused/browser pass; stress bound repaired at deployment seam"
     }
   ],
   "copiedPaths": [
@@ -49,7 +53,7 @@
     },
     {
       "path": "src/memory-contracts.js",
-      "sourceDigest": "d05044c366ccd68b0df516b24bf67c53e9a672dd"
+      "sourceDigest": "e0200764c2c30c2f9c85e78cac4ed9df084885fa"
     },
     {
       "path": "src/memory-evidence-bridge.js",
@@ -57,7 +61,7 @@
     },
     {
       "path": "src/memory-experience-store.js",
-      "sourceDigest": "add609cbe75bfe64d39d9979bcfb5cb21fe1fa64"
+      "sourceDigest": "55fccbff52a64d187d38c4bb98b48b143ca2d334"
     },
     {
       "path": "src/memory-green-room.js",
@@ -65,19 +69,23 @@
     },
     {
       "path": "src/memory-historian.js",
-      "sourceDigest": "264d65b008b45c808ad029cf85506ca085f7b22a"
+      "sourceDigest": "5e18ca8067d3b6a7c3862a325fa977b6a027f57a"
     },
     {
       "path": "src/memory-integration-surface.js",
-      "sourceDigest": "f8d7e117e7dd71cda4a721c3bb0078b3746c667d"
+      "sourceDigest": "fc129643f492beaf9f34d13cb6bd249c21d6b720"
     },
     {
       "path": "src/memory-summary-hierarchy.js",
-      "sourceDigest": "c97114340eb85af1cba7f6a40839ea590ceceae1"
+      "sourceDigest": "18ada1528f14ad51185ed617077889df6fd609cb"
     },
     {
       "path": "src/memory-temporal-producer.js",
-      "sourceDigest": "2c1bc89a80e19588adf3b813003325ad3c05f71a"
+      "sourceDigest": "7c90d08a32ee1c4cd4f68265b2ec948233c3c78a"
+    },
+    {
+      "path": "src/memory-ui-read-model.js",
+      "sourceDigest": "f215de8376f107da25c9c5eed6f9fe2369afc246"
     },
     {
       "path": "tests/fixtures/memory-wave3-owner-shapes.js",
@@ -85,7 +93,7 @@
     },
     {
       "path": "tests/memory-browser-safe.mjs",
-      "sourceDigest": "48645cb942b72f21e7ad9910867999c3702ca5c6"
+      "sourceDigest": "ecf16b0ff0932c1f443c4fd0127060cc2b95e794"
     },
     {
       "path": "tests/memory-wave1-stress.mjs",
@@ -110,6 +118,14 @@
     {
       "path": "tests/memory-wave3.mjs",
       "sourceDigest": "448f32b98a5edc14d6548fa084f5f3f60e25bf68"
+    },
+    {
+      "path": "tests/memory-wave4-stress.mjs",
+      "sourceDigest": "89671037fcaf5f6f929e0fba53fbd5067a343fa7"
+    },
+    {
+      "path": "tests/memory-wave4.mjs",
+      "sourceDigest": "1b6fed1490252b8f6824643b5dcc8ca374921f7b"
     }
   ],
   "browserRuntimePaths": [
@@ -121,7 +137,8 @@
     "src/memory-integration-surface.js",
     "src/memory-summary-hierarchy.js",
     "src/memory-temporal-producer.js",
-    "src/memory-temporal-state-graph.js"
+    "src/memory-temporal-state-graph.js",
+    "src/memory-ui-read-model.js"
   ],
   "nodeOnlyToolPaths": [],
   "requiredWebApis": [],
@@ -143,10 +160,16 @@
   ],
   "integrationOnlyPatches": [
     {
+      "path": "src/memory-experience-store.js",
+      "sourceDigest": "55fccbff52a64d187d38c4bb98b48b143ca2d334",
+      "expectedDigest": "de119c615e6b645f404bafccc345b7e8caf20fe5",
+      "reason": "Integration repair: consolidation sessions use maxConsolidationSourceRevisionRefs; per-artifact source-ref bounds remain unchanged."
+    },
+    {
       "path": "src/memory-temporal-producer.js",
-      "sourceDigest": "2c1bc89a80e19588adf3b813003325ad3c05f71a",
-      "expectedDigest": "91b9ec2c4423b9401ee64e14d6c5961175d7e4db",
-      "reason": "Deployment namespace seam: Memory must bind its accepted TemporalStateGraph contract without replacing Core's authoritative src/temporal-state-graph.js"
+      "sourceDigest": "7c90d08a32ee1c4cd4f68265b2ec948233c3c78a",
+      "expectedDigest": "2c9bd1caed25823a5e962043884e0f9fea1e6e54",
+      "reason": "Deployment namespace seam: Memory binds its accepted TemporalStateGraph under src/memory-temporal-state-graph.js so Core authority path is not replaced."
     }
   ],
   "knownConflicts": [],

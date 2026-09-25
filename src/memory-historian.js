@@ -239,14 +239,22 @@ export class MemoryHistorianIndex {
     activeEntityIds=[],
     perspectiveConstraint={scope:PerspectiveScope.WORLD},
     maxCandidates=MEMORY_LIMITS.maxHistorianCandidates,
+    allowedEvidenceIds=null,
   }={}) {
     const text=String(query??'').trim();
     if (!text) return this.degradedResult({query:text,mode,reason:'EMPTY_QUERY',status:'OK'});
     if (text.length>MEMORY_LIMITS.maxHistorianQueryCharacters) throw new Error('MEMORY_HISTORIAN_QUERY_LIMIT_EXCEEDED');
     const queryTokens=tokenize(text);
+    const allowedEvidence=allowedEvidenceIds==null?null:new Set(allowedEvidenceIds);
+    const recordAllowed=(record)=>!allowedEvidence||(
+      (record?.evidenceRefs??[]).length>0
+      && (record.evidenceRefs??[]).every((id)=>allowedEvidence.has(id))
+    );
     const candidateIds=new Set();
     for (const token of queryTokens) {
       for (const id of this.inverted.get(token)??[]) {
+        const record=this.records.get(id);
+        if(!recordAllowed(record))continue;
         candidateIds.add(id);
         if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
       }
@@ -254,6 +262,7 @@ export class MemoryHistorianIndex {
     }
     for (const entityId of activeEntityIds) {
       for (const record of this.records.values()) {
+        if (!recordAllowed(record)) continue;
         if (record.entityRefs.includes(entityId)||record.participants.includes(entityId)) candidateIds.add(record.id);
         if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
       }
@@ -264,7 +273,7 @@ export class MemoryHistorianIndex {
     const scored=[];
     for (const id of candidateIds) {
       const record=this.records.get(id);
-      if (!record||record.freshness!=='FRESH') continue;
+      if (!record||record.freshness!=='FRESH'||!recordAllowed(record)) continue;
       const perspective=perspectiveForRecord(record,perspectiveConstraint);
       if (!perspective) continue;
       const score=scoreRecord(record,{queryTokens,activeEntityIds,mode,currentSequence:this.sequence});

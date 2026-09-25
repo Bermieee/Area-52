@@ -8,6 +8,8 @@ export const MEMORY_HIERARCHY_API_VERSION = '1.0.0';
 export const MEMORY_HIERARCHY_CONTRACT_VERSION = '1.0.0';
 export const MEMORY_EVIDENCE_BRIDGE_API_VERSION = '1.0.0';
 export const MEMORY_EVIDENCE_BRIDGE_CONTRACT_VERSION = '1.0.0';
+export const MEMORY_UI_READ_MODEL_VERSION = '1.0.0';
+export const MEMORY_CONSOLIDATION_WORK_VERSION = '1.0.0';
 
 export const AuthorityClass = Object.freeze({
   OPERATOR:'OPERATOR',
@@ -97,6 +99,7 @@ export const MEMORY_LIMITS = Object.freeze({
   maxDiagnostics:128,
   maxCheckpointWorkUnits:32,
   maxConsolidationJobs:4096,
+  maxConsolidationSourceRevisionRefs:4096,
   maxIndexedTermsPerArtifact:192,
   maxSummaryScopes:2048,
   maxSummaryChildScopes:512,
@@ -117,6 +120,14 @@ export const MEMORY_LIMITS = Object.freeze({
   maxHierarchyQueryCacheEntries:128,
   maxHierarchyQueryIndexTerms:32768,
   maxHierarchyQueryProfileSamples:256,
+  maxUiEvidenceRows:256,
+  maxUiEpisodeRows:128,
+  maxUiReflectionRows:64,
+  maxUiSummaryRows:128,
+  maxUiRetrievalHistory:128,
+  maxUiRetrievalArtifacts:48,
+  maxUiSubscribers:64,
+  maxUiDegradedReasons:32,
 });
 
 export function deepClone(value) {

@@ -8,6 +8,8 @@ import {
   MEMORY_HIERARCHY_CONTRACT_VERSION,
   MEMORY_EVIDENCE_BRIDGE_API_VERSION,
   MEMORY_EVIDENCE_BRIDGE_CONTRACT_VERSION,
+  MEMORY_UI_READ_MODEL_VERSION,
+  MEMORY_CONSOLIDATION_WORK_VERSION,
   SCENE_MEMORY_HANDOFF_COMPAT_VERSION,
   deepClone,
 } from './memory-contracts.js';
@@ -29,6 +31,8 @@ export function createMemoryIntegrationSurface(producer) {
       candidateNomination:'1.0.0',
       hierarchy:MEMORY_HIERARCHY_CONTRACT_VERSION,
       evidenceBridge:MEMORY_EVIDENCE_BRIDGE_CONTRACT_VERSION,
+      uiReadModel:MEMORY_UI_READ_MODEL_VERSION,
+      consolidationWork:MEMORY_CONSOLIDATION_WORK_VERSION,
     },
     adapters:{
       applyCoreSettlement:(envelope,options={})=>producer.applyCoreSettlement(envelope,options),
@@ -42,6 +46,12 @@ export function createMemoryIntegrationSurface(producer) {
       queryHistorian:(request)=>producer.queryHistorian(request),
       drillDown:(nominationOrRecordRef,options={})=>producer.drillDown(nominationOrRecordRef,options),
       profileHierarchyQuery:(request,options={})=>producer.profileHierarchyQuery(request,options),
+      readMemory:(selection={})=>producer.readMemoryUi(selection),
+      subscribeMemory:(listener)=>producer.subscribeMemory(listener),
+      createMemoryUiProducer:(options={})=>producer.createMemoryUiProducer(options),
+      startConsolidation:(jobs=[],options={})=>producer.startConsolidation(jobs,options),
+      consolidationWorkUnits:(sessionId,options={})=>producer.consolidationWorkUnits(sessionId,options),
+      runConsolidation:(sessionId,options={})=>producer.runConsolidation(sessionId,options),
       defineSummaryScope:(input)=>producer.defineSummaryScope(input),
       runSummaryCompaction:(options={})=>producer.runSummaryCompaction(options),
       summaryWorkUnits:(options={})=>producer.summaryWorkUnits(options),
@@ -77,7 +87,17 @@ export function createMemoryIntegrationSurface(producer) {
       {
         seam:'HISTORIAN',
         status:'DIRECT_COMPATIBLE',
-        behavior:'Memory emits HistorianMemoryResolution v1.0.0 and CandidateNomination v1.0.0 compatible records, with resolution-aware summary nominations remaining navigation-only.',
+        behavior:'Memory emits HistorianMemoryResolution v1.0.0 and CandidateNomination v1.0.0 compatible records. When assembly supplies a chat selection, exact and hierarchical candidates are fenced to that chat before ranking; summary nominations remain navigation-only.',
+      },
+      {
+        seam:'UI_CORE_MEMORY',
+        status:'LIVE_READ_SUBSCRIBE_READY',
+        behavior:'Worker 3 may pass createMemoryUiProducer({readSelection}) as the Wave 11/12 generic memory producer and fan subscribeMemory into the host subscription. Reads are selected-chat scoped; retrieval receipts are selected turn/generation scoped; no UI widgets or UI-owned state are implemented here.',
+      },
+      {
+        seam:'RUNTIME_SLEEP_CONSOLIDATION',
+        status:'MEMORY_WORK_UNITS_READY',
+        behavior:'Worker 2/Runtime may request bounded MemoryConsolidationWorkUnit records carrying source/world/scene plus generation fences. Runtime remains the only scheduler/yield owner. A sealed generation parks Memory work for NEXT_TURN rather than publishing into that generation.',
       },
     ],
     authority:{
@@ -91,6 +111,9 @@ export function createMemoryIntegrationSurface(producer) {
       summaryAuthority:false,
       summaryContextSeal:false,
       evidenceMappingAuthority:false,
+      uiReadMutationAuthority:false,
+      uiReadModelVersion:MEMORY_UI_READ_MODEL_VERSION,
+      consolidationWorkVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
       evidenceBridgeApiVersion:MEMORY_EVIDENCE_BRIDGE_API_VERSION,
     },
   };
@@ -112,6 +135,8 @@ export function createMemoryIntegrationFixture(producer) {
     hierarchyApiVersion:MEMORY_HIERARCHY_API_VERSION,
     evidenceBridgeStatus:deepClone(status.evidenceBridge),
     evidenceBridgeApiVersion:MEMORY_EVIDENCE_BRIDGE_API_VERSION,
+    memoryUiReadModelVersion:MEMORY_UI_READ_MODEL_VERSION,
+    consolidationWorkVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
     ownership:deepClone(api.ownership),
     adapters:deepClone(api.adapters),
   };

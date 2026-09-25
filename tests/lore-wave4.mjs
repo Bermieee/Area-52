@@ -120,7 +120,9 @@ test('accepts exact discovered SillyTavern lore, preserves metadata, studies two
 
   const operator = service.operatorInterface();
   assert.equal(operator.kind, 'LoreStudyOperatorHost');
-  assert.equal(operator.read.status().counts.READY, 3);
+  const operatorStatus = operator.read.status();
+  assert.equal(operatorStatus.counts.READY, 3);
+  assert.ok(operatorStatus.entries.every((row) => row.retrievalRepresentations.length > 0));
   assert.equal(typeof operator.actions.acceptLorebook, 'function');
   assert.equal(typeof operator.actions.runLoreStudy, 'function');
   assert.equal(typeof operator.actions.retryLoreStudy, 'function');

@@ -321,7 +321,24 @@ export class LoreStoryAuthorityRegistry {
   }
 
   scopeReceipt(chatId) {
-    const story = this._story(chatId, {create: false});
+    const normalizedChatId = chatId == null ? '' : String(chatId).trim();
+    if (!normalizedChatId) {
+      return {
+        kind: 'LoreStoryScopeReceipt',
+        contractVersion: 1,
+        chatId: null,
+        state: 'UNBOUND',
+        discoveredLorebooks: [],
+        acceptedForStudy: [],
+        readLorebookIds: [],
+        writeAuthorities: [],
+        exactChatBound: true,
+        selectedLorebookAutoAccepted: false,
+        globalReadAuthority: false,
+        globalWriteAuthority: false,
+      };
+    }
+    const story = this._story(normalizedChatId, {create: false});
     if (!story) {
       return {
         kind: 'LoreStoryScopeReceipt',

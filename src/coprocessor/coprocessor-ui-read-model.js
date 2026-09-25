@@ -5,7 +5,7 @@ export const WidgetHealth=Object.freeze({READY:'READY',WORKING:'WORKING',DEGRADE
 
 export function projectCognitionUiState({
   chatId=null,turnId=null,generationId=null,correlationId=null,
-  events=[],providerHealth=[],queuePressure=null,resources=[],ownerReceipts=[],telemetrySnapshot=null,
+  events=[],providerHealth=[],queuePressure=null,resources=[],ownerReceipts=[],telemetrySnapshot=null,schedulerReadModel=null,
 }={}){
   const selection={chatId:nullable(chatId),turnId:nullable(turnId),generationId:nullable(generationId),correlationId:nullable(correlationId)};
   const tasks=new Map();
@@ -43,6 +43,25 @@ export function projectCognitionUiState({
         resourceEvidence.set(String(p.resourceId),state);
       }
     }
+  }
+
+  const scheduler=projectSchedulerReadModel(schedulerReadModel,selection);
+  queueEvents=Math.max(queueEvents,scheduler.queueEvents);
+  yields=Math.max(yields,scheduler.yields);
+  parks=Math.max(parks,scheduler.parks);
+  resumes=Math.max(resumes,scheduler.resumes);
+  for(const schedulerTask of scheduler.tasks){
+    const existing=tasks.get(schedulerTask.taskId);
+    if(existing){
+      existing.queueMs=maxFinite(existing.queueMs,schedulerTask.queueMs);
+      existing.executionMs=maxFinite(existing.executionMs,schedulerTask.executionMs);
+      existing.yields=Math.max(existing.yields,schedulerTask.yields);
+      existing.parks=Math.max(existing.parks,schedulerTask.parks);
+      existing.resumes=Math.max(existing.resumes,schedulerTask.resumes);
+      existing.ownerAccepted ||= schedulerTask.ownerAccepted;
+      existing.state=schedulerTask.state??existing.state;
+      existing.placement=schedulerTask.placement??existing.placement;
+    }else tasks.set(schedulerTask.taskId,schedulerTask);
   }
 
   const ownerAcceptance=projectOwnerReceipts(ownerReceipts,selection);
@@ -87,7 +106,7 @@ export function projectCognitionUiState({
     deferredTasks:activeRows.filter(x=>x.resultClass===ResultClass.DEFERRED).length,
     lateResults,staleDrops,warmHits,warmMisses,fallbackCount,retryCount,validationFailures,
     fallback:fallbackCount,retry:retryCount,warm:{hit:warmHits,miss:warmMisses},
-    queue:{queued:queueEvents,yields,parks,resumes,pressure:queuePressure==null?null:structuredClone(queuePressure)},
+    queue:{queued:queueEvents,yields,parks,resumes,pressure:queuePressure==null?scheduler.pressure:structuredClone(queuePressure)},
     physicalExecution:{attempts:physicalAttempts,succeeded:physicalSuccesses,failed:physicalFailures},
     resultDestinations,providerHealth:providerRows.map(row=>freeze({...row})),
     resources:resourceRows,ownerAcceptance,
@@ -98,14 +117,14 @@ export function projectCognitionUiState({
       ownerAccepted:resourceRows.filter(x=>x.ownerAccepted).length,
     },
     eventCounts:clone(snapshot.eventCounts??{}),providerCalls:clone(snapshot.providerCalls??{}),
-    health,queuePressure:queuePressure==null?null:structuredClone(queuePressure),
+    health,queuePressure:queuePressure==null?scheduler.pressure:structuredClone(queuePressure),
     rawPromptIncluded:false,rawPayloadIncluded:false,credentialIncluded:false,
     mutationAuthority:false,truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,finalChoiceAuthority:false,
   });
 }
 
 export function createCognitionUiReadModelReader({
-  telemetry=null,resourceConnections=null,ownerReceipts=null,queuePressure=null,
+  telemetry=null,resourceConnections=null,ownerReceipts=null,queuePressure=null,scheduler=null,
 }={}){
   const readOwner=typeof ownerReceipts==='function'?ownerReceipts:()=>ownerReceipts??[];
   const readQueue=typeof queuePressure==='function'?queuePressure:()=>queuePressure??null;
@@ -121,6 +140,7 @@ export function createCognitionUiReadModelReader({
         resources:resourceConnections?.listResources?.()??resourceConnections?.readModel?.()?.resources??[],
         ownerReceipts:readOwner(selection)??[],
         telemetrySnapshot:snapshot,
+        schedulerReadModel:readScheduler(scheduler,selection),
       });
     },
     authority:{mutation:false,truth:false,settlement:false,contextSeal:false,finalChoice:false},
@@ -159,6 +179,59 @@ function updateTask(row,type,p){
   row.workerId=nullable(p.workerId)??row.workerId;row.resourceId=nullable(p.resourceId)??row.resourceId;row.modelId=nullable(p.modelId??p.actualModelId)??row.modelId;
   row.queueMs=maxFinite(row.queueMs,p.queueMs??p.queueTimeMs);row.executionMs=maxFinite(row.executionMs,p.executionMs??p.latencyMs??p.executionLatency);
   const caps=p.capabilities??p.requiredCapabilities;if(Array.isArray(caps))for(const cap of caps)if(!row.capabilities.includes(String(cap)))row.capabilities.push(String(cap));
+}
+
+function projectSchedulerReadModel(value,selection){
+  if(!value||typeof value!=='object')return {tasks:[],queueEvents:0,yields:0,parks:0,resumes:0,pressure:null};
+  const metrics=value.metrics??{};
+  const tasks=[];
+  for(const row of Array.isArray(value.deepWork)?value.deepWork:[]){
+    const metadata=row?.metadata??{};
+    if(!matchesSelection(metadata,selection))continue;
+    const taskId=nullable(metadata.taskId??row?.workId);if(!taskId)continue;
+    tasks.push(taskRowFromScheduler(taskId,row,metadata));
+  }
+  return {
+    tasks,
+    queueEvents:Number(metrics.deepQueued??0),
+    yields:Number(metrics.deepYields??0),
+    parks:Number(metrics.deepOwnerParks??0),
+    resumes:Number(metrics.deepResumes??0),
+    pressure:freeze({
+      resourceSlots:finiteOrNull(value.resourceSlots),foregroundReserve:finiteOrNull(value.foregroundReserve),
+      foregroundActive:Boolean(value.foregroundActive),activeHot:Number(value.activeHot??0),activeDeep:Number(value.activeDeep??0),
+    }),
+  };
+}
+
+function taskRowFromScheduler(taskId,row,metadata){
+  const status=String(row?.status??'QUEUED');
+  return {
+    taskId,state:schedulerTaskState(status),placement:'DEEP',resultClass:nullable(metadata.resultClass??ResultClass.DEFERRED),
+    cognitiveLayer:nullable(metadata.cognitiveLayer??metadata.layer),taskType:nullable(metadata.taskType),
+    capabilities:Array.isArray(metadata.capabilities)?metadata.capabilities.map(String):[],
+    providerProfileId:nullable(metadata.providerProfileId),providerId:nullable(metadata.providerId),workerId:nullable(metadata.workerId),
+    resourceId:nullable(metadata.resourceId),modelId:nullable(metadata.modelId),
+    queueMs:finiteOrNull(row?.queueMs),executionMs:finiteOrNull(row?.executionMs),
+    yields:Number(row?.yields??0),parks:status==='PARKED_OWNER'?1:0,resumes:Number(row?.resumes??0),retries:0,fallbacks:0,
+    validationFailures:0,staleDrops:status==='REJECTED_STALE'?1:0,lateRoutes:0,
+    physicallyExecuted:Number(row?.slices??0)>0,physicalExecutionSucceeded:['COMPLETED','CHECKPOINTED','PARKED_OWNER','YIELDED'].includes(status)&&Number(row?.slices??0)>0,
+    ownerAccepted:Boolean(row?.ownerAccepted),destinations:[],
+  };
+}
+function schedulerTaskState(status){
+  if(status==='RUNNING')return 'ACTIVE';
+  if(status==='QUEUED'||status==='CHECKPOINTED'||status==='YIELDED')return 'QUEUED';
+  if(status==='PARKED_OWNER')return 'PARKED';
+  if(status==='COMPLETED')return 'COMPLETED';
+  if(status==='REJECTED_STALE')return 'REJECTED_STALE';
+  if(status==='FAILED')return 'FAILED';
+  return status;
+}
+function readScheduler(source,selection){
+  if(typeof source==='function')return source(selection)??null;
+  if(source&&typeof source.readModel==='function')return source.readModel();
+  return source??null;
 }
 
 function projectOwnerReceipts(receipts,selection){

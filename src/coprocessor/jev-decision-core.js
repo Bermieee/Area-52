@@ -139,7 +139,7 @@ export class JevDecisionCore{
         return this.#remember(replayKey,receipt);
       }catch(error){lastError=error;if(error?.code===FailureCode.PROVIDER_TIMEOUT)this.#metrics.timeouts++;if(attempt<maxAttempts&&retryable(error))continue;break;}
     }
-    const unavailable=[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.CAPABILITY_UNAVAILABLE,FailureCode.PROVIDER_TIMEOUT].includes(lastError?.code);
+    const unavailable=[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.CAPABILITY_UNAVAILABLE,FailureCode.PROVIDER_TIMEOUT,FailureCode.PROVIDER_ABORTED].includes(lastError?.code);
     if(unavailable){
       const code=lastError?.code===FailureCode.PROVIDER_TIMEOUT?JevReasonCode.PROVIDER_TIMEOUT:JevReasonCode.PROVIDER_UNAVAILABLE;
       const receipt=this.#receipt(request,{outcome:JevOutcome.UNRESOLVED,serviceStatus:JevServiceStatus.JEV_UNAVAILABLE,decisionCode:JevDecisionShape.UNRESOLVED,

@@ -18,10 +18,11 @@ export class ContextDeliveryEngine extends PromptPlanner{
   }
   deliver(input){
     const routing=this.presentationRouter.resolve({
-      modelProfileId:input?.modelProfileId??null,providerId:input?.providerId??null,modelId:input?.modelId??null,
+      modelProfileId:input?.modelProfileId??null,fallbackProfileId:input?.fallbackProfileId??null,providerId:input?.providerId??null,modelId:input?.modelId??null,
       routeId:input?.routeId??null,observedCacheBehavior:input?.observedCacheBehavior??null,
     });
-    const planned=this.createPlan({...input,modelProfileId:routing.selectedProfileId});
+    const plannerProfileId=routing.reason==='EXPLICIT_COMPATIBLE_FALLBACK'?(input?.modelProfileId??routing.selectedProfileId):routing.selectedProfileId;
+    const planned=this.createPlan({...input,modelProfileId:plannerProfileId});
     if(!planned.ok)return{...planned,presentationRouting:routing};
     const rendered=this.render({plan:planned.plan,profile:planned.profile});
     if(!rendered.ok)return{...planned,...rendered,presentationRouting:routing,ok:false};

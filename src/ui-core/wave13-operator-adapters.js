@@ -508,7 +508,19 @@ function readerExported(x,key){return({
   choice:['readCognitiveChoice','readCognitiveChoiceReceipt'],truth:['readTruth','readTruthAssessment'],jev:['readJev','readJevDecisionReceipt'],gather:['readGather','readGatherReceipt'],seal:['readContextSeal','readContextSealReceipt','readSealReceipt'],
 }[key]??[]).some(name=>typeof x?.[name]==='function');}
 function safeRead(read,fallback=null){try{const value=read?.();return value==null?fallback:value;}catch{return fallback;}}
-function diagnosticSource(read){return deepFreeze({source:cloneSafe(read?.source??null),data:read?.data?cloneSafe(read.data):null});}
+function diagnosticSource(read){
+  const data=read?.data??null;
+  if(!data)return deepFreeze({source:cloneSafe(read?.source??null),summary:null});
+  return deepFreeze({source:cloneSafe(read?.source??null),summary:{
+    kind:data.kind??null,mode:data.mode??null,state:data.state??null,totalEvents:data.totalEvents??null,
+    hotActivity:data.hotActivity??null,deepActivity:data.deepActivity??null,activeTaskCount:data.activeTaskCount??null,
+    queuedObligations:data.queuedObligations??null,blockedRecoveringWork:data.blockedRecoveringWork??null,activeBatches:data.activeBatches??null,
+    warm:data.warm?cloneSafe(data.warm):null,fallback:data.fallback??null,staleDrop:data.staleDrop??null,retry:data.retry??null,
+    promptPlanId:data.promptPlanId??null,totalTokens:data.totalTokens??null,budgetTotal:data.budgetTotal??null,
+    segmentCount:Array.isArray(data.segments)?data.segments.length:null,droppedCount:Array.isArray(data.dropped)?data.dropped.length:null,deferredCount:Array.isArray(data.deferred)?data.deferred.length:null,
+    sealedState:data.seal?.sealedState??null,
+  }});
+}
 function stageFromSource(id,label,source,selection,{readerPresent=false,reason=null}={}){
   if(!source)return stage(id,label,readerPresent?OperatorProducerState.IDLE:OperatorProducerState.UNAVAILABLE,reason??(readerPresent?'No current owner data.':'Producer not connected.'),selection,null,readerPresent?'NO_DATA':'ASSEMBLY_CONTRACT_MISSING');
   const explicit=source.operationalState;if(explicit&&Object.values(OperatorProducerState).includes(explicit))return stage(id,label,explicit,reason??source.impact??source.reason,selection,source.freshness,source.errorCode??null,source);

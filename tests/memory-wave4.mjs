@@ -594,3 +594,20 @@ test('consolidation revision fence rejects stale source work without publishing 
   assert.equal(result.lateDisposition.reasonCode,'MEMORY_CONSOLIDATION_INPUT_REVISION_STALE');
   assert.equal(producer.experienceStore.currentReflections({freshOnly:false}).some((row)=>row.reflectionKey==='sable:stale-pattern'),false);
 });
+
+
+test('consolidation session uses the job-wide revision fence bound rather than the per-artifact 64-ref bound',()=>{
+  const producer=new MemoryTemporalProducer();
+  const surface=createMemoryIntegrationSurface(producer);
+  const refs=Array.from({length:96},(_,i)=>'bulk-source:'+i+'@r1');
+  const session=surface.adapters.startConsolidation([],{
+    selection:identity('chat:bulk-memory','turn:bulk','gen:bulk','corr:bulk'),
+    sourceRevisionRefs:refs,
+    worldRevision:96,
+  });
+  assert.equal(session.inputRevisionFence.sourceRevisionRefs.length,96);
+  assert.equal(session.inputRevisionFence.sourceRevisionRefs[0],'bulk-source:0@r1');
+  assert.throws(()=>surface.adapters.startConsolidation([],{
+    sourceRevisionRefs:Array.from({length:4097},(_,i)=>'overflow:'+i+'@r1'),
+  }),/String array exceeds bound 4096/);
+});

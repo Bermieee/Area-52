@@ -3,7 +3,7 @@
   "schemaVersion": "2",
   "laneId": "memory",
   "branch": "Development-Memory",
-  "acceptedSha": "22d59f3062b495cb837841a2a8cb01aea7575ce5",
+  "acceptedSha": "94669e656f7ebf24b072cdde2f31e3b3cf5d0b2f",
   "acceptanceRuns": [
     {
       "id": "36065342394",
@@ -12,6 +12,10 @@
     {
       "id": "36080637986",
       "name": "Memory Wave 1+2+3+4 source-head CI — focused/browser pass; stress bound repaired at deployment seam"
+    },
+    {
+      "id": "OWNER-94669e65",
+      "name": "Worker 1 canonical follow-up: consolidation-wide revision bound + UI selector bound"
     }
   ],
   "copiedPaths": [
@@ -61,7 +65,7 @@
     },
     {
       "path": "src/memory-experience-store.js",
-      "sourceDigest": "55fccbff52a64d187d38c4bb98b48b143ca2d334"
+      "sourceDigest": "de119c615e6b645f404bafccc345b7e8caf20fe5"
     },
     {
       "path": "src/memory-green-room.js",
@@ -81,7 +85,7 @@
     },
     {
       "path": "src/memory-temporal-producer.js",
-      "sourceDigest": "7c90d08a32ee1c4cd4f68265b2ec948233c3c78a"
+      "sourceDigest": "685dfe4c3b7122536b92e255a780f1829e715b1f"
     },
     {
       "path": "src/memory-ui-read-model.js",
@@ -125,7 +129,7 @@
     },
     {
       "path": "tests/memory-wave4.mjs",
-      "sourceDigest": "1b6fed1490252b8f6824643b5dcc8ca374921f7b"
+      "sourceDigest": "44e0ac4df13550d7992815aaae28c791e2e8bab7"
     }
   ],
   "browserRuntimePaths": [
@@ -160,15 +164,9 @@
   ],
   "integrationOnlyPatches": [
     {
-      "path": "src/memory-experience-store.js",
-      "sourceDigest": "55fccbff52a64d187d38c4bb98b48b143ca2d334",
-      "expectedDigest": "de119c615e6b645f404bafccc345b7e8caf20fe5",
-      "reason": "Integration repair: consolidation sessions use maxConsolidationSourceRevisionRefs; per-artifact source-ref bounds remain unchanged."
-    },
-    {
       "path": "src/memory-temporal-producer.js",
-      "sourceDigest": "7c90d08a32ee1c4cd4f68265b2ec948233c3c78a",
-      "expectedDigest": "2c9bd1caed25823a5e962043884e0f9fea1e6e54",
+      "sourceDigest": "685dfe4c3b7122536b92e255a780f1829e715b1f",
+      "expectedDigest": "0d5c3253c99399182618e3e5ef3741a360842d82",
       "reason": "Deployment namespace seam: Memory binds its accepted TemporalStateGraph under src/memory-temporal-state-graph.js so Core authority path is not replaced."
     }
   ],

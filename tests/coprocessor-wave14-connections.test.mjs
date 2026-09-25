@@ -271,9 +271,13 @@ test('host adapter exposes stable actions/reads without UI ownership or secret l
   const provider=await startProvider();
   try{
     const host=createCoprocessorResourceHost();
+    assert.throws(()=>host.actions.addResource({
+      resourceId:'unsafe-url',providerProfileId:'unsafe-profile',providerId:'unsafe-provider',workerId:'unsafe-worker',kind:ResourceKind.OPENAI_COMPATIBLE,
+      endpoint:provider.baseUrl+'?secret=query-secret',modelId:'area52-local-model',apiKey:'host-secret',capabilities:[Capability.GRAPH],local:true,
+    }),/must not contain credentials, query parameters, or fragments/);
     host.actions.addResource({
       resourceId:'ui-resource',providerProfileId:'ui-profile',providerId:'ui-provider',workerId:'ui-worker',kind:ResourceKind.OPENAI_COMPATIBLE,
-      endpoint:provider.baseUrl+'?secret=query-secret',modelId:'area52-local-model',apiKey:'host-secret',capabilities:[Capability.GRAPH],local:true,
+      endpoint:provider.baseUrl,modelId:'area52-local-model',apiKey:'host-secret',capabilities:[Capability.GRAPH],local:true,
     });
     const events=[];const release=host.subscribe(event=>events.push(event.type));
     await host.actions.connectResource('ui-resource');

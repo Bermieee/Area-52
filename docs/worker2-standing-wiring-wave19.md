@@ -58,6 +58,8 @@ resourceHost.read.cognition({
 
 The read model preserves that identity and projects only matching turn/correlation events when those identities exist on receipts. It exposes:
 
+When a `NativeHotDeepScheduler` is supplied to the resource host, the same read model also consumes the scheduler's real bounded `deepWork`, queue/execution timing, yield/resume/owner-park counters, and resource pressure. Worker 3 does not need to synthesize those states from UI actions.
+
 - active task counts and bounded task details;
 - HOT/DEEP placement and result class;
 - queue, yield, park, resume;
@@ -86,6 +88,7 @@ Worker 3/integration may inject a bounded owner receipt provider when assembling
 ```js
 createCoprocessorResourceHost({
   telemetry,
+  scheduler: nativeHotDeepScheduler,
   ownerReceipts: selection => [nativeSwarmOwnerHandoffReceipt],
   queuePressure: selection => currentQueuePressure,
 })

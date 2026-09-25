@@ -762,7 +762,7 @@
     {
       "path": "src/ui-core/wave13-floating-navigation.js",
       "sourceDigest": "5d11a8282b1c3942c4b33ab69e38311dfcf73afd",
-      "expectedDigest": "adc36a7bfc27392da771d8e641e3cec93e8b7bcf",
+      "expectedDigest": "3402eb4a635c73d526724d0c6b058e954ecd21e5",
       "reason": "Director-authorized main demo correction: labeled vertical rail, physically attached edge-aware panel, clear collapse/close/resize controls, and per-workspace scroll retention."
     },
     {

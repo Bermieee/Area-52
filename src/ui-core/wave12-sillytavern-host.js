@@ -25,9 +25,11 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'readTruth','readTruthAssessment','readCorrectiveRetrieval','readCorrectiveRetrievalReceipt',
   'readJev','readJevDecisionReceipt','readPrecision','readPrecisionReceipt','readGather','readGatherReceipt','readLoreStatus','readLoreStudyStatus','readLoreStudySurface','readMemoryStatus',
   'readRuntimeStatus','readCognitionUiState','readCoprocessorChoiceContribution',
+  'resourceHost','coprocessorResourceHost','resourceConnectionsHost',
   'listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus','listResourceConfigurations','listAvailableResources',
-  'connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection',
-  'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy',
+  'addResource','configureResource','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection','subscribeResources','subscribeResourceStatus',
+  'loreStudyHost','loreHost','loreStudyRuntime','loreRuntime',
+  'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy','subscribeLoreStudy','subscribeLoreStatus',
   'story','characters','lore','memory','world','knowledgeAdapter',
 ]);
 
@@ -47,12 +49,12 @@ const FAMILY_KEYS=Object.freeze({
   contextReceipt:['readContextReceipt','readContextReceiptReadModel'],
   forensics:['readForensic','readForensicReadModel','listForensics','listForensicReadModels','listBundles'],
   transactions:['listTransactions','listCognitiveTransactions','readTransaction','readCognitiveTransaction'],
-  loreStatus:['readLoreStatus','readLoreStudyStatus','readLoreStudySurface'],
-  loreActions:['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy'],
+  loreStatus:['readLoreStatus','readLoreStudyStatus','readLoreStudySurface','loreStudyHost','loreHost','loreStudyRuntime','loreRuntime'],
+  loreActions:['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','loreStudyHost','loreHost','loreStudyRuntime','loreRuntime'],
   runtime:['runtimeAdapter','readRuntimeStatus','readScatter','readRuntimeTurn'],
   coprocessor:['coprocessorTelemetry','coprocessorAdapter','readCognitionUiState','readCoprocessorChoiceContribution'],
-  resources:['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'],
-  resourceActions:['connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection'],
+  resources:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'],
+  resourceActions:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','addResource','configureResource','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection'],
   memory:['memory','readMemoryStatus'],
 });
 

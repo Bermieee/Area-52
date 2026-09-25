@@ -202,7 +202,7 @@ export class CoprocessorResourceConnections{
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now();
     try{
-      const result=await this.executionLayer.execute(task,{input,attempt,signal:controller.signal,maxCostClass,profileId:row.providerProfileId});
+      const result=await this.executionLayer.execute(task,{input,attempt,signal:controller.signal,maxCostClass,profileId:row.providerProfileId,leaseHeld:true});
       const latency=Math.max(0,this.now()-started);row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:task.taskType,at:this.now(),latencyMs:latency,providerId:result.providerId,workerId:result.workerId,measurementClass:row.measurementClass};
       this.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:this.now()});
       if(row.state===ResourceConnectionState.DEGRADED&&this.health.snapshot(row.providerProfileId).health==='HEALTHY'){row.state=ResourceConnectionState.READY;row.reasonCode=ResourceConnectionReason.EXECUTION_SUCCEEDED;row.reason='Execution succeeded and health recovered.';}
@@ -301,8 +301,9 @@ function createAdapter(kind,input){
   if(kind===ResourceKind.DETERMINISTIC_LOCAL)return new DeterministicProviderAdapter({
     providerId:input.providerId,modelId:input.modelId,capabilities:input.capabilities,handler:input.handler,handlers:input.handlers??{},measurementClass:input.measurementClass,
   });
+  const endpoint=validatedEndpoint(input.endpoint);
   return new OpenAICompatibleProviderAdapter({
-    providerId:input.providerId,modelId:input.modelId,endpoint:req(input.endpoint,'endpoint'),apiKey:input.apiKey??null,headers:input.headers??{},fetchImpl:input.fetchImpl,
+    providerId:input.providerId,modelId:input.modelId,endpoint,apiKey:input.apiKey??null,headers:input.headers??{},fetchImpl:input.fetchImpl,
     timeoutMs:input.timeoutMs??30000,contextLimit:input.contextLimit??input.maxContextTokens??null,outputLimit:input.outputLimit??input.maxOutputTokens??null,
     capabilities:input.capabilities,local:Boolean(input.local),costMetadata:input.costMetadata??null,healthCheckPath:input.healthCheckPath??'/models',measurementClass:input.measurementClass,
   });
@@ -315,6 +316,13 @@ function normalizeCapabilities(values){
 }
 function normalizeMeasurementClass(value){const v=String(value);if(!MEASUREMENT_CLASSES.has(v))throw new TypeError('unsupported measurement class: '+v);return v;}
 function reasonFromError(error){const code=error?.code;return code===FailureCode.PROVIDER_TIMEOUT?ResourceConnectionReason.PROVIDER_TIMEOUT:code===FailureCode.PROVIDER_ABORTED?ResourceConnectionReason.PROVIDER_ABORTED:code===FailureCode.MALFORMED_OUTPUT||code===FailureCode.SCHEMA_INVALID||code===FailureCode.SCHEMA_VALIDATION_FAILED||code===FailureCode.SEMANTIC_VALIDATION_FAILED?ResourceConnectionReason.MALFORMED_OUTPUT:code===FailureCode.PROVIDER_UNAVAILABLE||code===FailureCode.CAPABILITY_UNAVAILABLE?ResourceConnectionReason.PROVIDER_UNAVAILABLE:ResourceConnectionReason.EXECUTION_FAILED;}
+function validatedEndpoint(value){
+  const raw=req(value,'endpoint');let url;
+  try{url=new URL(raw);}catch{throw new TypeError('endpoint must be an absolute http(s) URL');}
+  if(!['http:','https:'].includes(url.protocol))throw new TypeError('endpoint must use http or https');
+  if(url.username||url.password||url.search||url.hash)throw new TypeError('endpoint must not contain credentials, query parameters, or fragments');
+  return url.toString().replace(/\/$/,'');
+}
 function safeEndpoint(value){
   if(value==null)return null;try{const url=new URL(String(value));return url.protocol+'//'+url.host+url.pathname.replace(/\/+$/,'');}catch{return String(value).replace(/[?#].*$/,'').slice(0,512);}
 }

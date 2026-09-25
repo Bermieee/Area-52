@@ -20,6 +20,7 @@ export function createCoprocessorResourceHost({connections=null,...options}={}){
     }),
     execution:Object.freeze({
       executeTask:(task,opts)=>registry.executeTask(task,opts),
+      executeTaskWithFallback:(task,opts)=>registry.executeTaskWithFallback(task,opts),
       createJevProviderExecutor:(opts)=>registry.createJevProviderExecutor(opts),
     }),
     subscribe:(listener)=>registry.subscribe(listener),

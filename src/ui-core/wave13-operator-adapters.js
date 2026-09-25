@@ -217,6 +217,8 @@ export class Wave13LoreStudyUIAdapter{
     this.acceptFn=fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook'])??fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook']);
     this.runFn=fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
     this.retryFn=fn(this.host?.actions,['retryLoreStudy'])??fn(bindings,['retryLoreStudy']);
+    this.summaryFn=fn(bindings,['readLoreSummaries','readLoreSummarySurface'])??(typeof this.service?.summarySurface==='function'?this.service.summarySurface.bind(this.service):null);
+    if(!this.summaryFn&&typeof this.service?.brainInterface==='function'){try{this.summaryFn=fn(this.service.brainInterface()?.read,['summaries']);}catch{}}
     this.subscribeFn=fn(bindings,['subscribeLoreStudy','subscribeLoreStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     if(this.runtime){
       this.readFn??=()=>buildLoreSurfaceFromRuntime(this.runtime);
@@ -225,7 +227,7 @@ export class Wave13LoreStudyUIAdapter{
     }
     this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;
   }
-  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),summaries:Boolean(this.summaryFn),subscribe:Boolean(this.subscribeFn)});}
   selectedLorebook(){
     const selected=safeRead(this.selectionFn,null);
     return deepFreeze({selection:cloneSafe(selected),snapshot:cloneSafe(this.discoveredLorebook)});
@@ -262,6 +264,10 @@ export class Wave13LoreStudyUIAdapter{
         data,
       });
     }catch(error){return degraded('Lore Study','Lore Study read failed.','LoreStudyRuntime',selection,error);}
+  }
+  summaries(){
+    if(!this.summaryFn)return null;
+    try{return cloneSafe(this.summaryFn());}catch{return null;}
   }
   async accept(input){
     this.lastError=null;
@@ -708,9 +714,9 @@ function normalizeLoreSurface(raw){
   const x=raw.study?.kind==='LorePublicIntegrationSurface'?raw.study:raw.kind==='LorePublicIntegrationSurface'?raw:raw.publicSurface??raw.study??raw;
   const entries=(x.entries??[]).map(row=>({
     sourceId:row.sourceId??null,lorebookId:row.lorebookId??null,uid:row.uid??null,sourceRevisionId:row.sourceRevisionId??null,sourceState:row.sourceState??null,
-    learnedRevisionId:row.learnedRevisionId??null,freshness:row.freshness??'STALE_OR_UNLEARNED',operatorState:row.operatorState??null,
-    studyState:row.studyState??null,studyObligationId:row.studyObligationId??null,studyAttempts:Number(row.studyAttempts??0),studyError:cloneSafe(row.studyError??null),
-    representationReady:Boolean(row.representationReady),retrievalReady:Boolean(row.retrievalReady),compileFailure:cloneSafe(row.compileFailure??null),
+    exactSourceHash:row.exactSourceHash??null,exactSourceRecoverable:Boolean(row.exactSourceRecoverable),learnedRevisionId:row.learnedRevisionId??null,freshness:row.freshness??'STALE_OR_UNLEARNED',operatorState:row.operatorState??null,
+    studyState:row.studyState??null,studyObligationId:row.studyObligationId??null,studyAttempts:Number(row.studyAttempts??0),studyError:cloneSafe(row.studyError??null),semanticDiff:cloneSafe(row.semanticDiff??null),
+    representations:cloneSafe(row.representations??[]),representationReady:Boolean(row.representationReady),retrievalReady:Boolean(row.retrievalReady),compileFailure:cloneSafe(row.compileFailure??null),
     artifactIds:[...(row.artifactIds??[])],
     retrievalRepresentations:(row.retrievalRepresentations??[]).map(rep=>({artifactId:rep.artifactId,sourceRevisionId:rep.sourceRevisionId,authorityClass:rep.authorityClass,temporalClass:rep.temporalClass,unresolved:Boolean(rep.unresolved),provenance:cloneSafe(rep.provenance)})),
   }));

@@ -28,6 +28,10 @@
     {
       "id": "OWNER-751b23fe",
       "name": "Worker 3 canonical #223 follow-up: native Brain remains available with optional resources"
+    },
+    {
+      "id": "MAIN-DEMO-UI-CORRECTION",
+      "name": "Director-authorized main demo UI correction; exact-head validation tracked by Development Deployment Assembly workflow"
     }
   ],
   "copiedPaths": [
@@ -748,6 +752,55 @@
     "src/deployment/brain.js",
     "src/ui-core/wave12-sillytavern-host.js"
   ],
-  "integrationOnlyPatches": [],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/ui-core/wave12-sillytavern-host.js",
+      "sourceDigest": "bf1ae71396e28e0f0c1a13a2538fe9ece513e394",
+      "expectedDigest": "1afbe5bad333393d1c6198cace5c0ba1367b5db0",
+      "reason": "Director-authorized main demo correction: floating UI reserves zero host width so the empty blue host strip is not visible."
+    },
+    {
+      "path": "src/ui-core/wave13-floating-navigation.js",
+      "sourceDigest": "5d11a8282b1c3942c4b33ab69e38311dfcf73afd",
+      "expectedDigest": "adc36a7bfc27392da771d8e641e3cec93e8b7bcf",
+      "reason": "Director-authorized main demo correction: labeled vertical rail, physically attached edge-aware panel, clear collapse/close/resize controls, and per-workspace scroll retention."
+    },
+    {
+      "path": "src/ui-core/wave13-operator-surfaces.js",
+      "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
+      "expectedDigest": "f3eb694a78204432765679394e25104c6185b69a",
+      "reason": "Director-authorized main demo correction: first-class Connections and Settings surfaces plus owner-receipt fan-out to Gather visualization."
+    },
+    {
+      "path": "src/ui-core/wave6-runtime.js",
+      "sourceDigest": "ca538a04addd44193b7ef8b98997a36648078321",
+      "expectedDigest": "1a34baf85fec9b15b4097f451c9210e55bdfa413",
+      "reason": "Director-authorized main demo correction: supply live cognition and presentation services to Connections/Settings and refresh Connections on owner resource updates."
+    },
+    {
+      "path": "styles/ui-core-wave13.css",
+      "sourceDigest": "d57ca9001035067bc10d15b8c22d6587d3c73a4d",
+      "expectedDigest": "eee0731d694f3a30390b3de241b18461cca8aeea",
+      "reason": "Director-authorized main demo correction: readable labeled rail, attached panel styling, transparent floating host, independent scrolling, and Connections flow layout."
+    },
+    {
+      "path": "tests/wave12-sillytavern-host.test.mjs",
+      "sourceDigest": "93ea9462b4c83377c07599ab94026d03e768a70e",
+      "expectedDigest": "f6516478e1906aa85bde8097ab7087df09f7e15d",
+      "reason": "Validation for zero-width floating host reservation."
+    },
+    {
+      "path": "tests/wave13-operator-ui-stress.mjs",
+      "sourceDigest": "d61e7c48ad5a0f8bc25fa7e9e2cb2a43e853672f",
+      "expectedDigest": "00cd1945b3da4df8faaf8b297b8a23ef8826bc35",
+      "reason": "Stress coverage for attached labeled rail including Connections and Settings."
+    },
+    {
+      "path": "tests/wave13-operator-ui.test.mjs",
+      "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
+      "expectedDigest": "999ad6d2fe1d5cfbdd997d7945c7a47efc892285",
+      "reason": "Acceptance coverage for labels, attachment, resize/collapse controls, independent scroll positions, Connections, fan-out/Gather, and Settings."
+    }
+  ],
   "knownConflicts": []
 }

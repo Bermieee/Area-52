@@ -851,6 +851,8 @@ function normalizeCompiledResult(value, limits, identity = null) {
 }
 
 function artifactReferenceMatchesIdentity(reference, identity) {
+  const refChatId=reference.chatId??reference.chatNamespace??reference.conversationId??null;
+  if (refChatId != null && String(refChatId) !== String(identity.chatId??'')) return false;
   if (reference.sceneRevision != null && Number(reference.sceneRevision) !== Number(identity.sceneRevision)) return false;
   if (reference.worldRevision != null && Number(reference.worldRevision) !== Number(identity.worldRevision)) return false;
   if (Array.isArray(reference.sourceRevisionSet) && reference.sourceRevisionSet.length) {
@@ -873,7 +875,8 @@ function assertPacketBounds(packet, limits) {
 }
 
 function samePreparationFences(a, b) {
-  return a.sceneRevision === b.sceneRevision
+  return a.chatId === b.chatId
+    && a.sceneRevision === b.sceneRevision
     && a.worldRevision === b.worldRevision
     && a.characterStateRevision === b.characterStateRevision
     && a.intentFingerprint === b.intentFingerprint

@@ -516,11 +516,12 @@ export class Area52NativeBrain{
       let lifecycleUpdated=0,lifecycleRemoved=0;
       if(typeof this.loreInterface.sourceRevision==='function'){
         for(const row of this.knowledge.currentRecords({channelFamily:'LORE'})){
+          const priorOwnerRevision=row.evidence?.extensions?.metadata?.externalSourceRevisionId??null;
+          if(!priorOwnerRevision)continue;
           const ownerRevision=await this.loreInterface.sourceRevision(row.sourceId);
           if(ownerRevision?.state==='REMOVED'){
             this.removeLore(row.sourceId,{reason:'LORE_OWNER_SOURCE_REMOVED'});lifecycleRemoved++;continue;
           }
-          const priorOwnerRevision=row.evidence?.extensions?.metadata?.externalSourceRevisionId??null;
           if(ownerRevision?.id&&ownerRevision.id!==priorOwnerRevision&&typeof ownerRevision.exactContent==='string'&&ownerRevision.exactContent.length){
             this.acceptLore({sourceId:row.sourceId,sourceType:'LORE_ENTRY',exactContent:ownerRevision.exactContent,provenanceRefs:[ownerRevision.id],metadata:{representationText:ownerRevision.exactContent,externalSourceRevisionId:ownerRevision.id,loreInterfaceKind:'LoreBrainRetrievalInterface'}});lifecycleUpdated++;
           }

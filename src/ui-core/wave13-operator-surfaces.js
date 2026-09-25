@@ -481,7 +481,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel
     const list=element(d,'div',{className:'a52-wave13-diagnostic-events'});
     for(const event of events.slice(0,40)){
       const line=element(d,'div',{className:'a52-wave13-diagnostic-event'});
-      line.append(element(d,'code',{text:event.resourceId??'resource'}),element(d,'strong',{text:event.code??'EVENT'}),element(d,'span',{text:event.message??''}));
+      line.append(advanced?element(d,'code',{text:event.resourceId??'resource'}):element(d,'span',{text:event.displayName??'Configured resource'}),element(d,'strong',{text:humanLabel(event.code??'EVENT')}),element(d,'span',{text:event.message??''}));
       if(inspect)line.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-diagnostic-event',id:String(event.sequence??event.code??'event'),title:(event.resourceId??'Resource')+' · '+(event.code??'event'),payload:event})}));
       list.append(line);
     }

@@ -87,7 +87,7 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
           const sourceRevisionId=source?.sourceRevisionId==null?null:String(source.sourceRevisionId);
           const exact=source?.exactAuthoredText;
           if(!sourceId||!sourceRevisionId||typeof exact!=='string'||!exact.trim())continue;
-          if(fence.size&&!fence.has(sourceRevisionId))continue;
+          if(!fence.has(sourceRevisionId))continue;
           const artifactRef=source.representationRef??('lore-source:'+sourceRevisionId);
           const evidenceId='owner-lore:'+stableHash({sourceId,sourceRevisionId},{length:24});
           const evidence=this.publishEvidence(createKnowledgeEvidence({

@@ -506,6 +506,108 @@ test('configured Worker 2 resources can recover credential model selection and q
   ui.destroy();
 });
 
+test('Runtime detail consumes Worker 1 lifecycle queue and capacity telemetry without inventing missing histories',()=>{
+  const owner=liveOwner();
+  owner.bindings.readRuntimeStatus=()=>({
+    lifecycle:[
+      {taskId:'hot:1',lifecycleStatus:'ELIGIBLE',executionStatus:'ACTIVE',layer:'L0',degradation:null},
+      {taskId:'deep:1',lifecycleStatus:'ELIGIBLE',executionStatus:'YIELDING',layer:'L3',degradation:null},
+      {taskId:'parked:1',lifecycleStatus:'ELIGIBLE',executionStatus:'PARKED',layer:'L2',degradation:null},
+      {taskId:'recover:1',lifecycleStatus:'ELIGIBLE',executionStatus:'RECOVERING',layer:'L2',degradation:{reason:'checkpoint'}},
+      {taskId:'done:1',lifecycleStatus:'SATISFIED',executionStatus:'COMPLETE',layer:'L1',degradation:null},
+    ],
+    queueDepth:{L0:2,L1:0,L2:1,L3:1,L4:0},
+    resources:{borrowedBackgroundLeases:1},workers:{},dependencies:{},eventTypes:['WORK_PARKED','WORK_RECOVERING'],
+    telemetry:{retainedSignals:17,sinkFailures:0,latestSequence:22},
+  });
+  const{ui}=mount(owner);ui.shell.selectWorkspace('runtime-live');ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Runtime Detail/);assert.match(body,/Lifecycle signals/);assert.match(body,/Yielding 1/);assert.match(body,/Parked 1/);assert.match(body,/Recovering 1/);assert.match(body,/Complete 1/);
+  assert.match(body,/Borrowed background leases 1/);assert.match(body,/Retained telemetry signals 17/);assert.match(body,/Owner snapshot does not publish batch history/);assert.match(body,/Owner snapshot does not publish late-result history/);
+  ui.destroy();
+});
+
+test('Memory workspace renders owner-backed hierarchical compaction and keeps derived summaries non-authoritative',()=>{
+  const owner=liveOwner();
+  owner.bindings.memoryIntegrationSurface={adapters:{
+    readMemory(selection){return{
+      kind:'MemoryUiReadModel',health:{state:'READY',reasons:[]},...selection,revision:'memory-ui:r9',sourceRevisionRefs:['mem:r1','mem:r2'],readOnly:true,mutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+      evidence:[{id:'ev:1',freshness:'FRESH'},{id:'ev:2',freshness:'FRESH'}],
+      state:{current:[{id:'claim:current'}],historical:[{id:'claim:old'}],unresolved:[{id:'claim:conflict'}]},
+      episodes:[{id:'episode:1',freshness:'FRESH'}],reflections:[{id:'reflection:1',freshness:'FRESH'}],
+      summaries:[{id:'summary:arc',scopeRef:'ARC:harbor',scopeLevel:'ARC',revision:3,freshness:'FRESH',state:'CURRENT',authorityClass:'DERIVED',navigationOnly:true,independentEvidence:false,sourceRange:{start:1,end:42},exactEvidenceRefs:['ev:1','ev:2'],exactSourceRevisionSet:['mem:r1','mem:r2'],representativeEvidenceRefs:['ev:2'],unresolvedSetRefs:['claim:conflict'],knowledgeFence:{worldRevision:8},representationText:'Mira and Oren crossed the harbor while the Tideglass remained disputed.',summaryPolicyRevision:'policy:1',compilerRevision:'compiler:1'}],
+      retrieval:{status:'READY'},freshness:{freshEvidence:2,staleEvidence:0,freshEpisodes:1,staleEpisodes:0,freshReflections:1,staleReflections:0,freshSummaries:1,staleSummaries:0},provenance:{evidenceRefs:['ev:1','ev:2']},
+    };},
+    summaryStatus(){return{kind:'MemorySummaryStatus',pending:0};},
+  }};
+  const{ui}=mount(owner);ui.shell.selectWorkspace('memory');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Owner-backed selected-chat/);assert.match(body,/Story \/ arc \/ scene compaction/);assert.match(body,/Derived \/ Navigation/i);assert.match(body,/ARC/);assert.match(body,/1 → 42/);assert.match(body,/Unresolved memory preserved/);
+  assert.doesNotMatch(body,/Apply summary|Set canonical|Promote summary/i);
+  ui.destroy();
+});
+
+test('Lore workspace shows Worker 4 multi-resolution and hierarchical summaries as derived non-source artifacts',()=>{
+  const owner=liveOwner();
+  const service={
+    operatorInterface(){return{kind:'LoreStudyOperatorHost',contractVersion:1,read:{status:()=>({
+      kind:'LoreIntelligenceStatus',counts:{ACCEPTED:0,STUDYING:0,READY:1,FAILED:0,REMOVED:0},lifecycle:{counts:{},due:0,active:0},conflicts:[],
+      entries:[{sourceId:'lore:harbor:mira',lorebookId:'harbor',uid:'mira',sourceRevisionId:'lore:harbor:mira@r2',sourceState:'CURRENT',exactSourceHash:'hash:mira',exactSourceRecoverable:true,learnedRevisionId:'learned:mira@r2',freshness:'CURRENT',studyState:'COMPLETED',operatorState:'READY',representationReady:true,retrievalReady:true,retrievalRepresentations:[{artifactId:'ret:mira'}],representations:[
+        {profile:'LEAN',representationRef:'rep:lean',representationRevision:'r2:lean',qualityStatus:'PASS'},
+        {profile:'BALANCED',representationRef:'rep:balanced',representationRevision:'r2:balanced',qualityStatus:'PASS'},
+        {profile:'HEAVY',representationRef:'rep:heavy',representationRevision:'r2:heavy',qualityStatus:'PASS'},
+      ]}],
+    })},actions:{acceptLorebook(){return{};},runLoreStudy(){return{};}}};},
+    summarySurface(){return{kind:'LoreMultiLevelSummarySurface',exactSourceDrillbackAvailable:true,sourceAuthority:false,truthAuthority:false,settlementAuthority:false,summaries:[
+      {summaryRef:'summary:harbor',level:'BOOK',scopeId:'book:harbor',label:'Harbor Lore',sourceRevisionRefs:['lore:harbor:mira@r2'],childSummaryRefs:['summary:mira'],content:'Derived navigation summary of Harbor Lore.',qualityReceipt:{status:'PASS'},authorityClass:'DERIVED'},
+    ]};},
+  };
+  owner.bindings.loreIntelligenceService=service;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Derived Lore representations/);assert.match(body,/Lean/);assert.match(body,/Balanced/);assert.match(body,/Heavy/);assert.match(body,/Hierarchical navigation summaries/);assert.match(body,/DERIVED \/ NO SOURCE AUTHORITY/);assert.match(body,/Exact source drillback Available/);
+  ui.destroy();
+});
+
+test('Worker 4 v2 lifecycle gates Settlement behind review Final Preview and explicit approval',async()=>{
+  const calls=[];let stage='DRAFT_REVIEW',decision=null,finalPreview=null,settlement=null;
+  const progress=()=>({kind:'LoreAuthoringProgressReadModel',sessionId:'session:tree',type:'TREE',stage,draftRevision:1,build:{cursor:1,total:1,complete:true},decisions:decision?{[decision]:1}:{PENDING:1},totalActions:1,materializedActions:1,stale:null,lastError:null,finalPreviewId:finalPreview?.finalPreviewId??null,finalPreviewReady:Boolean(finalPreview?.validation?.ok),approval:stage==='READY_TO_SETTLE'?{operatorApprovalId:'ui:approval'}:null,settlement:settlement?{settlementId:settlement.settlementId,state:settlement.state,cursor:settlement.cursor,operationCount:1,appliedCount:settlement.cursor}:null});
+  const safe=value=>({ok:true,value,error:null});
+  const authoringHost={kind:'LoreAuthoringOperatorContract',contractVersion:2,
+    read:{
+      sourceDiscoveryIdentity:()=>safe({kind:'LoreSourceDiscoverySurface',books:[{lorebookId:'Moon Harbor',title:'Moon Harbor',discoveryIdentityPersisted:true,sources:[{sourceId:'lore:moon:captain',uid:'captain',sourceRevisionId:'r1',contentHash:'h1',metadata:{title:'Captain'}}]}]}),
+      reviewStates:()=>safe({states:['DRAFT_REVIEW','FINAL_PREVIEW','READY_TO_SETTLE','SETTLED']}),worker1InvalidationContract:()=>safe({integrationStatus:'PUBLISHED'}),
+      worker3AuthoringContract:()=>safe({checkpointResumeSupported:true,restorationSupported:true}),
+      progress:()=>safe(progress()),
+      draftReview:()=>safe({kind:'LoreDraftReview',sessionId:'session:tree',actions:[{id:'action:1',action:'MOVE_ENTRY',rationale:'Move Captain into Characters.',inputSourceRevisions:[{sourceRevisionId:'r1'}],affectedTreeNodes:['Characters'],materialized:true,decision}]}),
+      finalPreview:()=>safe(finalPreview),
+      settlement:()=>safe(settlement),
+      worker1Receipts:()=>safe({revisionEvents:settlement?.revisionEvents??[],invalidationReceipts:settlement?.invalidationReceipts??[]}),
+    },
+    actions:{
+      previewEditImpact:()=>safe(null),proposeTree:()=>safe({proposals:[],reviewItems:[],sourceRevisionFence:['r1'],mutationAuthority:false}),previewMerge:()=>safe(null),
+      startTreeBuild:()=>{calls.push('start');stage='DRAFT_REVIEW';return safe(progress());},
+      startMergeBuild:()=>safe(progress()),resumeAuthoringBuild:()=>safe({progress:progress()}),
+      recordDraftDecision(input){calls.push(input.decision);decision=input.decision;return safe({actions:[{id:'action:1',decision}]});},
+      computeFinalPreview(){calls.push('preview');stage='FINAL_PREVIEW';finalPreview={kind:'LoreFinalPreview',finalPreviewId:'final:1',validation:{ok:true},operations:[{id:'op:1'}],authoritativeSemanticPreflight:true,explicitApprovalRequired:true};return safe(finalPreview);},
+      approveFinalPreview(){calls.push('approve');stage='READY_TO_SETTLE';return safe({stage,approval:{operatorApprovalId:'ui:approval'}});},
+      applySettlement(){calls.push('settle');stage='SETTLED';settlement={kind:'LoreSettlementReadModel',settlementId:'settlement:1',state:'SETTLED',cursor:1,operationCount:1,revisionEvents:[{sourceId:'lore:moon:captain',sourceRevisionId:'r2'}],invalidationReceipts:[{sourceId:'lore:moon:captain',unrelatedSourcesInvalidated:false}],originalSourcesDeleted:false,reconstructable:true};return safe(settlement);},
+      restoreSettlement(){calls.push('restore');settlement={...settlement,state:'RESTORED'};stage='RESTORED';return safe(settlement);},
+    },
+  };
+  const owner=liveOwner({withLore:true});Object.assign(owner.bindings,{loreAuthoringHost:authoringHost,readSelectedLorebookSelection:()=>({selected:true,lorebookId:'Moon Harbor',title:'Moon Harbor'}),discoverSelectedLorebook:async()=>({id:'Moon Harbor',title:'Moon Harbor',entries:[{uid:'captain',content:'Captain watches the harbor.',metadata:{title:'Captain'}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:1}})});
+  const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.operator.loreAuthoring.sourceDiscoveryIdentity({});ui.shell.selectWorkspace('lore');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const findButton=label=>walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  assert.equal(Boolean(findButton('Apply approved Settlement')),false);
+  findButton('Start reviewed Tree build').dispatch('click');await Promise.resolve();ui.scheduler.flush(3);
+  assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Accept').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
+  findButton('Compute revision-fenced Final Preview').dispatch('click');await Promise.resolve();ui.scheduler.flush(5);
+  assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Approve current Final Preview').dispatch('click');await Promise.resolve();ui.scheduler.flush(6);
+  assert.ok(findButton('Apply approved Settlement'));findButton('Apply approved Settlement').dispatch('click');await Promise.resolve();ui.scheduler.flush(7);
+  assert.match(textOf(ui.shell.nodes.workspace),/Settlement receipt/);assert.match(textOf(ui.shell.nodes.workspace),/Reconstructable Yes/);assert.ok(findButton('Restore settled revisions'));
+  assert.deepEqual(calls.slice(0,5),['start','ACCEPT','preview','approve','settle']);ui.destroy();
+});
+
 test('Worker 4 Wave 6 authoring contract stays review-only and renders Tree / merge previews without Apply',async()=>{
   const calls=[];
   const authoringHost={

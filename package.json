@@ -85,7 +85,8 @@
     "report:wave16": "node scripts/coprocessor-wave16-evaluation.mjs",
     "smoke:wave16:live": "node scripts/resource-jev-vector-wave16-live-smoke.mjs",
     "test:browser:wave16": "node --test tests/coprocessor-wave16-browser.test.mjs",
-    "test:wave17": "node --test tests/coprocessor-wave17-browser-fetch.test.mjs tests/coprocessor-wave17-owner-handoff.test.mjs tests/coprocessor-wave17-ui-contract.test.mjs",
-    "test:browser:wave17": "node --test tests/coprocessor-wave17-browser-fetch.test.mjs"
+    "test:wave17": "node --test tests/coprocessor-wave17-browser-fetch.test.mjs tests/coprocessor-wave17-owner-handoff.test.mjs tests/coprocessor-wave17-ui-contract.test.mjs tests/coprocessor-wave17-evaluation.test.mjs",
+    "test:browser:wave17": "node --test tests/coprocessor-wave17-browser-fetch.test.mjs",
+    "report:wave17": "node scripts/sidecar-jev-wave17-evaluation.mjs"
   }
 }

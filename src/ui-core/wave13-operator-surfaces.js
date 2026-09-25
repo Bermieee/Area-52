@@ -708,23 +708,30 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
 
   const form=element(d,'section',{className:'a52-card a52-wave13-lore-form'});
   form.append(element(d,'h2',{text:'SillyTavern selected Lorebook'}));
-  const selection=selected.selection??{},snapshot=selected.snapshot??null;
+  const selection=selected.selection??{},snapshot=selected.snapshot??null,discovery=selected.discovery??{};
   if(selection.selected){
     form.append(createKeyValue(d,[
       {key:'Title',value:snapshot?.title??selection.title??'—'},
       {key:'Lorebook ID',value:snapshot?.id??selection.lorebookId??'—'},
-      {key:'Entry count',value:snapshot?.entries?.length??'Load selection to verify'},
+      {key:'Entry count',value:snapshot?.entries?.length??(discovery.status==='LOADING'?'Verifying…':'Not verified')},
     ]));
+    if(discovery.status==='LOADING')form.append(message(d,'Verifying selected Lorebook','Area-52 is reading the current SillyTavern World Info selection. This does not accept or study it.','historical'));
+    else if(discovery.status==='ERROR')form.append(message(d,'Selected Lorebook could not be loaded',discovery.error?.message??'SillyTavern did not return the selected Lorebook.','warning'));
+    else if(snapshot)form.append(message(d,'Selection verified','Title, Lorebook ID, and '+String(snapshot.entries?.length??0)+' authored entries were read from the current SillyTavern selection. Accept and study remain explicit.','ready'));
   }else form.append(message(d,'No Lorebook selected',selection.reason??'Select a Lorebook in SillyTavern’s World Info editor first.','historical'));
 
   const status=element(d,'p',{className:'a52-wave13-form-status',attrs:{role:'status','aria-live':'polite'}});
   const actions=element(d,'div',{className:'a52-wave13-lore-actions'});
-  const discover=createButton(d,{label:snapshot?'Refresh selected Lorebook':'Load selected Lorebook',disabled:!caps.discover,scope,onPress:async()=>{
+  const discover=createButton(d,{label:'Refresh selected Lorebook',disabled:!caps.discover||!selection.selected,scope,onPress:async()=>{
     status.textContent='Reading the currently selected SillyTavern Lorebook…';status.dataset.status='loading';
     try{
       const result=await loreStudy.discoverSelectedLorebook();
-      status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Verify the title, ID, and count before accepting.';status.dataset.status='ready';refresh?.();
-    }catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
+      if(!result){status.textContent='No SillyTavern Lorebook is selected.';status.dataset.status='historical';refresh?.();return;}
+      status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Accept and study remain explicit.';status.dataset.status='ready';refresh?.();
+    }catch(error){
+      if(error?.code==='LORE_DISCOVERY_STALE_SELECTION'){status.textContent='Lorebook selection changed while loading; the stale response was ignored.';status.dataset.status='historical';refresh?.();return;}
+      status.textContent=String(error?.message??error);status.dataset.status='error';refresh?.();
+    }
   }});
   const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,onPress:async()=>{
     const current=loreStudy.selectedLorebook?.().snapshot??null;

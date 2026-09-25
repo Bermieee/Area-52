@@ -412,6 +412,72 @@ test('Wave 7 merge approval rejects source changes after Final Preview', () => {
   assert.equal(authoring.authoringProgress(started.sessionId).stage, 'DRAFT_REVIEW');
 });
 
+test('Wave 7 late merge output collision returns the approved plan to Draft Review before Settlement', () => {
+  const intelligence = readyWorld();
+  const authoring = new LoreAuthoringService({intelligence});
+  const started = authoring.startMergeBuild({
+    lorebookIds: ['harbor-authored', 'mirror-archive'],
+    outputLorebookId: 'late-output-collision',
+  });
+  finishBuild(authoring, started.sessionId);
+  decideAll(authoring, started.sessionId, 'ACCEPT', 'late-output-accept');
+  const finalPreview = authoring.computeFinalPreview({sessionId: started.sessionId});
+  assert.equal(finalPreview.validation.ok, true);
+  const approval = authoring.approveFinalPreview({
+    sessionId: started.sessionId,
+    operatorApprovalId: 'late-output-final-approval',
+  });
+  assert.equal(approval.stage, 'READY_TO_SETTLE');
+
+  intelligence.runtime.registry.registerLorebook({
+    id: 'late-output-collision',
+    title: 'External Output Owner',
+    metadata: {discovery: {kind: 'ExternalOwner'}},
+  });
+
+  const result = authoring.applySettlement({sessionId: started.sessionId});
+  assert.equal(result.readyForApproval, false);
+  assert.equal(result.stale.reason, 'OUTPUT_LOREBOOK_CONFLICT');
+  assert.equal(authoring.authoringProgress(started.sessionId).stage, 'DRAFT_REVIEW');
+  assert.equal(authoring.authoringProgress(started.sessionId).settlement, null);
+});
+
+test('Wave 7 resumed partial Settlement fails closed when an already-applied output revision changes externally', () => {
+  const intelligence = readyWorld();
+  const authoring = new LoreAuthoringService({intelligence});
+  const started = authoring.startMergeBuild({
+    lorebookIds: ['harbor-authored', 'mirror-archive'],
+    outputLorebookId: 'resume-conflict-merge',
+  });
+  finishBuild(authoring, started.sessionId);
+  decideAll(authoring, started.sessionId, 'ACCEPT', 'resume-conflict-accept');
+  assert.equal(authoring.computeFinalPreview({sessionId: started.sessionId}).validation.ok, true);
+  authoring.approveFinalPreview({
+    sessionId: started.sessionId,
+    operatorApprovalId: 'resume-conflict-final-approval',
+  });
+
+  const partial = authoring.applySettlement({sessionId: started.sessionId, maxOperations: 1});
+  assert.equal(partial.state, 'CHECKPOINTED');
+  assert.equal(partial.receipts.length, 1);
+  const appliedReceipt = partial.receipts[0];
+  const appliedSource = intelligence.runtime.registry.getEntry(appliedReceipt.sourceId);
+  const appliedRevision = intelligence.runtime.registry.currentRevision(appliedReceipt.sourceId);
+  intelligence.runtime.upsertEntry({
+    lorebookId: appliedSource.lorebookId,
+    uid: appliedSource.uid,
+    content: appliedRevision.exactContent + ' External operator edit.',
+    metadata: appliedRevision.metadata,
+  });
+
+  const resumed = authoring.applySettlement({sessionId: started.sessionId, maxOperations: 128});
+  assert.equal(resumed.state, 'FAILED');
+  assert.equal(resumed.lastError.code, 'LORE_SETTLEMENT_APPLIED_REVISION_STALE');
+  assert.equal(resumed.cursor, 1);
+  assert.equal(resumed.receipts.length, 1);
+  assert.equal(authoring.authoringProgress(started.sessionId).stage, 'FAILED');
+});
+
 test('Wave 7 Worker 1 and Worker 3 contracts expose lifecycle, settlement, restoration, and backlog without claiming UI wiring', () => {
   const intelligence = readyWorld();
   const authoring = new LoreAuthoringService({intelligence});

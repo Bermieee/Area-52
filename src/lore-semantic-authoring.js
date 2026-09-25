@@ -295,6 +295,15 @@ export class LoreSemanticCompiler {
     const retrieval = fromRevision
       ? listRetrievalDependencies(this.intelligence, sourceId, fromRevision.id)
       : [];
+    const retrievalForms = before.artifacts
+      .filter((artifact) => [ArtifactType.RETRIEVAL, ArtifactType.COMPACT].includes(artifact.artifactType))
+      .map((artifact) => ({
+        artifactRef: artifact.id,
+        semanticId: artifact.semanticId,
+        form: artifact.payload?.form || null,
+        sourceRevisionId: artifact.sourceRevisionId,
+      }))
+      .sort((a, b) => a.artifactRef.localeCompare(b.artifactRef));
 
     const invalidationTargets = [];
     if (fromRevision?.id !== toRevision.id) {
@@ -311,10 +320,13 @@ export class LoreSemanticCompiler {
         reason: 'SOURCE_REVISION_FENCE_CHANGED',
         refs: representations.map((row) => row.representationRef),
       });
-      if (retrieval.length) invalidationTargets.push({
+      if (retrieval.length || retrievalForms.length) invalidationTargets.push({
         target: LoreInvalidationTarget.RETRIEVAL_INDEX,
         reason: 'SOURCE_RETRIEVAL_DEPENDENCY_CHANGED',
-        refs: retrieval.map((row) => row.retrievalRecordRef),
+        refs: [...new Set([
+          ...retrieval.map((row) => row.retrievalRecordRef),
+          ...retrievalForms.map((row) => row.artifactRef),
+        ])].sort(),
       });
       if (summaries.length) invalidationTargets.push({
         target: LoreInvalidationTarget.NAVIGATION_SUMMARIES,
@@ -373,6 +385,7 @@ export class LoreSemanticCompiler {
         representations,
         summaries,
         retrievalRecords: retrieval,
+        retrievalForms,
         minimalityRule: 'Only artifacts fenced by the changed source revision, or semantic aggregates that depend on them, are invalidated.',
         unrelatedSourcesInvalidated: false,
         destructiveMutationAuthority: false,
@@ -464,7 +477,7 @@ export class LoreSemanticCompiler {
       originalServiceMutated: false,
       acceptance: deepClone(acceptance),
       study: {
-        completed: study.results?.every((row) => row.state === 'COMPLETED') ?? true,
+        completed: study.results?.every((row) => row.obligation?.state === 'COMPLETED') ?? true,
         compilationCount: study.compilations?.length || 0,
       },
       semanticChange: report,

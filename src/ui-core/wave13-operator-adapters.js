@@ -132,15 +132,16 @@ export class Wave13LoreStudyUIAdapter{
       if(raw==null)return idle('Lore Study','Lore Study is connected; no Lore has been accepted yet.','LoreStudyRuntime',selection);
       if(selection.turnId)assertSelection(raw,selection,'Lore Study',{allowMissingIdentity:true});
       const data=normalizeLoreSurface(raw);
-      const invalid=Number(data.lifecycle?.counts?.INVALID??0),active=Number(data.lifecycle?.active??data.lifecycle?.counts?.ACTIVE??0),due=Number(data.lifecycle?.due??0);
+      const failed=Number(data.operatorCounts?.FAILED??data.lifecycle?.counts?.INVALID??0),studying=Number(data.operatorCounts?.STUDYING??0),accepted=Number(data.operatorCounts?.ACCEPTED??0);
+      const active=Number(data.lifecycle?.active??data.lifecycle?.counts?.ACTIVE??0),due=Number(data.lifecycle?.due??0),working=studying+accepted+active+due>0;
       const stale=data.entries.some(x=>x.freshness==='STALE_OR_UNLEARNED');
-      const health=invalid?Wave6Health.DEGRADED:active||due?Wave6Health.WORKING:Wave6Health.READY;
-      const op=invalid?OperatorProducerState.DEGRADED:active||due?OperatorProducerState.WORKING:data.entries.length?OperatorProducerState.LIVE:OperatorProducerState.IDLE;
-      const learned=data.entries.filter(x=>['CURRENT','REMOVED'].includes(x.freshness)&&x.learnedRevisionId).length;
+      const health=failed?Wave6Health.DEGRADED:working?Wave6Health.WORKING:Wave6Health.READY;
+      const op=failed?OperatorProducerState.DEGRADED:working?OperatorProducerState.WORKING:data.entries.length?OperatorProducerState.LIVE:OperatorProducerState.IDLE;
+      const ready=Number(data.operatorCounts?.READY??0);
       return deepFreeze({
         source:createProductSourceStatus({
-          mode:invalid?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health,label:'Lore Study',operationalState:op,
-          impact:invalid?'One or more Lore study obligations are invalid.':active||due?'Lore is accepted; study is still in progress.':data.entries.length?learned===data.entries.length?'Accepted Lore is learned and retrieval-facing.':'Lore is accepted but not all entries are learned yet.':'No Lore has been accepted.',
+          mode:failed?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health,label:'Lore Study',operationalState:op,
+          impact:failed?'Lore owner reports one or more failed study entries.':working?'Lore is accepted; study or readiness work is still in progress.':data.entries.length?ready===data.entries.length?'Accepted Lore is ready for retrieval.':'Accepted Lore is not fully retrieval-ready yet.':'No Lore has been accepted.',
           reason:stale?'One or more accepted source revisions are stale or not learned.':'',producer:raw.kind??'LoreStudyRuntime',revision:data.revision,connected:true,selection,freshness:stale?'STALE_OR_UNLEARNED':'CURRENT',
         }),
         data,

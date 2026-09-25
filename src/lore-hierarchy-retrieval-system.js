@@ -69,12 +69,19 @@ export class LoreHierarchyRetrievalSystem {
       });
     }
     const before = new Map(this.summaryRegistry.activeSummaries().map((row) => [row.targetScopeId, row.id]));
+    const previousScopes = this.hierarchy ? hierarchyScopeMap(this.hierarchy) : new Map();
+    const previousAffectedScopeIds = new Set([...previousScopes.values()]
+      .filter((scope) => (scope.sourceIds || []).some((sourceId) => wanted.has(String(sourceId))))
+      .map((scope) => scope.id));
     this.refreshHierarchy();
     const scopes = hierarchyScopeMap(this.hierarchy);
-    const affected = [...scopes.values()]
+    const affectedSetFromSource = new Set([...scopes.values()]
       .filter((scope) => (scope.sourceIds || []).some((sourceId) => wanted.has(String(sourceId))))
-      .map((scope) => scope.id)
-      .sort();
+      .map((scope) => scope.id));
+    for (const scopeId of previousAffectedScopeIds) {
+      if (scopes.has(scopeId)) affectedSetFromSource.add(scopeId);
+    }
+    const affected = [...affectedSetFromSource].sort();
     const limit = Math.max(1, Math.min(1024, Number(maxScopes) || 128));
     if (affected.length > limit) {
       throw Object.assign(new Error('Targeted navigation rebuild scope limit exceeded'), {
@@ -128,6 +135,7 @@ export class LoreHierarchyRetrievalSystem {
       sourceIds: [...wanted].sort(),
       hierarchyRevision: this.hierarchy?.hierarchyRevision || null,
       affectedScopeIds: affected,
+      previousAffectedScopeIds: [...previousAffectedScopeIds].sort(),
       executionPlan: plan,
       results,
       builtScopeIds: results.filter((row) => row.state === 'BUILT').map((row) => row.scopeId),

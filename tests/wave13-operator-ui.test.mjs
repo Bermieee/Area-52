@@ -184,7 +184,12 @@ test('Brain activity distinguishes sealed generation delivery from post-response
   let learned=false;
   owner.bindings.readGeneration=({generationId})=>generationId===selection.generationId?{
     kind:'NativeBrainGenerationReadModel',...selection,state:learned?'LEARNED':'SEALED_FOR_GENERATION',
-    promptPlan:{promptPlanId:'plan:1'},contextSeal:{id:'seal:1'},learningReceipt:learned?{kind:'NativeBrainLearningReceipt',sourceRevisionId:'narrative:r1'}:null,
+    promptPlan:{promptPlanId:'plan:1'},contextSeal:{id:'seal:1'},
+    identityResolution:{kind:'NativeBrainIdentityResolutionReadModel',status:'READY',entities:['captain'],resolved:['captain'],unresolved:[],secretText:'must not surface'},
+    graphTraversal:{kind:'GraphTraversalReceipt',status:'COMPLETE',visitedNodeIds:['n1','n2'],visitedEdgeIds:['e1'],rawEvidence:'must not surface'},
+    retrievalBudget:{kind:'RetrievalBudgetReceipt',status:'COMPLETE',admitted:['a'],deferred:['b'],query:'must not surface'},
+    rejectedEvidence:{kind:'RejectedEvidenceReadModel',items:[{id:'bad',content:'must not surface'}],reasonCode:'STALE_SOURCE'},
+    learningReceipt:learned?{kind:'NativeBrainLearningReceipt',sourceRevisionId:'narrative:r1'}:null,
   }:null;
   owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',id:'seal:1',sealedState:true,effectiveAdmittedResultIds:[],...selection});
   const{ui}=mount(owner);ui.shell.selectWorkspace('brain');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
@@ -192,6 +197,11 @@ test('Brain activity distinguishes sealed generation delivery from post-response
   assert.equal(pipeline.deliveryReceipt,true);assert.equal(pipeline.learningReceipt,false);assert.match(body,/Generation delivery/);assert.match(body,/No learning receipt yet/);
   learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
   assert.equal(pipeline.learningReceipt,true);assert.match(body,/Learning receipt recorded/);
+  ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWorkspace('settings');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
+  const diagnostics=ui.operator.diagnostics.read(),advanced=textOf(ui.shell.nodes.workspace);
+  assert.equal(diagnostics.generationInspection.identityResolution.counts.entities,1);assert.equal(diagnostics.generationInspection.graphTraversal.counts.visitedNodeIds,2);assert.equal(diagnostics.generationInspection.rejectedEvidence.count,1);
+  assert.match(advanced,/Owner generation inspection/);assert.match(advanced,/Rejected evidence 1 rejected/);
+  assert.doesNotMatch(JSON.stringify(diagnostics),/must not surface/);assert.doesNotMatch(advanced,/must not surface/);
   ui.destroy();
 });
 

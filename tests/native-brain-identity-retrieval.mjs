@@ -166,6 +166,32 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
   }));
 });
 
+test('DETERMINISTIC: accepted alias never outranks a canonical-name collision in the same identity scope',()=>{
+  const brain=new Area52NativeBrain();
+  const aliasTarget='entity:collision:alias-target',canonicalCollision='entity:collision:canonical-name';
+  brain.registerEntityIdentity({entityId:aliasTarget,canonicalLabel:'Ash',entityType:'PERSON',worldId:'world:collision'});
+  brain.registerEntityIdentity({entityId:canonicalCollision,canonicalLabel:'Silver Ash',entityType:'PERSON',worldId:'world:collision'});
+  const lore=brain.acceptLore({
+    sourceId:'lore:collision:alias',sourceType:'LORE_ENTRY',exactContent:'Ash is explicitly called Silver Ash in this source.',
+    semantic:{subjectId:aliasTarget,predicate:'alias',value:'Silver Ash'},metadata:{representationText:'Ash is explicitly called Silver Ash.'},
+  });
+  const proposal=brain.proposeEntityIdentity({
+    action:'ALIAS_ADD',providerId:'LORE_COLLISION',sourceEntityId:'source:collision:ash',alias:'Silver Ash',
+    targetEntityId:aliasTarget,worldId:'world:collision',entityType:'PERSON',authorityOrigin:'SOURCE_EXPLICIT',explicit:true,
+    sourceRevisionRefs:[lore.sourceRevisionId],provenanceRefs:[lore.evidenceId,'identity:collision:explicit-alias'],
+  });
+  assert.equal(brain.settleEntityIdentity(proposal.proposalId,{decision:'ACCEPT'}).state,'ALIAS_ADDED');
+
+  const resolution=brain.core.entities.resolveMention({label:'Silver Ash',worldId:'world:collision',entityType:'PERSON'});
+  assert.equal(resolution.state,'UNRESOLVED');
+  assert.equal(resolution.entity,null);
+  assert.deepEqual(resolution.candidateEntityIds.sort(),[aliasTarget,canonicalCollision].sort());
+  assert.equal(brain.entityIdentityContract().rules.aliasResolutionRequiresUniqueCandidate,true);
+
+  const explicit=brain.core.entities.resolveSource({providerId:'LORE_COLLISION',sourceEntityId:'source:collision:ash'});
+  assert.equal(explicit.entity.entityId,aliasTarget);
+});
+
 test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession history, mistaken belief, stale correction fences, and exact paths',async()=>{
   const brain=new Area52NativeBrain();
   const ids={

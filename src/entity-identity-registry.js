@@ -165,7 +165,7 @@ export class NativeEntityIdentityRegistry{
     if(providerId&&sourceEntityId){const direct=this.resolveSource({providerId,sourceEntityId});if(direct)return direct;}
     const candidates=this.candidateEntities({label,worldId,entityType});
     const aliasBacked=candidates.filter(row=>row.aliasMatches.length);
-    if(aliasBacked.length===1)return{kind:'EntityResolution',state:'RESOLVED_ACCEPTED_ALIAS',entity:clone(this.entities.get(aliasBacked[0].entityId)),candidateEntityIds:[aliasBacked[0].entityId]};
+    if(candidates.length===1&&aliasBacked.length===1)return{kind:'EntityResolution',state:'RESOLVED_ACCEPTED_ALIAS',entity:clone(this.entities.get(aliasBacked[0].entityId)),candidateEntityIds:[aliasBacked[0].entityId]};
     return{kind:'EntityResolution',state:candidates.length?'UNRESOLVED':'NOT_FOUND',entity:null,candidateEntityIds:candidates.map(x=>x.entityId)};
   }
 
@@ -218,7 +218,7 @@ export class NativeEntityIdentityRegistry{
       rules:{
         proposalMutation:false,modelMergeAuthority:false,retrievalMergeAuthority:false,graphMergeAuthority:false,
         graphProximityMaySettleIdentity:false,confidenceMaySettleIdentity:false,canonicalMergeSplitRequiresOwnerSettlement:true,
-        sourceRevisionInvalidatesOnlyDependentAssertions:true,historicalAliasPreserved:true,
+        sourceRevisionInvalidatesOnlyDependentAssertions:true,historicalAliasPreserved:true,aliasResolutionRequiresUniqueCandidate:true,
       },
     };
   }

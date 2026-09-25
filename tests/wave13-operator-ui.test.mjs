@@ -416,6 +416,20 @@ test('Worker 2 CognitionUiState exact numeric counters stay live instead of degr
   assert.equal(snap.wave6.sources.coprocessor.mode,'DEGRADED');ui.destroy();
 });
 
+test('Connections overlays selected-turn execution and owner acceptance onto configured resource state',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost({configured:true});owner.bindings.resourceHost=host;
+  host.read.cognition=(selection={})=>({kind:'CognitionUiState',contractVersion:'2.0.0',...selection,activeTasks:0,hotTasks:0,deepTasks:0,health:'READY',
+    queue:{queued:0,yields:0,parks:0,resumes:0},physicalExecution:{attempts:1,succeeded:1,failed:0},lifecycle:{configured:1,connected:1,physicallyExecuted:1,ownerAccepted:1},
+    resources:[{resourceId:'sidecar:configured',configured:true,connected:true,qualified:true,callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,ownerAccepted:true}],
+    ownerAcceptance:[{kind:'NativeSidecarSwarmOwnerHandoffReceipt',ownerAdmissionPerformed:true,admissions:[{resourceId:'sidecar:configured',acceptedByOwner:true,destination:'CONTEXT'}]}],
+    rawPromptIncluded:false,rawPayloadIncluded:false,credentialIncluded:false});
+  await uiConnectConfigured(host);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(2);
+  const sidecar=walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR'),body=textOf(sidecar);
+  assert.match(body,/Physical execution Succeeded/);assert.match(body,/Owner accepted Yes/);assert.match(body,/Qualified callable by owner/);
+  ui.destroy();
+});
+
 test('Worker 2 resourceHost cognition v2 is consumed directly with lifecycle and owner-admission distinctions',()=>{
   const owner=liveOwner(),host=worker2ResourceHost({configured:true});owner.bindings.resourceHost=host;
   const{ui}=mount(owner),read=ui.productionAdapters.coprocessor.read();
@@ -760,6 +774,11 @@ function worker2ResourceHost({configured=false,discoveryState='READY',testFailur
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     listenerCount:()=>listeners.size,
   };
+}
+
+async function uiConnectConfigured(host){
+  const row=host.read.resources().resources.find(x=>x.resourceId==='sidecar:configured');
+  if(row?.state!=='READY')await host.actions.connectResource('sidecar:configured');
 }
 
 function directLoreRuntime(){

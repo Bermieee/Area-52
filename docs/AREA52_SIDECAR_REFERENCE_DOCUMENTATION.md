@@ -288,3 +288,19 @@ The following remain empirical decisions:
 - warm-packet prediction horizon.
 
 All choices must be made against Area-52 golden-world, latency, recovery and long-session benchmarks.
+
+
+---
+
+## 10. Wave 1 implementation note
+
+Wave 1 selected the native in-process contract path for the proof:
+
+- immutable Area-52 Turn Event;
+- capability-defined task requests;
+- injected execution router;
+- deterministic Gather Coordinator;
+- Result Bus boundary adapter;
+- Context Seal boundary adapter.
+
+This is not a Dapr decision. Dapr, heavy IPC, provider-specific frameworks and production model routing remain benchmark/deferred work.

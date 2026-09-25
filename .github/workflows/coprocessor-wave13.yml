@@ -1,0 +1,56 @@
+name: Cognitive Coprocessor Wave 13
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave13:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve Wave 12 warmer acceptance
+        run: npm run test:wave12
+      - name: Wave 13 cognitive choice goldens and evaluation
+        run: npm run test:wave13
+      - name: Wave 13 one-resource and multi-resource stress
+        run: npm run test:wave13:stress
+      - name: Wave 13 browser portability guard
+        run: npm run test:browser:wave13
+      - name: Generate Wave 13 measured evaluation
+        run: npm run report:wave13
+      - name: Observe Wave 11 repair-owned regression
+        id: wave11
+        continue-on-error: true
+        run: npm run test:wave11
+      - name: Observe live Jev provider smoke
+        id: provider_smoke
+        continue-on-error: true
+        run: npm run smoke:jev:live
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Upload Wave 13 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coprocessor-wave13-choice
+          path: artifacts/jev-wave13/
+      - name: Record optional observations
+        if: always()
+        run: |
+          echo "Wave 11 repair-owned observation: ${{ steps.wave11.outcome }}"
+          echo "Live Jev provider smoke observation: ${{ steps.provider_smoke.outcome }}"

@@ -66,7 +66,7 @@ function sourceEvidence(runtime, sourceId) {
         + humanize(artifact.payload.value, labels) + '.';
       const critical = artifact.unresolved
         || [TemporalClass.HISTORICAL, TemporalClass.SEQUENCE, TemporalClass.DATED, TemporalClass.UNCERTAIN, TemporalClass.CONFLICTING].includes(artifact.temporalClass)
-        || artifact.payload.predicate === 'state';
+        || ['state', 'behavior'].includes(artifact.payload.predicate);
       push({
         evidenceId: 'evidence:' + artifact.id,
         kind: 'CLAIM',
@@ -146,11 +146,16 @@ function sourceEvidence(runtime, sourceId) {
   }
 
   for (const span of sentenceSpans(revision.exactContent)) {
-    if (!/\b(cannot|can't|must|never|only|prohibited|required|immune|unable|must not|may not)\b/i.test(span.text)) continue;
+    const hardRule = /\b(cannot|can't|must|never|only|prohibited|required|immune|unable|must not|may not)\b/i.test(span.text);
+    const exception = /\b(except|unless|however|but only|except when|except if)\b/i.test(span.text);
+    const behavior = /\b(protects?|shields?|evacuates?|abandons?|fidgets?|flinches?|smiles?|laughs?|hums?|paces?|whispers?|avoids? eye contact|leans?|pulls? away|reaches? for)\b/i.test(span.text);
+    if (!hardRule && !exception && !behavior) continue;
+    const kind = hardRule && exception ? 'HARD_RULE_EXCEPTION' : hardRule ? 'HARD_RULE' : exception ? 'RULE_EXCEPTION' : 'CHARACTER_BEHAVIOR';
+    const prefix = hardRule && exception ? '[RULE][EXCEPTION] ' : hardRule ? '[RULE] ' : exception ? '[EXCEPTION] ' : '[BEHAVIOR] ';
     push({
-      evidenceId: 'source-rule:' + stableHash(revision.id + '|' + span.start + '|' + span.end + '|' + span.text),
-      kind: 'HARD_RULE',
-      text: '[RULE] ' + span.text,
+      evidenceId: (hardRule && exception ? 'source-rule-exception:' : hardRule ? 'source-rule:' : exception ? 'source-exception:' : 'source-behavior:') + stableHash(revision.id + '|' + span.start + '|' + span.end + '|' + span.text),
+      kind,
+      text: prefix + span.text,
       critical: true,
       sourceId,
       sourceRevisionId: revision.id,
@@ -391,7 +396,9 @@ export function validateNavigationSummaryDraft({draft, request}) {
   for (const row of criticalStatements) if (!seen.has(row.statementId)) {
     if (row.text.includes('[UNRESOLVED]')) failures.push('UNRESOLVED_EVIDENCE_DROPPED');
     else if (row.text.includes('[HISTORICAL]') || row.text.includes('[SEQUENCE]') || row.text.includes('[DATED]')) failures.push('TEMPORAL_EVIDENCE_DROPPED');
+    else if (row.text.includes('[EXCEPTION]')) failures.push('RULE_EXCEPTION_DROPPED');
     else if (row.text.startsWith('[RULE]')) failures.push('HARD_RULE_DROPPED');
+    else if (row.text.startsWith('[BEHAVIOR]')) failures.push('CHARACTER_BEHAVIOR_DROPPED');
     else failures.push('SIGNIFICANT_RELATIONSHIP_OR_STATE_DROPPED');
   }
 
@@ -411,6 +418,10 @@ export function validateNavigationSummaryDraft({draft, request}) {
     criticalEvidenceRetained: criticalStatements.filter((row) => seen.has(row.statementId)).length,
     hardRulesTotal: criticalStatements.filter((row) => row.text.startsWith('[RULE]')).length,
     hardRulesRetained: criticalStatements.filter((row) => row.text.startsWith('[RULE]') && seen.has(row.statementId)).length,
+    exceptionsTotal: criticalStatements.filter((row) => row.text.includes('[EXCEPTION]')).length,
+    exceptionsRetained: criticalStatements.filter((row) => row.text.includes('[EXCEPTION]') && seen.has(row.statementId)).length,
+    behaviorTotal: criticalStatements.filter((row) => row.text.startsWith('[BEHAVIOR]') || / behavior /.test(row.text)).length,
+    behaviorRetained: criticalStatements.filter((row) => (row.text.startsWith('[BEHAVIOR]') || / behavior /.test(row.text)) && seen.has(row.statementId)).length,
     unresolvedTotal: criticalStatements.filter((row) => row.text.includes('[UNRESOLVED]')).length,
     unresolvedRetained: criticalStatements.filter((row) => row.text.includes('[UNRESOLVED]') && seen.has(row.statementId)).length,
     temporalTotal: criticalStatements.filter((row) => /\[(HISTORICAL|SEQUENCE|DATED|UNCERTAIN|CONFLICTING)\]/.test(row.text)).length,

@@ -180,11 +180,13 @@ export class HotCognitionRuntime{
     const namespace=String(chatNamespace??'').trim();if(!namespace)throw new TypeError('consumeSceneSignal requires an active chat namespace');
     if(!this.states.has(namespace))this.activateChat(namespace,{reason:'SCENE_SIGNAL'});
     const state=this.states.get(namespace);this.activeChatNamespace=namespace;
+    const priorSceneId=state.sceneId,priorSceneRevision=state.sceneRevision;
     const sceneId=String(signal?.sceneId??'').trim(),sceneRevision=Number(signal?.sceneRevision);
     if(!sceneId||!Number.isInteger(sceneRevision)||sceneRevision<1)throw new TypeError('Scene signal requires sceneId and positive sceneRevision');
     const id=updateId??('scene-signal:'+sceneId+':'+sceneRevision+':'+stableHash(signal,{length:16}));
     const duplicate=this.#duplicateReceipt(state,id,'SCENE_INTEGRATION_SIGNAL');if(duplicate)return duplicate;
     if(state.sceneId===sceneId&&sceneRevision<state.sceneRevision)return this.#stale(state,id,'SCENE_INTEGRATION_SIGNAL','scene revision '+sceneRevision+' is older than active '+state.sceneRevision,sceneRevision);
+    const graphContextChanged=priorSceneId!==null&&(priorSceneId!==sceneId||priorSceneRevision!==sceneRevision);
     const sourceRevisionRefs=uniq(signal.sourceRevisionRefs??signal.sourceRevisionSet??[]),inactiveSourceRefs=this.#knownInactiveSourceRefs(sourceRevisionRefs);
     if(inactiveSourceRefs.length)return this.#stale(state,id,'SCENE_INTEGRATION_SIGNAL','Scene signal depends on inactive source revisions: '+inactiveSourceRefs.join(','),sceneRevision);
     const provenanceRefs=provenanceFrom(signal),transition=state.sceneId!==null&&state.sceneId!==sceneId,narrativeTime=normalizeField(signal.narrativeTime??null);
@@ -219,6 +221,7 @@ export class HotCognitionRuntime{
     const episodeRefs=[...(signal.episodeRefs??[]),...(signal.latestEpisodeRef?[signal.latestEpisodeRef]:[])];
     if(episodeRefs.length)this.#appendEpisodeRefs(state,episodeRefs,{sourceRevisionRefs,provenanceRefs,updateId:id,rebuild,changed,reused});
 
+    if(graphContextChanged)this.#invalidateSegments(state,[HotSegmentKind.GRAPH_NEIGHBORHOOD],{reason:'SCENE_REVISION_CHANGED',updateId:id,invalidated});
     state.sceneId=sceneId;state.sceneRevision=sceneRevision;
     this.#setDependencyInternal(state,'SCENE',HotDependencyState.AVAILABLE,{revisionRefs:[String(sceneRevision)],reason:'Scene signal consumed',updateId:id,changed,reused});
     if(transition){
@@ -305,7 +308,7 @@ export class HotCognitionRuntime{
     }else if(eventType==='SCENE_EPISODE_READY'){
       this.#appendEpisodeRefs(state,[payload.episodeRef??payload.artifactRef??payload.episode??payload].filter(Boolean),{sourceRevisionRefs,provenanceRefs,updateId,rebuild:false,changed,reused});
     }else if(eventType==='SCENE_CLOSED'){
-      this.#invalidateSegments(state,[HotSegmentKind.SCENE,HotSegmentKind.LOCATION,HotSegmentKind.ACTIVE_CAST,HotSegmentKind.ACTIVE_ENTITIES,HotSegmentKind.ACTIVE_THREADS],{reason:'SCENE_CLOSED',updateId,invalidated});
+      this.#invalidateSegments(state,[HotSegmentKind.SCENE,HotSegmentKind.LOCATION,HotSegmentKind.ACTIVE_CAST,HotSegmentKind.ACTIVE_ENTITIES,HotSegmentKind.ACTIVE_THREADS,HotSegmentKind.GRAPH_NEIGHBORHOOD],{reason:'SCENE_CLOSED',updateId,invalidated});
     }else if(eventType==='KNOWLEDGE_INVALIDATED'){
       const receipt=this.#knowledgeInvalidation(state,{updateId,eventType,sourceRevisionRefs:uniq(payload.invalidatedSourceRevisionRefs??payload.sourceRevisionRefs??sourceRevisionRefs),dependencyRevisionRefs:uniq(payload.invalidatedDependencyRevisionRefs??[]),affectedSegments:payload.affectedSegments??[],reason:payload.reason??'KNOWLEDGE_INVALIDATED'});
       return receipt;
@@ -347,6 +350,7 @@ export class HotCognitionRuntime{
         refId:'recent:'+evidence.sourceRevisionId,sourceRevisionId:evidence.sourceRevisionId,messageId:evidence.messageId??null,
         messageRevision:evidence.messageRevision??null,role:evidence.role??null,activity,contentDigest:stableHash(String(evidence.content),{length:16,alreadyString:true}),
         excerpt:boundedText(evidence.content),turnId:evidence.turnId??null,sequence:Number(evidence.sequence??0),
+        knownBy:uniq(evidence.knownBy??[]),publicToAll:Boolean(evidence.publicToAll),
       });
     }
     tail=cap(tail,this.limits.maxRecentTail);
@@ -359,11 +363,13 @@ export class HotCognitionRuntime{
     const id=String(updateId??('world:'+worldRevision+':'+stableHash(artifactRefs,{length:12}))),duplicate=this.#duplicateReceipt(state,id,eventType);if(duplicate)return duplicate;
     const revision=Number(worldRevision);if(Number.isFinite(revision)&&revision<state.worldRevision)return this.#stale(state,id,eventType,'world revision is older than active world state',state.sceneRevision,revision);
     const inactiveSourceRefs=this.#knownInactiveSourceRefs(sourceRevisionRefs);if(inactiveSourceRefs.length)return this.#stale(state,id,eventType,'world update depends on inactive source revisions: '+inactiveSourceRefs.join(','),state.sceneRevision,revision);
+    const previousWorldRevision=state.worldRevision;
     const current=state.segments[HotSegmentKind.WORLD_REFERENCES].value??[],rows=artifactRefs.map(ref=>typeof ref==='string'?{ref,authorityClass:AuthorityClass.SETTLED,temporalStatus:'CURRENT'}:{...clone(ref),ref:identityOf(ref),authorityClass:observationOf(ref,AuthorityClass.SETTLED),temporalStatus:ref.temporalStatus??'CURRENT'}).filter(x=>x.ref&&x.temporalStatus==='CURRENT');
-    const merged=cap([...new Map([...current,...rows].map(x=>[x.ref,x])).values()].sort((a,b)=>a.ref.localeCompare(b.ref)),this.limits.maxWorldRefs),changed=[],reused=[];
+    const merged=cap([...new Map([...current,...rows].map(x=>[x.ref,x])).values()].sort((a,b)=>a.ref.localeCompare(b.ref)),this.limits.maxWorldRefs),changed=[],reused=[],invalidated=[];
     this.#setSegment(state,HotSegmentKind.WORLD_REFERENCES,{value:merged,sourceRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.SETTLED,owner:'WORLD_STATE',freshness:HotFreshness.FRESH,updateId:id,changed,reused});
     state.worldRevision=Math.max(state.worldRevision,Number.isFinite(revision)?revision:state.worldRevision);
-    return this.#commit(state,{updateId:id,eventType,changed,reused,invalidated:[],sourceRevisionRefs,worldRevision:state.worldRevision});
+    if(state.worldRevision>previousWorldRevision)this.#invalidateSegments(state,[HotSegmentKind.GRAPH_NEIGHBORHOOD],{reason:'WORLD_REVISION_CHANGED',updateId:id,invalidated});
+    return this.#commit(state,{updateId:id,eventType,changed,reused,invalidated,sourceRevisionRefs,worldRevision:state.worldRevision});
   }
 
   invalidateKnowledge({chatNamespace=this.activeChatNamespace,updateId,invalidatedSourceRevisionRefs=[],invalidatedDependencyRevisionRefs=[],affectedSegments=[],reason='KNOWLEDGE_INVALIDATED'}={}){

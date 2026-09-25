@@ -9,6 +9,7 @@ const OPPOSITES=[
 
 function textFor(candidate,graph){
   if(typeof candidate.text==='string')return candidate.text;
+  if(typeof candidate.representationText==='string'&&candidate.representationText)return candidate.representationText;
   const claimId=candidate.claimIds?.[0];
   const claim=claimId&&graph?graph.getClaim(claimId):null;
   if(claim)return`${claim.subjectId} ${claim.predicate} ${claim.value} ${claim.status} ${claim.claimType??''}`;

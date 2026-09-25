@@ -4,12 +4,15 @@ import { JevDomainAdapterRegistry, JevDomainAdapterService } from './jev-domain-
 import { createLoreJevAdapter } from './jev-lore-adapter.js';
 import { createSceneJevAdapter } from './jev-scene-adapter.js';
 import { createRetrievalTruthJevAdapter } from './jev-retrieval-truth-adapter.js';
+import { createMemoryJevAdapter, createTemporalJevAdapter } from './jev-memory-temporal-adapter.js';
 
 export function createDefaultJevDomainAdapterRegistry() {
   return new JevDomainAdapterRegistry()
     .register(createLoreJevAdapter())
     .register(createSceneJevAdapter())
-    .register(createRetrievalTruthJevAdapter());
+    .register(createRetrievalTruthJevAdapter())
+    .register(createMemoryJevAdapter())
+    .register(createTemporalJevAdapter());
 }
 
 export function createJevDomainAdapterMatrix({ core = null, providerExecutor = null } = {}) {

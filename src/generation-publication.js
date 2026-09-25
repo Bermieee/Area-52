@@ -30,6 +30,7 @@ export class GenerationPublicationPipeline {
       getWorldRevision:()=>core.graph.revision,
       getSceneRevision:()=>this.sceneRevision,
       isTurnSealed:(turnId)=>this.seal.isTurnSealed(turnId),
+      isSourceRevisionCurrent:(revisionId)=>core.isSourceRevisionCurrent?.(revisionId)??core.registry.isActiveRevision(revisionId),
     });
     this.truth=new TruthPublicationGate({truthGate:core.truthGate,graph:core.graph});
     this.precision=new DeterministicPrecisionStub({graph:core.graph});
@@ -44,11 +45,13 @@ export class GenerationPublicationPipeline {
 
   publish({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
-    budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,
+    budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,perspectiveConstraint=null,
+    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
   }){
     const fingerprint=stableHash({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
-      precisionAvailable:Boolean(precisionAvailable),activeThreads,channelIds:channelIds?uniq(channelIds):null,
+      precisionAvailable:Boolean(precisionAvailable),activeThreads,channelIds:channelIds?uniq(channelIds):null,perspectiveConstraint,
+      candidateBudget,latencyBudgetMs,graphTraversal,
     },{length:24});
     const replay=this.publishedTurns.get(String(turnId));
     if(replay){
@@ -65,10 +68,10 @@ export class GenerationPublicationPipeline {
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
     const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
     const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
-    const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot):null;
+    const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot,{perspectiveConstraint}):null;
     const choiceSession=this.choice?.begin?.({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
-      budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,
+      budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
     })??null;
 
     let primary=[],primaryEnvelope=null,correctiveEnvelope=null,candidates=[];
@@ -79,7 +82,7 @@ export class GenerationPublicationPipeline {
     if(choiceSession?.hotOnly){
       publicationAssessment=emptyAssessment({turnId,query,intent,reason:'long-term retrieval and Truth were skipped because Hot Cognition satisfied the turn'});
     }else{
-      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,channelIds,metadata:{sceneId:sceneTrace?.sceneId??null,sceneRevision,sceneIntegrationReceiptId:sceneTrace?.lastReceiptId??null}});
+      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,channelIds,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}],metadata:{sceneId:sceneTrace?.sceneId??null,sceneRevision,sceneIntegrationReceiptId:sceneTrace?.lastReceiptId??null}});
       this.choice?.observeRetrieval?.(choiceSession,primaryEnvelope,{phase:'PRIMARY'});
       primary=primaryEnvelope.candidates.filter(candidate=>candidate.freshness===CandidateFreshness.FRESH);
       for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
@@ -94,7 +97,7 @@ export class GenerationPublicationPipeline {
       this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:Boolean(assessment.correctiveRequest)});
 
       if(assessment.correctiveRequest){
-        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds:effectiveAnchorEntityIds});
+        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds:effectiveAnchorEntityIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal});
         if(corrective.executed&&!corrective.failed){
           correctiveEnvelope=this.core.retrieval.lastEnvelope??null;
           if(correctiveEnvelope)this.choice?.observeRetrieval?.(choiceSession,correctiveEnvelope,{phase:'CORRECTIVE'});
@@ -150,10 +153,37 @@ export class GenerationPublicationPipeline {
       .filter(x=>x.result.resultType==='PRECISION_RESULT')
       .map(x=>x.result.payload);
     const lowAbstention=assessment?.confidence==='LOW';
+    const admittedKnowledgeCandidateIds=new Set([
+      ...(publicationAssessment?.admittedCandidateIds??[]),
+      ...(publicationAssessment?.supportCandidateIds??[]),
+    ]);
+    const precisionByCandidate=new Map(usablePrecision.map(row=>[row.candidateId,row]));
+    const admittedKnowledgeEvidence=(lowAbstention||choiceSession?.hotOnly?[]:candidates)
+      .filter(candidate=>admittedKnowledgeCandidateIds.has(candidate.candidateId))
+      .map(candidate=>{
+        const evidence=this.core.resolveExternalKnowledge?.(candidate)??null;
+        if(!evidence)return null;
+        const precision=precisionByCandidate.get(candidate.candidateId)??null;
+        return {
+          ...structuredClone(evidence),
+          representationText:candidate.representationText??'',
+          candidateLineage:{
+            ...(structuredClone(evidence.candidateLineage??{})),
+            candidateRefs:uniq([...(evidence.candidateLineage?.candidateRefs??[]),candidate.candidateId]),
+            nominationChannels:uniq([...(evidence.candidateLineage?.nominationChannels??[]),...(candidate.channelNominations??[]).map(x=>x.channelId)]),
+            evidenceRefs:uniq([...(evidence.candidateLineage?.evidenceRefs??[]),...(candidate.evidenceRefs??[])]),
+          },
+          retrievalMetadata:{
+            ...(structuredClone(evidence.retrievalMetadata??{})),
+            fusionScore:candidate.fusionScore??null,
+            precision:precision?{candidateId:precision.candidateId,finalRank:precision.finalRank,score:precision.normalizedScore,freshness:precision.freshness}:null,
+          },
+        };
+      }).filter(Boolean);
     const unknownSlots=lowAbstention||choiceSession?.hotOnly?[]:this.#unknownSlots(query,intent,effectiveAnchorEntityIds);
     let compiled=this.compiler.compile({
       query,intent,truthAssessment:publicationAssessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,
-      rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,
+      rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,knowledgeEvidence:admittedKnowledgeEvidence,
     });
     let hotContributions=[];
     if(hotProjection?.facts?.length){
@@ -216,7 +246,9 @@ export class GenerationPublicationPipeline {
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
       candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,
-      hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,duplicate:false,
+      hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,
+      retrievalBudgetReceipt:primaryEnvelope?.metadata?.retrievalBudgetReceipt??null,
+      graphTraversalReceipt:primaryEnvelope?.metadata?.graphTraversalReceipt??null,duplicate:false,
     };
     this.#rememberPublished(turnId,fingerprint,output);
     return output;

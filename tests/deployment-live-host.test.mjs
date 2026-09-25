@@ -27,6 +27,7 @@ function operatorLore() {
   return {
     id: 'operator-unrelated-worlds',
     title: 'Operator Unrelated Worlds',
+    discovery: { kind: 'DeploymentLiveFixture', stableId: 'operator-unrelated-worlds', exactAuthoredSource: true },
     entries: [
       { uid: 'observatory', content: 'The Moonlit Observatory is maintained by Ilya.', metadata: { title: 'Moonlit Observatory', at: 1, treePath: ['Places', 'Observatory'] } },
       { uid: 'compass-a', content: 'The Glass Compass was stored inside the Moonlit Observatory.', metadata: { title: 'Glass Compass Storage', at: 2, treePath: ['Objects', 'Glass Compass'] } },
@@ -189,7 +190,7 @@ test('installed native host exposes provenance/runtime/memory readers through th
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
   const native=session.exportEvidence().nativeBrainIntegration,names=native.installedUiReaderNames;
   for(const name of ['readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readLoreStatus','readMemoryStatus','readRuntimeStatus','readGeneration'])assert.ok(names.includes(name),name);
-  assert.equal(names.includes('listResources'),false);assert.deepEqual(native.installedOptionalOwners,{resources:false,loreStudy:false,loreAuthoring:false,memory:false});
+  assert.equal(names.includes('listResources'),true);assert.deepEqual(native.installedOptionalOwners,{resources:true,loreStudy:true,loreAuthoring:true,memory:true});
   session.destroy();
 });
 

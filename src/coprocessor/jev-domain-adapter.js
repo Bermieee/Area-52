@@ -15,6 +15,8 @@ export const JevDomain = Object.freeze({
   LORE: 'LORE',
   SCENE: 'SCENE',
   RETRIEVAL_TRUTH: 'RETRIEVAL_TRUTH',
+  MEMORY: 'MEMORY',
+  TEMPORAL: 'TEMPORAL',
 });
 
 export const JevAdapterPrecheckStatus = Object.freeze({
@@ -73,13 +75,12 @@ export class JevDomainAdapterService {
   #proposalReplay = new Map();
   #metrics = new Map();
 
-  constructor({ registry, core, replayLimit = 2048 } = {}) {
+  constructor({ registry, core, replayLimit = 128 } = {}) {
     if (!(registry instanceof JevDomainAdapterRegistry)) throw new TypeError('JevDomainAdapterService requires JevDomainAdapterRegistry');
     if (!core || typeof core.decide !== 'function') throw new TypeError('JevDomainAdapterService requires JevDecisionCore');
-    if (!Number.isInteger(replayLimit) || replayLimit < 1 || replayLimit > 4096) throw new TypeError('Jev adapter replayLimit must be an integer between 1 and 4096');
     this.registry = registry;
     this.core = core;
-    this.replayLimit = replayLimit;
+    this.replayLimit = positiveReplayLimit(replayLimit);
   }
 
   async adjudicate(input, { currentRevisionState = null, sealed = false, signal = null } = {}) {
@@ -112,12 +113,15 @@ export class JevDomainAdapterService {
     const fingerprint = jevRequestFingerprint(request);
     const replayKey = `${adapter.adapterId}|${fingerprint}`;
     if (this.#proposalReplay.has(replayKey)) {
-      const replayCurrent = await resolveCurrentState(currentRevisionState, request);
-      const replayFreshness = evaluateJevFreshness(request, replayCurrent);
-      const replaySealed = Boolean(typeof sealed === 'function' ? await sealed(request) : sealed);
-      if (replayFreshness.freshness === 'FRESH' && !replaySealed) {
+      const currentReplay = await resolveCurrentState(currentRevisionState, request);
+      const freshnessReplay = evaluateJevFreshness(request, currentReplay);
+      const sealedReplay = Boolean(typeof sealed === 'function' ? await sealed(request) : sealed);
+      if (freshnessReplay.freshness === 'FRESH' && !sealedReplay) {
+        const replay = this.#proposalReplay.get(replayKey);
+        this.#proposalReplay.delete(replayKey);
+        this.#proposalReplay.set(replayKey, replay);
         metric.replays += 1;
-        return this.#proposalReplay.get(replayKey);
+        return replay;
       }
     }
 
@@ -147,7 +151,7 @@ export class JevDomainAdapterService {
     if (receipt.providerProvenance?.providerId) metric.providerIds.add(receipt.providerProvenance.providerId);
 
     proposal = this.#boundedProposal(proposal);
-    this.#rememberProposal(replayKey, proposal);
+    if (proposal.staleState !== 'STALE' && !proposal.details?.late) this.#rememberProposal(replayKey, proposal);
     return proposal;
   }
 
@@ -214,12 +218,9 @@ export class JevDomainAdapterService {
   }
 
   #rememberProposal(key, proposal) {
-    if (!this.#proposalReplay.has(key) && this.#proposalReplay.size >= this.replayLimit) {
-      const oldest = this.#proposalReplay.keys().next().value;
-      if (oldest !== undefined) this.#proposalReplay.delete(oldest);
-    }
+    this.#proposalReplay.delete(key);
     this.#proposalReplay.set(key, proposal);
-    return proposal;
+    while (this.#proposalReplay.size > this.replayLimit) this.#proposalReplay.delete(this.#proposalReplay.keys().next().value);
   }
 
   #boundedProposal(proposal) {
@@ -358,3 +359,4 @@ async function resolveCurrentState(value, request) {
 function domainKindKey(domain, kind) { return `${domain}:${kind}`; }
 function requiredString(value, name) { if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${name} must be a non-empty string`); return value.trim(); }
 function boundedObject(value, name, maxBytes) { const clone = structuredClone(value ?? {}); if (utf8ByteLength(JSON.stringify(clone)) > maxBytes) throw new TypeError(`${name} exceeds ${maxBytes} bytes`); return clone; }
+function positiveReplayLimit(value) { const n = Number(value); if (!Number.isInteger(n) || n < 1) throw new TypeError('replayLimit must be a positive integer'); return n; }

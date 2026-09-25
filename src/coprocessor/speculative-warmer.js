@@ -12,6 +12,9 @@ export const WARM_PACKET_VERSION = '1.0.0';
 export function createWarmIdentity(input = {}) {
   const sourceRevisionSet = uniqueStrings(input.sourceRevisionSet ?? []);
   return deepFreeze({
+    chatId: input.chatId == null && input.chatNamespace == null && input.conversationId == null
+      ? null
+      : required(input.chatId ?? input.chatNamespace ?? input.conversationId, 'chatId'),
     sceneRevision: finite(input.sceneRevision, 'sceneRevision'),
     worldRevision: finite(input.worldRevision, 'worldRevision'),
     characterStateRevision: finite(input.characterStateRevision, 'characterStateRevision'),
@@ -63,6 +66,7 @@ export function evaluateWarmPacket(packet, currentIdentity, { turnSequence = 0, 
   catch (error) { return receipt(WarmState.INVALID, packet, [], `INVALID_CURRENT_IDENTITY:${error.message}`); }
   if (!packet || packet.kind !== 'WarmPacket' || !packet.identity) return receipt(WarmState.INVALID, packet, [], 'INVALID_PACKET');
   const prior = packet.identity;
+  if (prior.chatId !== current.chatId) return receipt(WarmState.INVALID, packet, [], 'CHAT_MISMATCH');
   if (prior.intentFingerprint !== current.intentFingerprint) return receipt(WarmState.INVALID, packet, [], 'INTENT_MISMATCH');
   if (prior.retrievalPolicyRevision !== current.retrievalPolicyRevision) return receipt(WarmState.STALE, packet, [], 'RETRIEVAL_POLICY_CHANGED');
   if (Number(turnSequence) - Number(storedTurn) > Number(packet.expiresAfterTurns ?? 0)) return receipt(WarmState.STALE, packet, [], 'TTL_EXPIRED');
@@ -243,7 +247,7 @@ function receipt(state, packet, salvageableRefs, reason) {
     authority: 'NONE',
   });
 }
-function warmKey(identity) { return `${identity.sceneRevision}|${identity.intentFingerprint}|${identity.retrievalPolicyRevision}`; }
+function warmKey(identity) { return `${identity.chatId ?? "NO_CHAT"}|${identity.sceneRevision}|${identity.intentFingerprint}|${identity.retrievalPolicyRevision}`; }
 function compareSets(a, b) { const aa = new Set(a), bb = new Set(b); const overlap = [...aa].filter((x) => bb.has(x)); return { equal: aa.size === bb.size && overlap.length === aa.size, overlap }; }
 function refsFrom(value, key) { const list = value?.[key] ?? value?.refs ?? []; return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : []; }
 function boundedStrings(values, max, name) { const out = uniqueStrings(values); if (out.length > max) throw new RangeError(`${name} exceeds ${max}`); return out; }

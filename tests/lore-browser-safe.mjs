@@ -17,6 +17,14 @@ const productionFiles = [
   'src/lore-navigation-summary-builder.js',
   'src/lore-contextual-retrieval.js',
   'src/lore-hierarchy-retrieval-system.js',
+  'src/lore-world-ontology.js',
+  'src/lore-intelligence-service.js',
+  'src/lore-authoring-contracts.js',
+  'src/lore-semantic-authoring.js',
+  'src/lore-structure-planner.js',
+  'src/lore-merge-preview.js',
+  'src/lore-authoring-service.js',
+  'src/lore-authoring-lifecycle.js',
 ];
 
 test('integration-visible Lore production modules avoid Node-only runtime dependencies', async () => {

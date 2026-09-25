@@ -46,4 +46,25 @@ export class GenerationContextSeal {
     const stored=this.#sealed.get(turnId);if(!stored)return{sealed:false,hashMatches:false};
     return{sealed:true,hashMatches:hashPacket(stored.packet)===stored.receipt.packetHash,packetHash:stored.receipt.packetHash};
   }
+
+  exportState(){
+    return structuredClone({
+      kind:'GenerationContextSealSnapshot',
+      sequence:this.#sequence,
+      sealed:[...this.#sealed.entries()].map(([turnId,row])=>[turnId,{packet:row.packet,receipt:row.receipt}]),
+    });
+  }
+
+  restoreState(snapshot){
+    if(!snapshot||snapshot.kind!=='GenerationContextSealSnapshot')throw new TypeError('GenerationContextSealSnapshot is required');
+    this.#sequence=Number(snapshot.sequence??0);
+    this.#sealed=new Map((snapshot.sealed??[]).map(([turnId,row])=>[
+      String(turnId),
+      {packet:deepFreeze(structuredClone(row.packet)),receipt:deepFreeze(structuredClone(row.receipt))},
+    ]));
+    for(const [turnId,row] of this.#sealed){
+      if(hashPacket(row.packet)!==row.receipt.packetHash)throw new Error('CONTEXT_SEAL_SNAPSHOT_HASH_MISMATCH:'+turnId);
+    }
+    return this.exportState();
+  }
 }

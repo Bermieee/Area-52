@@ -324,7 +324,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeRejections = [];
     this.nativeLoreRevisionEvents = [];
     this.routedLoreRevisionKeys = new Set();
-    this.nativeOwnerAttachments = {lore:null,memory:null};
+    this.nativeOwnerAttachments = {lore:null,memory:null,graphProviders:[]};
+    this.nativeGraphProviderIds = new Set();
+    this.optionalGenerationActive = new Map();
+    this.releaseLoreOwnerEvents = null;
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
@@ -367,7 +370,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   detachNativeBrain(){
     const wasRunning=this.running;if(wasRunning)this.stop();
     for(const run of this.nativeRuns.values())try{run.responseReject?.(new Error('Native Brain owner detached'));}catch{}
-    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeRuns.clear();this.nativeOwnerAttachments={lore:null,memory:null};
+    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeRuns.clear();this.nativeOwnerAttachments={lore:null,memory:null,graphProviders:[]};this.nativeGraphProviderIds.clear();this.#completeAllOptionalGenerations('NATIVE_BRAIN_DETACHED');
     if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
     if(wasRunning)this.start();
     this.#notify();return this;
@@ -452,7 +455,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   stop() {
-    this.release?.();this.release=null;this.running=false;this.#notify();return this;
+    this.release?.();this.release=null;this.running=false;this.#completeAllOptionalGenerations('SESSION_STOPPED');this.#notify();return this;
   }
 
   async prepareNativeGeneration({generationType='normal'}={}){
@@ -478,6 +481,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         this.nativePayloads.set(chatId,clone(rendered));
         const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
         this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+        this.#beginOptionalGeneration(pending);
         readySettled=true;readyResolve(clone(pending));this.#notify();
         return responsePromise;
       },
@@ -518,6 +522,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
     const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
     this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
     this.#notify();return clone(completed);
   }
@@ -735,6 +740,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(this.nativePending.size)this.#expireNativePending('SESSION_DESTROYED');
     this.uiHost?.destroy?.();
     this.uiHost = null;
+    this.releaseLoreOwnerEvents?.();
+    this.releaseLoreOwnerEvents = null;
   }
 
   async #persistNativeBrainCheckpoint({chatId,turnId,generationId}={}){
@@ -752,9 +759,13 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   #attachNativeKnowledgeOwners(){
     if(!this.nativeBrain)return;
-    const loreService=this.ownerBindings.loreIntelligenceService??this.ownerBindings.loreStudyService??null;
-    const loreInterface=this.ownerBindings.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
-    const memoryInterface=this.ownerBindings.memoryIntegrationSurface??this.ownerBindings.memoryInterface??this.ownerBindings.memoryOwner??null;
+    const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+    const mergedOwners={...brainBindings,...this.ownerBindings};
+    const loreService=mergedOwners.loreIntelligenceService??mergedOwners.loreStudyService??null;
+    const loreInterface=mergedOwners.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
+    const memoryInterface=mergedOwners.memoryIntegrationSurface??mergedOwners.memoryInterface??mergedOwners.memoryOwner??null;
+    const graphProviders=Array.isArray(mergedOwners.graphProviders)?mergedOwners.graphProviders.filter(Boolean):[];
+
     if(typeof this.nativeBrain.attachLoreInterface==='function'){
       try{const receipt=this.nativeBrain.attachLoreInterface(loreInterface??null);this.nativeOwnerAttachments.lore={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??loreInterface?.contractVersion??null};}
       catch(error){this.nativeOwnerAttachments.lore={attached:false,error:String(error?.code??error?.message??error)};}
@@ -763,22 +774,75 @@ export class DevelopmentDeploymentSillyTavernSession {
       try{const receipt=this.nativeBrain.attachMemoryInterface(memoryInterface??null);this.nativeOwnerAttachments.memory={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryInterface?.contractVersion??null};}
       catch(error){this.nativeOwnerAttachments.memory={attached:false,error:String(error?.code??error?.message??error)};}
     }
+
+    const graphReceipts=[];
+    if(typeof this.nativeBrain.unregisterGraphProvider==='function'){
+      for(const providerId of this.nativeGraphProviderIds){
+        try{this.nativeBrain.unregisterGraphProvider(providerId);}catch{}
+      }
+    }
+    this.nativeGraphProviderIds.clear();
+    if(typeof this.nativeBrain.registerGraphProvider==='function'){
+      for(const provider of graphProviders){
+        const providerId=String(provider?.providerId??'');
+        if(!providerId||typeof provider?.query!=='function')continue;
+        try{
+          const receipt=this.nativeBrain.registerGraphProvider(provider);
+          this.nativeGraphProviderIds.add(providerId);
+          graphReceipts.push({providerId,attached:true,owner:provider.owner??null,semanticsVersion:provider.semanticsVersion??null,receipt:clone(receipt??null)});
+        }catch(error){
+          graphReceipts.push({providerId,attached:false,owner:provider.owner??null,error:String(error?.code??error?.message??error)});
+        }
+      }
+    }
+    this.nativeOwnerAttachments.graphProviders=graphReceipts;
+
+    this.releaseLoreOwnerEvents?.();
+    this.releaseLoreOwnerEvents=null;
+    if(typeof brainBindings.subscribe==='function'){
+      this.releaseLoreOwnerEvents=brainBindings.subscribe((event)=>{
+        if(event?.type!=='LORE_AUTHORING_SETTLEMENT')return;
+        this.#routeLoreRevisionEvents(event?.result);
+        this.#notify();
+      });
+    }
   }
 
   #uiHostBindings(){
-    const base={...this.brain.hostBindings(),...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
+    const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+    const base={...brainBindings,...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
     const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readPromptPlan','readContextReceipt','listGenerations','readGeneration'];
     const merged={...base};
-    const optionalDemoKeys=[
-      'resourceHost','coprocessorResourceHost','coprocessorTelemetry','listResources','listResourceProfiles','addResource','connectResource','disconnectResource','testResource',
-      'loreStudyHost','loreHost','acceptLorebook','runLoreStudy',
-    ];
-    for(const key of optionalDemoKeys)if(!Object.prototype.hasOwnProperty.call(this.ownerBindings,key))delete merged[key];
+
+    const resourceHost=merged.resourceHost??merged.coprocessorResourceHost??null;
+    const resourceContractAvailable=Boolean(
+      resourceHost
+      &&((typeof resourceHost?.read?.resources==='function')||(typeof merged.listResources==='function'))
+      &&(typeof resourceHost?.actions?.addResource==='function'||typeof merged.addResource==='function')
+      &&(typeof resourceHost?.actions?.connectResource==='function'||typeof merged.connectResource==='function')
+    );
+    if(!resourceContractAvailable){
+      for(const key of ['resourceHost','coprocessorResourceHost','coprocessorTelemetry','listResources','listResourceProfiles','addResource','connectResource','disconnectResource','testResource'])delete merged[key];
+    }
+
+    const loreStudyHost=merged.loreStudyHost??merged.loreOperatorHost??merged.loreHost??null;
+    const loreStudyContractAvailable=Boolean(
+      loreStudyHost
+      &&(typeof loreStudyHost?.actions?.acceptLorebook==='function'||typeof merged.acceptLorebook==='function')
+      &&(typeof loreStudyHost?.actions?.runLoreStudy==='function'||typeof merged.runLoreStudy==='function')
+    );
+    if(!loreStudyContractAvailable){
+      for(const key of ['loreStudyHost','loreOperatorHost','loreHost','acceptLorebook','runLoreStudy'])delete merged[key];
+    }
+
     const authoringHost=this.#nativeAwareLoreAuthoringHost();
     if(authoringHost)merged.loreAuthoringHost=authoringHost;
+    else{
+      delete merged.loreAuthoringHost;delete merged.loreAuthoringOperator;
+    }
     for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
@@ -788,14 +852,18 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   #nativeAwareLoreAuthoringHost(){
     if(!this.nativeBrain)return null;
-    let host=this.ownerBindings.loreAuthoringHost??this.ownerBindings.loreAuthoringOperator??null;
-    if(!host&&typeof this.ownerBindings.loreAuthoringService?.operatorContract==='function'){
-      try{host=this.ownerBindings.loreAuthoringService.operatorContract();}catch{return null;}
+    const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+    const mergedOwners={...brainBindings,...this.ownerBindings};
+    let host=mergedOwners.loreAuthoringHost??mergedOwners.loreAuthoringOperator??null;
+    if(!host&&typeof mergedOwners.loreAuthoringService?.operatorContract==='function'){
+      try{host=mergedOwners.loreAuthoringService.operatorContract();}catch{return null;}
     }
     if(!host?.actions||!host?.read)return null;
+    const requiredActions=['computeFinalPreview','approveFinalPreview','applySettlement','restoreSettlement'];
+    if(!requiredActions.every(name=>typeof host.actions?.[name]==='function'))return null;
     const actions={...host.actions};
     for(const name of ['applySettlement','restoreSettlement']){
-      const original=host.actions[name];if(typeof original!=='function')continue;
+      const original=host.actions[name];
       actions[name]=(...args)=>{
         const result=original(...args);
         if(result&&typeof result.then==='function')return result.then(value=>{this.#routeLoreRevisionEvents(value);return value;});
@@ -809,7 +877,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!this.nativeBrain||typeof this.nativeBrain.acceptLoreRevisionChange!=='function')return;
     const value=result?.ok===true?result.value??null:result;
     if(!value||typeof value!=='object')return;
-    const events=[...(value.revisionEvents??[]),...(value.restoration?.revisionEvents??[])];
+    const events=[...(value.acceptedRevisionEvents??[]),...(value.revisionEvents??[]),...(value.worker1?.revisionEvents??[]),...(value.restoration?.revisionEvents??[])];
     for(const event of events){
       if(!event?.sourceId||!event?.sourceRevisionId)continue;
       const key=[event.settlementId??value.settlementId??'',event.sourceId,event.previousSourceRevisionId??'',event.sourceRevisionId,event.restoration?'RESTORE':'APPLY'].join('|');
@@ -843,10 +911,46 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.#notify();return clone(row);
   }
 
+  #beginOptionalGeneration(pending){
+    const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+    const merged={...brainBindings,...this.ownerBindings};
+    if(typeof merged.beginOptionalResourceGeneration!=='function')return null;
+    const key=String(pending?.generationId??pending?.turnId??'');
+    if(!key||this.optionalGenerationActive.has(key))return this.optionalGenerationActive.get(key)??null;
+    try{
+      const result=merged.beginOptionalResourceGeneration({chatId:pending.chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId??null});
+      this.optionalGenerationActive.set(key,{pending:clone(pending),startedAt:Date.now(),result:clone(result??null)});
+      return result;
+    }catch(error){
+      this.errors.push({at:Date.now(),message:String(error?.code??error?.message??error),stage:'OPTIONAL_RESOURCE_GENERATION_BEGIN',turnId:pending?.turnId??null,generationId:pending?.generationId??null});
+      return null;
+    }
+  }
+
+  #completeOptionalGeneration(pending,reason='GENERATION_COMPLETED'){
+    const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+    const merged={...brainBindings,...this.ownerBindings};
+    const key=String(pending?.generationId??pending?.turnId??'');
+    if(!key||!this.optionalGenerationActive.has(key))return null;
+    this.optionalGenerationActive.delete(key);
+    if(typeof merged.completeOptionalResourceGeneration!=='function')return null;
+    try{
+      return merged.completeOptionalResourceGeneration({chatId:pending?.chatId??null,turnId:pending?.turnId??null,generationId:pending?.generationId??null,reason});
+    }catch(error){
+      this.errors.push({at:Date.now(),message:String(error?.code??error?.message??error),stage:'OPTIONAL_RESOURCE_GENERATION_COMPLETE',turnId:pending?.turnId??null,generationId:pending?.generationId??null});
+      return null;
+    }
+  }
+
+  #completeAllOptionalGenerations(reason='SESSION_STOPPED'){
+    for(const row of [...this.optionalGenerationActive.values()])this.#completeOptionalGeneration(row.pending,reason);
+  }
+
   #expireNativePending(reason){
     for(const [chatId,row] of [...this.nativePending.entries()]){
       this.nativeRejections.push({at:Date.now(),code:String(reason),chatId,generationId:row.generationId,turnId:row.turnId});
       const run=this.nativeRuns.get(chatId);try{run?.responseReject?.(new Error(String(reason)));}catch{}
+      this.#completeOptionalGeneration(row,String(reason));
       this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);
     }
     while(this.nativeRejections.length>100)this.nativeRejections.shift();this.#notify();

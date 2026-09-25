@@ -94,6 +94,34 @@ export function toWorkerDirectorObligation(task,{placementDecision=null,owner='C
   });
 }
 
+export function createResourceDirectorExecutor({connections,task,input={},inputResolver=null}={}){
+  if(!connections||typeof connections.executeTask!=='function')throw new TypeError('CoprocessorResourceConnections is required');
+  if(!task||task.kind!=='CognitiveTask')throw new TypeError('CognitiveTask is required');
+  if(inputResolver!=null&&typeof inputResolver!=='function')throw new TypeError('inputResolver must be a function');
+  return Object.freeze({
+    async execute(context={}){
+      const profileId=context?.worker?.workerId??null;
+      if(!profileId){const error=new Error('WorkerDirector assignment did not include a resource profile identity');error.code='RUNTIME_ASSIGNMENT_PROFILE_REQUIRED';throw error;}
+      const providerInput=inputResolver?await inputResolver({task,context,units:clone(context.units??[])}):clone(input);
+      return connections.executeTask(task,{input:providerInput,profileId,signal:context.signal??null});
+    },
+    validate({output}={}){
+      return Boolean(output&&output.kind==='CognitiveWorkerResult'&&output.taskId===task.taskId&&output.turnId===task.turnId&&output.correlationId===task.correlationId&&output.status==='SUCCESS');
+    },
+    commit({output}={}){
+      return {
+        kind:'RuntimeCoprocessorProviderCommitReceipt',
+        providerExecution:{
+          workerId:output?.workerId??null,providerId:output?.providerId??null,modelId:output?.modelId??null,
+          measurementClass:output?.providerMetadata?.measurementClass??null,actualProvider:output?.providerMetadata?.actualProvider??null,
+          latencyMs:Number(output?.latency??0),usageReceipt:clone(output?.providerMetadata?.usageReceipt??null),
+          authorityGranted:false,canonicalMutation:false,settlementPerformed:false,
+        },
+      };
+    },
+  });
+}
+
 export class RuntimeDirectorAdmissionBridge{
   #registered=new Set();
   constructor({director,capabilityRegistry,placementScheduler}={}){

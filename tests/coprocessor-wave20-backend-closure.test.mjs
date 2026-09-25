@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  Capability,CapabilityProfileRegistry,DeterministicProviderAdapter,JevDecisionCore,JevProviderExecutor,NativeHotDeepScheduler,
-  Placement,ProviderAdapterRegistry,ResultClass,RuntimeDirectorAdmissionBridge,
-  adjudicateJevForOwner,createCognitiveTask,createJevDomainAdapterMatrix,createRevisionSet,
+  Capability,CapabilityProfileRegistry,CoprocessorResourceConnections,DeterministicProviderAdapter,JevDecisionCore,JevProviderExecutor,NativeHotDeepScheduler,
+  Placement,ProviderAdapterRegistry,ResourceKind,ResourceMeasurementClass,ResultClass,RuntimeDirectorAdmissionBridge,
+  adjudicateJevForOwner,createCognitiveTask,createJevDomainAdapterMatrix,createResourceDirectorExecutor,createRevisionSet,
   createRuntimeCapabilityAdmission,summarizeBackendRuntimeClosureBenchmarks,toWorkerDirectorObligation,toWorkerDirectorWorker,
 } from '../src/coprocessor/index.js';
+import { WorkerDirector } from '../src/runtime/index.js';
 
 function task(id,{placement=Placement.HOT,resultClass=ResultClass.REQUIRED,contextTokens=12000,latencyBudgetMs=120,resourceLimits={CPU:1},resourceClass='STANDARD'}={}){
   const now=Date.now();
@@ -112,6 +113,89 @@ test('#88 production admission bridge delegates Hot/Deep execution authority to 
 
   const wrapped=director.submissions[0].executor;
   await assert.rejects(()=>wrapped.execute({worker:{workerId:'profile:slow'}}),e=>e?.code==='RUNTIME_ASSIGNMENT_NOT_QUALIFIED');
+});
+
+test('#124 actual WorkerDirector executes through two interchangeable qualified Worker2 resources without task/provider authority coupling',async()=>{
+  const connections=new CoprocessorResourceConnections();
+  const graphOutput=()=>({nodes:['story:station'],edges:[],currentStateRefs:['story:state'],historicalRefs:[],unresolvedRefs:[],conflicts:[],reasoningSummary:'bounded'});
+  for(const id of ['alpha','beta']){
+    connections.addResource({
+      resourceId:id,providerProfileId:'profile:'+id,providerId:'provider:'+id,workerId:'worker:'+id,modelId:'model:'+id,
+      kind:ResourceKind.DETERMINISTIC_LOCAL,measurementClass:ResourceMeasurementClass.LOCAL_DETERMINISTIC,
+      capabilities:[Capability.GRAPH,Capability.STRUCTURED_EXTRACTION],capabilityVersions:{[Capability.GRAPH]:2,[Capability.STRUCTURED_EXTRACTION]:1},
+      resourceProfile:{CPU:1},resourceClass:'STANDARD',latencyClass:'LOW',maxContextTokens:65536,maxOutputTokens:4096,maxConcurrency:1,
+      handlers:{GRAPH_WALK:async()=>graphOutput()},
+    });
+    const connected=await connections.connectResource(id);assert.equal(connected.callable,true);
+  }
+
+  const director=new WorkerDirector({capacity:{CPU:2},foregroundReserve:{CPU:1},maxRetries:0});
+  const scheduler=new NativeHotDeepScheduler({resourceSlots:2,foregroundReserve:1});
+  const bridge=new RuntimeDirectorAdmissionBridge({director,capabilityRegistry:connections.profiles,placementScheduler:scheduler});
+  bridge.registerProfiles();
+
+  const firstTask=task('runtime-alpha');
+  const firstPlan=bridge.plan(firstTask);assert.deepEqual(firstPlan.capabilityAdmission.candidates.map(x=>x.profileId),['profile:alpha','profile:beta']);
+  const firstExecutor=createResourceDirectorExecutor({connections,task:firstTask,input:{nodes:[],edges:[],states:[],conflicts:[]}});
+  const first=bridge.admit(firstTask,{executor:firstExecutor});assert.equal(first.status,'ADMITTED');
+  await director.drain();
+  assert.equal(director.ledger.get(firstTask.taskId).executionStatus,'COMPLETE');
+  assert.equal(connections.readResource('alpha').physicalExecutionSucceeded,true);
+  assert.equal(connections.readResource('beta').physicalExecutionAttempted,false);
+
+  connections.disconnectResource('alpha');bridge.syncProfileState('profile:alpha');
+  const secondTask=task('runtime-beta');
+  const secondPlan=bridge.plan(secondTask);assert.deepEqual(secondPlan.capabilityAdmission.candidates.map(x=>x.profileId),['profile:beta']);
+  assert.deepEqual(
+    {...firstPlan.taskContract,taskId:null,turnId:null,correlationId:null,dedupeKey:null,intentFingerprint:null,sourceRevisionSet:[],inputRevisionSet:createRevisionSet({sourceRevisionSet:[],worldRevision:1,sceneRevision:2,characterStateRevision:3})},
+    {...secondPlan.taskContract,taskId:null,turnId:null,correlationId:null,dedupeKey:null,intentFingerprint:null,sourceRevisionSet:[],inputRevisionSet:createRevisionSet({sourceRevisionSet:[],worldRevision:1,sceneRevision:2,characterStateRevision:3})},
+  );
+  const secondExecutor=createResourceDirectorExecutor({connections,task:secondTask,input:{nodes:[],edges:[],states:[],conflicts:[]}});
+  const second=bridge.admit(secondTask,{executor:secondExecutor});assert.equal(second.status,'ADMITTED');
+  await director.drain();
+  assert.equal(director.ledger.get(secondTask.taskId).executionStatus,'COMPLETE');
+  assert.equal(connections.readResource('beta').physicalExecutionSucceeded,true);
+  const ready=director.telemetry.list({type:'RUNTIME_RESULT_READY'}).filter(x=>[firstTask.taskId,secondTask.taskId].includes(x.taskId));
+  assert.equal(ready.length,2);assert.ok(ready.every(x=>x.authorityGranted===false&&x.canonicalMutation===false&&x.settlementPerformed===false));
+});
+
+test('#88 actual WorkerDirector preserves foreground reserve and performs Deep safe-yield checkpoint park/resume under generation contention',async()=>{
+  const r=registry(),director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1},maxRetries:0});
+  const scheduler=new NativeHotDeepScheduler({resourceSlots:1,foregroundReserve:1,maxDeepQueue:4});
+  const bridge=new RuntimeDirectorAdmissionBridge({director,capabilityRegistry:r,placementScheduler:scheduler});
+  bridge.registerProfiles({profiles:[r.get('profile:alpha')]});
+
+  let releaseFirst,signalStarted;let slices=0;
+  const started=new Promise(resolve=>{signalStarted=resolve;});
+  const firstBlock=new Promise(resolve=>{releaseFirst=resolve;});
+  const deepTask=task('director-deep',{placement:Placement.DEEP,resultClass:ResultClass.DEFERRED});
+  const deepExecutor={
+    async execute({units}){slices+=1;if(slices===1){signalStarted();await firstBlock;}return{unitId:units[0].id,slice:slices};},
+    validate:()=>true,commit:({output})=>({slice:output.slice}),
+  };
+  const deep=bridge.admit(deepTask,{executor:deepExecutor,units:[{id:'deep:u1'},{id:'deep:u2'}]});assert.equal(deep.status,'ADMITTED');
+  const firstCycle=director.runCycle({waitForTaskIds:[deepTask.taskId]});
+  await started;
+  const yields=bridge.beginGeneration({turnId:'foreground-turn'});assert.deepEqual(yields,[deepTask.taskId]);
+  releaseFirst();await firstCycle;
+  const parked=director.ledger.get(deepTask.taskId);
+  assert.equal(parked.executionStatus,'PARKED');assert.equal(parked.batch.completedUnitIds.length,1);
+  assert.equal(director.governor.snapshot().generationActive,true);
+  assert.equal(director.telemetry.list({type:'WORK_YIELD_REQUESTED'}).some(x=>x.taskId===deepTask.taskId),true);
+  assert.equal(director.telemetry.list({type:'WORK_PARKED'}).some(x=>x.taskId===deepTask.taskId),true);
+
+  const hotTask=task('director-hot');
+  const hot=bridge.admit(hotTask,{executor:{execute:async()=>({ok:true}),validate:()=>true,commit:()=>({})}});assert.equal(hot.status,'ADMITTED');
+  await director.runCycle({waitForTaskIds:[hotTask.taskId]});
+  assert.equal(director.ledger.get(hotTask.taskId).executionStatus,'COMPLETE');
+  assert.equal(director.governor.snapshot().generationActive,true);
+
+  bridge.completeGeneration({turnId:'foreground-turn'});
+  await director.runCycle({waitForTaskIds:[deepTask.taskId]});
+  const completed=director.ledger.get(deepTask.taskId);
+  assert.equal(completed.executionStatus,'COMPLETE');assert.equal(completed.batch.completedUnitIds.length,2);assert.equal(slices,2);
+  assert.equal(director.telemetry.list({type:'WORK_RESUMED'}).some(x=>x.taskId===deepTask.taskId),true);
+  assert.equal(director.snapshot().resources.foregroundReserve.CPU,1);
 });
 
 test('#88 native admission queue is bounded and preserves yield/checkpoint/resume under contention',async()=>{

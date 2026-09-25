@@ -28,7 +28,7 @@ Worker 2 does not replace those authorities.
 - provider/model identity remains in routing/worker receipts, outside the canonical `CognitiveTask`;
 - the bridge fail-closes if a Director assignment is not in the pre-qualified candidate set.
 
-Important integration dependency: Worker 1's current `CapabilityRegistry` does not itself evaluate Worker 2's context/output/latency/cost fields. Worker 2 therefore pre-qualifies them and protects execution with the assignment guard. Full shared-runtime closure should add the same constraints natively to Worker 1's registry so the scheduler never nominates a candidate the guard must reject.
+Important integration dependency: Worker 1's current `CapabilityRegistry` does not itself evaluate Worker 2's context/output/latency/cost fields. Worker 2 therefore pre-qualifies them and protects execution with the assignment guard. `createResourceDirectorExecutor()` now binds the Director-selected qualified profile to `CoprocessorResourceConnections.executeTask()`, so WorkerDirector performs scheduling while Worker 2 performs the physical provider call. Full shared-runtime closure should still add the same context/output/latency/cost constraints natively to Worker 1's registry so the scheduler never nominates a candidate the guard must reject.
 
 ## #88 placement contract
 
@@ -42,7 +42,7 @@ The bridge maps:
 - low-value optional work -> SKIP;
 - saturated Deep admission -> DEFER.
 
-The standalone Wave 18 Deep queue is now bounded by `maxDeepQueue`. WorkerDirector's own `maxOutstanding` remains the production backpressure authority.
+The standalone Wave 18 Deep queue is now bounded by `maxDeepQueue`. WorkerDirector's own `maxOutstanding` remains the production backpressure authority. Wave 20 acceptance imports the real `src/runtime/WorkerDirector` from this branch, starts Deep work, triggers `beginGeneration()`, observes safe-boundary checkpoint + PARKED, runs Hot work against the foreground reserve, then observes Deep `WORK_RESUMED` and completion after `completeGeneration()`.
 
 `beginGeneration()` / `completeGeneration()` on the bridge delegate directly to WorkerDirector. This allows Worker 1's ResourceGovernor and BatchEngine to perform the real yield/checkpoint/park/resume lifecycle.
 

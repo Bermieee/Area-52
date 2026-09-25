@@ -113,5 +113,6 @@ test('turn cognition read model exposes only bounded Jev metadata and owner acce
   assert.equal(decision.decisionId,input.decisionId);assert.equal(decision.domain,'SCENE');assert.equal(decision.ownerAccepted,true);
   assert.equal(decision.physicalExecutionAttempted,true);assert.equal(decision.contextSealAuthority,false);
   const text=JSON.stringify(read);
-  for(const forbidden of ['Eris remembers','ruined Ember Tavern','apiKey','rawPrompt','messages'])assert.equal(text.includes(forbidden),false,forbidden);
+  assert.equal(read.rawPromptIncluded,false);assert.equal(read.rawPayloadIncluded,false);assert.equal(read.credentialIncluded,false);
+  for(const forbidden of ['Eris remembers','ruined Ember Tavern','DO_NOT_LEAK_PROMPT','DO_NOT_LEAK_KEY'])assert.equal(text.includes(forbidden),false,forbidden);
 });

@@ -94,6 +94,9 @@ export class CoprocessorResourceConnections{
     });
     if(typeof adapter?.invoke!=='function')throw new TypeError('resource adapter requires invoke()');
     if(typeof adapter?.probe!=='function')throw new TypeError('resource adapter requires probe() so READY corresponds to a callable resource');
+    if(adapter.providerId!==providerId)throw new TypeError('adapter.providerId must match configured providerId');
+    const adapterCapabilities=new Set(adapter.capabilities??[]);
+    for(const capability of capabilities)if(!adapterCapabilities.has(capability))throw new TypeError('adapter does not advertise configured capability: '+capability);
 
     this.adapters.register(adapter);
     this.profiles.register({

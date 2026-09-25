@@ -316,7 +316,7 @@ export class Area52NativeBrain{
       kind:'NativeBrainLearningReceipt',turnId:id,experienceId:experience.evidenceId,sourceRevisionId:experience.sourceRevisionId,
       settlementDecisions:settlements.map(x=>x?.decision?.decision??'REJECTED'),
       reflectionEvidenceIds:reflectionRows.map(x=>x.evidenceId),
-      feedback:clone(latest.feedback),runtimeTaskId:task?.task?.taskId??null,memoryWriteback:clone(memoryWriteback),
+      feedback:clone(latest.feedback),runtimeTaskId:task?.task?.taskId??null,memoryWriteback:clone(memoryWriteback),memorySettlementReceipts:clone(memorySettlementReceipts),
       rawExperienceRecoverable:Boolean(this.core.registry.getRevision(experience.sourceRevisionId)?.exactContent===text),
       canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
     };
@@ -341,11 +341,12 @@ export class Area52NativeBrain{
       content:response,current:true,invalidates:[prior.sourceRevisionId],
       knownBy:uniq(knownBy),publicToAll:false,
     });
-    const memoryWriteback=this.#writeBackMemoryEvidence(record,corrected,{knownBy,exactContent:response});
+    const memoryWriteback=this.#writeBackMemoryEvidence(record,corrected,{knownBy,exactContent:response,priorExperience:prior});
     const settlements=observations.map((row,index)=>this.#settleObservation(record,corrected,row,index));
+    const memorySettlementReceipts=this.#mirrorSettlementsToMemory(record,corrected,settlements);
     record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.state='LEARNED';
     this.#notify('TURN_CORRECTED',record);
-    return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,memoryWriteback,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
+    return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,memoryWriteback,memorySettlementReceipts,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
   }
 
   subscribe(listener){
@@ -453,7 +454,7 @@ export class Area52NativeBrain{
       sourceRevisionRefs:[experience.sourceRevisionId],artifactRefs:settled.receipt.settledArtifactIds,
       provenanceRefs:[experience.sourceRevisionId],eventType:'STATE_SETTLED',
     });
-    return clone({...settled,claimId,sourceRevisionId:experience.sourceRevisionId});
+    return clone({...settled,proposal,claimId,sourceRevisionId:experience.sourceRevisionId});
   }
 
   #scheduleFeedback(turnId,sourceRevisionId){
@@ -587,21 +588,38 @@ export class Area52NativeBrain{
     return{kind:'NativeBrainMemoryStatus',...this.#selection(record),sync:clone(record.memorySync??null),fallbackStore:this.memoryInterface?null:this.knowledge.diagnostics(),authorityGranted:false};
   }
 
-  #writeBackMemoryEvidence(record,experience,{knownBy=[],exactContent}={}){
+  #memoryOwnerArtifactRef(record,experience){
+    const revision=this.core.registry.getRevision(experience.sourceRevisionId),ownerRevision=Math.max(1,Number(revision?.revision??experience?.evidence?.artifactRef?.revision??1));
+    return{kind:'ArtifactReference',artifactId:'core-narrative:'+record.chatId+':'+record.turnId+':assistant',artifactType:'NarrativeExperience',owner:'COGNITIVE_CORE',revision:ownerRevision,sourceRevisionSet:[experience.sourceRevisionId],worldRevision:record.worldRevision,sceneRevision:record.sceneRevision};
+  }
+
+  #mirrorSettlementsToMemory(record,experience,settlements=[]){
+    const apply=this.memoryInterface?.applyCoreSettlement??this.memoryInterface?.adapters?.applyCoreSettlement;
+    if(!this.memoryInterface||typeof apply!=='function')return[];
+    const artifactRef=this.#memoryOwnerArtifactRef(record,experience),receipts=[];
+    for(const settlement of settlements??[]){
+      if(!settlement?.proposal||!settlement?.decision)continue;
+      try{
+        const receipt=apply({proposal:clone(settlement.proposal),decision:clone(settlement.decision),receipt:clone(settlement.receipt??null)},{evidenceArtifactRefs:[{externalEvidenceRef:experience.artifactId,artifactRef}]});
+        if(receipt&&typeof receipt.then==='function')receipts.push({kind:'NativeBrainMemorySettlementMirrorReceipt',status:'DEGRADED',reason:'MEMORY_ASYNC_SETTLEMENT_MIRROR_UNSUPPORTED'});
+        else receipts.push(clone(receipt));
+      }catch(error){receipts.push({kind:'NativeBrainMemorySettlementMirrorReceipt',status:'DEGRADED',reason:error?.message??String(error),authorityGranted:false});}
+    }
+    return receipts;
+  }
+
+  #writeBackMemoryEvidence(record,experience,{knownBy=[],exactContent,priorExperience=null}={}){
     const admit=this.memoryInterface?.admitExternalEvidenceMapping??this.memoryInterface?.adapters?.admitExternalEvidenceMapping;
     if(!this.memoryInterface)return{kind:'NativeBrainMemoryWritebackReceipt',status:'NOT_ATTACHED',authorityGranted:false};
     if(typeof admit!=='function')return{kind:'NativeBrainMemoryWritebackReceipt',status:'UNSUPPORTED',reason:'MEMORY_EXACT_EVIDENCE_MAPPING_UNAVAILABLE',authorityGranted:false};
     try{
-      const revision=this.core.registry.getRevision(experience.sourceRevisionId),ownerRevision=Math.max(1,Number(revision?.revision??experience?.evidence?.artifactRef?.revision??1));
-      const externalEvidenceRef='narrative:'+record.chatId+':'+record.turnId+':assistant';
-      const ownerArtifactRef={
-        kind:'ArtifactReference',artifactId:'core-narrative:'+record.chatId+':'+record.turnId+':assistant',artifactType:'NarrativeExperience',owner:'COGNITIVE_CORE',revision:ownerRevision,
-        sourceRevisionSet:[experience.sourceRevisionId],worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,
-      };
+      const ownerArtifactRef=this.#memoryOwnerArtifactRef(record,experience),ownerRevision=ownerArtifactRef.revision;
+      const externalEvidenceRef=experience.artifactId;
       let invalidation=null;
       const invalidate=this.memoryInterface?.invalidateExternalEvidenceMapping??this.memoryInterface?.adapters?.invalidateExternalEvidenceMapping;
-      if(ownerRevision>1&&typeof invalidate==='function'){
-        invalidation=invalidate({ownerArtifactRef,externalEvidenceRef,replacedBySourceRevisionId:experience.sourceRevisionId,removed:false,reason:'NARRATIVE_SOURCE_CORRECTED'});
+      if(priorExperience&&typeof invalidate==='function'){
+        const priorOwnerArtifactRef=this.#memoryOwnerArtifactRef(record,priorExperience);
+        invalidation=invalidate({ownerArtifactRef:priorOwnerArtifactRef,externalEvidenceRef:priorExperience.artifactId,replacedBySourceRevisionId:experience.sourceRevisionId,removed:false,reason:'NARRATIVE_SOURCE_CORRECTED'});
         if(invalidation&&typeof invalidation.then==='function')throw new Error('MEMORY_ASYNC_INVALIDATION_UNSUPPORTED_IN_SYNC_COMMIT');
       }
       const receipt=admit({

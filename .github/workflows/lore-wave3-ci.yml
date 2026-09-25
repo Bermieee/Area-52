@@ -32,6 +32,9 @@ jobs:
       - name: Wave 3 hierarchy and retrieval focused suite
         run: npm run test:wave3
 
+      - name: Wave 4 Lore Intelligence end-to-end acceptance
+        run: npm run test:wave4
+
       - name: Browser-like production portability
         run: node --test tests/lore-browser-safe.mjs
 
@@ -52,4 +55,4 @@ jobs:
           done
 
       - name: ESM module import
-        run: node -e "Promise.all(['lore-contracts','lore-source-registry','lore-study-engine','lore-study-runtime','lore-navigation-contracts','lore-navigation-hierarchy','lore-navigation-summary-registry','lore-navigation-summary-builder','lore-contextual-retrieval','lore-hierarchy-retrieval-system'].map(x => import('./src/' + x + '.js'))).then(() => console.log('LORE_WAVE3_ESM_IMPORT_PASS'))"
+        run: node -e "Promise.all(['lore-contracts','lore-source-registry','lore-study-engine','lore-study-runtime','lore-representation-contracts','lore-representation-compiler','lore-representation-registry','lore-multi-resolution','lore-navigation-contracts','lore-navigation-hierarchy','lore-navigation-summary-registry','lore-navigation-summary-builder','lore-contextual-retrieval','lore-hierarchy-retrieval-system','lore-intelligence-service'].map(x => import('./src/' + x + '.js'))).then(() => console.log('LORE_WAVE4_ESM_IMPORT_PASS'))"

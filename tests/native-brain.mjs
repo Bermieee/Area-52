@@ -309,3 +309,31 @@ test('DETERMINISTIC: correcting narrative evidence fences dependent reflections 
   const representations=(prepared.candidateEnvelope?.candidates??[]).map(x=>x.representationText??'').join('\n');
   assert.doesNotMatch(representations,/will collapse before dawn/i);
 });
+
+
+test('DETERMINISTIC: Worker 3 live-binding surface exposes coherent selection and typed owner receipts',async()=>{
+  const brain=new Area52NativeBrain();
+  const bindings=brain.uiBindings(),events=[];
+  const release=bindings.subscribe(event=>events.push(event));
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:ui-bind',turnId:'ui-bind:1',generationId:'gen:ui-bind:1',correlationId:'corr:ui-bind:1',
+    query:'Continue quietly.',scene:scene('quiet-room',1,{location:'Quiet Room',activeCast:['Aya']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  const selection=bindings.readSelection({chatId:'chat:ui-bind'});
+  assert.equal(selection.turnId,'ui-bind:1');
+  assert.equal(selection.generationId,'gen:ui-bind:1');
+  assert.equal(bindings.readContextSeal(selection).turnId,'ui-bind:1');
+  assert.equal(bindings.readPromptPlan(selection).generationId,'gen:ui-bind:1');
+  assert.equal(bindings.readCandidateBusEnvelope(selection).kind,'CandidateBusEnvelope');
+  assert.ok(bindings.readTruth(selection));
+  assert.ok(bindings.readGather(selection));
+  assert.equal(bindings.listGenerations({selection:{chatId:'chat:ui-bind'}}).length,1);
+  assert.equal(bindings.readGeneration({generationId:'gen:ui-bind:1',chatId:'chat:ui-bind'}).contextSeal.turnId,'ui-bind:1');
+  await brain.completeTurn({turnId:'ui-bind:1',response:'Aya listens to the rain.',knownBy:['Aya']});
+  release();
+  assert.ok(events.some(event=>event.stage==='TURN_PREPARED'));
+  assert.ok(events.some(event=>event.stage==='TURN_LEARNED'));
+  assert.ok(events.every(event=>event.rawPromptIncluded===false&&event.rawResponseIncluded===false));
+  assert.equal(prepared.selection.chatId,'chat:ui-bind');
+});

@@ -11,6 +11,7 @@ import {Area52CognitiveCore} from './cognitive-core.js';
 import {
   KnowledgeTemporalStatus,
 } from './knowledge-evidence.js';
+import {LoreOwnerRetrievalChannel,MemoryOwnerRetrievalChannel,OWNER_KNOWLEDGE_CHANNELS} from './owner-knowledge-channels.js';
 import {NativeKnowledgeStore} from './native-knowledge-store.js';
 import {NativeLearningFeedback} from './native-learning-feedback.js';
 import {
@@ -72,6 +73,7 @@ export class Area52NativeBrain{
     foregroundReserve={CPU:1},
     maxTurns=256,
     loreInterface=null,
+    memoryInterface=null,
   }={}){
     this.maxTurns=Math.max(16,Number(maxTurns)||256);
     this.core=new Area52CognitiveCore();
@@ -86,10 +88,13 @@ export class Area52NativeBrain{
 
     this.feedback=new NativeLearningFeedback({snapshot:snapshot?.feedback??null});
     this.knowledge=new NativeKnowledgeStore({registry:this.core.registry,snapshot:snapshot?.knowledge??null});
-    this.core.registerExternalKnowledgeResolver((candidate)=>this.knowledge.evidenceForCandidate(candidate));
-    this.#registerKnowledgeChannels();
-    this.loreInterface=null;
+    this.ownerEvidence=new Map();
+    this.loreInterface=null;this.memoryInterface=null;
+    this.ownerLoreChannel=new LoreOwnerRetrievalChannel({getInterface:()=>this.loreInterface,evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence)});
+    this.ownerMemoryChannel=new MemoryOwnerRetrievalChannel({getInterface:()=>this.memoryInterface,evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence)});
+    this.core.registerExternalKnowledgeResolver((candidate)=>this.#resolveKnowledgeEvidence(candidate));
     this.attachLoreInterface(loreInterface);
+    this.attachMemoryInterface(memoryInterface);
 
     this.turns=new Map(clone(snapshot?.turns??[]));
     this.turnOrder=clone(snapshot?.turnOrder??[]);
@@ -125,16 +130,28 @@ export class Area52NativeBrain{
   }
 
   #registerKnowledgeChannels(){
-    for(const id of ['NATIVE_LORE','NATIVE_MEMORY'])this.core.retrieval.unregisterChannel(id);
-    this.core.registerRetrievalChannel(this.knowledge.channel('LORE',{channelId:'NATIVE_LORE',rankBias:(id)=>this.feedback.biasFor(id)}));
-    this.core.registerRetrievalChannel(this.knowledge.channel('MEMORY',{channelId:'NATIVE_MEMORY',rankBias:(id)=>this.feedback.biasFor(id)}));
+    for(const id of ['NATIVE_LORE','NATIVE_MEMORY',OWNER_KNOWLEDGE_CHANNELS.LORE,OWNER_KNOWLEDGE_CHANNELS.MEMORY])this.core.retrieval.unregisterChannel(id);
+    if(this.loreInterface)this.core.registerRetrievalChannel(this.ownerLoreChannel);
+    else this.core.registerRetrievalChannel(this.knowledge.channel('LORE',{channelId:'NATIVE_LORE',rankBias:(id)=>this.feedback.biasFor(id)}));
+    if(this.memoryInterface)this.core.registerRetrievalChannel(this.ownerMemoryChannel);
+    else this.core.registerRetrievalChannel(this.knowledge.channel('MEMORY',{channelId:'NATIVE_MEMORY',rankBias:(id)=>this.feedback.biasFor(id)}));
   }
 
   attachLoreInterface(loreInterface=null){
     if(loreInterface!==null&&typeof loreInterface?.query!=='function')throw new TypeError('Lore interface must expose query(request)');
     if(loreInterface?.contractVersion!=null&&Number(loreInterface.contractVersion)!==1)throw new Error('Unsupported Lore Brain interface contract version: '+loreInterface.contractVersion);
     this.loreInterface=loreInterface;
+    this.#registerKnowledgeChannels();
     return{kind:'NativeBrainLoreInterfaceReceipt',attached:Boolean(loreInterface),contractVersion:loreInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
+  }
+
+  attachMemoryInterface(memoryInterface=null){
+    const adapters=memoryInterface?.adapters??memoryInterface;
+    if(memoryInterface!==null&&(typeof adapters?.queryHistorian!=='function'||typeof adapters?.drillDown!=='function'))throw new TypeError('Memory interface must expose queryHistorian(request) and drillDown(nomination, options)');
+    if(memoryInterface?.contractVersion!=null&&String(memoryInterface.contractVersion).split('.')[0]!=='1')throw new Error('Unsupported Memory integration contract version: '+memoryInterface.contractVersion);
+    this.memoryInterface=memoryInterface;
+    this.#registerKnowledgeChannels();
+    return{kind:'NativeBrainMemoryInterfaceReceipt',attached:Boolean(memoryInterface),contractVersion:memoryInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
 
   attachJevAdapter(adapter=null){

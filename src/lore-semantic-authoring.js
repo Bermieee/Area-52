@@ -215,10 +215,11 @@ function listRetrievalDependencies(intelligence, sourceId, fromRevisionId) {
     .sort((a, b) => a.retrievalRecordRef.localeCompare(b.retrievalRecordRef));
 }
 
-function ontologyAffected(diff) {
+function ontologyAffected(diff, alteredRows = []) {
   const types = new Set([
     ...Object.keys(diff.addedByType || {}),
     ...Object.keys(diff.removedByType || {}),
+    ...alteredRows.map((row) => row.oldArtifact?.artifactType || row.nextArtifact?.artifactType).filter(Boolean),
   ]);
   return types.has(ArtifactType.CONCEPT)
     || types.has(ArtifactType.COMMUNITY)
@@ -267,6 +268,7 @@ export class LoreSemanticCompiler {
     }
 
     const baseDiff = semanticDiff(before.artifacts, after.artifacts);
+    const sameSemanticAlterations = changedSameSemantic(before.artifacts, after.artifacts);
     const claimDelta = deltaForType(before.artifacts, after.artifacts, ArtifactType.CLAIM);
     const relationshipDelta = deltaForType(before.artifacts, after.artifacts, ArtifactType.RELATIONSHIP);
     const conceptDelta = deltaForType(before.artifacts, after.artifacts, ArtifactType.CONCEPT);
@@ -334,7 +336,7 @@ export class LoreSemanticCompiler {
         reason: 'SUMMARY_SOURCE_REVISION_SET_CHANGED',
         refs: summaries.map((row) => row.summaryRef),
       });
-      if (ontologyAffected(baseDiff)) invalidationTargets.push({
+      if (ontologyAffected(baseDiff, sameSemanticAlterations)) invalidationTargets.push({
         target: LoreInvalidationTarget.ONTOLOGY,
         reason: 'SEMANTIC_MEMBERSHIP_OR_RELATIONSHIP_CHANGED',
         refs: [
@@ -356,8 +358,8 @@ export class LoreSemanticCompiler {
         added: baseDiff.addedSemanticIds,
         removed: baseDiff.removedSemanticIds,
         preserved: baseDiff.preservedSemanticIds,
-        altered: changedSameSemantic(before.artifacts, after.artifacts).map((row) => row.semanticId),
-        meaningChanged: baseDiff.meaningChanged || changedSameSemantic(before.artifacts, after.artifacts).length > 0,
+        altered: sameSemanticAlterations.map((row) => row.semanticId),
+        meaningChanged: baseDiff.meaningChanged || sameSemanticAlterations.length > 0,
       },
       claims: {
         added: claimDelta.added.map((row) => describeArtifact(registry, row)),

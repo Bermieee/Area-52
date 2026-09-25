@@ -133,6 +133,7 @@ export class LoreAuthoringService {
     return {
       kind: 'LoreAuthoringReviewStateContract',
       contractVersion: 2,
+      states: Object.values(LoreReviewState),
       reviewStates: Object.values(LoreReviewState),
       operatorDecisions: Object.values(LoreOperatorDecision),
       authoringStages: Object.values(LoreAuthoringStage),
@@ -168,6 +169,17 @@ export class LoreAuthoringService {
         authoredRevisionIsImmutable: true,
         currentRevisionMayReplacePriorRevision: true,
       },
+      editEvent: {
+        kind: 'LoreSourceRevisionChanged',
+        requiredFields: [
+          'sourceId',
+          'lorebookId',
+          'uid',
+          'previousSourceRevisionId',
+          'sourceRevisionId',
+          'contentHash',
+        ],
+      },
       revisionChangeEvent: {
         kind: 'LoreSourceRevisionChanged',
         requiredFields: [
@@ -185,6 +197,19 @@ export class LoreAuthoringService {
           'studyTrigger',
         ],
         restorationField: 'restoration',
+      },
+      invalidationPlan: {
+        requiredFields: ['sourceId', 'fromRevisionId', 'toRevisionId', 'targets'],
+        targetKinds: [
+          'STUDY_ARTIFACTS',
+          'REPRESENTATIONS',
+          'ONTOLOGY',
+          'NAVIGATION_SUMMARIES',
+          'RETRIEVAL_INDEX',
+        ],
+        minimalityRule: 'Invalidate only artifacts fenced by the changed source revision and aggregates that explicitly depend on it.',
+        unrelatedSourceArtifactsRemainReusable: true,
+        retrievalMustFenceSourceRevision: true,
       },
       invalidationReceipt: {
         kind: 'LoreInvalidationReceipt',
@@ -293,6 +318,8 @@ export class LoreAuthoringService {
       contractVersion: 2,
       read,
       actions,
+      destructiveMergeApply: 'actions.applySettlement',
+      destructiveTreeApply: 'actions.applySettlement',
       exactSourceMutationAuthority: false,
       safeErrorShape: normalizeLoreAuthoringError(new Error('example')).kind,
       integrationStatus: 'BACKEND_CONTRACT_ONLY_NOT_WORKER3_WIRED',

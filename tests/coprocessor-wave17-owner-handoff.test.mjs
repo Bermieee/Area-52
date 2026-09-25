@@ -92,7 +92,7 @@ test('Wave17 one resource serializes logical jobs and owner Gather explicitly ad
   assert.equal(receipt.executedResults.filter(x=>x.state===NativeSwarmResultState.READY_FOR_CORE).length,2);
   assert.equal(receipt.eligibleResultIds.length,2);assert.equal(receipt.acceptedResultIds.length,2);
   assert.ok(receipt.admissions.every(x=>x.executed&&x.eligibleForOwner&&x.acceptedByOwner));
-  assert.equal(receipt.ownerCompilerInput.graphResults.length,1);assert.equal(receipt.ownerCompilerInput.truthClassifications.length,1);
+  assert.equal(receipt.ownerCompilerInput.currentWorldState.length,1);assert.equal(receipt.ownerCompilerInput.truthClassifications.length,1);
 });
 
 test('Wave17 capability matching scatters graph/truth to different physical resources but owner contract is unchanged',async()=>{

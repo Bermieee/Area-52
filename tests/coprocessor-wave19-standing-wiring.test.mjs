@@ -44,13 +44,13 @@ function addGraphResource(registry,id,fixture){
     costMetadata:{inputPerMillion:1,outputPerMillion:2},fetchImpl:fixture.fetchImpl,
   });
 }
-function graphTask({contextTokens=1024}={}){
+function graphTask({contextTokens=1024,latencyBudgetMs=null}={}){
   const now=Date.now();
   return createCognitiveTask({
     taskId:'task:wave19',taskType:'GRAPH_WALK',turnId:'turn:wave19',correlationId:'corr:wave19',
     requiredCapabilities:[Capability.GRAPH],softDeadline:now+5000,hardDeadline:now+10000,compilerLane:'wave19',
     intentFingerprint:'intent:wave19',inputRevisionSet:createRevisionSet({sourceRevisionSet:['src@1'],worldRevision:1,sceneRevision:2,characterStateRevision:3}),
-    metadata:{expectedOutputTokens:128,contextTokens,contractMarker:'provider-independent'},
+    metadata:{expectedOutputTokens:128,contextTokens,latencyBudgetMs,contractMarker:'provider-independent'},
   });
 }
 async function qualifyBoth(registry){
@@ -70,6 +70,16 @@ test('Wave19 live-style discovery and qualification route interchangeable provid
   assert.equal(first.candidates.length,2);assert.equal(first.candidates[0].resourceId,'alpha');assert.deepEqual(first.taskContract,before);
   assert.equal(first.candidates[0].qualification.contextLength,65536);assert.ok(first.candidates[0].qualification.supportedParameters.includes('structured_outputs'));
   const oversized=registry.routeQualifiedProviders(graphTask({contextTokens:70000}),{maxProviders:2});assert.equal(oversized.candidates.length,0);
+  const overLatency=registry.routeQualifiedProviders(task,{maxProviders:2,maxLatencyMs:50});assert.equal(overLatency.candidates.length,0);
+  await assert.rejects(()=>registry.executeTask(graphTask({latencyBudgetMs:50}),{input:{nodes:[],edges:[],states:[],conflicts:[]}}),(error)=>error?.code==='CAPABILITY_UNAVAILABLE');
+
+  const beforeOversizedCalls=fixture.calls.filter(call=>call.method==='POST'&&call.path.endsWith('/chat/completions')).length;
+  await assert.rejects(()=>registry.executeTask(graphTask({contextTokens:0}),{
+    input:{nodes:[{ref:'story:huge',type:'STATE'}],edges:[],states:[{ref:'story:huge-state',entityRef:'story:huge',temporalStatus:'CURRENT',summary:'x'.repeat(300000)}],conflicts:[]},
+    profileId:'profile:alpha',
+  }),(error)=>error?.code==='CAPABILITY_UNAVAILABLE');
+  const afterOversizedCalls=fixture.calls.filter(call=>call.method==='POST'&&call.path.endsWith('/chat/completions')).length;
+  assert.equal(afterOversizedCalls,beforeOversizedCalls);
 
   registry.profiles.setLoad('profile:alpha',1);
   const changed=registry.routeQualifiedProviders(task,{maxProviders:2});

@@ -452,12 +452,19 @@ test('Worker 4 Lore intelligence service is consumed through operatorInterface w
     },
   };
   const selection={chatId:'chat:lore',turnId:'turn:lore',generationId:'gen:lore'};
-  const adapter=new Wave13LoreStudyUIAdapter({bindings:{loreIntelligenceService:service},selectionProvider:()=>selection});
+  let legacyCalls=0;
+  const adapter=new Wave13LoreStudyUIAdapter({bindings:{
+    loreIntelligenceService:service,
+    readLoreStatus(){legacyCalls+=1;throw new Error('legacy read should not win');},
+    acceptLorebook(){legacyCalls+=1;throw new Error('legacy accept should not win');},
+    runLoreStudy(){legacyCalls+=1;throw new Error('legacy run should not win');},
+  },selectionProvider:()=>selection});
   assert.equal(operatorCalls,1);assert.equal(adapter.capabilities().read,true);assert.equal(adapter.capabilities().accept,true);assert.equal(adapter.capabilities().run,true);assert.equal(adapter.capabilities().retry,true);
+  assert.equal(adapter.read().data.entries.length,0);assert.equal(legacyCalls,0);
   const discovered={id:'Moon Harbor',title:'Moon Harbor',entries:[{uid:'captain',content:'Vale keeps the blue ledger.',metadata:{title:'Captain Vale'}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:1,exactAuthoredSource:true}};
   await adapter.accept(discovered);await adapter.run({scope:'DUE'});
   assert.equal(calls[0][0],'accept');assert.equal(calls[0][1].id,'Moon Harbor');assert.equal(calls[0][1].entries[0].uid,'captain');assert.equal(calls[0][1].discovery.kind,'SillyTavernLorebookDiscoveryReceipt');
-  assert.equal(calls[1][0],'run');assert.deepEqual(calls[1][1],{scope:'DUE'});
+  assert.equal(calls[1][0],'run');assert.deepEqual(calls[1][1],{scope:'DUE'});assert.equal(legacyCalls,0);
 });
 
 test('native LoreStudyRuntime object can be projected and driven through its existing public methods',async()=>{

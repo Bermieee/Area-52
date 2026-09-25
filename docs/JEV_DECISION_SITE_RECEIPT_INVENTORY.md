@@ -27,7 +27,7 @@ owner ambiguity
  -> owner alone may perform any allowed Settlement/mutation
 ```
 
-Freshness is checked before execution, after provider execution, on Decision Core replay, and again before an adapter accepts a receipt. Proposal replay is also rechecked against the current revision state and generation seal. A post-seal or stale proposal is rejected before owner review.
+Freshness is checked before execution, after provider execution, on Decision Core replay, and again before an adapter accepts a receipt. Proposal replay is also rechecked against the current revision state and generation seal. The canonical owner proposal carries the Core admission state so every domain—not only adapters with domain-specific late fields—rejects a post-seal or stale proposal before owner review.
 
 ## Existing decision sites
 

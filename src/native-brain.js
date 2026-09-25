@@ -243,6 +243,7 @@ export class Area52NativeBrain{
       kind:'NarrativeEvidence',chatId:record.chatId,turnId:id,messageId:'assistant:'+id,
       messageRevision:1,sequence:record.sequence,activity:'APPEND',role:'assistant',
       sourceRevisionId:experience.sourceRevisionId,content:text,current:true,invalidates:[],
+      knownBy:uniq(knownBy),publicToAll:false,
     });
 
     const settlements=[];
@@ -294,6 +295,7 @@ export class Area52NativeBrain{
       kind:'NarrativeEvidence',chatId:record.chatId,turnId:id,messageId:'assistant:'+id,messageRevision:2,
       sequence:record.sequence,activity:'EDIT',role:'assistant',sourceRevisionId:corrected.sourceRevisionId,
       content:response,current:true,invalidates:[prior.sourceRevisionId],
+      knownBy:uniq(knownBy),publicToAll:false,
     });
     const settlements=observations.map((row,index)=>this.#settleObservation(record,corrected,row,index));
     record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.state='LEARNED';

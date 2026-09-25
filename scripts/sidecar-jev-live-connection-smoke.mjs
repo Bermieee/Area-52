@@ -10,6 +10,8 @@ if(!endpoint||!modelId){
     status:'SKIPPED',
     measurementClass:'MEASURED_LIVE',
     reason:'AREA52_JEV_BASE_URL and AREA52_JEV_MODEL were not supplied',
+    realProviderCallObserved:false,
+    jevLivePass:false,
     credentialsLogged:false,
   },null,2));
   process.exit(0);

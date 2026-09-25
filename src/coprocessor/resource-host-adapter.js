@@ -1,7 +1,7 @@
 import { CoprocessorResourceConnections } from './resource-connections.js';
 import { NativeSidecarSwarm, validateCheckpoint } from './native-sidecar-swarm.js';
 
-export const RESOURCE_HOST_ADAPTER_VERSION='1.1.0';
+export const RESOURCE_HOST_ADAPTER_VERSION='1.2.0';
 
 export function createCoprocessorResourceHost({connections=null,swarm=null,planner=null,...options}={}){
   const registry=connections??new CoprocessorResourceConnections(options);
@@ -11,6 +11,12 @@ export function createCoprocessorResourceHost({connections=null,swarm=null,plann
     contractVersion:RESOURCE_HOST_ADAPTER_VERSION,
     actions:Object.freeze({
       addResource:(config)=>registry.addResource(config),
+      discoverModels:(config,opts)=>registry.discoverModels(config,opts),
+      refreshModels:(resourceId,opts)=>registry.refreshResourceModels(resourceId,opts),
+      setCredential:(resourceId,credential)=>registry.setResourceCredential(resourceId,credential),
+      clearCredential:(resourceId,opts)=>registry.clearResourceCredential(resourceId,opts),
+      revokeCredential:(resourceId,opts)=>registry.revokeResourceCredential(resourceId,opts),
+      selectModel:(resourceId,modelId)=>registry.selectResourceModel(resourceId,modelId),
       connectResource:(resourceId,opts)=>registry.connectResource(resourceId,opts),
       disconnectResource:(resourceId,opts)=>registry.disconnectResource(resourceId,opts),
       testResource:(resourceId,opts)=>registry.testResource(resourceId,opts),
@@ -26,6 +32,7 @@ export function createCoprocessorResourceHost({connections=null,swarm=null,plann
     execution:Object.freeze({
       executeTask:(task,opts)=>registry.executeTask(task,opts),
       executeTaskWithFallback:(task,opts)=>registry.executeTaskWithFallback(task,opts),
+      createEmbeddings:(resourceId,opts)=>registry.executeEmbedding(resourceId,opts),
       createJevProviderExecutor:(opts)=>registry.createJevProviderExecutor(opts),
       runSwarmTurn:(input)=>coordinator.runTurn(input),
       executeSwarmCheckpoint:(checkpoint,opts)=>coordinator.executeCheckpoint(checkpoint,opts),

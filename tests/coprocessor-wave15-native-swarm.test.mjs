@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  Capability, CoprocessorResourceConnections, DynamicFanOutPlanner, JevDecisionShape, NativeSidecarSwarm,
+  Capability, CoprocessorResourceConnections, CoprocessorTelemetry, DynamicFanOutPlanner, JevDecisionShape, NativeSidecarSwarm,
   NativeSwarmResultState, ResourceKind, createCoprocessorResourceHost, createJevDecisionRequest, createTurnEnvelope,
 } from '../src/coprocessor/index.js';
 
@@ -173,4 +173,22 @@ test('host contract exposes swarm actions, read model and checkpoint validation 
   assert.equal(typeof host.durability.validateCheckpoint,'function');
   assert.equal(host.read.swarm().authority.finalChoice,false);
   assert.equal(host.authority.contextSeal,false);
+});
+
+test('swarm telemetry reports placement/result/provider measurement without raw private prompt content',async()=>{
+  const telemetry=new CoprocessorTelemetry({limit:200});
+  const registry=new CoprocessorResourceConnections({telemetry});
+  addResource(registry,{capabilities:[Capability.GRAPH],handlers:{GRAPH_WALK:()=>graphOutput('forest-monitor')}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry,telemetry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:250,defaultHardBudgetMs:500})});
+  const t=turn('telemetry');
+  await swarm.runTurn({turnEvent:t,plannerInput:{text:'Where is the monitoring instrument?',queryIntent:'LOCATION'},inputResolver:()=>graphInput('forest-monitor'),currentRevisionState:t});
+  const snapshot=telemetry.snapshot();
+  assert.equal(snapshot.swarm.turnsPlanned,1);
+  assert.equal(snapshot.swarm.assignments,1);
+  assert.equal(snapshot.swarm.results,1);
+  assert.equal(snapshot.providerCalls.invoked,1);
+  assert.equal(snapshot.providerCalls.usageReceipts,1);
+  const serialized=JSON.stringify(telemetry.list());
+  assert.equal(serialized.includes('The sensor remains mounted at the current location.'),false);
 });

@@ -234,7 +234,7 @@ test('Worker 2 configured resource reconnect uses resourceId and does not duplic
 });
 
 test('native LoreStudyRuntime object can be projected and driven through its existing public methods',async()=>{
-  const owner=liveOwner(),runtime=directLoreRuntime();owner.bindings.loreStudyRuntime=runtime;
+  const owner=liveOwner(),runtime=directLoreRuntime();delete owner.bindings.readLoreStatus;owner.bindings.loreStudyRuntime=runtime;
   const{ui}=mount(owner);assert.equal(runtime.listenerCount,undefined);
   let read=ui.operator.loreStudy.read();assert.equal(read.data.entries.length,0);
   const accepted=await ui.actionRouter.route({type:'wave13.lore.accept',payload:{id:'harbor',title:'Harbor',entries:[{uid:'captain',content:'Vale keeps the blue ledger.',metadata:{}}],fullSnapshot:true}});

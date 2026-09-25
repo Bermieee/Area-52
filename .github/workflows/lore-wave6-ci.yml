@@ -1,0 +1,55 @@
+name: Lore Wave 6 CI
+
+on:
+  push:
+    branches:
+      - Development-Lorebook-Editor
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lore-wave6:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Record exact head
+        run: |
+          echo "LORE_WAVE6_EXACT_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Wave 1-5 regressions plus Wave 6 acceptance
+        run: npm test
+
+      - name: Wave 1 stress regression
+        run: npm run test:stress:wave1
+
+      - name: Wave 2 stress regression
+        run: npm run test:stress:wave2
+
+      - name: Wave 3 multi-thousand hierarchy stress
+        run: npm run test:stress:wave3
+
+      - name: JavaScript syntax
+        shell: bash
+        run: |
+          for f in src/*.js tests/*.mjs; do
+            node --check "$f"
+          done
+
+      - name: ESM module import
+        run: node -e "Promise.all(['lore-contracts','lore-source-registry','lore-study-engine','lore-study-runtime','lore-representation-contracts','lore-representation-compiler','lore-representation-registry','lore-multi-resolution','lore-navigation-contracts','lore-navigation-hierarchy','lore-navigation-summary-registry','lore-navigation-summary-builder','lore-contextual-retrieval','lore-hierarchy-retrieval-system','lore-world-ontology','lore-intelligence-service','lore-authoring-contracts','lore-semantic-authoring','lore-structure-planner','lore-merge-preview','lore-authoring-service'].map(x => import('./src/' + x + '.js'))).then(() => console.log('LORE_WAVE6_ESM_IMPORT_PASS'))"

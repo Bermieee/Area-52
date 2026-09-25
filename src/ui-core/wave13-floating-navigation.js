@@ -36,11 +36,12 @@ export class VerticalRailPopoutController{
     const close=createButton(d,{label:'Close',ariaLabel:'Close section panel',className:'a52-wave13-text-button',scope:this.scope,onPress:()=>this.close()});
     controls.append(minimize,close);cardHead.append(cardHandle,title,controls);
     const cardBody=element(d,'div',{className:'a52-wave13-popout__body'});
+    const sideResizeHandle=element(d,'button',{className:'a52-wave13-popout__side-resize',text:'',attrs:{type:'button','aria-label':'Resize section panel from side edge',title:'Drag the outside edge left or right to resize. Arrow keys resize when focused.'}});
     const resizeHandle=element(d,'button',{className:'a52-wave13-popout__resize',text:'↔ Resize',attrs:{type:'button','aria-label':'Resize section panel',title:'Drag left or right to resize. Arrow keys resize when focused.'}});
-    cardBody.append(nodes.expanded);card.append(cardHead,cardBody,resizeHandle);
+    cardBody.append(nodes.expanded);card.append(cardHead,cardBody,sideResizeHandle,resizeHandle);
     nodes.root.replaceChildren(rail,card);rail.append(railHandle,nav);
     nodes.root.classList.add('a52-wave13-floating-product');
-    this.nodes={rail,railHandle,nav,card,cardHead,cardHandle,title,controls,minimize,close,cardBody,resizeHandle};
+    this.nodes={rail,railHandle,nav,card,cardHead,cardHandle,title,controls,minimize,close,cardBody,sideResizeHandle,resizeHandle};
     this.shell.root.classList.add('a52-wave13-shell');
     this.#syncNav();
     this.scope.add(this.workspaceRegistry.subscribe(()=>this.#syncNav()));
@@ -54,6 +55,7 @@ export class VerticalRailPopoutController{
     this.#bindMoveKeys(railHandle);
     this.#bindMoveKeys(cardHandle);
     this.#bindResize(resizeHandle);
+    this.#bindResize(sideResizeHandle);
     this.scope.listen(this.shell.nodes.workspace,'scroll',()=>this.#rememberScroll(this.shell.currentWorkspace));
     this.scope.listen(d,'keydown',(event)=>{
       if(event.key==='Escape'&&this.presentation.get().frontFaceMode===FrontFaceMode.EXPANDED){event.preventDefault?.();this.close();}
@@ -180,7 +182,7 @@ export class VerticalRailPopoutController{
     this.nodes.card.style.left=card.x+'px';this.nodes.card.style.top=card.y+'px';this.nodes.card.style.width=card.width+'px';this.nodes.card.style.height=card.height+'px';
     this.nodes.card.dataset.side=this.state.side;this.nodes.card.dataset.minimized=String(this.state.minimized);
     this.nodes.card.style.display=p.frontFaceMode===FrontFaceMode.EXPANDED?'':'none';this.nodes.cardBody.style.display=this.state.minimized?'none':'';
-    this.nodes.resizeHandle.style.display=this.state.minimized?'none':'';
+    this.nodes.resizeHandle.style.display=this.state.minimized?'none':'';this.nodes.sideResizeHandle.style.display=this.state.minimized?'none':'';
     this.nodes.minimize.textContent=this.state.minimized?'Expand':'Collapse';this.nodes.minimize.setAttribute('aria-label',this.state.minimized?'Expand section panel':'Collapse section panel');
     this.frontFaceController.nodes.expanded.style.display=p.frontFaceMode===FrontFaceMode.EXPANDED?'':'none';this.#persist();
   }

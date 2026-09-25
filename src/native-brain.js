@@ -657,6 +657,7 @@ export class Area52NativeBrain{
     if(this.rejectedLoreRevisionIds.has(sourceRevisionId))return{admit:false,reason:'LORE_REPLACED_REVISION_DISTRUSTED'};
     const trust=this.loreRevisionTrust.get(sourceId);
     if(!trust)return{admit:true,status:'UNTRACKED_OWNER_CURRENT'};
+    if(trust.status==='REMOVED')return{admit:false,reason:'LORE_SOURCE_REMOVED'};
     if(trust.status==='PENDING_EXACT_RETRIEVAL'){
       if(sourceRevisionId!==trust.pendingSourceRevisionId)return{admit:false,reason:'LORE_REPLACEMENT_AWAITING_EXACT_RETRIEVAL'};
       if(typeof source.exactAuthoredText!=='string'||!source.exactAuthoredText.trim())return{admit:false,reason:'LORE_REPLACEMENT_EXACT_SOURCE_MISSING'};

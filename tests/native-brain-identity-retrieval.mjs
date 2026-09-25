@@ -479,3 +479,30 @@ test('DETERMINISTIC: quiet continuation stays Hot-only while ambiguous identity 
   assert.equal(brain.diagnostics().nativeRequirements.sidecarRequired,false);
   assert.equal(brain.diagnostics().nativeRequirements.remoteModelRequired,false);
 });
+
+
+test('DETERMINISTIC: Worker 4 v2 removal event invalidates only dependent identity and requires a new revision event before trust resumes',()=>{
+  const brain=new Area52NativeBrain();
+  brain.registerEntityIdentity({
+    entityId:'entity:removed:keeper',canonicalLabel:'Keeper',entityType:'PERSON',worldId:'world:removed',
+    aliases:['Old Keeper'],sourceRevisionRefs:['lore:removed@r1'],provenanceRefs:['lore:removed@r1'],authorityOrigin:'SOURCE_EXPLICIT',
+  });
+  brain.registerEntityIdentity({
+    entityId:'entity:removed:other',canonicalLabel:'Other',entityType:'PERSON',worldId:'world:removed',
+    aliases:['Other Alias'],sourceRevisionRefs:['lore:other@r1'],provenanceRefs:['lore:other@r1'],authorityOrigin:'SOURCE_EXPLICIT',
+  });
+  const receipt=brain.acceptLoreRevisionChange({
+    kind:'LoreSourceRevisionChanged',contractVersion:1,settlementId:'settlement:remove:1',operationKind:'TREE_SOURCE_REVISION',
+    sourceId:'lore:removed',lorebookId:'book:removed',uid:'keeper',previousSourceRevisionId:'lore:removed@r1',
+    sourceRevisionId:'lore:removed@r2',sourceState:'REMOVED',contentHash:null,exactFingerprint:'removed-fingerprint',
+    studyObligationId:'study:removed',studyTrigger:'REMOVED_UID',restoration:false,
+  });
+  assert.equal(receipt.sourceState,'REMOVED');
+  assert.equal(receipt.nextRevisionRequiresOwnerRetrieval,false);
+  assert.equal(receipt.revisionTrustStatus,'REMOVED');
+  assert.ok(receipt.identityInvalidation.affectedEntityIds.includes('entity:removed:keeper'));
+  assert.equal(receipt.identityInvalidation.affectedEntityIds.includes('entity:removed:other'),false);
+  assert.ok(brain.core.entities.get('entity:removed:keeper').aliases.some(row=>row.alias==='Old Keeper'&&row.status==='INVALIDATED'));
+  assert.ok(currentAlias(brain.core.entities.get('entity:removed:other'),'Other Alias'));
+  assert.ok(brain.diagnostics().loreRevisionTrust.rejectedRevisionIds.includes('lore:removed@r2'));
+});

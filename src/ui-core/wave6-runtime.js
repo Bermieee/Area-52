@@ -89,7 +89,7 @@ export function createWave6ProductInterface({
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
-      promptPlan,forensics,cognition,presentation:explainabilityPresentation,liveReceiptBinding,operations,resources,loreStudy,floatingController,
+      promptPlan,forensics,cognition,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,floatingController,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
       inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
       navigate(id){shell?.selectWorkspace(id);},
@@ -99,7 +99,7 @@ export function createWave6ProductInterface({
 
   registerWave6FrontFaceWorkspaces(workspaceRegistry,{adapter:productAdapter,brainPulse});
   const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},loreStudy,resources}):null;
-  const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,actionRouter});
+  const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,actionRouter,cognition,frontFacePresentation});
   registerProductionEngineeringWorkspaces(workspaceRegistry,{runtime,coprocessor,promptPlan,forensics});
   registerWave7Workspaces(workspaceRegistry,{promptPlan,forensics,presentation:explainabilityPresentation,scheduler});
 
@@ -128,7 +128,7 @@ export function createWave6ProductInterface({
     else scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
   });if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
   const operatorRefresh=(scopeKey)=>scheduler.invalidate('wave13:'+scopeKey+'-refresh',()=>{
-    if(shell?.currentWorkspace==='brain'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
+    if(shell?.currentWorkspace==='brain'||shell?.currentWorkspace==='connections'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
     controller?.scheduleQuickDash?.();
   },{cost:'NORMAL'});
   const resourceRelease=resources?.subscribe?.(()=>operatorRefresh('resources'));if(typeof resourceRelease==='function')cognitionScope.add(resourceRelease);

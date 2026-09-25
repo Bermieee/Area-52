@@ -63,8 +63,11 @@ loreService.runStudy();
 const authoring=createLoreAuthoringService(loreService);
 const invalidationContract=authoring.worker1InvalidationContract();
 assert.equal(invalidationContract.kind,'LoreSourceRevisionRetrievalInvalidationContract');
-assert.equal(invalidationContract.contractVersion,1);
+assert.equal(invalidationContract.contractVersion,2);
 assert.equal(invalidationContract.invalidationPlan.retrievalMustFenceSourceRevision,true);
+assert.ok(invalidationContract.revisionChangeEvent.requiredFields.includes('settlementId'));
+assert.ok(invalidationContract.revisionChangeEvent.requiredFields.includes('sourceState'));
+assert.equal(invalidationContract.invalidationReceipt.unrelatedSourceArtifactsRemainReusable,true);
 
 const rawLoreInterface=loreService.brainInterface();
 let loreQueries=0;

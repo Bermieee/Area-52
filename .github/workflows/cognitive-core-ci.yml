@@ -75,18 +75,18 @@ jobs:
           path: .integration/memory-wave4
           fetch-depth: 1
           persist-credentials: false
-      - name: Checkout accepted Lore Wave 6 owner reference
+      - name: Checkout current Lore owner reference
         uses: actions/checkout@v4
         with:
           repository: Bermieee/Area-52
-          ref: 0adfdf9ae7221905baab2ea9c8f36f3c47b84c37
-          path: .integration/lore-wave6
+          ref: f983d4de9168ce3a6add1ec002a3372b96b873b9
+          path: .integration/lore-current
           fetch-depth: 1
           persist-credentials: false
       - name: Native Brain Memory and Lore owner integration
         env:
           AREA52_MEMORY_REF_ROOT: ${{ github.workspace }}/.integration/memory-wave4
-          AREA52_LORE_REF_ROOT: ${{ github.workspace }}/.integration/lore-wave6
+          AREA52_LORE_REF_ROOT: ${{ github.workspace }}/.integration/lore-current
         run: node scripts/native-brain-owner-integration.mjs
       - name: Checkout accepted Scene Wave 3 integration reference
         uses: actions/checkout@v4

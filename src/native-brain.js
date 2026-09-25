@@ -160,17 +160,23 @@ export class Area52NativeBrain{
     const sourceId=req(event.sourceId,'LoreSourceRevisionChanged.sourceId');
     const lorebookId=req(event.lorebookId,'LoreSourceRevisionChanged.lorebookId');
     const uid=req(String(event.uid??''),'LoreSourceRevisionChanged.uid');
-    const previousSourceRevisionId=req(event.previousSourceRevisionId,'LoreSourceRevisionChanged.previousSourceRevisionId');
+    const previousSourceRevisionId=event.previousSourceRevisionId==null?null:req(event.previousSourceRevisionId,'LoreSourceRevisionChanged.previousSourceRevisionId');
     const sourceRevisionId=req(event.sourceRevisionId,'LoreSourceRevisionChanged.sourceRevisionId');
-    const contentHash=req(event.contentHash,'LoreSourceRevisionChanged.contentHash');
-    if(previousSourceRevisionId===sourceRevisionId)throw new Error('LORE_REVISION_CHANGE_REUSED_REVISION_ID');
+    const sourceState=String(event.sourceState??'CURRENT').toUpperCase();
+    const contentHash=event.contentHash==null?null:req(event.contentHash,'LoreSourceRevisionChanged.contentHash');
+    if(sourceState!=='REMOVED'&&!contentHash)throw new TypeError('LoreSourceRevisionChanged.contentHash must be present for a current authored revision');
+    if(previousSourceRevisionId&&previousSourceRevisionId===sourceRevisionId)throw new Error('LORE_REVISION_CHANGE_REUSED_REVISION_ID');
     const previousTrust=this.loreRevisionTrust.get(sourceId)??null;
-    this.rejectedLoreRevisionIds.add(previousSourceRevisionId);
+    if(previousSourceRevisionId)this.rejectedLoreRevisionIds.add(previousSourceRevisionId);
     if(previousTrust?.trustedSourceRevisionId&&previousTrust.trustedSourceRevisionId!==sourceRevisionId)this.rejectedLoreRevisionIds.add(previousTrust.trustedSourceRevisionId);
     if(previousTrust?.pendingSourceRevisionId&&previousTrust.pendingSourceRevisionId!==sourceRevisionId)this.rejectedLoreRevisionIds.add(previousTrust.pendingSourceRevisionId);
+    if(sourceState==='REMOVED')this.rejectedLoreRevisionIds.add(sourceRevisionId);
     this.loreRevisionTrust.set(sourceId,{
-      sourceId,lorebookId,uid,previousSourceRevisionId,pendingSourceRevisionId:sourceRevisionId,
-      trustedSourceRevisionId:null,contentHash,status:'PENDING_EXACT_RETRIEVAL',
+      sourceId,lorebookId,uid,previousSourceRevisionId,pendingSourceRevisionId:sourceState==='REMOVED'?null:sourceRevisionId,
+      trustedSourceRevisionId:null,contentHash,sourceState,
+      settlementId:event.settlementId??null,operationKind:event.operationKind??null,exactFingerprint:event.exactFingerprint??null,
+      studyObligationId:event.studyObligationId??null,studyTrigger:event.studyTrigger??null,restoration:Boolean(event.restoration),
+      status:sourceState==='REMOVED'?'REMOVED':'PENDING_EXACT_RETRIEVAL',
       changedAtTurnSequence:this.turnSequence,
     });
     const invalidatedChats=[],checkedChats=[];
@@ -178,24 +184,26 @@ export class Area52NativeBrain{
     for(const state of persisted?.states??[]){
       const chatNamespace=String(state?.chatNamespace??'');if(!chatNamespace)continue;
       checkedChats.push(chatNamespace);
+      const invalidatedRefs=previousSourceRevisionId?[previousSourceRevisionId]:[];
       const receipt=this.core.hotCognition.invalidateKnowledge({
-        chatNamespace,updateId:'owner-lore-revision:'+sourceId+':'+previousSourceRevisionId+'->'+sourceRevisionId,
-        invalidatedSourceRevisionRefs:[previousSourceRevisionId],invalidatedDependencyRevisionRefs:[previousSourceRevisionId],
-        reason:'LORE_SOURCE_REVISION_CHANGED',
+        chatNamespace,updateId:'owner-lore-revision:'+sourceId+':'+String(previousSourceRevisionId??'NONE')+'->'+sourceRevisionId,
+        invalidatedSourceRevisionRefs:invalidatedRefs,invalidatedDependencyRevisionRefs:invalidatedRefs,
+        reason:sourceState==='REMOVED'?'LORE_SOURCE_REMOVED':'LORE_SOURCE_REVISION_CHANGED',
       });
       if((receipt?.invalidatedSegments??[]).length)invalidatedChats.push(chatNamespace);
     }
     for(const [evidenceId,evidence] of [...this.ownerEvidence.entries()]){
       const refs=uniq([...(evidence?.sourceRevisionRefs??[]),...(evidence?.dependencyRevisionRefs??[])]);
-      if(refs.includes(previousSourceRevisionId))this.ownerEvidence.delete(evidenceId);
+      if(previousSourceRevisionId&&refs.includes(previousSourceRevisionId))this.ownerEvidence.delete(evidenceId);
     }
     const distrusted=new Set([previousSourceRevisionId,previousTrust?.trustedSourceRevisionId,previousTrust?.pendingSourceRevisionId].filter(Boolean));
     this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>!distrusted.has(ref)));
-    const identityInvalidation=this.core.invalidateEntityIdentityRevision(previousSourceRevisionId,{reason:'LORE_SOURCE_REVISION_CHANGED'});
+    const identityInvalidation=previousSourceRevisionId?this.core.invalidateEntityIdentityRevision(previousSourceRevisionId,{reason:sourceState==='REMOVED'?'LORE_SOURCE_REMOVED':'LORE_SOURCE_REVISION_CHANGED'}):{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:null,affectedEntityIds:[],retiredAliases:[],retiredLinks:[],historyPreserved:true,unrelatedIdentityMutation:false};
     return{
       kind:'NativeBrainLoreRevisionInvalidationReceipt',contractVersion:1,status:'INVALIDATED',sourceId,lorebookId,uid,
-      previousSourceRevisionId,sourceRevisionId,checkedChats:uniq(checkedChats),invalidatedChats:uniq(invalidatedChats),
-      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,revisionTrustStatus:'PENDING_EXACT_RETRIEVAL',identityInvalidation,
+      previousSourceRevisionId,sourceRevisionId,sourceState,settlementId:event.settlementId??null,operationKind:event.operationKind??null,restoration:Boolean(event.restoration),
+      checkedChats:uniq(checkedChats),invalidatedChats:uniq(invalidatedChats),
+      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:sourceState!=='REMOVED',revisionTrustStatus:sourceState==='REMOVED'?'REMOVED':'PENDING_EXACT_RETRIEVAL',identityInvalidation,
       authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealAuthority:false,
     };
   }

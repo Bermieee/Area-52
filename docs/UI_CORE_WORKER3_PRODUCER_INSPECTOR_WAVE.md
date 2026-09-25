@@ -1,0 +1,68 @@
+# Worker 3 UI Producer / Inspector Wave
+
+Baseline checked before editing: `main@1e4938b8eb10ad86f83417fad5056b00f31972a9`.
+
+Worker 3 integration branch: `Development-UI-Worker3`.
+
+## Ownership boundary
+
+Worker 3 owns selected-turn producer wiring, PromptPlan/Adaptive Context inspection, bounded cognitive forensics, generic Memory workspace registration, and live-host listener correctness for this wave.
+
+Worker 4 retains the visible Arm/Disarm demo harness, selected-lorebook auto-load, and compact telemetry plots. Worker 3 does not edit `index.js` and does not redesign Lore or telemetry plot surfaces. Automatic installed-session startup remains required.
+
+## Selected-turn evidence rule
+
+Every live UI read is scoped to the current chat / turn / generation identity. A receipt with a conflicting chat, turn, generation, correlation, world/scene revision, or source revision is rejected by the Wave 11 live binding instead of being displayed as current.
+
+The operational producer list includes Scene, Runtime, Coprocessor, Cognitive Choice, Sensory, Truth, Jev, Gather, Context Seal, PromptPlan, Generation, Learning, Lore, Memory, and Forensics. Missing optional producers remain UNAVAILABLE; a connected resource is not evidence of execution or owner acceptance.
+
+## Worker 2 lifecycle contract
+
+At Worker 2 head `Development-Sidecar/Jev@fa67f4d253a52e8cea054f39f73c475b709298b1`, `CognitionUiState` resource rows publish independent evidence for:
+
+- configured / connected
+- selected-model qualified / callable
+- physical execution attempted / succeeded
+- owner accepted
+
+UI.Core preserves those as separate fields. It must not derive physical execution or owner acceptance from connection health. The Connections surface and diagnostics consume these owner fields directly when that Worker 2 read model is integrated.
+
+## Worker 1 PromptPlan delivery contract
+
+The checked-out main baseline does **not** publish a host-observation receipt. Therefore the current UI may show PromptPlan planning data and any actual ContextReceipt/Context Seal that exists, but must show real-host observation as UNAVAILABLE.
+
+At Worker 1 head `Development-Nexus@ba19ef76a311b90a9a9db1b0ab7d4cf3559eb8f0`, the branch adds the integration seam expected by this UI:
+
+- `readPromptDeliveryReceipt(selection)`
+- `attachObservedHostPromptEvidence(receipt, evidence)`
+- `promptDeliveryIntegrationContract()`
+
+The branch receipt distinguishes `PLANNED_NOT_OBSERVED`, `OBSERVED_MATCH`, and `OBSERVED_MISMATCH`, and carries metadata such as generation/turn identity, Context Seal identity, sealed-packet/semantic-manifest identities, planned roles/sections, omissions, and a sanitized observed-host evidence record.
+
+UI.Core already accepts `readPromptDeliveryReceipt` through the host binding and Wave 11 identity fence. It retains metadata only; raw prompt text, provider secrets, and raw payloads are not copied into the UI read model.
+
+## PromptPlan inspector evidence classes
+
+The Context Delivery and Why This Generation surfaces render three independent evidence classes:
+
+1. **Planned** — PromptPlan sections, omissions/deferrals, model profile, token budget, revisions, and Context Seal identity.
+2. **Injected / compiled** — only an actual ContextReceipt published for the selected turn.
+3. **Observed in real host prompt** — only an ObservedHostPromptEvidence / PromptDeliveryReceipt published for that exact generation.
+
+A plan is never promoted to observed host execution.
+
+## Cognitive forensics
+
+The forensic generation read is bounded to at most 512 transaction rows. It requires the selected chat/turn/generation where producer identity is available, excludes foreign chats, and treats a transaction with an explicit generation ID as generation-exact so a regeneration cannot leak into the selected generation. Turn-only records may be admitted only when they match the selected forensic turn.
+
+Missing stages remain explicit. Rejection, stale, and late reasons are represented by receipt metadata and references. Raw prompt content and secrets are not required for the timeline.
+
+## Live-host event bridge
+
+The installed session remains auto-started. Functional SillyTavern listeners now record their own narrative-event metadata for overlapping events, so the session does not register a second observer for the same event. This preserves the #182 narrative feed while avoiding duplicate host listener counts and duplicate lifecycle handling.
+
+## Validation status
+
+Code/host-event tests can establish identity fencing, bounded reads, unavailable-producer behavior, regeneration containment, stale/late containment, and listener topology. They cannot establish a real SillyTavern operator pass.
+
+Until a director/operator runs a real installed turn, live behavior is **PENDING OPERATOR TEST** and #224 must remain incomplete.

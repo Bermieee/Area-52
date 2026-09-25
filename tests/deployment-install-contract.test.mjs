@@ -9,7 +9,7 @@ test('SillyTavern manifest preserves one-resource install and supported update c
   assert.equal(manifest.auto_update, true);
   assert.deepEqual(manifest.requires, []);
   assert.deepEqual(manifest.optional, []);
-  assert.match(manifest.version, /^0\.3\.0-development-deployment$/);
+  assert.match(manifest.version, /^0\.3\.1-development-deployment$/);
 });
 
 test('live adapter never imports the deterministic golden lore fixture', () => {

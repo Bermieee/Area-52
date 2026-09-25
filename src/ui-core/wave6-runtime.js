@@ -127,6 +127,12 @@ export function createWave6ProductInterface({
     if(liveReceiptBinding)applyLiveSelection(update);
     else scheduler.invalidate('wave8:cognition-refresh',()=>{if(shell?.currentWorkspace==='brain')shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
   });if(typeof cognitionRelease==='function')cognitionScope.add(cognitionRelease);
+  const operatorRefresh=(scopeKey)=>scheduler.invalidate('wave13:'+scopeKey+'-refresh',()=>{
+    if(shell?.currentWorkspace==='brain'||(scopeKey==='lore'&&shell?.currentWorkspace==='lore')||shell?.currentWorkspace==='home')shell.refreshCurrentWorkspace();
+    controller?.scheduleQuickDash?.();
+  },{cost:'NORMAL'});
+  const resourceRelease=resources?.subscribe?.(()=>operatorRefresh('resources'));if(typeof resourceRelease==='function')cognitionScope.add(resourceRelease);
+  const loreRelease=loreStudy?.subscribe?.(()=>operatorRefresh('lore'));if(typeof loreRelease==='function')cognitionScope.add(loreRelease);
 
   const toastScope=new ResourceScope(),toastViewport=new ToastViewport({host:shell.nodes.toastHost,signals,scope:toastScope});toastViewport.mount();
 

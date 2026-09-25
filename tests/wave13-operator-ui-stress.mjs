@@ -42,8 +42,8 @@ for(const [width,height,cycles] of [[1440,900,240],[420,640,160]]){
     assert.ok(d.rail.x>=10&&d.rail.x+64<=width-10);
     assert.ok(d.card.x>=10&&d.card.x+d.card.width<=width-10);
     maxPending=Math.max(maxPending,ui.scheduler.pendingCount);
-    maxCards=Math.max(maxCards,all(document.body).filter(x=>String(x.className).includes('a52-wave13-popout')).length);
-    maxRails=Math.max(maxRails,all(document.body).filter(x=>String(x.className).includes('a52-wave13-rail')).length);
+    maxCards=Math.max(maxCards,all(document.body).filter(x=>String(x.className).split(/\\s+/).includes('a52-wave13-popout')).length);
+    maxRails=Math.max(maxRails,all(document.body).filter(x=>String(x.className).split(/\\s+/).includes('a52-wave13-rail')).length);
     assert.ok(ui.scheduler.pendingCount<=5);
     assert.equal(listeners.size,1);
   }

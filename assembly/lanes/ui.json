@@ -3,7 +3,7 @@
   "schemaVersion": "2",
   "laneId": "ui",
   "branch": "Development-UI",
-  "acceptedSha": "11701edf85ea5a42c61812c247031968ed489aeb",
+  "acceptedSha": "49cd09a2f9c72b4c8b54e6544d4655a5daaf6e33",
   "acceptanceRuns": [
     {
       "id": "36064690324",
@@ -20,6 +20,10 @@
     {
       "id": "PINNED-11701edf",
       "name": "Worker 3 Wave 13 operator UI snapshot pinned for deployment exact-head validation"
+    },
+    {
+      "id": "OWNER-49cd09a2",
+      "name": "Worker 3 canonical follow-up: consume Worker 2 resource host + Lore owner host and subscribe to live owner updates"
     }
   ],
   "copiedPaths": [
@@ -337,7 +341,7 @@
     },
     {
       "path": "src/ui-core/wave12-sillytavern-host.js",
-      "sourceDigest": "dae78864e8f581a06d0bcc4d0df9077c2a84933a"
+      "sourceDigest": "bf1ae71396e28e0f0c1a13a2538fe9ece513e394"
     },
     {
       "path": "src/ui-core/wave13-floating-navigation.js",
@@ -345,11 +349,11 @@
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
-      "sourceDigest": "27e76f2425cfa90c901ec411b88b39a658fc6693"
+      "sourceDigest": "b6ed0b29770d601838748ca1b37ee24b43737205"
     },
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
-      "sourceDigest": "81f7f89631c9f34ac91bec2016110e23de90bcd3"
+      "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719"
     },
     {
       "path": "src/ui-core/wave2-adapters.js",
@@ -457,7 +461,7 @@
     },
     {
       "path": "src/ui-core/wave6-runtime.js",
-      "sourceDigest": "289edd80d906b38208efc243fa865241e4627639"
+      "sourceDigest": "ca538a04addd44193b7ef8b98997a36648078321"
     },
     {
       "path": "src/ui-core/wave7-bindings.js",
@@ -569,11 +573,11 @@
     },
     {
       "path": "tests/wave13-operator-ui-stress.mjs",
-      "sourceDigest": "9e5318bbfd021ef0e577b1a69f634f2a79400b0c"
+      "sourceDigest": "d61e7c48ad5a0f8bc25fa7e9e2cb2a43e853672f"
     },
     {
       "path": "tests/wave13-operator-ui.test.mjs",
-      "sourceDigest": "d010c85e96c1779e33c6969f3a0d6a990bb1d57c"
+      "sourceDigest": "80c4b4dc5bbeff09176b6568efb7937058d781dd"
     },
     {
       "path": "tests/wave2.test.mjs",

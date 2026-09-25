@@ -46,8 +46,6 @@ export class Wave13OwnerReadModelAdapter{
   }
 }
 
-
-
 export class Wave13CoprocessorStateUIAdapter{
   constructor({readState=null,selectionProvider=()=>({})}={}){this.readState=typeof readState==='function'?readState:null;this.selectionProvider=selectionProvider;}
   read(){
@@ -59,11 +57,13 @@ export class Wave13CoprocessorStateUIAdapter{
       if(raw==null)return idle('Coprocessor','No Worker 2 cognition telemetry exists for the selected turn.','CognitionUiState',selection);
       assertSelection(raw,selection,'Coprocessor',{allowMissingIdentity:true});
       const state=String(raw.health?.state??raw.health??'READY').toUpperCase(),degraded=['DEGRADED','STALE','BLOCKED','ERROR','UNAVAILABLE'].includes(state);
-      const hot=Number(raw.hotTaskCount??raw.hotActivity??(raw.activeTasks??[]).filter(x=>String(x.layer??x.lane??'').toUpperCase()==='HOT'||['L0','L1'].includes(x.layer)).length);
-      const deep=Number(raw.deepTaskCount??raw.deepActivity??(raw.activeTasks??[]).filter(x=>String(x.layer??x.lane??'').toUpperCase()==='DEEP'||['L2','L3','L4'].includes(x.layer)).length);
+      const activeRows=Array.isArray(raw.activeTasks)?raw.activeTasks:[];
+      const hot=Number(raw.hotTasks??raw.hotTaskCount??raw.hotActivity??activeRows.filter(x=>String(x.placement??x.layer??x.lane??'').toUpperCase()==='HOT'||['L0','L1'].includes(x.layer)).length);
+      const deep=Number(raw.deepTasks??raw.deepTaskCount??raw.deepActivity??activeRows.filter(x=>String(x.placement??x.layer??x.lane??'').toUpperCase()==='DEEP'||['L2','L3','L4'].includes(x.layer)).length);
+      const active=Number(typeof raw.activeTasks==='number'?raw.activeTasks:activeRows.length);
       return deepFreeze({
         source:createProductSourceStatus({mode:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degraded?Wave6Health.DEGRADED:hot+deep?Wave6Health.WORKING:Wave6Health.READY,label:'Coprocessor',operationalState:degraded?OperatorProducerState.DEGRADED:hot+deep?OperatorProducerState.WORKING:OperatorProducerState.LIVE,impact:degraded?'Worker 2 reports degraded cognitive execution telemetry.':hot+deep?'Worker 2 cognitive work is active.':'Worker 2 cognition telemetry is current.',reason:reasonOf(raw),producer:raw.kind??'CognitionUiState',revision:raw.receiptRevision??raw.revision??null,connected:true,selection,freshness:raw.freshness??'TURN_CURRENT'}),
-        data:{...cloneSafe(raw),hotActivity:hot,deepActivity:deep,fallback:Number(raw.fallbackCount??raw.fallback??0),staleDrop:Number(raw.staleDrops??raw.staleDrop??0),warm:cloneSafe(raw.warm??{hit:Number(raw.warmHits??0),miss:Number(raw.warmMisses??0)})},
+        data:{...cloneSafe(raw),activeTaskCount:active,hotActivity:hot,deepActivity:deep,fallback:Number(raw.fallbackCount??raw.fallback??0),staleDrop:Number(raw.staleDrops??raw.staleDrop??0),warm:cloneSafe(raw.warm??{hit:Number(raw.warmHits??0),miss:Number(raw.warmMisses??0)})},
       });
     }catch(error){return degraded('Coprocessor','Worker 2 cognition telemetry failed coherence or read.','CognitionUiState',selection,error);}
   }
@@ -94,13 +94,21 @@ export class Wave13RuntimeReceiptUIAdapter{
 export class Wave13LoreStudyUIAdapter{
   constructor({bindings={},selectionProvider=()=>({})}={}){
     this.bindings=bindings;this.selectionProvider=selectionProvider;
-    this.readFn=fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus']);
-    this.acceptFn=fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook']);
-    this.runFn=fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
-    this.retryFn=fn(bindings,['retryLoreStudy']);
+    this.host=bindings.loreStudyHost??bindings.loreHost??null;
+    this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
+    this.readFn=fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus'])??fn(this.host?.read,['surface','status','loreStudy']);
+    this.acceptFn=fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook'])??fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook']);
+    this.runFn=fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
+    this.retryFn=fn(bindings,['retryLoreStudy'])??fn(this.host?.actions,['retryLoreStudy']);
+    this.subscribeFn=fn(bindings,['subscribeLoreStudy','subscribeLoreStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
+    if(this.runtime){
+      this.readFn??=()=>buildLoreSurfaceFromRuntime(this.runtime);
+      this.acceptFn??=(input)=>this.runtime.ingestLorebook(input);
+      this.runFn??=(input)=>runLoreRuntime(this.runtime,input);
+    }
     this.lastAction=null;this.lastError=null;
   }
-  capabilities(){return deepFreeze({read:Boolean(this.readFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.readFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),subscribe:Boolean(this.subscribeFn)});}
   read(){
     const selection=this.selectionProvider?.()??{};
     if(!this.readFn)return unavailable('Lore Study','Lore Study read contract is not exported by the host assembly.','LoreStudyRuntime');
@@ -136,34 +144,42 @@ export class Wave13LoreStudyUIAdapter{
     try{const result=await this.runFn(cloneSafe(input));this.lastAction={type:'RUN',result:cloneSafe(result)};return cloneSafe(result);}
     catch(error){this.lastError=error;throw error;}
   }
+  subscribe(listener){
+    if(typeof listener!=='function'||!this.subscribeFn)return()=>{};
+    const release=this.subscribeFn(listener);return typeof release==='function'?release:()=>{};
+  }
 }
 
 export class Wave13ResourceControlAdapter{
   constructor({bindings={}}={}){
     this.bindings=bindings;
-    this.listFn=fn(bindings,['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus']);
+    this.host=bindings.resourceHost??bindings.coprocessorResourceHost??bindings.resourceConnectionsHost??null;
+    this.publicHost=Boolean(this.host?.actions&&this.host?.read);
+    this.listFn=fn(bindings,['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'])??fn(this.host?.read,['resources']);
     this.configFn=fn(bindings,['listResourceConfigurations','listAvailableResources']);
-    this.connectFn=fn(bindings,['connectResource','mountResource']);
-    this.disconnectFn=fn(bindings,['disconnectResource','unmountResource']);
-    this.testFn=fn(bindings,['testResource','probeResource','testConnection']);
+    this.addFn=fn(bindings,['addResource','configureResource'])??fn(this.host?.actions,['addResource']);
+    this.connectFn=fn(bindings,['connectResource','mountResource'])??fn(this.host?.actions,['connectResource']);
+    this.disconnectFn=fn(bindings,['disconnectResource','unmountResource'])??fn(this.host?.actions,['disconnectResource']);
+    this.testFn=fn(bindings,['testResource','probeResource','testConnection'])??fn(this.host?.actions,['testResource']);
+    this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn)});}
   read(){
     if(!this.listFn)return deepFreeze({
-      source:createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label:'Optional resources',operationalState:OperatorProducerState.UNAVAILABLE,impact:'Native Brain remains available. Optional resource control is not exported by this assembly.',reason:'Worker 2 currently publishes capability/health contracts but the assembly does not expose list/connect/test/disconnect actions.',producer:'OptionalResourceControl',connected:false}),
+      source:createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label:'Optional resources',operationalState:OperatorProducerState.UNAVAILABLE,impact:'Native Brain remains available. Optional resource control is not exported by this assembly.',reason:'Worker 2 resource host/read contract is not exported by this assembly.',producer:'OptionalResourceControl',connected:false}),
       data:{resources:[],configurations:this.configurations(),nativePathAvailable:true},
     });
     try{
       const raw=this.listFn();
       const resources=normalizeResources(raw);
       const connected=resources.filter(x=>x.connected).length;
-      const degradedRows=resources.filter(x=>['DEGRADED','SATURATED','COOLDOWN','UNAVAILABLE'].includes(x.health));
+      const degradedRows=resources.filter(x=>['DEGRADED','SATURATED','COOLDOWN','UNAVAILABLE'].includes(x.health)||x.state==='UNAVAILABLE');
       const health=degradedRows.length?Wave6Health.DEGRADED:Wave6Health.READY;
       const op=connected?degradedRows.length?OperatorProducerState.DEGRADED:OperatorProducerState.LIVE:OperatorProducerState.DISCONNECTED;
       return deepFreeze({
-        source:createProductSourceStatus({mode:degradedRows.length?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health,label:'Optional resources',operationalState:op,impact:connected?connected+' optional execution resource'+(connected===1?' is':'s are')+' connected.':'No optional Jev or sidecar resource is connected; native Brain remains usable.',producer:'Worker2ResourceStatus',connected:true}),
-        data:{resources,configurations:this.configurations(),nativePathAvailable:true},
+        source:createProductSourceStatus({mode:degradedRows.length?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health,label:'Optional resources',operationalState:op,impact:connected?connected+' optional execution resource'+(connected===1?' is':'s are')+' connected.':'No optional Jev or sidecar resource is connected; native Brain remains usable.',producer:raw?.kind??'Worker2ResourceStatus',revision:raw?.sequence??null,connected:true}),
+        data:{resources,configurations:this.configurations(),nativePathAvailable:raw?.nativePathRequired!==false||connected===0},
       });
     }catch(error){return degraded('Optional resources','Resource status could not be read.','Worker2ResourceStatus',{},error,{resources:[],configurations:[],nativePathAvailable:true});}
   }
@@ -172,21 +188,44 @@ export class Wave13ResourceControlAdapter{
     try{const rows=this.configFn()??[];return Array.isArray(rows)?rows.map(normalizeConfiguration):[];}catch{return[];}
   }
   async connect(config){
-    return this.#action('CONNECT',this.connectFn,config,'Resource connect action is not exported by the host assembly.');
+    this.lastError=null;
+    if(!this.connectFn){const e=new Error('Resource connect action is not exported by the host assembly.');e.code='RESOURCE_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
+    try{
+      let result;
+      if(this.publicHost){
+        const requestedId=resourceId(config);
+        const existing=requestedId?this.read().data.resources.find(row=>row.id===requestedId):null;
+        if(existing)result=await this.connectFn(existing.id);
+        else{
+          const normalized=normalizeWorker2ResourceConfig(config);
+          if(!this.addFn){const e=new Error('Worker 2 resource host requires addResource() before connectResource().');e.code='RESOURCE_CONFIGURE_ACTION_UNAVAILABLE';throw e;}
+          await this.addFn(normalized);
+          result=await this.connectFn(normalized.resourceId);
+        }
+      }else result=await this.connectFn(cloneSafe(config));
+      this.lastAction={type:'CONNECT',result:cloneSafe(result)};return cloneSafe(result);
+    }catch(error){this.lastError=error;throw error;}
   }
   async disconnect(resource){
-    return this.#action('DISCONNECT',this.disconnectFn,resource,'Resource disconnect action is not exported by the host assembly.');
+    return this.#resourceAction('DISCONNECT',this.disconnectFn,resource,'Resource disconnect action is not exported by the host assembly.');
   }
   async test(resource){
-    const result=await this.#action('TEST',this.testFn,resource,'Resource connection-test action is not exported by the host assembly.');
+    const result=await this.#resourceAction('TEST',this.testFn,resource,'Resource connection-test action is not exported by the host assembly.');
     const id=resourceId(resource);if(id)this.tests.set(id,cloneSafe(result));return result;
   }
   testResult(id){return cloneSafe(this.tests.get(String(id))??null);}
-  async #action(type,action,payload,message){
+  subscribe(listener){
+    if(typeof listener!=='function'||!this.subscribeFn)return()=>{};
+    const release=this.subscribeFn(listener);return typeof release==='function'?release:()=>{};
+  }
+  async #resourceAction(type,action,payload,message){
     this.lastError=null;
     if(!action){const e=new Error(message);e.code='RESOURCE_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
-    try{const result=await action(cloneSafe(payload));this.lastAction={type,result:cloneSafe(result)};return cloneSafe(result);}
-    catch(error){this.lastError=error;throw error;}
+    try{
+      const arg=this.publicHost?resourceId(payload):cloneSafe(payload);
+      if(this.publicHost&&!arg){const e=new TypeError('Resource action requires resourceId.');e.code='RESOURCE_ID_REQUIRED';throw e;}
+      const result=await action(arg);this.lastAction={type,result:cloneSafe(result)};return cloneSafe(result);
+    }catch(error){this.lastError=error;throw error;}
   }
 }
 
@@ -303,16 +342,88 @@ function normalizeLoreSurface(raw){
   };
 }
 
+function buildLoreSurfaceFromRuntime(runtime){
+  const registry=runtime?.registry,store=runtime?.store;
+  if(!registry||!store||typeof registry.listEntries!=='function'||typeof registry.currentRevision!=='function'||typeof store.currentLearnedRevision!=='function')throw new TypeError('LoreStudyRuntime adapter requires registry/store public read methods');
+  const entries=registry.listEntries({includeRemoved:true}).map(source=>{
+    const revision=registry.currentRevision(source.sourceId,{allowMissing:true});
+    const learned=store.currentLearnedRevision(source.sourceId);
+    const artifacts=learned&&typeof store.artifactsForLearnedRevision==='function'?store.artifactsForLearnedRevision(learned.id):[];
+    const current=Boolean(revision&&learned&&learned.sourceRevisionId===revision.id&&['CURRENT','REMOVED'].includes(learned.state));
+    const retrieval=artifacts.filter(a=>a.artifactType==='RETRIEVAL').map(a=>({
+      artifactId:a.id,sourceRevisionId:a.sourceRevisionId,authorityClass:a.authorityClass,temporalClass:a.temporalClass,
+      unresolved:Boolean(a.unresolved),provenance:cloneSafe(a.provenance),
+    }));
+    return{
+      sourceId:source.sourceId,lorebookId:source.lorebookId,uid:source.uid,sourceRevisionId:revision?.id??null,sourceState:revision?.state??null,
+      learnedRevisionId:learned?.id??null,freshness:current?(revision?.state==='REMOVED'?'REMOVED':'CURRENT'):'STALE_OR_UNLEARNED',
+      artifactIds:artifacts.map(a=>a.id),retrievalRepresentations:retrieval,
+    };
+  });
+  const obligations=typeof runtime.listObligations==='function'?runtime.listObligations():[];
+  const counts={DUE:0,PENDING:0,ACTIVE:0,CHECKPOINTED:0,COMPLETED:0,SUPERSEDED:0,STALE:0,INVALID:0};
+  for(const row of obligations)if(Object.hasOwn(counts,row.state))counts[row.state]+=1;
+  const currentArtifacts=typeof store.currentArtifacts==='function'?store.currentArtifacts(registry):[];
+  const conflicts=typeof store.conflicts==='function'?store.conflicts(registry):[];
+  return{
+    kind:'LorePublicIntegrationSurface',entries,
+    artifacts:currentArtifacts.map(a=>({artifactId:a.id,artifactType:a.artifactType,sourceId:a.sourceId,sourceRevisionId:a.sourceRevisionId,temporalClass:a.temporalClass,authorityClass:a.authorityClass,freshness:a.freshness,unresolved:Boolean(a.unresolved),provenance:cloneSafe(a.provenance)})),
+    conflicts:cloneSafe(conflicts),lifecycle:{counts,due:counts.DUE+counts.PENDING+counts.CHECKPOINTED,active:counts.ACTIVE},
+    revision:store.publicationSequence??registry.sequence??null,
+  };
+}
+
+async function runLoreRuntime(runtime,input={}){
+  if(typeof runtime?.run!=='function')throw new TypeError('LoreStudyRuntime.run() is unavailable');
+  if(input?.obligationId)return runtime.run(input.obligationId,{maxUnits:input.maxUnits??Infinity});
+  const due=typeof runtime.dueObligations==='function'?runtime.dueObligations():[];
+  const results=[];
+  for(const obligation of due)results.push(await runtime.run(obligation.id,{maxUnits:input.maxUnits??Infinity}));
+  return{kind:'LoreStudyOperatorRun',requested:due.length,results};
+}
+
 function normalizeResources(raw){
-  const rows=Array.isArray(raw)?raw:Array.isArray(raw?.resources)?raw.resources:Array.isArray(raw?.profiles)?raw.profiles:raw&&typeof raw==='object'?[raw]:[];
+  const rows=Array.isArray(raw)?raw:Array.isArray(raw?.resources)?raw.resources:Array.isArray(raw?.profiles)?raw.profiles:raw&&typeof raw==='object'&&raw.resourceId?[raw]:[];
   return rows.map((row,index)=>{
-    const id=resourceId(row)??'resource:'+index;const health=String(row.providerHealth??row.health??row.state??'UNAVAILABLE').toUpperCase();
-    const available=row.available!==false&&String(row.availability??'AVAILABLE').toUpperCase()!=='UNAVAILABLE';
-    const connected=row.connected??row.mounted??(available&&!['UNAVAILABLE','DISCONNECTED'].includes(health));
-    return deepFreeze({id,kind:String(row.kind??row.resourceKind??(row.capabilities?.includes?.('SEMANTIC_JUDGMENT')?'JEV':'SIDECAR')).toUpperCase(),providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,local:Boolean(row.local),health,availability:row.availability??(available?'AVAILABLE':'UNAVAILABLE'),connected:Boolean(connected),capabilities:[...(row.capabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??0),concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),lastError:row.lastError??row.reason??null});
+    const id=resourceId(row)??'resource:'+index;
+    const state=String(row.state??'').toUpperCase();
+    const health=String(row.providerHealth??row.health??(state==='READY'?'HEALTHY':state||'UNAVAILABLE')).toUpperCase();
+    const availability=String(row.availability??(row.callable?'AVAILABLE':'UNAVAILABLE')).toUpperCase();
+    const connected=row.connected??row.mounted??['READY','DEGRADED','CONNECTING'].includes(state);
+    const declared=[...(row.declaredCapabilities??row.capabilities??[])],active=[...(row.activeCapabilities??[])];
+    const capabilities=active.length?active:declared;
+    const role=capabilities.includes('SEMANTIC_JUDGMENT')?'JEV':'SIDECAR';
+    return deepFreeze({
+      id,kind:role,transportKind:row.kind??row.resourceKind??null,providerId:row.providerId??null,providerProfileId:row.providerProfileId??row.profileId??null,
+      modelId:row.modelId??null,workerId:row.workerId??null,local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
+      capabilities,declaredCapabilities:declared,activeCapabilities:active,placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
+      concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
+      lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastFailure:cloneSafe(row.lastFailure),
+      lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
+    });
   });
 }
-function normalizeConfiguration(row,index=0){return deepFreeze({id:text(row?.id??row?.configurationId??row?.profileId)??'config:'+index,label:text(row?.label??row?.name??row?.id)??'Resource configuration',kind:text(row?.kind??row?.resourceKind)??'SIDECAR',endpoint:text(row?.endpoint),modelId:text(row?.modelId),local:Boolean(row?.local),capabilities:[...(row?.capabilities??[])]});}
+
+function normalizeWorker2ResourceConfig(input={}){
+  const resourceIdValue=resourceId(input);
+  if(!resourceIdValue){const e=new TypeError('Resource ID is required.');e.code='RESOURCE_ID_REQUIRED';throw e;}
+  const role=String(input.role??input.resourceRole??input.kind??'SIDECAR').toUpperCase();
+  const supplied=Array.isArray(input.capabilities)?input.capabilities:String(input.capabilities??'').split(',').map(x=>x.trim()).filter(Boolean);
+  const capabilities=[...new Set((supplied.length?supplied:(role==='JEV'?['SEMANTIC_JUDGMENT']:['STRUCTURED_EXTRACTION'])).map(String))];
+  const transport=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(String(input.transportKind??input.kind??'').toUpperCase())?String(input.transportKind??input.kind).toUpperCase():'OPENAI_COMPATIBLE';
+  const out={
+    resourceId:resourceIdValue,displayName:text(input.displayName)??resourceIdValue,kind:transport,capabilities,
+    providerProfileId:text(input.providerProfileId)??('profile:'+resourceIdValue),providerId:text(input.providerId)??('provider:'+resourceIdValue),
+    modelId:text(input.modelId)??(transport==='DETERMINISTIC_LOCAL'?'local-deterministic':'model'),workerId:text(input.workerId)??('resource:'+resourceIdValue),
+    maxConcurrency:Math.max(1,Number(input.maxConcurrency??input.concurrencyCapacity??1)||1),local:input.local!==false,
+  };
+  if(transport==='OPENAI_COMPATIBLE'){
+    const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('Local OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
+  }
+  return out;
+}
+
+function normalizeConfiguration(row,index=0){return deepFreeze({id:text(row?.id??row?.configurationId??row?.resourceId??row?.profileId)??'config:'+index,label:text(row?.label??row?.name??row?.displayName??row?.id)??'Resource configuration',kind:text(row?.kind??row?.resourceKind)??'SIDECAR',endpoint:text(row?.endpoint),modelId:text(row?.modelId),local:Boolean(row?.local),capabilities:[...(row?.capabilities??row?.declaredCapabilities??[])]});}
 function resourceId(row){return text(row?.id??row?.resourceId??row?.profileId??row?.providerProfileId??row?.workerId);}
 function readerExported(x,key){return({
   choice:['readCognitiveChoice','readCognitiveChoiceReceipt'],truth:['readTruth','readTruthAssessment'],jev:['readJev','readJevDecisionReceipt'],gather:['readGather','readGatherReceipt'],seal:['readContextSeal','readContextSealReceipt','readSealReceipt'],

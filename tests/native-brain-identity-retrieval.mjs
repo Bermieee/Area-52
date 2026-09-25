@@ -246,7 +246,7 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
     executionLabel:'DETERMINISTIC',
   });
   assert.ok(chosen.used.admittedJobs.includes('GRAPH_WALKER'));
-  assert.ok(chosen.used.sensoryChannelsUsed.includes('ZZ_NATIVE_GRAPH_WALKER'));
+  for(const channel of ['ZZ_NATIVE_GRAPH_WALKER','CORE_SPARSE','CORE_DENSE','NATIVE_LORE','NATIVE_MEMORY'])assert.ok(chosen.used.sensoryChannelsUsed.includes(channel),'expected native retrieval channel '+channel);
   assert.ok(chosen.contextSealReceipt?.sealedState);
   assert.ok(chosen.graphTraversalReceipt);
   assert.ok(chosen.retrievalBudgetReceipt);
@@ -365,6 +365,7 @@ test('DETERMINISTIC: small and large delivery budgets preserve protected truth/s
     userInput:'Moon Gate eclipse archive: give current state, historical state, unresolved omen, rule and exception.',
   });
   assert.equal(large.ok,true);
+  assert.equal((large.plan.dropped?.length??0)+(large.plan.deferred?.length??0),0);
 
   let small=null,smallBudget=null;
   for(const tokens of [384,448,512,640,768,896,1024,1280,1536]){

@@ -80,7 +80,9 @@ export class NativeEntityIdentityRegistry{
     else if(targetRow&&!compatibleDimension(targetRow.entityType,normalizedType(entityType))){recommendation='REJECT';code='ENTITY_TYPE_MISMATCH';}
     else if(['MERGE','SPLIT'].includes(act)){recommendation='DEFER';code='OWNER_SETTLEMENT_REQUIRED';}
     else if(mutatingActions.has(act)&&explicit&&authoritativeOrigins.has(String(authorityOrigin))&&targetRow){
-      recommendation='LINK';code='EXPLICIT_IDENTITY_EVIDENCE';
+      const provenanceReady=uniq(provenanceRefs).length>0&&(String(authorityOrigin)==='OPERATOR'||uniq(sourceRevisionRefs).length>0);
+      if(provenanceReady){recommendation='LINK';code='EXPLICIT_IDENTITY_EVIDENCE';}
+      else{recommendation='DEFER';code='EXPLICIT_IDENTITY_PROVENANCE_REQUIRED';}
     }else if(act==='AMBIGUOUS'||candidates.length>1){recommendation='DEFER';code='AMBIGUOUS_IDENTITY_SET';}
     else if(act==='UNRESOLVED'){recommendation='DEFER';code='IDENTITY_UNRESOLVED';}
     else if(['MODEL','MODEL_GUESS','GRAPH_PROXIMITY','RETRIEVAL_COACTIVATION','HEURISTIC'].includes(String(authorityOrigin))){

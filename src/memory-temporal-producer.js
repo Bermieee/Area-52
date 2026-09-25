@@ -340,8 +340,15 @@ export class MemoryTemporalProducer {
 
   queryHistorian(request) {
     try {
-      const raw=this.summaryHierarchy.queryHistorian(request??{},(baseRequest)=>this.historian.query(baseRequest));
       const selection=normalizeMemorySelection(request?.selection??{});
+      const allowedEvidenceIds=selection.chatId
+        ? (this.graph.evidenceOrder??[]).filter((id)=>{
+            const row=this.graph.evidenceRecord(id);
+            return row&&evidenceBelongsToChat(row,selection);
+          })
+        : null;
+      const fencedRequest=allowedEvidenceIds==null?request??{}:{...(request??{}),allowedEvidenceIds};
+      const raw=this.summaryHierarchy.queryHistorian(fencedRequest,(baseRequest)=>this.historian.query(baseRequest));
       let result=raw;
       if (selection.chatId) {
         const nominations=(raw.nominations??[]).filter((nomination)=>this.nominationBelongsToChat(nomination,selection));
@@ -413,6 +420,7 @@ export class MemoryTemporalProducer {
           temporalDistance:intent.temporalDistance??request.temporalDistance,
           resolutionHint:intent.resolutionHint??request.resolutionHint,
           precisionRequired:Boolean(intent.precisionRequired??request.precisionRequired),
+          selection:request.selection??null,
         });
         all.push(...(result.nominations??[]));
       }

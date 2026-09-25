@@ -192,10 +192,17 @@ export class NativeGraphNeighborhoodRetriever{
   #temporalEdges(request){
     return this.temporalGraph.allClaims().map(claim=>{
       const from=this.#normalizeRef(claim.subjectId,{providerId:'CORE_TEMPORAL_STATE'});
-      const to=this.#normalizeRef(typeof claim.value==='string'?claim.value:{providerId:'CORE_TEMPORAL_STATE',sourceEntityId:'value:'+stableHash(claim.value,{length:12}),label:JSON.stringify(claim.value)},{providerId:'CORE_TEMPORAL_STATE'});
+      const rawTo=typeof claim.value==='string'?claim.value:null;
+      const to=this.#normalizeRef(rawTo??{providerId:'CORE_TEMPORAL_STATE',sourceEntityId:'value:'+stableHash(claim.value,{length:12}),label:JSON.stringify(claim.value)},{providerId:'CORE_TEMPORAL_STATE'});
+      // Temporal State Graph subject/value IDs are already Core-owned semantic identities.
+      // The registry may canonicalize them when an explicit mapping exists, but an
+      // unresolved registry lookup must not rewrite a native Core ID into a provider-local
+      // namespace or it becomes unreachable from the original query anchor.
+      const fromEntityId=from.resolved?from.entityId:String(claim.subjectId);
+      const toEntityId=to.resolved?to.entityId:(rawTo!=null?String(rawTo):to.entityId);
       return{
         edgeId:'temporal:'+claim.id,providerId:'CORE_TEMPORAL_STATE',owner:'TEMPORAL_STATE_GRAPH',sourceKind:'TEMPORAL_STATE',
-        fromEntityId:from.entityId,toEntityId:to.entityId,edgeMeaning:claim.predicate,temporalStatus:claim.status??KnowledgeStatus.UNRESOLVED,
+        fromEntityId,toEntityId,edgeMeaning:claim.predicate,temporalStatus:claim.status??KnowledgeStatus.UNRESOLVED,
         temporal:clone(claim.temporal),authorityClass:claim.authorityClass,sourceRevisionRefs:uniq(claim.provenance?.sourceRevisionIds??[]),
         dependencyRevisionRefs:uniq(claim.provenance?.invalidators??[]),provenanceRefs:uniq([claim.provenance?.id,...(claim.provenance?.sourceRevisionIds??[])]),
         evidenceRefs:uniq([claim.id,...(claim.provenance?.evidenceIds??[])]),claimRefs:[claim.id],eventRefs:[],relationshipRefs:[],

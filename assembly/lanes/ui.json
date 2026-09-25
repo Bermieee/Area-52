@@ -806,6 +806,18 @@
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
       "expectedDigest": "2a124d5832ced627927a6d45bb31acb479a49588",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
+    },
+    {
+      "path": "tests/wave6.test.mjs",
+      "sourceDigest": "e672d31742df0a2a524770a69514556b985549be",
+      "expectedDigest": "24fa232acbe9f6c231249f736ad01ab1c1d78878",
+      "reason": "UI.Core conformance regression now includes the accepted Connections and Settings product workspaces."
+    },
+    {
+      "path": "tests/wave9.test.mjs",
+      "sourceDigest": "16433a27ce7775f54bc80f37dc0d812a1fe654e2",
+      "expectedDigest": "48d00ab8598bf3bebd37988e2d4517c25949b5af",
+      "reason": "Phase-2 workspace conformance validates the canonical nine product workspaces instead of the obsolete seven-workspace count."
     }
   ],
   "knownConflicts": []

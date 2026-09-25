@@ -282,6 +282,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.turnEvidence = [];
     this.scenarios = { simple: null, retrieval: null, ambiguous: null };
     this.loreIngestion = [];
+    this.acceptedLorebooks = new Map();
     this.degraded = null;
     this.operatorReview = { promptInspectorConfirmed: false, uiTraceReviewed: false, liveSillyTavernConfirmed: false, confirmedAt: null };
     this.errors = [];
@@ -299,9 +300,11 @@ export class DevelopmentDeploymentSillyTavernSession {
   ingestLorebook(lorebook, { notify = true } = {}) {
     if (!lorebook || !Array.isArray(lorebook.entries)) throw new TypeError('Lorebook entries are required');
     const result = this.brain.ingestLorebook(lorebook);
+    const lorebookId = String(lorebook.id ?? 'operator-lore');
+    this.acceptedLorebooks.set(lorebookId, clone(lorebook));
     const receipt = {
       kind: 'DevelopmentDeploymentLoreIngestionReceipt',
-      lorebookId: String(lorebook.id ?? 'operator-lore'),
+      lorebookId,
       title: String(lorebook.title ?? 'Operator Lore'),
       accepted: true,
       processed: true,
@@ -382,6 +385,7 @@ export class DevelopmentDeploymentSillyTavernSession {
 
     if (chosenMode === 'ambiguous') {
       const degradedBrain = new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: false });
+      for (const lorebook of this.acceptedLorebooks.values()) degradedBrain.ingestLorebook(clone(lorebook));
       const degraded = await executeHostTurn(degradedBrain, context, message, { mode: 'ambiguous', inject: false });
       this.degraded = {
         ...degraded,

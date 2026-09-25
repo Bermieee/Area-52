@@ -81,8 +81,9 @@
     "test:wave15": "node --test tests/coprocessor-wave15-native-swarm.test.mjs tests/coprocessor-wave15-evaluation.test.mjs tests/coprocessor-wave15-browser.test.mjs",
     "report:wave15": "node scripts/native-sidecar-swarm-wave15-evaluation.mjs",
     "smoke:swarm:live": "node scripts/native-sidecar-swarm-live-smoke.mjs",
-    "test:wave16": "node --test tests/coprocessor-wave16-resource-jev.test.mjs tests/coprocessor-wave16-evaluation.test.mjs",
+    "test:wave16": "node --test tests/coprocessor-wave16-resource-jev.test.mjs tests/coprocessor-wave16-evaluation.test.mjs tests/coprocessor-wave16-browser.test.mjs",
     "report:wave16": "node scripts/coprocessor-wave16-evaluation.mjs",
-    "smoke:wave16:live": "node scripts/resource-jev-vector-wave16-live-smoke.mjs"
+    "smoke:wave16:live": "node scripts/resource-jev-vector-wave16-live-smoke.mjs",
+    "test:browser:wave16": "node --test tests/coprocessor-wave16-browser.test.mjs"
   }
 }

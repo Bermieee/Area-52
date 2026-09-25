@@ -34,6 +34,7 @@ function renderEvidence(root, evidence) {
   setGate(root,'vectoring',Boolean(measuredResources.some(row=>String(row.kind)==='VECTORING'&&row.callable&&row.measurementClass==='MEASURED_LIVE'&&(row.capabilities??[]).some(cap=>['EMBED','RETRIEVAL','RETRIEVAL_QUALITY','RERANK'].includes(String(cap))))),'Qualify a measured Vectoring resource with owner-advertised retrieval/embed capability');
   setGate(root,'provider-failure',Boolean(evidence.resourceOperatorEvidence?.resources?.some(row=>row.lastFailure)||evidence.providerEvidence?.failedLiveAttempt),'Exercise one provider failure/fallback');
   setGate(root,'navigation',Boolean(evidence.navigationEvidence?.mounted&&evidence.operatorReview?.uiTraceReviewed),'Review rail/panel navigation in SillyTavern');
+  for(const id of ['FT177','FT178','FT179','FT180'])setGate(root,id.toLowerCase(),evidence.functionTestObservations?.[id]?.status==='OBSERVED',id+' owner path pending');
   const output = root?.querySelector?.('[data-a52-live-output]');
   if (output) output.textContent = JSON.stringify({
     status: evidence.status,
@@ -94,6 +95,13 @@ export async function init() {
     '<li><span data-a52-gate="provider-failure">○ Pending</span> — Exercise an unreachable/invalid provider and verify failure/fallback is shown without a false healthy state.</li>',
     '<li><span data-a52-gate="navigation">○ Pending</span> — Drag, resize, collapse, keyboard-navigate, switch workspaces, and narrow the SillyTavern viewport; confirm the panel stays reachable.</li>',
     '</ol>',
+    '<p><strong>Function-test observations (not acceptance):</strong></p>',
+    '<ul>',
+    '<li><span data-a52-gate="ft177">○ Pending</span> — FT177 Scene owner → Runtime execution → Context Seal observed in the selected live turn.</li>',
+    '<li><span data-a52-gate="ft178">○ Pending</span> — FT178 Memory owner → retrieval → Context Seal observed in the selected live turn.</li>',
+    '<li><span data-a52-gate="ft179">○ Pending</span> — FT179 retrieval-ready Lore → Truth → Context Seal observed in the selected live turn.</li>',
+    '<li><span data-a52-gate="ft180">○ Pending</span> — FT180 measured-live provider execution observed; function-test owner still decides pass/fail.</li>',
+    '</ul>',
     '<p>No item is auto-promoted from fixture-only evidence. Copy evidence after the operator checks are complete.</p>',
     '</details>',
     '<pre class="a52-deployment-output" data-a52-live-output></pre>',

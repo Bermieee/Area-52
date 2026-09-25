@@ -862,7 +862,64 @@ export class LoreAuthoringLifecycle {
     return this.progress(session.id);
   }
 
-  resumeBuild({sessionId, maxActions = MAX_BUILD_BATCH} = {}) {
+  startSourceMutationBuild({proposals = [], storyScope = null} = {}) {
+    if (!Array.isArray(proposals) || !proposals.length) {
+      throw Object.assign(new TypeError('Source mutation build requires proposals'), {
+        code: 'LORE_SOURCE_PROPOSALS_REQUIRED',
+      });
+    }
+    const sessionId = this._nextSessionId('SOURCE', {
+      proposalDigest: stableHash(proposals),
+      proposalCount: proposals.length,
+    });
+    const actions = sourceMutationActionRows(proposals, this.intelligence, sessionId);
+    const fenceBySource = new Map();
+    for (const action of actions) {
+      for (const row of action.inputSourceRevisions || []) fenceBySource.set(row.sourceId, row);
+    }
+    const inputSourceFence = [...fenceBySource.values()].sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+    const inputAbsenceFence = actions.flatMap((row) => row.absenceFences || [])
+      .sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+    const session = {
+      kind: 'LoreAuthoringSession',
+      contractVersion: 1,
+      id: sessionId,
+      type: 'SOURCE',
+      stage: LoreAuthoringStage.BUILDING,
+      draftRevision: 1,
+      inputLorebookIds: unique(actions.flatMap((row) => row.mutationLorebookIds || [])),
+      inputSourceFence,
+      inputAbsenceFence,
+      dependencyFence: dependencyFenceFor(this.intelligence, 'SOURCE'),
+      storyScope: deepClone(storyScope),
+      baseProposal: {
+        kind: 'LoreSourceMutationProposalSet',
+        proposalIds: actions.map((row) => row.proposalId),
+        sourceRevisionFence: deepClone(inputSourceFence),
+        absenceFence: deepClone(inputAbsenceFence),
+      },
+      actions,
+      reviewItems: [],
+      taxonomyEdits: [],
+      build: {
+        cursor: 0,
+        total: actions.length,
+        batchLimit: MAX_BUILD_BATCH,
+        checkpointSequence: 0,
+        complete: actions.length === 0,
+      },
+      checkpoints: [],
+      finalPreview: null,
+      approval: null,
+      stale: null,
+      lastError: null,
+    };
+    if (session.build.complete) session.stage = LoreAuthoringStage.DRAFT_REVIEW;
+    this.sessions.set(session.id, session);
+    return this.progress(session.id);
+  }
+
+    resumeBuild({sessionId, maxActions = MAX_BUILD_BATCH} = {}) {
     const session = this._session(sessionId);
     if (![LoreAuthoringStage.BUILDING, LoreAuthoringStage.CHECKPOINTED].includes(session.stage)) {
       return this.progress(session.id);
@@ -1127,6 +1184,22 @@ export class LoreAuthoringLifecycle {
   _assertCurrentFences(session, {checkDependencies = true} = {}) {
     const sourceCheck = checkSourceFence(this.intelligence, session.inputSourceFence);
     if (!sourceCheck.ok) return {ok: false, reason: 'SOURCE_REVISION_FENCE_CHANGED', details: sourceCheck};
+    const absenceChanged = (session.inputAbsenceFence || []).filter((row) => this.intelligence.runtime.registry.getEntry(row.sourceId));
+    if (absenceChanged.length) {
+      return {
+        ok: false,
+        reason: 'SOURCE_ABSENCE_FENCE_CHANGED',
+        details: {
+          kind: 'LoreSourceAbsenceFenceCheck',
+          conflicts: absenceChanged.map((row) => ({
+            sourceId: row.sourceId,
+            lorebookId: row.lorebookId,
+            uid: row.uid,
+            currentSourceRevisionId: this.intelligence.runtime.registry.currentRevision(row.sourceId, {allowMissing: true})?.id || null,
+          })),
+        },
+      };
+    }
     if (checkDependencies) {
       const dependencyCheck = checkDependencyFence(this.intelligence, session.dependencyFence, session.type);
       if (!dependencyCheck.ok) return {ok: false, reason: 'DEPENDENCY_FENCE_CHANGED', details: dependencyCheck};

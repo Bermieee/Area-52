@@ -524,6 +524,7 @@ export class Wave13OperationalStatusAdapter{
       this.#runtimeStage(selection,cognition),
       this.#coprocessorStage(selection),
       this.#cognitionStage('choice','Cognitive Choice',cognition,selection),
+      this.#cognitionStage('sensory','Sensory',cognition,selection),
       this.#cognitionStage('truth','Truth',cognition,selection),
       this.#cognitionStage('jev','Jev',cognition,selection,{optional:true}),
       this.#cognitionStage('gather','Gather',cognition,selection),
@@ -538,7 +539,7 @@ export class Wave13OperationalStatusAdapter{
     const active=stages.filter(x=>[OperatorProducerState.LIVE,OperatorProducerState.WORKING,OperatorProducerState.IDLE].includes(x.state)).length;
     const failures=stages.filter(x=>x.state===OperatorProducerState.DEGRADED).length;
     const scatter=cognition?.data?.scatter??null,gather=cognition?.data?.gather??null,seal=cognition?.data?.seal??null;
-    const registeredIds=new Set(['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning']);
+    const registeredIds=new Set(['scene','runtime','coprocessor','choice','sensory','truth','jev','gather','seal','promptPlan','generation','learning']);
     const registered=stages.filter(x=>registeredIds.has(x.id)&&![OperatorProducerState.UNAVAILABLE,OperatorProducerState.DISCONNECTED].includes(x.state)).length;
     const jobs=scatter?.jobs??[],results=gather?.results??[],admitted=seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[];
     const learning=generation?.learningReceipt??null,delivery=Boolean(generation?.promptPlan||generation?.contextSeal);

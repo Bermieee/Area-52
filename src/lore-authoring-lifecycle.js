@@ -1764,18 +1764,36 @@ export class LoreAuthoringLifecycle {
         afterMetadata: deepClone(row.afterMetadata),
         semanticPreflight: deepClone(row.semanticPreflight),
       }))
-      : session.finalPreview.operations.map((row, index) => ({
-        kind: 'MERGE_OUTPUT_ENTRY',
-        operationId: settlementId + ':op:' + (index + 1),
-        lorebookId: session.outputLorebookId,
-        outputId: row.outputId,
-        uid: row.uid,
-        content: row.content,
-        metadata: deepClone(row.metadata),
-        sourceRefs: [...row.sourceRefs],
-        sourceRevisionRefs: [...row.sourceRevisionRefs],
-        semanticFactRefs: [...row.semanticFactRefs],
-      }));
+      : session.type === 'MERGE'
+        ? session.finalPreview.operations.map((row, index) => ({
+          kind: 'MERGE_OUTPUT_ENTRY',
+          operationId: settlementId + ':op:' + (index + 1),
+          lorebookId: session.outputLorebookId,
+          outputId: row.outputId,
+          uid: row.uid,
+          content: row.content,
+          metadata: deepClone(row.metadata),
+          sourceRefs: [...row.sourceRefs],
+          sourceRevisionRefs: [...row.sourceRevisionRefs],
+          semanticFactRefs: [...row.semanticFactRefs],
+        }))
+        : session.finalPreview.operations.map((row, index) => ({
+          kind: row.kind,
+          operationId: settlementId + ':op:' + (index + 1),
+          actionId: row.actionId,
+          sourceId: row.sourceId,
+          lorebookId: row.lorebookId,
+          uid: row.uid,
+          expectedSourceRevisionId: row.expectedSourceRevisionId || null,
+          expectedAbsent: Boolean(row.expectedAbsent),
+          beforeContent: row.beforeContent,
+          beforeMetadata: deepClone(row.beforeMetadata),
+          afterContent: row.afterContent,
+          afterMetadata: deepClone(row.afterMetadata),
+          reason: row.reason || null,
+          semanticPreflight: deepClone(row.semanticPreflight),
+          evidenceReceipt: deepClone(row.evidenceReceipt),
+        }));
     const settlement = {
       kind: 'LoreAuthoringSettlement',
       contractVersion: 1,
@@ -1810,7 +1828,26 @@ export class LoreAuthoringLifecycle {
           restoresByNewRevision: true,
           reconstructable: true,
         }
-        : deepClone(session.finalPreview.output?.reconstructionManifest || null),
+        : session.type === 'SOURCE'
+          ? {
+            kind: 'LoreSourceMutationReconstructionManifest',
+            operations: operations.map((operation) => ({
+              operationId: operation.operationId,
+              kind: operation.kind,
+              sourceId: operation.sourceId,
+              lorebookId: operation.lorebookId,
+              uid: operation.uid,
+              expectedSourceRevisionId: operation.expectedSourceRevisionId,
+              beforeContent: operation.beforeContent,
+              beforeMetadata: deepClone(operation.beforeMetadata),
+              afterContent: operation.afterContent,
+              afterMetadata: deepClone(operation.afterMetadata),
+            })),
+            originalAuthoredSourcePreservedUntilSettlement: true,
+            restorationCreatesNewSourceRevision: true,
+            reconstructable: true,
+          }
+          : deepClone(session.finalPreview.output?.reconstructionManifest || null),
       restoration: null,
       lastError: null,
     };

@@ -650,6 +650,19 @@ export class DevelopmentDeploymentSillyTavernSession {
       authoringOperatorEvidence={available:Boolean(authoring),capabilities:clone(snap?.capabilities??null),last:{discovery:operatorResultSummary(snap?.last?.discovery),edit:operatorResultSummary(snap?.last?.edit),tree:operatorResultSummary(snap?.last?.tree),merge:operatorResultSummary(snap?.last?.merge)}};
     }catch(error){authoringOperatorEvidence={available:false,error:String(error?.code??error?.message??error)};}
     try{navigationEvidence=clone(this.uiHost?.ui?.floatingController?.diagnostics?.()??null);}catch{}
+    let functionTestObservations=null;
+    try{
+      const diag=this.uiHost?.ui?.operator?.diagnostics?.read?.()??null,stages=new Map((diag?.producers?.stages??[]).map(row=>[row.id,row]));
+      const stageObserved=id=>['LIVE','WORKING','IDLE'].includes(String(stages.get(id)?.state??''));
+      const measured=(diag?.resources?.rows??[]).filter(row=>row.callable&&row.measurementClass==='MEASURED_LIVE');
+      functionTestObservations={
+        acceptanceAuthority:false,
+        FT177:{status:stageObserved('scene')&&Boolean(diag?.pipeline?.executionReceipt)&&Boolean(diag?.pipeline?.admissionReceipt)?'OBSERVED':'PENDING',source:'Scene owner → Runtime execution → Context Seal',scene:stages.get('scene')?.state??'UNAVAILABLE',executionReceipt:Boolean(diag?.pipeline?.executionReceipt),sealReceipt:Boolean(diag?.pipeline?.admissionReceipt)},
+        FT178:{status:stageObserved('memory')&&Boolean(diag?.memory?.retrievalStatus)&&Boolean(diag?.pipeline?.admissionReceipt)?'OBSERVED':'PENDING',source:'Memory owner → retrieval → Context Seal',memory:stages.get('memory')?.state??'UNAVAILABLE',retrievalStatus:diag?.memory?.retrievalStatus??null,sealReceipt:Boolean(diag?.pipeline?.admissionReceipt)},
+        FT179:{status:Number(diag?.lore?.retrievalReady??0)>0&&stageObserved('truth')&&Boolean(diag?.pipeline?.admissionReceipt)?'OBSERVED':'PENDING',source:'Lore owner → Truth → Context Seal',retrievalReady:Number(diag?.lore?.retrievalReady??0),truth:stages.get('truth')?.state??'UNAVAILABLE',sealReceipt:Boolean(diag?.pipeline?.admissionReceipt)},
+        FT180:{status:measured.some(row=>row.lastExecution?.status==='SUCCESS')?'OBSERVED':'PENDING',source:'Measured-live provider routing',callableMeasuredResources:measured.length,successfulExecutions:measured.filter(row=>row.lastExecution?.status==='SUCCESS').length,failedResources:(diag?.resources?.rows??[]).filter(row=>row.lastFailure).length},
+      };
+    }catch{}
     return clone({
       kind: 'DevelopmentDeploymentLiveDemoEvidence',
       contractVersion: DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION,
@@ -709,6 +722,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       resourceOperatorEvidence,
       authoringOperatorEvidence,
       navigationEvidence,
+      functionTestObservations,
 
       errors: this.errors,
       liveEvidenceComplete: false,

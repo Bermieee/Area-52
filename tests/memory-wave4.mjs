@@ -488,6 +488,8 @@ test('Memory UI producer follows selected chat and generation and never falls ba
   assert.equal(coastRead.chatId,coast.chatId);
   assert.ok(coastRead.evidence.length>0);
   assert.ok(coastRead.evidence.every((row)=>row.identity.chatId===coast.chatId));
+  assert.ok(coastRead.evidence.every((row)=>row.identity.generationId===coast.generationId));
+  assert.equal(coastRead.observationEvidenceScope,'SELECTED_TURN_GENERATION');
   assert.equal(JSON.stringify(coastRead).includes(vale.chatId),false);
 
   surface.adapters.queryHistorian({
@@ -505,6 +507,7 @@ test('Memory UI producer follows selected chat and generation and never falls ba
   const valeRead=memory.read();
   assert.equal(valeRead.chatId,vale.chatId);
   assert.ok(valeRead.evidence.every((row)=>row.identity.chatId===vale.chatId));
+  assert.ok(valeRead.evidence.every((row)=>row.identity.generationId===vale.generationId));
   assert.equal(JSON.stringify(valeRead).includes(coast.chatId),false);
 
   producer.appendEvidence({

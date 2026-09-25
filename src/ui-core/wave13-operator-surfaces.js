@@ -2,7 +2,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
   const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
   if(registry.has('home')){
     const current=registry.get('home');
@@ -31,6 +31,9 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
       renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
       renderLoreAuthoringSurface(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
     }});
+  }
+  if(registry.has('memory')&&memory){
+    registry.update('memory',{render(host,ctx){renderMemoryOwnerSurface(host,{...ctx,memory});}});
   }
   return()=>{for(const release of releases)try{release();}catch{}};
 }
@@ -600,6 +603,49 @@ function formatReceiptCounts(counts){
 function flowStep(d,label,value){const node=element(d,'div',{className:'a52-wave13-flow-step'});node.append(element(d,'strong',{text:label}),element(d,'span',{text:value}));return node;}
 function flowStatus(value){const v=String(value??'').toUpperCase();if(['COMPLETE','COMPLETED','READY','SUCCEEDED','ADMITTED'].includes(v))return'ready';if(['ACTIVE','RUNNING','QUEUED','WORKING'].includes(v))return'loading';if(['FAILED','ERROR','INVALID','LATE','STALE','REJECTED'].includes(v))return'warning';return'historical';}
 function humanLabel(value){return String(value??'').toLowerCase().replace(/(^|_)([a-z])/g,(_,space,letter)=>(space?' ':'')+letter.toUpperCase());}
+
+export function renderMemoryOwnerSurface(host,{memory,productAdapter}={}){
+  const d=host.ownerDocument,read=memory.read(),source=read.source,data=read.data,detail=productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL;
+  host.append(header(d,'Memory','Owner-backed selected-chat experience, temporal state, reflections, retrieval and hierarchical compaction. Derived summaries remain navigation aids, not canon.'));
+  host.append(makeHealthPill(d,{label:'Memory · '+(source.operationalState??source.health),status:source.statusToken,detail:source.impact}));
+  if(source.reason)host.append(message(d,'Memory status',plainMemoryReason(source.reason),source.statusToken));
+  if(!data){host.append(message(d,'No owner Memory state',source.impact??'No memories recorded for this chat yet.','historical'));return;}
+  const counts=data.counts??{},fresh=data.freshness??{};
+  host.append(createKeyValue(d,[
+    {key:'Exact evidence',value:counts.exactEvidence??0},{key:'Current / historical / unresolved',value:[counts.current??0,counts.historical??0,counts.unresolved??0].join(' / ')},
+    {key:'Episodes / reflections',value:[counts.episodes??0,counts.reflections??0].join(' / ')},{key:'Hierarchical summaries',value:counts.summaries??0},
+    {key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:data.retrieval?.status??(data.retrieval?'Published':'No selected-turn retrieval receipt')},
+  ]));
+  if(data.summaries?.length){
+    const summaries=element(d,'section',{className:'a52-wave13-memory-summaries'});
+    summaries.append(element(d,'h2',{text:'Story / arc / scene compaction'}),element(d,'p',{className:'a52-muted',text:'These are derived navigation representations. Exact evidence remains the authority and is recoverable through the owner provenance/source ranges.'}));
+    for(const row of data.summaries.slice(0,40)){
+      const card=element(d,'article',{className:'a52-card'}),head=element(d,'div',{className:'a52-inline-status'});
+      head.append(element(d,'strong',{text:humanLabel(row.scopeLevel??'Summary')}),makeBadge(d,humanLabel(row.freshness??row.state??'UNKNOWN'),row.freshness==='FRESH'?'ready':'warning'),makeBadge(d,'DERIVED / NAVIGATION','historical'));
+      card.append(head,createKeyValue(d,[
+        {key:'Scope',value:row.scopeRef??'—'},{key:'Source range',value:memorySourceRange(row.sourceRange)},{key:'Exact source revisions',value:(row.exactSourceRevisionSet??[]).length},
+        {key:'Unresolved sets preserved',value:(row.unresolvedSetRefs??[]).length},{key:'Authority',value:row.authorityClass??'DERIVED'},
+      ]));
+      if(detail!==ProductDetailLevel.NORMAL&&row.representationText)card.append(element(d,'p',{text:String(row.representationText).slice(0,1200)}));
+      if(detail===ProductDetailLevel.ADVANCED)card.append(createKeyValue(d,[{key:'Summary revision',value:row.revision??'—'},{key:'Policy revision',value:row.summaryPolicyRevision??'—'},{key:'Compiler revision',value:row.compilerRevision??'—'},{key:'Evidence refs',value:(row.exactEvidenceRefs??[]).join(', ')||'none'}]));
+      summaries.append(card);
+    }
+    host.append(summaries);
+  }else host.append(message(d,'No hierarchical summaries yet','The Memory owner has not published story/arc/scene compaction artifacts for the selected chat. Area-52 does not synthesize them in the UI.','historical'));
+  if(data.state?.unresolved?.length)host.append(message(d,'Unresolved memory preserved',data.state.unresolved.length+' competing or unresolved state record'+(data.state.unresolved.length===1?' remains':'s remain')+' unresolved. The UI does not promote a winner.','warning'));
+  if(data.mutationAuthority||data.settlementAuthority||data.contextSealAuthority)host.append(message(d,'Authority contract warning','Memory UI read state unexpectedly advertises mutation, Settlement, or Context Seal authority. No UI mutation action is exposed.','warning'));
+}
+
+function memorySourceRange(range){
+  if(!range)return'Not published';
+  if(Array.isArray(range))return range.join(' → ');
+  if(typeof range==='object')return[String(range.start??'—'),String(range.end??'—')].join(' → ');
+  return String(range);
+}
+function plainMemoryReason(reason){
+  if(String(reason).includes('MEMORY_NO_EVIDENCE'))return'No memories recorded for this chat yet.';
+  return String(reason);
+}
 
 export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter}={}){
   const d=host.ownerDocument;

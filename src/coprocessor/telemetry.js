@@ -7,6 +7,7 @@ const BLOCKED_KEYS = new Set([
   'privateDiagnostics', 'chainOfThought', 'reasoning',
   'apiKey', 'api_key', 'authorization', 'credential', 'credentials', 'secret', 'token', 'accessToken', 'refreshToken',
 ]);
+const NORMALIZED_BLOCKED_KEYS = new Set([...BLOCKED_KEYS].map(normalizeKey));
 const DEFAULT_BOUNDS = Object.freeze({ maxDepth: 5, maxKeys: 64, maxArray: 64, maxString: 768 });
 
 export class CoprocessorTelemetry {
@@ -130,10 +131,12 @@ function sanitize(payload, bounds, depth = 0, seen = new WeakSet()) {
   const safe = {};
   let count = 0;
   for (const [key, value] of Object.entries(payload)) {
-    if (BLOCKED_KEYS.has(key)) continue;
+    if (BLOCKED_KEYS.has(key) || NORMALIZED_BLOCKED_KEYS.has(normalizeKey(key))) continue;
     if (count >= bounds.maxKeys) { safe.__clippedKeys = Object.keys(payload).length - count; break; }
     safe[key] = sanitize(value, bounds, depth + 1, seen);
     count += 1;
   }
   return safe;
 }
+
+function normalizeKey(value) { return String(value??'').replace(/[^a-z0-9]/gi,'').toLowerCase(); }

@@ -437,7 +437,8 @@ test('DETERMINISTIC: Worker 3 live-binding surface exposes coherent selection an
   const boundCandidateBus=bindings.readCandidateBusEnvelope(selection);
   if(prepared.candidateEnvelope)assert.equal(boundCandidateBus?.kind,'CandidateBusEnvelope');else assert.equal(boundCandidateBus,null);
   assert.ok(bindings.readTruth(selection));
-  assert.ok(bindings.readGather(selection));
+  const scatter=bindings.readScatter(selection);assert.equal(scatter.kind,'RuntimeTurnReceipt');assert.ok(Array.isArray(scatter.jobs));
+  const gather=bindings.readGather(selection);assert.ok(gather);assert.ok(Array.isArray(gather.results));
   assert.ok(bindings.readMemoryStatus(selection));
   assert.ok(bindings.readRuntimeStatus());
   assert.equal(bindings.listGenerations({selection:{chatId:'chat:ui-bind'}}).length,1);

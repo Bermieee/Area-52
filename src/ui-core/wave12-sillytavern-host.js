@@ -15,7 +15,7 @@ const HOST_EVENT_KEYS=Object.freeze([
 const OWNER_BINDING_KEYS=Object.freeze([
   'readScene','readSceneModel','readSceneUiReadModel',
   'runtimeAdapter','coprocessorTelemetry','coprocessorAdapter',
-  'readPromptPlan','readPromptPlanReadModel','readContextReceipt','readContextReceiptReadModel',
+  'readPromptPlan','readPromptPlanReadModel','readPromptDeliveryReceipt','readContextReceipt','readContextReceiptReadModel',
   'readContextSeal','readContextSealReceipt','readSealReceipt','readIntegrityReceipt','readGeneration','listGenerations','readNativeBrainHostLifecycle',
   'readForensic','readForensicReadModel','listForensics','listForensicReadModels','listBundles',
   'listTransactions','listCognitiveTransactions','readTransaction','readCognitiveTransaction',
@@ -53,7 +53,7 @@ const FAMILY_KEYS=Object.freeze({
   precision:['readPrecision','readPrecisionReceipt'],
   gather:['readGather','readGatherReceipt'],
   contextSeal:['readContextSeal','readContextSealReceipt','readSealReceipt'],
-  promptPlan:['readPromptPlan','readPromptPlanReadModel'],
+  promptPlan:['readPromptPlan','readPromptPlanReadModel','readPromptDeliveryReceipt'],
   contextReceipt:['readContextReceipt','readContextReceiptReadModel'],
   forensics:['readForensic','readForensicReadModel','listForensics','listForensicReadModels','listBundles'],
   transactions:['listTransactions','listCognitiveTransactions','readTransaction','readCognitiveTransaction'],

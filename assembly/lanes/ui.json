@@ -768,13 +768,13 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "5365fcf58c8c487e96346cadaf544e76d962629a",
+      "expectedDigest": "1e6280a8f2c44180626d934cb73e75ce7dc50e6b",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
       "path": "src/ui-core/wave6-runtime.js",
       "sourceDigest": "ca538a04addd44193b7ef8b98997a36648078321",
-      "expectedDigest": "6cc4fe52f192de313bc1edf1c4ce88aec2f1c6f8",
+      "expectedDigest": "332590f3c51ced13d40d358c866a50653ec9040d",
       "reason": "Director-authorized demo UI: route live owner/resource/Lore/cognition telemetry into Settings Diagnostics Center and refresh it from owner subscriptions."
     },
     {
@@ -798,7 +798,7 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "df470adc988fc673a362248c4f49f578b852cc20",
+      "expectedDigest": "a99b1d014bb5b15df7da1bbebd23de498ed19571",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
@@ -824,7 +824,7 @@
   "backlogClosureAudit": {
     "kind": "Worker3UiHostCheckpoint",
     "recordedDate": "2026-09-25",
-    "directMainParent": "813b79edbe3db437ae83306c38cb251c9b1d70da",
+    "directMainParent": "79091ab8c7adce61a7b99258696aa89f8d020989",
     "installedLanePins": {
       "core": {
         "branch": "Development-Nexus",
@@ -854,7 +854,7 @@
     "observedOwnerHeads": {
       "core": {
         "branch": "Development-Nexus",
-        "sha": "8555fc56b5e448fde8eb381ef5fd6fc8d84463f2",
+        "sha": "481a5dcce50cd256f81c0712b0d609f484301e9d",
         "installed": false
       },
       "lore": {
@@ -886,9 +886,9 @@
     "directMainFiles": {
       "src/ui-core/wave12-sillytavern-host.js": "0f4fc791a444aa772a926a1d8c70219e2687fbc0",
       "src/ui-core/wave13-operator-adapters.js": "c2f331b3a044714fe656e5c8e82f50db7d6d8165",
-      "src/ui-core/wave13-operator-surfaces.js": "5365fcf58c8c487e96346cadaf544e76d962629a",
-      "src/ui-core/wave6-runtime.js": "6cc4fe52f192de313bc1edf1c4ce88aec2f1c6f8",
-      "tests/wave13-operator-ui.test.mjs": "df470adc988fc673a362248c4f49f578b852cc20",
+      "src/ui-core/wave13-operator-surfaces.js": "1e6280a8f2c44180626d934cb73e75ce7dc50e6b",
+      "src/ui-core/wave6-runtime.js": "332590f3c51ced13d40d358c866a50653ec9040d",
+      "tests/wave13-operator-ui.test.mjs": "a99b1d014bb5b15df7da1bbebd23de498ed19571",
       "src/deployment/sillytavern-live.js": "711d2ff9652a3300dda2ee5e829051dbbc8dcdc6",
       "tests/deployment-live-host.test.mjs": "06dcecf340dccb08bfa0717392fd9325f7ae412f",
       "index.js": "ddf9c2a5e5f581d92538c362b89a9fd4978fa0b9",

@@ -566,10 +566,19 @@ export class LoreIntelligenceService {
           return Boolean(source && allowedBooks.has(source.lorebookId));
         })
       )),
-      conflicts: this.runtime.store.conflicts(this.runtime.registry).filter((conflict) => {
-        const refs = [conflict.leftSourceId, conflict.rightSourceId, ...(conflict.sourceIds || [])].filter(Boolean);
-        return !refs.length || refs.every((sourceId) => allowedSourceIds.includes(sourceId));
-      }),
+      conflicts: (() => {
+        const allowed = new Set(allowedSourceIds);
+        const artifactSource = new Map(
+          this.runtime.store.currentArtifacts(this.runtime.registry)
+            .map((artifact) => [artifact.id, artifact.sourceId]),
+        );
+        return this.runtime.store.conflicts(this.runtime.registry).filter((conflict) => {
+          const refs = [...new Set((conflict.artifactIds || [])
+            .map((artifactId) => artifactSource.get(artifactId))
+            .filter(Boolean))];
+          return refs.length > 0 && refs.every((sourceId) => allowed.has(sourceId));
+        });
+      })(),
       retrievalDiagnostics: deepClone(result.diagnostics),
       provenanceRequired: true,
       exactSourceDrillbackAvailable: true,

@@ -169,7 +169,16 @@ test('story authority keeps discovery, acceptance, read scope and retrieval isol
   assert.equal(intelligence.runtime.registry.currentRevision('lore:sky-world:beacon-complement').state, 'CURRENT');
   assert.equal(intelligence.runtime.registry.currentRevision('lore:sky-world:beacon-conflict').state, 'CURRENT');
 
-  const restored = LoreIntelligenceService.fromSnapshot(intelligence.snapshot());
+  const importedChatBeforeAcceptance = intelligence.queryForStory({chatId: 'chat-imported-copy', query: 'Shared Beacon'});
+  assert.equal(importedChatBeforeAcceptance.blocked, true);
+  assert.equal(importedChatBeforeAcceptance.reasonCode, 'LORE_STORY_READ_SCOPE_EMPTY');
+  assert.deepEqual(intelligence.storyScopeReceipt({chatId: 'chat-imported-copy'}).readLorebookIds, []);
+  accept(intelligence, 'chat-imported-copy', harborBook());
+  const importedChatAfterAcceptance = intelligence.queryForStory({chatId: 'chat-imported-copy', query: 'Shared Beacon'});
+  assert.equal(importedChatAfterAcceptance.blocked, false);
+  assert.equal(sourceIds(importedChatAfterAcceptance).every((id) => id.startsWith('lore:harbor-world:')), true);
+
+    const restored = LoreIntelligenceService.fromSnapshot(intelligence.snapshot());
   assert.deepEqual(restored.storyScopeReceipt({chatId: 'chat-harbor'}).readLorebookIds, ['harbor-world']);
   assert.deepEqual(restored.storyScopeReceipt({chatId: 'chat-sky'}).readLorebookIds, ['sky-world']);
   assert.equal(sourceIds(restored.queryForStory({chatId: 'chat-harbor', query: 'Shared Beacon'}))

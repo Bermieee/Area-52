@@ -332,6 +332,18 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
+  ensureScene({ chatId, sourceRevisionId } = {}) {
+    const chat = String(chatId ?? '').trim();
+    const evidenceRef = String(sourceRevisionId ?? '').trim();
+    if (!chat) throw new TypeError('chatId is required');
+    if (!evidenceRef) throw new TypeError('sourceRevisionId is required');
+    this.scene.ensureChatScene(chat, { sourceRevisionRefs: [evidenceRef], evidenceRefs: [evidenceRef] });
+    const signal = this.scene.integrationSignal(chat);
+    if (this.core.hotCognition.activeChatNamespace !== chat) this.core.activateHotCognitionChat(chat);
+    this.core.consumeSceneSignal(signal, { chatNamespace: chat });
+    return clone(signal);
+  }
+
   observeScene({ chatId, sourceRevisionId, location, activeCast = [], activeThreads = [], objects = [], atmosphere = null } = {}) {
     const evidenceRef = String(sourceRevisionId);
     const scene = this.scene.ensureChatScene(String(chatId), { sourceRevisionRefs: [evidenceRef], evidenceRefs: [evidenceRef] });
@@ -606,8 +618,7 @@ export class DevelopmentDeploymentBrain {
   }
 
   #makeJevInput({ turn, query, planning }) {
-    const sourceNominations = (planning?.nominations ?? []).filter((row) => /sun blade/i.test(row.representationText ?? '')).slice(0, 8);
-    const rows = sourceNominations.length >= 2 ? sourceNominations : (planning?.nominations ?? []).slice(0, 8);
+    const rows = (planning?.nominations ?? []).slice(0, 8);
     const evidence = rows.map((row, index) => ({
       evidenceId: 'lore-evidence:' + turn.turnId + ':' + index,
       sourceRef: row.representationRef,
@@ -652,6 +663,7 @@ export class DevelopmentDeploymentBrain {
   }
 }
 
+// Deterministic regression fixture only. Live SillyTavern execution must ingest operator-selected lore instead.
 export function createGoldenDeploymentLorebook() {
   return {
     id: 'ember-golden',

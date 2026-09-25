@@ -314,7 +314,7 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revisi
 
 test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate Bus and quiet turns do not call Historian',async()=>{
   let memoryQueries=0;
-  const writebacks=[];
+  const writebacks=[],invalidations=[];
   let memoryRevision='memory:glass-coast@r1';
   let memoryText='Earlier, Lio crossed the moonrail bridge into Bellspire Station.';
   const exactRow=()=>({id:'memory-exact:'+memoryRevision,sourceRevisionId:memoryRevision,exactContent:memoryText,knownBy:['Lio'],metadata:{chatId:'chat:memory-owner'}});
@@ -338,6 +338,7 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
       },
       drillDown(){return[exactRow()];},
       admitExternalEvidenceMapping(input){writebacks.push(structuredClone(input));return{kind:'MemoryExternalEvidenceMappingReceipt',status:'ADMITTED',sourceRevisionId:input.source.sourceRevisionId,authorityGranted:false};},
+      invalidateExternalEvidenceMapping(input){invalidations.push(structuredClone(input));return{kind:'MemoryExternalEvidenceInvalidationReceipt',status:'INVALIDATED',sourceRevisionId:writebacks.at(-1)?.source?.sourceRevisionId??null,authorityGranted:false};},
       readMemory(selection){return{kind:'MemoryUiReadModel',selection:structuredClone(selection),health:'OK',authorityGranted:false};},
     },
   };
@@ -373,6 +374,8 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
   const correctedWriteback=brain.correctTurn({turnId:'memory-owner:1',response:'Correction: Lio waits beneath the west Bellspire tide clock.',knownBy:['Lio']});
   assert.equal(correctedWriteback.memoryWriteback.status,'ADMITTED');
   assert.equal(writebacks.length,2);
+  assert.equal(invalidations.length,1);
+  assert.equal(invalidations[0].replacedBySourceRevisionId,writebacks[1].source.sourceRevisionId);
   assert.equal(writebacks[0].externalEvidenceRef,writebacks[1].externalEvidenceRef);
   assert.ok(writebacks[1].ownerArtifactRef.revision>writebacks[0].ownerArtifactRef.revision);
   assert.notEqual(writebacks[0].source.sourceRevisionId,writebacks[1].source.sourceRevisionId);

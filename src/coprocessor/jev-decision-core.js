@@ -88,7 +88,7 @@ export class JevProviderExecutor{
   async execute(requestInput,{prefilter,signal=null,attempt=1,profileId=null,leaseHeld=false}={}){
     const request=requestInput?.kind==='JevDecisionRequest'?requestInput:createJevDecisionRequest(requestInput);
     const task=createJevCognitiveTask(request,{prefilter});const input=createJevProviderInput(request,prefilter);
-    const candidates=profileId!=null&&leaseHeld?[this.profiles.get(profileId)].filter(profile=>profile&&this.adapters.get(profile.providerId)):this.#eligible(task,input);const fallbackIndex=Math.min(Math.max(0,Number(attempt??1)-1),Math.max(0,candidates.length-1));const profile=profileId?candidates.find(x=>x.profileId===profileId):candidates[fallbackIndex];
+    const candidates=profileId!=null&&leaseHeld?[this.profiles.get(profileId)].filter(profile=>profile&&this.adapters.get(profile.providerId)&&jevProfileSupportsTask(profile,task)):this.#eligible(task,input);const fallbackIndex=Math.min(Math.max(0,Number(attempt??1)-1),Math.max(0,candidates.length-1));const profile=profileId?candidates.find(x=>x.profileId===profileId):candidates[fallbackIndex];
     if(!profile)throw new ProviderInvocationError(FailureCode.PROVIDER_UNAVAILABLE,'No eligible provider resource for Jev',{providerId:null});
     const adapter=this.adapters.get(profile.providerId);if(!adapter)throw new ProviderInvocationError(FailureCode.PROVIDER_UNAVAILABLE,'Jev provider adapter unavailable',{providerId:profile.providerId});
     const started=Date.now();let invocation;
@@ -161,6 +161,7 @@ export class JevDecisionCore{
   #remember(key,receipt){this.#replay.set(key,receipt);return receipt;}
 }
 
+function jevProfileSupportsTask(profile,task){const caps=new Set(profile.capabilities??[]);return (task.requiredCapabilities??[]).every(cap=>caps.has(cap))&&(profile.supportedLayers??[]).includes(task.cognitiveLayer)&&(profile.placements??[]).includes(task.placement)&&profile.available!==false;}
 function validateShape({request,outcome,decisionCode,selected,evidenceUsed,abstained,requiresOperator}){
   if(outcome===JevOutcome.DECIDED||outcome===JevOutcome.PARTIAL){
     if(decisionCode===JevDecisionShape.REJECT_ALL){if(selected.length)fail(FailureCode.SCHEMA_INVALID,'REJECT_ALL cannot select options');}

@@ -44,13 +44,13 @@ function addGraphResource(registry,id,fixture){
     costMetadata:{inputPerMillion:1,outputPerMillion:2},fetchImpl:fixture.fetchImpl,
   });
 }
-function graphTask(){
+function graphTask({contextTokens=1024}={}){
   const now=Date.now();
   return createCognitiveTask({
     taskId:'task:wave19',taskType:'GRAPH_WALK',turnId:'turn:wave19',correlationId:'corr:wave19',
     requiredCapabilities:[Capability.GRAPH],softDeadline:now+5000,hardDeadline:now+10000,compilerLane:'wave19',
     intentFingerprint:'intent:wave19',inputRevisionSet:createRevisionSet({sourceRevisionSet:['src@1'],worldRevision:1,sceneRevision:2,characterStateRevision:3}),
-    metadata:{expectedOutputTokens:128,contractMarker:'provider-independent'},
+    metadata:{expectedOutputTokens:128,contextTokens,contractMarker:'provider-independent'},
   });
 }
 async function qualifyBoth(registry){
@@ -69,6 +69,7 @@ test('Wave19 live-style discovery and qualification route interchangeable provid
   const first=registry.routeQualifiedProviders(task,{maxProviders:2});
   assert.equal(first.candidates.length,2);assert.equal(first.candidates[0].resourceId,'alpha');assert.deepEqual(first.taskContract,before);
   assert.equal(first.candidates[0].qualification.contextLength,65536);assert.ok(first.candidates[0].qualification.supportedParameters.includes('structured_outputs'));
+  const oversized=registry.routeQualifiedProviders(graphTask({contextTokens:70000}),{maxProviders:2});assert.equal(oversized.candidates.length,0);
 
   registry.profiles.setLoad('profile:alpha',1);
   const changed=registry.routeQualifiedProviders(task,{maxProviders:2});

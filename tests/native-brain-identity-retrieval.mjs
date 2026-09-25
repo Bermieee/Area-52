@@ -240,7 +240,7 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
 
   const chosen=await brain.prepareTurn({
     chatId:'chat:aster-graph',turnId:'aster-graph:3',generationId:'gen:aster-graph:3',
-    query:'What is Ash connected to around the Glass Spire?',intent:'CURRENT',anchorEntityIds:[ids.ash],
+    query:'Where can I find Ash around the Glass Spire, and what is Ash connected to?',intent:'CURRENT',anchorEntityIds:[ids.ash],
     scene:scene('glass-spire-current',3,{location:'Glass Spire',activeCast:[{entityId:ids.ash,canonicalEntityId:ids.ash,name:'Ash'},{entityId:ids.lio,canonicalEntityId:ids.lio,name:'Lio'}],relationship:'CONTINUES'}),
     candidateBudget:16,latencyBudgetMs:1000,graphTraversal:{maxDepth:2,maxNodes:32,maxEdges:64,maxCandidates:16},
     executionLabel:'DETERMINISTIC',

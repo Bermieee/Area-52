@@ -92,7 +92,7 @@ export async function adjudicateJevForOwner({service,input,currentRevisionState=
   const proposal=await service.adjudicate(input,{currentRevisionState,sealed,signal});
   const delta=metricDelta(before,metricFor(service,input));
   const stale=proposal?.staleState==='STALE';
-  const late=Boolean(proposal?.details?.late||proposal?.details?.foregroundEligible===false);
+  const late=Boolean(proposal?.admission?.late||proposal?.admission?.foregroundEligible===false||proposal?.details?.late||proposal?.details?.foregroundEligible===false);
   if(stale||late){
     const cognitiveTelemetry=createJevTurnCognitiveReceipt({input,proposal,delta,ownerReviewInvoked:false,ownerDecision:'REJECTED',ownerAccepted:false,stale,postSeal:late});
     return freeze({

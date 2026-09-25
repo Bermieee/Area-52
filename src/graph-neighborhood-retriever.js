@@ -154,7 +154,7 @@ export class NativeGraphNeighborhoodRetriever{
         authorityClass:authority,truthStatusHint:temporal,provenance:uniq(edge.provenanceRefs).map(ref=>({ref})),
         evidenceRefs:uniq([...(edge.evidenceRefs??[]),knowledgeEvidenceId]),dependencyRevisions:edge.dependencyRevisionRefs,
         freshness:CandidateFreshness.FRESH,representationRef:edge.representationRef??edge.edgeId,representationRevision:edge.representationRevision??edge.artifactRevision??1,
-        representationText:edgeText(edge),metadata:{knowledgeEvidenceId,graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,identityResolution:clone(edge.identityResolution)},
+        representationText:edgeText(edge),metadata:{knowledgeEvidenceId,graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,identityResolution:clone(edge.identityResolution),legacyRetrievalIntent:'graph'},
         worldRevision:null,sceneRevision:null,
       }));
     }

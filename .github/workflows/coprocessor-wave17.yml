@@ -1,0 +1,45 @@
+name: Cognitive Coprocessor Wave 17
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 17 focused browser and owner-admission acceptance
+        run: npm run test:wave17
+      - name: Preserve Wave 16 resource and Jev acceptance
+        run: npm run test:wave16
+      - name: Preserve Wave 15 native swarm acceptance
+        run: npm run test:wave15
+      - name: Wave 17 browser execution
+        run: npm run test:browser:wave17
+      - name: Opt-in MEASURED_LIVE OpenRouter acceptance
+        id: live_wave17
+        continue-on-error: true
+        run: npm run smoke:wave16:live
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Record live-provider observation without promoting skips
+        if: always()
+        run: |
+          echo "MEASURED_LIVE Wave 17 provider step outcome: ${{ steps.live_wave17.outcome }}"
+          echo "The live smoke payload controls provider pass flags; a skipped payload remains pending."

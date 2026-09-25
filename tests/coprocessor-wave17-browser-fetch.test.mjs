@@ -87,6 +87,15 @@ test('Wave17 native Window.fetch receiver survives discovery, connect/test and c
     assert.ok(windowFetch.calls.some(call=>call.href.endsWith('/chat/completions')));
     const serialized=JSON.stringify({read:registry.readModel(),telemetry:telemetry.list()});
     assert.equal(serialized.includes('browser-key'),false);
+
+    windowFetch.deny();
+    await assert.rejects(
+      ()=>registry.executeTask(graphTask('browser-chat-revoked'),{input:graphInput(),profileId:'profile:chat'}),
+      error=>error?.code==='PROVIDER_UNAUTHORIZED'
+    );
+    row=registry.readResource('chat');
+    assert.equal(row.state,ResourceConnectionState.UNAVAILABLE);assert.equal(row.reasonCode,'PROVIDER_UNAUTHORIZED');
+    assert.equal(row.connected,false);assert.equal(row.callable,false);assert.equal(row.selectedModelQualified,false);
   }finally{windowFetch.restore();}
 });
 
@@ -113,6 +122,12 @@ test('Wave17 native Window.fetch receiver keeps OpenRouter embeddings separate f
     assert.ok(windowFetch.calls.some(call=>call.href.endsWith('/embeddings/models')));
     assert.ok(windowFetch.calls.filter(call=>call.href.endsWith('/embeddings')).length>=3);
     assert.equal(windowFetch.calls.some(call=>call.href.endsWith('/chat/completions')),false);
+
+    windowFetch.deny();
+    await assert.rejects(()=>registry.executeEmbedding('vector',{input:['credential-revoked']}),error=>error?.code==='PROVIDER_UNAUTHORIZED');
+    const row=registry.readResource('vector');
+    assert.equal(row.state,ResourceConnectionState.UNAVAILABLE);assert.equal(row.reasonCode,'PROVIDER_UNAUTHORIZED');
+    assert.equal(row.connected,false);assert.equal(row.callable,false);assert.equal(row.selectedModelQualified,false);
   }finally{windowFetch.restore();}
 });
 
@@ -132,7 +147,7 @@ test('Wave17 browser authorization/test failures never leave a false connected c
     row=failed.resource;
     assert.equal(row.lastTest.status,'FAIL');assert.equal(row.lastTest.failureCode,'PROVIDER_UNAUTHORIZED');
     assert.equal(row.state,ResourceConnectionState.UNAVAILABLE);assert.equal(row.connected,false);assert.equal(row.callable,false);assert.equal(row.selectedModelQualified,false);
-    assert.equal(row.lastFailure.code,'PROVIDER_UNAUTHORIZED');
+    assert.equal(row.lastFailure.code,'PROVIDER_UNAUTHORIZED');assert.equal(row.reasonCode,'PROVIDER_UNAUTHORIZED');
     const denied=await registry.discoverModels({endpoint:'https://openrouter.ai/api/v1',apiKey:'browser-key',capabilities:[Capability.GRAPH]});
     assert.equal(denied.state,'UNAUTHORIZED');assert.equal(denied.manualModelEntryAllowed,false);
   }finally{windowFetch.restore();}

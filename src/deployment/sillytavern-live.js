@@ -240,7 +240,7 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
 function liveTurnReady(row) {
   if (!row?.host?.chatId || !row?.selection?.turnId || !row?.selection?.generationId) return false;
   if (!row.delivery?.ok || !row.delivery?.sealVerified || !row.delivery?.promptInjection?.succeeded) return false;
-  if (!row.cognition?.choice || !row.cognition?.truth || !row.cognition?.gather) return false;
+  if (!row.cognition?.choice || !row.runtime) return false;
   if (!row.scene?.sceneId || row.scene?.extractionPolicy !== 'GENERIC_HOST_EVIDENCE_ONLY') return false;
   return true;
 }

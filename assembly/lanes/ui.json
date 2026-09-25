@@ -756,7 +756,7 @@
     {
       "path": "src/ui-core/wave12-sillytavern-host.js",
       "sourceDigest": "bf1ae71396e28e0f0c1a13a2538fe9ece513e394",
-      "expectedDigest": "8a2769b0379037a976bc8ec588b469b0144bea5b",
+      "expectedDigest": "1580e99abead6a89552657c2571fc925546ecab3",
       "reason": "Director-authorized main demo correction: floating UI reserves zero host width so the empty blue host strip is not visible."
     },
     {
@@ -768,7 +768,7 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "37c871b1846271d21f953c8f7ca699dc4515b4a9",
+      "expectedDigest": "18ce9fa2af38fa84dfaf5e3afe40a74b6fafec1c",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
@@ -786,7 +786,7 @@
     {
       "path": "tests/wave12-sillytavern-host.test.mjs",
       "sourceDigest": "93ea9462b4c83377c07599ab94026d03e768a70e",
-      "expectedDigest": "e16970203ffd406a9755cfe34b260eb05d86460f",
+      "expectedDigest": "fbdaae246eaeb7608f7bcb981fe4d27f7e66dd24",
       "reason": "Validation for zero-width floating host reservation."
     },
     {
@@ -798,13 +798,13 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "982a5f5649864655169cdf57cec5cfccec72e398",
+      "expectedDigest": "b8896b3210ba6aa78967506234fe75684c5331aa",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "2a124d5832ced627927a6d45bb31acb479a49588",
+      "expectedDigest": "b095ae8d0e7f3374d99a2a431b18ee2050f31bef",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     },
     {

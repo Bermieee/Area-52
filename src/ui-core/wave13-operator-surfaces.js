@@ -493,6 +493,15 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     {key:'Resource executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)},
     {key:'Provider calls invoked / failed',value:(providerCalls.invoked??0)+' / '+(providerCalls.failed??0)},
   ]));
+  const runtime=snapshot.runtime?.summary??{},runtimeCounts=runtime.lifecycleCounts??{};
+  center.append(element(d,'h3',{text:'Runtime lifecycle telemetry'}),createKeyValue(d,[
+    {key:'Queued by layer',value:Object.entries(runtime.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},
+    {key:'Active / yielding',value:(runtimeCounts.ACTIVE??0)+' / '+(runtimeCounts.YIELDING??0)},{key:'Parked / recovering',value:(runtimeCounts.PARKED??0)+' / '+(runtimeCounts.RECOVERING??0)},
+    {key:'Complete / failed',value:(runtimeCounts.COMPLETE??0)+' / '+(runtimeCounts.FAILED??0)},{key:'Borrowed background leases',value:runtime.borrowedBackgroundLeases??'Not published'},
+    {key:'Retained signals / sink failures',value:(runtime.retainedSignals??'—')+' / '+(runtime.telemetrySinkFailures??'—')},
+    {key:'Batch history',value:runtime.batchProgressAvailable===false?'Not published by owner snapshot':runtime.batchProgressAvailable?'Published':'Not available'},
+    {key:'Late-result history',value:runtime.lateResultHistoryAvailable===false?'Not published by owner snapshot':runtime.lateResultHistoryAvailable?'Published':'Not available'},
+  ]));
 
   const wiring=element(d,'div',{className:'a52-wave13-diagnostic-lanes'});
   for(const spec of [
@@ -582,6 +591,12 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
   center.append(element(d,'h3',{text:'Lore / retrieval telemetry'}),createKeyValue(d,[
     {key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},
     {key:'Due',value:lore.lifecycle?.due??0},{key:'Active',value:lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0},
+  ]));
+  const memory=snapshot.memory??{},memoryCounts=memory.counts??{},memoryFresh=memory.freshness??{};
+  center.append(element(d,'h3',{text:'Memory telemetry'}),createKeyValue(d,[
+    {key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},
+    {key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},
+    {key:'Fresh / stale summaries',value:[memoryFresh.freshSummaries??0,memoryFresh.staleSummaries??0].join(' / ')},{key:'Retrieval status',value:memory.retrievalStatus??'No selected-turn retrieval receipt'},
   ]));
 
   const errors=Object.entries(snapshot.cognition?.errors??{});

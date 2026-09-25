@@ -13,7 +13,7 @@ function makeHost() {
   const context = {
     chatId: 'chat:observatory',
     chat: [],
-    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', MESSAGE_EDITED:'message_edited', MESSAGE_DELETED:'message_deleted', MESSAGE_UPDATED:'message_updated', MESSAGE_SWIPED:'message_swiped', MESSAGE_SWIPE_DELETED:'message_swipe_deleted', CHAT_CHANGED:'chat_id_changed', CHAT_LOADED:'chatLoaded', CHAT_CREATED:'chat_created', CHAT_RENAMED:'chat_renamed', WORLDINFO_UPDATED:'worldinfo_updated', WORLDINFO_SETTINGS_UPDATED:'worldinfo_settings_updated', GENERATION_STOPPED: 'generation_stopped' },
+    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', MESSAGE_EDITED:'message_edited', MESSAGE_DELETED:'message_deleted', MESSAGE_UPDATED:'message_updated', MESSAGE_SWIPED:'message_swiped', MESSAGE_SWIPE_DELETED:'message_swipe_deleted', CHAT_CHANGED:'chat_id_changed', CHAT_LOADED:'chatLoaded', CHAT_CREATED:'chat_created', CHAT_RENAMED:'chat_renamed', WORLDINFO_UPDATED:'worldinfo_updated', WORLDINFO_SETTINGS_UPDATED:'worldinfo_settings_updated', GENERATION_STARTED:'generation_started', GENERATION_ENDED:'generation_ended', GENERATION_STOPPED: 'generation_stopped' },
     eventSource: {
       on(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
       removeListener(type, fn) { listeners.get(type)?.delete(fn); },
@@ -203,9 +203,22 @@ test('live narrative feed journals revision events without raw text and invalida
   await Promise.resolve();
   const evidence=session.exportEvidence();
   assert.equal(evidence.nativeBrainIntegration.pendingCount,0);assert.ok(evidence.nativeBrainIntegration.rejections.some(row=>row.code==='HOST_MESSAGE_EDITED_INVALIDATED_PENDING_GENERATION'));
-  const event=evidence.hostNarrativeFeed.events.find(row=>row.type==='MESSAGE_EDITED');assert.ok(event);assert.equal(event.messageIndex,0);assert.equal(event.revisionAffecting,true);assert.equal(event.rawTextIncluded,false);
+  const event=evidence.hostNarrativeFeed.events.find(row=>row.type==='MESSAGE_EDITED');assert.ok(event);assert.equal(event.messageIndex,0);assert.equal(event.revisionAffecting,true);assert.equal(event.rawTextIncluded,false);assert.equal(event.rawPayloadIncluded,false);
+  assert.equal(event.chatId,'chat:observatory');assert.equal(event.messageId,'0');assert.match(event.messageDigest,/^[0-9a-f]{8}$/);assert.match(event.messageRevisionId,/^0:[0-9a-f]{8}$/);assert.match(event.eventId,/^st-host:/);assert.ok(event.turnId);assert.ok(event.generationId);
   assert.equal(evidence.hostNarrativeFeed.rawTextCaptured,false);assert.doesNotMatch(JSON.stringify(evidence.hostNarrativeFeed),/sealed compass/i);
   session.destroy();
+});
+
+test('live narrative feed records generation boundaries without retaining host payloads',async()=>{
+  const {sillyTavern,context,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});session.start();
+  pushUser(context,'At Moonlit Observatory, continue.');
+  await [...listeners.get('generation_after_commands')][0]('continue',{},false);
+  await [...listeners.get('generation_started')][0]({type:'continue',prompt:'must not retain'});
+  await [...listeners.get('generation_ended')][0]({raw:'must not retain'});
+  const rows=session.exportEvidence().hostNarrativeFeed.events.filter(row=>row.generationBoundary);
+  assert.deepEqual(rows.map(row=>row.type),['GENERATION_STARTED','GENERATION_ENDED']);assert.ok(rows.every(row=>row.rawPayloadIncluded===false&&row.rawTextIncluded===false));
+  assert.doesNotMatch(JSON.stringify(rows),/must not retain/);session.destroy();
 });
 
 test('native Brain completion rejects cross-chat response instead of learning into the wrong story',async()=>{

@@ -3,7 +3,7 @@
   "schemaVersion": "2",
   "laneId": "memory",
   "branch": "Development-Memory",
-  "acceptedSha": "94669e656f7ebf24b072cdde2f31e3b3cf5d0b2f",
+  "acceptedSha": "51aa0d6e7293ddeaa3899e81f6699794d0c22b2c",
   "acceptanceRuns": [
     {
       "id": "36065342394",
@@ -16,6 +16,10 @@
     {
       "id": "OWNER-94669e65",
       "name": "Worker 1 canonical follow-up: consolidation-wide revision bound + UI selector bound"
+    },
+    {
+      "id": "OWNER-51aa0d6e",
+      "name": "Worker 1 final head: Wave 4 docs complete; source/test content unchanged from accepted 94669e65"
     }
   ],
   "copiedPaths": [
@@ -130,6 +134,18 @@
     {
       "path": "tests/memory-wave4.mjs",
       "sourceDigest": "44e0ac4df13550d7992815aaae28c791e2e8bab7"
+    },
+    {
+      "path": "docs/MEMORY_WAVE4_ACCEPTANCE.md",
+      "sourceDigest": "2450cae79f4444aa6c2afdfd1d0ba5f3c5d9fcd6"
+    },
+    {
+      "path": "docs/MEMORY_WAVE4_CHANGELOG.md",
+      "sourceDigest": "5127723d32caa49d51a4b4b1ac27cf5e1670b2db"
+    },
+    {
+      "path": "docs/MEMORY_WAVE4_GENERAL_WORLD_PRODUCER.md",
+      "sourceDigest": "cd267b094367cb42e1891b1f7ebc0f7b573510a3"
     }
   ],
   "browserRuntimePaths": [

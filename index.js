@@ -65,6 +65,8 @@ export async function init() {
   try {
     session = createDevelopmentDeploymentSillyTavernSession({
       onEvidence: (evidence) => renderEvidence(root, evidence),
+      nativeBrain: globalThis.Area52NativeBrainOwner ?? null,
+      ownerBindings: globalThis.Area52OwnerBindings ?? {},
     });
     renderEvidence(root, session.exportEvidence());
   } catch (error) {
@@ -95,6 +97,8 @@ export async function init() {
     processCurrentTurn,
     exportLiveEvidence,
     confirmOperatorReview: (options) => session?.confirmOperatorReview(options),
+    attachNativeBrain: (brain) => session?.attachNativeBrain(brain),
+    detachNativeBrain: () => session?.detachNativeBrain(),
   });
   return session;
 }

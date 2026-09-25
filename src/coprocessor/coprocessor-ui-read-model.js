@@ -154,7 +154,7 @@ function taskRow(taskId,p){
     providerId:nullable(p.providerId),workerId:nullable(p.workerId),resourceId:nullable(p.resourceId),modelId:nullable(p.modelId),
     queueMs:finiteOrNull(p.queueMs??p.queueTimeMs),executionMs:finiteOrNull(p.executionMs??p.latencyMs??p.executionLatency),
     yields:0,parks:0,resumes:0,retries:0,fallbacks:0,validationFailures:0,staleDrops:0,lateRoutes:0,
-    physicallyExecuted:false,physicalExecutionSucceeded:false,ownerAccepted:false,destinations:[],
+    physicallyExecuted:false,physicalExecutionSucceeded:false,ownerAccepted:false,destinations:[],batchProgress:null,
   };
 }
 function updateTask(row,type,p){
@@ -164,6 +164,7 @@ function updateTask(row,type,p){
   if(type===TelemetryEvent.TASK_PARKED){row.state='PARKED';row.parks+=1;}
   if(type===TelemetryEvent.TASK_RESUMED){row.state='ACTIVE';row.resumes+=1;}
   if(type===TelemetryEvent.TASK_CANCELLED)row.state='CANCELLED';
+  if(type===TelemetryEvent.BATCH_PROGRESS)row.batchProgress=safeBatchProgress(p);
   if(type===TelemetryEvent.TASK_SUPERSEDED)row.state='SUPERSEDED';
   if(type===TelemetryEvent.TASK_YIELD_REQUESTED||type===TelemetryEvent.TASK_YIELDING)row.yields+=1;
   if(type===TelemetryEvent.RETRY)row.retries+=1;
@@ -217,8 +218,20 @@ function taskRowFromScheduler(taskId,row,metadata){
     validationFailures:0,staleDrops:status==='REJECTED_STALE'?1:0,lateRoutes:0,
     physicallyExecuted:Number(row?.slices??0)>0,physicalExecutionSucceeded:['COMPLETED','CHECKPOINTED','PARKED_OWNER','YIELDED'].includes(status)&&Number(row?.slices??0)>0,
     ownerAccepted:Boolean(row?.ownerAccepted),destinations:[],
+    batchProgress:freeze({source:'NATIVE_HOT_DEEP_SCHEDULER',slices:Number(row?.slices??0),status,checkpointPresent:Boolean(row?.checkpointPresent)}),
   };
 }
+function safeBatchProgress(value){
+  const out={source:'TELEMETRY'};
+  for(const key of ['batchId','sliceId','status','phase','completed','total','completedSlices','totalSlices','currentSlice','sliceCount','progress']){
+    const v=value?.[key];
+    if(v==null)continue;
+    if(typeof v==='number'&&Number.isFinite(v))out[key]=v;
+    else if(typeof v==='string')out[key]=v.slice(0,160);
+  }
+  return freeze(out);
+}
+
 function schedulerTaskState(status){
   if(status==='RUNNING')return 'ACTIVE';
   if(status==='QUEUED'||status==='CHECKPOINTED'||status==='YIELDED')return 'QUEUED';

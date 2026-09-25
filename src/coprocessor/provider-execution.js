@@ -27,7 +27,8 @@ export class SpecialistExecutionLayer {
         ? this.profiles.eligibleProfiles(task,eligibilityOptions)
         : this.profiles.discover(task,eligibilityOptions).profiles)
       .filter(profile=>this.adapters.get(profile.providerId))
-      .filter(profile=>profileSatisfiesTask(profile,task,{allowCapabilityFallback:profileId!=null&&!leaseHeld}));
+      .filter(profile=>profileSatisfiesTask(profile,task,{allowCapabilityFallback:profileId!=null&&!leaseHeld}))
+      .filter(profile=>profileSatisfiesExecutionLimits(profile,eligibilityOptions));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
     const profile=profileId==null?eligible[0]:eligible.find((candidate)=>candidate.profileId===profileId);
     if(!profile)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`Requested Runtime-selected profile is not eligible for ${task.taskId}`);
@@ -84,6 +85,20 @@ export class ProviderExecutionRouter {
 export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength(JSON.stringify(value??{}))/4));}
 
 function positiveFiniteOrNull(value){const n=Number(value);return Number.isFinite(n)&&n>0?n:null;}
+
+function profileSatisfiesExecutionLimits(profile,{contextTokens=0,maxCostClass='HIGH',maxLatencyClass=null,maxLatencyMs=null,requireStructuredOutput=true,expectedOutputTokens=0}={}){
+  if(!profile)return false;
+  if(requireStructuredOutput&&!profile.structuredOutput)return false;
+  if(Number(contextTokens)>Number(profile.maxContextTokens??Number.MAX_SAFE_INTEGER))return false;
+  if(Number(expectedOutputTokens)>Number(profile.maxOutputTokens??Number.MAX_SAFE_INTEGER))return false;
+  if(costRank(profile.costClass)>costRank(maxCostClass))return false;
+  if(maxLatencyClass!=null&&latencyRank(profile.latencyClass)>latencyRank(maxLatencyClass))return false;
+  if(maxLatencyMs!=null&&latencyMs(profile.latencyClass)>Number(maxLatencyMs))return false;
+  return true;
+}
+function costRank(value){return({FREE:0,LOW:1,MEDIUM:2,HIGH:3})[String(value??'MEDIUM').toUpperCase()]??99;}
+function latencyRank(value){return({ULTRA_LOW:0,LOW:1,MEDIUM:2,HIGH:3})[String(value??'MEDIUM').toUpperCase()]??99;}
+function latencyMs(value){return({ULTRA_LOW:10,LOW:25,MEDIUM:100,HIGH:300})[String(value??'MEDIUM').toUpperCase()]??100;}
 
 function profileSatisfiesTask(profile,task,{allowCapabilityFallback=false}={}){
   if(!profile)return false;

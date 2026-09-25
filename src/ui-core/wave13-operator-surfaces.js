@@ -82,6 +82,8 @@ export function renderOperationalSummary(host,{operations,scope,inspect}={}){
   if(status.waitingForTurn)section.append(message(d,'Waiting for a turn','The selected chat is current. Turn-scoped receipts will appear after the Brain receives a generation event.','historical'));
   else if(!status.hostConnected)section.append(message(d,'No selected chat','Area-52 has no host chat identity to bind cognitive receipts to.','offline'));
   const pipeline=status.pipeline??{};
+  if(pipeline.hostLifecycle?.ownerAvailable===false)section.append(message(d,'Native Brain owner not integrated',pipeline.hostLifecycle.reason??'Worker 1 native Brain owner is not attached to this main assembly. Visible legacy/demo receipts must not be treated as end-to-end native Brain execution.','warning'));
+  else if(pipeline.hostLifecycle?.ownerAvailable===true)section.append(message(d,'Native Brain host loop attached','The host reports Worker 1’s owner interface is attached. Delivery and learning still require their own receipts below.','ready'));
   section.append(element(d,'h3',{text:'Brain activity'}),element(d,'div',{className:'a52-wave13-diagnostics__activity'},
     flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
     flowStep(d,'Work executed',pipeline.executionReceipt?String(pipeline.executedJobs??0)+' jobs':'No execution receipt'),

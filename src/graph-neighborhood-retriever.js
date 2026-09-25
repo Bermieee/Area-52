@@ -261,7 +261,12 @@ export class NativeGraphNeighborhoodRetriever{
   #normalizeRef(ref,options){return this.entityRegistry?.normalizeRef?.(ref,options)??{entityId:typeof ref==='string'?ref:String(ref?.entityId??ref?.id??ref?.ref??''),resolved:false,state:'IDENTITY_REGISTRY_UNAVAILABLE'};}
 
   #walk(edges,request,started){
-    const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>!allowed.size||allowed.has(edge.edgeMeaning)).filter(edge=>request.intentKind==='HISTORICAL'||request.intentKind==='TEMPORAL'||currentish.has(status(edge.temporalStatus)));
+    // Retrieval may surface historical neighbors as support even for a CURRENT
+    // question; Truth Gate owns whether they are usable as current truth. To keep
+    // stale topology from widening a current traversal, historical edges can be
+    // selected when adjacent but only CURRENT/TEMPORAL traversals may expand
+    // through them.
+    const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>!allowed.size||allowed.has(edge.edgeMeaning));
     const adjacency=new Map();
     for(const edge of edgeRows){
       for(const id of [edge.fromEntityId,edge.toEntityId]){const rows=adjacency.get(id)??[];rows.push(edge);adjacency.set(id,rows);}
@@ -283,7 +288,9 @@ export class NativeGraphNeighborhoodRetriever{
         const step={providerId:edge.providerId,owner:edge.owner,edgeId:edge.edgeId,edgeMeaning:edge.edgeMeaning,fromEntityId:node.entityId,toEntityId:next,temporalStatus:status(edge.temporalStatus)};
         const path=[...node.path,step],distance=node.depth+1;
         if(selected.length<request.maxCandidates)selected.push({edge,distance,path});else boundedCandidates++;
-        if(distance<request.maxDepth&&!visited.has(next)){
+        const edgeStatus=status(edge.temporalStatus);
+        const mayExpand=request.intentKind==='HISTORICAL'||request.intentKind==='TEMPORAL'||currentish.has(edgeStatus);
+        if(mayExpand&&distance<request.maxDepth&&!visited.has(next)){
           if(visited.size>=request.maxNodes){boundedNodes++;continue;}
           visited.add(next);queue.push({entityId:next,depth:distance,path});
         }

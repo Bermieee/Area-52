@@ -144,7 +144,7 @@ test('selected chat with no active turn reports WAITING rather than fabricated l
   const status=ui.operator.operations.read();
   assert.equal(status.waitingForTurn,true);
   for(const id of ['scene','runtime','choice'])assert.equal(status.stages.find(x=>x.id===id).state,'WAITING_FOR_TURN');
-  for(const id of ['truth','gather','seal','promptPlan'])assert.equal(status.stages.find(x=>x.id===id).state,'UNAVAILABLE');
+  for(const id of ['sensory','truth','gather','seal','promptPlan'])assert.equal(status.stages.find(x=>x.id===id).state,'UNAVAILABLE');
   assert.equal(ui.productAdapter.getSnapshot().wave6.sources.scene.operationalState,'WAITING_FOR_TURN');
   assert.equal(ui.productAdapter.getSnapshot().wave6.sources.promptPlan.mode,'UNAVAILABLE');
   ui.destroy();

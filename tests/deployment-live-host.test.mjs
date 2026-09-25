@@ -13,7 +13,7 @@ function makeHost() {
   const context = {
     chatId: 'chat:observatory',
     chat: [],
-    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', GENERATION_STOPPED: 'generation_stopped' },
+    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', MESSAGE_EDITED:'message_edited', MESSAGE_DELETED:'message_deleted', MESSAGE_UPDATED:'message_updated', MESSAGE_SWIPED:'message_swiped', MESSAGE_SWIPE_DELETED:'message_swipe_deleted', CHAT_CHANGED:'chat_id_changed', CHAT_LOADED:'chatLoaded', CHAT_CREATED:'chat_created', CHAT_RENAMED:'chat_renamed', WORLDINFO_UPDATED:'worldinfo_updated', WORLDINFO_SETTINGS_UPDATED:'worldinfo_settings_updated', GENERATION_STOPPED: 'generation_stopped' },
     eventSource: {
       on(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
       removeListener(type, fn) { listeners.get(type)?.delete(fn); },
@@ -84,9 +84,13 @@ function fakeNativeBrain(){
     },
     snapshot(){return{kind:'FakeNativeBrainSnapshot',turns:calls.complete.length};},
     uiBindings(){
+      const empty=()=>null;
       return{
         subscribe(fn){listeners.add(fn);calls.subscriptions+=1;return()=>listeners.delete(fn);},
-        readSelection:()=>({}),
+        readSelection:()=>({}),readScene:empty,readHotCognition:empty,readCognitiveChoice:empty,readScatter:empty,readSensoryTrace:empty,readCandidateBusEnvelope:empty,readCandidateFusionReceipt:empty,
+        readIdentityResolution:empty,readGraphTraversal:empty,readRetrievalBudget:empty,readRejectedEvidence:empty,readTruth:empty,readCorrectiveRetrieval:empty,readJev:empty,readPrecision:empty,readGather:empty,readContextSeal:empty,
+        readLoreStatus:empty,readMemoryStatus:empty,readRuntimeStatus:()=>({lifecycle:[],queueDepth:{},resources:{},workers:{},dependencies:{},eventTypes:[],telemetry:{retainedSignals:0,sinkFailures:0,latestSequence:0}}),
+        readPromptPlan:empty,readContextReceipt:empty,listGenerations:()=>[],readGeneration:empty,
       };
     },
   };
@@ -177,6 +181,29 @@ test('native Brain host lifecycle seals before model request and learns complete
   assert.equal(evidence.nativeBrainIntegration.persistence.persistedCount,1);assert.deepEqual(persisted,[{chatId:'chat:observatory',kind:'FakeNativeBrainSnapshot'}]);
   assert.equal(evidence.nativeBrainIntegration.rawPromptCaptured,false);assert.equal(evidence.nativeBrainIntegration.rawResponseCaptured,false);
   assert.doesNotMatch(JSON.stringify(evidence.nativeBrainIntegration),/steady blue light|tell me what the lantern shows/i);
+  session.destroy();
+});
+
+test('installed native host exposes provenance/runtime/memory readers through the UI binding seam',()=>{
+  const {sillyTavern}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  const names=session.exportEvidence().nativeBrainIntegration.installedUiReaderNames;
+  for(const name of ['readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readLoreStatus','readMemoryStatus','readRuntimeStatus','readGeneration'])assert.ok(names.includes(name),name);
+  session.destroy();
+});
+
+test('live narrative feed journals revision events without raw text and invalidates a pending native generation',async()=>{
+  const {sillyTavern,context,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});session.start();
+  pushUser(context,'I inspect the sealed compass.');
+  await [...listeners.get('generation_after_commands')][0]('normal',{},false);
+  assert.equal(session.exportEvidence().nativeBrainIntegration.pendingCount,1);
+  await [...listeners.get('message_edited')][0](0);
+  await Promise.resolve();
+  const evidence=session.exportEvidence();
+  assert.equal(evidence.nativeBrainIntegration.pendingCount,0);assert.ok(evidence.nativeBrainIntegration.rejections.some(row=>row.code==='HOST_MESSAGE_EDITED_INVALIDATED_PENDING_GENERATION'));
+  const event=evidence.hostNarrativeFeed.events.find(row=>row.type==='MESSAGE_EDITED');assert.ok(event);assert.equal(event.messageIndex,0);assert.equal(event.revisionAffecting,true);assert.equal(event.rawTextIncluded,false);
+  assert.equal(evidence.hostNarrativeFeed.rawTextCaptured,false);assert.doesNotMatch(JSON.stringify(evidence.hostNarrativeFeed),/sealed compass/i);
   session.destroy();
 });
 

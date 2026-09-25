@@ -339,18 +339,28 @@ export class LoreIntelligenceService {
 
     const ontology = this.ontology.rebuild();
     let retrieval = this.hierarchy.diagnostics();
+    let navigationRebuild = null;
     if (rebuildRetrieval) {
-      this.hierarchy.rebuild();
+      const changedSourceIds = [...new Set(results
+        .map((row) => row.learnedRevision?.sourceId)
+        .filter(Boolean))]
+        .sort();
+      if (changedSourceIds.length) {
+        navigationRebuild = this.hierarchy.rebuildAffected({sourceIds: changedSourceIds});
+      } else {
+        this.hierarchy.rebuild();
+      }
       retrieval = this.hierarchy.diagnostics();
     }
 
     const receipt = {
       kind: 'LoreStudyRunReceipt',
-      contractVersion: 1,
+      contractVersion: 2,
       requested: results.length,
       results: deepClone(results),
       compilations,
       retrieval,
+      navigationRebuild: deepClone(navigationRebuild),
       ontology,
       status: this.status(),
     };

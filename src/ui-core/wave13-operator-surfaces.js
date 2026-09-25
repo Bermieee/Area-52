@@ -249,14 +249,17 @@ function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifi
 }
 
 function createConnectionDraftStore(){
-  const drafts=new Map(),credentialPresence=new Map();
+  const drafts=new Map(),credentialPresence=new Map(),credentialClearedNotice=new Map();
   const initial=(spec)=>({connectionName:spec.defaultName,endpoint:'',capabilities:spec.defaultCapabilities.join(', '),models:[],selectedModel:'',manualModel:'',manualAllowed:false,discoveryState:null,discoveryMessage:null});
   return{
     get(spec){if(!drafts.has(spec.id))drafts.set(spec.id,initial(spec));return drafts.get(spec.id);},
     patch(id,patch){const current=drafts.get(id)??{};drafts.set(id,{...current,...patch});return drafts.get(id);},
-    clear(id){drafts.delete(id);credentialPresence.delete(id);},
-    setCredentialPresence(id,present){credentialPresence.set(id,Boolean(present));},
-    consumeCredentialPresence(id){const present=credentialPresence.get(id)===true;credentialPresence.set(id,false);return present;},
+    clear(id){drafts.delete(id);credentialPresence.delete(id);credentialClearedNotice.delete(id);},
+    setCredentialPresence(id,present){credentialPresence.set(id,Boolean(present));credentialClearedNotice.set(id,false);},
+    consumeCredentialPresence(id){
+      if(credentialPresence.get(id)===true){credentialPresence.set(id,false);credentialClearedNotice.set(id,true);}
+      return credentialClearedNotice.get(id)===true;
+    },
   };
 }
 function listenField(scope,node,type,handler){if(scope?.listen)scope.listen(node,type,handler);else node.addEventListener(type,handler);}

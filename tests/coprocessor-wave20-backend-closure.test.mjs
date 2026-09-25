@@ -39,7 +39,10 @@ test('#124 capability negotiation enforces version, resource, health, latency, c
   let admission=createRuntimeCapabilityAdmission(r,t);
   assert.equal(admission.status,'SATISFIED');
   assert.deepEqual(admission.candidates.map(x=>x.profileId),['profile:alpha','profile:beta']);
+  assert.equal(admission.candidates[0].providerId,'provider:alpha');assert.equal(admission.candidates[0].modelId,'model:alpha');
   assert.deepEqual(admission.taskContract,t);
+  assert.equal(JSON.stringify(admission.taskContract).includes('provider:alpha'),false);
+  assert.equal(JSON.stringify(admission.taskContract).includes('model:alpha'),false);
   assert.equal(admission.authority.runtimeScheduling,false);assert.equal(admission.authority.truth,false);
 
   r.setLoad('profile:alpha',1);

@@ -23,7 +23,7 @@ export function createRuntimeCapabilityAdmission(registry,task,options={}){
       concurrencyCapacity:profile.concurrencyCapacity,currentLoad:profile.currentLoad,
       foregroundEligible:profile.foregroundEligible,backgroundEligible:profile.backgroundEligible,
       providerHealth:profile.providerHealth,availability:profile.availability,
-      providerId:profile.providerId,modelId:profile.modelId,
+      providerId:profile.providerId??profile.provider??null,modelId:profile.modelId??profile.model??null,
     })),
     authority:{runtimeScheduling:false,physicalWorker:false,truth:false,settlement:false,canonicalMutation:false,contextSeal:false},
   });

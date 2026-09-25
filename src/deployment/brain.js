@@ -22,6 +22,7 @@ import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coproc
 const CHANNEL_ID = 'NATIVE_LORE_RUNTIME';
 const uniq = (values) => [...new Set((values ?? []).filter(Boolean).map(String))].sort();
 const clone = (value) => value == null ? value : structuredClone(value);
+const unsupportedDeterministicStudy = (error) => /^RuleBasedStudyAdapter has no deterministic extractor for:/.test(String(error?.message ?? error));
 
 function field(value, revision, evidenceRef, observationClass = ObservationClass.OBSERVED, confidence = 1) {
   return createFieldState({
@@ -132,7 +133,6 @@ class RuntimePreparedLoreChannel {
     if (!mappings.length) return null;
     const claimRefs = uniq(mappings.flatMap((row) => row.claimIds));
     const sourceRevisionRefs = uniq(mappings.map((row) => row.coreRevisionId));
-    if (!claimRefs.length) return null;
     const laneSourceRevisionRefs = uniq(drill.map((row) => row.sourceRevisionId));
     const truth = claimRefs.map((id) => this.core.graph.getClaim(id)?.status).filter(Boolean);
     const truthStatusHint = truth.includes('UNRESOLVED') || truth.includes('UNCERTAIN') || truth.includes('CONTRADICTED')
@@ -177,6 +177,7 @@ class RuntimePreparedLoreChannel {
         laneNomination: clone(lane),
         runtimePrepared: true,
         sourceDrillbackAvailable: true,
+        semanticExtraction: mappings.every((row) => row.extractionMode === 'SEMANTIC') ? 'SEMANTIC' : 'RAW_SOURCE_ONLY',
         candidateBusAdmissionAuthority: false,
         settlementAuthority: false,
       },
@@ -305,23 +306,37 @@ export class DevelopmentDeploymentBrain {
       const entry = entries.find((candidate) => String(candidate.uid) === String(row.revision.uid ?? this.lore.registry.getEntry(sourceId)?.uid));
       const content = row.revision.exactContent;
       const at = Number(entry?.metadata?.at ?? row.revision.metadata?.at ?? 0);
-      if (this.core.registry.getSource(sourceId)) {
-        this.core.editAndRelearn(sourceId, content);
-      } else {
-        this.core.importAndLearn({
-          id: sourceId,
-          sourceType: 'LOREBOOK_ENTRY',
-          content,
-          at,
-          metadata: { ...(row.revision.metadata ?? {}), lorebookId: id, uid: this.lore.registry.getEntry(sourceId)?.uid ?? null, laneRevisionId: row.revision.id },
-        });
+      const metadata = { ...(row.revision.metadata ?? {}), lorebookId: id, uid: this.lore.registry.getEntry(sourceId)?.uid ?? null, laneRevisionId: row.revision.id };
+      let extractionMode = 'SEMANTIC';
+      try {
+        if (this.core.registry.getSource(sourceId)) {
+          this.core.editAndRelearn(sourceId, content);
+        } else {
+          this.core.importAndLearn({
+            id: sourceId,
+            sourceType: 'LOREBOOK_ENTRY',
+            content,
+            at,
+            metadata,
+          });
+        }
+      } catch (error) {
+        if (!unsupportedDeterministicStudy(error)) throw error;
+        extractionMode = 'RAW_SOURCE_ONLY';
+        const existing = this.core.registry.getSource(sourceId);
+        if (!existing) {
+          this.core.registry.importSource({ id: sourceId, sourceType: 'LOREBOOK_ENTRY', content, metadata: { ...metadata, at } });
+        } else {
+          const active = this.core.registry.getActiveRevision(sourceId);
+          if (active.exactContent !== content) this.core.registry.replaceSource(sourceId, content);
+        }
       }
       const coreRevision = this.core.registry.getActiveRevision(sourceId);
       const claimIds = this.core.graph.allClaims()
         .filter((claim) => (claim.provenance?.sourceRevisionIds ?? []).includes(coreRevision.id))
         .map((claim) => claim.id)
         .sort();
-      this.sourceMap.set(sourceId, { laneRevisionId: row.revision.id, coreRevisionId: coreRevision.id, claimIds });
+      this.sourceMap.set(sourceId, { laneRevisionId: row.revision.id, coreRevisionId: coreRevision.id, claimIds, extractionMode });
     }
     this.loreSystem.rebuild();
     return {
@@ -329,6 +344,8 @@ export class DevelopmentDeploymentBrain {
       retrieval: this.loreSystem.diagnostics(),
       coreWorld: this.core.currentWorldModel(),
       mappingCount: this.sourceMap.size,
+      rawSourceOnlyCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'RAW_SOURCE_ONLY').length,
+      semanticExtractionCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'SEMANTIC').length,
     };
   }
 

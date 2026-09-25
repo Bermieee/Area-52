@@ -30,6 +30,12 @@ function assistantMessage(context,index=null){
   return null;
 }
 
+function operatorResultSummary(result){
+  if(!result)return null;
+  const value=result?.ok===true?result.value??null:null;
+  return{ok:result?.ok===true,kind:value?.kind??null,errorCode:result?.error?.code??null};
+}
+
 function nativeBrainContract(brain){
   if(!brain)return{available:false,reason:'Worker 1 Area52NativeBrain is not integrated into this main assembly.'};
   const required=['runTurn','uiBindings'];
@@ -597,6 +603,26 @@ export class DevelopmentDeploymentSillyTavernSession {
     } : null;
 
     const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
+    const nativeLearnedByChat={};for(const row of this.nativeHistory.filter(row=>row.state==='LEARNED'))nativeLearnedByChat[row.chatId]=(nativeLearnedByChat[row.chatId]??0)+1;
+    const nativeMultiTurnChatIds=Object.entries(nativeLearnedByChat).filter(([,count])=>count>=2).map(([chatId])=>chatId);
+    let loreOperatorEvidence=null,resourceOperatorEvidence=null,authoringOperatorEvidence=null,navigationEvidence=null;
+    try{
+      const loreAdapter=this.uiHost?.ui?.operator?.loreStudy,read=loreAdapter?.read?.(),selected=loreAdapter?.selectedLorebook?.()??{};
+      loreOperatorEvidence={
+        available:Boolean(loreAdapter),state:read?.source?.operationalState??read?.source?.health??null,
+        counts:clone(read?.data?.operatorCounts??null),retrievalReady:Number(read?.data?.retrievalReady??0),
+        selected:selected?.selection?.selected?{selected:true,lorebookId:selected.snapshot?.id??selected.selection?.lorebookId??null,title:selected.snapshot?.title??selected.selection?.title??null,entryCount:selected.snapshot?.entries?.length??selected.selection?.entryCount??null,discoveryKind:selected.snapshot?.discovery?.kind??null}:{selected:false,reason:selected?.selection?.reason??null},
+      };
+    }catch(error){loreOperatorEvidence={available:false,error:String(error?.code??error?.message??error)};}
+    try{
+      const resourceAdapter=this.uiHost?.ui?.operator?.resources,read=resourceAdapter?.read?.();
+      resourceOperatorEvidence={available:Boolean(resourceAdapter),state:read?.source?.operationalState??null,resources:(read?.data?.resources??[]).map(row=>({id:row.id,kind:row.kind,state:row.state,health:row.health,connected:row.connected,callable:row.callable,modelId:row.modelId,capabilities:[...(row.capabilities??[])],measurementClass:row.measurementClass,lastTest:clone(row.lastTest??null),lastFailure:clone(row.lastFailure??null)}))};
+    }catch(error){resourceOperatorEvidence={available:false,error:String(error?.code??error?.message??error)};}
+    try{
+      const authoring=this.uiHost?.ui?.operator?.loreAuthoring,snap=authoring?.snapshot?.();
+      authoringOperatorEvidence={available:Boolean(authoring),capabilities:clone(snap?.capabilities??null),last:{discovery:operatorResultSummary(snap?.last?.discovery),edit:operatorResultSummary(snap?.last?.edit),tree:operatorResultSummary(snap?.last?.tree),merge:operatorResultSummary(snap?.last?.merge)}};
+    }catch(error){authoringOperatorEvidence={available:false,error:String(error?.code??error?.message??error)};}
+    try{navigationEvidence=clone(this.uiHost?.ui?.floatingController?.diagnostics?.()??null);}catch{}
     return clone({
       kind: 'DevelopmentDeploymentLiveDemoEvidence',
       contractVersion: DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION,
@@ -639,10 +665,16 @@ export class DevelopmentDeploymentSillyTavernSession {
         pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
+        learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         rawPromptCaptured:false,rawResponseCaptured:false,
       },
       uiProducerDiagnosticsAreRegistrationOnly: !nativeContract.available,
+      loreOperatorEvidence,
+      resourceOperatorEvidence,
+      authoringOperatorEvidence,
+      navigationEvidence,
+
       errors: this.errors,
       liveEvidenceComplete: false,
       liveEvidenceCompleteReason: 'DIRECTOR_APPROVAL_AND_REQUIRED_LIVE_GATES_REMAIN_EXTERNAL_TO_THIS_RECORD',

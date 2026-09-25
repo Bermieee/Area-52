@@ -125,7 +125,7 @@ export class NativeGraphNeighborhoodRetriever{
         normalizedRank:Math.max(0,Math.min(1,1/(1+Math.max(0,row.distance-1)))),
         graphMetadata:{
           graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,
-          edgeId:edge.edgeId,distance:row.distance,traversalPath:clone(row.path),temporalStatus:temporal,
+          edgeId:edge.edgeId,fromEntityId:edge.fromEntityId,toEntityId:edge.toEntityId,distance:row.distance,traversalPath:clone(row.path),temporalStatus:temporal,
           revisionFence:{sourceRevisionRefs:[...edge.sourceRevisionRefs],dependencyRevisionRefs:[...edge.dependencyRevisionRefs],worldRevision:edge.worldRevision,sceneRevision:edge.sceneRevision,providerRevision:edge.providerRevision??null},
           identityResolution:clone(edge.identityResolution),semanticsVersion:edge.semanticsVersion??'1.0.0',
         },

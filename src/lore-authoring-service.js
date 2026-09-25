@@ -208,7 +208,51 @@ export class LoreAuthoringService {
     return this.navigation.rebuildAffected(request);
   }
 
-  startTreeBuild(request = {}) {
+  startSourceMutationBuild(request = {}) {
+    const proposals = Array.isArray(request?.proposals) ? request.proposals : [];
+    if (!proposals.length) {
+      throw Object.assign(new TypeError('Source mutation build requires proposals'), {
+        code: 'LORE_SOURCE_PROPOSALS_REQUIRED',
+      });
+    }
+    const registry = this.intelligence.runtime.registry;
+    const mutationLorebookIds = [];
+    const evidenceLorebookIds = [];
+    for (const proposal of proposals) {
+      const action = String(proposal?.action || '').toUpperCase();
+      if (action === 'CREATE_ENTRY') {
+        if (proposal?.lorebookId != null) mutationLorebookIds.push(String(proposal.lorebookId));
+      } else if (proposal?.sourceId) {
+        const source = registry.getEntry(String(proposal.sourceId));
+        if (source) mutationLorebookIds.push(source.lorebookId);
+      }
+      for (const sourceId of proposal?.evidenceSourceIds || []) {
+        const source = registry.getEntry(String(sourceId));
+        if (source) evidenceLorebookIds.push(source.lorebookId);
+      }
+      if (proposal?.sourceId) {
+        const source = registry.getEntry(String(proposal.sourceId));
+        if (source) evidenceLorebookIds.push(source.lorebookId);
+      }
+    }
+    const chatId = request?.chatId ?? request?.storyScope?.chatId ?? null;
+    if (this.intelligence.storyAuthority?.hasScopedAuthority?.()) {
+      this._storyReadLorebooks({
+        chatId,
+        lorebookIds: [...new Set([...mutationLorebookIds, ...evidenceLorebookIds])],
+      });
+    }
+    const admission = this._storyWriteAdmission({
+      chatId,
+      lorebookIds: [...new Set(mutationLorebookIds)],
+    });
+    return this.lifecycle.startSourceMutationBuild({
+      proposals,
+      storyScope: admission,
+    });
+  }
+
+    startTreeBuild(request = {}) {
     const admission = this._storyWriteAdmission({
       chatId: request?.chatId ?? request?.storyScope?.chatId ?? null,
       lorebookIds: request?.lorebookIds ?? null,
@@ -308,6 +352,7 @@ export class LoreAuthoringService {
       settlementStates: Object.values(LoreSettlementState),
       lifecycle: [
         'PROPOSAL_BUILD',
+        'SOURCE_CREATE_UPDATE_DELETE_PROPOSAL_BUILD',
         'DRAFT_REVIEW',
         'FINAL_PREVIEW',
         'EXPLICIT_APPROVAL',
@@ -441,6 +486,7 @@ export class LoreAuthoringService {
         worker1Receipts: 'LoreWorker1SettlementReceipts',
       },
       actions: [
+        'startSourceMutationBuild',
         'startTreeBuild',
         'startMergeBuild',
         'resumeAuthoringBuild',
@@ -485,6 +531,7 @@ export class LoreAuthoringService {
       semanticChangeReport: safe((request) => this.semanticChangeReport(request)),
       proposeTree: safe((request = {}) => this.treeProposal(request)),
       previewMerge: safe((request) => this.mergePreview(request)),
+      startSourceMutationBuild: safe((request = {}) => this.startSourceMutationBuild(request)),
       startTreeBuild: safe((request = {}) => this.startTreeBuild(request)),
       startMergeBuild: safe((request) => this.startMergeBuild(request)),
       resumeAuthoringBuild: safe((request) => this.resumeAuthoringBuild(request)),

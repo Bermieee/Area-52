@@ -2,7 +2,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState, parseLoreSubmission } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
   const releases=[];
   if(registry.has('home')){
     const current=registry.get('home');
@@ -22,8 +22,8 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     },
   });
   if(!registry.has('settings'))registry.register({
-    id:'settings',title:'Settings',icon:'⚙',category:'Product',navigation:{level:'product',order:80},views:['normal','detail','advanced'],supportedActions:['display-preferences'],
-    render(host,ctx){renderSettingsSurface(host,{...ctx,frontFacePresentation});},
+    id:'settings',title:'Settings',icon:'⚙',category:'Product',navigation:{level:'product',order:80},views:['normal','detail','advanced'],supportedActions:['display-preferences','inspect'],
+    render(host,ctx){renderSettingsSurface(host,{...ctx,frontFacePresentation,diagnostics});},
   });
   if(registry.has('lore')){
     const current=registry.get('lore');
@@ -230,7 +230,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   host.append(section);
 }
 
-export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,scope,refresh}={}){
+export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,scope,refresh,inspect}={}){
   const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
   root.append(header(d,'Settings','Area-52 display controls. Connection and Brain execution policy remain with their owning subsystems.'));
   const detail=element(d,'section',{className:'a52-wave13-settings__group'});
@@ -249,7 +249,101 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
     button.setAttribute('aria-pressed',String(state.frontFaceDensity===density));displayActions.append(button);
   }
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
-  displayActions.append(inspector);display.append(displayActions);root.append(display);host.append(root);
+  displayActions.append(inspector);display.append(displayActions);root.append(display);
+  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect}));
+  host.append(root);
+}
+
+export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
+  const snapshot=diagnostics.read(),center=element(d,'section',{className:'a52-wave13-settings__group a52-wave13-diagnostics',attrs:{'aria-label':'Diagnostics Center'}});
+  const head=element(d,'div',{className:'a52-wave13-section-head'});
+  const unhealthy=(snapshot.producers?.failures??0)>0||snapshot.resources?.rows?.some(row=>['DEGRADED','UNAVAILABLE'].includes(String(row.state))||['DEGRADED','UNAVAILABLE','COOLDOWN'].includes(String(row.health)));
+  head.append(element(d,'strong',{text:'Diagnostics Center'}),makeBadge(d,unhealthy?'ATTENTION':snapshot.host?.waitingForTurn?'WAITING':'LIVE',unhealthy?'warning':snapshot.host?.waitingForTurn?'historical':'ready'));
+  center.append(head,element(d,'p',{className:'a52-muted',text:'Central read-only telemetry for the selected chat/turn. Owner receipts, resource health, routing evidence, and failures appear here; raw prompts are never collected.'}));
+  const selection=snapshot.selection??{};
+  center.append(createKeyValue(d,[
+    {key:'Chat',value:selection.chatId??'none'},{key:'Turn',value:selection.turnId??'waiting'},{key:'Generation',value:selection.generationId??'waiting'},
+    {key:'World / Scene revision',value:(selection.worldRevision??'—')+' / '+(selection.sceneRevision??'—')},
+    {key:'Live-binding reads',value:snapshot.host?.liveBinding?.reads??'—'},{key:'Rejected stale/foreign reads',value:snapshot.host?.liveBinding?.rejected??0},
+  ]));
+
+  const wiring=element(d,'div',{className:'a52-wave13-diagnostic-lanes'});
+  for(const spec of [
+    ['Jev',snapshot.wiring?.jev],['Sidecar',snapshot.wiring?.sidecar],['Vectoring',snapshot.wiring?.vectoring],
+  ]){
+    const lane=spec[1]?.lane??{},card=element(d,'article',{className:'a52-card a52-wave13-diagnostic-lane'});
+    const status=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
+    card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,status,lane.connected>0?'ready':lane.configured>0?'warning':'historical')));
+    card.append(createKeyValue(d,[
+      {key:'Configured',value:lane.configured??0},{key:'Connected',value:lane.connected??0},{key:'Callable',value:lane.callable??0},
+      {key:'Active executions',value:lane.activeExecutions??0},{key:'Expected capabilities',value:(spec[1]?.expectedCapabilities??[]).join(', ')},
+    ]));
+    if((lane.states??[]).length){
+      const states=element(d,'div',{className:'a52-wave13-diagnostic-events'});
+      for(const row of lane.states.slice(0,8)){
+        const line=element(d,'div',{className:'a52-wave13-diagnostic-event'});
+        line.append(element(d,'code',{text:row.id}),makeBadge(d,row.state??row.health??'UNKNOWN',resourceStatus(row.health)));
+        if(row.lastExecution?.status)line.append(element(d,'span',{className:'a52-muted',text:'last execution '+row.lastExecution.status+(row.lastExecution.taskType?' · '+row.lastExecution.taskType:'')}));
+        states.append(line);
+      }
+      card.append(states);
+    }
+    wiring.append(card);
+  }
+  center.append(element(d,'h3',{text:'Jev / Sidecar / Vectoring wiring'}),wiring);
+
+  const stages=element(d,'div',{className:'a52-wave13-status-grid'});
+  for(const row of snapshot.producers?.stages??[])stages.append(stageCard(d,row,scope,inspect));
+  center.append(element(d,'h3',{text:'Producer telemetry'}),stages);
+
+  const activity=element(d,'div',{className:'a52-wave13-diagnostics__activity'});
+  const jobs=snapshot.cognition?.jobs??[],results=snapshot.cognition?.gather??[];
+  activity.append(flowStep(d,'Logical jobs',jobs.length+' published'),flowStep(d,'Gather results',results.length+' returned'),flowStep(d,'Context admitted',String(snapshot.cognition?.seal?.admittedResultIds?.length??0)));
+  center.append(element(d,'h3',{text:'Current turn activity'}),activity);
+  if(jobs.length){
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const job of jobs.slice(0,40)){
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      row.append(element(d,'strong',{text:job.taskType??job.capability??job.taskId??'Job'}),element(d,'code',{text:job.resourceId??'native / unreported'}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
+      list.append(row);
+    }
+    center.append(list);
+  }
+  if(results.length){
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const result of results.slice(0,40)){
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      row.append(element(d,'strong',{text:result.capability??result.resultId??'Result'}),element(d,'code',{text:result.resourceId??'owner'}),makeBadge(d,result.contextAdmitted?'CONTEXT ADMITTED':result.status??'RETURNED',result.contextAdmitted?'ready':flowStatus(result.status)));
+      list.append(row);
+    }
+    center.append(list);
+  }
+
+  const lore=snapshot.lore??{};
+  center.append(element(d,'h3',{text:'Lore / retrieval telemetry'}),createKeyValue(d,[
+    {key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},
+    {key:'Due',value:lore.lifecycle?.due??0},{key:'Active',value:lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0},
+  ]));
+
+  const errors=Object.entries(snapshot.cognition?.errors??{});
+  if(errors.length){
+    const list=element(d,'div',{className:'a52-wave13-diagnostic-events'});
+    for(const [name,error] of errors)list.append(message(d,name+' read issue',error?.message??error?.code??'Unknown cognition read failure','warning'));
+    center.append(element(d,'h3',{text:'Read / coherence issues'}),list);
+  }
+  const events=snapshot.telemetry?.resourceEvents??[];
+  center.append(element(d,'h3',{text:'Recent owner resource telemetry'}));
+  if(events.length){
+    const list=element(d,'div',{className:'a52-wave13-diagnostic-events'});
+    for(const event of events.slice(0,40)){
+      const line=element(d,'div',{className:'a52-wave13-diagnostic-event'});
+      line.append(element(d,'code',{text:event.resourceId??'resource'}),element(d,'strong',{text:event.code??'EVENT'}),element(d,'span',{text:event.message??''}));
+      if(inspect)line.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-diagnostic-event',id:String(event.sequence??event.code??'event'),title:(event.resourceId??'Resource')+' · '+(event.code??'event'),payload:event})}));
+      list.append(line);
+    }
+    center.append(list);
+  }else center.append(message(d,'No resource events yet','Connect, test, disconnect, reconnect, or execute an optional resource and owner telemetry will appear here.','historical'));
+  return center;
 }
 
 function flowStep(d,label,value){const node=element(d,'div',{className:'a52-wave13-flow-step'});node.append(element(d,'strong',{text:label}),element(d,'span',{text:value}));return node;}

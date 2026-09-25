@@ -392,7 +392,7 @@ function normalizeResources(raw){
     const connected=row.connected??row.mounted??['READY','DEGRADED','CONNECTING'].includes(state);
     const declared=[...(row.declaredCapabilities??row.capabilities??[])],active=[...(row.activeCapabilities??[])];
     const capabilities=active.length?active:declared;
-    const role=capabilities.includes('SEMANTIC_JUDGMENT')?'JEV':'SIDECAR';
+    const role=capabilities.includes('SEMANTIC_JUDGMENT')?'JEV':capabilities.some(isVectorCapability)?'VECTORING':'SIDECAR';
     return deepFreeze({
       id,kind:role,transportKind:row.kind??row.resourceKind??null,providerId:row.providerId??null,providerProfileId:row.providerProfileId??row.profileId??null,
       modelId:row.modelId??null,workerId:row.workerId??null,local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
@@ -409,7 +409,8 @@ function normalizeWorker2ResourceConfig(input={}){
   if(!resourceIdValue){const e=new TypeError('Resource ID is required.');e.code='RESOURCE_ID_REQUIRED';throw e;}
   const role=String(input.role??input.resourceRole??input.kind??'SIDECAR').toUpperCase();
   const supplied=Array.isArray(input.capabilities)?input.capabilities:String(input.capabilities??'').split(',').map(x=>x.trim()).filter(Boolean);
-  const defaults=role==='JEV'?['SEMANTIC_JUDGMENT']:role==='VECTORING'?['RETRIEVAL','EMBED']:['STRUCTURED_EXTRACTION'];\n  const capabilities=[...new Set((supplied.length?supplied:defaults).map(String))];
+  const defaults=role==='JEV'?['SEMANTIC_JUDGMENT']:role==='VECTORING'?['RETRIEVAL','EMBED']:['STRUCTURED_EXTRACTION'];
+  const capabilities=[...new Set((supplied.length?supplied:defaults).map(String))];
   const transport=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(String(input.transportKind??input.kind??'').toUpperCase())?String(input.transportKind??input.kind).toUpperCase():'OPENAI_COMPATIBLE';
   const out={
     resourceId:resourceIdValue,displayName:text(input.displayName)??resourceIdValue,kind:transport,capabilities,
@@ -423,6 +424,7 @@ function normalizeWorker2ResourceConfig(input={}){
   return out;
 }
 
+function isVectorCapability(value){return ['RETRIEVAL','RETRIEVAL_QUALITY','RERANK','LATE_INTERACTION','CROSS_ENCODER_RERANK','EMBED'].includes(String(value??'').toUpperCase());}
 function normalizeConfiguration(row,index=0){return deepFreeze({id:text(row?.id??row?.configurationId??row?.resourceId??row?.profileId)??'config:'+index,label:text(row?.label??row?.name??row?.displayName??row?.id)??'Resource configuration',kind:text(row?.kind??row?.resourceKind)??'SIDECAR',endpoint:text(row?.endpoint),modelId:text(row?.modelId),local:Boolean(row?.local),capabilities:[...(row?.capabilities??row?.declaredCapabilities??[])]});}
 function resourceId(row){return text(row?.id??row?.resourceId??row?.profileId??row?.providerProfileId??row?.workerId);}
 function readerExported(x,key){return({

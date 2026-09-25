@@ -203,7 +203,7 @@ export class CandidateBus{
     }
 
     candidates.sort((a,b)=>cmpTuple(candidatePriority(a),candidatePriority(b)));
-    const requestedCandidateLimit=Number.isFinite(Number(candidateLimit))?Math.max(1,Math.floor(Number(candidateLimit))):this.limits.maxTotalCandidates;
+    const requestedCandidateLimit=candidateLimit!=null&&Number.isFinite(Number(candidateLimit))?Math.max(1,Math.floor(Number(candidateLimit))):this.limits.maxTotalCandidates;
     const effectiveCandidateLimit=Math.min(this.limits.maxTotalCandidates,requestedCandidateLimit);
     const selected=[],intentCounts=new Map(),prunedCandidateIds=[];
     for(const candidate of candidates){

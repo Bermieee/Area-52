@@ -98,6 +98,7 @@ test('Wave19 selected-turn cognition read model separates configured, connected,
   telemetry.emit(TelemetryEvent.TASK_YIELDING,{...identity,taskId:'task:wave19'});
   telemetry.emit(TelemetryEvent.TASK_PARKED,{...identity,taskId:'task:wave19'});
   telemetry.emit(TelemetryEvent.TASK_RESUMED,{...identity,taskId:'task:wave19'});
+  telemetry.emit(TelemetryEvent.BATCH_PROGRESS,{...identity,taskId:'task:wave19',batchId:'batch:wave19',completedSlices:2,totalSlices:4,progress:.5,rawPrompt:'DO NOT LEAK'});
   telemetry.emit(TelemetryEvent.RETRY,{...identity,taskId:'task:wave19'});
   telemetry.emit(TelemetryEvent.FALLBACK_USED,{...identity,taskId:'task:wave19',resourceId:'beta'});
   telemetry.emit(TelemetryEvent.RESOURCE_EXECUTION,{...identity,taskId:'task:wave19',resourceId:'beta',providerProfileId:'profile:beta',providerId:'provider:beta',status:'SUCCESS',latencyMs:31});
@@ -112,6 +113,7 @@ test('Wave19 selected-turn cognition read model separates configured, connected,
   assert.equal(read.tasks.some(x=>x.taskId==='foreign-task'),false);
   const task=read.tasks.find(x=>x.taskId==='task:wave19');assert.ok(task);assert.equal(task.yields,1);assert.equal(task.parks,1);assert.equal(task.resumes,1);
   assert.equal(task.retries,1);assert.equal(task.fallbacks,1);assert.equal(task.physicallyExecuted,true);assert.equal(task.ownerAccepted,true);
+  assert.deepEqual(task.batchProgress,{source:'TELEMETRY',batchId:'batch:wave19',completedSlices:2,totalSlices:4,progress:.5});
   const beta=read.resources.find(x=>x.resourceId==='beta');assert.ok(beta);assert.equal(beta.configured,true);assert.equal(beta.connected,true);assert.equal(beta.physicalExecutionAttempted,true);assert.equal(beta.ownerAccepted,true);
   assert.equal(read.lifecycle.configured,2);assert.equal(read.lifecycle.connected,2);assert.equal(read.lifecycle.ownerAccepted,1);
   assert.equal(read.rawPromptIncluded,false);assert.equal(read.credentialIncluded,false);
@@ -143,6 +145,7 @@ test('Wave19 cognition read model consumes real NativeHotDeepScheduler queue, yi
   const task=read.tasks.find(x=>x.taskId==='task:scheduler-wave19');assert.ok(task);
   assert.equal(task.placement,'DEEP');assert.equal(task.state,'COMPLETED');assert.equal(task.yields,1);assert.equal(task.resumes,1);
   assert.equal(task.physicallyExecuted,true);assert.equal(task.ownerAccepted,true);
+  assert.equal(task.batchProgress.source,'NATIVE_HOT_DEEP_SCHEDULER');assert.equal(task.batchProgress.slices,1);
 });
 
 test('Wave19 resource host exposes Worker3-compatible actions plus qualified route and cognition reads while native Brain remains optional-resource independent',()=>{

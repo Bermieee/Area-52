@@ -57,7 +57,7 @@ export class MemoryTemporalProducer {
       correlationId:common(['correlationId']),
       worldRevision:Math.max(...rows.map((row)=>Number(row.worldRevision??0))),
       sceneRevision:Math.max(...rows.map((row)=>Number(row.sceneRevision??0)).filter(Number.isFinite),0)||null,
-      sourceRevisionRefs:[...new Set(rows.map((row)=>row.sourceRevisionId))].sort(),
+      sourceRevisionRefs:[...new Set(rows.map((row)=>row.sourceRevisionId))].sort().slice(0,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact),
     };
   }
 

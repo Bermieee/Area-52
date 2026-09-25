@@ -187,8 +187,9 @@ test('native Brain host lifecycle seals before model request and learns complete
 test('installed native host exposes provenance/runtime/memory readers through the UI binding seam',()=>{
   const {sillyTavern}=makeHost(),nativeBrain=fakeNativeBrain();
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
-  const names=session.exportEvidence().nativeBrainIntegration.installedUiReaderNames;
+  const native=session.exportEvidence().nativeBrainIntegration,names=native.installedUiReaderNames;
   for(const name of ['readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readLoreStatus','readMemoryStatus','readRuntimeStatus','readGeneration'])assert.ok(names.includes(name),name);
+  assert.equal(names.includes('listResources'),false);assert.deepEqual(native.installedOptionalOwners,{resources:false,loreStudy:false,loreAuthoring:false,memory:false});
   session.destroy();
 });
 

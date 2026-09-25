@@ -2,7 +2,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState, parseLoreSubmission } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,actionRouter=null}={}){
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
   const releases=[];
   if(registry.has('home')){
     const current=registry.get('home');
@@ -10,8 +10,21 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   }
   if(registry.has('brain')){
     const current=registry.get('brain');
-    registry.update('brain',{render(host,ctx){current.render?.(host,ctx);if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter});if(operations&&ctx.productAdapter.getDetailLevel()!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});}});
+    registry.update('brain',{render(host,ctx){current.render?.(host,ctx);if(operations&&ctx.productAdapter.getDetailLevel()!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});}});
   }
+  if(!registry.has('connections'))registry.register({
+    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','connect','disconnect','test'],
+    render(host,ctx){
+      host.append(header(host.ownerDocument,'Connections','Connect Jev and sidecar execution resources, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
+      if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter});
+      else host.append(message(host.ownerDocument,'Connections unavailable','Worker 2 resource host is not exported by this assembly. Native Brain operation remains available.','offline'));
+      renderFanoutGatherSurface(host,{...ctx,cognition});
+    },
+  });
+  if(!registry.has('settings'))registry.register({
+    id:'settings',title:'Settings',icon:'⚙',category:'Product',navigation:{level:'product',order:80},views:['normal','detail','advanced'],supportedActions:['display-preferences'],
+    render(host,ctx){renderSettingsSurface(host,{...ctx,frontFacePresentation});},
+  });
   if(registry.has('lore')){
     const current=registry.get('lore');
     registry.update('lore',{render(host,ctx){renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});}});
@@ -124,6 +137,88 @@ export function renderResourceSurface(host,{resources,actionRouter,scope,refresh
   }
   host.append(section);
 }
+
+export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
+  const d=host.ownerDocument,section=element(d,'section',{className:'a52-wave13-swarm',attrs:{'aria-label':'Sidecar fan-out and Gather'}});
+  section.append(element(d,'h2',{text:'Fan-out → Gather'}));
+  if(!cognition?.read){section.append(message(d,'Brain trace unavailable','The assembly does not expose the selected-turn cognition read model.','offline'));host.append(section);return;}
+  const read=cognition.read(),data=read?.data,selection=data?.bindingSelection??{};
+  if(!selection.turnId){
+    section.append(message(d,'Waiting for an active turn','Connection health remains available above. Fan-out and Gather appear only when the selected chat publishes a turn.','historical'));host.append(section);return;
+  }
+  const choice=data?.choice??null,scatter=data?.scatter??null,gather=data?.gather??null,seal=data?.seal??null,jev=data?.jev??null;
+  const jobs=scatter?.jobs??[],resourceIds=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))],gatherRows=gather?.results??[];
+  const summary=element(d,'div',{className:'a52-wave13-flow-summary'});
+  summary.append(flowStep(d,'Choice',choice?String(choice.admitted?.length??0)+' admitted · '+String(choice.skipped?.length??0)+' skipped':'No Choice receipt'),
+    flowStep(d,'Fan-out',scatter?jobs.length+' logical jobs → '+resourceIds.length+' physical resources':'No Scatter receipt'),
+    flowStep(d,'Gather',gather?String(gather.counts?.ADMITTED??0)+' admitted · '+String((gather.counts?.LATE??0)+(gather.counts?.STALE??0)+(gather.counts?.REJECTED??0)+(gather.counts?.INVALID??0))+' contained':'No Gather receipt'));
+  section.append(summary);
+
+  if(jev){
+    const jevCard=element(d,'section',{className:'a52-card'});
+    jevCard.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:'Jev decision'}),makeBadge(d,jev.outcome??jev.state??'AVAILABLE',jev.state==='DEGRADED'||jev.state==='UNAVAILABLE'?'warning':'observed')));
+    jevCard.append(createKeyValue(d,[{key:'Resource',value:jev.resourceId??'owner did not publish resource id'},{key:'Provider',value:jev.provider??'—'},{key:'Model',value:jev.model??'—'},{key:'Outcome',value:jev.outcome??jev.state??'—'}]));
+    section.append(jevCard);
+  }
+
+  if(jobs.length){
+    section.append(element(d,'h3',{text:'Logical jobs / physical mapping'}));
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const job of jobs){
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      row.append(element(d,'strong',{text:job.capability??job.jobId??'Cognitive job'}),element(d,'code',{text:job.resourceId??'native / unreported'}),makeBadge(d,String(job.state??'UNKNOWN'),flowStatus(job.state)));
+      list.append(row);
+    }
+    section.append(list);
+  }else section.append(message(d,'No fan-out receipt','The selected turn did not publish Scatter jobs. The UI will not infer sidecar use from registered resources.','historical'));
+
+  if(gatherRows.length){
+    section.append(element(d,'h3',{text:'Gather results'}));
+    const sealIds=new Set(seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[]),list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const result of gatherRows){
+      const sealed=result.resultId&&sealIds.has(result.resultId),contained=['LATE','STALE','INVALID','REJECTED'].includes(String(result.status).toUpperCase());
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      row.append(element(d,'strong',{text:result.capability??result.resultId??'Result'}),element(d,'code',{text:(result.resourceId??result.sourceSubsystem??'owner')+(result.destination?' → '+result.destination:'')}),makeBadge(d,sealed?'SEALED':contained?String(result.status):String(result.status??'RETURNED'),sealed?'canonical':contained?'warning':'observed'));
+      list.append(row);
+    }
+    section.append(list);
+  }else if(gather)section.append(message(d,'Gather summary only','Gather published counts/evidence but no per-result rows. No result-level Seal admission is inferred.','historical'));
+  else section.append(message(d,'Gather unavailable','No Gather receipt is published for the selected turn.','offline'));
+
+  if(seal){
+    const safe=seal.effectiveAdmittedResultIds??seal.admittedResultIds??[];
+    section.append(element(d,'p',{className:'a52-muted',text:'Context Seal owner reports '+safe.length+' result id'+(safe.length===1?'':'s')+' safely admitted. Late/stale/invalid/rejected Gather results remain visible but are not relabeled as prompt contributions.'}));
+  }
+  if(inspect&&scatter)section.append(createButton(d,{label:'Inspect Scatter receipt',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-scatter-trace',id:scatter.receiptId??selection.turnId,title:'Scatter / fan-out',payload:scatter})}));
+  if(inspect&&gather)section.append(createButton(d,{label:'Inspect Gather receipt',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-gather-trace',id:gather.receiptId??selection.turnId,title:'Gather',payload:gather})}));
+  host.append(section);
+}
+
+export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,scope,refresh}={}){
+  const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
+  root.append(header(d,'Settings','Area-52 display controls. Connection and Brain execution policy remain with their owning subsystems.'));
+  const detail=element(d,'section',{className:'a52-wave13-settings__group'});
+  detail.append(element(d,'strong',{text:'Detail level'}),element(d,'p',{className:'a52-muted',text:'Normal keeps the interface concise; Detail and Advanced expose progressively more owner receipts.'}));
+  const detailActions=element(d,'div',{className:'a52-wave13-resource-actions'});
+  for(const level of Object.values(ProductDetailLevel)){
+    const button=createButton(d,{label:humanLabel(level),scope,size:'sm',onPress:()=>{productAdapter?.setDetailLevel?.(level);refresh?.();}});
+    button.setAttribute('aria-pressed',String(productAdapter?.getDetailLevel?.()===level));detailActions.append(button);
+  }
+  detail.append(detailActions);root.append(detail);
+  const display=element(d,'section',{className:'a52-wave13-settings__group'}),state=frontFacePresentation?.get?.()??{};
+  display.append(element(d,'strong',{text:'Panel display'}),element(d,'p',{className:'a52-muted',text:'Use the rail or panel drag handle to move the attached UI. Use the ↔ Resize handle on the panel edge to change width.'}));
+  const displayActions=element(d,'div',{className:'a52-wave13-resource-actions'});
+  for(const density of ['COMPACT','COMFORTABLE']){
+    const button=createButton(d,{label:humanLabel(density),scope,size:'sm',onPress:()=>{frontFacePresentation?.setDensity?.(density);refresh?.();}});
+    button.setAttribute('aria-pressed',String(state.frontFaceDensity===density));displayActions.append(button);
+  }
+  const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
+  displayActions.append(inspector);display.append(displayActions);root.append(display);host.append(root);
+}
+
+function flowStep(d,label,value){const node=element(d,'div',{className:'a52-wave13-flow-step'});node.append(element(d,'strong',{text:label}),element(d,'span',{text:value}));return node;}
+function flowStatus(value){const v=String(value??'').toUpperCase();if(['COMPLETE','COMPLETED','READY','SUCCEEDED','ADMITTED'].includes(v))return'ready';if(['ACTIVE','RUNNING','QUEUED','WORKING'].includes(v))return'loading';if(['FAILED','ERROR','INVALID','LATE','STALE','REJECTED'].includes(v))return'warning';return'historical';}
+function humanLabel(value){return String(value??'').toLowerCase().replace(/(^|_)([a-z])/g,(_,space,letter)=>(space?' ':'')+letter.toUpperCase());}
 
 export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender}={}){
   const d=host.ownerDocument;

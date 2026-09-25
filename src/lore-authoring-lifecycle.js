@@ -1994,6 +1994,123 @@ export class LoreAuthoringLifecycle {
     };
   }
 
+  _applySourceOperation(settlement, operation) {
+    const registry = this.intelligence.runtime.registry;
+    const current = registry.currentRevision(operation.sourceId, {allowMissing: true});
+    let result;
+    let resumed = false;
+
+    if (operation.kind === 'SOURCE_CREATE') {
+      if (exactRevisionMatches(current, operation.afterContent, operation.afterMetadata)) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || null,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (registry.getEntry(operation.sourceId)) {
+          throw Object.assign(new Error('Source create target changed before Settlement: ' + operation.sourceId), {
+            code: 'LORE_SETTLEMENT_CREATE_TARGET_STALE',
+          });
+        }
+        result = this.intelligence.runtime.upsertEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          content: operation.afterContent,
+          metadata: operation.afterMetadata,
+        });
+      }
+    } else if (operation.kind === 'SOURCE_UPDATE') {
+      if (exactRevisionMatches(current, operation.afterContent, operation.afterMetadata)) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== operation.expectedSourceRevisionId || current.state === 'REMOVED') {
+          throw Object.assign(new Error('Source update revision fence changed during Settlement: ' + operation.sourceId), {
+            code: 'LORE_SETTLEMENT_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.upsertEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          content: operation.afterContent,
+          metadata: operation.afterMetadata,
+        });
+      }
+    } else if (operation.kind === 'SOURCE_DELETE') {
+      if (current?.state === 'REMOVED' && current.replacesRevisionId === operation.expectedSourceRevisionId) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== operation.expectedSourceRevisionId || current.state === 'REMOVED') {
+          throw Object.assign(new Error('Source delete revision fence changed during Settlement: ' + operation.sourceId), {
+            code: 'LORE_SETTLEMENT_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.removeEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          reason: operation.reason || 'operator-reviewed-delete',
+        });
+      }
+    } else {
+      throw Object.assign(new Error('Unknown source Settlement operation: ' + operation.kind), {
+        code: 'LORE_SETTLEMENT_SOURCE_OPERATION_UNKNOWN',
+      });
+    }
+
+    const event = revisionEvent({
+      result,
+      settlementId: settlement.id,
+      operationKind: operation.kind,
+    });
+    const invalidation = operation.kind === 'SOURCE_UPDATE'
+      ? treeInvalidationReceipt(operation.semanticPreflight, result.revision.id, settlement.id)
+      : sourceMutationInvalidationReceipt({
+        sourceId: result.source.sourceId,
+        fromRevisionId: operation.expectedSourceRevisionId || null,
+        toRevisionId: result.revision.id,
+        settlementId: settlement.id,
+        reason: operation.kind,
+      });
+    return {
+      receipt: {
+        kind: 'LoreSettlementOperationReceipt',
+        operationId: operation.operationId,
+        mutationKind: operation.kind,
+        actionId: operation.actionId,
+        sourceId: result.source.sourceId,
+        sourceRevisionId: result.revision.id,
+        previousSourceRevisionId: result.previousRevision?.id || null,
+        sourceState: result.revision.state,
+        changed: Boolean(result.changed),
+        resumedIdempotently: resumed,
+        studyObligationId: result.obligation?.id || null,
+        studyTrigger: result.obligation?.trigger || null,
+        beforeContentHash: operation.beforeContent == null ? null : stableHash(operation.beforeContent),
+        afterContentHash: operation.afterContent == null ? null : stableHash(operation.afterContent),
+        evidenceSourceRevisionIds: (operation.evidenceReceipt?.exactSourceRevisions || []).map((row) => row.sourceRevisionId),
+      },
+      event,
+      invalidation,
+    };
+  }
+
   _assertAppliedSettlementReceiptsCurrent(settlement) {
     const registry = this.intelligence.runtime.registry;
     const stale = [];
@@ -2053,7 +2170,9 @@ export class LoreAuthoringLifecycle {
         const operation = settlement.operations[settlement.cursor];
         const result = session.type === 'TREE'
           ? this._applyTreeOperation(settlement, operation)
-          : this._applyMergeOperation(session, settlement, operation);
+          : session.type === 'MERGE'
+            ? this._applyMergeOperation(session, settlement, operation)
+            : this._applySourceOperation(settlement, operation);
         settlement.receipts.push(result.receipt);
         settlement.revisionEvents.push(result.event);
         settlement.invalidationReceipts.push(result.invalidation);

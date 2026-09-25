@@ -47,4 +47,5 @@ jobs:
           path: artifacts/sidecar-connection-wave14/
       - name: Record live-provider observation
         if: always()
-        run: echo "Measured live Jev connection smoke observation: ${{ steps.live_smoke.outcome }}"
+        run: |
+          echo "Measured live Jev connection smoke observation: ${{ steps.live_smoke.outcome }}"

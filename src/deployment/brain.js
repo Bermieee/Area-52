@@ -612,10 +612,12 @@ export class DevelopmentDeploymentBrain {
   }
 
   async connectOptionalResource(config = {}) {
-    const kind = String(config.kind ?? 'SIDECAR').toUpperCase();
-    const resourceId = String(config.resourceId ?? config.id ?? config.profileId ?? ('optional-' + (this.listOptionalResources().resources.length + 1)));
+    const existingId = typeof config === 'string' ? String(config) : null;
+    const kind = String(typeof config === 'object' && config ? (config.kind ?? config.role ?? 'SIDECAR') : 'SIDECAR').toUpperCase();
+    const resourceId = existingId ?? String(config.resourceId ?? config.id ?? config.profileId ?? ('optional-' + (this.listOptionalResources().resources.length + 1)));
     const exists = this.listOptionalResources().resources.some((row) => row.resourceId === resourceId || row.id === resourceId);
     if (!exists) {
+      if (typeof config !== 'object' || !config) throw new Error('Unknown optional resource: ' + resourceId);
       const capabilities = Array.isArray(config.capabilities) && config.capabilities.length
         ? [...config.capabilities]
         : kind === 'JEV'
@@ -623,7 +625,7 @@ export class DevelopmentDeploymentBrain {
           : [CAPABILITIES.CPU_ANALYSIS, CAPABILITIES.GRAPH];
       this.optionalResources.actions.addResource({
         resourceId,
-        kind: 'OPENAI_COMPATIBLE',
+        kind: config.transportKind ?? 'OPENAI_COMPATIBLE',
         displayName: config.displayName ?? resourceId,
         providerProfileId: String(config.providerProfileId ?? config.profileId ?? ('profile:' + resourceId)),
         providerId: String(config.providerId ?? ('provider:' + resourceId)),
@@ -662,9 +664,30 @@ export class DevelopmentDeploymentBrain {
       const turnId = selection?.turnId ?? this.selectedTurnId;
       return turnId ? this.turns.get(String(turnId)) ?? null : null;
     };
+    const subscribeOwner = (listener) => {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    };
+    const loreStudyHost = Object.freeze({
+      kind: 'DevelopmentDeploymentLoreStudyHost',
+      read: Object.freeze({
+        status: (selection) => this.readLoreStatus(selection),
+        surface: (selection) => this.readLoreStatus(selection),
+        loreStudy: (selection) => this.readLoreStatus(selection),
+      }),
+      actions: Object.freeze({
+        acceptLorebook: (input) => this.acceptLorebook(input),
+        runLoreStudy: (input) => this.runLoreStudy(input),
+      }),
+      subscribe: subscribeOwner,
+    });
     return {
       readSelection: () => clone(get()?.selection ?? {}),
-      subscribe: (listener) => { this.listeners.add(listener); return () => this.listeners.delete(listener); },
+      subscribe: subscribeOwner,
+      resourceHost: this.optionalResources,
+      coprocessorResourceHost: this.optionalResources,
+      loreStudyHost,
+      loreHost: loreStudyHost,
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),
@@ -701,6 +724,7 @@ export class DevelopmentDeploymentBrain {
       },
       listResources: () => this.listOptionalResources(),
       listResourceProfiles: () => this.listOptionalResources(),
+      addResource: (config) => this.optionalResources.actions.addResource(config),
       connectResource: (config) => this.connectOptionalResource(config),
       disconnectResource: (resource) => this.disconnectOptionalResource(resource),
       testResource: (resource) => this.testOptionalResource(resource),

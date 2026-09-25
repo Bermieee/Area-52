@@ -26,7 +26,7 @@ function jevAbstain(){
 
 async function startProvider(){
   let mode='good',delayMs=0;
-  const calls={models:0,embeddingModels:0,chat:0,embeddings:0,authFailures:0};
+  const calls={models:0,embeddingModels:0,chat:0,embeddings:0,authFailures:0};let lastChatBody=null;
   const server=http.createServer(async(req,res)=>{
     const auth=req.headers.authorization;
     if(auth!=='Bearer good-key'){calls.authFailures++;res.writeHead(401,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'unauthorized'}}));return;}
@@ -48,7 +48,7 @@ async function startProvider(){
       res.end(JSON.stringify({data:mode==='empty'?[]:[{id:'story-embed',name:'Story Embed',context_length:8192,architecture:{input_modalities:['text'],output_modalities:['embeddings']},pricing:{prompt:'0.0000001'}}]}));return;
     }
     if(req.method==='POST'&&req.url==='/api/v1/chat/completions'){
-      calls.chat++;let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw||'{}');
+      calls.chat++;let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw||'{}');lastChatBody=structuredClone(body);
       if(body.model!=='story-chat'&&body.model!=='alternate-chat'){res.writeHead(404,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'model missing'}}));return;}
       if(mode==='strict-qualification'){
         if('temperature' in body||'max_tokens' in body||'max_completion_tokens' in body||body.messages?.length!==1||body.messages?.[0]?.role!=='user'){
@@ -82,7 +82,7 @@ async function startProvider(){
   const address=server.address();
   return {
     baseUrl:'http://127.0.0.1:'+address.port+'/api/v1',
-    setMode(value){mode=value;},setDelay(value){delayMs=value;},calls:()=>({...calls}),
+    setMode(value){mode=value;},setDelay(value){delayMs=value;},calls:()=>({...calls,lastChatBody:lastChatBody==null?null:structuredClone(lastChatBody)}),
     close:()=>new Promise(resolve=>server.close(resolve)),
   };
 }
@@ -130,6 +130,19 @@ test('Wave16 credential lifecycle is session-only, redacted, replaceable and rev
     const publicText=JSON.stringify({model:registry.readModel(),telemetry:registry.telemetry?.list?.()??[]});
     assert.equal(publicText.includes('good-key'),false);assert.equal(publicText.includes('bad-key'),false);
     row=registry.clearResourceCredential('chat');assert.equal(row.credentialConfigured,false);assert.equal(row.selectedModelQualified,false);assert.equal(row.callable,false);
+  }finally{await provider.close();}
+});
+
+test('Wave16 provider execution omits default temperature and requests only task-sized output',async()=>{
+  const provider=await startProvider();
+  try{
+    const registry=new CoprocessorResourceConnections();addChat(registry,provider.baseUrl,{apiKey:'good-key'});
+    await registry.connectResource('chat');
+    const result=await registry.executeTask(graphTask('parameter-compatibility'),{input:graphInput()});
+    assert.equal(result.status,'SUCCESS');
+    const body=provider.calls().lastChatBody;
+    assert.equal(body.temperature,undefined);
+    assert.equal(body.max_tokens,128);
   }finally{await provider.close();}
 });
 

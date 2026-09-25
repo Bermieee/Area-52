@@ -750,7 +750,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
     const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readPromptPlan','readContextReceipt','listGenerations','readGeneration'];
-    const merged={...base};for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
+    const merged={...base};
+    const optionalDemoKeys=[
+      'resourceHost','coprocessorResourceHost','coprocessorTelemetry','listResources','listResourceProfiles','addResource','connectResource','disconnectResource','testResource',
+      'loreStudyHost','loreHost','acceptLorebook','runLoreStudy',
+    ];
+    for(const key of optionalDemoKeys)if(!Object.prototype.hasOwnProperty.call(this.ownerBindings,key))delete merged[key];
+    for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
     merged.readNativeBrainHostLifecycle=base.readNativeBrainHostLifecycle;

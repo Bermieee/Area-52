@@ -99,6 +99,7 @@ export const MEMORY_LIMITS = Object.freeze({
   maxDiagnostics:128,
   maxCheckpointWorkUnits:32,
   maxConsolidationJobs:4096,
+  maxConsolidationSourceRevisionRefs:4096,
   maxIndexedTermsPerArtifact:192,
   maxSummaryScopes:2048,
   maxSummaryChildScopes:512,

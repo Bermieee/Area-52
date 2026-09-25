@@ -81,6 +81,7 @@ export function renderResourceSurface(host,{resources,actionRouter,scope,refresh
   if(source.reason)section.append(message(d,source.operationalState==='UNAVAILABLE'?'Assembly action seam not connected':'Resource status',source.reason,source.statusToken));
 
   const caps=resources.capabilities();
+  if(caps.read&&(!caps.connect||!caps.test||!caps.disconnect))section.append(message(d,'Resource controls incomplete','Resource status is readable, but connect/test/disconnect are not all exported by the assembly. Worker 2 remains the routing/execution owner.','warning'));
   if(caps.connect){
     const form=element(d,'div',{className:'a52-wave13-resource-connect'});
     const kind=field(d,'select','Resource type');for(const value of ['SIDECAR','JEV'])kind.append(option(d,value,value));

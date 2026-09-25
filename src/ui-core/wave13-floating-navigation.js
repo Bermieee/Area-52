@@ -69,7 +69,8 @@ export class VerticalRailPopoutController{
 
   close(){
     if(this.presentation.get().frontFaceMode!==FrontFaceMode.COLLAPSED)this.presentation.patch({frontFaceMode:FrontFaceMode.COLLAPSED});
-    this.nodes.rail?.focus?.();
+    const selected=[...(this.nodes.nav?.querySelectorAll?.('[data-workspace-id]')??[])].find(x=>x.dataset.workspaceId===this.shell.currentWorkspace);
+    (selected??this.nodes.railHandle)?.focus?.();
   }
 
   toggleMinimized(){
@@ -125,8 +126,8 @@ export class VerticalRailPopoutController{
 
   #ensureInitialPosition(){
     const vp=this.#viewport();
-    if(this.state.railX==null)this.state.railX=Math.max(EDGE,vp.width-RAIL_WIDTH-EDGE);
-    if(this.state.railY==null)this.state.railY=Math.max(EDGE,Math.min(vp.height-300,96));
+    if(this.state.railX==null){const rect=this.frontFaceController.host?.getBoundingClientRect?.();this.state.railX=Number.isFinite(rect?.left)&&rect.left>0?rect.left:Math.max(EDGE,vp.width-RAIL_WIDTH-EDGE);}
+    if(this.state.railY==null){const rect=this.frontFaceController.host?.getBoundingClientRect?.();this.state.railY=Number.isFinite(rect?.top)?Math.max(EDGE,rect.top):Math.max(EDGE,Math.min(vp.height-300,96));}
     this.#clampRail();this.#positionCard({forceAdjacent:this.state.cardX==null||this.state.cardY==null});this.#persist();
   }
 

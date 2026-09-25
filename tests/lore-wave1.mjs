@@ -99,9 +99,9 @@ test('ontology and hierarchy are derived, provenance-backed, and do not rewrite 
   const runtime = buildEmber();
   const surface = runtime.publicSurface();
   const concepts = surface.artifacts.filter((row) => row.artifactType === ArtifactType.CONCEPT);
-  assert.ok(concepts.some((row) => row.payload.entityId === 'entity:sun-blade' && row.payload.concept === 'weapon'));
-  assert.ok(concepts.some((row) => row.payload.entityId === 'entity:ember-tavern' && row.payload.concept === 'tavern'));
-  assert.ok(concepts.some((row) => row.payload.entityId === 'entity:mara' && row.payload.concept === 'proprietor'));
+  assert.ok(concepts.some((row) => row.payload.entityId === 'entity:sun-blade' && row.payload.concept === 'entity-type:object'));
+  assert.ok(concepts.some((row) => row.payload.entityId === 'entity:ember-tavern' && row.payload.concept === 'relation-object:owns'));
+  assert.ok(concepts.some((row) => row.payload.entityId === 'entity:mara' && row.payload.concept === 'relation-subject:owns'));
   assert.equal(concepts.every((row) => row.authorityClass !== AuthorityClass.SOURCE_CANON), true);
   const structure = surface.artifacts.find((row) => row.artifactType === ArtifactType.STRUCTURE && row.sourceId === 'lore:ember:1');
   assert.deepEqual(structure.payload.treePath, ['World', 'Ember Tavern']);

@@ -71,7 +71,7 @@ test('Lore Settlement invalidation has one host forwarder and no direct subscrip
 test('Connections evidence model keeps configured, qualified, physical execution, and owner acceptance separate',async()=>{
   const deployment=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:true});
   const hostBindings=deployment.hostBindings();
-  const state=hostBindings.resourceHost.read.ui({});
+  const state=hostBindings.resourceHost.read.cognition({});
   assert.ok(Array.isArray(state.resources));
   assert.equal(state.lifecycle.configured,0);
   assert.equal(state.lifecycle.physicallyExecuted,0);

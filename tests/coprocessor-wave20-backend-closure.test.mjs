@@ -20,6 +20,14 @@ function task(id,{placement=Placement.HOT,resultClass=ResultClass.REQUIRED,conte
     metadata:{contextTokens,expectedOutputTokens:512,latencyBudgetMs,resourceLimits,resourceClass,maxCostClass:'MEDIUM',contractMarker:'meaning-stable'},
   });
 }
+function graphInput(){return{nodes:[{ref:'story:station',type:'LOCATION'}],edges:[],states:[{ref:'story:state',entityRef:'story:station',temporalStatus:'CURRENT',summary:'Current station state.'}],conflicts:[]};}
+function taskMeaning(value){return{
+  taskType:value.taskType,requiredCapabilities:value.requiredCapabilities,optionalCapabilities:value.optionalCapabilities,
+  fallbackCapabilities:value.fallbackCapabilities,capabilityRequests:value.capabilityRequests,fallbackCapabilitySets:value.fallbackCapabilitySets,
+  cognitiveLayer:value.cognitiveLayer,resultClass:value.resultClass,batchMetadata:value.batchMetadata,outputSchema:value.outputSchema,
+  fallbackPolicy:value.fallbackPolicy,placement:value.placement,contextSealPolicy:value.contextSealPolicy,compilerLane:value.compilerLane,
+  metadata:value.metadata,
+};}
 function registry(){
   const r=new CapabilityProfileRegistry();
   for(const [id,extra] of [['alpha',{}],['beta',{}],['oversized',{resourceProfile:{CPU:2}}],['slow',{latencyClass:'HIGH'}],['wrong-class',{resourceClass:'HEAVY'}]]){
@@ -136,7 +144,7 @@ test('#124 actual WorkerDirector executes through two interchangeable qualified 
 
   const firstTask=task('runtime-alpha');
   const firstPlan=bridge.plan(firstTask);assert.deepEqual(firstPlan.capabilityAdmission.candidates.map(x=>x.profileId),['profile:alpha','profile:beta']);
-  const firstExecutor=createResourceDirectorExecutor({connections,task:firstTask,input:{nodes:[],edges:[],states:[],conflicts:[]}});
+  const firstExecutor=createResourceDirectorExecutor({connections,task:firstTask,input:graphInput()});
   const first=bridge.admit(firstTask,{executor:firstExecutor});assert.equal(first.status,'ADMITTED');
   await director.drain();
   assert.equal(director.ledger.get(firstTask.taskId).executionStatus,'COMPLETE');
@@ -146,11 +154,8 @@ test('#124 actual WorkerDirector executes through two interchangeable qualified 
   connections.disconnectResource('alpha');bridge.syncProfileState('profile:alpha');
   const secondTask=task('runtime-beta');
   const secondPlan=bridge.plan(secondTask);assert.deepEqual(secondPlan.capabilityAdmission.candidates.map(x=>x.profileId),['profile:beta']);
-  assert.deepEqual(
-    {...firstPlan.taskContract,taskId:null,turnId:null,correlationId:null,dedupeKey:null,intentFingerprint:null,sourceRevisionSet:[],inputRevisionSet:createRevisionSet({sourceRevisionSet:[],worldRevision:1,sceneRevision:2,characterStateRevision:3})},
-    {...secondPlan.taskContract,taskId:null,turnId:null,correlationId:null,dedupeKey:null,intentFingerprint:null,sourceRevisionSet:[],inputRevisionSet:createRevisionSet({sourceRevisionSet:[],worldRevision:1,sceneRevision:2,characterStateRevision:3})},
-  );
-  const secondExecutor=createResourceDirectorExecutor({connections,task:secondTask,input:{nodes:[],edges:[],states:[],conflicts:[]}});
+  assert.deepEqual(taskMeaning(firstPlan.taskContract),taskMeaning(secondPlan.taskContract));
+  const secondExecutor=createResourceDirectorExecutor({connections,task:secondTask,input:graphInput()});
   const second=bridge.admit(secondTask,{executor:secondExecutor});assert.equal(second.status,'ADMITTED');
   await director.drain();
   assert.equal(director.ledger.get(secondTask.taskId).executionStatus,'COMPLETE');

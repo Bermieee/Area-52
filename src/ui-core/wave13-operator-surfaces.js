@@ -534,6 +534,17 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
   if(navigate&&forensicStage&&forensicStage.state!==OperatorProducerState.UNAVAILABLE)path.append(createButton(d,{label:'Open Forensics',scope,size:'sm',variant:'quiet',onPress:()=>navigate('forensics')}));
   else path.append(element(d,'p',{className:'a52-muted',text:'A full forensic timeline requires the owner transaction/forensics readers; missing owner data is not reconstructed by the UI.'}));
   center.append(path);
+  if(advanced&&snapshot.generationInspection){
+    const inspection=snapshot.generationInspection,identity=inspection.identityResolution,graph=inspection.graphTraversal,budget=inspection.retrievalBudget,rejected=inspection.rejectedEvidence;
+    center.append(element(d,'h3',{text:'Owner generation inspection'}),createKeyValue(d,[
+      {key:'Source revision fence',value:String(inspection.sourceRevisionFenceCount??0)+' revisions'},
+      {key:'Identity resolution',value:identity?[(identity.kind??'receipt'),identity.status??identity.reasonCode??'published',formatReceiptCounts(identity.counts)].filter(Boolean).join(' · '):'Not published'},
+      {key:'Graph traversal',value:graph?[(graph.kind??'receipt'),graph.status??graph.reasonCode??'published',formatReceiptCounts(graph.counts)].filter(Boolean).join(' · '):'Not published'},
+      {key:'Retrieval budget',value:budget?[(budget.kind??'receipt'),budget.status??budget.reasonCode??'published',formatReceiptCounts(budget.counts)].filter(Boolean).join(' · '):'Not published'},
+      {key:'Rejected evidence',value:rejected?String(rejected.count??0)+' rejected'+(rejected.reasonCode?' · '+rejected.reasonCode:''):'No owner rejection receipt'},
+      {key:'Lore / Memory sync',value:[inspection.loreSync?.status??inspection.loreSync?.kind??'Lore not published',inspection.memorySync?.status??inspection.memorySync?.kind??'Memory not published'].join(' · ')},
+    ]),element(d,'p',{className:'a52-muted',text:'Metadata-only inspection. Raw prompts and evidence payloads are intentionally excluded; use owner forensic tooling for a full transaction reconstruction.'}));
+  }
   if(jobs.length){
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const job of jobs.slice(0,40)){
@@ -580,6 +591,10 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
   return center;
 }
 
+function formatReceiptCounts(counts){
+  const rows=Object.entries(counts??{}).filter(([,value])=>Number(value)>0);
+  return rows.length?rows.map(([key,value])=>humanLabel(key)+' '+String(value)).join(', '):'';
+}
 function flowStep(d,label,value){const node=element(d,'div',{className:'a52-wave13-flow-step'});node.append(element(d,'strong',{text:label}),element(d,'span',{text:value}));return node;}
 function flowStatus(value){const v=String(value??'').toUpperCase();if(['COMPLETE','COMPLETED','READY','SUCCEEDED','ADMITTED'].includes(v))return'ready';if(['ACTIVE','RUNNING','QUEUED','WORKING'].includes(v))return'loading';if(['FAILED','ERROR','INVALID','LATE','STALE','REJECTED'].includes(v))return'warning';return'historical';}
 function humanLabel(value){return String(value??'').toLowerCase().replace(/(^|_)([a-z])/g,(_,space,letter)=>(space?' ':'')+letter.toUpperCase());}

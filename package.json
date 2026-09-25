@@ -3,7 +3,7 @@
   "version": "0.4.0-dev",
   "private": true,
   "type": "module",
-  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev Phase 2 Resource Connection Wave",
+  "description": "Area-52 Cognitive Coprocessor / Sidecar-Jev native swarm completion wave",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "test:coprocessor": "node --test tests/coprocessor-wave1.test.mjs",
@@ -74,6 +74,11 @@
     "test:wave14": "node --test tests/coprocessor-wave14-connections.test.mjs tests/coprocessor-wave14-evaluation.test.mjs tests/coprocessor-wave14-browser.test.mjs",
     "smoke:sidecar-jev:live": "node scripts/sidecar-jev-live-connection-smoke.mjs",
     "test:wave14:evaluation": "node --test tests/coprocessor-wave14-evaluation.test.mjs",
-    "report:wave14": "node scripts/coprocessor-wave14-evaluation.mjs"
+    "report:wave14": "node scripts/coprocessor-wave14-evaluation.mjs",
+    "test:wave15:native": "node --test tests/coprocessor-wave15-native-swarm.test.mjs",
+    "test:wave15:evaluation": "node --test tests/coprocessor-wave15-evaluation.test.mjs",
+    "test:browser:wave15": "node --test tests/coprocessor-wave15-browser.test.mjs",
+    "test:wave15": "node --test tests/coprocessor-wave15-native-swarm.test.mjs tests/coprocessor-wave15-evaluation.test.mjs tests/coprocessor-wave15-browser.test.mjs",
+    "report:wave15": "node scripts/native-sidecar-swarm-wave15-evaluation.mjs"
   }
 }

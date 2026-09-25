@@ -25,8 +25,8 @@ function factFromClaim(claim,{status=claim.status,rich=false}={}){
 export class PublicationContextCompiler {
   constructor({graph,baseCompiler,maxFactsPerSection=12}){this.graph=graph;this.baseCompiler=baseCompiler;this.maxFactsPerSection=maxFactsPerSection;}
 
-  compile({query,intent,truthAssessment,precisionResults=[],budgetBytes=2500,unknownSlots=[],rawEvidence=null,activeThreads=[]}){
-    const detailed=this.baseCompiler.compileDetailed?this.baseCompiler.compileDetailed({query,intent,truthResults:truthAssessment.truthResults,activeThreads}):{packet:this.baseCompiler.compile({query,intent,truthResults:truthAssessment.truthResults,activeThreads}),metadata:{}};
+  compile({query,intent,truthAssessment,precisionResults=[],budgetBytes=2500,unknownSlots=[],rawEvidence=null,activeThreads=[],knowledgeEvidence=[]}){
+    const detailed=this.baseCompiler.compileDetailed?this.baseCompiler.compileDetailed({query,intent,truthResults:truthAssessment.truthResults,activeThreads,knowledgeEvidence}):{packet:this.baseCompiler.compile({query,intent,truthResults:truthAssessment.truthResults,activeThreads,knowledgeEvidence}),metadata:{}};
     const base=detailed.packet,packet=clone(base),compilerMetadata=clone(detailed.metadata??{});
     const rank=new Map(precisionResults.filter(x=>x.freshness==='FRESH').map(x=>[x.candidateId,x.finalRank]));
     const truthByCandidate=new Map(truthAssessment.truthResults.map(x=>[x.candidateId,x]));
@@ -67,7 +67,7 @@ export class PublicationContextCompiler {
     packet.provenanceIndex=provenanceIndex;packet.dependencies=[...dependencies].sort();
     compilerMetadata.semanticPriority=buildSemanticPriority({current:packet.current,historical:packet.historical,unresolved:packet.unresolved,activeThreads:packet.activeThreads??[]});
     compilerMetadata.semanticSizing=computeSemanticSizing(packet);
-    const packetIdMaterial=[packet.current,packet.historical,packet.unresolved];if((packet.activeThreads??[]).length)packetIdMaterial.push(packet.activeThreads);
+    const packetIdMaterial=[packet.current,packet.historical,packet.unresolved];if((packet.activeThreads??[]).length)packetIdMaterial.push(packet.activeThreads);if((packet.relevantLore??[]).length)packetIdMaterial.push(packet.relevantLore);if((packet.episodicMemory??[]).length)packetIdMaterial.push(packet.episodicMemory);
     packet.id=`packet:${intent.toLowerCase()}:pub:${hash(JSON.stringify(packetIdMaterial))}`;
 
     const requiredClaims=[...new Set([...truthAssessment.truthResults.filter(t=>t.usableForIntent).flatMap(t=>t.claimIds),...truthAssessment.supportCandidateIds.flatMap(id=>truthByCandidate.get(id)?.claimIds??[])])];
@@ -100,7 +100,7 @@ export class PublicationContextCompiler {
       }
       for(const unknown of unknownSlots)richSections.unresolved.push({e:unknown.subjectId,p:unknown.predicate,v:'unknown',a:'UNRESOLVED',cf:0,id:`compiled-unknown-rich:${hash(`${unknown.subjectId}|${unknown.predicate}`)}`,reason:unknown.reason??'no settled current value',supportIds:[...new Set(unknown.supportClaimIds??[])].sort()});
       sortRows(richSections.current,'current');sortRows(richSections.historical,'historical');sortRows(richSections.unresolved,'unresolved');
-      const richIdMaterial=[richSections.current,richSections.historical,richSections.unresolved];if((packet.activeThreads??[]).length)richIdMaterial.push(packet.activeThreads);
+      const richIdMaterial=[richSections.current,richSections.historical,richSections.unresolved];if((packet.activeThreads??[]).length)richIdMaterial.push(packet.activeThreads);if((packet.relevantLore??[]).length)richIdMaterial.push(packet.relevantLore);if((packet.episodicMemory??[]).length)richIdMaterial.push(packet.episodicMemory);
       output={...packet,id:`packet:${intent.toLowerCase()}:rich:${hash(JSON.stringify(richIdMaterial))}`,representation,...richSections,provenanceIndex,dependencies:[...dependencies].sort()};
       compilerMetadata.semanticPriority=buildSemanticPriority({current:output.current,historical:output.historical,unresolved:output.unresolved,activeThreads:output.activeThreads??[]});compilerMetadata.semanticSizing=computeSemanticSizing(output);
       reason=unsafe?'compact representation failed retention checks; richer representation selected':'compact packet exceeded budget; correctness-preserving richer fallback selected rather than dropping required truth';

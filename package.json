@@ -71,7 +71,9 @@
     "report:wave13": "node scripts/coprocessor-wave13-evaluation.mjs",
     "test:wave14:connections": "node --test tests/coprocessor-wave14-connections.test.mjs",
     "test:browser:wave14": "node --test tests/coprocessor-wave14-browser.test.mjs",
-    "test:wave14": "node --test tests/coprocessor-wave14-connections.test.mjs tests/coprocessor-wave14-browser.test.mjs",
-    "smoke:sidecar-jev:live": "node scripts/sidecar-jev-live-connection-smoke.mjs"
+    "test:wave14": "node --test tests/coprocessor-wave14-connections.test.mjs tests/coprocessor-wave14-evaluation.test.mjs tests/coprocessor-wave14-browser.test.mjs",
+    "smoke:sidecar-jev:live": "node scripts/sidecar-jev-live-connection-smoke.mjs",
+    "test:wave14:evaluation": "node --test tests/coprocessor-wave14-evaluation.test.mjs",
+    "report:wave14": "node scripts/coprocessor-wave14-evaluation.mjs"
   }
 }

@@ -19,7 +19,7 @@ const text=(v)=>String(v??'').trim();
 export function normalizeForensicReadModel(model){
   if(!model?.bundleId)return null;
   return deepFreeze({
-    kind:'NormalizedForensicReadModel',sourceKind:model.kind??'ForensicReadModel',bundleId:model.bundleId,turnId:model.turnId??null,generationId:model.generationId??null,
+    kind:'NormalizedForensicReadModel',sourceKind:model.kind??'ForensicReadModel',bundleId:model.bundleId,chatId:model.chatId??model.chatNamespace??model.conversationId??null,turnId:model.turnId??null,generationId:model.generationId??null,
     worldRevision:model.worldRevision??null,sceneRevision:model.sceneRevision??null,sourceRevisionRefs:[...(model.sourceRevisionRefs??[])],turnEventRef:model.turnEventRef??null,
     runtimeWorkRefs:[...(model.runtimeWorkRefs??[])],workerResultRefs:[...(model.workerResultRefs??[])],truthDecisionRefs:[...(model.truthDecisionRefs??[])],
     precisionRefs:[...(model.precisionRefs??[])],gatherRef:model.gatherRef??null,transactionRefs:[...(model.transactionRefs??[])],settlementRefs:[...(model.settlementRefs??[])],
@@ -57,7 +57,7 @@ export function buildForensicTimeline({forensic,transactions=[]}={}){
   for(const ref of f.lateResultRefs)addReference(rows,ref,ForensicStage.COGNITION,'RESULT_LATE','Late result completed after the relevant publication boundary.',knownReceipts,'LATE');
   rows.sort((a,b)=>Number(a.sequence??Number.MAX_SAFE_INTEGER)-Number(b.sequence??Number.MAX_SAFE_INTEGER)||String(a.id).localeCompare(String(b.id)));
   return deepFreeze({
-    kind:'ForensicTimeline',available:true,bundleId:f.bundleId,turnId:f.turnId,generationId:f.generationId,worldRevision:f.worldRevision,sceneRevision:f.sceneRevision,
+    kind:'ForensicTimeline',available:true,bundleId:f.bundleId,chatId:f.chatId,turnId:f.turnId,generationId:f.generationId,worldRevision:f.worldRevision,sceneRevision:f.sceneRevision,
     rows,runtimeWorkRefs:[...f.runtimeWorkRefs],sourceRevisionRefs:[...f.sourceRevisionRefs],complete:f.complete,health:f.health?.state??(f.complete?'READY':'DEGRADED'),
     diagnosticReasons:clone(f.diagnosticReasons),missingStages:missingStageNames(rows),authority:'READ_ONLY',mutationAuthority:false,
   });

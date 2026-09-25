@@ -53,8 +53,21 @@ test('DETERMINISTIC: context retirement requires durable retrieval proof and pre
   assert.equal(summaryFailure.retireEligibleMessageIds.length,0);
   assert.ok(summaryFailure.decisions.find(row=>row.messageId==='m1').reasons.includes('COVERAGE_NOT_COMMITTED'));
 
+  const correctedRows=structuredClone(rows);
+  correctedRows[0].content='Corrected Lore: the gate is closed, replacing the earlier open-state account.';
+  correctedRows[0].sourceRevisionRefs=['chat:r1:corrected'];
+  const corrected=policy.evaluate({chatId:'chat:alpha',messages:correctedRows,coverage:proven,recentWindow:3});
+  assert.ok(corrected.keptRawMessageIds.includes('m1'));
+  assert.ok(corrected.decisions.find(row=>row.messageId==='m1').reasons.includes('MESSAGE_SOURCE_REVISION_NOT_PROVEN'));
+
+  const mistakenBelief=first.decisions.find(row=>row.messageId==='m5');
+  assert.equal(mistakenBelief.action,'KEEP_RAW');
+  assert.ok(mistakenBelief.reasons.includes('PROTECTED_CONTEXT'));
+
   const replay=policy.evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
+  const regeneration=policy.evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
   const reload=new NativeContextRetirementPolicy({defaultRecentWindow:3}).evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
+  assert.equal(replay.receiptId,regeneration.receiptId);
   assert.deepEqual(replay.retireEligibleMessageIds,reload.retireEligibleMessageIds);
   assert.equal(contextRetirementContract().regressionBehavior,'REVERSE_OR_ABSTAIN');
 
@@ -121,6 +134,20 @@ test('DETERMINISTIC: presentation profiles preserve one sealed semantic identity
   }]});
   assert.equal(roleCollision.ok,false);
   assert.match(String(roleCollision.failure?.code),/requires role context/);
+
+  let pressure=null;
+  for(const budgetTokens of [512,640,768,896,1024,1280,1536]){
+    const attempt=engine.deliver({...common,budgetTokens,contributions:[{
+      id:'optional-recent-narrative',slot:'RECENT_NARRATIVE',sourceCategory:'GENERATION_ENVELOPE',owner:'GENERATION_ENVELOPE',
+      semantic:false,semanticRefs:[],content:'optional prior-scene prose '.repeat(220),sourceRevisionIds:[],role:'context',required:false,priority:1,metadata:{},
+    }]});
+    if(attempt.ok&&((attempt.plan.dropped?.length??0)+(attempt.plan.deferred?.length??0)>0)){pressure=attempt;break;}
+  }
+  assert.ok(pressure,'satisfiable pressure case should omit optional presentation material');
+  assert.equal(pressure.receipt.semanticManifestIdentity,stable.receipt.semanticManifestIdentity);
+  const pressureText=JSON.stringify(pressure.plan.sections);
+  for(const id of ['fact:current','fact:historical','fact:unresolved','fact:rule'])assert.match(pressureText,new RegExp(id));
+  assert.ok((pressure.plan.dropped??[]).some(row=>row.slot==='RECENT_NARRATIVE')||(pressure.plan.deferred??[]).some(row=>row.slot==='RECENT_NARRATIVE'));
 
   const overflow=engine.deliver({...common,budgetTokens:270});
   assert.equal(overflow.ok,false);

@@ -768,20 +768,20 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "916de2bdac4e9105a18a9206cead28b52d25effc",
-      "reason": "Director-authorized demo UI: separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration plus fan-out/Gather."
+      "expectedDigest": "b825dcf277ccd87659b5a83e0c3c6e7f02225be3",
+      "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
       "path": "src/ui-core/wave6-runtime.js",
       "sourceDigest": "ca538a04addd44193b7ef8b98997a36648078321",
-      "expectedDigest": "1a34baf85fec9b15b4097f451c9210e55bdfa413",
-      "reason": "Director-authorized main demo correction: supply live cognition and presentation services to Connections/Settings and refresh Connections on owner resource updates."
+      "expectedDigest": "10b1cd9a8439a5e17e4e62404004bcad33fc8966",
+      "reason": "Director-authorized demo UI: route live owner/resource/Lore/cognition telemetry into Settings Diagnostics Center and refresh it from owner subscriptions."
     },
     {
       "path": "styles/ui-core-wave13.css",
       "sourceDigest": "d57ca9001035067bc10d15b8c22d6587d3c73a4d",
-      "expectedDigest": "d0a544fbb5ca05cab9accd52ad28a4de3e7eebc0",
-      "reason": "Director-authorized demo UI: Area-52 blue/dark rail, visible side-edge resize grip, scroll-safe panels, and three connection slots."
+      "expectedDigest": "c33a10bc6c223d2f046bcf61c685edad5b80019e",
+      "reason": "Director-authorized demo UI: Area-52 blue attached navigation, side-edge resize, connection slots, and responsive Diagnostics Center."
     },
     {
       "path": "tests/wave12-sillytavern-host.test.mjs",
@@ -792,20 +792,20 @@
     {
       "path": "tests/wave13-operator-ui-stress.mjs",
       "sourceDigest": "d61e7c48ad5a0f8bc25fa7e9e2cb2a43e853672f",
-      "expectedDigest": "0b21d7755ee0fc2cd77148fb97ca30d81fe861db",
-      "reason": "Stress coverage for attached labeled rail including Connections and Settings."
+      "expectedDigest": "d95a2a00689afe365950aa2e8008906e8d9f6b0f",
+      "reason": "Stress coverage for attached navigation, side-edge resizing, and diagnostics selection coherence."
     },
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "f456a105f9a7cdc904a661ca3e9c859c3ac0bdd4",
-      "reason": "Acceptance coverage for attached blue navigation, side-edge resize, independent scrolling, Jev/Sidecar/Vectoring slot separation and locked owner configurations."
+      "expectedDigest": "f38c46b3c18a0cb517573e8bddedbd8b2688cb1a",
+      "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "ffddc7042a27510eec8016e68bf3d04771814370",
-      "reason": "Director-authorized demo UI: map the Vectoring slot to Worker 2 supported RETRIEVAL/EMBED capabilities without taking routing authority."
+      "expectedDigest": "ac1f12209911d47d2d3d6cbabe4bfd70fc9ab315",
+      "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     }
   ],
   "knownConflicts": []

@@ -287,6 +287,7 @@ export class Area52NativeBrain{
       sourceRevisionId:experience.sourceRevisionId,content:text,current:true,invalidates:[],
       knownBy:uniq(knownBy),publicToAll:false,
     });
+    const memoryWriteback=this.#writeBackMemoryEvidence(record,experience,{knownBy,exactContent:text});
 
     const settlements=[];
     for(let index=0;index<observations.length;index++)settlements.push(this.#settleObservation(record,experience,observations[index],index));
@@ -315,7 +316,7 @@ export class Area52NativeBrain{
       kind:'NativeBrainLearningReceipt',turnId:id,experienceId:experience.evidenceId,sourceRevisionId:experience.sourceRevisionId,
       settlementDecisions:settlements.map(x=>x?.decision?.decision??'REJECTED'),
       reflectionEvidenceIds:reflectionRows.map(x=>x.evidenceId),
-      feedback:clone(latest.feedback),runtimeTaskId:task?.task?.taskId??null,
+      feedback:clone(latest.feedback),runtimeTaskId:task?.task?.taskId??null,memoryWriteback:clone(memoryWriteback),
       rawExperienceRecoverable:Boolean(this.core.registry.getRevision(experience.sourceRevisionId)?.exactContent===text),
       canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
     };
@@ -340,10 +341,11 @@ export class Area52NativeBrain{
       content:response,current:true,invalidates:[prior.sourceRevisionId],
       knownBy:uniq(knownBy),publicToAll:false,
     });
+    const memoryWriteback=this.#writeBackMemoryEvidence(record,corrected,{knownBy,exactContent:response});
     const settlements=observations.map((row,index)=>this.#settleObservation(record,corrected,row,index));
     record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.state='LEARNED';
     this.#notify('TURN_CORRECTED',record);
-    return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
+    return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,memoryWriteback,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
   }
 
   subscribe(listener){

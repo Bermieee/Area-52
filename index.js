@@ -21,8 +21,12 @@ function renderEvidence(root, evidence) {
   if (output) output.textContent = JSON.stringify({
     status: evidence.status,
     checks: evidence.checks,
+    nativeBrainIntegration: evidence.nativeBrainIntegration,
+    providerEvidence: evidence.providerEvidence,
+    loreIngestion: evidence.loreIngestion,
     operatorReview: evidence.operatorReview,
     liveEvidenceComplete: evidence.liveEvidenceComplete,
+    liveEvidenceCompleteReason: evidence.liveEvidenceCompleteReason,
     errors: evidence.errors,
   }, null, 2);
 }

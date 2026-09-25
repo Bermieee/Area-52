@@ -977,6 +977,7 @@ export class DevelopmentDeploymentBrain {
           execution = await liveJevExecutor.execute(request, {
             ...options,
             profileId: context?.worker?.workerId ?? null,
+            leaseHeld: true,
             signal: context?.signal ?? options.signal ?? null,
           });
           return execution;

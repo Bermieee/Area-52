@@ -436,8 +436,13 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel
   center.append(element(d,'h3',{text:'Producer telemetry'}),stages);
 
   const activity=element(d,'div',{className:'a52-wave13-diagnostics__activity'});
-  const jobs=snapshot.cognition?.jobs??[],results=snapshot.cognition?.gather??[];
-  activity.append(flowStep(d,'Logical jobs',jobs.length+' published'),flowStep(d,'Gather results',results.length+' returned'),flowStep(d,'Context admitted',String(snapshot.cognition?.seal?.admittedResultIds?.length??0)));
+  const jobs=snapshot.cognition?.jobs??[],results=snapshot.cognition?.gather??[],pipeline=snapshot.pipeline??{};
+  activity.append(
+    flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
+    flowStep(d,'Work executed',pipeline.executionReceipt?jobs.length+' jobs':'No execution receipt'),
+    flowStep(d,'Results returned',pipeline.resultReceipt?results.length+' returned':'No Gather receipt'),
+    flowStep(d,'Context admitted',pipeline.admissionReceipt?String(snapshot.cognition?.seal?.admittedResultIds?.length??0):'No Context Seal receipt')
+  );
   center.append(element(d,'h3',{text:'Current turn activity'}),activity);
   if(jobs.length){
     const list=element(d,'div',{className:'a52-wave13-flow-list'});

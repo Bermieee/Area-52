@@ -211,8 +211,8 @@ test('Lore workspace contains generic ingestion controls and no fixed Ember Tave
 test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
   const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Connections/);assert.match(body,/Jev/);assert.match(body,/Sidecar/);assert.match(body,/Vectoring/);assert.match(body,/Fan-out → Gather/);assert.match(body,/Native Brain remains available|native cognition remains available|native Brain remains usable/i);
-  assert.match(body,/Load \/ Refresh Models/);assert.match(body,/Manual model fallback/);assert.match(body,/Test Connection/);
-  const passwordFields=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,3);
+  assert.match(body,/Connection setup unavailable/);
+  const passwordFields=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,0);
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.ok(buttons.length>0);assert.ok(buttons.every(x=>x.attributes?.type==='button'));
   ui.destroy();
 });
@@ -226,7 +226,8 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Test Connection/);
+  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
+  const passwordFields=walk(sidecar).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,1);
   ui.destroy();
 });
 

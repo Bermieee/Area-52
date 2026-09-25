@@ -205,7 +205,7 @@ export class NativeSidecarSwarm{
 
   #finish(sourceCheckpoint,{records,jevReceipt,checkpoint,resumeStatus}){
     const providerExecutions=records.map(record=>({
-      taskId:record.taskId,choiceOptionId:record.optionId,providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,
+      taskId:record.taskId,choiceOptionId:record.optionId,executionResourceId:record.resourceId,providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,
       startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,resultId:record.result?.resultId??null,
       failureCode:record.failureCode,fallbackUsed:record.fallbackUsed,
     }));

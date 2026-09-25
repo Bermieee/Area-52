@@ -113,10 +113,21 @@ export class JevProviderExecutor{
 
 export class JevDecisionCore{
   #replay=new Map();#metrics={decisions:0,invocations:0,skips:0,abstentions:0,escalations:0,operator:0,providerCalls:0,retries:0,timeouts:0,invalid:0,stale:0,late:0,totalLatencyMs:0,totalPayloadBytes:0};
-  constructor({providerExecutor=null}={}){this.providerExecutor=providerExecutor;}
+  constructor({providerExecutor=null,replayLimit=128}={}){this.providerExecutor=providerExecutor;this.replayLimit=positiveReplayLimit(replayLimit);}
   async decide(requestInput,{currentRevisionState=null,sealed=false,signal=null,deterministicAnswer=null}={}){
     const started=Date.now();const request=createJevDecisionRequest(requestInput);const fingerprint=jevRequestFingerprint(request);const replayKey=`${request.decisionId}|${fingerprint}`;
-    const replay=this.#replay.get(replayKey);if(replay)return replay;
+    const replay=this.#replay.get(replayKey);
+    if(replay){
+      const currentReplay=await resolveValue(currentRevisionState,request);const freshnessReplay=evaluateJevFreshness(request,currentReplay);
+      if(freshnessReplay.freshness!=='FRESH'){
+        this.#metrics.stale++;
+        return this.#receipt(request,{outcome:JevOutcome.STALE,serviceStatus:JevServiceStatus.JEV_STALE,decisionCode:'STALE',reasonCodes:[JevReasonCode.STALE_INPUT],providerProvenance:replay.providerProvenance,latencyMetadata:replay.latencyMetadata,validationStatus:{schema:'PASS',deterministic:'PASS',freshness:freshnessReplay.freshness},requestFingerprint:fingerprint},started);
+      }
+      const isSealedReplay=Boolean(await resolveValue(sealed,false));
+      if(!isSealedReplay)return replay;
+      this.#metrics.late++;
+      return createJevDecisionReceipt({...replay,admission:lateJevAdmission(replay,{sealed:true}),validationStatus:{...replay.validationStatus,freshness:'FRESH'}},request);
+    }
     this.#metrics.decisions++;
     const current=await resolveValue(currentRevisionState,request);const freshness=evaluateJevFreshness(request,current);
     if(freshness.freshness!=='FRESH'){
@@ -160,7 +171,11 @@ export class JevDecisionCore{
     this.#metrics.abstentions++;const outcome=gate.deterministicOutcome??JevOutcome.ABSTAINED;return this.#receipt(request,{outcome,serviceStatus:gate.serviceStatus??JevServiceStatus.JEV_ABSTAINED,decisionCode:outcome===JevOutcome.STALE?'STALE':outcome===JevOutcome.UNRESOLVED?JevDecisionShape.UNRESOLVED:JevDecisionShape.ABSTAIN,reasonCodes:gate.reasonCodes,abstained:outcome===JevOutcome.ABSTAINED,requestFingerprint:fingerprint},started);
   }
   #receipt(request,input,started){const total=Math.max(0,Date.now()-started);const receipt=createJevDecisionReceipt({...input,latencyMetadata:{...(input.latencyMetadata??{}),totalLatencyMs:Math.max(total,Number(input.latencyMetadata?.totalLatencyMs??0))}},request);this.#metrics.totalLatencyMs+=receipt.latencyMetadata.totalLatencyMs;return receipt;}
-  #remember(key,receipt){this.#replay.set(key,receipt);return receipt;}
+  #remember(key,receipt){
+    this.#replay.delete(key);this.#replay.set(key,receipt);
+    while(this.#replay.size>this.replayLimit)this.#replay.delete(this.#replay.keys().next().value);
+    return receipt;
+  }
 }
 
 function jevProfileSupportsTask(profile,task){const caps=new Set(profile.capabilities??[]);return (task.requiredCapabilities??[]).every(cap=>caps.has(cap))&&(profile.supportedLayers??[]).includes(task.cognitiveLayer)&&(profile.placements??[]).includes(task.placement)&&profile.available!==false;}
@@ -185,3 +200,4 @@ function fail(code,message){const e=new Error(message);e.code=code;throw e;}
 function retryable(error){return [FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.PROVIDER_FAILURE,FailureCode.PROVIDER_TIMEOUT].includes(error?.code);}
 function statusFromDecision(d){if(d.outcome===JevOutcome.DECIDED)return JevServiceStatus.JEV_DECIDED;if(d.outcome===JevOutcome.PARTIAL)return JevServiceStatus.JEV_PARTIAL;if(d.outcome===JevOutcome.UNRESOLVED)return JevServiceStatus.JEV_UNRESOLVED;if(d.outcome===JevOutcome.ABSTAINED)return JevServiceStatus.JEV_ABSTAINED;if(d.outcome===JevOutcome.REQUEST_OPERATOR)return JevServiceStatus.JEV_OPERATOR;if(d.outcome===JevOutcome.ESCALATE_OWNER)return JevServiceStatus.JEV_ESCALATED;return JevServiceStatus.JEV_INVALID;}
 async function resolveValue(value,fallback){if(typeof value==='function')return await value();return value??fallback;}
+function positiveReplayLimit(value){const n=Number(value);if(!Number.isInteger(n)||n<1)throw new TypeError('replayLimit must be a positive integer');return n;}

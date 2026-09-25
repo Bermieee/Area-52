@@ -76,9 +76,18 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.previewEdit')return loreAuthoring.previewEditImpact(action.payload??{});
       if(action.type==='wave13.loreAuthoring.proposeTree')return loreAuthoring.proposeTree(action.payload??{});
       if(action.type==='wave13.loreAuthoring.previewMerge')return loreAuthoring.previewMerge(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.startTreeBuild')return loreAuthoring.startTreeBuild(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.startMergeBuild')return loreAuthoring.startMergeBuild(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.resumeBuild')return loreAuthoring.resumeBuild(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.recordDecision')return loreAuthoring.recordDecision(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.reclassify')return loreAuthoring.reclassify(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.computeFinalPreview')return loreAuthoring.computeFinalPreview(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.approveFinalPreview')return loreAuthoring.approveFinalPreview(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.applySettlement')return loreAuthoring.applySettlement(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.restoreSettlement')return loreAuthoring.restoreSettlement(action.payload??{});
       throw new Error('Unsupported Wave 13 Lore authoring action');
     }));
-    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge']){
+    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
       releases.push(actionRouter.registerAction(type,{subsystem:'wave13-lore-authoring'}));
     }
   }

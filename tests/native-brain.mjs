@@ -250,16 +250,18 @@ test('HOST-CONTRACT: runTurn delivers sealed context to generation callback and 
 });
 
 test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrieval without importing authority',async()=>{
+  let ownerRevision={id:'lore:skywhales@r7',state:'CURRENT',exactContent:'Skywhales return to the Lantern Reefs when the violet tide rises.'};
   const loreInterface={
     kind:'LoreBrainRetrievalInterface',contractVersion:1,
+    sourceRevision:()=>structuredClone(ownerRevision),
     query:()=>({
       kind:'LoreBrainRetrievalPacket',contractVersion:1,query:'skywhales',intent:'AUTO',
       retrievalIntentId:'lore-intent:1',indexRevision:'idx:7',ontologyRevision:'ontology:3',
-      sourceRevisionFence:['lore:skywhales@r7'],
-      nominations:[{nomination:{nominationId:'lore:n1'},drillback:[{
-        sourceId:'lore:skywhales',sourceRevisionId:'lore:skywhales@r7',
-        exactAuthoredText:'Skywhales return to the Lantern Reefs when the violet tide rises.',
-        representationRef:'source:lore:skywhales@r7',provenance:[{kind:'LoreRetrievalProvenance',sourceRevisionId:'lore:skywhales@r7'}],
+      sourceRevisionFence:[ownerRevision.id],
+      nominations:ownerRevision.state==='REMOVED'?[]:[{nomination:{nominationId:'lore:n1'},drillback:[{
+        sourceId:'lore:skywhales',sourceRevisionId:ownerRevision.id,
+        exactAuthoredText:ownerRevision.exactContent,
+        representationRef:'source:'+ownerRevision.id,provenance:[{kind:'LoreRetrievalProvenance',sourceRevisionId:ownerRevision.id}],
       }]}],
       thematicCommunities:[],summaries:[],conflicts:[],provenanceRequired:true,
       exactSourceDrillbackAvailable:true,candidateBusAdmissionAuthority:false,truthGateAuthority:false,
@@ -278,10 +280,30 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrie
   assert.ok(prepared.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r7'));
   assert.ok(channelIds(prepared).has('NATIVE_LORE'));
   assert.ok(slots(prepared).has('RELEVANT_LORE'));
-  const loreRow=brain.knowledge.currentRecordForSource('lore:skywhales');
+  let loreRow=brain.knowledge.currentRecordForSource('lore:skywhales');
   assert.equal(loreRow.evidence.authorityClass,'SOURCE_CANON');
   assert.equal(loreRow.evidence.extensions.metadata.externalSourceRevisionId,'lore:skywhales@r7');
   assert.equal(prepared.loreSync.authorityGranted,false);
+
+  ownerRevision={id:'lore:skywhales@r8',state:'CURRENT',exactContent:'Skywhales return to the Lantern Reefs only when the silver moon follows the violet tide.'};
+  const revised=await brain.prepareTurn({
+    chatId:'chat:lore-contract',turnId:'lore-contract:2',generationId:'gen:lore-contract:2',
+    query:'When do Skywhales return?',intent:'CURRENT',
+    scene:scene('reef-watch-night',2,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(revised.loreSync.lifecycleUpdated,1);
+  loreRow=brain.knowledge.currentRecordForSource('lore:skywhales');
+  assert.equal(loreRow.evidence.extensions.metadata.externalSourceRevisionId,'lore:skywhales@r8');
+  assert.match(loreRow.exactContent,/silver moon/i);
+
+  ownerRevision={id:'lore:skywhales@r9',state:'REMOVED',exactContent:null};
+  const removed=await brain.prepareTurn({
+    chatId:'chat:lore-contract',turnId:'lore-contract:3',generationId:'gen:lore-contract:3',
+    query:'Where are the Skywhales?',intent:'CURRENT',
+    scene:scene('empty-reef',3,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(removed.loreSync.lifecycleRemoved,1);
+  assert.equal(brain.knowledge.currentRecordForSource('lore:skywhales'),null);
 });
 
 test('DETERMINISTIC: correcting narrative evidence fences dependent reflections from future retrieval',async()=>{

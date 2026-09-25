@@ -507,6 +507,8 @@ test('Worker 4 Wave 6 authoring contract stays review-only and renders Tree / me
   const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Lore authoring review/);assert.match(body,/Source identity/);assert.match(body,/Edit-impact preview/);assert.match(body,/Tree Builder proposal/);assert.match(body,/Merge \/ reconciliation preview/);assert.match(body,/No destructive Apply action/);
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.equal(buttons.some(x=>x.textContent==='Apply'),false);
+  const mergeSelect=walk(ui.shell.nodes.workspace).find(x=>x.getAttribute?.('aria-label')==='Merge comparison lorebook'),mergeButton=buttons.find(x=>x.textContent==='Preview merge reconciliation');
+  assert.equal(mergeButton.disabled,true);mergeSelect.value='Mirror Archive';mergeSelect.dispatch('change');assert.equal(mergeButton.disabled,false);
   ui.destroy();
 });
 

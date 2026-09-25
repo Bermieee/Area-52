@@ -93,6 +93,6 @@
     "test:wave18:stress": "node --test tests/coprocessor-wave18-stress.test.mjs",
     "report:wave18": "node scripts/coprocessor-wave18-evaluation.mjs",
     "test:wave19": "node --test tests/coprocessor-wave19-standing-wiring.test.mjs",
-    "test:wave20": "node --test tests/coprocessor-wave20-backend-closure.test.mjs tests/worker4-jev211-repro.test.mjs"
+    "test:wave20": "node --test tests/coprocessor-wave20-backend-closure.test.mjs tests/worker4-jev211-repro.test.mjs tests/coprocessor-wave21-jev-owner-contracts.test.mjs"
   }
 }

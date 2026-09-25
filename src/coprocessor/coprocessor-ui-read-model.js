@@ -72,8 +72,8 @@ export function projectCognitionUiState({
   const resourceRows=(Array.isArray(resources)?resources:resources?.resources??[]).map(row=>{
     const resourceId=nullable(row?.resourceId??row?.id);
     const execution=resourceId?resourceEvidence.get(resourceId):null;
-    const physicalAttempted=Boolean(row?.physicalExecutionAttempted??execution?.attempted??row?.lastExecution);
-    const physicalSucceeded=Boolean(row?.physicalExecutionSucceeded??execution?.succeeded??row?.lastExecution?.status==='SUCCESS');
+    const physicalAttempted=Boolean(row?.physicalExecutionAttempted||execution?.attempted||row?.lastExecution);
+    const physicalSucceeded=Boolean(row?.physicalExecutionSucceeded||execution?.succeeded||row?.lastExecution?.status==='SUCCESS');
     return freeze({
       resourceId,displayName:nullable(row?.displayName??row?.name),state:nullable(row?.state),health:nullable(row?.health),
       configured:row?.configured!==false,connected:Boolean(row?.connected??row?.callable),
@@ -110,6 +110,7 @@ export function projectCognitionUiState({
     physicalExecution:{attempts:physicalAttempts,succeeded:physicalSuccesses,failed:physicalFailures},
     resultDestinations,providerHealth:providerRows.map(row=>freeze({...row})),
     resources:resourceRows,ownerAcceptance,
+    jevDecisions:ownerAcceptance.map(row=>row.cognitiveTelemetry).filter(Boolean),
     lifecycle:{
       configured:resourceRows.filter(x=>x.configured).length,
       connected:resourceRows.filter(x=>x.connected).length,
@@ -263,10 +264,27 @@ function projectOwnerReceipts(receipts,selection){
     out.push(freeze({
       kind:nullable(receipt.kind),turnId:nullable(receipt.turnId),correlationId:nullable(receipt.correlationId),generationId:nullable(receipt.generationId),
       ownerDecision:nullable(receipt.ownerDecision??receipt.status),ownerAdmissionPerformed:Boolean(receipt.ownerAdmissionPerformed||admissions.length),
-      settlementPerformed:Boolean(receipt.settlementPerformed),canonicalMutation:Boolean(receipt.canonicalMutation),admissions,
+      settlementPerformed:Boolean(receipt.settlementPerformed),canonicalMutation:Boolean(receipt.canonicalMutation),
+      cognitiveTelemetry:publicJevCognitiveTelemetry(receipt.cognitiveTelemetry),admissions,
     }));
   }
   return out;
+}
+
+function publicJevCognitiveTelemetry(value){
+  if(!value||value.kind!=='JevTurnCognitiveReceipt')return null;
+  return freeze({
+    kind:value.kind,contractVersion:nullable(value.contractVersion),chatId:nullable(value.chatId),turnId:nullable(value.turnId),
+    generationId:nullable(value.generationId),correlationId:nullable(value.correlationId),taskId:nullable(value.taskId),decisionId:nullable(value.decisionId),
+    domain:nullable(value.domain),decisionKind:nullable(value.decisionKind),path:nullable(value.path),serviceStatus:nullable(value.serviceStatus),
+    outcome:nullable(value.outcome),invocation:nullable(value.invocation),reasonCodes:Array.isArray(value.reasonCodes)?value.reasonCodes.map(String).slice(0,16):[],
+    replayed:Boolean(value.replayed),providerAttempts:Number(value.providerAttempts??0),physicalExecutionAttempted:Boolean(value.physicalExecutionAttempted),
+    physicalExecutionSucceeded:Boolean(value.physicalExecutionSucceeded),measurementClass:nullable(value.measurementClass),latencyClass:nullable(value.latencyClass),
+    costClass:nullable(value.costClass),costStatus:nullable(value.costStatus),latencyMs:finiteOrNull(value.latencyMs),
+    stale:Boolean(value.stale),postSeal:Boolean(value.postSeal),ownerReviewInvoked:Boolean(value.ownerReviewInvoked),
+    ownerDecision:nullable(value.ownerDecision),ownerAccepted:Boolean(value.ownerAccepted),
+    mutationAuthority:false,truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+  });
 }
 
 function matchesSelection(value,selection){

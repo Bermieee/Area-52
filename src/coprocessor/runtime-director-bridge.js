@@ -15,6 +15,12 @@ export function createRuntimeCapabilityAdmission(registry,task,options={}){
     status:negotiation.status,
     degraded:Boolean(negotiation.degraded),
     fallbackSetUsed:negotiation.fallbackSetUsed,
+    requestedCapabilities:clone(negotiation.requestedCapabilities),
+    missingCapabilities:[...negotiation.missingCapabilities],
+    incompatibilities:clone(negotiation.incompatibilities),
+    constraintFailures:clone(negotiation.constraintFailures),
+    missingRequirements:clone(negotiation.missingRequirements),
+    optionalCapabilitiesAvailable:[...negotiation.optionalCapabilitiesAvailable],
     candidates:negotiation.eligibleProfiles.map(profile=>({
       runtimeWorkerId:profile.profileId,profileId:profile.profileId,sourceWorkerId:profile.workerId,
       capabilities:[...profile.capabilities],capabilityDescriptors:clone(profile.capabilityDescriptors),

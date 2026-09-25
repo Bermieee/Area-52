@@ -140,7 +140,10 @@ export class JevDomainAdapterService {
       proposal = adapter.fallbackProposal(input, { reason: 'RECEIPT_VALIDATION_FAILED', error, request, receipt });
     }
 
-    const invoked = Boolean(afterCore && beforeCore && afterCore.providerCalls > beforeCore.providerCalls);
+    const providerAttempts = Math.max(0, Number(afterCore?.providerCalls ?? 0) - Number(beforeCore?.providerCalls ?? 0));
+    const invoked = providerAttempts > 0;
+    metric.providerAttempts += providerAttempts;
+    if (invoked && receipt.providerProvenance?.providerId) metric.physicalSuccesses += 1;
     if (invoked) metric.jevInvoked += 1;
     else if (receipt.serviceStatus === JevServiceStatus.JEV_SKIPPED) metric.deterministicSkips += 1;
     if (receipt.abstained) metric.abstentions += 1;
@@ -205,6 +208,8 @@ export class JevDomainAdapterService {
       staleRejections: m.staleRejections,
       adapterValidationFailures: m.adapterValidationFailures,
       replays: m.replays,
+      providerAttempts: m.providerAttempts,
+      physicalSuccesses: m.physicalSuccesses,
       totalLatencyMs: m.totalLatencyMs,
       providerIds: [...m.providerIds].sort(),
     }));
@@ -213,7 +218,7 @@ export class JevDomainAdapterService {
 
   #metric(domain, decisionKind) {
     const key = domainKindKey(domain, decisionKind);
-    if (!this.#metrics.has(key)) this.#metrics.set(key, { domain, decisionKind, decisions: 0, deterministicSkips: 0, jevInvoked: 0, abstentions: 0, unresolved: 0, escalations: 0, staleRejections: 0, adapterValidationFailures: 0, replays: 0, totalLatencyMs: 0, providerIds: new Set() });
+    if (!this.#metrics.has(key)) this.#metrics.set(key, { domain, decisionKind, decisions: 0, deterministicSkips: 0, jevInvoked: 0, abstentions: 0, unresolved: 0, escalations: 0, staleRejections: 0, adapterValidationFailures: 0, replays: 0, providerAttempts: 0, physicalSuccesses: 0, totalLatencyMs: 0, providerIds: new Set() });
     return this.#metrics.get(key);
   }
 
@@ -278,7 +283,19 @@ export function createOwnerProposal({
     status: receipt?.serviceStatus ?? 'ADAPTER_DEGRADED',
     evidenceCount: request?.evidenceRefs?.length ?? 0,
     optionCount: request?.options?.length ?? 0,
-    providerProvenance: receipt?.providerProvenance?.providerId ? { providerId: receipt.providerProvenance.providerId } : null,
+    reasonCodes: [...(receipt?.reasonCodes ?? [])].slice(0, 16),
+    providerProvenance: receipt?.providerProvenance?.providerId ? {
+      providerProfileId: receipt.providerProvenance.providerProfileId ?? null,
+      providerId: receipt.providerProvenance.providerId,
+      resourceId: receipt.providerProvenance.resourceId ?? null,
+      workerId: receipt.providerProvenance.workerId ?? null,
+      modelId: receipt.providerProvenance.modelId ?? null,
+      actualProvider: receipt.providerProvenance.actualProvider ?? null,
+      measurementClass: receipt.providerProvenance.measurementClass ?? null,
+      latencyClass: receipt.providerProvenance.latencyClass ?? null,
+      costClass: receipt.providerProvenance.costClass ?? null,
+      costStatus: receipt.providerProvenance.usageReceipt?.cost?.status ?? null,
+    } : null,
     latencyMs: Number(receipt?.latencyMetadata?.totalLatencyMs ?? 0),
     explanation: boundedExplanation,
     fallbackReason,

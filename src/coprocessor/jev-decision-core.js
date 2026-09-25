@@ -100,7 +100,8 @@ export class JevProviderExecutor{
     const actualModelId=invocation.modelId??profile.modelId;
     return deepFreeze({task,input,decision,providerProvenance:{providerProfileId:profile.profileId,providerId:profile.providerId,resourceId:profile.profileMetadata?.resourceId??null,
       modelId:actualModelId,requestedModelId:profile.modelId,actualProvider:invocation.metadata?.actualProvider??null,workerId:profile.workerId,
-      capability:'SEMANTIC_JUDGMENT',attempt,finishReason:invocation.finishReason??null,usage:structuredClone(invocation.usage??{}),usageReceipt,measurementClass},
+      capability:'SEMANTIC_JUDGMENT',attempt,finishReason:invocation.finishReason??null,usage:structuredClone(invocation.usage??{}),usageReceipt,measurementClass,
+      latencyClass:profile.latencyClass??null,costClass:profile.costClass??null},
       latencyMetadata:{providerLatencyMs:Number(invocation.latencyMs??0),validationLatencyMs:validationLatency,totalLatencyMs:Math.max(0,Date.now()-started),attempts:attempt},
       payloadBytes:utf8ByteLength(JSON.stringify(input.data))});
   }

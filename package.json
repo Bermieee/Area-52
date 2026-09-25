@@ -79,6 +79,7 @@
     "test:wave15:evaluation": "node --test tests/coprocessor-wave15-evaluation.test.mjs",
     "test:browser:wave15": "node --test tests/coprocessor-wave15-browser.test.mjs",
     "test:wave15": "node --test tests/coprocessor-wave15-native-swarm.test.mjs tests/coprocessor-wave15-evaluation.test.mjs tests/coprocessor-wave15-browser.test.mjs",
-    "report:wave15": "node scripts/native-sidecar-swarm-wave15-evaluation.mjs"
+    "report:wave15": "node scripts/native-sidecar-swarm-wave15-evaluation.mjs",
+    "smoke:swarm:live": "node scripts/native-sidecar-swarm-live-smoke.mjs"
   }
 }

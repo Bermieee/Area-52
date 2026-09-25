@@ -1,0 +1,52 @@
+name: Cognitive Coprocessor Wave 16
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 16 focused resource and Jev acceptance
+        run: npm run test:wave16
+      - name: Preserve Wave 14 real-resource contracts
+        run: npm run test:wave14
+      - name: Preserve Wave 15 native swarm contracts
+        run: npm run test:wave15
+      - name: Wave 16 browser portability
+        run: npm run test:browser:wave16
+      - name: Generate Wave 16 LOCAL_DETERMINISTIC evaluation artifact
+        run: npm run report:wave16
+      - name: Opt-in MEASURED_LIVE OpenRouter acceptance
+        id: live_wave16
+        continue-on-error: true
+        run: npm run smoke:wave16:live
+      - name: Full Coprocessor and Jev branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Upload Wave 16 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resource-jev-wave16
+          path: artifacts/resource-jev-wave16/
+      - name: Record live-provider observation without promoting skips
+        if: always()
+        run: |
+          echo "MEASURED_LIVE Wave 16 smoke step outcome: ${{ steps.live_wave16.outcome }}"
+          echo "The smoke report itself controls realProviderCallObserved/ft005LivePass/jevLivePass/vectorLivePass."

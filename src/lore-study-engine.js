@@ -400,26 +400,59 @@ function finalizeClaims(workspace) {
 function deriveOntology(workspace) {
   const concepts = [];
   const entities = workspace.artifacts.filter((artifact) => artifact.artifactType === ArtifactType.ENTITY);
+  const claims = workspace.artifacts.filter((artifact) => artifact.artifactType === ArtifactType.CLAIM);
+  const relationships = workspace.artifacts.filter((artifact) => artifact.artifactType === ArtifactType.RELATIONSHIP);
+
+  const addConcept = ({entityId, concept, parent, authority = AuthorityClass.DERIVED, evidence}) => {
+    if (!entityId || !concept || !parent || !evidence) return;
+    concepts.push({entityId, concept, parent, authority, evidence});
+  };
+
   for (const entity of entities) {
-    const type = entity.payload.entityType.toLowerCase();
-    concepts.push({entityId: entity.payload.entityId, concept: type, parent: 'world-entity', authority: AuthorityClass.DERIVED, evidence: entity.id});
-    const name = entity.payload.canonicalName;
-    if (/\btavern\b/i.test(name)) {
-      concepts.push({entityId: entity.payload.entityId, concept: 'tavern', parent: 'location', authority: AuthorityClass.INFERRED, evidence: entity.id});
-      concepts.push({entityId: entity.payload.entityId, concept: 'business', parent: 'location', authority: AuthorityClass.INFERRED, evidence: entity.id});
-    }
-    if (/\b(blade|sword)\b/i.test(name)) {
-      concepts.push({entityId: entity.payload.entityId, concept: 'sword', parent: 'weapon', authority: AuthorityClass.INFERRED, evidence: entity.id});
-      concepts.push({entityId: entity.payload.entityId, concept: 'weapon', parent: 'object', authority: AuthorityClass.INFERRED, evidence: entity.id});
+    const type = slug(entity.payload.entityType || 'world-entity');
+    addConcept({
+      entityId: entity.payload.entityId,
+      concept: 'entity-type:' + type,
+      parent: 'entity-type',
+      authority: AuthorityClass.DERIVED,
+      evidence: entity.id,
+    });
+  }
+
+  for (const claim of claims) {
+    const predicate = slug(claim.payload.predicate || 'claim');
+    addConcept({
+      entityId: claim.payload.subjectId,
+      concept: 'claim-subject:' + predicate,
+      parent: 'claim-role',
+      authority: claim.unresolved ? AuthorityClass.UNRESOLVED : AuthorityClass.INFERRED,
+      evidence: claim.id,
+    });
+    if (typeof claim.payload.value === 'string' && claim.payload.value.startsWith('entity:')) {
+      addConcept({
+        entityId: claim.payload.value,
+        concept: 'claim-object:' + predicate,
+        parent: 'claim-role',
+        authority: claim.unresolved ? AuthorityClass.UNRESOLVED : AuthorityClass.INFERRED,
+        evidence: claim.id,
+      });
     }
   }
-  const ownerships = workspace.artifacts.filter((artifact) => artifact.artifactType === ArtifactType.RELATIONSHIP && artifact.payload.predicate === 'owns');
-  for (const relationship of ownerships) {
-    concepts.push({
+
+  for (const relationship of relationships) {
+    const predicate = slug(relationship.payload.predicate || 'relationship');
+    addConcept({
       entityId: relationship.payload.subjectId,
-      concept: 'proprietor',
-      parent: 'person-role',
-      authority: AuthorityClass.INFERRED,
+      concept: 'relation-subject:' + predicate,
+      parent: 'relationship-role',
+      authority: relationship.unresolved ? AuthorityClass.UNRESOLVED : AuthorityClass.INFERRED,
+      evidence: relationship.id,
+    });
+    addConcept({
+      entityId: relationship.payload.objectId,
+      concept: 'relation-object:' + predicate,
+      parent: 'relationship-role',
+      authority: relationship.unresolved ? AuthorityClass.UNRESOLVED : AuthorityClass.INFERRED,
       evidence: relationship.id,
     });
   }
@@ -438,36 +471,41 @@ function deriveOntology(workspace) {
         entityId: row.entityId,
         concept: row.concept,
         parentConcept: row.parent,
-        membership: 'DERIVED',
+        membership: 'EVIDENCE_DERIVED',
+        learnedFromWorldLore: true,
       },
-      derivation: 'ONTOLOGY_FOUNDATION',
+      derivation: 'ONTOLOGY_EVIDENCE_LEARNING',
       dependencies: [row.evidence],
       authorityClass: row.authority,
       temporalClass: TemporalClass.TIMELESS,
+      unresolved: row.authority === AuthorityClass.UNRESOLVED,
     }));
   }
 
   const groups = new Map();
   for (const concept of workspace.artifacts.filter((artifact) => artifact.artifactType === ArtifactType.CONCEPT)) {
-    const key = concept.payload.parentConcept;
+    const key = concept.payload.concept;
     const ids = groups.get(key) || [];
     ids.push(concept.payload.entityId);
     groups.set(key, ids);
   }
-  for (const [parentConcept, entityIds] of groups.entries()) {
+  for (const [conceptKey, entityIds] of groups.entries()) {
     const uniqueIds = boundedUnique(entityIds, 64);
     addArtifact(workspace, makeArtifact({
       type: ArtifactType.COMMUNITY,
       sourceId: workspace.source.sourceId,
       sourceRevisionId: workspace.revision.id,
-      logicalKey: 'community|' + parentConcept,
+      logicalKey: 'community|' + conceptKey,
       payload: {
-        communityId: 'community:' + slug(parentConcept),
-        label: parentConcept,
+        communityId: 'community:' + slug(conceptKey),
+        label: conceptKey,
         entityIds: uniqueIds,
+        learnedFromWorldLore: true,
       },
-      derivation: 'HIERARCHY_COMMUNITY_FOUNDATION',
-      dependencies: workspace.artifacts.filter((artifact) => artifact.artifactType === ArtifactType.CONCEPT && artifact.payload.parentConcept === parentConcept).map((artifact) => artifact.id),
+      derivation: 'ONTOLOGY_EVIDENCE_COMMUNITY',
+      dependencies: workspace.artifacts
+        .filter((artifact) => artifact.artifactType === ArtifactType.CONCEPT && artifact.payload.concept === conceptKey)
+        .map((artifact) => artifact.id),
       authorityClass: AuthorityClass.DERIVED,
     }));
   }

@@ -68,7 +68,7 @@ for(const chat of chats){
       level:'SCENE',
       scopeId:chat.prefix.toLowerCase()+'-'+scene,
       parentScopeRefs:['ARC:'+chat.prefix.toLowerCase()+'-arc'],
-      sourceSelector:{worldRevisionStart:start,worldRevisionEnd:end},
+      sourceSelector:{chatId:chat.chatId,worldRevisionStart:start,worldRevisionEnd:end},
       provenance:['stress-chat:'+chat.chatId],
     });
   }

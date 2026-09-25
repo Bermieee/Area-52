@@ -61,9 +61,26 @@ export class Wave13CoprocessorStateUIAdapter{
       const hot=Number(raw.hotTasks??raw.hotTaskCount??raw.hotActivity??activeRows.filter(x=>String(x.placement??x.layer??x.lane??'').toUpperCase()==='HOT'||['L0','L1'].includes(x.layer)).length);
       const deep=Number(raw.deepTasks??raw.deepTaskCount??raw.deepActivity??activeRows.filter(x=>String(x.placement??x.layer??x.lane??'').toUpperCase()==='DEEP'||['L2','L3','L4'].includes(x.layer)).length);
       const active=Number(typeof raw.activeTasks==='number'?raw.activeTasks:activeRows.length);
+      const queue=raw.queue&&typeof raw.queue==='object'?cloneSafe(raw.queue):{
+        queued:Number(raw.queueEvents??raw.queuedTasks??0),yields:Number(raw.yieldCount??raw.yields??0),parks:Number(raw.parkCount??raw.parks??0),resumes:Number(raw.resumeCount??raw.resumes??0),pressure:cloneSafe(raw.queuePressure??null),
+      };
+      const physical=raw.physicalExecution&&typeof raw.physicalExecution==='object'?cloneSafe(raw.physicalExecution):{
+        attempts:Number(raw.physicalExecutionAttempts??0),succeeded:Number(raw.physicalExecutionSucceeded??0),failed:Number(raw.physicalExecutionFailed??0),
+      };
+      const lifecycle=raw.lifecycle&&typeof raw.lifecycle==='object'?cloneSafe(raw.lifecycle):{
+        configured:Number(raw.configuredResources??0),connected:Number(raw.connectedResources??0),physicallyExecuted:Number(raw.physicallyExecutedResources??0),ownerAccepted:Number(raw.ownerAcceptedResources??0),
+      };
       return deepFreeze({
         source:createProductSourceStatus({mode:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degraded?Wave6Health.DEGRADED:hot+deep?Wave6Health.WORKING:Wave6Health.READY,label:'Coprocessor',operationalState:degraded?OperatorProducerState.DEGRADED:hot+deep?OperatorProducerState.WORKING:OperatorProducerState.LIVE,impact:degraded?'Worker 2 reports degraded cognitive execution telemetry.':hot+deep?'Worker 2 cognitive work is active.':'Worker 2 cognition telemetry is current.',reason:reasonOf(raw),producer:raw.kind??'CognitionUiState',revision:raw.receiptRevision??raw.revision??null,connected:true,selection,freshness:raw.freshness??'TURN_CURRENT'}),
-        data:{...cloneSafe(raw),activeTaskCount:active,hotActivity:hot,deepActivity:deep,fallback:Number(raw.fallbackCount??raw.fallback??0),staleDrop:Number(raw.staleDrops??raw.staleDrop??0),warm:cloneSafe(raw.warm??{hit:Number(raw.warmHits??0),miss:Number(raw.warmMisses??0)})},
+        data:{...cloneSafe(raw),activeTaskCount:active,hotActivity:hot,deepActivity:deep,
+          fallback:Number(raw.fallbackCount??raw.fallback??0),retry:Number(raw.retryCount??raw.retry??0),validationFailures:Number(raw.validationFailures??0),
+          staleDrop:Number(raw.staleDrops??raw.staleDrop??0),lateResults:Number(raw.lateResults??0),
+          warm:cloneSafe(raw.warm??{hit:Number(raw.warmHits??0),miss:Number(raw.warmMisses??0)}),
+          queue,physicalExecution:physical,lifecycle,
+          ownerAcceptance:cloneSafe(raw.ownerAcceptance??[]),resultDestinations:cloneSafe(raw.resultDestinations??{}),
+          providerHealth:cloneSafe(raw.providerHealth??[]),resources:cloneSafe(raw.resources??[]),
+          rawPromptIncluded:false,rawPayloadIncluded:false,credentialIncluded:false,
+        },
       });
     }catch(error){return degraded('Coprocessor','Worker 2 cognition telemetry failed coherence or read.','CognitionUiState',selection,error);}
   }
@@ -830,10 +847,15 @@ function normalizeResources(raw){
     return deepFreeze({
       id,displayName:text(row.displayName??row.name)??id,kind:role,transportKind:row.kind??row.resourceKind??null,providerId:row.providerId??null,providerProfileId:row.providerProfileId??row.profileId??null,
       modelId:row.modelId??null,actualModelId:row.actualModelId??null,actualProvider:row.actualProvider??null,modelSelectionMode:row.modelSelectionMode??null,
-      selectedModelQualified:Boolean(row.selectedModelQualified),qualifiedAt:row.qualifiedAt??null,modelDiscovery:cloneSafe(row.modelDiscovery??null),
+      selectedModelQualified:Boolean(row.selectedModelQualified??row.qualification?.qualified),qualifiedAt:row.qualifiedAt??row.qualification?.qualifiedAt??null,
+      qualification:cloneSafe(row.qualification??null),modelDiscovery:cloneSafe(row.modelDiscovery??null),
+      physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted??row.lastExecution),
+      physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS'),
+      ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,
+      ownerAcceptanceSource:row.ownerAcceptanceSource??null,
       workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
-      capabilities,declaredCapabilities:declared,activeCapabilities:active,placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
+      capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
       lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
       diagnostics:cloneSafe(row.diagnostics??[]),callable:Boolean(row.callable),lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
@@ -898,6 +920,8 @@ function diagnosticSource(read){
     borrowedBackgroundLeases:data.resources?.borrowedBackgroundLeases??null,retainedSignals:data.telemetry?.retainedSignals??null,telemetrySinkFailures:data.telemetry?.sinkFailures??null,
     batchProgressAvailable:data.batchProgressAvailable??null,lateResultHistoryAvailable:data.lateResultHistoryAvailable??null,
     resourceTelemetry:data.resources?cloneSafe(data.resources):null,providerCalls:data.providerCalls?cloneSafe(data.providerCalls):null,eventCounts:data.eventCounts?cloneSafe(data.eventCounts):null,
+    queue:data.queue?cloneSafe(data.queue):null,physicalExecution:data.physicalExecution?cloneSafe(data.physicalExecution):null,lifecycle:data.lifecycle?cloneSafe(data.lifecycle):null,
+    resultDestinations:data.resultDestinations?cloneSafe(data.resultDestinations):null,ownerAcceptanceCount:Array.isArray(data.ownerAcceptance)?data.ownerAcceptance.length:null,validationFailures:data.validationFailures??null,lateResults:data.lateResults??null,
     promptPlanId:data.promptPlanId??null,totalTokens:data.totalTokens??null,budgetTotal:data.budgetTotal??null,
     segmentCount:Array.isArray(data.segments)?data.segments.length:null,droppedCount:Array.isArray(data.dropped)?data.dropped.length:null,deferredCount:Array.isArray(data.deferred)?data.deferred.length:null,
     sealedState:data.seal?.sealedState??null,

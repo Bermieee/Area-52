@@ -43,22 +43,22 @@ assert.equal(invalidationContract.contractVersion,1);
 assert.equal(invalidationContract.invalidationPlan.retrievalMustFenceSourceRevision,true);
 
 const brain=new Area52NativeBrain({loreInterface:loreService.brainInterface(),memoryInterface:memorySurface});
-const prepared=await brain.prepareTurn({
+let generationPayload=null;
+const turn=await brain.runTurn({
   chatId:'chat:owner-integration',turnId:'owner-integration:1',generationId:'gen:owner-integration:1',
   query:'Where do Moon orchids open beneath violet rain?',intent:'CURRENT',
   scene:scene('glass-canal',1,{location:'Eastern Glass Canal',activeCast:['Nemi']}),
   executionLabel:'DETERMINISTIC_CROSS_OWNER',
+},{
+  generate:async(rendered,meta)=>{generationPayload={rendered,meta};return'Nemi crosses the eastern glass canal and enters the Moon Orchard.';},
+  completeOptions:{knownBy:['Nemi'],observations:[{subjectId:'Nemi',predicate:'location',value:'Moon Orchard',at:1}]},
 });
+const prepared=turn.prepared,learned=turn.learning;
 assert.ok(channels(prepared).has('OWNER_LORE'));
 assert.match(JSON.stringify(prepared.promptPlan),/Moon orchids open beneath violet rain/i);
 assert.ok(prepared.contextSealReceipt?.sealedState);
-
-const learned=await brain.completeTurn({
-  turnId:'owner-integration:1',
-  response:'Nemi crosses the eastern glass canal and enters the Moon Orchard.',
-  knownBy:['Nemi'],
-  observations:[{subjectId:'Nemi',predicate:'location',value:'Moon Orchard',at:1}],
-});
+assert.match(JSON.stringify(generationPayload?.rendered),/Moon orchids open beneath violet rain/i);
+assert.equal(generationPayload?.meta?.contextSealReceipt?.id,prepared.contextSealReceipt.id);
 assert.equal(learned.memoryWriteback.status,'ADMITTED');
 assert.equal(learned.memorySettlementReceipts.length,1);
 assert.equal(learned.memorySettlementReceipts[0].status,'APPLIED');

@@ -15,6 +15,7 @@ import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
+import { createCoprocessorResourceHost } from '../coprocessor/resource-host-adapter.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
 import { JevDomain } from '../coprocessor/jev-domain-adapter.js';
 import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coprocessor/jev-lore-adapter.js';
@@ -63,6 +64,8 @@ function localJevExecutor() {
           workerId: 'area52-local-resource',
           capability: CAPABILITIES.SEMANTIC_JUDGMENT,
           attempt,
+          measurementClass: 'LOCAL_DETERMINISTIC',
+          evidenceClass: 'DETERMINISTIC_LOCAL_FIXTURE',
         },
         latencyMetadata: { providerLatencyMs: 0, validationLatencyMs: 0, totalLatencyMs: 0, attempts: attempt },
         payloadBytes: JSON.stringify(request).length,
@@ -265,7 +268,49 @@ export class DevelopmentDeploymentBrain {
     this.sourceMap = new Map();
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
     this.core.registerRetrievalChannel(this.loreChannel);
-    this.jev = createJevDomainAdapterMatrix({ providerExecutor: localJevExecutor() });
+    this.optionalResources = createCoprocessorResourceHost();
+    this.jevExecution = new Map();
+    const liveJevExecutor = this.optionalResources.execution.createJevProviderExecutor();
+    const fixtureJevExecutor = localJevExecutor();
+    this.jev = createJevDomainAdapterMatrix({
+      providerExecutor: {
+        hasEligibleProvider: (request, prefilter) => liveJevExecutor.hasEligibleProvider(request, prefilter) || fixtureJevExecutor.hasEligibleProvider(request, prefilter),
+        execute: async (request, options = {}) => {
+          const turnId = String(request?.turnId ?? request?.decisionId ?? 'unknown');
+          if (liveJevExecutor.hasEligibleProvider(request, options.prefilter)) {
+            try {
+              const result = await liveJevExecutor.execute(request, options);
+              this.jevExecution.set(turnId, {
+                kind: 'DeploymentJevExecutionEvidence',
+                status: 'LIVE_PROVIDER',
+                fallbackUsed: false,
+                providerProvenance: clone(result.providerProvenance ?? null),
+                failure: null,
+              });
+              return result;
+            } catch (error) {
+              this.jevExecution.set(turnId, {
+                kind: 'DeploymentJevExecutionEvidence',
+                status: 'LIVE_PROVIDER_FAILED_NATIVE_FALLBACK',
+                fallbackUsed: true,
+                providerProvenance: null,
+                failure: { code: error?.code ?? 'PROVIDER_FAILURE', message: String(error?.message ?? error) },
+              });
+            }
+          }
+          const result = await fixtureJevExecutor.execute(request, options);
+          const prior = this.jevExecution.get(turnId);
+          this.jevExecution.set(turnId, {
+            kind: 'DeploymentJevExecutionEvidence',
+            status: prior?.status ?? 'DETERMINISTIC_LOCAL_FIXTURE',
+            fallbackUsed: Boolean(prior?.fallbackUsed),
+            providerProvenance: clone(result.providerProvenance ?? null),
+            failedLiveAttempt: clone(prior?.failure ?? null),
+          });
+          return result;
+        },
+      },
+    });
     this.runtimeResults = [];
     this.turns = new Map();
     this.listeners = new Set();
@@ -297,56 +342,56 @@ export class DevelopmentDeploymentBrain {
     this.pendingJev = new Map();
   }
 
-  ingestLorebook({ id = 'golden', title = 'Golden Lore', entries = [] } = {}) {
+  acceptLorebook({ id = 'operator-lore', title = 'Operator Lore', entries = [] } = {}) {
     const rows = this.lore.ingestLorebook({ id, title, entries, fullSnapshot: true });
-    for (const row of rows) {
-      if (!row.revision || row.revision.state === 'REMOVED') continue;
-      if (row.obligation) this.lore.run(row.obligation.id);
-      const sourceId = row.revision.sourceId;
-      const entry = entries.find((candidate) => String(candidate.uid) === String(row.revision.uid ?? this.lore.registry.getEntry(sourceId)?.uid));
-      const content = row.revision.exactContent;
-      const at = Number(entry?.metadata?.at ?? row.revision.metadata?.at ?? 0);
-      const metadata = { ...(row.revision.metadata ?? {}), lorebookId: id, uid: this.lore.registry.getEntry(sourceId)?.uid ?? null, laneRevisionId: row.revision.id };
-      let extractionMode = 'SEMANTIC';
-      try {
-        if (this.core.registry.getSource(sourceId)) {
-          this.core.editAndRelearn(sourceId, content);
-        } else {
-          this.core.importAndLearn({
-            id: sourceId,
-            sourceType: 'LOREBOOK_ENTRY',
-            content,
-            at,
-            metadata,
-          });
-        }
-      } catch (error) {
-        if (!unsupportedDeterministicStudy(error)) throw error;
-        extractionMode = 'RAW_SOURCE_ONLY';
-        const existing = this.core.registry.getSource(sourceId);
-        if (!existing) {
-          this.core.registry.importSource({ id: sourceId, sourceType: 'LOREBOOK_ENTRY', content, metadata: { ...metadata, at } });
-        } else {
-          const active = this.core.registry.getActiveRevision(sourceId);
-          if (active.exactContent !== content) this.core.registry.replaceSource(sourceId, content);
-        }
-      }
-      const coreRevision = this.core.registry.getActiveRevision(sourceId);
-      const claimIds = this.core.graph.allClaims()
-        .filter((claim) => (claim.provenance?.sourceRevisionIds ?? []).includes(coreRevision.id))
-        .map((claim) => claim.id)
-        .sort();
-      this.sourceMap.set(sourceId, { laneRevisionId: row.revision.id, coreRevisionId: coreRevision.id, claimIds, extractionMode });
+    this.loreSystem.rebuild();
+    const result = {
+      kind: 'DeploymentLoreAcceptanceReceipt',
+      accepted: true,
+      processed: false,
+      retrievable: false,
+      lorebookId: String(id),
+      entryCount: entries.length,
+      changedCount: rows.filter((row) => row.changed !== false).length,
+      study: this.lore.publicSurface(),
+      retrieval: this.loreSystem.diagnostics(),
+    };
+    this.#emit({ type: 'LORE_ACCEPTED', result });
+    return clone(result);
+  }
+
+  runLoreStudy({ scope = 'DUE' } = {}) {
+    const due = this.lore.dueObligations();
+    const completed = [];
+    for (const obligation of due) completed.push(this.lore.run(obligation.id));
+    for (const entry of this.lore.registry.listEntries({ includeRemoved: false })) {
+      const revision = this.lore.registry.currentRevision(entry.sourceId, { allowMissing: true });
+      if (!revision || revision.state === 'REMOVED') continue;
+      this.#syncLoreRevision(revision);
     }
     this.loreSystem.rebuild();
-    return {
+    const diagnostics = this.loreSystem.diagnostics();
+    const result = {
+      kind: 'DeploymentLoreStudyReceipt',
+      accepted: this.lore.registry.listEntries({ includeRemoved: true }).length > 0,
+      processed: true,
+      requestedScope: String(scope),
+      completedObligationCount: completed.length,
+      retrievable: this.sourceMap.size > 0,
       lane: this.lore.publicSurface(),
-      retrieval: this.loreSystem.diagnostics(),
+      retrieval: diagnostics,
       coreWorld: this.core.currentWorldModel(),
       mappingCount: this.sourceMap.size,
       rawSourceOnlyCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'RAW_SOURCE_ONLY').length,
       semanticExtractionCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'SEMANTIC').length,
     };
+    this.#emit({ type: 'LORE_STUDIED', result });
+    return clone(result);
+  }
+
+  ingestLorebook(input = {}) {
+    this.acceptLorebook(input);
+    return this.runLoreStudy({ scope: 'DUE' });
   }
 
   ensureScene({ chatId, sourceRevisionId } = {}) {
@@ -531,6 +576,7 @@ export class DevelopmentDeploymentBrain {
       },
       planning,
       jevProposal: this.pendingJev.get(turn.turnId) ?? null,
+      jevExecution: this.jevExecution.get(turn.turnId) ?? null,
       published,
       delivery,
     };
@@ -538,6 +584,77 @@ export class DevelopmentDeploymentBrain {
     this.selectedTurnId = turn.turnId;
     this.#emit({ type: 'TURN_COMMITTED', selection });
     return clone(record);
+  }
+
+  readLoreStatus(selection = {}) {
+    const active = selection?.turnId ? this.turns.get(String(selection.turnId)) ?? null : null;
+    const identity = active?.selection ?? selection ?? {};
+    return attachIdentity(active?.loreStatus ?? {
+      kind: 'DeploymentLoreStatus',
+      ...this.loreSystem.diagnostics(),
+      study: this.lore.publicSurface(),
+      channelId: CHANNEL_ID,
+      externalServiceRequired: false,
+    }, identity);
+  }
+
+  listOptionalResources() {
+    const model = this.optionalResources.read.resources();
+    return {
+      ...clone(model),
+      resources: (model.resources ?? []).map((row) => ({
+        ...clone(row),
+        kind: (row.declaredCapabilities ?? []).includes(CAPABILITIES.SEMANTIC_JUDGMENT) ? 'JEV' : 'SIDECAR',
+        capabilities: [...(row.activeCapabilities?.length ? row.activeCapabilities : row.declaredCapabilities ?? [])],
+        connected: ['READY', 'DEGRADED'].includes(String(row.state)),
+      })),
+    };
+  }
+
+  async connectOptionalResource(config = {}) {
+    const kind = String(config.kind ?? 'SIDECAR').toUpperCase();
+    const resourceId = String(config.resourceId ?? config.id ?? config.profileId ?? ('optional-' + (this.listOptionalResources().resources.length + 1)));
+    const exists = this.listOptionalResources().resources.some((row) => row.resourceId === resourceId || row.id === resourceId);
+    if (!exists) {
+      const capabilities = Array.isArray(config.capabilities) && config.capabilities.length
+        ? [...config.capabilities]
+        : kind === 'JEV'
+          ? [CAPABILITIES.SEMANTIC_JUDGMENT]
+          : [CAPABILITIES.CPU_ANALYSIS, CAPABILITIES.GRAPH];
+      this.optionalResources.actions.addResource({
+        resourceId,
+        kind: 'OPENAI_COMPATIBLE',
+        displayName: config.displayName ?? resourceId,
+        providerProfileId: String(config.providerProfileId ?? config.profileId ?? ('profile:' + resourceId)),
+        providerId: String(config.providerId ?? ('provider:' + resourceId)),
+        modelId: String(config.modelId ?? 'model'),
+        workerId: String(config.workerId ?? ('resource:' + resourceId)),
+        endpoint: config.endpoint,
+        apiKey: config.apiKey ?? null,
+        headers: config.headers ?? {},
+        capabilities,
+        local: config.local !== false,
+        timeoutMs: config.timeoutMs ?? 30000,
+        healthTimeoutMs: config.healthTimeoutMs ?? 10000,
+      });
+    }
+    const result = await this.optionalResources.actions.connectResource(resourceId);
+    this.#emit({ type: 'OPTIONAL_RESOURCE_CHANGED', resourceId, action: 'CONNECT' });
+    return clone(result);
+  }
+
+  async disconnectOptionalResource(resource = {}) {
+    const resourceId = String(typeof resource === 'string' ? resource : resource.id ?? resource.resourceId ?? resource.profileId ?? '');
+    if (!resourceId) throw new TypeError('resource id is required');
+    const result = await this.optionalResources.actions.disconnectResource(resourceId);
+    this.#emit({ type: 'OPTIONAL_RESOURCE_CHANGED', resourceId, action: 'DISCONNECT' });
+    return clone(result);
+  }
+
+  async testOptionalResource(resource = {}) {
+    const resourceId = String(typeof resource === 'string' ? resource : resource.id ?? resource.resourceId ?? resource.profileId ?? '');
+    if (!resourceId) throw new TypeError('resource id is required');
+    return clone(await this.optionalResources.actions.testResource(resourceId));
   }
 
   hostBindings() {
@@ -567,14 +684,26 @@ export class DevelopmentDeploymentBrain {
         failed: Boolean(get(selection)?.published?.precisionFailed),
       }, get(selection)?.selection ?? {}),
       readGather: (selection) => attachIdentity(get(selection)?.published?.gatherReceipt, get(selection)?.selection ?? {}),
-      readLoreStatus: (selection) => attachIdentity(get(selection)?.loreStatus, get(selection)?.selection ?? {}),
-      readMemoryStatus: (selection) => attachIdentity({
-        kind: 'DeploymentMemoryStatus',
-        ...this.memory.status(),
-        authorityGranted: false,
-        canonicalMutationAuthority: false,
-        contextSealAuthority: false,
-      }, get(selection)?.selection ?? {}),
+      readLoreStatus: (selection) => this.readLoreStatus(selection),
+      acceptLorebook: (input) => this.acceptLorebook(input),
+      runLoreStudy: (input) => this.runLoreStudy(input),
+      readMemoryStatus: (selection) => {
+        const identity = get(selection)?.selection ?? selection ?? {};
+        const live = this.memorySurface.adapters.readMemory(identity);
+        return attachIdentity({
+          kind: 'DeploymentMemoryStatus',
+          ...clone(live),
+          status: this.memory.status(),
+          authorityGranted: false,
+          canonicalMutationAuthority: false,
+          contextSealAuthority: false,
+        }, identity);
+      },
+      listResources: () => this.listOptionalResources(),
+      listResourceProfiles: () => this.listOptionalResources(),
+      connectResource: (config) => this.connectOptionalResource(config),
+      disconnectResource: (resource) => this.disconnectOptionalResource(resource),
+      testResource: (resource) => this.testOptionalResource(resource),
     };
   }
 
@@ -599,9 +728,44 @@ export class DevelopmentDeploymentBrain {
       externalDatabaseRequired: false,
       externalOrchestrationRequired: false,
       remoteProviderRequired: false,
+      optionalResources: this.listOptionalResources(),
       memory: this.memory.status(),
       mainMutationAuthority: false,
     };
+  }
+
+  #syncLoreRevision(revision) {
+    const sourceId = revision.sourceId;
+    const content = revision.exactContent;
+    const metadata = { ...(revision.metadata ?? {}), lorebookId: revision.lorebookId ?? null, uid: revision.uid ?? null, laneRevisionId: revision.id };
+    const at = Number(metadata.at ?? 0);
+    let extractionMode = 'SEMANTIC';
+    try {
+      const existing = this.core.registry.getSource(sourceId);
+      const active = existing ? this.core.registry.getActiveRevision(sourceId) : null;
+      if (!existing) {
+        this.core.importAndLearn({ id: sourceId, sourceType: 'LOREBOOK_ENTRY', content, at, metadata });
+      } else if (active?.exactContent !== content) {
+        this.core.editAndRelearn(sourceId, content);
+      }
+    } catch (error) {
+      if (!unsupportedDeterministicStudy(error)) throw error;
+      extractionMode = 'RAW_SOURCE_ONLY';
+      const existing = this.core.registry.getSource(sourceId);
+      if (!existing) {
+        this.core.registry.importSource({ id: sourceId, sourceType: 'LOREBOOK_ENTRY', content, metadata: { ...metadata, at } });
+      } else {
+        const active = this.core.registry.getActiveRevision(sourceId);
+        if (active.exactContent !== content) this.core.registry.replaceSource(sourceId, content);
+      }
+    }
+    const coreRevision = this.core.registry.getActiveRevision(sourceId);
+    const claimIds = this.core.graph.allClaims()
+      .filter((claim) => (claim.provenance?.sourceRevisionIds ?? []).includes(coreRevision.id))
+      .map((claim) => claim.id)
+      .sort();
+    this.sourceMap.set(sourceId, { laneRevisionId: revision.id, coreRevisionId: coreRevision.id, claimIds, extractionMode });
+    return this.sourceMap.get(sourceId);
   }
 
   async #invokeRuntime({ task, job }) {
@@ -628,8 +792,10 @@ export class DevelopmentDeploymentBrain {
         currentRevisionState,
         sealed: () => this.core.publication.seal.isTurnSealed(cognitiveTask.turnId),
       });
-      this.pendingJev.set(cognitiveTask.turnId, clone(proposal));
-      return { value: proposal.proposedOutcome, proposal };
+      const executionEvidence = clone(this.jevExecution.get(String(cognitiveTask.turnId)) ?? null);
+      const enriched = { ...clone(proposal), executionEvidence };
+      this.pendingJev.set(cognitiveTask.turnId, enriched);
+      return { value: proposal.proposedOutcome, proposal: enriched, executionEvidence };
     }
     return { value: 'NO_OP', taskType: cognitiveTask.taskType };
   }

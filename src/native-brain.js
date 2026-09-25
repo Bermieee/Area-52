@@ -312,7 +312,8 @@ export class Area52NativeBrain{
     const contributions=narrativeMessages.length?[{
       id:'recent-narrative:'+stableHash({chatId:chat,turnId:turn,receiptId:contextRetirement.receiptId,messageIds:narrativeMessages.map(row=>row.messageId)},{length:20}),
       slot:'RECENT_NARRATIVE',sourceCategory:'GENERATION_ENVELOPE',owner:'GENERATION_ENVELOPE',semantic:false,semanticRefs:[],
-      content:narrativeMessages.map(row=>({messageId:row.messageId,role:row.role,content:row.content})),sourceRevisionIds:[],role:'context',
+      content:narrativeMessages.map(row=>({messageId:row.messageId,role:row.role,content:row.content})),
+      sourceRevisionIds:[...new Set(narrativeMessages.flatMap(row=>row.sourceRevisionRefs??[]))].sort(),role:'context',
       required:false,priority:8,metadata:{contextRetirementReceiptId:contextRetirement.receiptId,hostHistoryMutation:false},
     }]:[];
     const delivery=this.core.deliverGenerationContext({

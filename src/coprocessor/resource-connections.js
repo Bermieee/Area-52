@@ -409,7 +409,9 @@ export class CoprocessorResourceConnections{
   }
 
   async executeTask(task,{input={},profileId=null,signal=null,attempt=1,maxCostClass='HIGH'}={}){
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,
+      expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
+      maxLatencyMs:positiveFiniteOrNull(task?.metadata?.latencyBudgetMs),maxLatencyClass:task?.metadata?.maxLatencyClass??null})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)));
     const profile=profileId==null?eligible[0]:eligible.find(x=>x.profileId===profileId);
     if(!profile)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'No connected resource satisfies task capabilities',{providerId:null});

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {NativeContextRetirementPolicy,contextRetirementContract} from '../src/context-retirement-policy.js';
 import {ContextDeliveryEngine} from '../src/adaptive-context-runtime.js';
 import {GenerationContextSeal} from '../src/context-seal.js';
+import {Area52NativeBrain} from '../src/native-brain.js';
 
 function messages(){
   return Array.from({length:12},(_,index)=>({
@@ -81,6 +82,42 @@ test('DETERMINISTIC: context retirement requires durable retrieval proof and pre
     rawBytes:first.measurements.rawBytes,retainedBytes:first.measurements.retainedBytes,
     exactByteSavings:first.measurements.exactByteSavings,failedProbeRetired:regressed.measurements.retiredMessages,
   }));
+});
+
+test('DETERMINISTIC: native Brain reverses retirement when durable coverage source is corrected',async()=>{
+  const brain=new Area52NativeBrain();
+  const accepted=brain.acceptLore({
+    sourceId:'lore:retirement-proof',sourceType:'LORE_ENTRY',exactContent:'The North Gate is open.',
+    semantic:{subjectId:'North Gate',predicate:'state',value:'OPEN'},metadata:{representationText:'The North Gate is open.'},
+  });
+  const rows=Array.from({length:8},(_,index)=>({
+    messageId:'brain:m'+(index+1),sequence:index+1,role:index%2?'assistant':'user',
+    content:'Brain integration turn '+(index+1),sourceRevisionRefs:['chat:brain:r'+(index+1)],provenanceRefs:['chat:brain:p'+(index+1)],
+  }));
+  const durable=rows.slice(0,6).map(row=>({
+    kind:'Summary',coverageId:'brain:summary:'+row.messageId,committed:true,durable:true,chatId:'chat:brain-retirement',
+    coversMessageIds:[row.messageId],sourceRevisionRefs:[accepted.sourceRevisionId],
+    coveredSourceRevisionRefs:[...row.sourceRevisionRefs],provenanceRefs:['brain:summary:prov',...row.sourceRevisionRefs],
+    retrievalProbe:{status:'PASS',chatId:'chat:brain-retirement',sourceRevisionRefs:[accepted.sourceRevisionId]},
+  }));
+  const first=await brain.prepareTurn({
+    chatId:'chat:brain-retirement',turnId:'brain-retirement:1',generationId:'gen:brain-retirement:1',
+    query:'What is the North Gate state?',activeContext:{messages:rows,coverage:durable,recentWindow:2},
+    budgetTokens:2048,executionLabel:'DETERMINISTIC',
+  });
+  assert.ok(first.contextRetirement.retireEligibleMessageIds.length>0);
+  assert.equal(brain.listOptionalResources().resources.length,0);
+
+  brain.correctLore('lore:retirement-proof','Correction: the North Gate is closed.',{
+    semantic:{subjectId:'North Gate',predicate:'state',value:'CLOSED'},metadata:{representationText:'The North Gate is closed.'},
+  });
+  const second=await brain.prepareTurn({
+    chatId:'chat:brain-retirement',turnId:'brain-retirement:2',generationId:'gen:brain-retirement:2',
+    query:'What is the North Gate state now?',activeContext:{messages:rows,coverage:durable,recentWindow:2},
+    budgetTokens:2048,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(second.contextRetirement.retireEligibleMessageIds.length,0);
+  assert.ok(second.contextRetirement.decisions.find(row=>row.messageId==='brain:m1').reasons.includes('COVERAGE_SOURCE_REVISION_STALE'));
 });
 
 function packet(){

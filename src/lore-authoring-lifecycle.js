@@ -875,6 +875,21 @@ export class LoreAuthoringLifecycle {
     if (checkDependencies) {
       const dependencyCheck = checkDependencyFence(this.intelligence, session.dependencyFence, session.type);
       if (!dependencyCheck.ok) return {ok: false, reason: 'DEPENDENCY_FENCE_CHANGED', details: dependencyCheck};
+      if (session.type === 'MERGE') {
+        const currentPreview = this.merge.preview({lorebookIds: session.inputLorebookIds});
+        if (!currentPreview.validation?.ok || currentPreview.previewId !== session.baseProposal.previewId) {
+          return {
+            ok: false,
+            reason: 'DEPENDENCY_FENCE_CHANGED',
+            details: {
+              kind: 'LoreMergeDependencyFenceCheck',
+              expectedPreviewId: session.baseProposal.previewId,
+              currentPreviewId: currentPreview.previewId,
+              currentValidationOk: Boolean(currentPreview.validation?.ok),
+            },
+          };
+        }
+      }
     }
     return {ok: true};
   }

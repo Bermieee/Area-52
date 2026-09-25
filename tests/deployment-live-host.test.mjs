@@ -76,6 +76,13 @@ function fakeNativeBrain(){
       for(const fn of listeners)fn({kind:'NativeBrainReceiptUpdate',stage:'TURN_LEARNED',selection:{turnId:input.turnId},rawPromptIncluded:false,rawResponseIncluded:false});
       return receipt;
     },
+    async runTurn(input,{generate,completeOptions={}}={}){
+      const prepared=await this.prepareTurn(input);
+      const response=await generate(prepared.rendered,{selection:prepared.selection,promptPlan:prepared.promptPlan,contextSealReceipt:prepared.contextSealReceipt});
+      const learning=await this.completeTurn({turnId:input.turnId,response,...completeOptions});
+      return{prepared,response,learning};
+    },
+    snapshot(){return{kind:'FakeNativeBrainSnapshot',turns:calls.complete.length};},
     uiBindings(){
       return{
         subscribe(fn){listeners.add(fn);calls.subscriptions+=1;return()=>listeners.delete(fn);},
@@ -146,8 +153,8 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
 });
 
 test('native Brain host lifecycle seals before model request and learns completed assistant response',async()=>{
-  const {sillyTavern,context,promptCalls,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
-  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  const {sillyTavern,context,promptCalls,listeners}=makeHost(),nativeBrain=fakeNativeBrain(),persisted=[];
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,persistNativeBrain:async row=>persisted.push({chatId:row.chatId,kind:row.snapshot.kind})});
   session.start();
   assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('chat_completion_prompt_ready')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size??0,0);
   pushUser(context,'At Moonlit Observatory, tell me what the lantern shows.');
@@ -167,6 +174,7 @@ test('native Brain host lifecycle seals before model request and learns complete
   const evidence=session.exportEvidence();
   assert.equal(evidence.nativeBrainIntegration.endToEndObserved,true);
   assert.equal(evidence.nativeBrainIntegration.pendingCount,0);
+  assert.equal(evidence.nativeBrainIntegration.persistence.persistedCount,1);assert.deepEqual(persisted,[{chatId:'chat:observatory',kind:'FakeNativeBrainSnapshot'}]);
   assert.equal(evidence.nativeBrainIntegration.rawPromptCaptured,false);assert.equal(evidence.nativeBrainIntegration.rawResponseCaptured,false);
   assert.doesNotMatch(JSON.stringify(evidence.nativeBrainIntegration),/steady blue light|tell me what the lantern shows/i);
   session.destroy();

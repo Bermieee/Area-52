@@ -94,7 +94,8 @@ export class Wave13RuntimeReceiptUIAdapter{
 export class Wave13LoreStudyUIAdapter{
   constructor({bindings={},selectionProvider=()=>({})}={}){
     this.bindings=bindings;this.selectionProvider=selectionProvider;
-    this.host=bindings.loreStudyHost??bindings.loreHost??null;
+    this.service=bindings.loreIntelligenceService??bindings.loreStudyService??null;
+    this.host=bindings.loreOperatorHost??bindings.loreStudyHost??bindings.loreHost??operatorHostFromService(this.service);
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
     this.readFn=fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus'])??fn(this.host?.read,['surface','status','loreStudy']);
     this.selectionFn=fn(bindings,['readSelectedLorebookSelection']);
@@ -445,6 +446,14 @@ export function parseLoreSubmission({id,title,text:inputText}={}){
     return{uid,content,metadata:entry.metadata&&typeof entry.metadata==='object'?cloneSafe(entry.metadata):{}};
   });
   return deepFreeze({id:text(book.id??id)??'operator-lore',title:text(book.title??title)??text(book.id??id)??'Operator Lore',metadata:book.metadata&&typeof book.metadata==='object'?cloneSafe(book.metadata):{},entries:normalized,fullSnapshot:book.fullSnapshot!==false});
+}
+
+function operatorHostFromService(service){
+  if(!service||typeof service.operatorInterface!=='function')return null;
+  try{
+    const host=service.operatorInterface();
+    return host?.actions&&host?.read?host:null;
+  }catch{return null;}
 }
 
 function normalizeLoreSurface(raw){

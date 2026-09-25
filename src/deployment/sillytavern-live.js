@@ -325,6 +325,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeLoreRevisionEvents = [];
     this.nativeOwnerAttachments = {lore:null,memory:null};
     this.nativeSequence = 0;
+    this.hostEventSequence = 0;
+    this.hostNarrativeEvents = [];
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -436,6 +438,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(!eventName)throw new Error('No supported SillyTavern pre-generation event is available');
       const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
       context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
+    }
+    const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED'];
+    for(const key of observedHostEvents){
+      const eventName=context.eventTypes?.[key]??context.event_types?.[key];
+      if(!eventName)continue;
+      const observer=(...args)=>this.#recordHostNarrativeEvent(key,args);
+      context.eventSource.on(eventName,observer);releases.push(()=>context.eventSource.removeListener?.(eventName,observer));
     }
     this.release=()=>{for(const release of releases.splice(0))try{release();}catch{}};
     this.running=true;this.#notify();return this;
@@ -670,6 +679,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       operatorReview: this.operatorReview,
       operatorLiveChecksCaptured,
       ui: uiDiagnostics,
+      hostNarrativeFeed:{
+        eventCount:this.hostNarrativeEvents.length,
+        events:clone(this.hostNarrativeEvents.slice(-100)),
+        rawTextCaptured:false,
+        revisionMutationEvents:this.hostNarrativeEvents.filter(row=>row.revisionAffecting).length,
+        chatBoundaryEvents:this.hostNarrativeEvents.filter(row=>row.chatBoundary).length,
+      },
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
         pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
@@ -737,6 +753,22 @@ export class DevelopmentDeploymentSillyTavernSession {
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
     merged.readNativeBrainHostLifecycle=base.readNativeBrainHostLifecycle;
     return merged;
+  }
+
+  #recordHostNarrativeEvent(type,args=[]){
+    let context=null;try{context=this.getContext();}catch{}
+    const revisionAffecting=['MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED'].includes(String(type));
+    const chatBoundary=['CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED'].includes(String(type));
+    const messageIndex=(args??[]).find(value=>Number.isInteger(Number(value)))??null;
+    const row={
+      kind:'SillyTavernNarrativeHostEvent',sequence:++this.hostEventSequence,type:String(type),
+      chatId:clean(context?.chatId)||null,messageIndex:messageIndex==null?null:Number(messageIndex),
+      revisionAffecting,chatBoundary,worldInfo:String(type).startsWith('WORLDINFO_'),at:Date.now(),
+      rawTextIncluded:false,
+    };
+    this.hostNarrativeEvents.push(row);if(this.hostNarrativeEvents.length>200)this.hostNarrativeEvents.shift();
+    if(this.nativePending.size&&(revisionAffecting||chatBoundary))this.#expireNativePending('HOST_'+String(type)+'_INVALIDATED_PENDING_GENERATION');
+    this.#notify();return clone(row);
   }
 
   #expireNativePending(reason){

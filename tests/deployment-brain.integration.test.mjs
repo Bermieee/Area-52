@@ -286,3 +286,36 @@ test('Memory Wave 3 exact-evidence bridge is available without granting Core or 
   assert.equal(replay.receipt.status, 'REPLAYED');
   assert.equal(replay.evidence.id, out.evidence.id);
 });
+
+
+test('deployment host exports live resource controls, split Lore lifecycle, and selection-aware Memory reads', () => {
+  const brain = new DevelopmentDeploymentBrain({ resourceCount: 1 });
+  const bindings = brain.hostBindings();
+  for (const key of ['listResources','connectResource','disconnectResource','testResource','acceptLorebook','runLoreStudy','readLoreStatus','readMemoryStatus']) {
+    assert.equal(typeof bindings[key], 'function', key + ' binding missing');
+  }
+  assert.equal(bindings.listResources().resources.length, 0);
+
+  const accepted = bindings.acceptLorebook({
+    id: 'unrelated-live-lore',
+    title: 'Unrelated Live Lore',
+    entries: [
+      { uid: 'archive', content: 'The Harbor Archive stores tide records.', metadata: { title: 'Harbor Archive', treePath: ['Places', 'Harbor'] } },
+    ],
+  });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.processed, false);
+  assert.equal(accepted.retrievable, false);
+
+  const studied = bindings.runLoreStudy({ scope: 'DUE' });
+  assert.equal(studied.processed, true);
+  assert.equal(studied.retrievable, true);
+  assert.equal(studied.mappingCount, 1);
+  assert.equal(studied.rawSourceOnlyCount + studied.semanticExtractionCount, 1);
+  assert.ok(bindings.readLoreStatus());
+
+  const memory = bindings.readMemoryStatus({ chatId: 'chat:unrelated', turnId: 'turn:unrelated', generationId: 'gen:unrelated' });
+  assert.equal(memory.chatId, 'chat:unrelated');
+  assert.equal(memory.turnId, 'turn:unrelated');
+  assert.equal(memory.authorityGranted, false);
+});

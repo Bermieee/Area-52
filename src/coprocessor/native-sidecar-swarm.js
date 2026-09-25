@@ -152,7 +152,13 @@ export class NativeSidecarSwarm{
       const outcomes=await Promise.all(round);
       for(const outcome of outcomes){
         if(outcome.retry&&outcome.item.attempt<Math.max(1,Number(maxProvidersPerTask)||1)&&this.now()<outcome.item.task.hardDeadline){
-          outcome.item.attempt+=1;outcome.item.excluded.add(outcome.profile.profileId);pending.push(outcome.item);
+          const nextAttempt=outcome.item.attempt+1;
+          emitTelemetry(this.telemetry,TelemetryEvent.RETRY,{
+            taskId:outcome.item.task.taskId,turnId:outcome.item.task.turnId,correlationId:outcome.item.task.correlationId,
+            attempt:nextAttempt,failedProviderProfileId:outcome.profile.profileId,failedProviderId:outcome.profile.providerId,
+            resourceId:outcome.record.resourceId,failureCode:outcome.record.failureCode,
+          });
+          outcome.item.attempt=nextAttempt;outcome.item.excluded.add(outcome.profile.profileId);pending.push(outcome.item);
         }else records.push(outcome.record);
       }
     }
@@ -191,6 +197,10 @@ export class NativeSidecarSwarm{
       else if(!AUTHORITY_SAFE.has(String(result.authorityClass??'').toUpperCase()))record=resultRecord(task,result,profile,NativeSwarmResultState.REJECTED_INVALID,{failureCode:FailureCode.AUTHORITY_VIOLATION,attempt:item.attempt,invalid:true});
       else record=resultRecord(task,result,profile,NativeSwarmResultState.READY_FOR_CORE,{attempt:item.attempt,fallbackUsed:item.attempt>1});
       emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:record.fallbackUsed,resourceId:record.resourceId});
+      if(record.fallbackUsed&&record.state===NativeSwarmResultState.READY_FOR_CORE)emitTelemetry(this.telemetry,TelemetryEvent.FALLBACK_USED,{
+        taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:item.attempt,
+        providerProfileId:profile.profileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,
+      });
       return{item,profile,record,retry:false};
     }catch(error){
       const deadlineMiss=deadlineController.signal.aborted&&deadlineController.signal.reason==='foreground-deadline';

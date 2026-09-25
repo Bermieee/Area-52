@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {DevelopmentDeploymentBrain} from '../src/deployment/brain.js';
+import {DevelopmentDeploymentSillyTavernSession} from '../src/deployment/sillytavern-live.js';
 import {Wave13LoreAuthoringUIAdapter} from '../src/ui-core/wave13-operator-adapters.js';
 
 function harborBook({tideglass='intact',miraExtra=''}={}){
@@ -252,4 +253,63 @@ test('assembled guarded merge preserves originals, resumes after owner reload, k
   assert.equal(restored.state,'RESTORED');
   for(const source of outputSources)assert.equal(brain.lore.registry.currentRevision(source.sourceId).state,'REMOVED');
   for(const [sourceId,revisionId] of before)assert.equal(brain.lore.registry.currentRevision(sourceId).id,revisionId);
+});
+
+
+test('assembled live host forwards only new Settlement revision events to an attached native Brain',()=>{
+  const brain=readyBrain();
+  const invalidations=[];
+  const loreInterfaces=[];
+  const nativeBrain={
+    async runTurn(){return{};},
+    uiBindings(){return{};},
+    attachLoreInterface(value){loreInterfaces.push(value);return{attached:Boolean(value),contractVersion:value?.contractVersion??null};},
+    acceptLoreRevisionChange(event){
+      invalidations.push(structuredClone(event));
+      return{
+        kind:'NativeBrainLoreRevisionInvalidationReceipt',
+        status:'ACCEPTED',
+        sourceId:event.sourceId,
+        lorebookId:event.lorebookId,
+        uid:event.uid,
+        previousSourceRevisionId:event.previousSourceRevisionId,
+        sourceRevisionId:event.sourceRevisionId,
+        nextRevisionTrusted:true,
+        revisionTrustStatus:'CURRENT',
+      };
+    },
+  };
+  const session=new DevelopmentDeploymentSillyTavernSession({brain,nativeBrain,mountUi:false});
+  assert.equal(loreInterfaces.length,1);
+  assert.equal(loreInterfaces[0]?.kind,'LoreBrainRetrievalInterface');
+
+  const authoring=brain.hostBindings().loreAuthoringHost;
+  const started=unwrap(authoring.actions.startTreeBuild({lorebookIds:['harbor-authored']}));
+  finishBuild(authoring,started.sessionId,2);
+  decideAll(authoring,started.sessionId,'REJECT','live-forward-reject');
+  unwrap(authoring.actions.reclassifyAfterTaxonomyEdit({
+    sessionId:started.sessionId,
+    sourceIds:['lore:harbor-authored:mira'],
+    toPath:['Harbor','Characters'],
+    operatorDecisionId:'live-forward-move',
+  }));
+  assert.equal(unwrap(authoring.actions.computeFinalPreview({sessionId:started.sessionId})).validation.ok,true);
+  unwrap(authoring.actions.approveFinalPreview({sessionId:started.sessionId,operatorApprovalId:'live-forward-approve'}));
+  const settled=unwrap(authoring.actions.applySettlement({sessionId:started.sessionId,maxOperations:8}));
+  assert.equal(settled.state,'SETTLED');
+  assert.equal(invalidations.length,1);
+  assert.equal(invalidations[0].sourceId,'lore:harbor-authored:mira');
+
+  unwrap(authoring.actions.applySettlement({sessionId:started.sessionId,maxOperations:8}));
+  assert.equal(invalidations.length,1);
+
+  const restored=unwrap(authoring.actions.restoreSettlement({
+    settlementId:settled.settlementId,
+    restorationId:'live-forward-restore',
+    maxOperations:8,
+  }));
+  assert.equal(restored.state,'RESTORED');
+  assert.equal(invalidations.length,2);
+  assert.equal(invalidations[1].restoration,true);
+  session.destroy();
 });

@@ -245,3 +245,23 @@ test('service refuses invented/default identifiers at the Worker 3 handoff bound
     (error) => error.code === 'LORE_DISCOVERY_UID_REQUIRED',
   );
 });
+
+
+test('checkpointed study survives service snapshot reconstruction and resumes on the same source revision', () => {
+  const service = new LoreIntelligenceService();
+  service.acceptLorebook(moonBook());
+  const partial = service.runStudy({maxUnitsPerObligation: 2, rebuildRetrieval: false});
+  assert.equal(partial.results[0].checkpointed, true);
+  assert.equal(partial.results[0].obligation.state, 'CHECKPOINTED');
+
+  const snapshot = service.snapshot();
+  const restored = LoreIntelligenceService.fromSnapshot(snapshot);
+  const before = restored.status().entries[0];
+  assert.equal(before.operatorState, 'STUDYING');
+  assert.equal(before.sourceRevisionId, 'lore:st-world-moon:scholar-neri@r1');
+
+  const resumed = restored.runStudy();
+  assert.equal(resumed.results[0].obligation.state, 'COMPLETED');
+  assert.equal(restored.status().entries[0].operatorState, 'READY');
+  assert.equal(restored.runtime.registry.currentRevision('lore:st-world-moon:scholar-neri').id, before.sourceRevisionId);
+});

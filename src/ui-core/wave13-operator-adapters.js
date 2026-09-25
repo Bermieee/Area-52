@@ -71,24 +71,73 @@ export class Wave13CoprocessorStateUIAdapter{
 }
 
 export class Wave13RuntimeReceiptUIAdapter{
-  constructor({readScatter=null,selectionProvider=()=>({})}={}){this.readScatter=typeof readScatter==='function'?readScatter:null;this.selectionProvider=selectionProvider;}
+  constructor({readScatter=null,readStatus=null,selectionProvider=()=>({})}={}){
+    this.readScatter=typeof readScatter==='function'?readScatter:null;
+    this.readStatus=typeof readStatus==='function'?readStatus:null;
+    this.selectionProvider=selectionProvider;
+  }
   read(){
     const selection=this.selectionProvider?.()??{};
-    if(!this.readScatter)return unavailable('Runtime','Runtime scheduler telemetry and selected-turn scatter readers are not exported by the host assembly.','Runtime');
-    if(selection.chatId&&!selection.turnId)return waiting('Runtime','Runtime is connected; waiting for an active turn.','RuntimeTurnReceipt',selection);
+    if(!this.readScatter&&!this.readStatus)return unavailable('Runtime','Runtime scheduler telemetry and selected-turn scatter readers are not exported by the host assembly.','Runtime');
     try{
-      const raw=this.readScatter(selection);
-      if(raw==null)return idle('Runtime','No Runtime execution receipt exists for the selected turn.','RuntimeTurnReceipt',selection);
-      assertSelection(raw,selection,'Runtime',{allowMissingIdentity:true});
-      const jobs=raw.jobs??raw.admittedJobs??[],resourceCount=Number(raw.resourceCount??raw.executionResourceCount??(raw.resourceIds??[]).length??0);
-      const fallback=Number(raw.requiredFallback??raw.fallbackCount??0),pending=Number(raw.opportunisticPending??raw.pending??0);
+      const scheduler=runtimeLifecycleSnapshot(safeRead(this.readStatus,null));
+      if(selection.chatId&&!selection.turnId){
+        if(scheduler)return deepFreeze({
+          source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:scheduler.activeBatches||scheduler.queuedObligations?Wave6Health.WORKING:Wave6Health.READY,label:'Runtime',operationalState:scheduler.activeBatches||scheduler.queuedObligations?OperatorProducerState.WORKING:OperatorProducerState.LIVE,impact:'Runtime lifecycle telemetry is available; waiting for the selected chat to publish a turn-scoped execution receipt.',producer:'WorkerDirectorSnapshot',connected:true,selection}),
+          data:{...scheduler,mode:'SCHEDULER_ONLY',resourceCount:0,admittedJobCount:0,resourceIds:[],jobs:[],receipt:null},
+        });
+        return waiting('Runtime','Runtime is connected; waiting for an active turn.','RuntimeTurnReceipt',selection);
+      }
+      const raw=this.readScatter?safeRead(()=>this.readScatter(selection),null):null;
+      if(raw)assertSelection(raw,selection,'Runtime',{allowMissingIdentity:true});
+      const jobs=raw?.jobs??raw?.admittedJobs??[],resourceCount=Number(raw?.resourceCount??raw?.executionResourceCount??(raw?.resourceIds??[]).length??0);
+      const fallback=Number(raw?.requiredFallback??raw?.fallbackCount??0),pending=Number(raw?.opportunisticPending??raw?.pending??0);
+      if(!raw&&!scheduler)return idle('Runtime','No Runtime execution receipt or scheduler lifecycle state exists for the selected turn.','Runtime',selection);
+      const recovering=Number(scheduler?.blockedRecoveringWork??0),queued=Number(scheduler?.queuedObligations??0),active=Number(scheduler?.activeBatches??0);
+      const degradedState=fallback+recovering>0,working=pending+queued+active>0;
       return deepFreeze({
-        source:createProductSourceStatus({mode:fallback?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:fallback?Wave6Health.DEGRADED:pending?Wave6Health.WORKING:Wave6Health.READY,label:'Runtime',operationalState:fallback?OperatorProducerState.DEGRADED:pending?OperatorProducerState.WORKING:OperatorProducerState.LIVE,impact:(Array.isArray(jobs)?jobs.length:Number(raw.admittedJobCount??0))+' logical jobs · '+resourceCount+' physical execution resources for the selected turn.',reason:fallback?'Runtime reports required fallback.':'',producer:raw.kind??'RuntimeTurnReceipt',revision:raw.receiptRevision??null,connected:true,selection,freshness:raw.freshness??'TURN_CURRENT'}),
-        data:{mode:'TURN_RECEIPT',hotActivity:pending?1:0,deepActivity:0,queuedObligations:pending,blockedRecoveringWork:fallback,activeBatches:pending?1:0,resourceCount,admittedJobCount:Number(raw.admittedJobCount??(Array.isArray(jobs)?jobs.length:0)),resourceIds:[...(raw.resourceIds??[])],jobs:cloneSafe(jobs),receipt:cloneSafe(raw)},
+        source:createProductSourceStatus({
+          mode:degradedState?ProductDataMode.DEGRADED:ProductDataMode.LIVE,
+          health:degradedState?Wave6Health.DEGRADED:working?Wave6Health.WORKING:Wave6Health.READY,
+          label:'Runtime',operationalState:degradedState?OperatorProducerState.DEGRADED:working?OperatorProducerState.WORKING:OperatorProducerState.LIVE,
+          impact:raw?(Array.isArray(jobs)?jobs.length:Number(raw?.admittedJobCount??0))+' logical jobs · '+resourceCount+' physical execution resources for the selected turn.':'Runtime lifecycle telemetry is current; no turn-scoped scatter receipt is published.',
+          reason:degradedState?'Runtime reports fallback, blocked, or recovering work.':'',producer:raw?.kind??'WorkerDirectorSnapshot',revision:raw?.receiptRevision??scheduler?.telemetry?.latestSequence??null,connected:true,selection,freshness:raw?.freshness??'CURRENT',
+        }),
+        data:{
+          ...(scheduler??{}),mode:raw?'TURN_RECEIPT_AND_SCHEDULER':'SCHEDULER_ONLY',
+          hotActivity:Number(scheduler?.hotActivity??(pending?1:0)),deepActivity:Number(scheduler?.deepActivity??0),
+          queuedObligations:Number(scheduler?.queuedObligations??pending),blockedRecoveringWork:Number(scheduler?.blockedRecoveringWork??fallback),
+          activeBatches:Number(scheduler?.activeBatches??(pending?1:0)),resourceCount,
+          admittedJobCount:Number(raw?.admittedJobCount??(Array.isArray(jobs)?jobs.length:0)),resourceIds:[...(raw?.resourceIds??[])],jobs:cloneSafe(jobs),receipt:cloneSafe(raw),
+        },
       });
-    }catch(error){return degraded('Runtime','Runtime selected-turn receipt failed coherence or read.','RuntimeTurnReceipt',selection,error);}
+    }catch(error){return degraded('Runtime','Runtime selected-turn receipt or scheduler lifecycle read failed.','Runtime',selection,error);}
   }
   subscribe(){return()=>{};}
+}
+
+function runtimeLifecycleSnapshot(raw){
+  if(!raw||typeof raw!=='object')return null;
+  const lifecycle=Array.isArray(raw.lifecycle)?raw.lifecycle:[];
+  const counts={};
+  for(const row of lifecycle){
+    const state=String(row.executionStatus??'UNKNOWN').toUpperCase();counts[state]=(counts[state]??0)+1;
+  }
+  const queueDepth=raw.queueDepth&&typeof raw.queueDepth==='object'?cloneSafe(raw.queueDepth):{};
+  const queuedObligations=Object.values(queueDepth).reduce((sum,value)=>sum+(Number(value)||0),0);
+  const hotLayers=new Set(['HOT','L0','L1']),deepLayers=new Set(['DEEP','L2','L3','L4']);
+  const activeRows=lifecycle.filter(row=>['ACTIVE','YIELDING'].includes(String(row.executionStatus??'').toUpperCase()));
+  return deepFreeze({
+    lifecycle:cloneSafe(lifecycle),lifecycleCounts:counts,queueDepth,
+    queuedObligations,
+    blockedRecoveringWork:lifecycle.filter(row=>['BLOCKED','RECOVERING'].includes(String(row.executionStatus??'').toUpperCase())).length,
+    activeBatches:activeRows.length,
+    hotActivity:activeRows.filter(row=>hotLayers.has(String(row.layer??'').toUpperCase())).length,
+    deepActivity:activeRows.filter(row=>deepLayers.has(String(row.layer??'').toUpperCase())).length,
+    resources:cloneSafe(raw.resources??null),workers:cloneSafe(raw.workers??null),dependencies:cloneSafe(raw.dependencies??null),
+    telemetry:cloneSafe(raw.telemetry??null),eventTypes:Array.isArray(raw.eventTypes)?[...raw.eventTypes]:[],
+    batchProgressAvailable:false,lateResultHistoryAvailable:false,
+  });
 }
 
 export class Wave13LoreStudyUIAdapter{

@@ -5,6 +5,7 @@ import {
   LoreReviewState,
   LoreSettlementState,
   LoreTreeAction,
+  LoreSourceAction,
   normalizeLoreAuthoringError,
   sourceRevisionIdentity,
 } from './lore-authoring-contracts.js';
@@ -181,6 +182,26 @@ function decisionChange(proposed, change, type) {
   if (!change || typeof change !== 'object') {
     throw Object.assign(new TypeError('CHANGE decision requires change fields'), {code: 'LORE_AUTHORING_CHANGE_REQUIRED'});
   }
+  if (type === 'SOURCE') {
+    const next = deepClone(proposed);
+    const action = String(next.action || '').toUpperCase();
+    const allowed = action === LoreSourceAction.DELETE_ENTRY ? ['reason'] : ['content', 'metadata', 'reason'];
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(change, key)) next[key] = deepClone(change[key]);
+    }
+    for (const protectedKey of ['action', 'sourceId', 'lorebookId', 'uid', 'expectedSourceRevisionId', 'evidenceSourceIds']) {
+      if (Object.prototype.hasOwnProperty.call(change, protectedKey)) {
+        throw Object.assign(new Error('Source review cannot change fenced identity or operation authority'), {
+          code: 'LORE_SOURCE_CHANGE_FENCE_PROTECTED',
+        });
+      }
+    }
+    if ([LoreSourceAction.CREATE_ENTRY, LoreSourceAction.UPDATE_ENTRY].includes(action) && typeof next.content !== 'string') {
+      throw Object.assign(new TypeError('Source create/update requires string content'), {code: 'LORE_SOURCE_CONTENT_REQUIRED'});
+    }
+    return next;
+  }
+
   if (type === 'MERGE') {
     const next = deepClone(proposed);
     for (const key of ['uid', 'title', 'metadata']) {

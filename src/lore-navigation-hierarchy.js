@@ -40,19 +40,27 @@ function currentFreshSources(runtime) {
 function conceptMemberships(runtime, sourceRows) {
   const sourceSet = new Set(sourceRows.map((row) => row.source.sourceId));
   const memberships = new Map();
+  const add = (key, sourceId) => {
+    const ids = memberships.get(key) || new Set();
+    ids.add(sourceId);
+    memberships.set(key, ids);
+  };
+
+  for (const row of sourceRows) {
+    for (const segment of row.treePath || []) {
+      const normalized = String(segment).trim().toLowerCase();
+      if (normalized) add('tree:' + row.source.lorebookId + ':' + normalized, row.source.sourceId);
+    }
+  }
+
   for (const artifact of runtime.store.currentArtifacts(runtime.registry, {types: [ArtifactType.CONCEPT, ArtifactType.COMMUNITY]})) {
     if (!sourceSet.has(artifact.sourceId)) continue;
-    const keys = [];
     if (artifact.artifactType === ArtifactType.CONCEPT) {
-      if (artifact.payload?.concept) keys.push('concept:' + artifact.payload.concept);
-      if (artifact.payload?.parentConcept) keys.push('parent:' + artifact.payload.parentConcept);
+      const concept = String(artifact.payload?.concept || '');
+      if (concept && !concept.startsWith('entity-type:')) add('concept:' + concept, artifact.sourceId);
     } else if (artifact.payload?.label) {
-      keys.push('community:' + artifact.payload.label);
-    }
-    for (const key of keys) {
-      const ids = memberships.get(key) || new Set();
-      ids.add(artifact.sourceId);
-      memberships.set(key, ids);
+      const label = String(artifact.payload.label);
+      if (label && !label.startsWith('entity-type:')) add('community:' + label, artifact.sourceId);
     }
   }
   return memberships;

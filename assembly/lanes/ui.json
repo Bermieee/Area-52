@@ -792,13 +792,13 @@
     {
       "path": "tests/wave13-operator-ui-stress.mjs",
       "sourceDigest": "d61e7c48ad5a0f8bc25fa7e9e2cb2a43e853672f",
-      "expectedDigest": "00cd1945b3da4df8faaf8b297b8a23ef8826bc35",
+      "expectedDigest": "0b21d7755ee0fc2cd77148fb97ca30d81fe861db",
       "reason": "Stress coverage for attached labeled rail including Connections and Settings."
     },
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "c47b8e2fb715aaee17467a8cade627437bfe8f04",
+      "expectedDigest": "f456a105f9a7cdc904a661ca3e9c859c3ac0bdd4",
       "reason": "Acceptance coverage for attached blue navigation, side-edge resize, independent scrolling, Jev/Sidecar/Vectoring slot separation and locked owner configurations."
     },
     {

@@ -249,24 +249,30 @@ test('HOST-CONTRACT: runTurn delivers sealed context to generation callback and 
   assert.equal(brain.currentWorldModel().current.find(x=>x.subjectId==='Sera'&&x.predicate==='location').value,'Tide Archive');
 });
 
-test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrieval without importing authority',async()=>{
+test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revision-fenced',async()=>{
   let ownerRevision={id:'lore:skywhales@r7',state:'CURRENT',exactContent:'Skywhales return to the Lantern Reefs when the violet tide rises.'};
+  let loreQueries=0;
   const loreInterface={
     kind:'LoreBrainRetrievalInterface',contractVersion:1,
     sourceRevision:()=>structuredClone(ownerRevision),
-    query:()=>({
-      kind:'LoreBrainRetrievalPacket',contractVersion:1,query:'skywhales',intent:'AUTO',
-      retrievalIntentId:'lore-intent:1',indexRevision:'idx:7',ontologyRevision:'ontology:3',
-      sourceRevisionFence:[ownerRevision.id],
-      nominations:ownerRevision.state==='REMOVED'?[]:[{nomination:{nominationId:'lore:n1'},drillback:[{
-        sourceId:'lore:skywhales',sourceRevisionId:ownerRevision.id,
-        exactAuthoredText:ownerRevision.exactContent,
-        representationRef:'source:'+ownerRevision.id,provenance:[{kind:'LoreRetrievalProvenance',sourceRevisionId:ownerRevision.id}],
-      }]}],
-      thematicCommunities:[],summaries:[],conflicts:[],provenanceRequired:true,
-      exactSourceDrillbackAvailable:true,candidateBusAdmissionAuthority:false,truthGateAuthority:false,
-      settlementAuthority:false,contextSealAuthority:false,
-    }),
+    query:()=>{
+      loreQueries++;
+      const active=ownerRevision.state!=='REMOVED';
+      return{
+        kind:'LoreBrainRetrievalPacket',contractVersion:1,query:'skywhales',intent:'AUTO',
+        retrievalIntentId:'lore-intent:'+loreQueries,indexRevision:'idx:'+loreQueries,ontologyRevision:'ontology:3',
+        sourceRevisionFence:active?[ownerRevision.id]:[],
+        nominations:active?[{nomination:{nominationId:'lore:n'+loreQueries},drillback:[{
+          sourceId:'lore:skywhales',sourceRevisionId:ownerRevision.id,
+          exactAuthoredText:ownerRevision.exactContent,
+          representationRef:'source:'+ownerRevision.id,selectedRepresentation:{representationRevision:loreQueries},
+          provenance:[{kind:'LoreRetrievalProvenance',sourceRevisionId:ownerRevision.id}],
+        }]}]:[],
+        thematicCommunities:[],summaries:[],conflicts:[],provenanceRequired:true,
+        exactSourceDrillbackAvailable:true,candidateBusAdmissionAuthority:false,truthGateAuthority:false,
+        settlementAuthority:false,contextSealAuthority:false,
+      };
+    },
   };
   const brain=new Area52NativeBrain({loreInterface});
   const prepared=await brain.prepareTurn({
@@ -276,13 +282,12 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrie
     executionLabel:'DETERMINISTIC',
   });
   assert.equal(prepared.loreSync.status,'SYNCED');
-  assert.equal(prepared.loreSync.admitted,1);
+  assert.equal(prepared.loreSync.nominationCount,1);
   assert.ok(prepared.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r7'));
-  assert.ok(channelIds(prepared).has('NATIVE_LORE'));
+  assert.ok(channelIds(prepared).has('OWNER_LORE'));
   assert.ok(slots(prepared).has('RELEVANT_LORE'));
-  let loreRow=brain.knowledge.currentRecordForSource('lore:skywhales');
-  assert.equal(loreRow.evidence.authorityClass,'SOURCE_CANON');
-  assert.equal(loreRow.evidence.extensions.metadata.externalSourceRevisionId,'lore:skywhales@r7');
+  assert.equal(brain.knowledge.currentRecordForSource('lore:skywhales'),null);
+  assert.equal(brain.core.registry.getRevision('lore:skywhales@r7'),null);
   assert.equal(prepared.loreSync.authorityGranted,false);
 
   ownerRevision={id:'lore:skywhales@r8',state:'CURRENT',exactContent:'Skywhales return to the Lantern Reefs only when the silver moon follows the violet tide.'};
@@ -291,10 +296,10 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrie
     query:'When do Skywhales return?',intent:'CURRENT',
     scene:scene('reef-watch-night',2,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
   });
-  assert.equal(revised.loreSync.lifecycleUpdated,1);
-  loreRow=brain.knowledge.currentRecordForSource('lore:skywhales');
-  assert.equal(loreRow.evidence.extensions.metadata.externalSourceRevisionId,'lore:skywhales@r8');
-  assert.match(loreRow.exactContent,/silver moon/i);
+  assert.ok(revised.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r8'));
+  assert.equal(revised.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r7'),false);
+  assert.match(JSON.stringify(revised.promptPlan),/silver moon/i);
+  assert.equal(brain.core.registry.getRevision('lore:skywhales@r8'),null);
 
   ownerRevision={id:'lore:skywhales@r9',state:'REMOVED',exactContent:null};
   const removed=await brain.prepareTurn({
@@ -302,8 +307,79 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrie
     query:'Where are the Skywhales?',intent:'CURRENT',
     scene:scene('empty-reef',3,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
   });
-  assert.equal(removed.loreSync.lifecycleRemoved,1);
-  assert.equal(brain.knowledge.currentRecordForSource('lore:skywhales'),null);
+  assert.equal(removed.loreSync.nominationCount,0);
+  assert.equal(removed.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r8'),false);
+  assert.equal(channelIds(removed).has('OWNER_LORE'),false);
+});
+
+test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate Bus and quiet turns do not call Historian',async()=>{
+  let memoryQueries=0;
+  const writebacks=[];
+  let memoryRevision='memory:glass-coast@r1';
+  let memoryText='Earlier, Lio crossed the moonrail bridge into Bellspire Station.';
+  const exactRow=()=>({id:'memory-exact:'+memoryRevision,sourceRevisionId:memoryRevision,exactContent:memoryText,knownBy:['Lio'],metadata:{chatId:'chat:memory-owner'}});
+  const memoryInterface={
+    kind:'MemoryIntegrationSurface',contractVersion:'1.0.0',
+    adapters:{
+      queryHistorian(request){
+        memoryQueries++;
+        return{
+          kind:'HistorianQueryResult',status:'OK',historianRevision:'historian:'+memoryQueries,
+          nominations:[{
+            kind:'CandidateNomination',candidateId:'memory-candidate:'+memoryRevision,evidenceIdentity:'memory-experience:l-bridge',
+            artifactRef:{artifactId:'episode:l-bridge',artifactType:'Episode',revision:memoryQueries},artifactRevision:memoryQueries,
+            sourceRevisionRefs:[memoryRevision],claimRefs:[],eventRefs:['event:l-bridge'],entityRefs:['Lio','Bellspire Station'],relationshipRefs:[],
+            rankSignals:{intentMatch:1,recency:.8},normalizedRank:.95,temporalHints:[{status:'HISTORICAL'}],continuitySignals:[],
+            authorityClass:'OBSERVED',truthStatusHint:'HISTORICAL',provenance:[{ref:memoryRevision}],evidenceRefs:[exactRow().id],dependencyRevisions:[],
+            representationRef:'episode:l-bridge',representationRevision:memoryQueries,representationText:memoryText,
+            metadata:{historianChannel:'EPISODIC_MEMORY',perspective:request.perspectiveConstraint??{scope:'WORLD'}},
+          }],
+        };
+      },
+      drillDown(){return[exactRow()];},
+      admitExternalEvidenceMapping(input){writebacks.push(structuredClone(input));return{kind:'MemoryExternalEvidenceMappingReceipt',status:'ADMITTED',sourceRevisionId:input.source.sourceRevisionId,authorityGranted:false};},
+      readMemory(selection){return{kind:'MemoryUiReadModel',selection:structuredClone(selection),health:'OK',authorityGranted:false};},
+    },
+  };
+  const brain=new Area52NativeBrain({memoryInterface});
+  const recalled=await brain.prepareTurn({
+    chatId:'chat:memory-owner',turnId:'memory-owner:1',generationId:'gen:memory-owner:1',
+    query:'What happened when Lio reached Bellspire Station?',intent:'HISTORICAL',
+    scene:scene('bellspire-platform',1,{location:'Bellspire Station',activeCast:['Lio']}),
+    perspectiveConstraint:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Lio'},executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(recalled.memorySync.status,'SYNCED');
+  assert.equal(recalled.memorySync.nominationCount,1);
+  assert.ok(channelIds(recalled).has('OWNER_MEMORY'));
+  assert.ok(slots(recalled).has('EPISODIC_MEMORY'));
+  assert.ok(recalled.selection.ownerSourceRevisionRefs.includes(memoryRevision));
+  assert.equal(brain.core.registry.getRevision(memoryRevision),null);
+  assert.match(JSON.stringify(recalled.promptPlan),/moonrail bridge/i);
+
+  await brain.completeTurn({turnId:'memory-owner:1',response:'Lio waits beneath the Bellspire tide clock.',knownBy:['Lio']});
+  assert.equal(writebacks.length,1);
+  assert.match(writebacks[0].source.exactContent,/tide clock/i);
+  assert.equal(writebacks[0].ownerArtifactRef.owner,'COGNITIVE_CORE');
+
+  const beforeQuietQueries=memoryQueries;
+  const quiet=await brain.prepareTurn({
+    chatId:'chat:memory-owner',turnId:'memory-owner:2',generationId:'gen:memory-owner:2',query:'Continue.',executionLabel:'DETERMINISTIC',
+  });
+  assert.ok(quiet.used.paths.includes('HOT_ONLY'));
+  assert.equal(memoryQueries,beforeQuietQueries);
+  assert.equal(quiet.memorySync.status,'SKIPPED');
+  assert.equal(quiet.memorySync.reason,'HOT_SUFFICIENT');
+
+  memoryRevision='memory:glass-coast@r2';
+  memoryText='Correction: Lio crossed the lower moonrail bridge, not the upper span.';
+  const revised=await brain.prepareTurn({
+    chatId:'chat:memory-owner',turnId:'memory-owner:3',generationId:'gen:memory-owner:3',
+    query:'Which moonrail bridge did Lio cross?',intent:'HISTORICAL',
+    scene:scene('bellspire-archive',2,{location:'Bellspire Station',activeCast:['Lio'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.ok(revised.selection.ownerSourceRevisionRefs.includes('memory:glass-coast@r2'));
+  assert.equal(revised.selection.ownerSourceRevisionRefs.includes('memory:glass-coast@r1'),false);
+  assert.match(JSON.stringify(revised.promptPlan),/lower moonrail bridge/i);
 });
 
 test('DETERMINISTIC: correcting narrative evidence fences dependent reflections from future retrieval',async()=>{
@@ -352,6 +428,8 @@ test('DETERMINISTIC: Worker 3 live-binding surface exposes coherent selection an
   if(prepared.candidateEnvelope)assert.equal(boundCandidateBus?.kind,'CandidateBusEnvelope');else assert.equal(boundCandidateBus,null);
   assert.ok(bindings.readTruth(selection));
   assert.ok(bindings.readGather(selection));
+  assert.ok(bindings.readMemoryStatus(selection));
+  assert.ok(bindings.readRuntimeStatus());
   assert.equal(bindings.listGenerations({selection:{chatId:'chat:ui-bind'}}).length,1);
   assert.equal(bindings.readGeneration({generationId:'gen:ui-bind:1',chatId:'chat:ui-bind'}).contextSeal.turnId,'ui-bind:1');
   await brain.completeTurn({turnId:'ui-bind:1',response:'Aya listens to the rain.',knownBy:['Aya']});

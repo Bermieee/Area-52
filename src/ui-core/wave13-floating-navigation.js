@@ -86,7 +86,7 @@ export class VerticalRailPopoutController{
 
   diagnostics(){
     const vp=this.#viewport(),p=this.presentation.get();
-    return Object.freeze({kind:'Wave13FloatingNavigationDiagnostics',contractVersion:WAVE13_FLOATING_NAV_VERSION,mounted:this.mounted,workspace:this.shell.currentWorkspace,mode:p.frontFaceMode,rail:{x:this.state.railX,y:this.state.railY},card:{x:this.state.cardX,y:this.state.cardY,width:p.frontFaceWidth,side:this.state.side,minimized:this.state.minimized},viewport:vp,dragging:Boolean(this.drag)});
+    return Object.freeze({kind:'Wave13FloatingNavigationDiagnostics',contractVersion:WAVE13_FLOATING_NAV_VERSION,mounted:this.mounted,workspace:this.shell.currentWorkspace,mode:p.frontFaceMode,rail:{x:this.state.railX,y:this.state.railY},card:{x:this.state.cardX,y:this.state.cardY,width:this.#cardSize().width,requestedWidth:p.frontFaceWidth,side:this.state.side,minimized:this.state.minimized},viewport:vp,dragging:Boolean(this.drag)});
   }
 
   destroy(){

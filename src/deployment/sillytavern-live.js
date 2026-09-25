@@ -440,7 +440,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
       context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
     }
-    const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED'];
+    const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'];
     for(const key of observedHostEvents){
       const eventName=context.eventTypes?.[key]??context.event_types?.[key];
       if(!eventName)continue;
@@ -821,17 +821,25 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   #recordHostNarrativeEvent(type,args=[]){
     let context=null;try{context=this.getContext();}catch{}
-    const revisionAffecting=['MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED'].includes(String(type));
-    const chatBoundary=['CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED'].includes(String(type));
-    const messageIndex=(args??[]).find(value=>Number.isInteger(Number(value)))??null;
+    const eventType=String(type),revisionAffecting=['MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED'].includes(eventType);
+    const chatBoundary=['CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED'].includes(eventType);
+    const generationBoundary=['GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'].includes(eventType);
+    const rawIndex=(args??[]).find(value=>Number.isInteger(Number(value)))??null,messageIndex=rawIndex==null?null:Number(rawIndex);
+    const chatId=clean(context?.chatId)||null,chat=Array.isArray(context?.chat)?context.chat:[],message=messageIndex==null?null:chat[messageIndex]??null;
+    const messageKey=messageIndex==null?null:clean(message?.mesId??message?.message_id??message?.id??messageIndex)||String(messageIndex);
+    const messageText=message==null?'':clean(message?.mes??message?.content??message?.text),messageDigest=messageText?shortHash(messageText):null;
+    const pending=chatId?this.nativePending.get(chatId)??null:null;
     const row={
-      kind:'SillyTavernNarrativeHostEvent',sequence:++this.hostEventSequence,type:String(type),
-      chatId:clean(context?.chatId)||null,messageIndex:messageIndex==null?null:Number(messageIndex),
-      revisionAffecting,chatBoundary,worldInfo:String(type).startsWith('WORLDINFO_'),at:Date.now(),
-      rawTextIncluded:false,
+      kind:'SillyTavernNarrativeHostEvent',contractVersion:2,sequence:++this.hostEventSequence,type:eventType,
+      eventId:'st-host:'+this.hostEventSequence+':'+shortHash([chatId??'no-chat',eventType,messageKey??'no-message',messageDigest??'no-digest'].join('|')),
+      chatId,messageIndex,messageId:messageKey,messageRevisionId:messageKey&&messageDigest?messageKey+':'+messageDigest:null,messageDigest,
+      role:message?(message.is_user===true||message.role==='user'?'user':'assistant'):null,
+      turnId:pending?.turnId??null,generationId:pending?.generationId??null,
+      revisionAffecting,chatBoundary,generationBoundary,worldInfo:eventType.startsWith('WORLDINFO_'),at:Date.now(),
+      rawTextIncluded:false,rawPayloadIncluded:false,
     };
     this.hostNarrativeEvents.push(row);if(this.hostNarrativeEvents.length>200)this.hostNarrativeEvents.shift();
-    if(this.nativePending.size&&(revisionAffecting||chatBoundary))this.#expireNativePending('HOST_'+String(type)+'_INVALIDATED_PENDING_GENERATION');
+    if(this.nativePending.size&&(revisionAffecting||chatBoundary))this.#expireNativePending('HOST_'+eventType+'_INVALIDATED_PENDING_GENERATION');
     this.#notify();return clone(row);
   }
 

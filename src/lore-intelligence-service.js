@@ -278,6 +278,8 @@ export class LoreIntelligenceService {
         studyAttempts: entry.studyAttempts,
         studyError: deepClone(entry.studyError),
         semanticDiff: deepClone(entry.semanticDiff),
+        artifactIds: [...(entry.artifactIds || [])],
+        retrievalRepresentations: deepClone(entry.retrievalRepresentations || []),
         representations: profileSummary(selection),
         representationReady,
         retrievalReady,

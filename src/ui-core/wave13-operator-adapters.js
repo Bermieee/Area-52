@@ -298,13 +298,34 @@ export class Wave13LoreAuthoringUIAdapter{
     this.previewEditFn=fn(this.host?.actions,['previewEditImpact']);
     this.treeFn=fn(this.host?.actions,['proposeTree']);
     this.mergeFn=fn(this.host?.actions,['previewMerge']);
-    this.last={discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null};
+    this.progressFn=fn(this.host?.read,['progress']);
+    this.draftReviewFn=fn(this.host?.read,['draftReview']);
+    this.finalPreviewFn=fn(this.host?.read,['finalPreview']);
+    this.settlementFn=fn(this.host?.read,['settlement']);
+    this.worker1ReceiptsFn=fn(this.host?.read,['worker1Receipts']);
+    this.worker3ContractFn=fn(this.host?.read,['worker3AuthoringContract']);
+    this.startTreeBuildFn=fn(this.host?.actions,['startTreeBuild']);
+    this.startMergeBuildFn=fn(this.host?.actions,['startMergeBuild']);
+    this.resumeBuildFn=fn(this.host?.actions,['resumeAuthoringBuild']);
+    this.recordDecisionFn=fn(this.host?.actions,['recordDraftDecision']);
+    this.reclassifyFn=fn(this.host?.actions,['reclassifyAfterTaxonomyEdit']);
+    this.computeFinalPreviewFn=fn(this.host?.actions,['computeFinalPreview']);
+    this.approveFinalPreviewFn=fn(this.host?.actions,['approveFinalPreview']);
+    this.applySettlementFn=fn(this.host?.actions,['applySettlement']);
+    this.restoreSettlementFn=fn(this.host?.actions,['restoreSettlement']);
+    this.last={discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null,progress:null,draft:null,finalPreview:null,settlement:null,worker1Receipts:null};
   }
-  capabilities(){return deepFreeze({
-    discovery:Boolean(this.discoveryFn),reviewStates:Boolean(this.reviewStatesFn),invalidation:Boolean(this.invalidationFn),
-    previewEdit:Boolean(this.previewEditFn),tree:Boolean(this.treeFn),merge:Boolean(this.mergeFn),
-    destructiveApply:false,
-  });}
+  capabilities(){
+    const v2=Number(this.host?.contractVersion??0)>=2;
+    const lifecycle=v2&&Boolean(this.progressFn&&this.draftReviewFn&&this.finalPreviewFn&&this.startTreeBuildFn&&this.resumeBuildFn&&this.recordDecisionFn&&this.computeFinalPreviewFn&&this.approveFinalPreviewFn);
+    return deepFreeze({
+      discovery:Boolean(this.discoveryFn),reviewStates:Boolean(this.reviewStatesFn),invalidation:Boolean(this.invalidationFn),
+      previewEdit:Boolean(this.previewEditFn),tree:Boolean(this.treeFn),merge:Boolean(this.mergeFn),
+      lifecycle,mergeLifecycle:lifecycle&&Boolean(this.startMergeBuildFn),settlement:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
+      restoration:lifecycle&&Boolean(this.restoreSettlementFn),worker1Receipts:Boolean(this.worker1ReceiptsFn),
+      destructiveApply:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
+    });
+  }
   sourceDiscoveryIdentity(request={}){
     const result=this.#invoke(this.discoveryFn,request,'LORE_AUTHORING_DISCOVERY_UNAVAILABLE');
     this.last.discovery=cloneSafe(result);return cloneSafe(result);
@@ -329,6 +350,22 @@ export class Wave13LoreAuthoringUIAdapter{
     const result=this.#invoke(this.mergeFn,request,'LORE_AUTHORING_MERGE_PREVIEW_UNAVAILABLE');
     this.last.merge=cloneSafe(result);return cloneSafe(result);
   }
+  authoringProgress(request){const result=this.#invoke(this.progressFn,request,'LORE_AUTHORING_PROGRESS_UNAVAILABLE');this.last.progress=cloneSafe(result);return cloneSafe(result);}
+  draftReview(request){const result=this.#invoke(this.draftReviewFn,request,'LORE_AUTHORING_DRAFT_REVIEW_UNAVAILABLE');this.last.draft=cloneSafe(result);return cloneSafe(result);}
+  finalPreview(request){const result=this.#invoke(this.finalPreviewFn,request,'LORE_AUTHORING_FINAL_PREVIEW_UNAVAILABLE');this.last.finalPreview=cloneSafe(result);return cloneSafe(result);}
+  settlement(request){const result=this.#invoke(this.settlementFn,request,'LORE_AUTHORING_SETTLEMENT_READ_UNAVAILABLE');this.last.settlement=cloneSafe(result);return cloneSafe(result);}
+  worker1Receipts(request){const result=this.#invoke(this.worker1ReceiptsFn,request,'LORE_AUTHORING_WORKER1_RECEIPTS_UNAVAILABLE');this.last.worker1Receipts=cloneSafe(result);return cloneSafe(result);}
+  worker3Contract(){return this.#invoke(this.worker3ContractFn,{},'LORE_AUTHORING_WORKER3_CONTRACT_UNAVAILABLE');}
+  startTreeBuild(request){return this.#lifecycleAction('START_TREE_BUILD',this.startTreeBuildFn,request,'LORE_AUTHORING_START_TREE_UNAVAILABLE');}
+  startMergeBuild(request){return this.#lifecycleAction('START_MERGE_BUILD',this.startMergeBuildFn,request,'LORE_AUTHORING_START_MERGE_UNAVAILABLE');}
+  resumeBuild(request){return this.#lifecycleAction('RESUME_BUILD',this.resumeBuildFn,request,'LORE_AUTHORING_RESUME_UNAVAILABLE');}
+  recordDecision(request){return this.#lifecycleAction('RECORD_DECISION',this.recordDecisionFn,request,'LORE_AUTHORING_DECISION_UNAVAILABLE');}
+  reclassify(request){return this.#lifecycleAction('RECLASSIFY',this.reclassifyFn,request,'LORE_AUTHORING_RECLASSIFY_UNAVAILABLE');}
+  computeFinalPreview(request){return this.#lifecycleAction('COMPUTE_FINAL_PREVIEW',this.computeFinalPreviewFn,request,'LORE_AUTHORING_FINAL_PREVIEW_UNAVAILABLE');}
+  approveFinalPreview(request){return this.#lifecycleAction('APPROVE_FINAL_PREVIEW',this.approveFinalPreviewFn,request,'LORE_AUTHORING_APPROVAL_UNAVAILABLE');}
+  applySettlement(request){return this.#lifecycleAction('APPLY_SETTLEMENT',this.applySettlementFn,request,'LORE_AUTHORING_SETTLEMENT_UNAVAILABLE');}
+  restoreSettlement(request){return this.#lifecycleAction('RESTORE_SETTLEMENT',this.restoreSettlementFn,request,'LORE_AUTHORING_RESTORE_UNAVAILABLE');}
+  #lifecycleAction(type,action,payload,code){const result=this.#invoke(action,payload,code);if(result&&typeof result.then==='function')return result.then(value=>{this.last.progress=null;this.last.draft=null;this.last.finalPreview=null;this.last.settlement=null;return value;});this.last.progress=null;this.last.draft=null;this.last.finalPreview=null;this.last.settlement=null;return result;}
   snapshot(){return deepFreeze({kind:'Wave13LoreAuthoringSnapshot',capabilities:this.capabilities(),last:cloneSafe(this.last)});}
   #invoke(action,payload,code){
     if(!action)return deepFreeze({ok:false,value:null,error:{kind:'LoreAuthoringError',code,message:'Worker 4 Lore authoring operator contract is not exported by this assembly.',safe:true,retryable:false}});

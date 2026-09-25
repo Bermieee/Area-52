@@ -163,6 +163,23 @@ test('mounted resource controls route through UI ActionRouter into owner actions
   ui.destroy();
 });
 
+test('Brain activity distinguishes sealed generation delivery from post-response learning',()=>{
+  const owner=liveOwner();
+  const selection=owner.bindings.readSelection();
+  let learned=false;
+  owner.bindings.readGeneration=({generationId})=>generationId===selection.generationId?{
+    kind:'NativeBrainGenerationReadModel',...selection,state:learned?'LEARNED':'SEALED_FOR_GENERATION',
+    promptPlan:{promptPlanId:'plan:1'},contextSeal:{id:'seal:1'},learningReceipt:learned?{kind:'NativeBrainLearningReceipt',sourceRevisionId:'narrative:r1'}:null,
+  }:null;
+  owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',id:'seal:1',sealedState:true,effectiveAdmittedResultIds:[],...selection});
+  const{ui}=mount(owner);ui.shell.selectWorkspace('brain');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  let pipeline=ui.operator.operations.read().pipeline,body=textOf(ui.shell.nodes.workspace);
+  assert.equal(pipeline.deliveryReceipt,true);assert.equal(pipeline.learningReceipt,false);assert.match(body,/Generation delivery/);assert.match(body,/No learning receipt yet/);
+  learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
+  assert.equal(pipeline.learningReceipt,true);assert.match(body,/Learning receipt recorded/);
+  ui.destroy();
+});
+
 test('chat switch cannot retain the previous story Scene as current',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('story');ui.scheduler.flush(1);
   assert.match(textOf(ui.shell.nodes.workspace),/Moon Harbor/);

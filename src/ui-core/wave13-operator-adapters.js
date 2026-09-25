@@ -158,13 +158,14 @@ export class Wave13ResourceControlAdapter{
     this.listFn=fn(bindings,['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'])??fn(this.host?.read,['resources']);
     this.configFn=fn(bindings,['listResourceConfigurations','listAvailableResources']);
     this.addFn=fn(bindings,['addResource','configureResource'])??fn(this.host?.actions,['addResource']);
+    this.discoverModelsFn=fn(bindings,['discoverModels','loadModels','listProviderModels'])??fn(this.host?.actions,['discoverModels']);
     this.connectFn=fn(bindings,['connectResource','mountResource'])??fn(this.host?.actions,['connectResource']);
     this.disconnectFn=fn(bindings,['disconnectResource','unmountResource'])??fn(this.host?.actions,['disconnectResource']);
     this.testFn=fn(bindings,['testResource','probeResource','testConnection'])??fn(this.host?.actions,['testResource']);
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn)});}
   read(){
     if(!this.listFn)return deepFreeze({
       source:createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label:'Optional resources',operationalState:OperatorProducerState.UNAVAILABLE,impact:'Native Brain remains available. Optional resource control is not exported by this assembly.',reason:'Worker 2 resource host/read contract is not exported by this assembly.',producer:'OptionalResourceControl',connected:false}),
@@ -186,6 +187,16 @@ export class Wave13ResourceControlAdapter{
   configurations(){
     if(!this.configFn)return[];
     try{const rows=this.configFn()??[];return Array.isArray(rows)?rows.map(normalizeConfiguration):[];}catch{return[];}
+  }
+  async discoverModels(config={}){
+    this.lastError=null;
+    if(!this.discoverModelsFn){const e=new Error('Provider model discovery is not exported by the Worker 2 resource host.');e.code='RESOURCE_MODEL_DISCOVERY_UNAVAILABLE';this.lastError=e;throw e;}
+    try{
+      const payload=this.publicHost?normalizeWorker2DiscoveryConfig(config):cloneSafe(config);
+      const result=await this.discoverModelsFn(payload);
+      this.lastAction={type:'DISCOVER_MODELS',result:cloneSafe(result)};
+      return cloneSafe(result);
+    }catch(error){this.lastError=error;throw error;}
   }
   async connect(config){
     this.lastError=null;
@@ -480,6 +491,18 @@ function normalizeResources(raw){
       diagnostics:cloneSafe(row.diagnostics??[]),callable:Boolean(row.callable),lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
     });
   });
+}
+
+function normalizeWorker2DiscoveryConfig(input={}){
+  const role=String(input.role??input.resourceRole??'SIDECAR').toUpperCase();
+  const supplied=Array.isArray(input.capabilities)?input.capabilities:String(input.capabilities??'').split(',').map(x=>x.trim()).filter(Boolean);
+  const defaults=role==='JEV'?['SEMANTIC_JUDGMENT']:role==='VECTORING'?['RETRIEVAL','EMBED']:['STRUCTURED_EXTRACTION'];
+  const capabilities=[...new Set((supplied.length?supplied:defaults).map(String))];
+  const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('OpenAI-compatible resource requires an endpoint before model discovery.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}
+  const out={kind:'OPENAI_COMPATIBLE',endpoint,capabilities};
+  if(input.transportMode)out.transportMode=String(input.transportMode);
+  const apiKey=typeof input.apiKey==='string'?input.apiKey.trim():'';if(apiKey)out.apiKey=apiKey;
+  return out;
 }
 
 function normalizeWorker2ResourceConfig(input={}){

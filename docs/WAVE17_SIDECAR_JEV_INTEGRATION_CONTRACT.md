@@ -158,7 +158,7 @@ Worker 3 should treat these as owner status rather than infer connection state f
 
 Provider/discovery failures are typed with machine-readable codes. UI-safe public error material is restricted to:
 
-- thrown `error.code`
+- thrown `error.code` (including `PROVIDER_UNAUTHORIZED`, `MODEL_UNAVAILABLE`, `PROVIDER_TIMEOUT`, and `PROVIDER_ABORTED`)
 - a bounded `error.message`
 - discovery `reasonCode` / `reason`
 - resource `lastFailure.code` / `lastFailure.message` / `lastFailure.at`
@@ -167,6 +167,8 @@ Provider/discovery failures are typed with machine-readable codes. UI-safe publi
 Credentials, Authorization headers, prompts, raw provider responses, source bodies, and chain-of-thought are not part of those surfaces.
 
 An explicit `testResource` failure invalidates the current qualification and publishes the resource as not connected/callable until it qualifies again.
+
+A later execution failure with `PROVIDER_UNAUTHORIZED`, `CREDENTIAL_REQUIRED`, or `MODEL_UNAVAILABLE` also invalidates the prior qualification immediately. This applies to chat/sidecar work, Jev provider execution, and embeddings. Transient timeout/unreachable failures remain health/fallback signals and do not masquerade as credential revocation.
 
 ## Transport qualification
 

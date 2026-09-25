@@ -33,12 +33,16 @@ function request(){
 function freshJev(r){return{sourceRevisionSet:r.sourceRevisionSet,worldRevision:r.worldRevision,sceneRevision:r.sceneRevision,characterStateRevision:r.characterStateRevision,domainRevisions:r.domainRevisions,freshnessToken:r.freshnessToken};}
 
 async function executeResourceCount(count){
-  const registry=new CoprocessorResourceConnections();
-  add(registry,{id:'alpha',profileId:'a-alpha',delayMs:20});if(count>1)add(registry,{id:'beta',profileId:'b-beta',delayMs:20});
+  const registry=new CoprocessorResourceConnections();const setting=count===1?'subsea-relay':'lunar-greenhouse';
+  const addForSetting=({id,profileId})=>{
+    const handlers={GRAPH_WALK:async()=>{await sleep(20);return graphOutput(setting);},TRUTH_PRECISION:async()=>{await sleep(20);return truthOutput(setting);}};
+    registry.addResource({resourceId:id,providerProfileId:profileId,providerId:'provider:'+id,workerId:'worker:'+id,kind:ResourceKind.DETERMINISTIC_LOCAL,modelId:'model:'+id,capabilities:[Capability.GRAPH,Capability.TRUTH_JUDGMENT,Capability.RERANK],handlers,maxConcurrency:1,latencyClass:'LOW',local:true});
+  };
+  addForSetting({id:'alpha',profileId:'a-alpha'});if(count>1)addForSetting({id:'beta',profileId:'b-beta'});
   await registry.connectResource('alpha');if(count>1)await registry.connectResource('beta');
   const swarm=new NativeSidecarSwarm({connections:registry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:500,defaultHardBudgetMs:1000})});
   const t=turn('resources-'+count),started=now();
-  const result=await swarm.runTurn({turnEvent:t,plannerInput:plannerInput(),inputResolver:resolver,currentRevisionState:t});
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:plannerInput(),inputResolver:(task)=>task.taskType==='GRAPH_WALK'?graphInput(setting):truthInput(setting),currentRevisionState:t});
   return{wallMs:now()-started,assignments:result.contribution.resultSummary,ready:result.contribution.resultsForOwner.length};
 }
 

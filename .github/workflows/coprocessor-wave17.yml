@@ -28,6 +28,8 @@ jobs:
         run: npm run test:wave15
       - name: Wave 17 browser execution
         run: npm run test:browser:wave17
+      - name: Generate Wave 17 LOCAL_DETERMINISTIC evaluation artifact
+        run: npm run report:wave17
       - name: Opt-in MEASURED_LIVE OpenRouter acceptance
         id: live_wave17
         continue-on-error: true
@@ -38,6 +40,11 @@ jobs:
         run: npm run check
       - name: Coprocessor index ESM import
         run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Upload Wave 17 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-jev-wave17
+          path: artifacts/sidecar-jev-wave17/
       - name: Record live-provider observation without promoting skips
         if: always()
         run: |

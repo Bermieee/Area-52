@@ -94,8 +94,8 @@ export class ContextCompiler {
     if(relevantLore.length)packet.relevantLore=relevantLore;
     if(episodicMemory.length)packet.episodicMemory=episodicMemory;
     if(Object.keys(knowledgeTraceIndex).length)packet.knowledgeTraceIndex=knowledgeTraceIndex;
-    packet.semanticSizing=computeSemanticSizing({current,historical,unresolved:unresolvedRows,activeThreads:threads,provenanceIndex,dependencies:dependenciesList});
-    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing:packet.semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length}};
+    const semanticSizing=computeSemanticSizing({current,historical,unresolved:unresolvedRows,activeThreads:threads,provenanceIndex,dependencies:dependenciesList});
+    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length}};
     return{packet,metadata};
   }
 }

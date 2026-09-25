@@ -167,6 +167,59 @@ export class Wave13LoreStudyUIAdapter{
   }
 }
 
+export class Wave13LoreAuthoringUIAdapter{
+  constructor({bindings={}}={}){
+    this.bindings=bindings;
+    this.service=bindings.loreAuthoringService??null;
+    this.host=bindings.loreAuthoringHost??bindings.loreAuthoringOperator??authoringHostFromService(this.service);
+    this.discoveryFn=fn(this.host?.read,['sourceDiscoveryIdentity']);
+    this.reviewStatesFn=fn(this.host?.read,['reviewStates']);
+    this.invalidationFn=fn(this.host?.read,['worker1InvalidationContract']);
+    this.previewEditFn=fn(this.host?.actions,['previewEditImpact']);
+    this.treeFn=fn(this.host?.actions,['proposeTree']);
+    this.mergeFn=fn(this.host?.actions,['previewMerge']);
+    this.last={discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null};
+  }
+  capabilities(){return deepFreeze({
+    discovery:Boolean(this.discoveryFn),reviewStates:Boolean(this.reviewStatesFn),invalidation:Boolean(this.invalidationFn),
+    previewEdit:Boolean(this.previewEditFn),tree:Boolean(this.treeFn),merge:Boolean(this.mergeFn),
+    destructiveApply:false,
+  });}
+  sourceDiscoveryIdentity(request={}){
+    const result=this.#invoke(this.discoveryFn,request,'LORE_AUTHORING_DISCOVERY_UNAVAILABLE');
+    this.last.discovery=cloneSafe(result);return cloneSafe(result);
+  }
+  reviewStates(){
+    const result=this.#invoke(this.reviewStatesFn,{},'LORE_AUTHORING_REVIEW_STATES_UNAVAILABLE');
+    this.last.reviewStates=cloneSafe(result);return cloneSafe(result);
+  }
+  worker1InvalidationContract(){
+    const result=this.#invoke(this.invalidationFn,{},'LORE_AUTHORING_INVALIDATION_CONTRACT_UNAVAILABLE');
+    this.last.invalidation=cloneSafe(result);return cloneSafe(result);
+  }
+  previewEditImpact(request){
+    const result=this.#invoke(this.previewEditFn,request,'LORE_AUTHORING_EDIT_PREVIEW_UNAVAILABLE');
+    this.last.edit=cloneSafe(result);return cloneSafe(result);
+  }
+  proposeTree(request={}){
+    const result=this.#invoke(this.treeFn,request,'LORE_AUTHORING_TREE_PREVIEW_UNAVAILABLE');
+    this.last.tree=cloneSafe(result);return cloneSafe(result);
+  }
+  previewMerge(request){
+    const result=this.#invoke(this.mergeFn,request,'LORE_AUTHORING_MERGE_PREVIEW_UNAVAILABLE');
+    this.last.merge=cloneSafe(result);return cloneSafe(result);
+  }
+  snapshot(){return deepFreeze({kind:'Wave13LoreAuthoringSnapshot',capabilities:this.capabilities(),last:cloneSafe(this.last)});}
+  #invoke(action,payload,code){
+    if(!action)return deepFreeze({ok:false,value:null,error:{kind:'LoreAuthoringError',code,message:'Worker 4 Lore authoring operator contract is not exported by this assembly.',safe:true,retryable:false}});
+    try{
+      const raw=action(cloneSafe(payload));
+      if(raw&&typeof raw.then==='function')return raw.then(value=>normalizeLoreAuthoringResult(value)).catch(error=>normalizeLoreAuthoringFailure(error,code));
+      return normalizeLoreAuthoringResult(raw);
+    }catch(error){return normalizeLoreAuthoringFailure(error,code);}
+  }
+}
+
 export class Wave13ResourceControlAdapter{
   constructor({bindings={}}={}){
     this.bindings=bindings;
@@ -446,6 +499,21 @@ export function parseLoreSubmission({id,title,text:inputText}={}){
     return{uid,content,metadata:entry.metadata&&typeof entry.metadata==='object'?cloneSafe(entry.metadata):{}};
   });
   return deepFreeze({id:text(book.id??id)??'operator-lore',title:text(book.title??title)??text(book.id??id)??'Operator Lore',metadata:book.metadata&&typeof book.metadata==='object'?cloneSafe(book.metadata):{},entries:normalized,fullSnapshot:book.fullSnapshot!==false});
+}
+
+function authoringHostFromService(service){
+  if(!service||typeof service.operatorContract!=='function')return null;
+  try{
+    const host=service.operatorContract();
+    return host?.actions&&host?.read?host:null;
+  }catch{return null;}
+}
+function normalizeLoreAuthoringResult(raw){
+  if(raw&&typeof raw==='object'&&typeof raw.ok==='boolean')return deepFreeze({ok:Boolean(raw.ok),value:cloneSafe(raw.value??null),error:cloneSafe(raw.error??null)});
+  return deepFreeze({ok:true,value:cloneSafe(raw??null),error:null});
+}
+function normalizeLoreAuthoringFailure(error,code){
+  return deepFreeze({ok:false,value:null,error:{kind:'LoreAuthoringError',code:error?.code??code,message:String(error?.message??error),safe:true,retryable:false}});
 }
 
 function operatorHostFromService(service){

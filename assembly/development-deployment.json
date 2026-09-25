@@ -112,19 +112,30 @@
   ],
   "liveGate": {
     "issue": 224,
-    "status": "PENDING_REAL_SILLYTAVERN_RUN",
-    "reason": "Loadable live-evidence capture is packaged, but no real SillyTavern session was executed by this environment."
+    "status": "PENDING_REAL_SILLYTAVERN_RUN_AND_OWNER_BLOCKERS",
+    "reason": "Worker 4 removed the fixed live scenario and hardened evidence truthfulness, but real SillyTavern verification plus #243/#246/#247/#180 owner deliverables remain required."
   },
   "issueState": {
+    "180": "OPEN / real-provider live evidence absent",
     "190": "OPEN",
     "211": "OPEN",
-    "224": "OPEN",
+    "223": "PRESERVED / one installable resource",
+    "224": "OPEN / live and Director gates pending",
+    "243": "BLOCKED_ON_WORKER_3_OWNER_DELIVERY",
+    "244": "PARTIAL / integrated Wave 12 bindings; execution-vs-registration audit added",
+    "245": "IN_REPAIR / automated candidate prepared; install/update live check pending",
+    "246": "BLOCKED_ON_WORKER_2_OWNER_DELIVERY",
+    "247": "BLOCKED_ON_WORKER_3_OWNER_DELIVERY",
+    "248": "AUTOMATED_REPAIR_CANDIDATE / live two-story verification pending",
     "FT005": "OPEN / unchanged"
   },
   "knownLimits": [
-    "Owner branches still need the Worker 4 Lore #190 and Jev #211 repairs transferred separately.",
-    "main is intentionally untouched.",
-    "A real SillyTavern generation is required before #224 or Phase 2 can be marked complete."
+    "A real SillyTavern clean-install/branch-switch/update check is required for #245.",
+    "A real two-unrelated-story SillyTavern run is required for #248/#224.",
+    "Worker 3 has not yet delivered #243 vertical draggable edge-aware navigation or #247 Lore Study ingestion UI on the accepted UI head.",
+    "Worker 2 has not yet delivered #246 connection controls or #180 real-provider live evidence on the accepted Sidecar/Jev head.",
+    "The built-in deterministic Jev remains fixture evidence only and cannot satisfy FT005.",
+    "main is intentionally untouched by Worker 4 after the development deployment baseline was established."
   ],
   "assemblyReconciliations": [
     {
@@ -150,5 +161,32 @@
     "aheadByAtPackagingStart": 188,
     "behindByAtPackagingStart": 6,
     "reason": "main contains six valid Phase 1 live-package commits that must be reconciled rather than overwritten"
+  },
+  "worker4DemoRepair": {
+    "startingDeploymentSha": "ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9",
+    "reconciledMainHead": "8138be59308873fb164c167eadd9e1a58c10364e",
+    "primaryIssues": [
+      245,
+      248
+    ],
+    "commits": [
+      "efa9af92d051088d920a5ff06007112dbe87055c",
+      "38646ac1d97ccc0d455865d9563230aaa90824a7",
+      "db7ef6ddcc556998f5cc8b59c2f9e4a4f3e301f9",
+      "83caa90bcd8d2e74e1b6316066c63a64cd48d0c3",
+      "8314c3ac9055e468c689ed4da3c3183bc5f609bd",
+      "ac86d2baf712489a7ea16d2d8f34894002f2bc42",
+      "cc73e4dc9a70c21d0bee68e9a89c9fef78241c92",
+      "ff31793badc68240ceaf33891cf530430675eaa0"
+    ],
+    "invariants": {
+      "fixedScenarioRequired": false,
+      "liveAdapterLoadsGoldenFixture": false,
+      "issue224AutomaticPass": false,
+      "oneInstallableResource": true,
+      "mandatoryExternalDatabase": false,
+      "deterministicJevCountsAsRealProvider": false
+    },
+    "validationStatus": "PENDING_EXACT_HEAD_CI_AND_REAL_SILLYTAVERN"
   }
 }

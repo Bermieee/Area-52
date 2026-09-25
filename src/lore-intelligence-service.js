@@ -124,7 +124,13 @@ export class LoreIntelligenceService {
       });
     }
 
-    const results = this.runtime.ingestLorebook(book);
+    const results = this.runtime.ingestLorebook({
+      ...book,
+      metadata: {
+        ...deepClone(book.metadata || {}),
+        discovery: deepClone(book.discovery),
+      },
+    });
     const staleRepresentationIds = this.multiResolution.refreshFreshness();
     this.ontology.rebuild();
     this.hierarchy.refreshHierarchy();

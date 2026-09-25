@@ -302,6 +302,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativePayloads = new Map();
     this.nativeHistory = [];
     this.nativeRejections = [];
+    this.nativeLoreRevisionEvents = [];
+    this.nativeOwnerAttachments = {lore:null,memory:null};
     this.nativeSequence = 0;
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
@@ -333,6 +335,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!contract.available)throw new TypeError(contract.reason);
     const wasRunning=this.running;if(wasRunning)this.stop();
     this.nativeBrain=nativeBrain;
+    this.#attachNativeKnowledgeOwners();
     if(remount&&this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
     if(wasRunning)this.start();
     this.#notify();return this;
@@ -340,10 +343,18 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   detachNativeBrain(){
     const wasRunning=this.running;if(wasRunning)this.stop();
-    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();
+    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeOwnerAttachments={lore:null,memory:null};
     if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
     if(wasRunning)this.start();
     this.#notify();return this;
+  }
+
+  acceptLoreRevisionChange(event){
+    const contract=nativeBrainContract(this.nativeBrain);
+    if(!contract.available||typeof this.nativeBrain?.acceptLoreRevisionChange!=='function')throw new Error('Native Brain Lore revision invalidation contract is not integrated');
+    const receipt=this.nativeBrain.acceptLoreRevisionChange(clone(event));
+    const safe={kind:receipt?.kind??'NativeBrainLoreRevisionInvalidationReceipt',status:receipt?.status??null,sourceId:receipt?.sourceId??event?.sourceId??null,lorebookId:receipt?.lorebookId??event?.lorebookId??null,uid:receipt?.uid??event?.uid??null,previousSourceRevisionId:receipt?.previousSourceRevisionId??event?.previousSourceRevisionId??null,sourceRevisionId:receipt?.sourceRevisionId??event?.sourceRevisionId??null,nextRevisionTrusted:Boolean(receipt?.nextRevisionTrusted),revisionTrustStatus:receipt?.revisionTrustStatus??null,at:Date.now()};
+    this.nativeLoreRevisionEvents.push(safe);if(this.nativeLoreRevisionEvents.length>100)this.nativeLoreRevisionEvents.shift();this.#notify();return clone(safe);
   }
 
   ingestLorebook(lorebook, { notify = true } = {}) {
@@ -601,6 +612,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
         pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
+        ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         rawPromptCaptured:false,rawResponseCaptured:false,
       },
@@ -615,6 +627,21 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.stop();
     this.uiHost?.destroy?.();
     this.uiHost = null;
+  }
+
+  #attachNativeKnowledgeOwners(){
+    if(!this.nativeBrain)return;
+    const loreService=this.ownerBindings.loreIntelligenceService??this.ownerBindings.loreStudyService??null;
+    const loreInterface=this.ownerBindings.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
+    const memoryInterface=this.ownerBindings.memoryIntegrationSurface??this.ownerBindings.memoryInterface??this.ownerBindings.memoryOwner??null;
+    if(typeof this.nativeBrain.attachLoreInterface==='function'){
+      try{const receipt=this.nativeBrain.attachLoreInterface(loreInterface??null);this.nativeOwnerAttachments.lore={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??loreInterface?.contractVersion??null};}
+      catch(error){this.nativeOwnerAttachments.lore={attached:false,error:String(error?.code??error?.message??error)};}
+    }
+    if(typeof this.nativeBrain.attachMemoryInterface==='function'){
+      try{const receipt=this.nativeBrain.attachMemoryInterface(memoryInterface??null);this.nativeOwnerAttachments.memory={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryInterface?.contractVersion??null};}
+      catch(error){this.nativeOwnerAttachments.memory={attached:false,error:String(error?.code??error?.message??error)};}
+    }
   }
 
   #uiHostBindings(){

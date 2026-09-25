@@ -55,7 +55,10 @@ export class CorePresentationRouter{
 export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPacket=null}={}){
   if(!plan||!rendered)throw new TypeError('plan and rendered input are required');
   const roles=uniq((rendered.messages??[]).map(row=>row.role).concat((plan.sections??[]).map(row=>row.role)));
-  const omissions=[...(plan.dropped??[]),...(plan.deferred??[]),...(plan.sections??[]).filter(row=>row.representation==='OMITTED').map(row=>({slot:row.slot,reason:'OMITTED_REPRESENTATION'}))];
+  const omissionMap=new Map();
+  for(const row of [...(plan.dropped??[]),...(plan.deferred??[])])omissionMap.set(String(row.slot),clone(row));
+  for(const row of (plan.sections??[]).filter(row=>row.representation==='OMITTED'))if(!omissionMap.has(String(row.slot)))omissionMap.set(String(row.slot),{slot:row.slot,reason:'OMITTED_REPRESENTATION'});
+  const omissions=[...omissionMap.values()];
   return Object.freeze({
     kind:'CorePromptDeliveryReceipt',contractVersion:1,status:'PLANNED_NOT_OBSERVED',
     generationId:plan.generationId,turnId:plan.turnId,contextSealId:plan.contextSealId,
@@ -67,7 +70,7 @@ export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPac
     profileRevision:plan.modelProfileRevision,providerId:routing?.providerId??null,modelId:routing?.modelId??null,routeId:routing?.routeId??null,
     profileReason:routing?.reason??'DIRECT',profileFallbackUsed:Boolean(routing?.fallbackUsed),cacheAssumption:routing?.cacheAssumption??'PROFILE_DECLARED',
     plannedRoles:roles,plannedSections:(plan.sections??[]).map(row=>({slot:row.slot,role:row.role,representation:row.representation,sourceRevisionIds:uniq(row.sourceRevisionIds??[])})),
-    sourceRevisionRefs:uniq(plan.sourceRevisionDependencies??[]),omissions:clone(omissions),
+    sourceRevisionRefs:uniq([...(plan.sourceRevisionDependencies??[]),...(plan.sections??[]).flatMap(row=>row.sourceRevisionIds??[])]),omissions:clone(omissions),
     presentationOnly:true,semanticSelectionAuthority:false,loreSelectionAuthority:false,factCreationAuthority:false,authorityMutation:false,
     providerChatTemplateTokensEmitted:false,observedHostDelivery:null,hostEvidenceRequired:true,
   });

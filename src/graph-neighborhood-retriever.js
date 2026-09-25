@@ -242,7 +242,8 @@ export class NativeGraphNeighborhoodRetriever{
       if(now()-started>=request.latencyBudgetMs)break;
       const node=queue.shift();if(node.depth>=request.maxDepth)continue;
       for(const edge of adjacency.get(node.entityId)??[]){
-        examinedEdgeCount++;if(examinedEdgeCount>request.maxEdges){boundedEdges++;continue;}
+        if(examinedEdgeCount>=request.maxEdges){boundedEdges++;queue.length=0;break;}
+        examinedEdgeCount++;
         if(seenEdges.has(edge.providerId+'|'+edge.edgeId))continue;seenEdges.add(edge.providerId+'|'+edge.edgeId);
         const next=edge.fromEntityId===node.entityId?edge.toEntityId:edge.fromEntityId;
         const step={providerId:edge.providerId,owner:edge.owner,edgeId:edge.edgeId,edgeMeaning:edge.edgeMeaning,fromEntityId:node.entityId,toEntityId:next,temporalStatus:status(edge.temporalStatus)};

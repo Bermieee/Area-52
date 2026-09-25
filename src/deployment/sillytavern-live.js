@@ -3,7 +3,7 @@ import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 
 export const DEVELOPMENT_DEPLOYMENT_PROMPT_ID = 'area52-development-deployment';
-export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.3.0';
+export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
@@ -15,6 +15,26 @@ function shortHash(value) {
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+function assistantMessage(context,index=null){
+  const chat=Array.isArray(context?.chat)?context.chat:[];
+  if(Number.isInteger(Number(index))){
+    const row=chat[Number(index)],text=clean(row?.mes??row?.content??row?.text);
+    if(row&&row?.is_user!==true&&row?.role!=='user'&&text)return{index:Number(index),row,text};
+  }
+  for(let i=chat.length-1;i>=0;i-=1){
+    const row=chat[i],text=clean(row?.mes??row?.content??row?.text);
+    if(row&&row?.is_user!==true&&row?.role!=='user'&&text)return{index:i,row,text};
+  }
+  return null;
+}
+
+function nativeBrainContract(brain){
+  if(!brain)return{available:false,reason:'Worker 1 Area52NativeBrain is not integrated into this main assembly.'};
+  const required=['prepareTurn','completeTurn','uiBindings'];
+  const missing=required.filter(name=>typeof brain?.[name]!=='function');
+  return missing.length?{available:false,reason:'Native Brain owner object is missing: '+missing.join(', ')}:{available:true,reason:null};
 }
 
 function latestUserMessage(context) {
@@ -169,6 +189,21 @@ async function injectPrompt(context, result) {
   };
 }
 
+async function injectNativePreparedContext(context,prepared){
+  const plan=prepared?.promptPlan??null;
+  if(!plan)return{supported:false,succeeded:false,reason:'NATIVE_PROMPT_PLAN_UNAVAILABLE'};
+  if(typeof context?.setExtensionPrompt!=='function')return{supported:false,succeeded:false,reason:'SILLYTAVERN_SET_EXTENSION_PROMPT_UNAVAILABLE',promptPlanId:plan.promptPlanId};
+  const sections=(plan.sections??[]).filter(section=>section?.representation!=='OMITTED'&&section?.slot!=='USER_INPUT'&&clean(section?.text));
+  const content=[
+    '[Area-52 sealed native Brain context]',
+    'PromptPlan: '+(plan.promptPlanId??'unknown'),
+    'Context Seal: '+(prepared?.contextSealReceipt?.id??plan.contextSealId??'unknown'),
+    ...sections.map(section=>'## '+section.slot+'\n'+clean(section.text)),
+  ].join('\n\n');
+  await Promise.resolve(context.setExtensionPrompt(DEVELOPMENT_DEPLOYMENT_PROMPT_ID,content,1,0,false,0));
+  return{supported:true,succeeded:true,promptId:DEVELOPMENT_DEPLOYMENT_PROMPT_ID,promptPlanId:plan.promptPlanId??null,generationId:prepared?.selection?.generationId??plan.generationId??null,contextSealId:prepared?.contextSealReceipt?.id??plan.contextSealId??null,contentDigest:shortHash(content),sectionCount:sections.length,userInputDuplicated:false};
+}
+
 async function executeHostTurn(brain, context, message, { mode = null, inject = true } = {}) {
   const chatId = clean(context?.chatId);
   if (!chatId) throw new Error('SillyTavern chatId is unavailable');
@@ -269,10 +304,16 @@ export class DevelopmentDeploymentSillyTavernSession {
     mountUi = true,
     onEvidence = null,
     initialLorebook = null,
+    nativeBrain = null,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
     this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true });
+    this.nativeBrain = null;
+    this.nativePending = new Map();
+    this.nativeHistory = [];
+    this.nativeRejections = [];
+    this.nativeSequence = 0;
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -286,6 +327,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.degraded = null;
     this.operatorReview = { promptInspectorConfirmed: false, uiTraceReviewed: false, liveSillyTavernConfirmed: false, confirmedAt: null };
     this.errors = [];
+    if(nativeBrain)this.attachNativeBrain(nativeBrain,{remount:false});
     if (initialLorebook) this.ingestLorebook(initialLorebook, { notify: false });
     if (mountUi) this.mount();
   }
@@ -295,6 +337,24 @@ export class DevelopmentDeploymentSillyTavernSession {
     const context = this.sillyTavern.getContext();
     if (!context || typeof context !== 'object') throw new Error('SillyTavern host context is unavailable');
     return context;
+  }
+
+  attachNativeBrain(nativeBrain,{remount=true}={}){
+    const contract=nativeBrainContract(nativeBrain);
+    if(!contract.available)throw new TypeError(contract.reason);
+    const wasRunning=this.running;if(wasRunning)this.stop();
+    this.nativeBrain=nativeBrain;
+    if(remount&&this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
+    if(wasRunning)this.start();
+    this.#notify();return this;
+  }
+
+  detachNativeBrain(){
+    const wasRunning=this.running;if(wasRunning)this.stop();
+    this.nativeBrain=null;this.nativePending.clear();
+    if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
+    if(wasRunning)this.start();
+    this.#notify();return this;
   }
 
   ingestLorebook(lorebook, { notify = true } = {}) {
@@ -325,7 +385,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.uiHost = mountWave12SillyTavernInterface({
       getContext: () => this.getContext(),
       document: this.document,
-      hostBindings: this.brain.hostBindings(),
+      hostBindings: this.#uiHostBindings(),
     });
     this.#notify();
     return this.uiHost;
@@ -334,28 +394,63 @@ export class DevelopmentDeploymentSillyTavernSession {
   start() {
     if (this.running) return this;
     const context = this.getContext();
-    const eventName = context.eventTypes?.MESSAGE_SENT
-      ?? context.event_types?.MESSAGE_SENT;
-    if (!eventName || !context.eventSource || typeof context.eventSource.on !== 'function') {
-      throw new Error('No supported SillyTavern pre-generation event is available');
+    if(!context.eventSource||typeof context.eventSource.on!=='function')throw new Error('SillyTavern eventSource is unavailable');
+    const releases=[];
+    if(this.nativeBrain){
+      const before=context.eventTypes?.GENERATION_AFTER_COMMANDS??context.event_types?.GENERATION_AFTER_COMMANDS;
+      const received=context.eventTypes?.MESSAGE_RECEIVED??context.event_types?.MESSAGE_RECEIVED;
+      const stopped=context.eventTypes?.GENERATION_STOPPED??context.event_types?.GENERATION_STOPPED;
+      if(!before||!received)throw new Error('Native Brain live integration requires GENERATION_AFTER_COMMANDS and MESSAGE_RECEIVED events');
+      const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_PREPARE'});this.#notify();}};
+      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_COMPLETE'});this.#notify();}};
+      const stoppedHandler=()=>{this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
+      context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
+      context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
+      if(stopped){context.eventSource.on(stopped,stoppedHandler);releases.push(()=>context.eventSource.removeListener?.(stopped,stoppedHandler));}
+    }else{
+      const eventName=context.eventTypes?.MESSAGE_SENT??context.event_types?.MESSAGE_SENT;
+      if(!eventName)throw new Error('No supported SillyTavern pre-generation event is available');
+      const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
+      context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
     }
-    const handler = async () => {
-      try { await this.processCurrentTurn(); }
-      catch { /* processCurrentTurn records the failure for the operator. */ }
-    };
-    context.eventSource.on(eventName, handler);
-    this.release = () => context.eventSource.removeListener?.(eventName, handler);
-    this.running = true;
-    this.#notify();
-    return this;
+    this.release=()=>{for(const release of releases.splice(0))try{release();}catch{}};
+    this.running=true;this.#notify();return this;
   }
 
   stop() {
-    this.release?.();
-    this.release = null;
-    this.running = false;
-    this.#notify();
-    return this;
+    this.release?.();this.release=null;this.running=false;this.#notify();return this;
+  }
+
+  async prepareNativeGeneration({generationType='normal'}={}){
+    const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
+    const context=this.getContext(),message=latestUserMessage(context),chatId=clean(context.chatId);
+    if(!message)throw new Error('No current SillyTavern user message is available for native Brain preparation');
+    if(!chatId)throw new Error('SillyTavern chatId is unavailable');
+    const source=registerNarrativeSource(this.brain,{chatId,message}),scene=applyNativeScene(this.brain,{chatId,message,sourceRevisionId:source.sourceRevisionId});
+    const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
+    const prepared=await this.nativeBrain.prepareTurn({chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,executionLabel:'LIVE_SILLYTAVERN'});
+    const injection=await injectNativePreparedContext(context,prepared);
+    if(!injection.succeeded)throw new Error('Native Brain prepared context could not be injected before the model request: '+String(injection.reason??'unknown'));
+    const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,preparedAt:Date.now(),promptPlanId:prepared.promptPlan?.promptPlanId??null,contextSealId:prepared.contextSealReceipt?.id??null,promptInjection:clone(injection),state:'SEALED_FOR_MODEL_REQUEST'};
+    this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    this.#notify();return clone(pending);
+  }
+
+  async completeNativeGeneration({messageIndex=null}={}){
+    const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
+    const context=this.getContext(),chatId=clean(context.chatId),pending=this.nativePending.get(chatId);
+    if(!pending){
+      const foreign=[...this.nativePending.values()].at(-1)??null;
+      if(foreign){this.nativeRejections.push({at:Date.now(),code:'NATIVE_COMPLETION_CHAT_MISMATCH',expectedChatId:foreign.chatId,actualChatId:chatId,generationId:foreign.generationId});if(this.nativeRejections.length>100)this.nativeRejections.shift();this.#notify();}
+      return null;
+    }
+    const assistant=assistantMessage(context,messageIndex);
+    if(!assistant)throw new Error('SillyTavern assistant response is unavailable for native Brain completion');
+    if(assistant.index<=pending.userMessageIndex)throw new Error('Assistant completion does not follow the prepared user message');
+    const learning=await this.nativeBrain.completeTurn({turnId:pending.turnId,response:assistant.text});
+    const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
+    this.nativePending.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    this.#notify();return clone(completed);
   }
 
   async processCurrentTurn({ mode = null } = {}) {
@@ -458,6 +553,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       transactions: { status: 'UNAVAILABLE', reason: 'NO_LIVE_OWNER_BINDING' },
     } : null;
 
+    const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     return clone({
       kind: 'DevelopmentDeploymentLiveDemoEvidence',
       contractVersion: DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION,
@@ -495,7 +591,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       operatorReview: this.operatorReview,
       operatorLiveChecksCaptured,
       ui: uiDiagnostics,
-      uiProducerDiagnosticsAreRegistrationOnly: true,
+      nativeBrainIntegration:{
+        ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,learnedCount:nativeLearned,
+        pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
+        endToEndObserved:nativePrepared>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
+        rawPromptCaptured:false,rawResponseCaptured:false,
+      },
+      uiProducerDiagnosticsAreRegistrationOnly: !nativeContract.available,
       errors: this.errors,
       liveEvidenceComplete: false,
       liveEvidenceCompleteReason: 'DIRECTOR_APPROVAL_AND_REQUIRED_LIVE_GATES_REMAIN_EXTERNAL_TO_THIS_RECORD',
@@ -506,6 +608,25 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.stop();
     this.uiHost?.destroy?.();
     this.uiHost = null;
+  }
+
+  #uiHostBindings(){
+    const base=this.brain.hostBindings(),contract=nativeBrainContract(this.nativeBrain);
+    if(!contract.available)return base;
+    const native=this.nativeBrain.uiBindings();
+    const nativeKeys=['readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readRuntimeStatus','readPromptPlan','readContextReceipt','listGenerations','readGeneration'];
+    const merged={...base};for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
+    const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
+    merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
+    merged.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:true,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
+    return merged;
+  }
+
+  #expireNativePending(reason){
+    for(const [chatId,row] of [...this.nativePending.entries()]){
+      this.nativeRejections.push({at:Date.now(),code:String(reason),chatId,generationId:row.generationId,turnId:row.turnId});this.nativePending.delete(chatId);
+    }
+    while(this.nativeRejections.length>100)this.nativeRejections.shift();this.#notify();
   }
 
   #notify() {

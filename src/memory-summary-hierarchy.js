@@ -290,6 +290,7 @@ export class MemorySummaryHierarchy {
       perspectiveConstraint:request.perspectiveConstraint??{scope:PerspectiveScope.WORLD},
       maxCandidates:Number(request.maxCandidates??MEMORY_LIMITS.maxHistorianCandidates),
       budgetCharacters:request.budgetCharacters??null,
+      allowedEvidenceHash:request.allowedEvidenceIds==null?null:stableHash(stableStringify([...request.allowedEvidenceIds].sort())),
     }));
   }
 
@@ -1023,6 +1024,11 @@ export class MemorySummaryHierarchy {
     const queryTokens=tokens(request.query);
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
+    const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
+    const artifactAllowed=(artifact)=>!allowedEvidence||(
+      (artifact?.exactEvidenceRefs??[]).length>0
+      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
+    );
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const cacheKey=this.queryCacheKey(request,preferred);
     if(useCache){
@@ -1068,7 +1074,7 @@ export class MemorySummaryHierarchy {
       for(const id of candidateIds){
         if(examined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
         const artifact=this.artifacts.get(id);
-        if(!artifact||!this.artifactIsFresh(artifact))continue;
+        if(!artifact||!this.artifactIsFresh(artifact)||!artifactAllowed(artifact))continue;
         examined+=1;
         if(artifact.representationText.length>budget)continue;
         if(perspective.scope===PerspectiveScope.CHARACTER_KNOWLEDGE){
@@ -1130,6 +1136,11 @@ export class MemorySummaryHierarchy {
     const queryTokens=tokens(request.query);
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
+    const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
+    const artifactAllowed=(artifact)=>!allowedEvidence||(
+      (artifact?.exactEvidenceRefs??[]).length>0
+      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
+    );
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const all=this.currentArtifacts({freshOnly:true});
     const afterMaterialize=nowMs();
@@ -1137,7 +1148,7 @@ export class MemorySummaryHierarchy {
     for(const tier of this.tierOrder(preferred)){
       const tierScored=[];
       for(const artifact of all){
-        if(!tier.includes(artifact.scopeLevel))continue;
+        if(!tier.includes(artifact.scopeLevel)||!artifactAllowed(artifact))continue;
         examined+=1;
         if(examined>MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
         if(artifact.representationText.length>budget)continue;

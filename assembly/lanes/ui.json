@@ -768,7 +768,7 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "b825dcf277ccd87659b5a83e0c3c6e7f02225be3",
+      "expectedDigest": "d7ad472cb5c45a14b23d67b10c372b48729ed746",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
@@ -804,7 +804,7 @@
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "ac1f12209911d47d2d3d6cbabe4bfd70fc9ab315",
+      "expectedDigest": "aba84e8cbb98ee2579ff48330511f74381f470ce",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     }
   ],

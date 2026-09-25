@@ -149,11 +149,11 @@ Current owner references consumed during this follow-up:
 - Memory: `Development-Memory@51aa0d6e7293ddeaa3899e81f6699794d0c22b2c` — `MemoryIntegrationSurface v1.0.0`.
 - Lore: `Development-Lorebook-Editor@0e588d59e4daafc87525f1e38150e105f9618a7` — `LoreBrainRetrievalInterface v1` / Wave 5 source lifecycle.
 - Optional Jev: `Development-Sidecar/Jev@440d9633e38d35b042a6841d74e2fbeee549ce15` — still optional and not a native-path dependency.
-- UI host reference inspected: `main@44de1257a38bb445f1ba6873cc32647cc3794bb8` — Worker 3 live-binding/host adapter remains the integration target and must not be overwritten from this branch.
+- UI host reference first inspected at `main@44de1257a38bb445f1ba6873cc32647cc3794bb8`; re-verified after Worker 3 advanced `main` to `e756b296c5cdccd397ccf8e75af2a69fe86cc091` — Worker 3 live-binding/host adapter remains the integration target and must not be overwritten from this branch.
 
 ### Worker 3 contract
 
-Instantiate/restore one `Area52NativeBrain` for the active Brain resource, pass real chat/turn/generation/correlation identity, route Scene owner updates into `observeScene()`, call `prepareTurn()` (or `runTurn()`) before the actual model request, send `prepared.rendered` to the real generation, then call `completeTurn()` with the returned assistant narrative. Bind the UI through `brain.uiBindings()`; the surface now includes selection, Scene, Hot Cognition, Cognitive Choice, Sensory/Candidate Bus, Truth, Gather, Context Seal, Lore status, Memory status, Runtime status, PromptPlan, context receipt, generation list/read, and subscriptions. Missing owner data remains unavailable/degraded rather than being inferred by UI.
+Instantiate/restore one `Area52NativeBrain` for the active Brain resource, pass real chat/turn/generation/correlation identity, route Scene owner updates into `observeScene()`, call `prepareTurn()` (or `runTurn()`) before the actual model request, send `prepared.rendered` to the real generation, then call `completeTurn()` with the returned assistant narrative. Bind the UI through `brain.uiBindings()`; the surface now includes selection, Scene, Hot Cognition, Cognitive Choice, a selected-turn `readScatter` execution receipt, Sensory/Candidate Bus, Truth, Jev/Precision receipts when present, Gather with returned-result rows, Context Seal, Lore status, Memory status, Runtime status, PromptPlan, context receipt, generation list/read, and subscriptions. Worker 3's current `main` already accepts `readScatter` / `readGather` in the owner-binding allowlist. Missing owner data remains unavailable/degraded rather than being inferred by UI.
 
 ### Worker 4 contract
 

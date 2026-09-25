@@ -693,6 +693,7 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   destroy() {
     this.stop();
+    if(this.nativePending.size)this.#expireNativePending('SESSION_DESTROYED');
     this.uiHost?.destroy?.();
     this.uiHost = null;
   }

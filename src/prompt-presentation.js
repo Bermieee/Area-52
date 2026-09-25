@@ -19,10 +19,14 @@ export class CorePresentationRouter{
     this.profileRegistry=profileRegistry;
   }
 
-  resolve({modelProfileId=null,providerId=null,modelId=null,routeId=null,observedCacheBehavior=null}={}){
+  resolve({modelProfileId=null,fallbackProfileId=null,providerId=null,modelId=null,routeId=null,observedCacheBehavior=null}={}){
     const requested=modelProfileId==null?null:String(modelProfileId);
     if(requested&&requested!=='AUTO'&&this.profileRegistry.get(requested)){
       return{requestedProfileId:requested,selectedProfileId:requested,fallbackUsed:false,reason:'EXPLICIT_PROFILE',providerId:providerId??null,modelId:modelId??null,routeId:routeId??null,cacheAssumption:'PROFILE_DECLARED'};
+    }
+    const explicitFallback=fallbackProfileId==null?null:String(fallbackProfileId);
+    if(requested&&requested!=='AUTO'&&explicitFallback&&this.profileRegistry.get(explicitFallback)){
+      return{requestedProfileId:requested,selectedProfileId:explicitFallback,fallbackUsed:true,reason:'EXPLICIT_COMPATIBLE_FALLBACK',providerId:providerId??null,modelId:modelId??null,routeId:routeId??null,cacheAssumption:'PROFILE_DECLARED'};
     }
     const provider=String(providerId??'').toLowerCase();
     if(provider.includes('openrouter')){

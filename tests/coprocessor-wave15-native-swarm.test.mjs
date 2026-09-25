@@ -77,6 +77,7 @@ test('one physical resource serializes multiple logical jobs and returns only ow
   assert.equal(maxActive,1);
   assert.equal(graphCalls,1);assert.equal(truthCalls,1);
   assert.equal(result.contribution.resultsForOwner.length,2);
+  assert.ok(result.contribution.executionTrace.facts.filter(x=>x.state==='COMPLETED').every(x=>x.executionResourceId==='one'));
   assert.equal(result.contribution.ownerAdmissionRequired,true);
   assert.equal(result.contribution.finalChoiceAuthority,false);
   assert.equal(result.contribution.contextSealAuthority,false);

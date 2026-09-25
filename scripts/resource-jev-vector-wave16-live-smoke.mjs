@@ -49,7 +49,7 @@ try{
   report.execution.sidecar={
     resourceId:ids.sidecar,providerProfileId:'profile:'+ids.sidecar,providerId:graph.providerId,workerId:graph.workerId,actualModelId:graph.modelId,
     actualProvider:graph.providerMetadata?.actualProvider??null,latencyMs:graph.latency,usageReceipt:graph.providerMetadata?.usageReceipt??null,
-    reachedOwnerStage:true,measurementClass:graph.providerMetadata?.measurementClass??null,
+    reachedOwnerStage:false,ownerAdmissionRequired:true,measurementClass:graph.providerMetadata?.measurementClass??null,
   };
   report.ft005LivePass=graph.providerMetadata?.measurementClass==='MEASURED_LIVE';
 
@@ -57,7 +57,7 @@ try{
   report.execution.vector={
     resourceId:ids.vector,providerProfileId:embeddings.providerProfileId,providerId:embeddings.providerId,workerId:embeddings.workerId,
     actualModelId:embeddings.actualModelId,actualProvider:embeddings.actualProvider,latencyMs:embeddings.latencyMs,usageReceipt:embeddings.usageReceipt,
-    vectorCount:embeddings.vectorCount,dimensions:embeddings.dimensions,reachedOwnerStage:true,measurementClass:embeddings.measurementClass,
+    vectorCount:embeddings.vectorCount,dimensions:embeddings.dimensions,reachedOwnerStage:false,ownerAdmissionRequired:true,measurementClass:embeddings.measurementClass,
   };
   report.vectorLivePass=embeddings.measurementClass==='MEASURED_LIVE'&&embeddings.vectorCount===1&&embeddings.dimensions>0;
 
@@ -73,7 +73,7 @@ try{
     requestedModelId:jevReceipt.providerProvenance?.requestedModelId??jevModel,actualModelId:jevReceipt.providerProvenance?.modelId??null,
     actualProvider:jevReceipt.providerProvenance?.actualProvider??null,serviceStatus:jevReceipt.serviceStatus,outcome:jevReceipt.outcome,
     latency:jevReceipt.latencyMetadata,usageReceipt:jevReceipt.providerProvenance?.usageReceipt??null,authorityGranted:jevReceipt.authorityGranted,
-    settlementPerformed:jevReceipt.settlementPerformed,reachedOwnerStage:true,measurementClass:jevReceipt.providerProvenance?.measurementClass??null,
+    settlementPerformed:jevReceipt.settlementPerformed,reachedOwnerStage:false,ownerAdmissionRequired:true,measurementClass:jevReceipt.providerProvenance?.measurementClass??null,
     clearCase:{serviceStatus:clearReceipt.serviceStatus,providerCalls:afterClear.providerCalls-before.providerCalls},
   };
   report.jevLivePass=afterJev.providerCalls-afterClear.providerCalls>=1

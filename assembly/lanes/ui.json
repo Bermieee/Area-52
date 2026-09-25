@@ -786,7 +786,7 @@
     {
       "path": "tests/wave12-sillytavern-host.test.mjs",
       "sourceDigest": "93ea9462b4c83377c07599ab94026d03e768a70e",
-      "expectedDigest": "f6516478e1906aa85bde8097ab7087df09f7e15d",
+      "expectedDigest": "8885c5511a89d690f914b55e88defd67eedb5bdf",
       "reason": "Validation for zero-width floating host reservation."
     },
     {

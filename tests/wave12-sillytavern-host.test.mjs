@@ -80,7 +80,7 @@ function environment({records=null,initialTurnId=null,bindings=null,initialChatI
   return{document,sheld,events,owner,adapter,mountRoot,setChatId:value=>{chatId=value;}};
 }
 
-test('Wave 12 mounts one UI.Core product beside verified #sheld without cloning host chat',()=>{
+test('Wave 12 mounts one floating UI.Core product beside verified #sheld without cloning host chat',()=>{
   const{a}=turns(),env=environment({records:[a],initialTurnId:'turn:a'});
   env.sheld.style.right='13px';
   env.adapter.mount();
@@ -90,7 +90,7 @@ test('Wave 12 mounts one UI.Core product beside verified #sheld without cloning 
   assert.equal(env.adapter.mountRoot.attributes['data-area52-host-adapter'],'wave12');
   assert.equal(env.sheld.style.right,'76px');
   env.adapter.ui.presentation.patch({frontFaceMode:FrontFaceMode.EXPANDED,frontFaceWidth:420});
-  assert.equal(env.sheld.style.right,'420px');
+  assert.equal(env.sheld.style.right,'76px');
   env.adapter.destroy();
   assert.equal(env.sheld.style.right,'13px');
   assert.equal(env.document.getElementById('area52-ui-core-host'),null);

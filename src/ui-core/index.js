@@ -54,3 +54,6 @@ export * from './wave8-workspace.js';
 
 export * from './wave11-live-bindings.js';
 export * from './wave12-sillytavern-host.js';
+export * from './wave13-operator-adapters.js';
+export * from './wave13-operator-surfaces.js';
+export * from './wave13-floating-navigation.js';

@@ -9,11 +9,12 @@ const valueOfField=(field)=>field&&typeof field==='object'&&'value'in field?fiel
 const idOf=(x,...keys)=>{for(const key of keys){const value=x?.[key];if(typeof value==='string'&&value)return value;}return null;};
 
 export class SceneProductionUIAdapter{
-  constructor({readModel,subscribe=null}={}){this.readModel=required(readModel,'SceneProductionUIAdapter.readModel');this.subscribeFn=optional(subscribe);this.kind='SceneProductionUIAdapter';}
+  constructor({readModel,subscribe=null,selectionProvider=null}={}){this.readModel=required(readModel,'SceneProductionUIAdapter.readModel');this.subscribeFn=optional(subscribe);this.selectionProvider=optional(selectionProvider);this.kind='SceneProductionUIAdapter';}
   read(selection={}){
-    let model=null;
+    selection=Object.keys(selection??{}).length?selection:(this.selectionProvider?.()??{});let model=null;
     try{model=this.readModel(selection);}
     catch(error){return degraded('Scene','Scene read failed; the selected live context was not filled from another turn.',{error:String(error?.message??error),code:error?.code??null});}
+    if(!model&&selection?.chatId&&!selection?.turnId)return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label:'Scene',operationalState:'WAITING_FOR_TURN',impact:'Selected chat is current; Scene will bind when an active turn/observation is published.',reason:'No selected-turn Scene receipt yet.',producer:'SceneUiReadModel',connected:true,selection}),data:null});
     if(!model)return unavailable('Scene','Scene read model is not connected.');
     if(model.kind!=='SceneUiReadModel')return degraded('Scene','Scene producer returned an unsupported read-model shape.',{rawKind:model.kind??null});
     const location=valueOfField(model.location),time=valueOfField(model.narrativeTime),atmosphere=model.atmosphere;
@@ -81,11 +82,11 @@ export class CoprocessorProductionUIAdapter{
 export class PromptPlanProductionUIAdapter{
   constructor({
     readPlan=null,readPromptPlanReadModel=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
-    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',
+    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
   }={}){
     this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readSealReceipt=optional(readSealReceipt);
     this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);
-    this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');this.kind='PromptPlanProductionUIAdapter';
+    this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.selectionProvider=optional(selectionProvider);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');this.kind='PromptPlanProductionUIAdapter';
   }
   #plan(selection){
     if(this.readPromptPlanReadModel)return this.readPromptPlanReadModel(selection??{});
@@ -102,9 +103,11 @@ export class PromptPlanProductionUIAdapter{
     return this.readSealReceipt?.(selection??{});
   }
   read(selection={}){
+    selection=Object.keys(selection??{}).length?selection:(this.selectionProvider?.()??{});
     if(!this.readPlan&&!this.readPromptPlanReadModel&&!this.readGenerationFn)return unavailable('PromptPlan','Adaptive Context / PromptPlan read producer is not connected.');
+    if(selection?.chatId&&!selection?.turnId)return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label:'Context Delivery',operationalState:'WAITING_FOR_TURN',impact:'Selected chat is current; PromptPlan will appear after a generation turn is published.',producer:'PromptPlan/ContextSeal',connected:true,selection}),data:null});
     try{
-      const raw=this.#plan(selection);if(!raw)return unavailable('PromptPlan','No completed PromptPlan is available.');
+      const raw=this.#plan(selection);if(!raw)return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label:'Context Delivery',operationalState:'IDLE',impact:'No completed PromptPlan exists for the selected turn.',reason:'The producer is connected but has not published context delivery for this turn.',producer:'PromptPlan/ContextSeal',connected:true,selection}),data:null});
       const plan=normalizePromptPlanReadModel(raw);if(!plan)return degraded('PromptPlan','PromptPlan producer returned an unsupported contract.',{kind:raw.kind??null});
       const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null;
       const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal});

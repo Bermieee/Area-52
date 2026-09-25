@@ -3,7 +3,7 @@
   "schemaVersion": "2",
   "laneId": "ui",
   "branch": "Development-UI",
-  "acceptedSha": "3bd0dc1bca7dcec19669a1eea9ba0d13fab88ff9",
+  "acceptedSha": "11701edf85ea5a42c61812c247031968ed489aeb",
   "acceptanceRuns": [
     {
       "id": "36064690324",
@@ -16,6 +16,10 @@
     {
       "id": "36064690090",
       "name": "UI.Core Wave 5 validation"
+    },
+    {
+      "id": "PINNED-11701edf",
+      "name": "Worker 3 Wave 13 operator UI snapshot pinned for deployment exact-head validation"
     }
   ],
   "copiedPaths": [
@@ -65,7 +69,19 @@
     },
     {
       "path": "demo/wave12-host-harness/index.html",
-      "sourceDigest": "d045bd86892bff9b9f1cf44cfb232ccdc2907c9a"
+      "sourceDigest": "6988ab57a9f854c4f9bbc62202ffdfb605b5eed2"
+    },
+    {
+      "path": "demo/wave13-operator-harness/harness.css",
+      "sourceDigest": "0b65ebba7e349df67f06380ece1d390e6f2627e7"
+    },
+    {
+      "path": "demo/wave13-operator-harness/harness.js",
+      "sourceDigest": "ac3f18cee9b7b5616bb94b61fab9cf66a30977f1"
+    },
+    {
+      "path": "demo/wave13-operator-harness/index.html",
+      "sourceDigest": "4538c223d705c1cd42bb4448ce86f29abf51fce0"
     },
     {
       "path": "demo/wave6-front-face.html",
@@ -114,6 +130,10 @@
     {
       "path": "docs/UI_CORE_WAVE_12_SILLYTAVERN_HOST.md",
       "sourceDigest": "6c16459aee66880e5af95112f47ca1881f966f16"
+    },
+    {
+      "path": "docs/UI_CORE_WAVE_13_OPERATOR_INTEGRATION.md",
+      "sourceDigest": "d0318ff995098fae0ab43945baba088c40f0bc75"
     },
     {
       "path": "docs/UI_CORE_WAVE_2_ACCEPTANCE.md",
@@ -253,7 +273,7 @@
     },
     {
       "path": "src/ui-core/index.js",
-      "sourceDigest": "28c6b9173e93867e24f88a64b22eb8b74074ef1a"
+      "sourceDigest": "d0ad3afee9ec4c94a4f510056255180134edfd3d"
     },
     {
       "path": "src/ui-core/inspector.js",
@@ -317,7 +337,19 @@
     },
     {
       "path": "src/ui-core/wave12-sillytavern-host.js",
-      "sourceDigest": "02118b2a865cc40775358c5496520fc44553eb06"
+      "sourceDigest": "dae78864e8f581a06d0bcc4d0df9077c2a84933a"
+    },
+    {
+      "path": "src/ui-core/wave13-floating-navigation.js",
+      "sourceDigest": "5d11a8282b1c3942c4b33ab69e38311dfcf73afd"
+    },
+    {
+      "path": "src/ui-core/wave13-operator-adapters.js",
+      "sourceDigest": "27e76f2425cfa90c901ec411b88b39a658fc6693"
+    },
+    {
+      "path": "src/ui-core/wave13-operator-surfaces.js",
+      "sourceDigest": "81f7f89631c9f34ac91bec2016110e23de90bcd3"
     },
     {
       "path": "src/ui-core/wave2-adapters.js",
@@ -409,7 +441,7 @@
     },
     {
       "path": "src/ui-core/wave6-contracts.js",
-      "sourceDigest": "9dd4871afe798ac092ffeb0b636174ba4e448f44"
+      "sourceDigest": "3fb8b19382c524576439fa1cd61c61c1c1b45780"
     },
     {
       "path": "src/ui-core/wave6-front-face.js",
@@ -417,15 +449,15 @@
     },
     {
       "path": "src/ui-core/wave6-presentation.js",
-      "sourceDigest": "14b1f76a6de9f828d4004bb0a1ff2ca62581ff5c"
+      "sourceDigest": "b22fd3c94f577f2521ac6bc80eaec26d8200109b"
     },
     {
       "path": "src/ui-core/wave6-production-adapters.js",
-      "sourceDigest": "93fa3d88fa4fec685d1d225c39adbfe8a04afc05"
+      "sourceDigest": "09428c6676d698ad19af8f15a1a11b4cc46ece55"
     },
     {
       "path": "src/ui-core/wave6-runtime.js",
-      "sourceDigest": "2b643f5bdf066dc692b61634cfaa52c3895b0055"
+      "sourceDigest": "289edd80d906b38208efc243fa865241e4627639"
     },
     {
       "path": "src/ui-core/wave7-bindings.js",
@@ -458,6 +490,10 @@
     {
       "path": "src/ui-core/wave8-workspace.js",
       "sourceDigest": "89e60ad9a3bf75b76ade074da222d59b12046bb1"
+    },
+    {
+      "path": "styles/ui-core-wave13.css",
+      "sourceDigest": "d57ca9001035067bc10d15b8c22d6587d3c73a4d"
     },
     {
       "path": "styles/ui-core-wave2.css",
@@ -529,7 +565,15 @@
     },
     {
       "path": "tests/wave12-sillytavern-host.test.mjs",
-      "sourceDigest": "7d15ac75671caf15493568e2f0ce277c32ea3288"
+      "sourceDigest": "93ea9462b4c83377c07599ab94026d03e768a70e"
+    },
+    {
+      "path": "tests/wave13-operator-ui-stress.mjs",
+      "sourceDigest": "9e5318bbfd021ef0e577b1a69f634f2a79400b0c"
+    },
+    {
+      "path": "tests/wave13-operator-ui.test.mjs",
+      "sourceDigest": "d010c85e96c1779e33c6969f3a0d6a990bb1d57c"
     },
     {
       "path": "tests/wave2.test.mjs",
@@ -659,7 +703,14 @@
     "styles/ui-core-wave6.css",
     "styles/ui-core-wave7.css",
     "styles/ui-core-wave8.css",
-    "styles/ui-core.css"
+    "styles/ui-core.css",
+    "src/ui-core/wave13-floating-navigation.js",
+    "src/ui-core/wave13-operator-adapters.js",
+    "src/ui-core/wave13-operator-surfaces.js",
+    "styles/ui-core-wave13.css",
+    "demo/wave13-operator-harness/harness.css",
+    "demo/wave13-operator-harness/harness.js",
+    "demo/wave13-operator-harness/index.html"
   ],
   "nodeOnlyToolPaths": [],
   "requiredWebApis": [

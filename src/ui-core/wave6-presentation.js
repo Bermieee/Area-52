@@ -28,9 +28,9 @@ export class FrontFacePresentationState{
 }
 
 export class HostAdjacentMountAdapter{
-  constructor({reserveWidth=null,releaseWidth=null,onModeChange=null}={}){this.reserveWidth=typeof reserveWidth==='function'?reserveWidth:null;this.releaseWidth=typeof releaseWidth==='function'?releaseWidth:null;this.onModeChange=typeof onModeChange==='function'?onModeChange:null;this.reserved=0;}
+  constructor({reserveWidth=null,releaseWidth=null,onModeChange=null,fixedReservationWidth=null}={}){this.reserveWidth=typeof reserveWidth==='function'?reserveWidth:null;this.releaseWidth=typeof releaseWidth==='function'?releaseWidth:null;this.onModeChange=typeof onModeChange==='function'?onModeChange:null;this.fixedReservationWidth=fixedReservationWidth!=null&&Number.isFinite(Number(fixedReservationWidth))?Math.max(0,Number(fixedReservationWidth)):null;this.reserved=0;}
   apply({mode,width,collapsedWidth=76}={}){
-    const next=mode===FrontFaceMode.EXPANDED?Number(width)||560:Number(collapsedWidth)||76;
+    const requested=mode===FrontFaceMode.EXPANDED?Number(width)||560:Number(collapsedWidth)||76;const next=this.fixedReservationWidth??requested;
     this.reserveWidth?.(next);this.reserved=next;this.onModeChange?.({mode,width:next});return next;
   }
   destroy(){this.releaseWidth?.(this.reserved);this.reserved=0;}
@@ -43,7 +43,7 @@ export function createAuthorityPill(doc,authority,{title=null}={}){
 export function createProductHealthSurface(doc,{source=null,label=null,impact=null,actionLabel='Inspect',onInspect=null,scope=null,compact=false}={}){
   const s=source??createProductSourceStatus();const root=element(doc,'section',{className:`a52-health-surface${compact?' a52-health-surface--compact':''}`,attrs:{role:'status'},dataset:{mode:s.mode,health:s.health,status:s.statusToken}});
   const head=element(doc,'div',{className:'a52-health-surface__head'});
-  head.append(makeHealthPill(doc,{label:label??s.label??s.health,status:s.statusToken,detail:s.mode}),makeBadge(doc,s.mode,modeStatus(s.mode)));
+  head.append(makeHealthPill(doc,{label:label??s.label??s.health,status:s.statusToken,detail:s.operationalState??s.mode}),makeBadge(doc,s.operationalState??s.mode,modeStatus(s.mode)));
   root.append(head);
   const message=impact??s.impact??s.reason;if(message)root.append(element(doc,'p',{className:'a52-health-surface__impact',text:message}));
   if(s.reason&&!compact)root.append(element(doc,'p',{className:'a52-muted',text:s.reason}));
@@ -60,11 +60,11 @@ export function createComposition(doc,{type=WorkspaceComposition.DASHBOARD,prima
 
 export function sourceStateMessage(doc,source,{emptyLabel='No data'}={}){
   const s=source??createProductSourceStatus();const root=element(doc,'section',{className:'a52-state-message',attrs:{role:'status'},dataset:{status:s.statusToken,mode:s.mode}});
-  const title=s.mode===ProductDataMode.UNAVAILABLE?'Not connected':s.mode===ProductDataMode.DEGRADED?'Degraded':s.mode===ProductDataMode.FIXTURE?'Fixture / demo':emptyLabel;
+  const title=s.operationalState==='WAITING_FOR_TURN'?'Waiting for turn':s.operationalState==='IDLE'?'Idle':s.operationalState==='DISCONNECTED'?'Disconnected':s.mode===ProductDataMode.UNAVAILABLE?'Unavailable':s.mode===ProductDataMode.DEGRADED?'Degraded':s.mode===ProductDataMode.FIXTURE?'Fixture / demo':emptyLabel;
   root.append(element(doc,'strong',{text:title}),element(doc,'span',{text:s.impact||s.reason||'No current data is available.'}));return root;
 }
 
-export function sourceModeBadge(doc,source){const s=source??createProductSourceStatus();return makeBadge(doc,s.mode,modeStatus(s.mode));}
+export function sourceModeBadge(doc,source){const s=source??createProductSourceStatus();return makeBadge(doc,s.operationalState??s.mode,modeStatus(s.mode));}
 export function statusForHealth(health){return healthStatusToken(health??Wave6Health.UNAVAILABLE);}
 
 function region(doc,name,node){const r=element(doc,'section',{className:`a52-composition__${name}`});r.append(node);return r;}

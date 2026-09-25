@@ -23,7 +23,11 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'readHotCognition','readHotCognitionReadModel','readCognitiveChoice','readCognitiveChoiceReceipt',
   'readScatter','readScatterReceipt','readRuntimeTurn','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt',
   'readTruth','readTruthAssessment','readCorrectiveRetrieval','readCorrectiveRetrievalReceipt',
-  'readJev','readJevDecisionReceipt','readPrecision','readPrecisionReceipt','readGather','readGatherReceipt','readLoreStatus',
+  'readJev','readJevDecisionReceipt','readPrecision','readPrecisionReceipt','readGather','readGatherReceipt','readLoreStatus','readLoreStudyStatus','readLoreStudySurface','readMemoryStatus',
+  'readRuntimeStatus','readCognitionUiState','readCoprocessorChoiceContribution',
+  'listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus','listResourceConfigurations','listAvailableResources',
+  'connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection',
+  'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy',
   'story','characters','lore','memory','world','knowledgeAdapter',
 ]);
 
@@ -43,9 +47,13 @@ const FAMILY_KEYS=Object.freeze({
   contextReceipt:['readContextReceipt','readContextReceiptReadModel'],
   forensics:['readForensic','readForensicReadModel','listForensics','listForensicReadModels','listBundles'],
   transactions:['listTransactions','listCognitiveTransactions','readTransaction','readCognitiveTransaction'],
-  loreStatus:['readLoreStatus'],
-  runtime:['runtimeAdapter'],
-  memory:['memory'],
+  loreStatus:['readLoreStatus','readLoreStudyStatus','readLoreStudySurface'],
+  loreActions:['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy'],
+  runtime:['runtimeAdapter','readRuntimeStatus','readScatter','readRuntimeTurn'],
+  coprocessor:['coprocessorTelemetry','coprocessorAdapter','readCognitionUiState','readCoprocessorChoiceContribution'],
+  resources:['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'],
+  resourceActions:['connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection'],
+  memory:['memory','readMemoryStatus'],
 });
 
 export class SillyTavernHostUnavailableError extends Error{
@@ -170,12 +178,12 @@ export class SillyTavernSelectionBridge{
 }
 
 export class SillyTavernAdjacentLayoutReservation{
-  constructor({chatRoot,mountRoot,manageMountPosition=true,reserveWidth=null,releaseWidth=null,onModeChange=null}={}){
+  constructor({chatRoot,mountRoot,manageMountPosition=true,reserveWidth=null,releaseWidth=null,onModeChange=null,allowOverflow=false}={}){
     if(!chatRoot||!mountRoot)throw new TypeError('SillyTavern adjacent layout requires chatRoot and mountRoot');
     this.chatRoot=chatRoot;this.mountRoot=mountRoot;this.manageMountPosition=Boolean(manageMountPosition);
     this.reserveWidthCallback=typeof reserveWidth==='function'?reserveWidth:null;
     this.releaseWidthCallback=typeof releaseWidth==='function'?releaseWidth:null;
-    this.onModeChange=typeof onModeChange==='function'?onModeChange:null;
+    this.onModeChange=typeof onModeChange==='function'?onModeChange:null;this.allowOverflow=Boolean(allowOverflow);
     this.width=0;this.released=false;
     this.chatStyle=snapshotStyle(chatRoot,['right']);
     this.mountStyle=snapshotStyle(mountRoot,['position','top','height','maxHeight','left','right','width','maxWidth','zIndex','overflow']);
@@ -197,7 +205,7 @@ export class SillyTavernAdjacentLayoutReservation{
       setStyle(this.mountRoot,'left',`max(8px, calc(50dvw + (var(--sheldWidth) / 2) - ${next/2}px))`);
       setStyle(this.mountRoot,'right','auto');
       setStyle(this.mountRoot,'zIndex','31');
-      setStyle(this.mountRoot,'overflow','hidden');
+      setStyle(this.mountRoot,'overflow',this.allowOverflow?'visible':'hidden');
     }
     return next;
   }
@@ -231,6 +239,8 @@ export class Wave12SillyTavernHostAdapter{
     productTagline='Cognitive Story System',
     rootId='area52-ui-core-host',
     layout={},
+    floatingNavigation=true,
+    viewportProvider=null,
   }={}){
     this.document=document??globalThis.document??null;
     this.getContext=resolveGetContext(getContext,sillyTavern);
@@ -243,7 +253,7 @@ export class Wave12SillyTavernHostAdapter{
     this.productName=productName;
     this.productTagline=productTagline;
     this.rootId=rootId;
-    this.layoutOptions=layout??{};
+    this.layoutOptions=layout??{};this.floatingNavigation=Boolean(floatingNavigation);this.viewportProvider=viewportProvider;
     this.ui=null;this.selectionBridge=null;this.layoutReservation=null;this.mountRoot=null;this.chatRoot=null;
     this.ownsMountRoot=false;this.mountCount=0;this.destroyCount=0;this.lastError=null;
   }
@@ -266,11 +276,13 @@ export class Wave12SillyTavernHostAdapter{
         reserveWidth:this.layoutOptions.reserveWidth,
         releaseWidth:this.layoutOptions.releaseWidth,
         onModeChange:this.layoutOptions.onModeChange,
+        allowOverflow:this.floatingNavigation,
       });
       const hostMountAdapter=new HostAdjacentMountAdapter({
         reserveWidth:(width)=>this.layoutReservation.reserve(width),
         releaseWidth:()=>this.layoutReservation.release(),
         onModeChange:(change)=>this.layoutReservation.modeChanged(change),
+        fixedReservationWidth:this.floatingNavigation?76:null,
       });
       this.selectionBridge=new SillyTavernSelectionBridge({getContext:this.getContext,ownerBindings:this.ownerBindings});
       const liveBindings={
@@ -286,7 +298,10 @@ export class Wave12SillyTavernHostAdapter{
         productTagline:this.productTagline,
         hostMountAdapter,
         hostBindings:liveBindings,
+        floatingNavigation:this.floatingNavigation,
+        viewportProvider:this.viewportProvider,
       });
+      if(this.floatingNavigation)this.mountRoot.classList?.add?.('a52-wave13-host');
       this.mountCount+=1;this.lastError=null;
       return this;
     }catch(error){
@@ -328,6 +343,8 @@ export class Wave12SillyTavernHostAdapter{
       polling:false,
       duplicateChat:false,
       readOnlyOwnerReceipts:true,
+      floatingNavigation:this.floatingNavigation,
+      floating:this.ui?.floatingController?.diagnostics?.()??null,
     });
   }
 

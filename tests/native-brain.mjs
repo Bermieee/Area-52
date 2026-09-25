@@ -477,6 +477,23 @@ test('DETERMINISTIC: correcting narrative evidence fences dependent reflections 
 });
 
 
+test('DETERMINISTIC: failed optional owner retrieval degrades without corrupting the native sealed path',async()=>{
+  const loreInterface={kind:'LoreBrainRetrievalInterface',contractVersion:1,query(){throw new Error('LORE_OFFLINE');}};
+  const memoryInterface={kind:'MemoryIntegrationSurface',contractVersion:'1.0.0',adapters:{queryHistorian(){throw new Error('MEMORY_OFFLINE');},drillDown(){return[];}}};
+  const brain=new Area52NativeBrain({loreInterface,memoryInterface});
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:owner-failure',turnId:'owner-failure:1',generationId:'gen:owner-failure:1',
+    query:'What should Vale do at the silent gate?',intent:'CURRENT',scene:scene('silent-gate',1,{location:'Silent Gate',activeCast:['Vale']}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.loreSync.status,'DEGRADED');
+  assert.equal(prepared.memorySync.status,'DEGRADED');
+  assert.equal(prepared.selection.ownerSourceRevisionRefs.length,0);
+  assert.ok(prepared.contextSealReceipt?.sealedState);
+  const learned=await brain.completeTurn({turnId:'owner-failure:1',response:'Vale waits at the silent gate.',knownBy:['Vale']});
+  assert.equal(learned.rawExperienceRecoverable,true);
+  assert.equal(brain.diagnostics().nativeRequirements.remoteModelRequired,false);
+});
+
 test('DETERMINISTIC: Worker 3 live-binding surface exposes coherent selection and typed owner receipts',async()=>{
   const brain=new Area52NativeBrain();
   const bindings=brain.uiBindings(),events=[];

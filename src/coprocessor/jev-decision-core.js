@@ -97,7 +97,9 @@ export class JevProviderExecutor{
     const validationStarted=Date.now();const decision=validateJevProviderOutput(invocation.text,{request,prefilter});const validationLatency=Math.max(0,Date.now()-validationStarted);
     const measurementClass=invocation.metadata?.measurementClass??adapter.measurementClass??profile.profileMetadata?.measurementClass??null;
     const usageReceipt=normalizeProviderUsageReceipt({usage:invocation.usage??{},providerProfileId:profile.profileId,capability:Capability.SEMANTIC_JUDGMENT,latencyMs:invocation.latencyMs,pricing:profile.costMetadata});
-    return deepFreeze({task,input,decision,providerProvenance:{providerProfileId:profile.profileId,providerId:profile.providerId,modelId:profile.modelId,workerId:profile.workerId,
+    const actualModelId=invocation.modelId??profile.modelId;
+    return deepFreeze({task,input,decision,providerProvenance:{providerProfileId:profile.profileId,providerId:profile.providerId,resourceId:profile.profileMetadata?.resourceId??null,
+      modelId:actualModelId,requestedModelId:profile.modelId,actualProvider:invocation.metadata?.actualProvider??null,workerId:profile.workerId,
       capability:'SEMANTIC_JUDGMENT',attempt,finishReason:invocation.finishReason??null,usage:structuredClone(invocation.usage??{}),usageReceipt,measurementClass},
       latencyMetadata:{providerLatencyMs:Number(invocation.latencyMs??0),validationLatencyMs:validationLatency,totalLatencyMs:Math.max(0,Date.now()-started),attempts:attempt},
       payloadBytes:utf8ByteLength(JSON.stringify(input.data))});

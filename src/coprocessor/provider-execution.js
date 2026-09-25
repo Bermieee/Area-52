@@ -4,6 +4,7 @@ import { createWorkerResult } from './contracts.js';
 import { specialistForTask } from './foreground-specialists.js';
 import { ProviderInvocationError } from './provider-adapters.js';
 import { emitTelemetry } from './telemetry.js';
+import { normalizeProviderUsageReceipt } from './usage-receipt.js';
 
 export class SpecialistExecutionLayer {
   constructor({profiles,adapters,telemetry=null,specialists=null}={}){
@@ -44,8 +45,11 @@ export class SpecialistExecutionLayer {
     try{payload=specialist.normalize(invocation.text,{input:input??{},task,providerInput});}
     catch(error){throw executionError(error?.code??FailureCode.SCHEMA_INVALID,error?.message??String(error),{cause:error,providerId:profile.providerId});}
     const validationLatency=Math.max(0,Date.now()-validationStarted);
+    const measurementClass=invocation.metadata?.measurementClass??adapter.measurementClass??profile.profileMetadata?.measurementClass??null;
+    const usageReceipt=normalizeProviderUsageReceipt({usage:invocation.usage??{},providerProfileId:profile.profileId,capability:task.requiredCapabilities?.[0]??null,latencyMs:invocation.latencyMs,pricing:profile.costMetadata});
     emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_INVOKED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
-      taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,executionLatency:invocation.latencyMs,validationLatency,attempt});
+      taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,executionLatency:invocation.latencyMs,validationLatency,attempt,measurementClass});
+    emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_USAGE,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,providerProfileId:profile.profileId,measurementClass,usageReceipt});
     const confidence=deriveConfidence(payload);
     return createWorkerResult({
       resultId:`result:${task.taskId}:${profile.providerId}:${attempt}`,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,
@@ -54,7 +58,7 @@ export class SpecialistExecutionLayer {
       confidence,freshnessIdentity:task.inputRevisionSet,inputRevisionSet:task.inputRevisionSet,intentFingerprint:task.intentFingerprint,
       startedAt:invocation.startedAt,completedAt:invocation.completedAt,latency:invocation.latencyMs,
       validationReceipt:{syntax:'PASS',type:'PASS',deterministic:'PASS',validationLatency},
-      providerMetadata:{finishReason:invocation.finishReason,usage:invocation.usage??{},...invocation.metadata},
+      providerMetadata:{finishReason:invocation.finishReason,usage:invocation.usage??{},usageReceipt,measurementClass,...invocation.metadata},
       authorityClass:task.taskType==='GREEN_ROOM'?'INFERRED':'UNRESOLVED',
     });
   }

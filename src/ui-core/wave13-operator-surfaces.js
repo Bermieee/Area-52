@@ -199,8 +199,9 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
     connectionDrafts.clear(spec.id);
     const connectedRow=resources.read().data.resources.find(row=>row.displayName===(connectionName.value||spec.defaultName)&&connectionSlotFor(row)===spec.id);
     const testResult=connectedRow?await actionRouter.route({type:'wave13.resource.test',target:connectedRow}):connectResult;
-    discoveryState.textContent=testResult.ok?'Connection test completed. Owner-reported status is shown in the locked resource card.':'Connection test failed: '+String(testResult.error??'unknown error')+'.';
-    reportAction(notifications,testResult,spec.title+' connection test');refresh?.();
+    const testFailure=resourceTestFailure(testResult);
+    discoveryState.textContent=testFailure?'Connection test failed: '+testFailure:'Connection test passed. Owner-reported status is shown in the locked resource card.';
+    reportResourceTest(notifications,testResult,spec.title+' connection test');refresh?.();
   }});
   form.append(
     labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
@@ -224,7 +225,7 @@ function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifi
   ]));
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
   if(caps.connect&&!row.connected)actions.append(createButton(d,{label:'Reconnect',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource connection');refresh?.();}}));
-  if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportAction(notifications,result,'Resource test');refresh?.();}}));
+  if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportResourceTest(notifications,result,'Resource test');refresh?.();}}));
   if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
   const test=resources.testResult(row.id);if(test)card.append(element(d,'p',{className:'a52-muted',text:'Latest connection test: '+testSummary(test)}));
   if(row.reason&&!row.lastError)card.append(element(d,'p',{className:'a52-muted',text:row.reason}));
@@ -563,4 +564,17 @@ function option(d,value,label){return element(d,'option',{text:label,attrs:{valu
 function stageStatus(v){if(v===OperatorProducerState.LIVE)return'ready';if(v===OperatorProducerState.WORKING)return'loading';if(v===OperatorProducerState.DEGRADED)return'warning';if(v===OperatorProducerState.IDLE||v===OperatorProducerState.WAITING_FOR_TURN)return'historical';return'offline';}
 function resourceStatus(v){if(v==='HEALTHY')return'ready';if(v==='DEGRADED'||v==='SATURATED'||v==='COOLDOWN'||v==='PROBE')return'warning';return'offline';}
 function testSummary(x){return String(x?.status??x?.health??x?.result??(x?.ok===true?'PASS':x?.ok===false?'FAIL':'completed'));}
+function resourceTestFailure(actionResult){
+  if(!actionResult?.ok)return String(actionResult?.error??'Owner test action failed.');
+  const owner=actionResult.result??{};
+  if(owner.failure)return String(owner.failure.message??owner.failure.code??'Provider check failed.');
+  const resource=owner.resource??owner;
+  if(String(resource?.lastTest?.status??'').toUpperCase()==='FAIL')return String(resource?.lastFailure?.message??resource?.reason??resource?.lastTest?.failureCode??'Provider check failed.');
+  if(['UNAVAILABLE'].includes(String(resource?.state??'').toUpperCase())&&resource?.lastFailure)return String(resource.lastFailure.message??resource.reason??'Provider is unavailable.');
+  return null;
+}
+function reportResourceTest(notifications,result,label){
+  if(!notifications?.push)return;
+  const failure=resourceTestFailure(result);notifications.push({status:failure?'error':'success',message:label+': '+(failure??'passed')});
+}
 function reportAction(notifications,result,label){if(!notifications?.push)return;notifications.push({status:result?.ok?'success':'error',message:label+': '+(result?.ok?'completed':result?.error??'failed')});}

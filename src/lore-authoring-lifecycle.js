@@ -424,6 +424,7 @@ function readSession(session, settlement = null) {
     type: session.type,
     stage: session.stage,
     draftRevision: session.draftRevision,
+    inputLorebookIds: [...(session.inputLorebookIds || [])],
     build: deepClone(session.build),
     decisions: decisionCounts(session.actions),
     totalActions: session.actions.length,

@@ -58,6 +58,17 @@ export function evidenceBelongsToChat(evidence,selection){
   return id.chatId===s.chatId;
 }
 
+export function evidenceBelongsToSelection(evidence,selection){
+  const s=normalizeMemorySelection(selection);
+  if(!evidenceBelongsToChat(evidence,s))return false;
+  const id=memoryEvidenceIdentity(evidence);
+  for(const key of ['turnId','generationId','correlationId']){
+    if(s[key]!=null&&id[key]!==s[key])return false;
+  }
+  if(s.sourceRevisionRefs.length&&!s.sourceRevisionRefs.includes(evidence.sourceRevisionId))return false;
+  return true;
+}
+
 function sourceFreshness(producer,evidence){
   return producer.graph.evidenceFresh(evidence.id)?'FRESH':'STALE';
 }
@@ -220,29 +231,35 @@ export class MemoryUiReadModelProducer{
       });
     }
 
-    const selectedEvidence=[];
+    const chatEvidence=[];
     for(const id of this.producer.graph.evidenceOrder??[]){
       const row=this.producer.graph.evidenceRecord(id);
-      if(row&&evidenceBelongsToChat(row,selection))selectedEvidence.push(row);
+      if(row&&evidenceBelongsToChat(row,selection))chatEvidence.push(row);
     }
-    const evidenceIds=new Set(selectedEvidence.map((row)=>row.id));
+    const selectionIsGenerationScoped=Boolean(selection.turnId||selection.generationId||selection.correlationId||selection.sourceRevisionRefs.length);
+    const selectedEvidence=selectionIsGenerationScoped
+      ? chatEvidence.filter((row)=>evidenceBelongsToSelection(row,selection))
+      : chatEvidence;
+    const chatEvidenceIds=new Set(chatEvidence.map((row)=>row.id));
+    const selectedEvidenceIds=new Set(selectedEvidence.map((row)=>row.id));
     const asOf=selection.worldRevision==null?Infinity:selection.worldRevision;
     const current=this.producer.graph.currentProjection({asOfWorldRevision:asOf,includeStale:true})
-      .filter((row)=>claimBelongs(row,evidenceIds))
+      .filter((row)=>claimBelongs(row,chatEvidenceIds))
       .map(asReadOnlyClaim);
     const historical=this.producer.graph.historicalClaims({
       asOfWorldRevision:asOf,includeUnresolved:false,includeStale:true,
-    }).filter((row)=>row.status==='HISTORICAL'&&claimBelongs(row,evidenceIds)).map(asReadOnlyClaim);
+    }).filter((row)=>row.status==='HISTORICAL'&&claimBelongs(row,chatEvidenceIds)).map(asReadOnlyClaim);
     const unresolved=this.producer.graph.historicalClaims({
       asOfWorldRevision:asOf,includeUnresolved:true,includeStale:true,
-    }).filter((row)=>row.status==='UNRESOLVED'&&claimBelongs(row,evidenceIds)).map(asReadOnlyClaim);
+    }).filter((row)=>row.status==='UNRESOLVED'&&claimBelongs(row,chatEvidenceIds)).map(asReadOnlyClaim);
 
+    const artifactEvidenceIds=selectionIsGenerationScoped?selectedEvidenceIds:chatEvidenceIds;
     const episodes=this.producer.experienceStore.currentEpisodes({freshOnly:false})
-      .filter((row)=>artifactBelongs(row,evidenceIds)).map(readOnlyEpisode);
+      .filter((row)=>artifactBelongs(row,artifactEvidenceIds)).map(readOnlyEpisode);
     const reflections=this.producer.experienceStore.currentReflections({freshOnly:false})
-      .filter((row)=>artifactBelongs(row,evidenceIds)).map(readOnlyReflection);
+      .filter((row)=>artifactBelongs(row,artifactEvidenceIds)).map(readOnlyReflection);
     const summaries=this.producer.summaryHierarchy.currentArtifacts({freshOnly:false})
-      .filter((row)=>artifactBelongs(row,evidenceIds)).map(readOnlySummary);
+      .filter((row)=>artifactBelongs(row,artifactEvidenceIds)).map(readOnlySummary);
 
     const evidenceRows=cap(selectedEvidence,MEMORY_LIMITS.maxUiEvidenceRows).map((row)=>({
       id:row.id,
@@ -269,7 +286,8 @@ export class MemoryUiReadModelProducer{
       MEMORY_LIMITS.maxUiEvidenceRows,
     );
     const reasons=[];
-    if(!selectedEvidence.length)reasons.push('MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT');
+    if(!chatEvidence.length)reasons.push('MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT');
+    else if(selectionIsGenerationScoped&&!selectedEvidence.length)reasons.push('MEMORY_NO_EVIDENCE_FOR_SELECTED_GENERATION');
     if(evidenceRows.some((row)=>row.freshness==='STALE'))reasons.push('MEMORY_STALE_EVIDENCE_PRESENT');
     if(episodes.some((row)=>row.freshness==='STALE'))reasons.push('MEMORY_STALE_EPISODE_PRESENT');
     if(summaries.some((row)=>row.freshness==='STALE'))reasons.push('MEMORY_STALE_SUMMARY_PRESENT');
@@ -291,7 +309,7 @@ export class MemoryUiReadModelProducer{
     const model={
       kind:'MemoryUiReadModel',
       contractVersion:MEMORY_UI_READ_MODEL_VERSION,
-      availability:selectedEvidence.length?'LIVE':'UNAVAILABLE',
+      availability:chatEvidence.length?'LIVE':'UNAVAILABLE',
       health:{state:health,reasons:reasons.slice(0,MEMORY_LIMITS.maxUiDegradedReasons)},
       chatId:selection.chatId,
       turnId:selection.turnId,
@@ -307,6 +325,7 @@ export class MemoryUiReadModelProducer{
         retrievalSequence:retrieval?.sequence??null,
       })),
       persistentStateScope:'CHAT',
+      observationEvidenceScope:selectionIsGenerationScoped?'SELECTED_TURN_GENERATION':'CHAT',
       retrievalScope:'SELECTED_TURN_GENERATION',
       evidence:evidenceRows,
       state:{current, historical, unresolved},
@@ -315,6 +334,12 @@ export class MemoryUiReadModelProducer{
       summaries:cap(summaries,MEMORY_LIMITS.maxUiSummaryRows),
       retrieval,
       provenance,
+      chatHistory:{
+        exactEvidenceCount:chatEvidence.length,
+        currentStateCount:current.length,
+        historicalStateCount:historical.length,
+        unresolvedStateCount:unresolved.length,
+      },
       freshness:{
         freshEvidence:evidenceRows.filter((row)=>row.freshness==='FRESH').length,
         staleEvidence:evidenceRows.filter((row)=>row.freshness!=='FRESH').length,

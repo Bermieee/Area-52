@@ -756,7 +756,7 @@
     {
       "path": "src/ui-core/wave12-sillytavern-host.js",
       "sourceDigest": "bf1ae71396e28e0f0c1a13a2538fe9ece513e394",
-      "expectedDigest": "1580e99abead6a89552657c2571fc925546ecab3",
+      "expectedDigest": "c6b208f0f9cd3fdfc66e9dd12839d2e692bce9a0",
       "reason": "Director-authorized main demo correction: floating UI reserves zero host width so the empty blue host strip is not visible."
     },
     {
@@ -768,7 +768,7 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "18ce9fa2af38fa84dfaf5e3afe40a74b6fafec1c",
+      "expectedDigest": "f6cb18f11561a8605253f77cfc50b6f8869fb050",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
@@ -798,13 +798,13 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "24ae1347d6e7f512c2ad8c01880fec875725ae0f",
+      "expectedDigest": "07c15247e2ba9d3e619da6f46ee0f6de83266ef3",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "b75260e87114dc5af70ff5ba36c8b9d82323e073",
+      "expectedDigest": "e1f533390f558864c2c5e179c710cab24d9ff483",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     },
     {

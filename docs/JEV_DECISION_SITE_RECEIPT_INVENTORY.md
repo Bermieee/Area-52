@@ -12,6 +12,8 @@ Execution-state labels in this inventory are intentionally strict:
 
 Evidence classes are separate from execution state. CI fixtures are **LOCAL_DETERMINISTIC** or injected failure evidence; they are not OpenRouter or installed SillyTavern acceptance.
 
+For this inventory, **OWNER_WIRED** means the production Jev adapter can flow through the production `adjudicateJevForOwner()` admission contract and exact-head tests execute an explicit owner ACCEPT/REJECT decision. It does **not** mean the concrete Lore/Scene/Retrieval/Memory/Temporal owner in the assembled Brain already calls that contract. Assembly status is audited separately below so contract wiring is never mislabeled as live owner integration.
+
 ## Canonical owner flow
 
 ```text
@@ -47,6 +49,19 @@ Freshness is checked before execution, after provider execution, on Decision Cor
 | `TEMPORAL_TRANSITION_CONTRADICTION` | Temporal owner | transition/contradiction/temporally-distinct/unresolved | temporal evidence + source/world/Scene/character + temporal/owner revisions | authority/provenance/history-upgrade options rejected; single survivor skips | bounded provider | `TemporalDecisionProposal`; owner retains revision/Settlement | unresolved | **OWNER_WIRED**, LOCAL_DETERMINISTIC | same |
 
 No row above is **LIVE_OBSERVED** in this wave. Default CI does not convert deterministic fixtures into an OpenRouter or installed SillyTavern claim.
+
+## Assembled owner-callsite audit
+
+| Assembly surface | Decision site | What is actually wired | Owner admission state | Evidence state |
+|---|---|---|---|---|
+| `src/deployment/brain.js` | `LORE_RECONCILIATION` | ambiguous deployment turns schedule `JEV_DECISION`, call `jev.service.adjudicate()`, retain a bounded proposal, and expose deterministic/live-provider execution provenance | **NOT ASSEMBLED** — the Brain-owned callsite does not yet call `adjudicateJevForOwner()`; proposal remains `requiresOwnerPolicy:true` and no owner mutation is performed | LOCAL_DETERMINISTIC deployment integration exists; external live provider remains unobserved |
+| Lore owner runtime | placement / reconciliation / retention | production adapters + production owner-admission primitive exist | **OWNER CONTRACT READY; CONCRETE OWNER CALLSITE NOT FOUND** | deterministic owner-callback tests |
+| Scene owner runtime | boundary / cast-location / merge-split | production adapters + production owner-admission primitive exist | **OWNER CONTRACT READY; CONCRETE OWNER CALLSITE NOT FOUND** | deterministic owner-callback tests |
+| Retrieval / Truth owner runtime | candidate interpretation / corrective choice / truth ambiguity | production adapters + production owner-admission primitive exist | **OWNER CONTRACT READY; CONCRETE OWNER CALLSITE NOT FOUND** | deterministic owner-callback tests |
+| Memory owner runtime | knowledge/belief / consolidation | production adapters + production owner-admission primitive exist | **OWNER CONTRACT READY; CONCRETE OWNER CALLSITE NOT FOUND** | deterministic owner-callback tests |
+| Temporal owner runtime | transition/contradiction | production adapter + production owner-admission primitive exist | **OWNER CONTRACT READY; CONCRETE OWNER CALLSITE NOT FOUND** | deterministic owner-callback tests |
+
+The deployment Lore path is intentionally **not** promoted to owner-wired assembly or live-observed status. Worker 1 owns the Brain callsite. Its required integration is precise: replace direct proposal consumption with `adjudicateJevForOwner({service,input,currentRevisionState,sealed,ownerReview})`, bind `ownerReview` to the real Lore-owner policy, and consume only the resulting owner admission receipt. An `accepted:false`, stale, post-seal, unavailable, abstained, or replay-only result must not become an owner mutation or generation fact.
 
 ## Turn cognitive receipt — producer/read-model contract
 

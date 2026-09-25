@@ -1,6 +1,7 @@
 import {deepClone, StudyState} from './lore-contracts.js';
 import {LoreStudyRuntime} from './lore-study-runtime.js';
 import {LoreMultiResolutionSystem} from './lore-multi-resolution.js';
+import {LoreRepresentationRegistry} from './lore-representation-registry.js';
 import {LoreHierarchyRetrievalSystem} from './lore-hierarchy-retrieval-system.js';
 import {QualityStatus, RepresentationProfile} from './lore-representation-contracts.js';
 
@@ -369,6 +370,7 @@ export class LoreIntelligenceService {
   snapshot() {
     return {
       kind: 'LoreIntelligenceServiceSnapshot',
+      contractVersion: 1,
       runtime: this.runtime.snapshot(),
       multiResolution: this.multiResolution.snapshot(),
       hierarchy: this.hierarchy.snapshot(),
@@ -376,6 +378,27 @@ export class LoreIntelligenceService {
       lastAcceptance: deepClone(this.lastAcceptance),
       lastStudyRun: deepClone(this.lastStudyRun),
     };
+  }
+
+  static fromSnapshot(snapshot) {
+    if (!snapshot || snapshot.kind !== 'LoreIntelligenceServiceSnapshot') throw new TypeError('Lore Intelligence snapshot is required');
+    const runtime = LoreStudyRuntime.fromSnapshot(snapshot.runtime);
+    const representationRegistry = new LoreRepresentationRegistry(snapshot.multiResolution?.representationRegistry || null);
+    const multiResolution = new LoreMultiResolutionSystem({
+      runtime,
+      registry: representationRegistry,
+      compilerRevision: snapshot.multiResolution?.compilerRevision || null,
+      policyOverrides: snapshot.multiResolution?.policyOverrides || {},
+    });
+    const hierarchy = LoreHierarchyRetrievalSystem.fromSnapshot({
+      runtime,
+      snapshot: snapshot.hierarchy,
+    });
+    const service = new LoreIntelligenceService({runtime, multiResolution, hierarchy});
+    service.compileFailures = new Map((snapshot.compileFailures || []).map(([sourceId, failures]) => [sourceId, deepClone(failures)]));
+    service.lastAcceptance = deepClone(snapshot.lastAcceptance || null);
+    service.lastStudyRun = deepClone(snapshot.lastStudyRun || null);
+    return service;
   }
 }
 

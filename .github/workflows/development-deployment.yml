@@ -2,7 +2,7 @@ name: Development Deployment Assembly
 
 on:
   push:
-    branches: [Development-Deployment]
+    branches: [Development-Deployment, main]
   workflow_dispatch:
 
 concurrency:

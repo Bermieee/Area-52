@@ -12,7 +12,7 @@ The first demo's HTTP 500 is consistent with SillyTavern's supported updater enc
 2. For a healthy Git install, use **Switch branch** and select `Development-Deployment`.
 3. If the old install is divergent or no longer a valid Git checkout, remove Area-52 through Manage Extensions, reinstall `https://github.com/Bermieee/Area-52`, then use **Switch branch** to select `Development-Deployment`. Do not manually replace the extension folder.
 4. Reload SillyTavern.
-5. Reopen Manage Extensions. Verify version `0.3.0-development-deployment` and the displayed `Development-Deployment-<short SHA>` matches the Worker 4 handoff.
+5. Reopen Manage Extensions. Verify version `0.3.1-development-deployment` and the displayed `Development-Deployment-<short SHA>` matches the Worker 4 handoff.
 6. After a newer fast-forward commit is published on this branch, use SillyTavern's normal update path, reload, and verify the displayed commit changes.
 
 The manifest enables normal automatic update checking. SillyTavern can hide the per-extension update icon when no update is detected, so the icon's absence alone is not an update failure.

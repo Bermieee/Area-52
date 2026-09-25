@@ -1028,6 +1028,11 @@ export class LoreAuthoringLifecycle {
     });
 
     const duplicateUids = entries.length - new Set(entries.map((row) => row.uid)).size;
+    const authoritativeSourcePreflight = sourcePreflights.every((report) => (
+      report.invalidationPlan?.authoritativePreflight === true
+      && report.source?.sourceRevisionId
+      && report.source?.sourceRevisionId === report.previousSource?.sourceRevisionId
+    ));
     const validation = {
       kind: 'LoreMergeFinalPreviewValidation',
       ok: !existingBook
@@ -1035,6 +1040,7 @@ export class LoreAuthoringLifecycle {
         && missingFacts.length === 0
         && contradictionCoalescence.length === 0
         && duplicateUids === 0
+        && authoritativeSourcePreflight
         && Boolean(preview.validation?.ok),
       baseMergePreviewValid: Boolean(preview.validation?.ok),
       outputLorebookAlreadyExists: Boolean(existingBook),
@@ -1043,6 +1049,7 @@ export class LoreAuthoringLifecycle {
       unsafeContradictionPairs: contradictionCoalescence.map((row) => row.id),
       duplicateOutputUids: duplicateUids,
       sourcePreflightCount: sourcePreflights.length,
+      authoritativeSourcePreflight,
       exactSourceTextOnly: entries.every((row) => {
         return row.sourceRefs.some((sourceId) => {
           const revision = this.intelligence.runtime.registry.currentRevision(sourceId, {allowMissing: true});

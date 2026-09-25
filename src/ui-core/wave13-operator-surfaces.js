@@ -382,7 +382,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   host.append(section);
 }
 
-export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,scope,refresh,inspect}={}){
+export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,scope,refresh,inspect,navigate}={}){
   const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
   root.append(header(d,'Settings','Area-52 display controls. Connection and Brain execution policy remain with their owning subsystems.'));
   const detail=element(d,'section',{className:'a52-wave13-settings__group'});

@@ -113,7 +113,7 @@ test('Wave16 credential lifecycle is session-only, redacted, replaceable and rev
     let row=await registry.connectResource('chat');
     assert.equal(row.state,ResourceConnectionState.UNAVAILABLE);assert.equal(row.reasonCode,'CREDENTIAL_REQUIRED');assert.equal(row.callable,false);
     registry.setResourceCredential('chat','bad-key');
-    const unauthorized=await registry.refreshResourceModels('chat');assert.equal(unauthorized.state,ResourceModelDiscoveryState.UNAUTHORIZED);
+    const unauthorized=await registry.refreshResourceModels('chat');assert.equal(unauthorized.state,ResourceModelDiscoveryState.UNAUTHORIZED);assert.equal(unauthorized.manualModelEntryAllowed,true);
     registry.setResourceCredential('chat','good-key');
     const models=await registry.refreshResourceModels('chat');assert.equal(models.state,ResourceModelDiscoveryState.READY);assert.ok(models.models.some(x=>x.id==='story-chat'));
     registry.selectResourceModel('chat','story-chat');row=await registry.connectResource('chat');
@@ -133,16 +133,16 @@ test('Wave16 discovery exposes loading, ready, empty, unsupported, unauthorized,
     const observed=[];const release=registry.subscribe(event=>{if(event.type==='RESOURCE_DISCOVERY')observed.push(event.resource.modelDiscovery.state);});
     provider.setDelay(20);let result=await registry.refreshResourceModels('chat');provider.setDelay(0);release();
     assert.equal(result.state,ResourceModelDiscoveryState.READY);assert.ok(observed.includes(ResourceModelDiscoveryState.LOADING));
-    provider.setMode('empty');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.EMPTY);
+    provider.setMode('empty');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.EMPTY);assert.equal(result.manualModelEntryAllowed,true);
     provider.setMode('unsupported');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.UNSUPPORTED);assert.equal(result.manualModelEntryAllowed,true);
-    provider.setMode('good');registry.setResourceCredential('chat','bad-key');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.UNAUTHORIZED);
-    registry.setResourceCredential('chat','good-key');provider.setMode('failed-discovery');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.FAILED);
+    provider.setMode('good');registry.setResourceCredential('chat','bad-key');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.UNAUTHORIZED);assert.equal(result.manualModelEntryAllowed,true);
+    registry.setResourceCredential('chat','good-key');provider.setMode('failed-discovery');result=await registry.refreshResourceModels('chat');assert.equal(result.state,ResourceModelDiscoveryState.FAILED);assert.equal(result.manualModelEntryAllowed,true);
   }finally{await provider.close();}
 
   const dead=await startProvider();const deadUrl=dead.baseUrl;await dead.close();
   const unreachableRegistry=new CoprocessorResourceConnections();
   const unreachable=await unreachableRegistry.discoverModels({endpoint:deadUrl,apiKey:'good-key',capabilities:[Capability.GRAPH],timeoutMs:50});
-  assert.equal(unreachable.state,ResourceModelDiscoveryState.UNREACHABLE);
+  assert.equal(unreachable.state,ResourceModelDiscoveryState.UNREACHABLE);assert.equal(unreachable.manualModelEntryAllowed,true);
 
   const openrouter=new CoprocessorResourceConnections();
   openrouter.addResource({resourceId:'remote',providerProfileId:'profile:remote',providerId:'provider:remote',workerId:'worker:remote',kind:ResourceKind.OPENAI_COMPATIBLE,

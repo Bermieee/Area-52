@@ -3,7 +3,7 @@
   "schemaVersion": "2",
   "laneId": "ui",
   "branch": "Development-UI",
-  "acceptedSha": "49cd09a2f9c72b4c8b54e6544d4655a5daaf6e33",
+  "acceptedSha": "751b23fe2209165295d047106c35bce160e74a5c",
   "acceptanceRuns": [
     {
       "id": "36064690324",
@@ -24,6 +24,10 @@
     {
       "id": "OWNER-49cd09a2",
       "name": "Worker 3 canonical follow-up: consume Worker 2 resource host + Lore owner host and subscribe to live owner updates"
+    },
+    {
+      "id": "OWNER-751b23fe",
+      "name": "Worker 3 canonical #223 follow-up: native Brain remains available with optional resources"
     }
   ],
   "copiedPaths": [
@@ -137,7 +141,7 @@
     },
     {
       "path": "docs/UI_CORE_WAVE_13_OPERATOR_INTEGRATION.md",
-      "sourceDigest": "d0318ff995098fae0ab43945baba088c40f0bc75"
+      "sourceDigest": "1c2eeaecec5d10268934b85733d5db74f4d0869b"
     },
     {
       "path": "docs/UI_CORE_WAVE_2_ACCEPTANCE.md",
@@ -349,7 +353,7 @@
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
-      "sourceDigest": "b6ed0b29770d601838748ca1b37ee24b43737205"
+      "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382"
     },
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
@@ -577,7 +581,7 @@
     },
     {
       "path": "tests/wave13-operator-ui.test.mjs",
-      "sourceDigest": "80c4b4dc5bbeff09176b6568efb7937058d781dd"
+      "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f"
     },
     {
       "path": "tests/wave2.test.mjs",

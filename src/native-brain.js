@@ -136,6 +136,11 @@ export class Area52NativeBrain{
     return{kind:'NativeBrainLoreInterfaceReceipt',attached:Boolean(loreInterface),contractVersion:loreInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
 
+  attachJevAdapter(adapter=null){
+    const receipt=this.core.registerJevAdapter(adapter);
+    return{kind:'NativeBrainOptionalJevReceipt',...clone(receipt),required:false,nativePathAvailable:true};
+  }
+
   acceptLore(input){
     const row=this.knowledge.admitLore(input);
     if(this.core.hotCognition.hasActiveChat&&row.changed)this.core.hotCognition.invalidateKnowledge({

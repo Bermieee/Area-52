@@ -74,12 +74,15 @@ export class Area52NativeBrain{
     maxTurns=256,
     loreInterface=null,
     memoryInterface=null,
+    graphProviders=[],
   }={}){
     this.maxTurns=Math.max(16,Number(maxTurns)||256);
     this.core=new Area52CognitiveCore();
 
     if(snapshot?.core?.sourceRegistry)this.core.registry.restoreState(snapshot.core.sourceRegistry);
     if(snapshot?.core?.temporalState)this.core.graph.restoreState(snapshot.core.temporalState);
+    if(snapshot?.core?.entityIdentity)this.core.entities.restoreState(snapshot.core.entityIdentity);
+    for(const provider of graphProviders??[])this.core.registerGraphProvider(provider);
     if(snapshot?.core?.hotCognition)this.core.hotCognition.restoreState(snapshot.core.hotCognition,{
       activeSourceRevisionRefs:this.core.registry.activeRevisionIds(),
       worldRevision:this.core.graph.revision,
@@ -188,10 +191,11 @@ export class Area52NativeBrain{
     }
     const distrusted=new Set([previousSourceRevisionId,previousTrust?.trustedSourceRevisionId,previousTrust?.pendingSourceRevisionId].filter(Boolean));
     this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>!distrusted.has(ref)));
+    const identityInvalidation=this.core.invalidateEntityIdentityRevision(previousSourceRevisionId,{reason:'LORE_SOURCE_REVISION_CHANGED'});
     return{
       kind:'NativeBrainLoreRevisionInvalidationReceipt',contractVersion:1,status:'INVALIDATED',sourceId,lorebookId,uid,
       previousSourceRevisionId,sourceRevisionId,checkedChats:uniq(checkedChats),invalidatedChats:uniq(invalidatedChats),
-      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,revisionTrustStatus:'PENDING_EXACT_RETRIEVAL',
+      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,revisionTrustStatus:'PENDING_EXACT_RETRIEVAL',identityInvalidation,
       authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealAuthority:false,
     };
   }
@@ -225,24 +229,34 @@ export class Area52NativeBrain{
     const prior=this.knowledge.currentRecordForSource(sourceId);
     if(!prior)throw new Error('Unknown Lore source: '+sourceId);
     const row=this.knowledge.correctSource(sourceId,exactContent,overrides);
+    const identityInvalidation=this.core.invalidateEntityIdentityRevision(prior.sourceRevisionId,{reason:'LORE_SOURCE_CORRECTED'});
     this.core.hotCognition.invalidateKnowledge({
       updateId:'native-lore-corrected:'+prior.sourceRevisionId+'->'+row.sourceRevisionId,
       invalidatedSourceRevisionRefs:[prior.sourceRevisionId],
       reason:'LORE_SOURCE_CORRECTED',
     });
-    return{prior,row};
+    return{prior,row,identityInvalidation};
   }
 
   removeLore(sourceId,{reason='LORE_SOURCE_REMOVED'}={}){
     const prior=this.knowledge.currentRecordForSource(sourceId);
     const receipt=this.knowledge.removeSource(sourceId,{reason});
+    const identityInvalidation=prior?this.core.invalidateEntityIdentityRevision(prior.sourceRevisionId,{reason}):null;
     if(prior)this.core.hotCognition.invalidateKnowledge({
       updateId:'native-lore-removed:'+prior.sourceRevisionId,
       invalidatedSourceRevisionRefs:[prior.sourceRevisionId],
       reason,
     });
-    return receipt;
+    return{...receipt,identityInvalidation};
   }
+
+  registerEntityIdentity(input){return this.core.registerEntityIdentity(input);}
+  proposeEntityIdentity(input){return this.core.proposeEntityIdentity(input);}
+  settleEntityIdentity(proposalId,options={}){return this.core.settleEntityIdentity(proposalId,options);}
+  registerGraphProvider(options){return this.core.registerGraphProvider(options);}
+  unregisterGraphProvider(providerId){return this.core.unregisterGraphProvider(providerId);}
+  entityIdentityReadModel(options={}){return this.core.entityIdentityReadModel(options);}
+  graphWalkerDiagnostics(){return this.core.graphWalkerDiagnostics();}
 
   observeScene(chatId,input){
     const id=req(chatId,'chatId'),signal=sceneSignalFrom(input,id);
@@ -259,6 +273,7 @@ export class Area52NativeBrain{
     scene=null,sceneSignal=null,anchorEntityIds=[],perspectiveConstraint=null,
     budgetBytes=5000,budgetTokens=null,deadline=null,modelProfileId='CACHE_STABLE',
     systemPolicy=null,activeThreads=[],precisionAvailable=true,channelIds=null,
+    candidateBudget=64,latencyBudgetMs=20,graphTraversal=null,
     executionLabel='LIVE_HOST',
   }={}){
     const chat=req(chatId,'chatId'),turn=req(turnId,'turnId'),generation=req(generationId,'generationId'),q=req(query,'query');
@@ -277,7 +292,7 @@ export class Area52NativeBrain{
     const published=this.core.publishGenerationContext({
       turnId:turn,turnRevision:sequence,correlationId:corr,query:q,intent,
       anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,precisionAvailable,
-      activeThreads,channelIds,perspectiveConstraint,
+      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,
     });
     const delivery=this.core.deliverGenerationContext({
       published,generationId,modelProfileId,budgetTokens,systemPolicy,userInput:q,
@@ -293,6 +308,7 @@ export class Area52NativeBrain{
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet:this.core.currentSourceRevisionIds(),
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
+      retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal)},
       published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       state:'SEALED_FOR_GENERATION',
     };
@@ -303,6 +319,8 @@ export class Area52NativeBrain{
       scene:sceneState,loreSync,memorySync,cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
+      graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,
+      budgetDecision:delivery.plan?.diagnosticReceipt?.budgetDecision??null,
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });
@@ -417,6 +435,10 @@ export class Area52NativeBrain{
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
+      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel(),authorityGranted:false})),
+      readGraphTraversal:(selection={})=>this.#readStage(selection,record=>record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??null),
+      readRetrievalBudget:(selection={})=>this.#readStage(selection,record=>this.#uiRetrievalBudgetReceipt(record)),
+      readRejectedEvidence:(selection={})=>this.#readStage(selection,record=>this.#uiRejectedEvidence(record)),
       readTruth:(selection={})=>this.#readStage(selection,record=>record.published?.publicationAssessment??record.published?.assessment??null),
       readCorrectiveRetrieval:(selection={})=>this.#readStage(selection,record=>record.published?.corrective??null),
       readJev:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt?.jev??null),
@@ -445,7 +467,7 @@ export class Area52NativeBrain{
     return {
       kind:'Area52NativeBrainDiagnostics',
       turns:this.turns.size,activeChat:this.core.hotCognition.activeChatNamespace,
-      world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),
+      world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),identity:this.core.entityIdentityReadModel(),graph:this.core.graphWalkerDiagnostics(),
       knowledge:this.knowledge.diagnostics(),feedback:this.feedback.diagnostics(),
       loreInterface:{attached:Boolean(this.loreInterface),kind:this.loreInterface?.kind??null,contractVersion:this.loreInterface?.contractVersion??null},
       loreRevisionTrust:{
@@ -467,6 +489,7 @@ export class Area52NativeBrain{
       core:{
         sourceRegistry:this.core.registry.exportState(),
         temporalState:this.core.graph.exportState(),
+        entityIdentity:this.core.entities.exportState(),
         hotCognition:this.core.hotCognition.exportState(),
         contextSeal:this.core.publication.seal.exportState(),
       },
@@ -591,7 +614,7 @@ export class Area52NativeBrain{
     return this.turnOrder.slice().reverse().map(id=>this.turns.get(id)).filter(Boolean).filter(row=>!chatId||row.chatId===chatId).slice(0,max).map(row=>({kind:'NativeBrainGenerationSummary',...this.#selection(row),state:row.state,executionLabel:row.executionLabel,sealId:row.published?.sealReceipt?.id??null,promptPlanId:row.delivery?.plan?.promptPlanId??null}));
   }
 
-  #readGeneration(generationId,selection={}){if(generationId==null)return null;const record=this.#recordForSelection({...selection,generationId});if(!record)return null;return clone({kind:'NativeBrainGenerationReadModel',...this.#selection(record),state:record.state,executionLabel:record.executionLabel,cognitiveChoice:record.published?.cognitiveChoiceReceipt??null,candidateEnvelope:record.published?.candidateEnvelope??null,truth:record.published?.publicationAssessment??record.published?.assessment??null,gather:record.published?.gatherReceipt??null,contextSeal:record.published?.sealReceipt??null,promptPlan:record.delivery?.plan??null,loreSync:record.loreSync??null,memorySync:record.memorySync??null,learningReceipt:record.learningReceipt??null});}
+  #readGeneration(generationId,selection={}){if(generationId==null)return null;const record=this.#recordForSelection({...selection,generationId});if(!record)return null;return clone({kind:'NativeBrainGenerationReadModel',...this.#selection(record),state:record.state,executionLabel:record.executionLabel,cognitiveChoice:record.published?.cognitiveChoiceReceipt??null,candidateEnvelope:record.published?.candidateEnvelope??null,identityResolution:this.core.entityIdentityReadModel(),graphTraversal:record.published?.graphTraversalReceipt??null,retrievalBudget:this.#uiRetrievalBudgetReceipt(record),rejectedEvidence:this.#uiRejectedEvidence(record),truth:record.published?.publicationAssessment??record.published?.assessment??null,gather:record.published?.gatherReceipt??null,contextSeal:record.published?.sealReceipt??null,promptPlan:record.delivery?.plan??null,loreSync:record.loreSync??null,memorySync:record.memorySync??null,learningReceipt:record.learningReceipt??null});}
 
   #notify(stage,record){
     if(!this.listeners.size||!record)return;const event=Object.freeze({kind:'NativeBrainReceiptUpdate',stage:String(stage),selection:this.#selection(record),rawPromptIncluded:false,rawResponseIncluded:false});
@@ -644,6 +667,16 @@ export class Area52NativeBrain{
   #uiScatterReceipt(record){
     const choice=record.published?.cognitiveChoiceReceipt??{},jobs=(choice.admittedJobs??[]).map((jobId,index)=>({jobId:String(jobId),sequence:index+1,status:'EXECUTED',owner:'COGNITIVE_CORE'}));
     return{kind:'RuntimeTurnReceipt',...this.#selection(record),jobs,admittedJobCount:jobs.length,resourceCount:1,resourceIds:['native-brain-local-cpu'],requiredFallback:0,opportunisticPending:0,executionComplete:true,authorityGranted:false};
+  }
+
+  #uiRetrievalBudgetReceipt(record){
+    const fusion=record.published?.candidateEnvelope?.fusionReceipt??null,latency=record.published?.retrievalBudgetReceipt??record.published?.candidateEnvelope?.metadata?.retrievalBudgetReceipt??null,choice=record.published?.cognitiveChoiceReceipt?.latencyResourceBudget??null,delivery=record.delivery?.plan?.diagnosticReceipt?.budgetDecision??null;
+    return{kind:'NativeBrainRetrievalBudgetReceipt',...this.#selection(record),candidate:{requested:record.retrievalPolicy?.candidateBudget??choice?.candidateBudget??null,effective:fusion?.diagnostics?.effectiveCandidateLimit??choice?.effectiveCandidateLimit??null,nominated:fusion?.inputNominationCount??0,deduplicated:fusion?.deduplicatedCandidateCount??0,boundedOut:fusion?.boundedOutCount??0},latency:clone(latency),contextDelivery:clone(delivery),authorityGranted:false};
+  }
+
+  #uiRejectedEvidence(record){
+    const fusion=record.published?.candidateEnvelope?.fusionReceipt??{},graph=record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??{},routes=record.published?.resultRoutes??[];
+    return{kind:'NativeBrainRejectedEvidenceReceipt',...this.#selection(record),staleNominationCount:Number(fusion.staleNominationCount??0),invalidNominationCount:Number(fusion.invalidNominationCount??0),staleGraphEdges:clone(graph.staleRejected??[]),staleGraphEdgeCount:Number(graph.staleRejectedCount??0),loreRejectedRevisionRefs:[...(record.loreSync?.rejectedRevisionRefs??[])],staleResultIds:routes.filter(row=>row?.route?.freshness==='STALE').map(row=>row.result?.id).filter(Boolean),rejectedResultIds:routes.filter(row=>row?.route?.accepted===false).map(row=>row.result?.id).filter(Boolean),authorityGranted:false};
   }
 
   #uiGatherReceipt(record){

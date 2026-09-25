@@ -15,6 +15,8 @@ export const JevDomain = Object.freeze({
   LORE: 'LORE',
   SCENE: 'SCENE',
   RETRIEVAL_TRUTH: 'RETRIEVAL_TRUTH',
+  MEMORY: 'MEMORY',
+  TEMPORAL: 'TEMPORAL',
 });
 
 export const JevAdapterPrecheckStatus = Object.freeze({

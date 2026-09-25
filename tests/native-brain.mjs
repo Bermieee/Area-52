@@ -323,6 +323,39 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revisi
   assert.equal(channelIds(removed).has('OWNER_LORE'),false);
 });
 
+test('DETERMINISTIC: Worker 4 Lore revision event invalidates stale owner evidence before the next generation',async()=>{
+  let revision='lore:reef-law@r1',text='The reef gate opens only at dawn.';
+  const loreInterface={
+    kind:'LoreBrainRetrievalInterface',contractVersion:1,
+    query:()=>({kind:'LoreBrainRetrievalPacket',contractVersion:1,indexRevision:'idx:'+revision,ontologyRevision:'onto:1',sourceRevisionFence:[revision],nominations:[{drillback:[{sourceId:'lore:reef-law',sourceRevisionId:revision,exactAuthoredText:text,representationRef:'source:'+revision,selectedRepresentation:{representationRevision:1},provenance:[{sourceRevisionId:revision}]}]}]}),
+  };
+  const brain=new Area52NativeBrain({loreInterface});
+  const first=await brain.prepareTurn({
+    chatId:'chat:lore-invalidation',turnId:'lore-invalidation:1',generationId:'gen:lore-invalidation:1',
+    query:'When does the reef gate open?',intent:'CURRENT',scene:scene('reef-gate',1,{location:'Reef Gate',activeCast:['Vale']}),executionLabel:'DETERMINISTIC',
+  });
+  assert.match(JSON.stringify(first.promptPlan),/only at dawn/i);
+  await brain.completeTurn({turnId:'lore-invalidation:1',response:'Vale waits beside the reef gate.',knownBy:['Vale']});
+
+  const invalidation=brain.acceptLoreRevisionChange({
+    kind:'LoreSourceRevisionChanged',sourceId:'lore:reef-law',lorebookId:'reef-laws',uid:'gate-hours',
+    previousSourceRevisionId:'lore:reef-law@r1',sourceRevisionId:'lore:reef-law@r2',contentHash:'hash:r2',
+  });
+  assert.equal(invalidation.status,'INVALIDATED');
+  assert.equal(invalidation.nextRevisionTrusted,false);
+  assert.ok(invalidation.invalidatedChats.includes('chat:lore-invalidation'));
+
+  revision='lore:reef-law@r2';text='The reef gate now opens only at moonrise.';
+  const next=await brain.prepareTurn({
+    chatId:'chat:lore-invalidation',turnId:'lore-invalidation:2',generationId:'gen:lore-invalidation:2',
+    query:'When does the reef gate open now?',intent:'CURRENT',executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(next.selection.ownerSourceRevisionRefs.includes('lore:reef-law@r1'),false);
+  assert.ok(next.selection.ownerSourceRevisionRefs.includes('lore:reef-law@r2'));
+  assert.doesNotMatch(JSON.stringify(next.promptPlan),/only at dawn/i);
+  assert.match(JSON.stringify(next.promptPlan),/only at moonrise/i);
+});
+
 test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate Bus and quiet turns do not call Historian',async()=>{
   let memoryQueries=0;
   const writebacks=[],invalidations=[],settlementMirrors=[];

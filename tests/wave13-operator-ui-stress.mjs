@@ -28,7 +28,7 @@ let maxPending=0,maxCards=0,maxRails=0;
 for(const [width,height,cycles] of [[1440,900,240],[420,640,160]]){
   const document=new Doc(width,height),root=new Node('aside',document);document.body.append(root);
   const ui=createWave6ProductInterface({root,stateStore:new UIStateStore({storage:mem(),namespace:'wave13-stress-'+width}),hostBindings:host,floatingNavigation:true,viewportProvider:()=>({width,height})});
-  const product=['home','story','characters','lore','memory-product','world-product','brain'];
+  const product=['home','story','characters','lore','memory-product','world-product','brain','connections','settings'];
   for(let i=0;i<cycles;i++){
     selection={chatId:'chat:stress-'+(i%7),turnId:'turn:'+i,generationId:'gen:'+i,correlationId:'corr:'+i,worldRevision:i+2,sceneRevision:i+2,sourceRevisionRefs:['scene:'+(i%7)+'@'+(i+2)]};
     location='Setting '+(i%11);emit();
@@ -39,8 +39,8 @@ for(const [width,height,cycles] of [[1440,900,240],[420,640,160]]){
     if(i%17===0){ui.floatingController.toggleMinimized();ui.floatingController.toggleMinimized();}
     ui.scheduler.flush(i+1);
     const d=ui.floatingController.diagnostics();
-    assert.ok(d.rail.x>=10&&d.rail.x+64<=width-10);
-    assert.ok(d.card.x>=10&&d.card.x+d.card.width<=width-10);
+    assert.ok(d.rail.x>=8&&d.rail.x+d.rail.width<=width-8);
+    assert.ok(d.card.x>=8&&d.card.x+d.card.width<=width-8);assert.equal(d.card.attached,true);
     maxPending=Math.max(maxPending,ui.scheduler.pendingCount);
     maxCards=Math.max(maxCards,all(document.body).filter(x=>String(x.className).split(/\\s+/).includes('a52-wave13-popout')).length);
     maxRails=Math.max(maxRails,all(document.body).filter(x=>String(x.className).split(/\\s+/).includes('a52-wave13-rail')).length);

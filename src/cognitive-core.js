@@ -24,6 +24,7 @@ export class Area52CognitiveCore {
     this.registry=new SourceRegistry();this.study=new LoreStudyEngine({registry:this.registry});this.graph=new TemporalStateGraph();
     this.settlementCore=new SettlementEngine({registry:this.registry,graph:this.graph});
     this.settlement=new SettlementBoundary({registry:this.registry,graph:this.graph,worldStateSettlement:this.settlementCore});
+    this.externalKnowledgeResolver=null;
     this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
     this.hotCognition=new HotCognitionRuntime({sourceRegistry:this.registry,getWorldRevision:()=>this.graph.revision});
@@ -65,6 +66,13 @@ export class Area52CognitiveCore {
   hotCognitionSnapshot(chatNamespace){return this.hotCognition.snapshot(chatNamespace);}
   sceneIntegrationSnapshot(chatNamespace){return this.sceneIntegration.snapshot(chatNamespace);}
   sceneIntegrationDiagnostics(chatNamespace){return this.sceneIntegration.diagnostics(chatNamespace);}
+  registerExternalKnowledgeResolver(resolver=null){
+    if(resolver!==null&&typeof resolver!=='function')throw new TypeError('external knowledge resolver must be a function');
+    this.externalKnowledgeResolver=resolver;
+    this.truthGate.setExternalEvidenceResolver(resolver);
+    return{registered:Boolean(resolver),authorityGranted:false,settlementAuthority:false};
+  }
+  resolveExternalKnowledge(candidate){return this.externalKnowledgeResolver?.(candidate)??null;}
   registerJevAdapter(adapter){return this.cognitiveChoice.registerJevAdapter(adapter);}
   cognitiveChoiceReceipt(turnId){return this.cognitiveChoice.getReceipt(turnId);}
   sensoryEnvelope(query,options={}){return this.retrieval.retrieveEnvelope(query,options);}

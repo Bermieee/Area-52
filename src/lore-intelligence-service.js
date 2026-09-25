@@ -18,6 +18,17 @@ function assertDiscoveredLorebook(input) {
     error.code = 'LORE_DISCOVERY_ID_REQUIRED';
     throw error;
   }
+  const discovery = input.discovery || input.origin || null;
+  if (!discovery || typeof discovery !== 'object') {
+    const error = new TypeError('Worker 3 discovery receipt is required for Lore acceptance');
+    error.code = 'LORE_DISCOVERY_RECEIPT_REQUIRED';
+    throw error;
+  }
+  if (String(input.id) === 'operator-lore') {
+    const error = new TypeError('Fallback operator-lore id is not an accepted discovered Lorebook identity');
+    error.code = 'LORE_DISCOVERY_DEFAULT_ID_REJECTED';
+    throw error;
+  }
   if (!Array.isArray(input.entries)) {
     const error = new TypeError('Discovered Lorebook entries are required');
     error.code = 'LORE_DISCOVERY_ENTRIES_REQUIRED';
@@ -52,7 +63,7 @@ function assertDiscoveredLorebook(input) {
     id: String(input.id),
     title: input.title == null ? String(input.id) : String(input.title),
     metadata: deepClone(input.metadata || {}),
-    discovery: deepClone(input.discovery || input.origin || null),
+    discovery: deepClone(discovery),
     entries,
     fullSnapshot: input.fullSnapshot !== false,
   };

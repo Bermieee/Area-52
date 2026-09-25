@@ -201,10 +201,44 @@ test('Lore owner lifecycle distinguishes accepted source from learned retrieval-
   await adapter.run({scope:'DUE'});read=adapter.read();assert.equal(read.data.entries[0].freshness,'CURRENT');assert.ok(read.data.entries[0].learnedRevisionId);assert.equal(read.data.retrievalReady,1);assert.equal(read.source.operationalState,'LIVE');
 });
 
-test('Lore workspace contains generic ingestion controls and no fixed Ember Tavern assumptions',()=>{
+test('Lore workspace uses SillyTavern selection instead of manual ID or pasted JSON in the normal flow',()=>{
   const owner=liveOwner({withLore:true}),{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Submit Lore for study/);assert.match(body,/Accepted source entries/);assert.doesNotMatch(body,/Ember Tavern|Sun Blade/);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/SillyTavern selected Lorebook/);assert.match(body,/No Lorebook selected|discovery unavailable/i);
+  assert.doesNotMatch(body,/Submit Lore for study|Authored Lore/);
+  const inputs=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='INPUT'||x.tagName==='TEXTAREA');
+  assert.ok(inputs.every(x=>x.getAttribute?.('aria-label')!=='Lorebook ID'&&x.getAttribute?.('aria-label')!=='Lore content'));
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.ok(buttons.every(x=>x.attributes?.type==='button'));
+  ui.destroy();
+});
+
+test('Lore selected-book discovery shows real title ID and entry count before acceptance',async()=>{
+  const owner=liveOwner({withLore:true});
+  owner.bindings.readSelectedLorebookSelection=()=>({kind:'SillyTavernLorebookSelection',selected:true,lorebookId:'Moon Harbor',title:'Moon Harbor',source:'SILLYTAVERN_WORLD_INFO_EDITOR'});
+  owner.bindings.discoverSelectedLorebook=async()=>({id:'Moon Harbor',title:'Moon Harbor',entries:[
+    {uid:'captain',content:'Captain Vale keeps the blue ledger.',metadata:{title:'Captain Vale'}},
+    {uid:'dock',content:'The east dock closes at midnight.',metadata:{title:'East Dock'}},
+  ],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',contractVersion:1,source:'SILLYTAVERN_WORLD_INFO_EDITOR',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:2}});
+  const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Moon Harbor/);assert.match(body,/Entry count 2/);assert.match(body,/Accept for study/);
+  const snapshot=ui.operator.loreStudy.selectedLorebook().snapshot;assert.equal(snapshot.id,'Moon Harbor');assert.equal(snapshot.discovery.entryCount,2);
+  assert.equal((await ui.actionRouter.route({type:'wave13.lore.accept',payload:snapshot})).ok,true);
+  ui.destroy();
+});
+
+test('Brain operations distinguish producer availability execution results and context admission',()=>{
+  const owner=liveOwner({withResources:true});
+  const{ui}=mount(owner),read=ui.operator.operations.read();
+  assert.ok(read.pipeline.registeredProducers>=1);assert.equal(read.pipeline.executionReceipt,true);assert.equal(read.pipeline.executedJobs,1);
+  assert.equal(typeof read.pipeline.resultReceipt,'boolean');assert.equal(typeof read.pipeline.admissionReceipt,'boolean');
+  ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('brain');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Execution \/ admission|Work executed/);assert.match(body,/Returned results/);assert.match(body,/Context-admitted results|Context admitted/);
+  ui.destroy();
+});
+
+test('Memory no-evidence owner code is translated to plain language while the code remains inspectable',()=>{
+  const owner=liveOwner();owner.bindings.readMemoryStatus=()=>({kind:'MemoryStatus',reasonCode:'MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT',...owner.bindings.readSelection()});
+  const{ui}=mount(owner),stage=ui.operator.operations.read().stages.find(x=>x.id==='memory');
+  assert.equal(stage.state,'IDLE');assert.equal(stage.reason,'No memories recorded for this chat yet.');assert.equal(stage.errorCode,'MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT');
   ui.destroy();
 });
 
@@ -298,7 +332,7 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
   for(const row of ui.operator.resources.read().data.resources)assert.equal((await ui.actionRouter.route({type:'wave13.resource.test',target:row})).ok,true);
   ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);
   const body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/raw prompts are never collected/i);
+  assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/not a complete forensic transaction timeline/i);assert.match(body,/raw prompts and credentials are never collected/i);
   const snap=ui.operator.diagnostics.read();
   assert.equal(snap.telemetry.rawPromptTelemetry,false);assert.equal(snap.host.rawPromptTelemetry,false);
   assert.deepEqual(snap.resources.lanes.map(x=>[x.kind,x.connected]),[['JEV',1],['SIDECAR',1],['VECTORING',1]]);

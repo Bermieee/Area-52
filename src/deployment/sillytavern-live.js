@@ -292,12 +292,15 @@ export class DevelopmentDeploymentSillyTavernSession {
     initialLorebook = null,
     nativeBrain = null,
     ownerBindings = {},
+    persistNativeBrain = null,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
     this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
+    this.persistNativeBrain=typeof persistNativeBrain==='function'?persistNativeBrain:null;
+    this.nativePersistence=[];
     this.nativePending = new Map();
     this.nativePayloads = new Map();
     this.nativeRuns = new Map();
@@ -489,7 +492,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
     const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
     this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
-    this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
+    await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
     this.#notify();return clone(completed);
   }
 
@@ -635,6 +638,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
         pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
+        persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         rawPromptCaptured:false,rawResponseCaptured:false,
       },
@@ -649,6 +653,19 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.stop();
     this.uiHost?.destroy?.();
     this.uiHost = null;
+  }
+
+  async #persistNativeBrainCheckpoint({chatId,turnId,generationId}={}){
+    if(!this.persistNativeBrain||typeof this.nativeBrain?.snapshot!=='function'){
+      const row={at:Date.now(),chatId,turnId,generationId,status:'NOT_CONFIGURED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+    }
+    try{
+      const snapshot=this.nativeBrain.snapshot();
+      await this.persistNativeBrain({chatId,turnId,generationId,snapshot});
+      const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+    }catch(error){
+      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:String(error?.code??error?.message??error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+    }
   }
 
   #attachNativeKnowledgeOwners(){

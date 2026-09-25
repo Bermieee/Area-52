@@ -117,6 +117,14 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
     assert.equal(brain.settleEntityIdentity(ownerBound.proposalId,{decision:'ACCEPT'}).state,'DEFERRED');
   }
 
+  const revisionBoundUnresolved=brain.proposeEntityIdentity({
+    action:'AMBIGUOUS',providerId:'LORE_ASTER',label:'Silver Ash',
+    candidateEntityIds:['entity:aster:ash','entity:aster:ash-relic'],worldId:'world:aster',
+    authorityOrigin:'HEURISTIC',explicit:false,sourceRevisionRefs:[oldLore.sourceRevisionId],
+    provenanceRefs:[oldLore.evidenceId,'identity:revision-bound-unresolved'],
+  });
+  assert.equal(brain.settleEntityIdentity(revisionBoundUnresolved.proposalId,{decision:'ACCEPT'}).state,'UNRESOLVED');
+
   const beforeCorrection=brain.entityIdentityReadModel();
   const emberBefore=beforeCorrection.identities.find(row=>row.entityId==='entity:ember:ash');
   const corrected=brain.correctLore('lore:aster:ash','Correction: In Aster Vale, Ash is now explicitly called Argent Ash.',{
@@ -130,6 +138,7 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
   const afterInvalidation=brain.core.entities.get('entity:aster:ash');
   assert.equal(Boolean(currentAlias(afterInvalidation,'Silver Ash')),false);
   assert.ok(afterInvalidation.aliases.some(row=>row.alias==='Silver Ash'&&row.status==='INVALIDATED'));
+  assert.equal(brain.core.entities.proposal(revisionBoundUnresolved.proposalId).state,'INVALIDATED');
 
   const newAlias=brain.proposeEntityIdentity({
     action:'ALIAS_ADD',providerId:'LORE_ASTER',sourceEntityId:'aster-person-ash-v2',alias:'Argent Ash',

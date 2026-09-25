@@ -202,8 +202,9 @@ export class NativeEntityIdentityRegistry{
       }
       if(changed){entity.revision+=1;entity.updatedSequence=++this.sequence;affectedEntityIds.push(entity.entityId);}
     }
+    const invalidatableProposalStates=new Set([IdentityResolutionState.PROPOSED,IdentityResolutionState.DEFERRED,IdentityResolutionState.UNRESOLVED]);
     for(const proposal of this.proposals.values()){
-      if(proposal.state===IdentityResolutionState.PROPOSED&&(proposal.sourceRevisionRefs??[]).includes(ref))this.proposals.set(proposal.proposalId,{...proposal,state:IdentityResolutionState.INVALIDATED,invalidationReason:reason});
+      if(invalidatableProposalStates.has(proposal.state)&&(proposal.sourceRevisionRefs??[]).includes(ref))this.proposals.set(proposal.proposalId,{...proposal,state:IdentityResolutionState.INVALIDATED,invalidationReason:reason});
     }
     return{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:ref,affectedEntityIds:uniq(affectedEntityIds),retiredAliases:uniq(retiredAliases),retiredLinks:uniq(retiredLinks),historyPreserved:true,unrelatedIdentityMutation:false};
   }

@@ -185,16 +185,19 @@ export class OpenAICompatibleProviderAdapter {
     }catch(error){throw normalizeTransportError(error,{providerId:this.providerId,operation:'embedding'});}
   }
   async #qualificationChat({signal,timeoutMs}){
+    // Keep the qualification request intentionally minimal. Some otherwise valid
+    // OpenAI-compatible/reasoning models reject temperature/max_tokens variants.
     const body={model:this.modelId,messages:[
-      {role:'system',content:'Area-52 connection qualification. Return a short JSON object only.'},
-      {role:'user',content:'{"probe":"area52"}'},
-    ],temperature:0,max_tokens:8};
+      {role:'user',content:'Area-52 connection qualification. Reply briefly.'},
+    ]};
     const response=await providerFetch(this.fetchImpl,`${this.endpoint}/chat/completions`,{
       method:'POST',headers:this.#requestHeaders({'content-type':'application/json'}),body:JSON.stringify(body),signal,
     },{signal,timeoutMs,providerId:this.providerId,operation:'chat qualification'});
     if(!response?.ok)throw httpError(Number(response?.status??0),{providerId:this.providerId,operation:'chat qualification'});
     const json=await parseProviderJson(response,this.providerId,'chat qualification');
-    if(typeof json?.choices?.[0]?.message?.content!=='string')throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'chat qualification response did not contain message.content text',{providerId:this.providerId});
+    const choice=Array.isArray(json?.choices)?json.choices[0]:null;
+    const hasCompletionChoice=Boolean(choice&&typeof choice==='object'&&(choice.message&&typeof choice.message==='object'||typeof choice.text==='string'));
+    if(!hasCompletionChoice)throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'chat qualification response did not contain a completion choice',{providerId:this.providerId});
     return{modelId:typeof json?.model==='string'&&json.model?json.model:this.modelId,actualProvider:safeProviderName(json?.provider)};
   }
   async #qualificationEmbedding({signal,timeoutMs}){

@@ -4,10 +4,10 @@ import { createCognitionUiReadModelReader } from './coprocessor-ui-read-model.js
 
 export const RESOURCE_HOST_ADAPTER_VERSION='1.3.0';
 
-export function createCoprocessorResourceHost({connections=null,swarm=null,planner=null,ownerReceipts=null,queuePressure=null,...options}={}){
+export function createCoprocessorResourceHost({connections=null,swarm=null,planner=null,ownerReceipts=null,queuePressure=null,scheduler=null,...options}={}){
   const registry=connections??new CoprocessorResourceConnections(options);
   const coordinator=swarm??new NativeSidecarSwarm({connections:registry,planner,telemetry:options.telemetry??registry.telemetry,now:options.now});
-  const cognition=createCognitionUiReadModelReader({telemetry:options.telemetry??registry.telemetry,resourceConnections:registry,ownerReceipts,queuePressure});
+  const cognition=createCognitionUiReadModelReader({telemetry:options.telemetry??registry.telemetry,resourceConnections:registry,ownerReceipts,queuePressure,scheduler});
   return Object.freeze({
     kind:'CoprocessorResourceHostAdapter',
     contractVersion:RESOURCE_HOST_ADAPTER_VERSION,

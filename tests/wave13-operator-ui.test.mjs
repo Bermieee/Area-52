@@ -92,7 +92,7 @@ test('attached rail/panel keyboard movement, resize, collapse, restore and close
   const c=ui.floatingController;c.open('story');ui.scheduler.flush(1);
   const before=c.diagnostics();c.nodes.railHandle.dispatch('keydown',{key:'ArrowLeft'});c.nodes.cardHandle.dispatch('keydown',{key:'ArrowUp'});ui.scheduler.flush(2);
   const moved=c.diagnostics();assert.ok(moved.rail.x<=before.rail.x);assert.ok(moved.rail.y<=before.rail.y);assert.equal(moved.card.attached,true);
-  const width=ui.presentation.get().frontFaceWidth;c.nodes.resizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowLeft':'ArrowRight'});assert.ok(ui.presentation.get().frontFaceWidth<=width);
+  const width=ui.presentation.get().frontFaceWidth;c.nodes.resizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowLeft':'ArrowRight'});assert.ok(ui.presentation.get().frontFaceWidth<=width);\n  const sideWidth=ui.presentation.get().frontFaceWidth;c.nodes.sideResizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowRight':'ArrowLeft'});assert.ok(ui.presentation.get().frontFaceWidth>=sideWidth);
   c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,true);assert.equal(ui.shell.currentWorkspace,'story');assert.equal(c.nodes.minimize.textContent,'Expand');
   c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,false);assert.equal(c.nodes.minimize.textContent,'Collapse');
   c.nodes.close.dispatch('click');assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.COLLAPSED);
@@ -110,6 +110,16 @@ test('narrow viewport clamps rail and attached card to reachable bounds even nea
   if(d.card.side==='RIGHT')assert.equal(d.card.x,d.rail.x+d.rail.width);else assert.equal(d.card.x+d.card.width,d.rail.x);
   assert.ok(d.card.y>=8&&d.card.y<620);
   ui.destroy();
+});
+
+test('panel outer side edge supports pointer resize in addition to the bottom handle',()=>{
+  const owner=liveOwner(),{ui,document}=mount(owner,{width:1100,height:700});const c=ui.floatingController;c.open('connections');ui.scheduler.flush(1);
+  const before=c.diagnostics(),handle=c.nodes.sideResizeHandle,startWidth=ui.presentation.get().frontFaceWidth;
+  handle.dispatch('pointerdown',{button:0,clientX:before.card.side==='RIGHT'?before.card.x+before.card.width:before.card.x,clientY:before.card.y+120,pointerId:13});
+  const delta=before.card.side==='RIGHT'?80:-80;
+  document.dispatch('pointermove',{clientX:(before.card.side==='RIGHT'?before.card.x+before.card.width:before.card.x)+delta,clientY:before.card.y+120,pointerId:13});
+  document.dispatch('pointerup',{pointerId:13});ui.scheduler.flush(2);
+  assert.ok(ui.presentation.get().frontFaceWidth>startWidth);assert.equal(c.diagnostics().card.attached,true);ui.destroy();
 });
 
 test('selected chat with no active turn reports WAITING rather than fabricated live receipts',()=>{
@@ -199,8 +209,21 @@ test('Lore workspace contains generic ingestion controls and no fixed Ember Tave
 
 test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Connections/);assert.match(body,/Jev \/ sidecar resources/);assert.match(body,/Fan-out → Gather/);assert.match(body,/Native Brain remains available|native cognition remains available|native Brain remains usable/i);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Connections/);assert.match(body,/Jev/);assert.match(body,/Sidecar/);assert.match(body,/Vectoring/);assert.match(body,/Fan-out → Gather/);assert.match(body,/Native Brain remains available|native cognition remains available|native Brain remains usable/i);
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.ok(buttons.length>0);assert.ok(buttons.every(x=>x.attributes?.type==='button'));
+  ui.destroy();
+});
+
+test('Connections renders separate Jev Sidecar and Vectoring slots and locks owner-configured resources',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  let slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);assert.deepEqual(slots.map(x=>x.dataset.slot),['JEV','SIDECAR','VECTORING']);
+  await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'JEV',resourceId:'jev:locked',endpoint:'http://127.0.0.1:8080',modelId:'jev-model',capabilities:['SEMANTIC_JUDGMENT']}});
+  await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'VECTORING',resourceId:'vector:locked',endpoint:'http://127.0.0.1:8090',modelId:'embed-model',capabilities:['RETRIEVAL','EMBED']}});
+  ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
+  const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
+  assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
+  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(sidecar),/Connect Sidecar/);
   ui.destroy();
 });
 

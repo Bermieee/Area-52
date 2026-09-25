@@ -1,0 +1,1 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {runDeliveryLearningStress} from './delivery-learning-stress-harness.js';test('delivery learning stress stays bounded, semantic-safe, reversible and future-only',()=>{const r=runDeliveryLearningStress();assert.equal(r.pass,true,JSON.stringify(r.metrics,null,2));});

@@ -1,0 +1,1 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {runIntegrationWave4Stress} from './integration-wave4-stress-harness.js';test('Wave 4 integration/read-model stress meets required scale with bounded deterministic behavior',()=>{const r=runIntegrationWave4Stress();assert.equal(r.pass,true,JSON.stringify(r.metrics,null,2));});

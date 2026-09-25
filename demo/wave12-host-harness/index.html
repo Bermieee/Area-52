@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Area-52 Wave 12 — HOST HARNESS</title>
+  <link rel="stylesheet" href="../../styles/ui-core.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave2.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave3.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave4.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave5.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave6.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave7.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave8.css">
+  <link rel="stylesheet" href="../../styles/ui-core-wave13.css">
+  <link rel="stylesheet" href="./harness.css">
+</head>
+<body>
+  <header class="host-harness-toolbar">
+    <div><strong>Area-52 Wave 12 · HOST HARNESS</strong><span>FIXTURE RECEIPTS · NOT LIVE #224 ACCEPTANCE</span></div>
+    <label>Turn <select id="turn"><option value="turn:hot">Hot-only</option><option value="turn:retrieval">Retrieval-heavy</option><option value="turn:ambiguous">Ambiguous / Jev</option></select></label>
+    <label>Detail <select id="detail"><option>NORMAL</option><option selected>DETAIL</option><option>ADVANCED</option></select></label>
+    <label>Width <select id="width"><option>420</option><option selected>560</option><option>720</option><option>900</option></select></label>
+    <button id="toggle" type="button">Collapse</button>
+    <button id="remount" type="button">Destroy / remount</button>
+    <output id="status" aria-live="polite"></output>
+  </header>
+  <div id="sheld" aria-label="HOST HARNESS SillyTavern-shaped chat surface">
+    <div id="chat">
+      <article><strong>Mara</strong><p>The Ember Tavern is gone. The Sun Blade is not where the old record says it was.</p></article>
+      <article><strong>Eris</strong><p>One witness says it burned; another says it was removed before the fire.</p></article>
+      <article><strong>Operator note</strong><p>This surface exists only to exercise the production host adapter beside a SillyTavern-shaped host. It is not a live SillyTavern session.</p></article>
+    </div>
+    <div id="form_sheld"><input aria-label="Harness input" value="HOST HARNESS — no generation is sent" readonly></div>
+  </div>
+  <script type="module" src="./harness.js"></script>
+</body>
+</html>

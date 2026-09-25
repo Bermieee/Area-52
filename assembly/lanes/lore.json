@@ -1,0 +1,204 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "lore",
+  "branch": "Development-Lorebook-Editor",
+  "acceptedSha": "fa74d3e792d3d8aa4dc4879271bcfc42f43e7c2c",
+  "acceptanceRuns": [
+    {
+      "id": "36053732696",
+      "name": "Lore Wave 1 CI"
+    },
+    {
+      "id": "36053732771",
+      "name": "Lore Wave 2 CI"
+    },
+    {
+      "id": "36053732728",
+      "name": "Lore Wave 3 CI"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "docs/LORE_HIERARCHY_CONTEXTUAL_RETRIEVAL.md",
+      "sourceDigest": "20405e26c9de3e9c49f46976e2cde04c92a7e53c"
+    },
+    {
+      "path": "docs/LORE_MULTI_RESOLUTION_REPRESENTATIONS.md",
+      "sourceDigest": "e3a0a396b7536de46f5968c7e0879d8c8a576d3e"
+    },
+    {
+      "path": "docs/LORE_WAVE1.md",
+      "sourceDigest": "b3879fe073342fbf8ddfbe6e1fdebfc99b05c6da"
+    },
+    {
+      "path": "docs/LORE_WAVE1_CHANGELOG.md",
+      "sourceDigest": "0ee8349073ab2af5a2f5e51687335cdd5cd899c1"
+    },
+    {
+      "path": "docs/LORE_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "65ce680cf2b8a4aef07a763ca0ababa4fbb07c07"
+    },
+    {
+      "path": "docs/LORE_WAVE2_CHANGELOG.md",
+      "sourceDigest": "4670a88a121b366fdcf592085e20884444fd6ea6"
+    },
+    {
+      "path": "docs/LORE_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "7d07e7bc0cd7bb972c2a28f6926535e8b60c753f"
+    },
+    {
+      "path": "docs/LORE_WAVE3_CHANGELOG.md",
+      "sourceDigest": "4a490729a89b5846a1bf612ebcb345eb2086d876"
+    },
+    {
+      "path": "src/lore-contextual-retrieval.js",
+      "sourceDigest": "192ab136629a53bca4662470ce2a398f66ef8564"
+    },
+    {
+      "path": "src/lore-contracts.js",
+      "sourceDigest": "5bdb0650205a43798aab76a2be5806559cc5de2f"
+    },
+    {
+      "path": "src/lore-hierarchy-retrieval-system.js",
+      "sourceDigest": "677d74c102470570473e9015be5a60611aa5e4e7"
+    },
+    {
+      "path": "src/lore-multi-resolution.js",
+      "sourceDigest": "507f84802f36b0accd98c90f4b190ab50bcde8fd"
+    },
+    {
+      "path": "src/lore-navigation-contracts.js",
+      "sourceDigest": "ef10873936244941c7a0168d715097e560e660f8"
+    },
+    {
+      "path": "src/lore-navigation-hierarchy.js",
+      "sourceDigest": "e341eccb9912b94b6d86f8598a8f870e01051f69"
+    },
+    {
+      "path": "src/lore-navigation-summary-builder.js",
+      "sourceDigest": "b2b92af0fecdf0f73122298d4e9acc54507acd4b"
+    },
+    {
+      "path": "src/lore-navigation-summary-registry.js",
+      "sourceDigest": "0482f52fd0fb711c24544dd670dedfdf7a8cee88"
+    },
+    {
+      "path": "src/lore-representation-compiler.js",
+      "sourceDigest": "18a1a93a8081972aadd2524638e24dc9a57d1c86"
+    },
+    {
+      "path": "src/lore-representation-contracts.js",
+      "sourceDigest": "a2e838f205e65f8d9b9fdae6e6eef900f9daa506"
+    },
+    {
+      "path": "src/lore-representation-registry.js",
+      "sourceDigest": "0149c33e0b2173a5e12de59fecbf48fef565de3c"
+    },
+    {
+      "path": "src/lore-source-registry.js",
+      "sourceDigest": "64d23d859dee43587f14428814e7876d8202d1f1"
+    },
+    {
+      "path": "src/lore-study-engine.js",
+      "sourceDigest": "c90df787486e8376cc5ec6b20a3c5ebaaf12f366"
+    },
+    {
+      "path": "src/lore-study-runtime.js",
+      "sourceDigest": "5fa5c1f382008e92a668b85c455fd780bcb8aaa7"
+    },
+    {
+      "path": "tests/lore-browser-safe.mjs",
+      "sourceDigest": "9d17715ac02fe220162f6f91dd4027aba40411df"
+    },
+    {
+      "path": "tests/lore-wave1-stress.mjs",
+      "sourceDigest": "2abc4a48928e217b87f2671617e9ffbd8feb558f"
+    },
+    {
+      "path": "tests/lore-wave1.mjs",
+      "sourceDigest": "f518c86dea281b32f409205e2fccc5b2e299d4e2"
+    },
+    {
+      "path": "tests/lore-wave2-stress.mjs",
+      "sourceDigest": "66eccf8303265629e67a93a2c17c9a9289215fd6"
+    },
+    {
+      "path": "tests/lore-wave2.mjs",
+      "sourceDigest": "34a86956cfb6e210ff91aee6cec3f81d344f8c6d"
+    },
+    {
+      "path": "tests/lore-wave3-stress.mjs",
+      "sourceDigest": "dc30b40ad8fe637d6f112b5750513750f1528c65"
+    },
+    {
+      "path": "tests/lore-wave3.mjs",
+      "sourceDigest": "fcc33628e035ec15c001cc9d38b851b97128a6e3"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/lore-contextual-retrieval.js",
+    "src/lore-contracts.js",
+    "src/lore-hierarchy-retrieval-system.js",
+    "src/lore-multi-resolution.js",
+    "src/lore-navigation-contracts.js",
+    "src/lore-navigation-hierarchy.js",
+    "src/lore-navigation-summary-builder.js",
+    "src/lore-navigation-summary-registry.js",
+    "src/lore-representation-compiler.js",
+    "src/lore-representation-contracts.js",
+    "src/lore-representation-registry.js",
+    "src/lore-source-registry.js",
+    "src/lore-study-engine.js",
+    "src/lore-study-runtime.js"
+  ],
+  "nodeOnlyToolPaths": [],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [],
+  "artifactContracts": [
+    {
+      "name": "LoreRepresentationProfilePolicy",
+      "version": "lore-repr-policy-v1"
+    },
+    {
+      "name": "LoreRepresentationCompiler",
+      "version": "lore-repr-compiler-v1"
+    }
+  ],
+  "requiredAdapters": [
+    "Lore nominations -> Core Candidate Bus",
+    "Lore exact drillback -> authored source revisions"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/lore-representation-compiler.js",
+      "sourceDigest": "18a1a93a8081972aadd2524638e24dc9a57d1c86",
+      "expectedDigest": "9158bd090b25feaefa200ec616719370704e0ee0",
+      "reason": "Worker 4 Lore #190 effective-policy reuse-key fence"
+    },
+    {
+      "path": "src/lore-representation-contracts.js",
+      "sourceDigest": "a2e838f205e65f8d9b9fdae6e6eef900f9daa506",
+      "expectedDigest": "092b3a5d48ca50f39ed98e00bd031e5145f19506",
+      "reason": "Worker 4 Lore #190 policy fingerprint contract"
+    },
+    {
+      "path": "src/lore-representation-registry.js",
+      "sourceDigest": "0149c33e0b2173a5e12de59fecbf48fef565de3c",
+      "expectedDigest": "c67bd34cdd873ddabd4870821621e930bbde795f",
+      "reason": "Worker 4 Lore #190 source-local invalidation fence"
+    }
+  ],
+  "knownConflicts": [],
+  "repairOrigin": {
+    "issue": 190,
+    "sourceBranch": "Development-Repair-Validation",
+    "sourceCommit": "ea7e2e3acd3e53224302c3e55b0540697936148a",
+    "deploymentTransferCommit": "26f38d160a070ebcfca145b4a175a86aff186f3b",
+    "ownerTransferStatus": "PENDING"
+  }
+}

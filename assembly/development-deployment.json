@@ -1,0 +1,219 @@
+{
+  "kind": "DevelopmentDeploymentAssemblyManifest",
+  "schemaVersion": "1.0.0",
+  "repository": "Bermieee/Area-52",
+  "branch": "Development-Deployment",
+  "deploymentBaseSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
+  "manifestParentHead": "01d37104c99d0299366de0a6ae552d5426354a65",
+  "status": "INTEGRATED_CANDIDATE_EXACT_HEAD_CI_AND_LIVE_GATE_PENDING",
+  "mainMutationAllowed": false,
+  "sourceDigestAlgorithm": "git-blob-sha1",
+  "laneManifests": [
+    "assembly/lanes/core.json",
+    "assembly/lanes/lore.json",
+    "assembly/lanes/scene.json",
+    "assembly/lanes/runtime.json",
+    "assembly/lanes/jev.json",
+    "assembly/lanes/memory.json",
+    "assembly/lanes/ui.json"
+  ],
+  "repairOrigins": [
+    {
+      "issue": 190,
+      "sourceBranch": "Development-Repair-Validation",
+      "sourceRepairCommit": "ea7e2e3acd3e53224302c3e55b0540697936148a",
+      "deploymentTransferCommit": "26f38d160a070ebcfca145b4a175a86aff186f3b",
+      "reproducer": "tests/worker4-lore190-repro.test.mjs",
+      "ownerBranchTransferStatus": "PENDING"
+    },
+    {
+      "issue": 211,
+      "sourceBranch": "Development-Repair-Validation",
+      "sourceRepairCommit": "54fe8cff459c184a8a47f9e1c75bf7a7f963a58b",
+      "deploymentTransferCommit": "5968f4973ea772b0f8e99dddfe2d59e7751f72d7",
+      "reproducer": "tests/worker4-jev211-repro.test.mjs",
+      "ownerBranchTransferStatus": "PENDING"
+    }
+  ],
+  "integrationOwned": [
+    {
+      "path": ".github/workflows/development-deployment.yml",
+      "originCommit": "a97f5e0aff2ac91a388e81e25721f40277265150",
+      "reason": "Exact-head deployment CI including demo evidence",
+      "latestCommit": "8db7bbabef2ee63feed8386a4cc3c4dcdd31ef09"
+    },
+    {
+      "path": "docs/DEVELOPMENT_DEPLOYMENT_DEMO.md",
+      "originCommit": "0aec41435b21746cbaeccbb5ffd627018057d414",
+      "reason": "Reproducible demo runbook and explicit live-gate boundary"
+    },
+    {
+      "path": "scripts/development-deployment-demo.mjs",
+      "originCommit": "eb2f0f8da100f8000bd527cf6e80ac7dfceedd30",
+      "reason": "Deterministic operator demo evidence; not a live-host substitute"
+    },
+    {
+      "path": "scripts/verify-development-deployment.mjs",
+      "originCommit": "fc7c3e2162b26f400617bf36a74b40095c17e9cc",
+      "reason": "Assembly digest verifier corrected to compute canonical Git blob SHA"
+    },
+    {
+      "path": "src/deployment/brain.js",
+      "originCommit": "1a86f43d41e9cb2f510fba057d88c5cd3e7802c1",
+      "reason": "Narrow assembly adapter; exposes native SceneDelta evidence without owning Scene policy",
+      "latestCommit": "205e9b00ebbec6ffa53022448b658a56adf4474f"
+    },
+    {
+      "path": "src/deployment/index.js",
+      "originCommit": "1a86f43d41e9cb2f510fba057d88c5cd3e7802c1",
+      "reason": "Deployment public surface"
+    },
+    {
+      "path": "tests/deployment-brain.integration.test.mjs",
+      "originCommit": "90260613195a0842f15580f88c31fbd37ca5270d",
+      "reason": "Vertical-slice acceptance harness including native Scene revision/delta",
+      "latestCommit": "9bef503efbc15e8b21265cbceedf32e89174bcb7"
+    },
+    {
+      "path": "manifest.json",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "SillyTavern install manifest for live #224 evidence capture"
+    },
+    {
+      "path": "index.js",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Live host controls and operator evidence export"
+    },
+    {
+      "path": "style.css",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Minimal SillyTavern settings-panel controls"
+    },
+    {
+      "path": "src/deployment/sillytavern-live.js",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Integration-owned real-host evidence seam; uses assembled owner APIs without changing owner authority"
+    },
+    {
+      "path": "tests/deployment-live-host.test.mjs",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Browser-shaped host-message / PromptPlan-injection / degraded-path regression"
+    },
+    {
+      "path": "docs/DEVELOPMENT_DEPLOYMENT_LIVE_DEMO_EVIDENCE.md",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Real SillyTavern #224 runbook and evidence boundary"
+    },
+    {
+      "path": "docs/DEVELOPMENT_DEPLOYMENT_MAIN_REVIEW.md",
+      "originCommit": "PENDING_THIS_COMMIT",
+      "reason": "Divergence-aware main review, rollback and owner-transfer package"
+    }
+  ],
+  "liveGate": {
+    "issue": 224,
+    "status": "PENDING_REAL_SILLYTAVERN_RUN_AND_DIRECTOR_REVIEW",
+    "reason": "Workers 1-3 are integrated on the deployment branch. Automated evidence cannot substitute for clean install/update, two unrelated live chats, Prompt Inspector delivery, and optional-provider checks in the user's SillyTavern instance."
+  },
+  "issueState": {
+    "180": "OPEN / Worker 2 live-provider machinery integrated; real configured provider call still required",
+    "190": "OPEN",
+    "211": "OPEN",
+    "223": "PRESERVED / one installable Area-52 Brain; optional resources only",
+    "224": "OPEN / user live gate and Director review pending",
+    "243": "INTEGRATED / Wave 13 vertical draggable edge-aware navigation; live ST usability check pending",
+    "244": "INTEGRATED / Brain owner bindings wired; live execution receipts still require user run",
+    "245": "AUTOMATED_REPAIR_CANDIDATE / update root cause documented; clean install/update in real ST pending",
+    "246": "INTEGRATED / Worker 2 resource host + Worker 3 connect/test/disconnect UI; live connection check pending",
+    "247": "INTEGRATED / Lore accept/run/status UI wired to owner lifecycle; live ingestion check pending",
+    "248": "AUTOMATED_REPAIR_CANDIDATE / live adapter story-independent; two unrelated real chats pending",
+    "FT005": "OPEN / no real configured provider call has been observed on the integrated candidate yet"
+  },
+  "knownLimits": [
+    "A real SillyTavern clean install or supported branch switch plus subsequent fast-forward update is required for #245.",
+    "A real two-unrelated-story SillyTavern run with Prompt Inspector matching is required for #248/#224.",
+    "Wave 13 navigation, resource controls, and Lore Study are integrated but still require usability/behavior verification in the installed extension.",
+    "Worker 2 real-provider plumbing is integrated, but #180/FT005 stays open until a configured provider call is observed with measured-live provenance.",
+    "Failure/timeout/malformed/disconnect behavior is covered by owner-lane automation; late/stale sealed-context behavior still needs the operator evidence requested by #224.",
+    "The built-in deterministic Jev remains fixture/fallback evidence and never counts as a real provider pass.",
+    "main remains untouched after its head was reconciled as an ancestor of Development-Deployment."
+  ],
+  "assemblyReconciliations": [
+    {
+      "id": "JEV-ACCEPTED-CHECKPOINT-CLOSURE",
+      "commits": [
+        "631cf6e382ea5210d2d8369d0f7510a62c9bcf40",
+        "5dcd10991dcea250b31cdec8c2f04c94435ba380",
+        "7e4c2d4d57dad6f014b37f69d383aa997856aea8",
+        "7aac63bb968d2f11d5bc16524cd1447de1d6bf9d",
+        "cb6fcbe4bc171056440d2a042f4224295e15045a",
+        "175b14a09d5b4f7fe9287165fc5312b1989a6d68",
+        "3752b0292f1c9e123e1f04be19dad0a4e8bfac02",
+        "e3792559483ade77f8eabe5f5f3d047ea1fffb9e"
+      ],
+      "reason": "Restore omitted accepted Jev evaluation assets and reconcile bounded #211 replay retention with accepted Wave 8 stress.",
+      "ownerAuthorityChanged": false
+    }
+  ],
+  "mainReview": {
+    "status": "DRAFT_REVIEW_REQUIRED",
+    "mainHeadAtWorker4Start": "8138be59308873fb164c167eadd9e1a58c10364e",
+    "mainRelationship": "main head was fast-forwarded into Development-Deployment as an ancestor; Worker 4 has not mutated main",
+    "promotionAllowed": false,
+    "reason": "Exact-head CI plus real SillyTavern gates and Director approval are required before promotion."
+  },
+  "worker4DemoRepair": {
+    "startingDeploymentSha": "ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9",
+    "reconciledMainHead": "8138be59308873fb164c167eadd9e1a58c10364e",
+    "primaryIssues": [
+      245,
+      248
+    ],
+    "commits": [
+      "efa9af92d051088d920a5ff06007112dbe87055c",
+      "38646ac1d97ccc0d455865d9563230aaa90824a7",
+      "db7ef6ddcc556998f5cc8b59c2f9e4a4f3e301f9",
+      "83caa90bcd8d2e74e1b6316066c63a64cd48d0c3",
+      "8314c3ac9055e468c689ed4da3c3183bc5f609bd",
+      "ac86d2baf712489a7ea16d2d8f34894002f2bc42",
+      "cc73e4dc9a70c21d0bee68e9a89c9fef78241c92",
+      "ff31793badc68240ceaf33891cf530430675eaa0",
+      "2e402177a02f941b2add244f020d92ff93dc199a",
+      "5a04d339221693c3ba231beeb093ac83431dd5f8",
+      "cf7acbd76721a74d1be29b4e1c1f2c66d3a55bee",
+      "7621c1f9e42073bce5144d79131469dbca2839d3",
+      "5e1ef35613996e0e6a422d0e2d80711d872c1aa9",
+      "eba15acaf14f0649dba506847cee475c2e7c2b39",
+      "0ea9f0c8a87d70843e08e7b5d268aefeb3e22f88",
+      "15a5b1eec16ffb88f04d9f081b6b80c83b3a68e4",
+      "3e9027e0b5918c9ea0dade248beb400004a01444"
+    ],
+    "invariants": {
+      "fixedScenarioRequired": false,
+      "liveAdapterLoadsGoldenFixture": false,
+      "issue224AutomaticPass": false,
+      "oneInstallableResource": true,
+      "mandatoryExternalDatabase": false,
+      "deterministicJevCountsAsRealProvider": false,
+      "optionalResourcesRequiredForNativeBrain": false
+    },
+    "validationStatus": "PENDING_EXACT_HEAD_CI_AND_REAL_SILLYTAVERN"
+  },
+  "workerInputs": {
+    "memory": {
+      "branch": "Development-Memory",
+      "acceptedSha": "22d59f3062b495cb837841a2a8cb01aea7575ce5",
+      "integrationCommit": "cf7acbd76721a74d1be29b4e1c1f2c66d3a55bee"
+    },
+    "jev": {
+      "branch": "Development-Sidecar/Jev",
+      "acceptedSha": "00dc4385ca61223cd76715889ad09cec925974d0",
+      "integrationCommit": "7621c1f9e42073bce5144d79131469dbca2839d3"
+    },
+    "ui": {
+      "branch": "Development-UI",
+      "acceptedSha": "11701edf85ea5a42c61812c247031968ed489aeb",
+      "integrationCommit": "5e1ef35613996e0e6a422d0e2d80711d872c1aa9"
+    }
+  }
+}

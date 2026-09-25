@@ -1,0 +1,36 @@
+name: Main Demo UI Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core-*.css'
+      - 'tests/wave11-*.mjs'
+      - 'tests/wave12-*.mjs'
+      - 'tests/wave13-*.mjs'
+      - 'assembly/lanes/ui.json'
+      - '.github/workflows/main-demo-ui.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: main-demo-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wave 12 + 13 demo acceptance
+        run: node --test tests/wave12-sillytavern-host.test.mjs tests/wave13-operator-ui.test.mjs
+      - name: Wave 12 + 13 lifecycle stress
+        run: node tests/wave12-sillytavern-host-stress.mjs && node tests/wave13-operator-ui-stress.mjs
+      - name: Browser-facing UI imports
+        run: node -e "globalThis.Buffer=undefined; Promise.all([import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/wave13-floating-navigation.js'),import('./src/ui-core/wave13-operator-surfaces.js')]).then(()=>console.log('Main demo UI browser imports PASS'))"
+      - name: UI syntax
+        run: find src/ui-core tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check

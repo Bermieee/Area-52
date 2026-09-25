@@ -1,0 +1,223 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "runtime",
+  "branch": "Development-Worker-Director",
+  "acceptedSha": "d7128397f0d432c4d6e088d9d2c5e8f8ac0aed3a",
+  "acceptanceRuns": [
+    {
+      "id": "36044191987",
+      "name": "Cognitive Runtime Wave 3"
+    }
+  ],
+  "copiedPaths": [
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE1.md",
+      "sourceDigest": "14e6924f4cbeb29827d3201276f1b5fb6a7983bb"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE1_ACCEPTANCE.md",
+      "sourceDigest": "b7b3c4118fb1558ac9b7375e1c8bc8b5b1274f77"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE1_CHANGELOG.md",
+      "sourceDigest": "711aee2afa7e6f27083ef51efedc44c86084a778"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE2.md",
+      "sourceDigest": "d49781492fe52de21bdd825fb5a052199014a44c"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "811c711f6b08c76bafd20c6629f7130897d9d3d0"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE2_CHANGELOG.md",
+      "sourceDigest": "73349bedd6b7fdef26f00a7859a5d1fbd902e806"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE3.md",
+      "sourceDigest": "afed55f16d8580679655fc95309b2ed2198dc914"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "b66854f5807ad81253ce396358ddbf6bcefa7ac8"
+    },
+    {
+      "path": "docs/COGNITIVE_RUNTIME_FABRIC_WAVE3_CHANGELOG.md",
+      "sourceDigest": "4fa08528e4b1e6805ad0f866621931dfcac20765"
+    },
+    {
+      "path": "scripts/runtime-wave3-provider-smoke.mjs",
+      "sourceDigest": "8f616812242b218450b41ba932a0496bac2400a3"
+    },
+    {
+      "path": "src/runtime/batch-engine.js",
+      "sourceDigest": "56356f413b12ffb7e8f40e35dd409776d82cc5de"
+    },
+    {
+      "path": "src/runtime/capability-registry.js",
+      "sourceDigest": "5b68aa0a312281697ad177853ae333606cd60f83"
+    },
+    {
+      "path": "src/runtime/constants.js",
+      "sourceDigest": "54ec10081971952ac7fc3bd2458a5f78b8ed4e84"
+    },
+    {
+      "path": "src/runtime/deep-cognition.js",
+      "sourceDigest": "0b79034b301371ef0431e2c02cb2bf8ce9827fc3"
+    },
+    {
+      "path": "src/runtime/dependency-graph.js",
+      "sourceDigest": "8e55e40a2c5a2895dba84d1f1d086597cb3de16f"
+    },
+    {
+      "path": "src/runtime/event-spine.js",
+      "sourceDigest": "d1628ea9b1d6aabd91dbba5dc2387ab0ee12d062"
+    },
+    {
+      "path": "src/runtime/event-type-registry.js",
+      "sourceDigest": "4eac5e7843d90da518ba81c53f8ef44dee51753f"
+    },
+    {
+      "path": "src/runtime/foreground-quorum.js",
+      "sourceDigest": "a48007b479ea08080de9110344cc904559c4fd40"
+    },
+    {
+      "path": "src/runtime/index.js",
+      "sourceDigest": "81df8c93c32ab211ee4fde60884432f5d50a9aaf"
+    },
+    {
+      "path": "src/runtime/lifecycle.js",
+      "sourceDigest": "c8ddb93e7386b4b43422854ed39bcecc583fcbf1"
+    },
+    {
+      "path": "src/runtime/native-swarm.js",
+      "sourceDigest": "5ce2975bfc4dccd39d22b07270566c4de5afa7d6"
+    },
+    {
+      "path": "src/runtime/obligation-producers.js",
+      "sourceDigest": "1b8e603598467cc589e41d9b88ca6c0e0a4ade67"
+    },
+    {
+      "path": "src/runtime/persistence.js",
+      "sourceDigest": "345cc01883d895281be93b3606e1ddf39d99e9e5"
+    },
+    {
+      "path": "src/runtime/provider-execution.js",
+      "sourceDigest": "4d36376426095f31d1e04ce4a08e4fae1cbb42c1"
+    },
+    {
+      "path": "src/runtime/resource-governor.js",
+      "sourceDigest": "a9bec8aa263520cec6a58b5619dff0d9e622b6ea"
+    },
+    {
+      "path": "src/runtime/runtime-host.js",
+      "sourceDigest": "204e60da3d7f26e7a4a87273f0fdcd962a9adfc7"
+    },
+    {
+      "path": "src/runtime/scheduler.js",
+      "sourceDigest": "24502e37602d45fd8af9ebb43ec5d832fa6fb2b4"
+    },
+    {
+      "path": "src/runtime/sleep-runtime.js",
+      "sourceDigest": "a2c785a4aef9e4245c9b8cbb20bfed3b8fbb3f8f"
+    },
+    {
+      "path": "src/runtime/telemetry.js",
+      "sourceDigest": "ada95479122726609d205408d23dae6fb43a83a3"
+    },
+    {
+      "path": "src/runtime/utils.js",
+      "sourceDigest": "bb412a1d86cc91ed82572bb25a7534696eb26317"
+    },
+    {
+      "path": "src/runtime/work-ledger.js",
+      "sourceDigest": "a488666f53def02695aebe4e2b5940cf5c4d2696"
+    },
+    {
+      "path": "src/runtime/worker-director.js",
+      "sourceDigest": "5e0314ea3236c7beb3db040cb0e97dcb47e02b95"
+    },
+    {
+      "path": "tests/runtime-fabric.mjs",
+      "sourceDigest": "10489c0e02d33d3b502c5600156ba44550fd6f2b"
+    },
+    {
+      "path": "tests/runtime-stress.mjs",
+      "sourceDigest": "93c58e8b8d9e31f8deba9f3b9d88f8b1fe1b447c"
+    },
+    {
+      "path": "tests/runtime-wave2-stress.mjs",
+      "sourceDigest": "c4971b16abad9babd99faa14f44488ddac3cbf07"
+    },
+    {
+      "path": "tests/runtime-wave2.mjs",
+      "sourceDigest": "d162d4e8f9cee46baac7e40fe61efe141be8cade"
+    },
+    {
+      "path": "tests/runtime-wave3-browser.mjs",
+      "sourceDigest": "9bd894c1fb358c91f995f1634da17ea964278272"
+    },
+    {
+      "path": "tests/runtime-wave3-stress.mjs",
+      "sourceDigest": "f6a783718f4d4e22e9fa4b11f6934ab4c07b8a94"
+    },
+    {
+      "path": "tests/runtime-wave3.mjs",
+      "sourceDigest": "9caf1c6adeecb76011f97791a77360f8013337be"
+    },
+    {
+      "path": "tests/syntax.mjs",
+      "sourceDigest": "99b78223b3ab7b2d54d28c279f6ffeb37c20d466"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/runtime/batch-engine.js",
+    "src/runtime/capability-registry.js",
+    "src/runtime/constants.js",
+    "src/runtime/deep-cognition.js",
+    "src/runtime/dependency-graph.js",
+    "src/runtime/event-spine.js",
+    "src/runtime/event-type-registry.js",
+    "src/runtime/foreground-quorum.js",
+    "src/runtime/index.js",
+    "src/runtime/lifecycle.js",
+    "src/runtime/native-swarm.js",
+    "src/runtime/obligation-producers.js",
+    "src/runtime/persistence.js",
+    "src/runtime/provider-execution.js",
+    "src/runtime/resource-governor.js",
+    "src/runtime/runtime-host.js",
+    "src/runtime/scheduler.js",
+    "src/runtime/sleep-runtime.js",
+    "src/runtime/telemetry.js",
+    "src/runtime/utils.js",
+    "src/runtime/work-ledger.js",
+    "src/runtime/worker-director.js"
+  ],
+  "nodeOnlyToolPaths": [
+    "scripts/runtime-wave3-provider-smoke.mjs"
+  ],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [
+    "One execution resource minimum",
+    "Additional execution resources optional"
+  ],
+  "artifactContracts": [
+    {
+      "name": "TURN_EVENT execution envelope",
+      "version": "1.0.0"
+    }
+  ],
+  "requiredAdapters": [
+    "Core turn correlation -> Runtime Event Spine",
+    "Runtime results -> Core Gather"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [],
+  "knownConflicts": []
+}

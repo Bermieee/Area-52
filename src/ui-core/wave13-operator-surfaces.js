@@ -124,9 +124,11 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   }
 
   const form=element(d,'div',{className:'a52-wave13-connection-slot__form'});
-  const resourceId=field(d,'input',spec.title+' resource ID',{type:'text',placeholder:spec.id.toLowerCase()+':local'});
+  const connectionName=field(d,'input',spec.title+' connection name',{type:'text',placeholder:spec.defaultName,autocomplete:'off'});
+  connectionName.value=spec.defaultName;
   const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:'http://127.0.0.1:...'});
   const model=field(d,'input',spec.title+' model ID',{type:'text',placeholder:'model name'});
+  const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:'Optional for local providers',autocomplete:'off',spellcheck:'false'});
   const capabilities=field(d,'input',spec.title+' capabilities',{type:'text',placeholder:spec.defaultCapabilities.join(', ')});
   capabilities.value=spec.defaultCapabilities.join(', ');
   if(spec.fixedCapabilities){
@@ -134,19 +136,29 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   }
   const connect=createButton(d,{label:'Connect '+spec.title,scope,onPress:async()=>{
     const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
-    const result=await actionRouter.route({type:'wave13.resource.connect',payload:{role:spec.role,resourceId:resourceId.value||null,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,modelId:model.value||null,capabilities:parsedCaps,local:true}});
+    const result=await actionRouter.route({type:'wave13.resource.connect',payload:{
+      role:spec.role,displayName:connectionName.value||spec.defaultName,transportKind:'OPENAI_COMPATIBLE',
+      endpoint:endpoint.value||null,modelId:model.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,local:isLocalConnectionEndpoint(endpoint.value),
+    }});
+    apiKey.value='';
     reportAction(notifications,result,spec.title+' connection');refresh?.();
   }});
-  form.append(labelWrap(d,'Resource ID',resourceId),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),labelWrap(d,'Capabilities',capabilities),connect);
+  form.append(
+    labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),
+    labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
+    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 creates the internal Resource ID automatically. API keys are sent only to the owner connection contract and are never shown back in plaintext.'}),
+    connect
+  );
   slot.append(form);return slot;
 }
 
 function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifications,caps}){
   const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health}});
   const top=element(d,'div',{className:'a52-inline-status'});
-  top.append(element(d,'strong',{text:row.id}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
+  top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   card.append(top,createKeyValue(d,[
-    {key:'Connection',value:row.state??(row.connected?'READY':'DISCONNECTED')},{key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
+    {key:'Connection',value:row.state??(row.connected?'READY':'DISCONNECTED')},{key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
+    {key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
   ]));
@@ -162,10 +174,12 @@ function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifi
 }
 
 function connectionSlotSpecs(){return[
-  {id:'JEV',title:'Jev',role:'JEV',description:'Semantic judgment resource. The UI does not decide when Jev runs.',defaultCapabilities:['SEMANTIC_JUDGMENT'],fixedCapabilities:true},
-  {id:'SIDECAR',title:'Sidecar',role:'SIDECAR',description:'General optional execution resource used only when Worker 2 routing admits matching work.',defaultCapabilities:['STRUCTURED_EXTRACTION'],fixedCapabilities:false},
-  {id:'VECTORING',title:'Vectoring',role:'VECTORING',description:'Retrieval/vector execution resource. Capabilities remain owner-advertised and routing stays with Worker 2.',defaultCapabilities:['RETRIEVAL','EMBED'],fixedCapabilities:false},
+  {id:'JEV',title:'Jev',role:'JEV',defaultName:'Primary Jev',description:'Semantic judgment resource. The UI does not decide when Jev runs.',defaultCapabilities:['SEMANTIC_JUDGMENT'],fixedCapabilities:true},
+  {id:'SIDECAR',title:'Sidecar',role:'SIDECAR',defaultName:'Primary Sidecar',description:'General optional execution resource used only when Worker 2 routing admits matching work.',defaultCapabilities:['STRUCTURED_EXTRACTION'],fixedCapabilities:false},
+  {id:'VECTORING',title:'Vectoring',role:'VECTORING',defaultName:'Primary Vectoring',description:'Retrieval/vector execution resource. Capabilities remain owner-advertised and routing stays with Worker 2.',defaultCapabilities:['RETRIEVAL','EMBED'],fixedCapabilities:false},
 ];}
+
+function isLocalConnectionEndpoint(value){try{const host=new URL(String(value??'')).hostname.toLowerCase();return host==='127.0.0.1'||host==='localhost'||host==='::1'||host.endsWith('.local');}catch{return false;}}
 
 function connectionSlotFor(row){
   const capabilities=new Set([...(row.capabilities??[]),...(row.declaredCapabilities??[]),...(row.activeCapabilities??[])].map(String));

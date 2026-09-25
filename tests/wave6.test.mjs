@@ -336,9 +336,10 @@ test('500 product workspace switches reuse one shell and clean replaced workspac
     promptPlan:{readPlan:promptPlan,readSealReceipt:sealReceipt},forensics:{listTransactions:()=>forensics().transactions,listBundles:()=>forensics().bundles},
     story:()=>({title:'Akira'}),characters:generic('Characters'),lore:generic('Lore'),memory:generic('Memory'),world:generic('World'),
   }});
-  const shell=ui.shell,ids=['home','story','characters','lore','memory-product','world-product','brain'];
+  const shell=ui.shell,ids=['home','story','characters','lore','memory-product','world-product','brain','connections','settings'];
   for(let i=0;i<500;i++)shell.selectWorkspace(ids[i%ids.length]);
-  assert.equal(ui.shell,shell);assert.equal(ui.workspaceRegistry.list({navigationLevel:'product'}).length,7);
+  assert.equal(ui.shell,shell);
+  assert.deepEqual(ui.workspaceRegistry.list({navigationLevel:'product'}).map(row=>row.id).sort(),[...ids].sort());
   assert.ok(ui.signals.listenerCount('UI_WORKSPACE_CHANGED')<=2);
   ui.destroy();assert.equal(root.children.length,0);assert.equal(ui.signals.listenerCount('UI_WORKSPACE_CHANGED'),0);
 });

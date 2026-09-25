@@ -390,7 +390,7 @@ export class Wave13DiagnosticsCenterAdapter{
       destination:result.destination??null,contextAdmitted:Boolean(result.resultId&&sealedIds.has(result.resultId)),
     }));
     const resourceEvents=rows.flatMap(row=>(row.diagnostics??[]).slice(-16).map(event=>deepFreeze({
-      source:'RESOURCE',resourceId:row.id,sequence:event.sequence??null,at:event.at??null,code:event.code??null,message:event.message??'',details:cloneSafe(event.details??{}),
+      source:'RESOURCE',resourceId:row.id,displayName:row.displayName??null,sequence:event.sequence??null,at:event.at??null,code:event.code??null,message:event.message??'',details:cloneSafe(event.details??{}),
     }))).sort((a,b)=>Number(b.sequence??0)-Number(a.sequence??0)).slice(0,80);
     const loreData=loreRead?.data??null;
     const learned=(loreData?.entries??[]).filter(row=>row.learnedRevisionId&&row.freshness==='CURRENT').length;

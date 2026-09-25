@@ -224,9 +224,11 @@ test('native Brain host lifecycle seals before model request and learns complete
   const {sillyTavern,context,promptCalls,listeners}=makeHost(),nativeBrain=fakeNativeBrain(),persisted=[];
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,persistNativeBrain:async row=>persisted.push({chatId:row.chatId,kind:row.snapshot.kind})});
   session.start();
-  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('chat_completion_prompt_ready')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size??0,0);
+  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('chat_completion_prompt_ready')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size,1);
   pushUser(context,'At Moonlit Observatory, tell me what the lantern shows.');
+  await Promise.all([...listeners.get('message_sent')].map(fn=>fn()));
   await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  assert.equal(session.exportEvidence().hostNarrativeFeed.events.some(row=>row.type==='MESSAGE_SENT'&&row.chatId==='chat:observatory'),true);
   assert.equal(nativeBrain.calls.prepare.length,1);assert.equal(promptCalls.length,0);
   const actualRequest={chat:[{role:'system',content:'SillyTavern host policy'},{role:'user',content:'At Moonlit Observatory, tell me what the lantern shows.'}],dryRun:false};
   await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));

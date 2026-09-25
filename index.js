@@ -15,8 +15,21 @@ function setText(root, selector, value) {
   if (node) node.textContent = value;
 }
 
+function setGate(root,name,passed,pending='Pending'){
+  const node=root?.querySelector?.('[data-a52-gate="'+name+'"]');
+  if(!node)return;
+  node.textContent=(passed?'✓ ':'○ ')+(passed?'Observed':pending);
+  node.dataset.status=passed?'ready':'pending';
+}
+
 function renderEvidence(root, evidence) {
   setText(root, '[data-a52-live-status]', evidence.status);
+  setGate(root,'native-multiturn',Boolean(evidence.nativeBrainIntegration?.multiTurnObserved),'Run two learned turns in one selected story');
+  setGate(root,'lore-study',Boolean(evidence.loreOperatorEvidence?.selected?.selected&&Number(evidence.loreOperatorEvidence?.retrievalReady??0)>0),'Select, accept, and study a SillyTavern Lorebook');
+  setGate(root,'lore-revision',Boolean(evidence.nativeBrainIntegration?.loreRevisionInvalidations?.length),'Route one corrected Lore revision before the next turn');
+  setGate(root,'optional-provider',Boolean(evidence.resourceOperatorEvidence?.resources?.some(row=>row.callable&&row.measurementClass==='MEASURED_LIVE')),'Qualify one optional Jev/Sidecar/Vectoring resource');
+  setGate(root,'provider-failure',Boolean(evidence.resourceOperatorEvidence?.resources?.some(row=>row.lastFailure)||evidence.providerEvidence?.failedLiveAttempt),'Exercise one provider failure/fallback');
+  setGate(root,'navigation',Boolean(evidence.navigationEvidence?.mounted&&evidence.operatorReview?.uiTraceReviewed),'Review rail/panel navigation in SillyTavern');
   const output = root?.querySelector?.('[data-a52-live-output]');
   if (output) output.textContent = JSON.stringify({
     status: evidence.status,
@@ -24,6 +37,10 @@ function renderEvidence(root, evidence) {
     nativeBrainIntegration: evidence.nativeBrainIntegration,
     providerEvidence: evidence.providerEvidence,
     loreIngestion: evidence.loreIngestion,
+    loreOperatorEvidence: evidence.loreOperatorEvidence,
+    resourceOperatorEvidence: evidence.resourceOperatorEvidence,
+    authoringOperatorEvidence: evidence.authoringOperatorEvidence,
+    navigationEvidence: evidence.navigationEvidence,
     operatorReview: evidence.operatorReview,
     liveEvidenceComplete: evidence.liveEvidenceComplete,
     liveEvidenceCompleteReason: evidence.liveEvidenceCompleteReason,
@@ -62,6 +79,18 @@ export async function init() {
     '<button type="button" class="menu_button" data-a52-confirm>Confirm Prompt Inspector + UI trace</button>',
     '<button type="button" class="menu_button" data-a52-copy>Copy evidence</button>',
     '</div>',
+    '<details class="a52-deployment-acceptance">',
+    '<summary>Live acceptance sequence</summary>',
+    '<ol>',
+    '<li><span data-a52-gate="native-multiturn">○ Pending</span> — Arm Area-52, send two ordinary turns in one selected story, and verify Generation delivery then Learning write-back in Brain.</li>',
+    '<li><span data-a52-gate="lore-study">○ Pending</span> — Select a real SillyTavern Lorebook, open Lore, Load selected Lorebook → Accept for study → Run pending study until owner state is READY.</li>',
+    '<li><span data-a52-gate="lore-revision">○ Pending</span> — After the Settlement-backed Lore owner is integrated, apply one approved correction and route its LoreSourceRevisionChanged receipt before the next generation.</li>',
+    '<li><span data-a52-gate="optional-provider">○ Pending</span> — In Connections, discover/select/test one Jev or Sidecar and qualify Vectoring with owner-advertised retrieval/embed capability.</li>',
+    '<li><span data-a52-gate="provider-failure">○ Pending</span> — Exercise an unreachable/invalid provider and verify failure/fallback is shown without a false healthy state.</li>',
+    '<li><span data-a52-gate="navigation">○ Pending</span> — Drag, resize, collapse, keyboard-navigate, switch workspaces, and narrow the SillyTavern viewport; confirm the panel stays reachable.</li>',
+    '</ol>',
+    '<p>No item is auto-promoted from fixture-only evidence. Copy evidence after the operator checks are complete.</p>',
+    '</details>',
     '<pre class="a52-deployment-output" data-a52-live-output></pre>',
   ].join('');
   hostRoot().appendChild(root);

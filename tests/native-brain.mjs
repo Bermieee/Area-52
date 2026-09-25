@@ -251,7 +251,7 @@ test('HOST-CONTRACT: runTurn delivers sealed context to generation callback and 
 
 test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revision-fenced',async()=>{
   let ownerRevision={id:'lore:skywhales@r7',state:'CURRENT',exactContent:'Skywhales return to the Lantern Reefs when the violet tide rises.'};
-  let loreQueries=0;
+  let loreQueries=0,fenceEnabled=true;
   const loreInterface={
     kind:'LoreBrainRetrievalInterface',contractVersion:1,
     sourceRevision:()=>structuredClone(ownerRevision),
@@ -261,7 +261,7 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revisi
       return{
         kind:'LoreBrainRetrievalPacket',contractVersion:1,query:'skywhales',intent:'AUTO',
         retrievalIntentId:'lore-intent:'+loreQueries,indexRevision:'idx:'+loreQueries,ontologyRevision:'ontology:3',
-        sourceRevisionFence:active?[ownerRevision.id]:[],
+        sourceRevisionFence:active&&fenceEnabled?[ownerRevision.id]:[],
         nominations:active?[{nomination:{nominationId:'lore:n'+loreQueries},drillback:[{
           sourceId:'lore:skywhales',sourceRevisionId:ownerRevision.id,
           exactAuthoredText:ownerRevision.exactContent,
@@ -301,11 +301,22 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revisi
   assert.match(JSON.stringify(revised.promptPlan),/silver moon/i);
   assert.equal(brain.core.registry.getRevision('lore:skywhales@r8'),null);
 
+  fenceEnabled=false;
+  const unfenced=await brain.prepareTurn({
+    chatId:'chat:lore-contract',turnId:'lore-contract:3',generationId:'gen:lore-contract:3',
+    query:'When do Skywhales return?',intent:'CURRENT',
+    scene:scene('reef-watch-fog',3,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(unfenced.loreSync.nominationCount,0);
+  assert.equal(channelIds(unfenced).has('OWNER_LORE'),false);
+  assert.equal(unfenced.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r8'),false);
+
+  fenceEnabled=true;
   ownerRevision={id:'lore:skywhales@r9',state:'REMOVED',exactContent:null};
   const removed=await brain.prepareTurn({
-    chatId:'chat:lore-contract',turnId:'lore-contract:3',generationId:'gen:lore-contract:3',
+    chatId:'chat:lore-contract',turnId:'lore-contract:4',generationId:'gen:lore-contract:4',
     query:'Where are the Skywhales?',intent:'CURRENT',
-    scene:scene('empty-reef',3,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
+    scene:scene('empty-reef',4,{location:'Lantern Reefs',activeCast:['Orr'],relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC',
   });
   assert.equal(removed.loreSync.nominationCount,0);
   assert.equal(removed.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r8'),false);

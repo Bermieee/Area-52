@@ -6,6 +6,7 @@ import {
   createDevelopmentDeploymentSillyTavernSession,
   extractDevelopmentDeploymentScene,
 } from '../src/deployment/sillytavern-live.js';
+import { Area52NativeBrain } from '../src/native-brain.js';
 
 function makeHost() {
   const listeners = new Map();
@@ -155,6 +156,68 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
   await assert.rejects(session.processCurrentTurn(), /chatId is unavailable/);
   assert.match(session.exportEvidence().errors.at(-1).message, /chatId is unavailable/);
   session.destroy();
+});
+
+test('real native Brain host event publishes Scene and sealed Context Delivery for the same chat and turn with zero optional resources',async()=>{
+  const {sillyTavern,context,listeners}=makeHost();
+  const nativeBrain=new Area52NativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();
+
+  assert.equal(session.running,true);
+  assert.equal(session.brain.listOptionalResources().resources.length,0,'native turn path must not require Jev, Sidecar, or Vectoring');
+
+  pushUser(context,'At Moonlit Observatory, I inspect the sealed compass beside the lantern.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+
+  const ui=nativeBrain.uiBindings();
+  const selection=ui.readSelection({chatId:context.chatId});
+  assert.equal(selection.chatId,'chat:observatory');
+  assert.ok(selection.turnId);
+  assert.ok(selection.generationId);
+
+  const scene=ui.readScene(selection);
+  const generation=ui.readGeneration({generationId:selection.generationId,...selection});
+  const promptPlan=ui.readPromptPlan(selection);
+  const contextSeal=ui.readContextSeal(selection);
+  const runtime=ui.readRuntimeStatus();
+
+  assert.ok(scene?.sceneId,'Scene owner receipt must exist for the host turn');
+  assert.equal(scene.sceneId,selection.sceneId);
+  assert.ok(generation,'Generation read model must exist for the selected host turn');
+  assert.equal(generation.chatId,selection.chatId);
+  assert.equal(generation.turnId,selection.turnId);
+  assert.equal(generation.generationId,selection.generationId);
+  assert.ok(generation.promptPlan,'Context Delivery PromptPlan must be published before provider response');
+  assert.ok(generation.contextSeal?.sealedState,'Context Seal must be sealed before provider response');
+  assert.equal(generation.promptPlan.turnId,selection.turnId);
+  assert.equal(generation.promptPlan.generationId,selection.generationId);
+  assert.equal(promptPlan.turnId,selection.turnId);
+  assert.equal(promptPlan.generationId,selection.generationId);
+  assert.equal(contextSeal.turnId,selection.turnId);
+  assert.ok(runtime,'Runtime owner snapshot must be readable for the same native path');
+
+  const actualRequest={chat:[
+    {role:'system',content:'SillyTavern host policy'},
+    {role:'user',content:'At Moonlit Observatory, I inspect the sealed compass beside the lantern.'},
+  ],dryRun:false};
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
+
+  const assistantIndex=pushAssistant(context,'The lantern reflects from the sealed compass while the observatory remains quiet.');
+  await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
+
+  const learned=ui.readGeneration({generationId:selection.generationId,...selection});
+  assert.equal(learned.state,'LEARNED');
+  assert.equal(learned.learningReceipt?.kind,'NativeBrainLearningReceipt');
+  assert.equal(learned.learningReceipt?.turnId,selection.turnId);
+  assert.ok(learned.learningReceipt?.sourceRevisionId);
+
+  const evidence=session.exportEvidence();
+  assert.equal(evidence.nativeBrainIntegration.ownerAvailable,true);
+  assert.ok(evidence.nativeBrainIntegration.learnedCount>=1);
+  assert.equal(evidence.errors.some(row=>['NATIVE_PREPARE','NATIVE_MODEL_REQUEST','NATIVE_COMPLETE'].includes(row.stage)),false);
+
+  session.stop();
 });
 
 test('native Brain host lifecycle seals before model request and learns completed assistant response',async()=>{

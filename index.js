@@ -116,6 +116,12 @@ export async function init() {
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
       persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
     });
+    // The installed product must listen to the host turn lifecycle immediately.
+    // Lore/Connections can render without this bridge, which previously made a
+    // stopped session look partially healthy while real chat turns were ignored.
+    session.start();
+    const armButton=root.querySelector('[data-a52-arm]');
+    if(armButton)armButton.textContent='Disarm';
     renderEvidence(root, session.exportEvidence());
   } catch (error) {
     setText(root, '[data-a52-live-status]', 'UNAVAILABLE');

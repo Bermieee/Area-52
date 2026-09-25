@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  Capability,CoprocessorResourceConnections,CoprocessorTelemetry,ResourceKind,ResourceMeasurementClass,TelemetryEvent,
+  Capability,CoprocessorResourceConnections,CoprocessorTelemetry,NativeHotDeepScheduler,ResourceKind,ResourceMeasurementClass,TelemetryEvent,
   createCognitiveTask,createCognitionUiReadModelReader,createCoprocessorResourceHost,createRevisionSet,
 } from '../src/coprocessor/index.js';
 
@@ -117,6 +117,32 @@ test('Wave19 selected-turn cognition read model separates configured, connected,
   assert.equal(read.rawPromptIncluded,false);assert.equal(read.credentialIncluded,false);
   const publicText=JSON.stringify({read,events:telemetry.list()});
   for(const secret of ['DO NOT LEAK','MUST NOT LEAK','alpha-session-secret','beta-session-secret'])assert.equal(publicText.includes(secret),false,secret);
+});
+
+test('Wave19 cognition read model consumes real NativeHotDeepScheduler queue, yield, resume and owner-park state',async()=>{
+  let now=1000;
+  const scheduler=new NativeHotDeepScheduler({resourceSlots:1,foregroundReserve:1,now:()=>now});
+  scheduler.enqueueDeep({
+    workId:'task:scheduler-wave19',
+    metadata:{taskId:'task:scheduler-wave19',chatId:'chat:scheduler',turnId:'turn:scheduler',correlationId:'corr:scheduler',taskType:'CONSOLIDATION',cognitiveLayer:'L4',resultClass:'DEFERRED'},
+    runSlice:async()=>({done:true,ownerAccepted:true,ownerState:'COMPLETED'}),
+  });
+  scheduler.beginForeground({workId:'foreground'});
+  now+=5;
+  const yielded=await scheduler.runDeepSlice('task:scheduler-wave19');
+  assert.equal(yielded.status,'YIELDED');assert.equal(yielded.yields,1);
+  scheduler.endForeground({workId:'foreground'});
+  now+=10;
+  const completed=await scheduler.runDeepSlice('task:scheduler-wave19');
+  assert.equal(completed.status,'COMPLETED');assert.equal(completed.resumes,1);assert.equal(completed.ownerAccepted,true);
+
+  const reader=createCognitionUiReadModelReader({scheduler});
+  const read=reader.read({chatId:'chat:scheduler',turnId:'turn:scheduler',correlationId:'corr:scheduler'});
+  assert.equal(read.queue.queued,1);assert.equal(read.queue.yields,1);assert.equal(read.queue.resumes,1);
+  assert.equal(read.queue.pressure.resourceSlots,1);assert.equal(read.queue.pressure.activeDeep,0);
+  const task=read.tasks.find(x=>x.taskId==='task:scheduler-wave19');assert.ok(task);
+  assert.equal(task.placement,'DEEP');assert.equal(task.state,'COMPLETED');assert.equal(task.yields,1);assert.equal(task.resumes,1);
+  assert.equal(task.physicallyExecuted,true);assert.equal(task.ownerAccepted,true);
 });
 
 test('Wave19 resource host exposes Worker3-compatible actions plus qualified route and cognition reads while native Brain remains optional-resource independent',()=>{

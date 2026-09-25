@@ -2,7 +2,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null}={}){
   const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
   if(registry.has('home')){
     const current=registry.get('home');
@@ -16,7 +16,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','refresh-models','set-credential','clear-credential','select-model','connect','disconnect','test'],
     render(host,ctx){
       host.append(header(host.ownerDocument,'Connections','Connect Jev, Sidecar, and Vectoring resources separately, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
-      if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter,connectionDrafts});
+      if(resources)renderResourceSurface(host,{...ctx,resources,coprocessor,actionRouter,connectionDrafts});
       else host.append(message(host.ownerDocument,'Connections unavailable','Worker 2 resource host is not exported by this assembly. Native Brain operation remains available.','offline'));
       renderFanoutGatherSurface(host,{...ctx,cognition});
     },
@@ -143,8 +143,9 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
   section.append(grid);host.append(section);
 }
 
-export function renderResourceSurface(host,{resources,actionRouter,scope,refresh,notifications,connectionDrafts=null}={}){
+export function renderResourceSurface(host,{resources,coprocessor=null,actionRouter,scope,refresh,notifications,connectionDrafts=null}={}){
   const d=host.ownerDocument,read=resources.read(),source=read.source,data=read.data??{resources:[],configurations:[],nativePathAvailable:true};
+  const turnResources=safeCoprocessorResourceRows(coprocessor);
   const section=element(d,'section',{className:'a52-wave13-resources',attrs:{'aria-label':'Optional execution resource connections'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
   head.append(element(d,'h2',{text:'Connections'}),makeHealthPill(d,{label:source.operationalState??source.health,status:source.statusToken,detail:source.impact}));
@@ -156,7 +157,7 @@ export function renderResourceSurface(host,{resources,actionRouter,scope,refresh
 
   const slots=element(d,'div',{className:'a52-wave13-connection-slots'});
   const drafts=connectionDrafts??createConnectionDraftStore();
-  for(const spec of connectionSlotSpecs())slots.append(renderConnectionSlot(d,{spec,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id),resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts:drafts}));
+  for(const spec of connectionSlotSpecs())slots.append(renderConnectionSlot(d,{spec,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id).map(row=>overlayTurnResourceEvidence(row,turnResources)),resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts:drafts}));
   section.append(slots);
 
   if(!data.resources.length)section.append(message(d,'No optional resource connected',caps.read?'Worker 2 reports no configured optional resources. Native cognition remains available.':'The host assembly has not exported Worker 2 resource status/actions yet.','historical'));
@@ -375,6 +376,24 @@ function discoveryStatusText(state,result,count){
   if(state==='UNREACHABLE')return reason||'The provider endpoint could not be reached.';
   if(state==='LOADING')return'Loading models from the provider…';
   return reason||'Model discovery failed.';
+}
+
+function safeCoprocessorResourceRows(coprocessor){
+  try{
+    const read=coprocessor?.read?.(),rows=read?.data?.resources;
+    return Array.isArray(rows)?rows:[];
+  }catch{return[];}
+}
+function overlayTurnResourceEvidence(row,turnRows=[]){
+  const turn=turnRows.find(item=>String(item?.resourceId??item?.id??'')===String(row?.id??''));
+  if(!turn)return row;
+  return{
+    ...row,
+    physicalExecutionAttempted:Boolean(turn.physicalExecutionAttempted??row.physicalExecutionAttempted),
+    physicalExecutionSucceeded:Boolean(turn.physicalExecutionSucceeded??row.physicalExecutionSucceeded),
+    ownerAccepted:typeof turn.ownerAccepted==='boolean'?turn.ownerAccepted:row.ownerAccepted,
+    ownerAcceptanceSource:typeof turn.ownerAccepted==='boolean'?'SELECTED_TURN_OWNER_RECEIPT':row.ownerAcceptanceSource,
+  };
 }
 
 function connectionSlotSpecs(){return[

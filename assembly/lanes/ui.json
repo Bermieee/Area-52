@@ -756,7 +756,7 @@
     {
       "path": "src/ui-core/wave12-sillytavern-host.js",
       "sourceDigest": "bf1ae71396e28e0f0c1a13a2538fe9ece513e394",
-      "expectedDigest": "c6b208f0f9cd3fdfc66e9dd12839d2e692bce9a0",
+      "expectedDigest": "0f4fc791a444aa772a926a1d8c70219e2687fbc0",
       "reason": "Director-authorized main demo correction: floating UI reserves zero host width so the empty blue host strip is not visible."
     },
     {
@@ -768,13 +768,13 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "2329b6f8031f2e9588e6a285282923bea22bcf95",
+      "expectedDigest": "7fed47f3ae96c8584b39873e9e6394f00c2bc75e",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
       "path": "src/ui-core/wave6-runtime.js",
       "sourceDigest": "ca538a04addd44193b7ef8b98997a36648078321",
-      "expectedDigest": "10b1cd9a8439a5e17e4e62404004bcad33fc8966",
+      "expectedDigest": "3a6f7e51535a0662852f81889abd99c3950bef7d",
       "reason": "Director-authorized demo UI: route live owner/resource/Lore/cognition telemetry into Settings Diagnostics Center and refresh it from owner subscriptions."
     },
     {
@@ -798,13 +798,13 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "07c15247e2ba9d3e619da6f46ee0f6de83266ef3",
+      "expectedDigest": "1a1d142a8ea06452dec909e899b8cfda18c6c7ce",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "e1f533390f558864c2c5e179c710cab24d9ff483",
+      "expectedDigest": "eb7c885fcba21f3679f1d6a7006979a5039a7ac8",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     },
     {
@@ -820,5 +820,80 @@
       "reason": "Phase-2 workspace conformance validates the canonical nine product workspaces instead of the obsolete seven-workspace count."
     }
   ],
-  "knownConflicts": []
+  "knownConflicts": [],
+  "backlogClosureAudit": {
+    "kind": "Worker3UiHostCheckpoint",
+    "recordedDate": "2026-09-25",
+    "directMainParent": "129b6674031d614aa6bd51d4ae8b9cc786169c75",
+    "installedLanePins": {
+      "core": {
+        "branch": "Development-Nexus",
+        "acceptedSha": "ba4619f56db8e4f94873256dc26589e1680b7d29"
+      },
+      "lore": {
+        "branch": "Development-Lorebook-Editor",
+        "acceptedSha": "fa74d3e792d3d8aa4dc4879271bcfc42f43e7c2c"
+      },
+      "jev": {
+        "branch": "Development-Sidecar/Jev",
+        "acceptedSha": "e4da2ffcabd8a385b44fc1836b95a85836cfaf6e"
+      },
+      "memory": {
+        "branch": "Development-Memory",
+        "acceptedSha": "51aa0d6e7293ddeaa3899e81f6699794d0c22b2c"
+      },
+      "runtime": {
+        "branch": "Development-Worker-Director",
+        "acceptedSha": "d7128397f0d432c4d6e088d9d2c5e8f8ac0aed3a"
+      },
+      "scene": {
+        "branch": "Development-Scene-Scanner",
+        "acceptedSha": "3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf"
+      }
+    },
+    "observedOwnerHeads": {
+      "core": {
+        "branch": "Development-Nexus",
+        "sha": "c0731ae5707d1ea4fce46dc2065c3bb48262a216",
+        "installed": false
+      },
+      "lore": {
+        "branch": "Development-Lorebook-Editor",
+        "sha": "f983d4de9168ce3a6add1ec002a3372b96b873b9",
+        "installed": false
+      },
+      "jev": {
+        "branch": "Development-Sidecar/Jev",
+        "sha": "dad0045004fdb829885fc18151a7fa4cd29206b8",
+        "installed": false
+      },
+      "memory": {
+        "branch": "Development-Memory",
+        "sha": "51aa0d6e7293ddeaa3899e81f6699794d0c22b2c",
+        "installed": true
+      },
+      "runtime": {
+        "branch": "Development-Worker-Director",
+        "sha": "d7128397f0d432c4d6e088d9d2c5e8f8ac0aed3a",
+        "installed": true
+      },
+      "scene": {
+        "branch": "Development-Scene-Scanner",
+        "sha": "3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf",
+        "installed": true
+      }
+    },
+    "directMainFiles": {
+      "src/ui-core/wave12-sillytavern-host.js": "0f4fc791a444aa772a926a1d8c70219e2687fbc0",
+      "src/ui-core/wave13-operator-adapters.js": "eb7c885fcba21f3679f1d6a7006979a5039a7ac8",
+      "src/ui-core/wave13-operator-surfaces.js": "7fed47f3ae96c8584b39873e9e6394f00c2bc75e",
+      "src/ui-core/wave6-runtime.js": "3a6f7e51535a0662852f81889abd99c3950bef7d",
+      "tests/wave13-operator-ui.test.mjs": "1a1d142a8ea06452dec909e899b8cfda18c6c7ce",
+      "src/deployment/sillytavern-live.js": "7aee9a95d6f8e2610409167bc3a341ad6eae9d3b",
+      "tests/deployment-live-host.test.mjs": "4c1f744e0bd4dfa720c8e7a028a0962f0d3a0667",
+      "index.js": "ddf9c2a5e5f581d92538c362b89a9fd4978fa0b9",
+      ".github/workflows/main-demo-ui.yml": "158fbb552efc962c82e59bffa2d9ef031e056bd4"
+    },
+    "rule": "Observed owner branch heads are informational drift markers and are not claimed installed until their accepted lane checkpoint is copied/reconciled into main."
+  }
 }

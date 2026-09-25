@@ -1,18 +1,63 @@
-import { KnowledgeStatus, createTruthGateResult } from './contracts.js';
+import { KnowledgeStatus } from './contracts.js';
 const unresolved=new Set([KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN]);
+const historical=new Set([KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED]);
+
+function usable(classification,intent){
+  if(intent==='CURRENT')return classification===KnowledgeStatus.CURRENT||unresolved.has(classification);
+  if(intent==='HISTORICAL')return [KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED].includes(classification);
+  if(intent==='TEMPORAL')return [KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED,KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN].includes(classification);
+  if(intent==='CONTRADICTION')return unresolved.has(classification);
+  return classification===KnowledgeStatus.CURRENT;
+}
+
 export class TruthGate {
-  constructor({graph}){this.graph=graph;}
+  constructor({graph,externalEvidenceResolver=null}={}){
+    this.graph=graph;
+    this.externalEvidenceResolver=typeof externalEvidenceResolver==='function'?externalEvidenceResolver:null;
+  }
+
+  setExternalEvidenceResolver(resolver=null){
+    if(resolver!==null&&typeof resolver!=='function')throw new TypeError('external evidence resolver must be a function');
+    this.externalEvidenceResolver=resolver;
+  }
+
   classify(candidate,{intent='CURRENT'}={}){
-    const claims=candidate.claimIds.map(id=>this.graph.getClaim(id)).filter(Boolean);
-    if(!claims.length)return createTruthGateResult({candidateId:candidate.candidateId,classification:KnowledgeStatus.UNRESOLVED,usableForIntent:false,reasons:['claim-missing-or-invalid'],claimIds:candidate.claimIds,provenance:candidate.provenance});
-    const claim=claims[0],classification=claim.status??KnowledgeStatus.UNRESOLVED;
-    let usableForIntent=false;
-    if(intent==='CURRENT')usableForIntent=classification===KnowledgeStatus.CURRENT||unresolved.has(classification);
-    else if(intent==='HISTORICAL')usableForIntent=[KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED].includes(classification);
-    else if(intent==='TEMPORAL')usableForIntent=[KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED,KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN].includes(classification);
-    else if(intent==='CONTRADICTION')usableForIntent=unresolved.has(classification);
-    else usableForIntent=classification===KnowledgeStatus.CURRENT;
-    return createTruthGateResult({candidateId:candidate.candidateId,classification,usableForIntent,reasons:[usableForIntent?`${classification.toLowerCase()}-usable-for-${intent.toLowerCase()}`:`${classification.toLowerCase()}-not-usable-for-${intent.toLowerCase()}`],claimIds:[claim.id],provenance:claim.provenance});
+    const claimIds=candidate.claimIds??candidate.claimRefs??[];
+    const claims=claimIds.map(id=>this.graph.getClaim(id)).filter(Boolean);
+    if(claims.length){
+      const claim=claims[0],classification=claim.status??KnowledgeStatus.UNRESOLVED;
+      const ok=usable(classification,intent);
+      return createTruthGateResult({
+        candidateId:candidate.candidateId,classification,usableForIntent:ok,
+        reasons:[ok?`${classification.toLowerCase()}-usable-for-${intent.toLowerCase()}`:`${classification.toLowerCase()}-not-usable-for-${intent.toLowerCase()}`],
+        claimIds:[claim.id],provenance:claim.provenance,
+      });
+    }
+
+    const evidence=this.externalEvidenceResolver?.(candidate)??null;
+    if(evidence){
+      const classification=evidence.temporalStatus??KnowledgeStatus.UNRESOLVED;
+      const ok=usable(classification,intent);
+      const base=createTruthGateResult({
+        candidateId:candidate.candidateId,classification,usableForIntent:ok,
+        reasons:[ok?`external-${classification.toLowerCase()}-usable-for-${intent.toLowerCase()}`:`external-${classification.toLowerCase()}-not-usable-for-${intent.toLowerCase()}`],
+        claimIds:[],provenance:{
+          id:'truth-external:'+evidence.evidenceId,
+          sourceRevisionIds:[...(evidence.sourceRevisionRefs??[])],
+          evidenceIds:[evidence.evidenceId],
+          derivedFromIds:[typeof evidence.artifactRef==='string'?evidence.artifactRef:evidence.artifactRef?.artifactId??evidence.evidenceId],
+          activity:'TRUTH_VALIDATE_EXTERNAL_KNOWLEDGE',
+          agent:'truth-gate',
+          invalidators:[...(evidence.sourceRevisionRefs??[]),...(evidence.dependencyRevisionRefs??[])],
+        },
+      });
+      return {...base,knowledgeEvidenceId:evidence.evidenceId,authorityClass:evidence.authorityClass,sourceClass:evidence.sourceClass};
+    }
+
+    return createTruthGateResult({
+      candidateId:candidate.candidateId,classification:KnowledgeStatus.UNRESOLVED,usableForIntent:false,
+      reasons:['claim-missing-or-invalid'],claimIds,provenance:candidate.provenance,
+    });
   }
   classifyAll(candidates,options={}){return candidates.map(c=>this.classify(c,options));}
 }

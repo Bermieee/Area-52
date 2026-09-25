@@ -1,85 +1,92 @@
 # Development Deployment — Live #224 Evidence Runbook
 
-**Install state:** the assembled extension was promoted to `main` from CI-green deployment head `ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9`. The prior Phase 1 `main` remains recoverable at tag `pre-deployment-main-2026-09-24`.
+**Gate state:** **LIVE DEMO PENDING.** Automated and browser-shaped evidence can prepare this candidate, but only a real SillyTavern session plus Director review can close #224.
 
-**Gate state:** **LIVE DEMO PENDING** until a real SillyTavern session completes the operator steps below. The browser-shaped test and deterministic rehearsal are prerequisites, not substitutes for the live gate.
+## Installation and update behavior
 
-## What this package adds
+Area-52 is one SillyTavern extension. Jev/sidecars remain optional resources; no database, Redis, Dapr, remote provider, or secondary install is required for native operation.
 
-The repository's default `main` branch is now a directly loadable SillyTavern extension surface:
+The first demo's HTTP 500 was caused by the installed Git checkout no longer being fast-forwardable after repository history changed. SillyTavern's update endpoint performs a normal pull of the extension's current branch and intentionally reports pull failures as HTTP 500; Area-52 must not force-reset user checkouts to hide that condition.
 
-- root `manifest.json`, `index.js`, and `style.css`;
-- the production Wave 12 host-adjacent UI;
-- one assembled `DevelopmentDeploymentBrain` with one local cognitive execution resource;
-- the accepted Ember Tavern / Mara / Eris / Sun Blade lore fixture loaded through native Lore Study;
-- host-message source registration using the exact user message text;
-- native Scene observation sourced from the live SillyTavern message;
-- simple, retrieval-heavy, ambiguous/Jev, and controlled no-Jev evidence capture;
-- Context Seal + PromptPlan generation;
-- pre-generation SillyTavern extension-prompt injection;
-- an explicit operator confirmation step for Prompt Inspector and UI trace review.
+For this review candidate:
 
-The extension never marks GitHub #224 complete. It emits a `DevelopmentDeploymentLiveDemoEvidence` record and leaves final acceptance to the Director.
+1. Open **Manage Extensions** in SillyTavern.
+2. If Area-52 is already a normal Git install, use **Switch branch** and select `Development-Deployment`.
+3. If the old checkout is divergent or is no longer a Git repository, delete Area-52 through Manage Extensions, reinstall `https://github.com/Bermieee/Area-52`, then use **Switch branch** to select `Development-Deployment`. This is the supported recovery path; do not manually replace the extension folder.
+4. Reload SillyTavern.
+5. Reopen Manage Extensions. The version row should report `0.3.0-development-deployment` plus `Development-Deployment-<short commit>`. Compare that commit with the SHA in the Worker 4 Director handoff.
+6. When a newer fast-forward commit exists on the selected branch, SillyTavern's normal update path must advance the checkout and, after reload, the displayed short commit must change.
 
-## Install from `main`
+The manifest enables normal automatic update checks. SillyTavern's per-extension download icon is shown only when its version check reports an update; its absence by itself does not prove that update support is missing.
 
-Use SillyTavern's Git extension installer with `https://github.com/Bermieee/Area-52`, or place a checkout of `main` in the SillyTavern third-party extensions directory. Restart or reload SillyTavern after installation. The previous development-branch-only instruction no longer applies.
+## Story-independent live behavior
 
-Example Git operation from the target extensions directory:
+The live adapter no longer loads the deterministic Ember Tavern fixture and no longer requires any named scene, character, or object. On a first turn with no extractable location, Scene Intelligence opens the selected chat's Scene with unknown fields rather than inventing a setting or rejecting the turn.
 
-```bash
-git clone --branch main --single-branch https://github.com/Bermieee/Area-52.git area52
-```
+The deterministic Ember fixture still exists in the repository only for regression tests. It is not imported by the live SillyTavern adapter.
 
-Confirm the loaded extension says **Area-52 — Development Deployment**.
+## Operator test
 
-## Live acceptance sequence
+Use **two unrelated real chats**. Do not use Ember Tavern, Mara, Eris, or Sun Blade for this gate.
 
-Open one real chat. Arm the Area-52 live evidence control, then send these as real user messages in order:
+### Chat A — ordinary story
 
-1. **Simple / Hot path**
-   `Mara and Eris are inside the Ember Tavern with the Sun Blade present. Where are we?`
+1. Arm the Area-52 evidence control.
+2. Send an ordinary in-character turn that does not name a location, such as a character examining an object or continuing dialogue.
+3. Verify the turn is accepted, a Scene exists, unknown fields remain unknown rather than being fabricated, and a sealed PromptPlan is injected.
+4. Send a second turn that explicitly names your actual location and requests relevant history.
+5. Verify Scene revision/delta, Retrieval, Truth, Gather, Context Seal, and PromptPlan receipts are tied to this chat/turn/generation.
 
-   Expected: native Scene is established from the host message; no expensive Runtime scatter job; sealed PromptPlan is injected.
+### Chat B — unrelated story
 
-2. **Retrieval-heavy**
-   `Tell me about Mara and the Ember Tavern history.`
+1. Switch to a completely unrelated chat.
+2. Send an ordinary turn and then a turn involving genuinely uncertain or conflicting story evidence.
+3. Verify Area-52 binds receipts to Chat B rather than reusing Chat A selection/state.
+4. Verify the deterministic built-in Jev path is labeled **FIXTURE**. It does not satisfy FT005. A real configured provider/sidecar call must carry separate provider provenance before #180 can pass.
 
-   Expected: Lore + Graph work execute through the one local resource; authored lore drillback and Truth/Gather/Seal/PromptPlan stay coherent.
+### Prompt delivery
 
-3. **Ambiguous / Jev**
-   `Mara and Eris reach the Ember Tavern Ruins. What happened to the Sun Blade?`
+For at least one generation in each chat:
 
-   Expected: native Scene location revision advances; Lore + Graph + bounded Jev run; Jev abstains/preserves owner authority; Sun Blade conflict remains unresolved; the PromptPlan is injected.
+1. Open SillyTavern's Prompt Inspector/itemization.
+2. Verify the `area52-development-deployment` extension prompt is present in the request context.
+3. Match its PromptPlan/generation/context-seal identifiers to the Area-52 evidence record.
+4. Confirm that a late/stale optional result does not alter the already sealed context.
 
-The ambiguous turn also runs a controlled **Jev unavailable** control on a separate one-resource Brain. That result is evidence-only and is not injected into Main.
+## Lore Study evidence
 
-## Operator confirmation
+The deployment Brain now records Lore ingestion as separate `accepted`, `processed`, and `retrievable` states. That backing contract is not a substitute for #247's required production Lore Study UI.
 
-After the ambiguous generation:
+Until Worker 3's #247 UI is present on the accepted UI lane, **Lore Study UI acceptance remains blocked**. Do not call #247 or #224 complete based on console/API ingestion alone.
 
-1. Inspect the Area-52 UI beside the real SillyTavern chat. Verify the selected chat/turn/generation is the one just sent, and inspect Scene, Cognitive Choice, Runtime resources, Truth/Jev, Gather, Context Seal, PromptPlan and Forensics.
-2. Open SillyTavern Prompt Inspector/itemization for the generated response and verify the `area52-development-deployment` extension prompt appears in the request context for that generation.
-3. Click **Confirm Prompt Inspector + UI trace**.
-4. Click **Copy evidence**, or run:
+## UI and optional-resource evidence boundary
+
+Current Worker 4 evidence distinguishes execution from registration:
+
+- Scene Intelligence, Retrieval, Truth, Cognitive Choice, Runtime, Gather, and PromptPlan report whether they actually ran or were skipped/unavailable for the selected turn.
+- UI producer diagnostics are explicitly marked registration-only and cannot create a live pass by themselves.
+- the native deterministic Jev path is labeled `FIXTURE`, with `realProviderCallObserved=false` and `ft005LivePass=false`;
+- Memory reports skipped when no Memory task was admitted;
+- Forensics/Transactions report unavailable when no live owner binding exists.
+
+The following remain external blockers until their owning lanes deliver and Worker 4 integrates them: #243 production vertical/draggable/edge-aware navigation, #246 Jev/sidecar connection controls and inspection, #247 Lore Study ingestion UI, and #180 a real-provider call plus controlled failure evidence.
+
+## Export and review
+
+After the real checks, click **Confirm Prompt Inspector + UI trace**, then **Copy evidence**, or run:
 
 ```js
 JSON.stringify(Area52DevelopmentDeployment.exportLiveEvidence(), null, 2)
 ```
 
-A complete record has:
-- `checks.simple/retrieval/ambiguous/degraded === true`;
-- `oneResource === true`;
-- each live turn has a verified Context Seal and PromptPlan injection receipt;
-- the ambiguous Scene delta includes `location`;
-- the Jev proposal has no mutation authority;
-- the degraded control reports `safe === true`;
-- operator Prompt Inspector and UI trace confirmations are true;
-- `liveEvidenceComplete === true`;
-- `issue224AutomaticPass === false`.
+Expected properties include:
 
-Attach the exported JSON to Director review (or commit it as a dated evidence artifact if desired). Only the real browser session can fill this section; no fixture JSON is pre-generated here.
+- `twoStoryCoverage === true`;
+- each tested live turn has a verified Context Seal and PromptPlan injection receipt;
+- `providerEvidence.realProviderCallObserved === false` until a real provider is integrated and exercised;
+- the controlled Jev-unavailable probe is labeled `SIMULATED_FAILURE_PROBE`;
+- `operatorReview.liveSillyTavernConfirmed === true` after the button is clicked;
+- `issue224AutomaticPass === false`;
+- `liveEvidenceComplete === false` even after operator capture, because Director approval and remaining live gates are intentionally external to this record.
 
-## Current evidence boundary
-
-Exact-head GitHub Actions proves the assembly, browser imports, owner receipts, source digests and deterministic one-resource/degraded scenarios. It cannot prove that a specific SillyTavern installation rendered the UI or that a specific model request contained the injected PromptPlan. Those two facts remain operator/live-host evidence until the run above is completed.
+Attach the exported evidence and screenshots to Director review. Promotion to `main` remains prohibited until the required live gates are complete and approved.

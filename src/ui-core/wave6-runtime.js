@@ -67,7 +67,7 @@ export function createWave6ProductInterface({
     story:effectiveBridges.story??null,characters:effectiveBridges.characters??null,lore:loreStudy??effectiveBridges.lore??null,memory:memoryOwner??effectiveBridges.memory??null,world:effectiveBridges.world??null,
     presentationState:productPresentation,fixture,
   });
-  let shell=null,controller=null,workspaceScope=new ResourceScope();
+  let shell=null,controller=null,floatingController=null,workspaceScope=new ResourceScope();
   const brainPulse=new BrainPulseModel({runtime,coprocessor,scheduler,onUpdate(){if(shell&&['home','brain'].includes(shell.currentWorkspace))shell.refreshCurrentWorkspace();controller?.scheduleQuickDash();}});
   const mounted=new Set();
 
@@ -106,7 +106,7 @@ export function createWave6ProductInterface({
   const mountAdapter=hostMountAdapter instanceof HostAdjacentMountAdapter?hostMountAdapter:new HostAdjacentMountAdapter(hostMountAdapter??{});
   controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName});
   controller.mount();
-  const floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
+  floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
   const cognitionScope=new ResourceScope();
   let liveSelectionKey=null;
   const applyLiveSelection=(update=null,{initial=false}={})=>{

@@ -266,6 +266,14 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
     {key:'World / Scene revision',value:(selection.worldRevision??'—')+' / '+(selection.sceneRevision??'—')},
     {key:'Live-binding reads',value:snapshot.host?.liveBinding?.reads??'—'},{key:'Rejected stale/foreign reads',value:snapshot.host?.liveBinding?.rejected??0},
   ]));
+  const copro=snapshot.coprocessor?.summary??{},resourceTelemetry=copro.resourceTelemetry??{},providerCalls=copro.providerCalls??{};
+  center.append(element(d,'h3',{text:'Coprocessor telemetry'}),createKeyValue(d,[
+    {key:'Events',value:copro.totalEvents??0},{key:'Warm hit / miss',value:(copro.warm?.hit??0)+' / '+(copro.warm?.miss??0)},
+    {key:'Fallback / stale drop',value:(copro.fallback??0)+' / '+(copro.staleDrop??0)},{key:'Retries',value:copro.retry??0},
+    {key:'Resource tests pass / fail',value:(resourceTelemetry.testsPassed??0)+' / '+(resourceTelemetry.testsFailed??0)},
+    {key:'Resource executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)},
+    {key:'Provider calls invoked / failed',value:(providerCalls.invoked??0)+' / '+(providerCalls.failed??0)},
+  ]));
 
   const wiring=element(d,'div',{className:'a52-wave13-diagnostic-lanes'});
   for(const spec of [

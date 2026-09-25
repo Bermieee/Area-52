@@ -21,7 +21,25 @@ function segmentFact(snapshot,kind,{predicate=kind.toLowerCase(),slot=PromptSlot
   };
 }
 
-export function buildHotCognitionCompilerProjection(snapshot){
+function recentEpisodeFact(snapshot,perspectiveConstraint=null){
+  const segment=snapshot.segments[HotSegmentKind.RECENT_EPISODE_TAIL];
+  if(!segment||segment.freshness!==HotFreshness.FRESH)return null;
+  const scope=String(perspectiveConstraint?.scope??perspectiveConstraint?.kind??'WORLD');
+  const characterRef=perspectiveConstraint?.characterRef??perspectiveConstraint?.characterId??null;
+  const rows=(segment.value??[]).filter(row=>{
+    if(scope!=='CHARACTER_KNOWLEDGE')return true;
+    if(!characterRef)return false;
+    return Boolean(row?.publicToAll)||(row?.knownBy??[]).map(String).includes(String(characterRef));
+  });
+  if(!rows.length)return null;
+  const fact=segmentFact(snapshot,HotSegmentKind.RECENT_EPISODE_TAIL,{predicate:'recent_episode_tail',value:rows});
+  if(!fact)return null;
+  fact.sourceRevisionRefs=uniq(rows.map(row=>row?.sourceRevisionId));
+  fact.provenanceRefs=uniq(fact.sourceRevisionRefs);
+  return fact;
+}
+
+export function buildHotCognitionCompilerProjection(snapshot,{perspectiveConstraint=null}={}){
   if(!snapshot?.snapshotId)return{kind:'HotCognitionCompilerProjection',snapshotId:null,hotRevision:null,facts:[],contributions:[],dependencies:[]};
   const sceneFacts=[];
   const candidates=[
@@ -30,7 +48,7 @@ export function buildHotCognitionCompilerProjection(snapshot){
     segmentFact(snapshot,HotSegmentKind.ACTIVE_CAST,{predicate:'active_cast'}),
     segmentFact(snapshot,HotSegmentKind.ACTIVE_ENTITIES,{predicate:'active_entities'}),
     segmentFact(snapshot,HotSegmentKind.CONTINUITY,{predicate:'continuity'}),
-    segmentFact(snapshot,HotSegmentKind.RECENT_EPISODE_TAIL,{predicate:'recent_episode_tail'}),
+    recentEpisodeFact(snapshot,perspectiveConstraint),
     segmentFact(snapshot,HotSegmentKind.WORLD_REFERENCES,{predicate:'world_references'}),
   ];
   const graph=snapshot.segments[HotSegmentKind.GRAPH_NEIGHBORHOOD];

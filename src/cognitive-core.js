@@ -24,11 +24,11 @@ export class Area52CognitiveCore {
     this.registry=new SourceRegistry();this.study=new LoreStudyEngine({registry:this.registry});this.graph=new TemporalStateGraph();
     this.settlementCore=new SettlementEngine({registry:this.registry,graph:this.graph});
     this.settlement=new SettlementBoundary({registry:this.registry,graph:this.graph,worldStateSettlement:this.settlementCore});
-    this.externalKnowledgeResolver=null;
-    this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
+    this.externalKnowledgeResolver=null;this.externalCurrentSourceRevisionRefs=new Set();
+    this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.isSourceRevisionCurrent(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
     this.hotCognition=new HotCognitionRuntime({sourceRegistry:this.registry,getWorldRevision:()=>this.graph.revision});
-    this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition});
+    this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition,isSourceRevisionCurrent:(revisionId)=>this.isSourceRevisionCurrent(revisionId),externalRevisionSink:(refs)=>this.setExternalCurrentSourceRevisionRefs(refs)});
     this.cognitiveChoice=new CognitiveChoiceController();
     this.sceneIntegration=new SceneCoreIntegrationBridge({core:this});
     this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});this.observation=new CoreObservationSpine();
@@ -66,6 +66,10 @@ export class Area52CognitiveCore {
   hotCognitionSnapshot(chatNamespace){return this.hotCognition.snapshot(chatNamespace);}
   sceneIntegrationSnapshot(chatNamespace){return this.sceneIntegration.snapshot(chatNamespace);}
   sceneIntegrationDiagnostics(chatNamespace){return this.sceneIntegration.diagnostics(chatNamespace);}
+  setExternalCurrentSourceRevisionRefs(refs=[]){this.externalCurrentSourceRevisionRefs=new Set((refs??[]).filter(Boolean).map(String));return this.externalCurrentSourceRevisionIds();}
+  externalCurrentSourceRevisionIds(){return [...this.externalCurrentSourceRevisionRefs].sort();}
+  currentSourceRevisionIds(){return [...new Set([...this.registry.activeRevisionIds(),...this.externalCurrentSourceRevisionIds()])].sort();}
+  isSourceRevisionCurrent(revisionId){const id=String(revisionId);return this.registry.getRevision(id)?this.registry.isActiveRevision(id):this.externalCurrentSourceRevisionRefs.has(id);}
   registerExternalKnowledgeResolver(resolver=null){
     if(resolver!==null&&typeof resolver!=='function')throw new TypeError('external knowledge resolver must be a function');
     this.externalKnowledgeResolver=resolver;

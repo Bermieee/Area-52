@@ -302,8 +302,26 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
+  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Model/);assert.doesNotMatch(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
   const passwordFields=walk(sidecar).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,1);
+  ui.destroy();
+});
+
+test('Connections model input stays editable and discovered models are suggestions rather than a whitelist',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const sidecar=walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');
+  const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
+  const buttonByLabel=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  const endpoint=fieldByLabel(sidecar,'Sidecar endpoint'),model=fieldByLabel(sidecar,'Sidecar model');
+  assert.equal(model.tagName,'INPUT');assert.equal(model.disabled,false);assert.ok(model.getAttribute('list'));
+  endpoint.value='https://openrouter.ai/api/v1';endpoint.dispatch('input');
+  buttonByLabel(sidecar,'Load / Refresh Models').dispatch('click');await Promise.resolve();await Promise.resolve();
+  const suggestions=walk(sidecar).find(x=>x.tagName==='DATALIST');
+  assert.ok(suggestions);assert.ok(walk(suggestions).some(x=>x.tagName==='OPTION'&&x.value==='owner/model-a'));
+  model.value='owner/manual-not-in-list';model.dispatch('input');
+  buttonByLabel(sidecar,'Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  assert.ok(host.calls.some(x=>x[0]==='add'&&x[1]?.modelId==='owner/manual-not-in-list'));
   ui.destroy();
 });
 
@@ -461,7 +479,7 @@ test('Worker 2 model discovery stays owner-backed and does not leak submitted cr
 
   const deniedHost=worker2ResourceHost({discoveryState:'UNAUTHORIZED'}),denied=new Wave13ResourceControlAdapter({bindings:{resourceHost:deniedHost}});
   const deniedResult=await denied.discoverModels({role:'JEV',endpoint:'https://openrouter.ai/api/v1',capabilities:['SEMANTIC_JUDGMENT']});
-  assert.equal(deniedResult.state,'UNAUTHORIZED');assert.equal(deniedResult.manualModelEntryAllowed,false);
+  assert.equal(deniedResult.state,'UNAUTHORIZED');assert.equal(deniedResult.manualModelEntryAllowed,true);
 });
 
 test('Worker 2 typed provider failure remains visibly failed even when the UI action itself completes',async()=>{
@@ -745,19 +763,19 @@ function worker2ResourceHost({configured=false,discoveryState='READY',testFailur
   const calls=[],listeners=new Set();let sequence=0;
   const rows=[];
   const diagnostic=(row,code,message,details={})=>{row.diagnostics??=[];row.diagnostics.push({sequence:++sequence,at:sequence,code,message,details});};
-  if(configured){const row={kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',actualModelId:null,selectedModelQualified:false,qualifiedAt:null,modelSelectionMode:'CONFIGURED_UNQUALIFIED',modelDiscovery:{state:'IDLE',models:[],manualModelEntryAllowed:false},workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:false,local:true,maxConcurrency:1,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);}
+  if(configured){const row={kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',actualModelId:null,selectedModelQualified:false,qualifiedAt:null,modelSelectionMode:'CONFIGURED_UNQUALIFIED',modelDiscovery:{state:'IDLE',models:[],manualModelEntryAllowed:true},workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:false,local:true,maxConcurrency:1,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);}
   const emit=(type,row)=>{sequence+=1;for(const listener of [...listeners])listener({kind:'CoprocessorResourceConnectionEvent',sequence,type,resource:{...row}});};
   return{
     calls,
     actions:{
       async discoverModels(config){const safe={kind:config.kind,endpoint:config.endpoint,capabilities:[...(config.capabilities??[])],credentialConfigured:Boolean(config.apiKey)};calls.push(['discover',safe]);
-        if(discoveryState==='UNAUTHORIZED')return{kind:'ResourceModelDiscoveryResult',state:'UNAUTHORIZED',models:[],manualModelEntryAllowed:false,reasonCode:'CREDENTIAL_REQUIRED',reason:'A session credential is required before model discovery.',credentialConfigured:false};
+        if(discoveryState==='UNAUTHORIZED')return{kind:'ResourceModelDiscoveryResult',state:'UNAUTHORIZED',models:[],manualModelEntryAllowed:true,reasonCode:'CREDENTIAL_REQUIRED',reason:'A session credential is required before model discovery.',credentialConfigured:false};
         if(discoveryState==='UNSUPPORTED')return{kind:'ResourceModelDiscoveryResult',state:'UNSUPPORTED',models:[],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_UNSUPPORTED',reason:'Provider does not support discovery.',credentialConfigured:Boolean(config.apiKey)};
-        if(discoveryState==='EMPTY')return{kind:'ResourceModelDiscoveryResult',state:'EMPTY',models:[],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_EMPTY',reason:'Provider returned no models.',credentialConfigured:Boolean(config.apiKey)};
-        if(discoveryState==='UNREACHABLE')return{kind:'ResourceModelDiscoveryResult',state:'UNREACHABLE',models:[],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_UNREACHABLE',reason:'Provider endpoint is unreachable.',credentialConfigured:Boolean(config.apiKey)};
-        return{kind:'ResourceModelDiscoveryResult',state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'}],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_READY',reason:'Provider model discovery completed.',credentialConfigured:Boolean(config.apiKey)};},
+        if(discoveryState==='EMPTY')return{kind:'ResourceModelDiscoveryResult',state:'EMPTY',models:[],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_EMPTY',reason:'Provider returned no models.',credentialConfigured:Boolean(config.apiKey)};
+        if(discoveryState==='UNREACHABLE')return{kind:'ResourceModelDiscoveryResult',state:'UNREACHABLE',models:[],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_UNREACHABLE',reason:'Provider endpoint is unreachable.',credentialConfigured:Boolean(config.apiKey)};
+        return{kind:'ResourceModelDiscoveryResult',state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'}],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_READY',reason:'Provider model discovery completed.',credentialConfigured:Boolean(config.apiKey)};},
       addResource(config){const safe={...config,capabilities:[...config.capabilities]};delete safe.apiKey;safe.credentialConfigured=Boolean(config.apiKey);calls.push(['add',safe]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:Boolean(config.apiKey),local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
-      async refreshModels(id){calls.push(['refreshModels',id]);const row=rows.find(x=>x.resourceId===id);row.modelDiscovery={state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'},{id:'owner/model-b',displayName:'Owner Model B'}],manualModelEntryAllowed:false};diagnostic(row,'MODEL_DISCOVERY_READY','Model discovery completed.',{modelCount:2});emit('RESOURCE_MODELS_REFRESHED',row);return structuredClone(row.modelDiscovery);},
+      async refreshModels(id){calls.push(['refreshModels',id]);const row=rows.find(x=>x.resourceId===id);row.modelDiscovery={state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'},{id:'owner/model-b',displayName:'Owner Model B'}],manualModelEntryAllowed:true};diagnostic(row,'MODEL_DISCOVERY_READY','Model discovery completed.',{modelCount:2});emit('RESOURCE_MODELS_REFRESHED',row);return structuredClone(row.modelDiscovery);},
       setCredential(id,credential){calls.push(['setCredential',id,{credentialConfigured:Boolean(credential)}]);const row=rows.find(x=>x.resourceId===id);row.credentialConfigured=true;row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='CONFIGURED';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'CREDENTIAL_UPDATED','Session credential replaced.');emit('RESOURCE_CREDENTIAL',row);return{...row};},
       clearCredential(id){calls.push(['clearCredential',id]);const row=rows.find(x=>x.resourceId===id);row.credentialConfigured=false;row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='UNAVAILABLE';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'CREDENTIAL_REVOKED','Session credential revoked.');emit('RESOURCE_CREDENTIAL',row);return{...row};},
       selectModel(id,modelId){calls.push(['selectModel',id,modelId]);const row=rows.find(x=>x.resourceId===id);row.modelId=modelId;row.modelSelectionMode='DISCOVERED';row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='CONFIGURED';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'MODEL_SELECTED','Model selection updated.');emit('RESOURCE_MODEL_SELECTED',row);return{...row};},

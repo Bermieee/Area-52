@@ -196,23 +196,19 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   if(spec.fixedCapabilities){
     capabilities.disabled=true;capabilities.setAttribute('aria-disabled','true');capabilities.title='Jev capability is fixed by the owner contract.';
   }
-  const modelChoice=field(d,'select',spec.title+' discovered model');
   const draftModels=Array.isArray(draft.models)?draft.models:[];
-  modelChoice.append(option(d,'',draftModels.length?'Choose a discovered model':'Load models first'));
-  for(const modelRow of draftModels)modelChoice.append(option(d,modelRow.id,modelRow.label));
-  modelChoice.value=draft.selectedModel??'';
-  const discoveryReady=draft.discoveryState==='READY'&&draftModels.length>0;
-  modelChoice.disabled=!discoveryReady;modelChoice.setAttribute('aria-disabled',String(!discoveryReady));
-  const manualModel=field(d,'input',spec.title+' manual model fallback',{type:'text',placeholder:'Manual model ID fallback',autocomplete:'off'});
-  manualModel.value=draft.manualModel??'';
-  manualModel.disabled=draft.manualAllowed===true?false:Boolean(caps.discoverModels);manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
+  const modelListId='a52-model-list-'+String(spec.id).replace(/[^a-z0-9_-]/gi,'-');
+  const modelChoice=field(d,'input',spec.title+' model',{type:'text',placeholder:'Type or choose a model ID',autocomplete:'off',list:modelListId});
+  const modelSuggestions=element(d,'datalist',{attrs:{id:modelListId}});
+  for(const modelRow of draftModels)modelSuggestions.append(option(d,modelRow.id,modelRow.label));
+  modelChoice.value=draft.manualModel??draft.selectedModel??'';
   const discoveryState=element(d,'p',{className:'a52-wave13-connection-slot__hint',text:draft.discoveryMessage??(caps.discoverModels?'Load models from the provider before testing the connection. Choosing a model does not prove the connection works.':'Worker 2 model discovery is not exported here. Manual model entry is available only as a compatibility fallback.')});
   const updateDraft=()=>connectionDrafts.patch(spec.id,{
     connectionName:String(connectionName.value||spec.defaultName),endpoint:String(endpoint.value||''),capabilities:String(capabilities.value||''),
-    selectedModel:String(modelChoice.value||''),manualModel:String(manualModel.value||''),
+    selectedModel:String(modelChoice.value||''),manualModel:String(modelChoice.value||''),
   });
   listenField(scope,connectionName,'input',updateDraft);listenField(scope,endpoint,'input',updateDraft);listenField(scope,capabilities,'input',updateDraft);
-  listenField(scope,modelChoice,'change',updateDraft);listenField(scope,manualModel,'input',updateDraft);
+  listenField(scope,modelChoice,'input',updateDraft);listenField(scope,modelChoice,'change',updateDraft);
   listenField(scope,apiKey,'input',()=>connectionDrafts.setCredentialPresence(spec.id,Boolean(String(apiKey.value||'').trim())));
   const loadModels=createButton(d,{label:'Load / Refresh Models',scope,size:'sm',variant:'quiet',disabled:!caps.discoverModels,onPress:async()=>{
     updateDraft();
@@ -222,25 +218,21 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
     }});
     if(!result.ok){
       const text='Model discovery failed: '+String(result.error??'unknown error')+'.';
-      connectionDrafts.patch(spec.id,{models:[],selectedModel:'',manualAllowed:false,discoveryState:'FAILED',discoveryMessage:text});
-      modelChoice.replaceChildren(option(d,'','Discovery failed'));modelChoice.disabled=true;modelChoice.setAttribute('aria-disabled','true');
-      manualModel.disabled=true;manualModel.setAttribute('aria-disabled','true');discoveryState.textContent=text;
+      connectionDrafts.patch(spec.id,{models:[],manualAllowed:true,discoveryState:'FAILED',discoveryMessage:text});
+      modelSuggestions.replaceChildren();discoveryState.textContent=text+' You can still enter the exact model ID manually; Test Connection will verify it.';
       reportAction(notifications,result,spec.title+' model discovery');return;
     }
     const discovery=result.result??{},models=discoveryModels(discovery),state=String(discovery.state??'FAILED').toUpperCase(),statusText=discoveryStatusText(state,discovery,models.length);
-    connectionDrafts.patch(spec.id,{models,selectedModel:'',manualAllowed:discovery.manualModelEntryAllowed===true,discoveryState:state,discoveryMessage:statusText});
-    modelChoice.replaceChildren(option(d,'',models.length?'Choose a discovered model':'No models returned'));
-    for(const modelRow of models)modelChoice.append(option(d,modelRow.id,modelRow.label));
-    const ready=state==='READY'&&models.length>0;
-    modelChoice.disabled=!ready;modelChoice.setAttribute('aria-disabled',String(!ready));
-    manualModel.disabled=discovery.manualModelEntryAllowed!==true;manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
+    connectionDrafts.patch(spec.id,{models,manualAllowed:true,discoveryState:state,discoveryMessage:statusText});
+    modelSuggestions.replaceChildren();
+    for(const modelRow of models)modelSuggestions.append(option(d,modelRow.id,modelRow.label));
     discoveryState.textContent=statusText;reportAction(notifications,result,spec.title+' model discovery');
   }});
   const testConnection=createButton(d,{label:'Test Connection',scope,onPress:async()=>{
     updateDraft();
-    const selectedModel=modelChoice.disabled?String(manualModel.value||'').trim():String(modelChoice.value||'').trim();
+    const selectedModel=String(modelChoice.value||'').trim();
     if(!selectedModel){
-      discoveryState.textContent='Choose a discovered model first'+(manualModel.disabled?'.':' or enter the manual fallback model ID.');
+      discoveryState.textContent='Enter a model ID. Load models to get suggestions; qualification will verify the exact ID you submit.';
       return;
     }
     const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -262,7 +254,7 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   }});
   form.append(
     labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
-    loadModels,labelWrap(d,'Model',modelChoice),labelWrap(d,'Manual model fallback',manualModel),discoveryState,
+    loadModels,labelWrap(d,'Model',modelChoice),modelSuggestions,discoveryState,
     ...(credentialWasCleared?[message(d,'API key cleared on refresh','For security, the unsubmitted API key was not retained when this workspace refreshed. Re-enter it before loading models or testing the connection.','warning')]:[]),
     element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 keeps non-secret draft fields for each open slot across refreshes. API-key values are never copied into draft storage; submitted keys are cleared from the field immediately.'}),
     testConnection
@@ -293,11 +285,11 @@ function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,n
   const credential=field(d,'input',(spec?.title??row.kind??'Resource')+' session credential',{type:'password',placeholder:'Replace session credential',autocomplete:'off',spellcheck:'false'});
   listenField(scope,credential,'input',()=>connectionDrafts?.setCredentialPresence?.(lockedKey,Boolean(String(credential.value||'').trim())));
   const discovered=Array.isArray(row.modelDiscovery?.models)?row.modelDiscovery.models:[];
-  const model=field(d,'select',(spec?.title??row.kind??'Resource')+' qualified model');
-  model.append(option(d,'',discovered.length?'Choose discovered model':'Refresh models to choose'));
-  for(const item of discovered)model.append(option(d,String(item.id??item.modelId??''),String(item.displayName??item.name??item.id??item.modelId??'model')));
-  if(discovered.some(item=>String(item.id??item.modelId??'')===String(row.modelId??'')))model.value=String(row.modelId);
-  model.disabled=!discovered.length;model.setAttribute('aria-disabled',String(!discovered.length));
+  const modelListId='a52-model-list-locked-'+String(row.id??row.resourceId??'resource').replace(/[^a-z0-9_-]/gi,'-');
+  const model=field(d,'input',(spec?.title??row.kind??'Resource')+' qualified model',{type:'text',placeholder:'Type or choose a model ID',autocomplete:'off',list:modelListId});
+  const modelSuggestions=element(d,'datalist',{attrs:{id:modelListId}});
+  for(const item of discovered)modelSuggestions.append(option(d,String(item.id??item.modelId??''),String(item.displayName??item.name??item.id??item.modelId??'model')));
+  model.value=String(row.modelId??'');
 
   const managementStatus=element(d,'p',{className:'a52-wave13-connection-slot__hint',attrs:{role:'status','aria-live':'polite'},text:'Operational settings remain owner-backed. Saving a model or credential invalidates prior qualification until Worker 2 passes a new authenticated check.'});
   const manageActions=element(d,'div',{className:'a52-wave13-resource-actions'});
@@ -315,15 +307,15 @@ function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,n
   if(caps.refreshModels)manageActions.append(createButton(d,{label:'Refresh models',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const result=await actionRouter.route({type:'wave13.resource.refreshModels',target:row});reportAction(notifications,result,'Configured resource model refresh');refresh?.();
   }}));
-  if(caps.selectModel)manageActions.append(createButton(d,{label:'Select model',scope,size:'sm',variant:'quiet',disabled:!discovered.length,onPress:async()=>{
-    const modelId=String(model.value||'').trim();if(!modelId){managementStatus.textContent='Choose a discovered model first.';return;}
+  if(caps.selectModel)manageActions.append(createButton(d,{label:'Select model',scope,size:'sm',variant:'quiet',onPress:async()=>{
+    const modelId=String(model.value||'').trim();if(!modelId){managementStatus.textContent='Enter a model ID. Refreshed models are suggestions, not a whitelist.';return;}
     const result=await actionRouter.route({type:'wave13.resource.selectModel',target:row,payload:{modelId}});
     managementStatus.textContent=result.ok?'Model selected. Requalification is required before this resource is callable.':'Model selection failed: '+String(result.error??'unknown error');
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
     if(caps.setCredential||caps.clearCredential)management.append(labelWrap(d,'Session credential',credential));
-    if(caps.refreshModels||caps.selectModel)management.append(labelWrap(d,'Discovered model',model));
+    if(caps.refreshModels||caps.selectModel)management.append(labelWrap(d,'Model',model),modelSuggestions);
     management.append(manageActions,managementStatus);
     if(credentialWasCleared)management.append(message(d,'API key cleared on refresh','For security, the unsubmitted session credential was not retained when this workspace refreshed. Re-enter it before saving or requalifying.','warning'));
     card.append(management);
@@ -369,10 +361,10 @@ function discoveryModels(result){
 
 function discoveryStatusText(state,result,count){
   const reason=String(result?.reason??'').trim();
-  if(state==='READY')return count+' model'+(count===1?'':'s')+' loaded. Choose one, then test the connection; selection alone is not proof of connectivity.';
-  if(state==='UNAUTHORIZED')return reason||'Authentication was rejected or a credential is required before model discovery.';
-  if(state==='UNSUPPORTED')return (reason||'This provider does not support model discovery.')+(result?.manualModelEntryAllowed===true?' Manual model fallback is available.':'');
-  if(state==='EMPTY')return (reason||'The provider returned no selectable models.')+(result?.manualModelEntryAllowed===true?' Manual model fallback is available.':'');
+  if(state==='READY')return count+' model'+(count===1?'':'s')+' loaded. Type to filter suggestions, or enter an exact model ID manually. Test Connection performs qualification.';
+  if(state==='UNAUTHORIZED')return (reason||'Authentication was rejected or a credential is required before model discovery.')+' You can still enter a model ID manually; qualification still requires provider access.';
+  if(state==='UNSUPPORTED')return (reason||'This provider does not support model discovery.')+' Enter the exact model ID manually.';
+  if(state==='EMPTY')return (reason||'The provider returned no selectable models.')+' Enter the exact model ID manually.';
   if(state==='UNREACHABLE')return reason||'The provider endpoint could not be reached.';
   if(state==='LOADING')return'Loading models from the provider…';
   return reason||'Model discovery failed.';

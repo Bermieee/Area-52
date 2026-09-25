@@ -466,7 +466,7 @@ export class Wave13ResourceControlAdapter{
     if(!this.selectModelFn){const e=new Error('Configured-resource model selection is not exported by the Worker 2 resource host.');e.code='RESOURCE_MODEL_SELECTION_UNAVAILABLE';this.lastError=e;throw e;}
     const id=resourceId(resource),model=text(modelId);
     if(!id){const e=new TypeError('Resource model selection requires resourceId.');e.code='RESOURCE_ID_REQUIRED';this.lastError=e;throw e;}
-    if(!model){const e=new TypeError('A discovered or owner-permitted model must be selected.');e.code='RESOURCE_MODEL_REQUIRED';this.lastError=e;throw e;}
+    if(!model){const e=new TypeError('A model ID must be entered. Discovered models are suggestions, not a whitelist.');e.code='RESOURCE_MODEL_REQUIRED';this.lastError=e;throw e;}
     try{const result=await this.selectModelFn(id,model);this.lastAction={type:'SELECT_MODEL',result:cloneSafe(result)};return cloneSafe(result);}
     catch(error){this.lastError=error;throw error;}
   }

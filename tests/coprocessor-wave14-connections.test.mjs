@@ -161,6 +161,33 @@ test('configured OpenAI-compatible resource probes, advertises active capabiliti
   }finally{await provider.close();}
 });
 
+test('manual model ID can be selected and qualified even when discovery does not list it',async()=>{
+  const provider=await startProvider();
+  try{
+    const registry=new CoprocessorResourceConnections();
+    addHttpResource(registry,provider.baseUrl);
+    const discovery=await registry.refreshResourceModels('http-primary');
+    assert.equal(discovery.state,'READY');
+    assert.equal(discovery.models.some(row=>row.id==='area52-local-model'),true);
+    assert.equal(discovery.models.some(row=>row.id==='area52-manual-unlisted'),false);
+    assert.equal(discovery.manualModelEntryAllowed,true);
+
+    const selected=registry.selectResourceModel('http-primary','area52-manual-unlisted');
+    assert.equal(selected.modelId,'area52-manual-unlisted');
+    assert.equal(selected.modelSelectionMode,'MANUAL');
+    assert.equal(selected.selectedModelQualified,false);
+
+    const ready=await registry.connectResource('http-primary');
+    assert.equal(ready.state,ResourceConnectionState.READY);
+    assert.equal(ready.selectedModelQualified,true);
+    assert.equal(ready.modelId,'area52-manual-unlisted');
+    assert.equal(ready.actualModelId,'area52-manual-unlisted');
+    assert.equal(ready.callable,true);
+    assert.ok(provider.calls().modelCalls>=2);
+    assert.ok(provider.calls().chatCalls>=1);
+  }finally{await provider.close();}
+});
+
 test('one physical resource serves multiple jobs, and a second resource is used only when capacity makes it useful',async()=>{
   const provider=await startProvider({graphDelayMs:120});
   try{

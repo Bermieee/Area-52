@@ -181,7 +181,7 @@ export class CoprocessorResourceConnections{
     const transportMode=normalizeTransportMode(input.transportMode,declared,kind);
     const credentialRequired=Boolean(input.credentialRequired??identity.family==='OPENROUTER');
     if(credentialRequired&&!input.apiKey)return deepFreeze({
-      kind:'ResourceModelDiscoveryResult',state:ResourceModelDiscoveryState.UNAUTHORIZED,models:[],manualModelEntryAllowed:false,
+      kind:'ResourceModelDiscoveryResult',state:ResourceModelDiscoveryState.UNAUTHORIZED,models:[],manualModelEntryAllowed:true,
       reasonCode:ResourceConnectionReason.CREDENTIAL_REQUIRED,reason:'A session credential is required before model discovery.',endpoint:safeEndpoint(endpoint),
       providerIdentity:identity,transportMode,local:isLocalEndpoint(endpoint),credentialConfigured:false,credentialStorage:ResourceCredentialStorage.SESSION_MEMORY_ONLY,
     });
@@ -206,12 +206,12 @@ export class CoprocessorResourceConnections{
       return clone(row.modelDiscovery);
     }
     if(row.credentialRequired&&!row.credentialConfigured){
-      row.modelDiscovery=createDiscoveryReadModel(ResourceModelDiscoveryState.UNAUTHORIZED,{transportMode:row.transportMode,reasonCode:ResourceConnectionReason.CREDENTIAL_REQUIRED,reason:'A session credential is required before model discovery.',manualModelEntryAllowed:false});
+      row.modelDiscovery=createDiscoveryReadModel(ResourceModelDiscoveryState.UNAUTHORIZED,{transportMode:row.transportMode,reasonCode:ResourceConnectionReason.CREDENTIAL_REQUIRED,reason:'A session credential is required before model discovery.',manualModelEntryAllowed:true});
       this.#diagnostic(row,'MODEL_DISCOVERY_UNAUTHORIZED',row.modelDiscovery.reason);
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_DISCOVERY,{...this.#telemetryRow(row),discoveryState:row.modelDiscovery.state});
       this.#notify('RESOURCE_DISCOVERY',row);return clone(row.modelDiscovery);
     }
-    row.modelDiscovery=createDiscoveryReadModel(ResourceModelDiscoveryState.LOADING,{transportMode:row.transportMode,reasonCode:ResourceConnectionReason.MODEL_DISCOVERY_LOADING,reason:'Model discovery in progress.',manualModelEntryAllowed:false});
+    row.modelDiscovery=createDiscoveryReadModel(ResourceModelDiscoveryState.LOADING,{transportMode:row.transportMode,reasonCode:ResourceConnectionReason.MODEL_DISCOVERY_LOADING,reason:'Model discovery in progress.',manualModelEntryAllowed:true});
     this.#notify('RESOURCE_DISCOVERY',row);
     try{
       const adapter=this.adapters.get(row.providerId);const discovery=await adapter.discoverModels({signal,timeoutMs:this.privateConfig.get(row.resourceId)?.healthTimeoutMs});
@@ -259,16 +259,11 @@ export class CoprocessorResourceConnections{
     const row=this.#row(resourceId);const value=req(modelId,'modelId');
     const discovery=row.modelDiscovery??createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode:row.transportMode});
     const found=(discovery.models??[]).find(model=>model.id===value);
-    if(discovery.state===ResourceModelDiscoveryState.READY&&!found)throw new ProviderInvocationError(FailureCode.MODEL_UNAVAILABLE,'Selected model is not present in the discovered provider model list',{providerId:row.providerId,status:404});
-    if(discovery.state===ResourceModelDiscoveryState.EMPTY)throw new ProviderInvocationError(FailureCode.MODEL_UNAVAILABLE,'Provider model discovery returned no selectable models',{providerId:row.providerId});
-    if(![ResourceModelDiscoveryState.READY,ResourceModelDiscoveryState.UNSUPPORTED].includes(discovery.state)){
-      throw new ProviderInvocationError(FailureCode.MODEL_DISCOVERY_UNSUPPORTED,'Load/Refresh Models must complete before selecting a model; manual entry is allowed only when discovery is unsupported',{providerId:row.providerId});
-    }
     const adapter=this.adapters.get(row.providerId);adapter?.setModelId?.(value);this.profiles.setModelId(row.providerProfileId,value);row.modelId=value;
-    row.modelSelectionMode=found?'DISCOVERED':'MANUAL_FALLBACK';row.qualifiedCapabilities=[];row.qualificationEvidence=found?qualificationEvidence(found,discovery.state,row.transportMode,{qualified:false}):null;
-    this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.MODEL_SELECTED,reason:'Model selected; authenticated qualification is required.'});
-    this.#diagnostic(row,'MODEL_SELECTED','Model selection updated.',{selectionMode:row.modelSelectionMode});
-    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_MODEL_SELECTED,{...this.#telemetryRow(row),selectionMode:row.modelSelectionMode});
+    row.modelSelectionMode=found?'DISCOVERED':'MANUAL';row.qualifiedCapabilities=[];row.qualificationEvidence=found?qualificationEvidence(found,discovery.state,row.transportMode,{qualified:false}):null;
+    this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.MODEL_SELECTED,reason:'Model selected; authenticated qualification is required. Discovery suggestions are advisory and manual model IDs are permitted.'});
+    this.#diagnostic(row,'MODEL_SELECTED','Model selection updated.',{selectionMode:row.modelSelectionMode,discovered:Boolean(found),discoveryState:discovery.state});
+    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_MODEL_SELECTED,{...this.#telemetryRow(row),selectionMode:row.modelSelectionMode,discovered:Boolean(found),discoveryState:discovery.state});
     this.#notify('RESOURCE_MODEL_SELECTED',row);return this.readResource(resourceId);
   }
 
@@ -661,21 +656,21 @@ function classifyProviderIdentity(endpoint,kind){
 function isLocalEndpoint(endpoint){if(!endpoint)return false;try{return isLocalHostname(new URL(endpoint).hostname.toLowerCase());}catch{return false;}}
 function isLocalHostname(host){return host==='localhost'||host==='::1'||host.endsWith('.local')||host==='127.0.0.1'||host.startsWith('127.');}
 function createDiscoveryReadModel(state,input={}){
-  return deepFreeze({kind:'ResourceModelDiscoveryReadModel',state,models:Object.freeze((input.models??[]).map(clone)),manualModelEntryAllowed:Boolean(input.manualModelEntryAllowed??state===ResourceModelDiscoveryState.UNSUPPORTED),
+  return deepFreeze({kind:'ResourceModelDiscoveryReadModel',state,models:Object.freeze((input.models??[]).map(clone)),manualModelEntryAllowed:input.manualModelEntryAllowed!==false,
     reasonCode:input.reasonCode??discoveryReasonCode(state),reason:input.reason??discoveryReason(state),transportMode:input.transportMode??null,at:input.at??Date.now()});
 }
 function discoveryResultFromAdapter(discovery,{endpoint=null,identity=null,transportMode=null,resourceCapabilities=[],credentialConfigured=false}={}){
   const state=discovery?.state===ProviderModelDiscoveryState.UNSUPPORTED?ResourceModelDiscoveryState.UNSUPPORTED
     :discovery?.state===ProviderModelDiscoveryState.EMPTY?ResourceModelDiscoveryState.EMPTY:ResourceModelDiscoveryState.READY;
   const models=(discovery?.models??[]).map(model=>deepFreeze({...clone(model),capabilities:Object.freeze(transportMode===ProviderTransportMode.EMBEDDINGS?[Capability.EMBED]:[...new Set(resourceCapabilities.length?resourceCapabilities:(model.capabilities??[]))])}));
-  return {kind:'ResourceModelDiscoveryResult',state,models,manualModelEntryAllowed:state===ResourceModelDiscoveryState.UNSUPPORTED,reasonCode:discoveryReasonCode(state),reason:discoveryReason(state),
+  return {kind:'ResourceModelDiscoveryResult',state,models,manualModelEntryAllowed:true,reasonCode:discoveryReasonCode(state),reason:discoveryReason(state),
     endpoint:safeEndpoint(endpoint),providerIdentity:clone(identity),transportMode,local:isLocalEndpoint(endpoint),credentialConfigured,credentialStorage:ResourceCredentialStorage.SESSION_MEMORY_ONLY,latencyMs:finiteOrNull(discovery?.latencyMs)};
 }
 function discoveryFailure(error,{endpoint=null,identity=null,transportMode=null,credentialConfigured=false}={}){
   const state=error?.code===FailureCode.PROVIDER_UNAUTHORIZED||error?.code===FailureCode.CREDENTIAL_REQUIRED?ResourceModelDiscoveryState.UNAUTHORIZED
     :[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.PROVIDER_TIMEOUT,FailureCode.PROVIDER_ABORTED].includes(error?.code)?ResourceModelDiscoveryState.UNREACHABLE
     :ResourceModelDiscoveryState.FAILED;
-  return {kind:'ResourceModelDiscoveryResult',state,models:[],manualModelEntryAllowed:false,reasonCode:discoveryReasonCode(state),reason:safeMessage(error?.message??discoveryReason(state)),
+  return {kind:'ResourceModelDiscoveryResult',state,models:[],manualModelEntryAllowed:true,reasonCode:discoveryReasonCode(state),reason:safeMessage(error?.message??discoveryReason(state)),
     endpoint:safeEndpoint(endpoint),providerIdentity:clone(identity),transportMode,local:isLocalEndpoint(endpoint),credentialConfigured,credentialStorage:ResourceCredentialStorage.SESSION_MEMORY_ONLY};
 }
 function discoveryReasonCode(state){return({

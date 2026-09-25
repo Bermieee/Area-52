@@ -3,7 +3,7 @@ import { CapabilityProfileRegistry } from './capability-profiles.js';
 import { ProviderHealthModel } from './provider-health.js';
 import {
   DeterministicProviderAdapter, OpenAICompatibleProviderAdapter, ProviderAdapterRegistry, ProviderInvocationError,
-  ProviderTransportMode, ProviderModelDiscoveryState,
+  ProviderTransportMode, ProviderModelDiscoveryState, bindProviderFetch,
 } from './provider-adapters.js';
 import { SpecialistExecutionLayer } from './provider-execution.js';
 import { JevProviderExecutor, createJevCognitiveTask, createJevProviderInput } from './jev-decision-core.js';
@@ -91,7 +91,7 @@ export class CoprocessorResourceConnections{
     this.adapters=adapters??new ProviderAdapterRegistry();
     this.health=health??new ProviderHealthModel({telemetry});
     this.telemetry=telemetry;
-    this.fetchImpl=fetchImpl;
+    this.fetchImpl=bindProviderFetch(fetchImpl);
     this.now=now;
     this.maxResources=Math.max(1,Number(maxResources)||16);
     this.diagnosticLimit=Math.max(8,Number(diagnosticLimit)||64);
@@ -307,6 +307,7 @@ export class CoprocessorResourceConnections{
     for(const controller of this.controllers.get(resourceId)??[])if(!controller.signal.aborted)controller.abort('resource-disconnected');
     this.controllers.delete(resourceId);
     row.state=ResourceConnectionState.DISCONNECTED;row.reasonCode=ResourceConnectionReason.OPERATOR_DISCONNECT;row.reason=safeMessage(reason);row.disconnectedAt=this.now();
+    row.selectedModelQualified=false;row.qualifiedAt=null;
     row.activeExecutions=0;this.profiles.setLoad(row.providerProfileId,0);this.profiles.setAvailability(row.providerProfileId,false);this.profiles.setHealth(row.providerProfileId,'UNAVAILABLE');
     this.health.setManualDisabled(row.providerProfileId,true,{now:this.now()});
     this.#diagnostic(row,'DISCONNECTED',row.reason);emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_DISCONNECTED,this.#telemetryRow(row));this.#notify('RESOURCE_DISCONNECTED',row);
@@ -331,7 +332,10 @@ export class CoprocessorResourceConnections{
       this.#notify('RESOURCE_TESTED',row);return Object.freeze({resource:this.readResource(resourceId),result});
     }catch(error){
       row.lastTest={status:'FAIL',mode:String(mode).toUpperCase(),at:this.now(),latencyMs:Math.max(0,this.now()-started),failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
-      this.#observeFailure(row,error);this.#diagnostic(row,'TEST_FAILED',safeMessage(error?.message??'Resource test failed.'),{mode:row.lastTest.mode,code:row.lastTest.failureCode});
+      this.#observeFailure(row,error);
+      this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Resource test failed.'),unavailable:true});
+      row.lastFailure={code:row.lastTest.failureCode,message:safeMessage(error?.message??String(error)),at:this.now()};
+      this.#diagnostic(row,'TEST_FAILED',safeMessage(error?.message??'Resource test failed.'),{mode:row.lastTest.mode,code:row.lastTest.failureCode});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_TESTED,{...this.#telemetryRow(row),testStatus:'FAIL',testMode:row.lastTest.mode,failureCode:row.lastTest.failureCode});
       this.#notify('RESOURCE_TESTED',row);return Object.freeze({resource:this.readResource(resourceId),result:null,failure:Object.freeze({code:row.lastTest.failureCode,message:safeMessage(error?.message??String(error))})});
     }
@@ -472,7 +476,7 @@ export class CoprocessorResourceConnections{
       measurementClass:row.measurementClass,configuredAt:row.configuredAt,connectedAt:row.connectedAt,disconnectedAt:row.disconnectedAt,qualifiedAt:row.qualifiedAt,selectedModelQualified:Boolean(row.selectedModelQualified),modelSelectionMode:row.modelSelectionMode,
       lastHealthCheckAt:row.lastHealthCheckAt,lastHealthLatencyMs:row.lastHealthLatencyMs,lastHealthResult:row.lastHealthResult,
       endpoint:row.endpoint,credentialConfigured:row.credentialConfigured,credentialRequired:row.credentialRequired,credentialStorage:row.credentialStorage,credentialVersion:row.credentialVersion,
-      modelDiscovery:clone(row.modelDiscovery),local:row.local,maxConcurrency:row.maxConcurrency,activeExecutions:row.activeExecutions,
+      modelDiscovery:clone(row.modelDiscovery),local:row.local,connected:callable,maxConcurrency:row.maxConcurrency,activeExecutions:row.activeExecutions,
       health:health.health,availability:profile?.availability??'UNAVAILABLE',currentLoad:profile?.currentLoad??row.activeExecutions,
       lastTest:clone(row.lastTest),lastExecution:clone(row.lastExecution),lastFailure:clone(row.lastFailure),diagnostics:deepFreeze(row.diagnostics.map(clone)),
       callable,authority:'NONE',truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,

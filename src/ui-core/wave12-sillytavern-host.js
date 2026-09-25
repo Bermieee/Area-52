@@ -284,7 +284,7 @@ export class Wave12SillyTavernHostAdapter{
         reserveWidth:(width)=>this.layoutReservation.reserve(width),
         releaseWidth:()=>this.layoutReservation.release(),
         onModeChange:(change)=>this.layoutReservation.modeChanged(change),
-        fixedReservationWidth:this.floatingNavigation?76:null,
+        fixedReservationWidth:this.floatingNavigation?0:null,
       });
       this.selectionBridge=new SillyTavernSelectionBridge({getContext:this.getContext,ownerBindings:this.ownerBindings});
       const liveBindings={

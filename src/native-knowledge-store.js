@@ -228,7 +228,7 @@ export class NativeKnowledgeStore{
     return (this.historyBySource.get(String(sourceId))??[]).map(id=>this.records.get(id)).filter(Boolean).map(clone);
   }
 
-  channel(channelFamily,{channelId=null,maxCandidates=64}={}){
+  channel(channelFamily,{channelId=null,maxCandidates=64,rankBias=null}={}){
     const family=String(channelFamily).toUpperCase();
     if(!['LORE','MEMORY'].includes(family))throw new TypeError('channelFamily must be LORE or MEMORY');
     const store=this;
@@ -252,6 +252,7 @@ export class NativeKnowledgeStore{
           .filter(x=>x.score>0||tokenise(query).length===0)
           .sort((a,b)=>b.score-a.score||b.row.sequence-a.row.sequence)
           .slice(0,maxCandidates);
+        const learnedBias=typeof rankBias==='function'?Number(rankBias(id))||0:0;
         return rows.map(({row,score},index)=>createChannelNomination({
           nominationId:id+':'+intent.intentId+':'+row.evidenceId,
           channelId:id,candidateId:'candidate:'+row.evidenceId,
@@ -259,7 +260,7 @@ export class NativeKnowledgeStore{
           artifactRef:clone(row.evidence.artifactRef),artifactRevision:row.evidence.artifactRef?.revision??1,
           sourceRevisionRefs:[...row.evidence.sourceRevisionRefs],claimRefs:[...row.evidence.claimIds],
           entityRefs:uniq([row.evidence.semantic?.subjectId,row.evidence.semantic?.objectId]),
-          retrievalIntentIds:[intent.intentId],rankSignals:{lexical:score,recency:1/(1+index)},normalizedRank:Math.max(0,Math.min(1,score||0.01)),
+          retrievalIntentIds:[intent.intentId],rankSignals:{lexical:score,recency:1/(1+index),feedbackUtility:learnedBias},normalizedRank:Math.max(0,Math.min(1,(score||0.01)+learnedBias)),
           temporalHints:[{status:row.evidence.temporalStatus,originWorldRevision:row.worldRevision,originSceneRevision:row.sceneRevision}],
           authorityClass:row.evidence.authorityClass,truthStatusHint:truthStatus(row.evidence),
           provenance:row.evidence.provenanceRefs.map(ref=>({ref})),evidenceRefs:[row.evidence.evidenceId],

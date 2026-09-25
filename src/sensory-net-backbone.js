@@ -53,7 +53,7 @@ export class SensoryNetBackbone{
     const localSourceRevisionSet=this.sourceRegistry?.activeRevisionIds?.()??[];
     const context={query,anchorEntityIds:uniq(anchorEntityIds),worldRevision,sceneRevision,sourceRevisionSet:localSourceRevisionSet,currentOwnerArtifacts,hotCognitionSnapshot:this.hotCognition?.snapshot?.()??null};
     const scatter=this.channelRegistry.retrieveAllSync({intents,context,channelIds});
-    const ownerRevisionRefs=this.#trustedOwnerRevisionRefs(scatter.nominations);this.externalRevisionSink(ownerRevisionRefs);
+    const ownerRevisionRefs=this.#trustedOwnerRevisionRefs(scatter.nominations);if(this.#ownerChannelsExecuted(scatter.channelReceipts))this.externalRevisionSink(ownerRevisionRefs);
     const sourceRevisionSet=uniq([...localSourceRevisionSet,...ownerRevisionRefs]);
     const envelope=this.candidateBus.fuse({
       nominations:scatter.nominations,retrievalIntents:intents,query,currentRevisionSet:{sourceRevisionSet,worldRevision,sceneRevision},
@@ -69,7 +69,7 @@ export class SensoryNetBackbone{
     const localSourceRevisionSet=this.sourceRegistry?.activeRevisionIds?.()??[];
     const context={query,anchorEntityIds:uniq(anchorEntityIds),worldRevision,sceneRevision,sourceRevisionSet:localSourceRevisionSet,currentOwnerArtifacts,hotCognitionSnapshot:this.hotCognition?.snapshot?.()??null};
     const scatter=await this.channelRegistry.retrieveAll({intents,context,channelIds});
-    const ownerRevisionRefs=this.#trustedOwnerRevisionRefs(scatter.nominations);this.externalRevisionSink(ownerRevisionRefs);
+    const ownerRevisionRefs=this.#trustedOwnerRevisionRefs(scatter.nominations);if(this.#ownerChannelsExecuted(scatter.channelReceipts))this.externalRevisionSink(ownerRevisionRefs);
     const sourceRevisionSet=uniq([...localSourceRevisionSet,...ownerRevisionRefs]);
     const envelope=this.candidateBus.fuse({nominations:scatter.nominations,retrievalIntents:intents,query,currentRevisionSet:{sourceRevisionSet,worldRevision,sceneRevision},unavailableChannels:scatter.unavailableChannels,degradedChannels:scatter.degradedChannels,metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors}});
     this.lastEnvelope=envelope;return envelope;
@@ -86,6 +86,10 @@ export class SensoryNetBackbone{
 
   manifest(){return this.channelRegistry.manifest();}
   diagnostics(){return frozen({kind:'SensoryNetDiagnostics',candidateBus:this.candidateBus.diagnostics(),channels:this.channelRegistry.manifest(),indexLifecycle:this.indexLifecycle.lifecycleDiagnostics(),lastFusionReceipt:clone(this.lastEnvelope?.fusionReceipt??null),retainsCandidatePayloadHistory:false,readOnly:true,mutationAuthority:false});}
+
+  #ownerChannelsExecuted(receipts=[]){
+    return (receipts??[]).some((receipt)=>this.channelRegistry.lookup(receipt?.channelId)?.descriptor?.metadata?.ownerRevisionFence===true);
+  }
 
   #trustedOwnerRevisionRefs(nominations=[]){
     const refs=[];

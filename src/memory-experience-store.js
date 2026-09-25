@@ -340,13 +340,13 @@ export class MemoryExperienceStore {
   startConsolidation(jobs=[],options={}) {
     if (!Array.isArray(jobs)) throw new TypeError('consolidation jobs must be an array');
     if (jobs.length>MEMORY_LIMITS.maxConsolidationJobs) throw new RangeError('Memory consolidation job count exceeds bound');
-    const explicitSources=uniqStrings(options.sourceRevisionRefs??[],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+    const explicitSources=uniqStrings(options.sourceRevisionRefs??[],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
     const jobSources=uniqStrings(jobs.flatMap((job)=>[
       ...(job?.input?.sourceRevisionRefs??[]),
       ...(job?.input?.supportEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...(job?.input?.contradictionEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-    ]),MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    const sourceRevisionRefs=uniqStrings([...explicitSources,...jobSources],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+    ]),MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
+    const sourceRevisionRefs=uniqStrings([...explicitSources,...jobSources],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
     const generation=options.generationFence??options.selection??{};
     const generationFence={
       chatId:generation.chatId??generation.chatNamespace??null,

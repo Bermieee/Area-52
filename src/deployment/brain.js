@@ -276,7 +276,7 @@ export class DevelopmentDeploymentBrain {
       this.loreIntelligence = new LoreIntelligenceService({ runtime: this.lore, hierarchy: this.loreSystem });
       this.loreAuthoring = new LoreAuthoringService({ intelligence: this.loreIntelligence });
     }
-    this.loreSettlementEvents = [];
+    this.loreSettlementEvents = clone(loreOwnerSnapshot?.settlementEvents ?? []);
     this.scene = new SceneLifecycleRuntime();
     this.memory = new MemoryTemporalProducer();
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
@@ -418,6 +418,7 @@ export class DevelopmentDeploymentBrain {
       contractVersion: 1,
       intelligence: this.loreIntelligence.snapshot(),
       authoring: this.loreAuthoring.snapshot(),
+      settlementEvents: clone(this.loreSettlementEvents),
     };
   }
 

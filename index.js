@@ -24,6 +24,8 @@ function setGate(root,name,passed,pending='Pending'){
 
 function renderEvidence(root, evidence) {
   setText(root, '[data-a52-live-status]', evidence.status);
+  const manualRun=root?.querySelector?.('[data-a52-run]');
+  if(manualRun){const native=Boolean(evidence.nativeBrainIntegration?.ownerAvailable);manualRun.disabled=native;manualRun.textContent=native?'Native mode: use SillyTavern Send':'Process current turn';}
   setGate(root,'native-multiturn',Boolean(evidence.nativeBrainIntegration?.multiTurnObserved),'Run two learned turns in one selected story');
   setGate(root,'lore-study',Boolean(evidence.loreOperatorEvidence?.selected?.selected&&Number(evidence.loreOperatorEvidence?.retrievalReady??0)>0),'Select, accept, and study a SillyTavern Lorebook');
   setGate(root,'lore-revision',Boolean(evidence.nativeBrainIntegration?.loreRevisionInvalidations?.length),'Route one corrected Lore revision before the next turn');
@@ -110,12 +112,18 @@ export async function init() {
   }
 
   root.querySelector('[data-a52-arm]')?.addEventListener('click', () => {
-    if (session.running) {
-      session.stop();
-      root.querySelector('[data-a52-arm]').textContent = 'Arm';
-    } else {
-      session.start();
-      root.querySelector('[data-a52-arm]').textContent = 'Disarm';
+    try{
+      if (session.running) {
+        session.stop();
+        root.querySelector('[data-a52-arm]').textContent = 'Arm';
+      } else {
+        session.start();
+        root.querySelector('[data-a52-arm]').textContent = 'Disarm';
+      }
+    }catch(error){
+      setText(root,'[data-a52-live-status]','ARM FAILED');
+      setText(root,'[data-a52-live-output]',String(error?.message??error));
+      root.querySelector('[data-a52-arm]').textContent='Arm';
     }
   });
   root.querySelector('[data-a52-run]')?.addEventListener('click', () => void session.processCurrentTurn().catch(() => {}));

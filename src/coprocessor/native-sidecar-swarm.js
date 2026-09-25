@@ -130,16 +130,16 @@ export class NativeSidecarSwarm{
         for(const item of pending.splice(0))records.push(rejectedRecord(item.task,NativeSwarmResultState.FAILED,FailureCode.PROVIDER_ABORTED));
         break;
       }
-      const round=[];
+      const round=[];const reserved=new Map();
       for(let index=0;index<pending.length;){
         const item=pending[index],task=item.task;
         if(this.now()>=task.hardDeadline){
           records.push(rejectedRecord(task,NativeSwarmResultState.REJECTED_LATE,FailureCode.DEADLINE_MISS,{attempt:item.attempt,late:true}));
           pending.splice(index,1);continue;
         }
-        const candidates=this.#eligible(task,item.excluded);
+        const candidates=this.#eligible(task,item.excluded,reserved);
         if(!candidates.length){index+=1;continue;}
-        const profile=candidates[0];
+        const profile=candidates[0];reserved.set(profile.profileId,(reserved.get(profile.profileId)??0)+1);
         pending.splice(index,1);
         round.push(this.#executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}));
       }
@@ -157,10 +157,11 @@ export class NativeSidecarSwarm{
     return records;
   }
 
-  #eligible(task,excluded){
+  #eligible(task,excluded,reserved=new Map()){
     return this.connections.profiles.eligibleProfiles(task,{
       contextTokens:0,maxCostClass:'HIGH',requireStructuredOutput:true,expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),
-    }).filter(profile=>!excluded.has(profile.profileId)&&this.connections.adapters.get(profile.providerId));
+    }).filter(profile=>!excluded.has(profile.profileId)&&this.connections.adapters.get(profile.providerId)
+      && Number(profile.currentLoad??0)+Number(reserved.get(profile.profileId)??0)<Number(profile.concurrencyCapacity??profile.maxConcurrency??1));
   }
 
   async #executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}){

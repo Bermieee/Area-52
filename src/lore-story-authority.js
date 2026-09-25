@@ -271,6 +271,16 @@ export class LoreStoryAuthorityRegistry {
     const receipts = [];
     for (const story of this.stories.values()) {
       if (!story.accepted.has(bookId)) continue;
+      const existing = story.revisionChanges.find((row) => (
+        row.sourceId === (sourceId == null ? null : String(sourceId))
+        && row.previousSourceRevisionId === (previousSourceRevisionId == null ? null : String(previousSourceRevisionId))
+        && row.sourceRevisionId === nextRevision
+        && row.origin === String(origin)
+      ));
+      if (existing) {
+        receipts.push(deepClone(existing));
+        continue;
+      }
       const write = story.writeAuthorities.get(bookId) || null;
       let writeRevoked = false;
       if (write?.state === 'ACTIVE') {

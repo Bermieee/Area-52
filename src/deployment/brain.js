@@ -16,6 +16,7 @@ import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
 import { createCoprocessorResourceHost } from '../coprocessor/resource-host-adapter.js';
+import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
 import { JevDomain } from '../coprocessor/jev-domain-adapter.js';
 import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coprocessor/jev-lore-adapter.js';
@@ -268,7 +269,8 @@ export class DevelopmentDeploymentBrain {
     this.sourceMap = new Map();
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
     this.core.registerRetrievalChannel(this.loreChannel);
-    this.optionalResources = createCoprocessorResourceHost();
+    this.coprocessorTelemetry = new CoprocessorTelemetry({ limit: 2000 });
+    this.optionalResources = createCoprocessorResourceHost({ telemetry: this.coprocessorTelemetry });
     this.jevExecution = new Map();
     const liveJevExecutor = this.optionalResources.execution.createJevProviderExecutor();
     const fixtureJevExecutor = localJevExecutor();
@@ -686,6 +688,7 @@ export class DevelopmentDeploymentBrain {
       subscribe: subscribeOwner,
       resourceHost: this.optionalResources,
       coprocessorResourceHost: this.optionalResources,
+      coprocessorTelemetry: this.coprocessorTelemetry,
       loreStudyHost,
       loreHost: loreStudyHost,
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
@@ -753,6 +756,7 @@ export class DevelopmentDeploymentBrain {
       externalOrchestrationRequired: false,
       remoteProviderRequired: false,
       optionalResources: this.listOptionalResources(),
+      coprocessorTelemetry: this.coprocessorTelemetry.snapshot(),
       memory: this.memory.status(),
       mainMutationAuthority: false,
     };

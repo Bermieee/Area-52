@@ -145,6 +145,40 @@ export class Area52NativeBrain{
     return{kind:'NativeBrainLoreInterfaceReceipt',attached:Boolean(loreInterface),contractVersion:loreInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
 
+  acceptLoreRevisionChange(event={}){
+    if(!event||event.kind!=='LoreSourceRevisionChanged')throw new TypeError('LoreSourceRevisionChanged event is required');
+    for(const key of ['authorityGranted','settlementAuthority','canonicalMutationAuthority','contextSealAuthority','contextSealBypass'])if(event[key]===true)throw new Error('LORE_REVISION_CHANGE_AUTHORITY_VIOLATION:'+key);
+    const sourceId=req(event.sourceId,'LoreSourceRevisionChanged.sourceId');
+    const lorebookId=req(event.lorebookId,'LoreSourceRevisionChanged.lorebookId');
+    const uid=req(String(event.uid??''),'LoreSourceRevisionChanged.uid');
+    const previousSourceRevisionId=req(event.previousSourceRevisionId,'LoreSourceRevisionChanged.previousSourceRevisionId');
+    const sourceRevisionId=req(event.sourceRevisionId,'LoreSourceRevisionChanged.sourceRevisionId');
+    req(event.contentHash,'LoreSourceRevisionChanged.contentHash');
+    if(previousSourceRevisionId===sourceRevisionId)throw new Error('LORE_REVISION_CHANGE_REUSED_REVISION_ID');
+    const invalidatedChats=[];
+    const persisted=this.core.hotCognition.exportState();
+    for(const state of persisted?.states??[]){
+      const chatNamespace=String(state?.chatNamespace??'');if(!chatNamespace)continue;
+      const receipt=this.core.hotCognition.invalidateKnowledge({
+        chatNamespace,updateId:'owner-lore-revision:'+sourceId+':'+previousSourceRevisionId+'->'+sourceRevisionId,
+        invalidatedSourceRevisionRefs:[previousSourceRevisionId],invalidatedDependencyRevisionRefs:[previousSourceRevisionId],
+        reason:'LORE_SOURCE_REVISION_CHANGED',
+      });
+      if((receipt?.invalidatedSegments??[]).length)invalidatedChats.push(chatNamespace);
+    }
+    for(const [evidenceId,evidence] of [...this.ownerEvidence.entries()]){
+      const refs=uniq([...(evidence?.sourceRevisionRefs??[]),...(evidence?.dependencyRevisionRefs??[])]);
+      if(refs.includes(previousSourceRevisionId))this.ownerEvidence.delete(evidenceId);
+    }
+    this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>ref!==previousSourceRevisionId));
+    return{
+      kind:'NativeBrainLoreRevisionInvalidationReceipt',contractVersion:1,status:'INVALIDATED',sourceId,lorebookId,uid,
+      previousSourceRevisionId,sourceRevisionId,invalidatedChats:uniq(invalidatedChats),
+      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,
+      authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealAuthority:false,
+    };
+  }
+
   attachMemoryInterface(memoryInterface=null){
     const adapters=memoryInterface?.adapters??memoryInterface;
     if(memoryInterface!==null&&(typeof adapters?.queryHistorian!=='function'||typeof adapters?.drillDown!=='function'))throw new TypeError('Memory interface must expose queryHistorian(request) and drillDown(nomination, options)');

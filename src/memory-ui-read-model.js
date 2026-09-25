@@ -201,11 +201,38 @@ export class MemoryUiReadModelProducer{
     this.listeners=new Set();
     this.sequence=0;
     this.retrievalHistory=[];
+    this.evidenceIndexByChat=new Map();
+    this.indexedEvidenceCount=0;
     if(snapshot)this.restore(snapshot);
+  }
+
+  ensureEvidenceIndex(){
+    const order=this.producer.graph.evidenceOrder??[];
+    if(this.indexedEvidenceCount>order.length){
+      this.evidenceIndexByChat=new Map();
+      this.indexedEvidenceCount=0;
+    }
+    for(let i=this.indexedEvidenceCount;i<order.length;i+=1){
+      const row=this.producer.graph.evidenceRecord(order[i]);
+      if(!row)continue;
+      const identity=memoryEvidenceIdentity(row);
+      if(!identity.chatId)continue;
+      const rows=this.evidenceIndexByChat.get(identity.chatId)??[];
+      rows.push({
+        id:row.id,
+        sourceRevisionId:row.sourceRevisionId,
+        worldRevision:row.worldRevision,
+        sceneRevision:row.sceneRevision,
+        ...identity,
+      });
+      this.evidenceIndexByChat.set(identity.chatId,rows);
+    }
+    this.indexedEvidenceCount=order.length;
   }
 
   read(selectionInput={}){
     const selection=normalizeMemorySelection(selectionInput);
+    this.ensureEvidenceIndex();
     if(!selection.chatId){
       return freezeDeep({
         kind:'MemoryUiReadModel',
@@ -231,17 +258,23 @@ export class MemoryUiReadModelProducer{
       });
     }
 
-    const chatEvidence=[];
-    for(const id of this.producer.graph.evidenceOrder??[]){
-      const row=this.producer.graph.evidenceRecord(id);
-      if(row&&evidenceBelongsToChat(row,selection))chatEvidence.push(row);
-    }
+    const chatIndex=this.evidenceIndexByChat.get(selection.chatId)??[];
     const selectionIsGenerationScoped=Boolean(selection.turnId||selection.generationId||selection.correlationId||selection.sourceRevisionRefs.length);
-    const selectedEvidence=selectionIsGenerationScoped
-      ? chatEvidence.filter((row)=>evidenceBelongsToSelection(row,selection))
-      : chatEvidence;
-    const chatEvidenceIds=new Set(chatEvidence.map((row)=>row.id));
-    const selectedEvidenceIds=new Set(selectedEvidence.map((row)=>row.id));
+    const selectedIndex=selectionIsGenerationScoped
+      ? chatIndex.filter((row)=>{
+          for(const key of ['turnId','generationId','correlationId']){
+            if(selection[key]!=null&&row[key]!==selection[key])return false;
+          }
+          if(selection.sourceRevisionRefs.length&&!selection.sourceRevisionRefs.includes(row.sourceRevisionId))return false;
+          return true;
+        })
+      : chatIndex;
+    const chatEvidenceIds=new Set(chatIndex.map((row)=>row.id));
+    const selectedEvidenceIds=new Set(selectedIndex.map((row)=>row.id));
+    const selectedEvidence=selectedIndex
+      .slice(Math.max(0,selectedIndex.length-MEMORY_LIMITS.maxUiEvidenceRows))
+      .map((row)=>this.producer.graph.evidenceRecord(row.id))
+      .filter(Boolean);
     const asOf=selection.worldRevision==null?Infinity:selection.worldRevision;
     const current=this.producer.graph.currentProjection({asOfWorldRevision:asOf,includeStale:true})
       .filter((row)=>claimBelongs(row,chatEvidenceIds))
@@ -286,7 +319,7 @@ export class MemoryUiReadModelProducer{
       MEMORY_LIMITS.maxUiEvidenceRows,
     );
     const reasons=[];
-    if(!chatEvidence.length)reasons.push('MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT');
+    if(!chatIndex.length)reasons.push('MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT');
     else if(selectionIsGenerationScoped&&!selectedEvidence.length)reasons.push('MEMORY_NO_EVIDENCE_FOR_SELECTED_GENERATION');
     if(evidenceRows.some((row)=>row.freshness==='STALE'))reasons.push('MEMORY_STALE_EVIDENCE_PRESENT');
     if(episodes.some((row)=>row.freshness==='STALE'))reasons.push('MEMORY_STALE_EPISODE_PRESENT');
@@ -309,7 +342,7 @@ export class MemoryUiReadModelProducer{
     const model={
       kind:'MemoryUiReadModel',
       contractVersion:MEMORY_UI_READ_MODEL_VERSION,
-      availability:chatEvidence.length?'LIVE':'UNAVAILABLE',
+      availability:chatIndex.length?'LIVE':'UNAVAILABLE',
       health:{state:health,reasons:reasons.slice(0,MEMORY_LIMITS.maxUiDegradedReasons)},
       chatId:selection.chatId,
       turnId:selection.turnId,
@@ -335,7 +368,7 @@ export class MemoryUiReadModelProducer{
       retrieval,
       provenance,
       chatHistory:{
-        exactEvidenceCount:chatEvidence.length,
+        exactEvidenceCount:chatIndex.length,
         currentStateCount:current.length,
         historicalStateCount:historical.length,
         unresolvedStateCount:unresolved.length,
@@ -454,11 +487,19 @@ export class MemoryUiReadModelProducer{
       contractVersion:MEMORY_UI_READ_MODEL_VERSION,
       sequence:this.sequence,
       retrievalHistory:this.retrievalHistory.map(deepClone),
+      evidenceIndexByChat:[...this.evidenceIndexByChat.entries()].map(([key,rows])=>[key,deepClone(rows)]),
+      indexedEvidenceCount:this.indexedEvidenceCount,
     };
   }
 
   restore(snapshot){
     this.sequence=Number(snapshot?.sequence??0);
     this.retrievalHistory=(snapshot?.retrievalHistory??[]).slice(-MEMORY_LIMITS.maxUiRetrievalHistory).map(deepClone);
+    this.evidenceIndexByChat=new Map((snapshot?.evidenceIndexByChat??[]).map(([key,rows])=>[key,deepClone(rows)]));
+    this.indexedEvidenceCount=Number(snapshot?.indexedEvidenceCount??0);
+    if(this.indexedEvidenceCount>(this.producer.graph.evidenceOrder??[]).length){
+      this.evidenceIndexByChat=new Map();
+      this.indexedEvidenceCount=0;
+    }
   }
 }

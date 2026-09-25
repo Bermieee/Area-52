@@ -60,6 +60,12 @@ jobs:
           tests/wave12-sillytavern-host.test.mjs
           tests/wave13-operator-ui.test.mjs
 
+      - name: Preserved main Lore integration regressions
+        run: >
+          node --test
+          tests/worker4-lore190-repro.test.mjs
+          tests/coprocessor-wave9-lore.test.mjs
+
       - name: Assembly manifest and digests
         run: node scripts/verify-lore-wave7-assembly.mjs
 

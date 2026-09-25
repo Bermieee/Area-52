@@ -19,6 +19,8 @@ jobs:
         run: npm test
       - name: Native Brain focused acceptance
         run: node --test tests/native-brain.mjs
+      - name: Identity and graph retrieval focused acceptance
+        run: node --test tests/native-brain-identity-retrieval.mjs
       - name: Native Brain ESM load
         run: node -e "import('./src/native-brain.js').then(()=>console.log('NATIVE BRAIN ESM PASS'))"
       - name: Syntax checks

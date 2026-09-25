@@ -220,7 +220,7 @@ test('Worker 2 public resource host add/connect/test/disconnect contract is cons
   assert.equal(connected.ok,true);
   assert.deepEqual(host.calls.slice(0,2).map(x=>x[0]),['add','connect']);
   assert.equal(host.calls[0][1].kind,'OPENAI_COMPATIBLE');assert.deepEqual(host.calls[0][1].capabilities,['SEMANTIC_JUDGMENT']);assert.equal(host.calls[1][1],'jev:local');
-  let read=ui.operator.resources.read();assert.equal(read.data.resources[0].kind,'JEV');assert.equal(read.data.resources[0].state,'READY');assert.deepEqual(read.data.resources[0].capabilities,['SEMANTIC_JUDGMENT']);
+  let read=ui.operator.resources.read();assert.equal(read.data.nativePathAvailable,true);assert.equal(read.data.resources[0].kind,'JEV');assert.equal(read.data.resources[0].state,'READY');assert.deepEqual(read.data.resources[0].capabilities,['SEMANTIC_JUDGMENT']);
   const tested=await ui.actionRouter.route({type:'wave13.resource.test',target:read.data.resources[0]});assert.equal(tested.ok,true);assert.equal(host.calls.at(-1)[0],'test');assert.equal(host.calls.at(-1)[1],'jev:local');
   const disconnected=await ui.actionRouter.route({type:'wave13.resource.disconnect',target:read.data.resources[0]});assert.equal(disconnected.ok,true);assert.equal(host.calls.at(-1)[0],'disconnect');assert.equal(host.calls.at(-1)[1],'jev:local');
   ui.destroy();assert.equal(host.listenerCount(),0);

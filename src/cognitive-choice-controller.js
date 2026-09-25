@@ -50,8 +50,8 @@ function truthCounts(results=[]){
 }
 function evidenceRefs(packet){
   const refs=[];
-  for(const row of [...(packet?.current??[]),...(packet?.historical??[]),...(packet?.unresolved??[]),...(packet?.hotCognition??[])]){
-    if(typeof row?.id==='string')refs.push(row.id);
+  for(const row of [...(packet?.current??[]),...(packet?.historical??[]),...(packet?.unresolved??[]),...(packet?.hotCognition??[]),...(packet?.relevantLore??[]),...(packet?.episodicMemory??[])]){
+    if(typeof row?.id==='string')refs.push(row.id);if(typeof row?.evidenceId==='string')refs.push(row.evidenceId);
     refs.push(...(row?.supportIds??[]));
   }
   return uniq(refs);

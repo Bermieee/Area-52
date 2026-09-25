@@ -66,7 +66,12 @@ function boundedNumber(value,{min=-Infinity,max=Infinity,fallback=0}={}) {
 
 function normalizeSelector(input={}) {
   const numberOrNull=(value)=>value==null?null:Number(value);
+  const stringOrNull=(value)=>value==null||value===''?null:String(value);
   return {
+    chatId:stringOrNull(input.chatId??input.chatNamespace??input.conversationId),
+    turnId:stringOrNull(input.turnId),
+    generationId:stringOrNull(input.generationId),
+    correlationId:stringOrNull(input.correlationId),
     appendSequenceStart:numberOrNull(input.appendSequenceStart),
     appendSequenceEnd:numberOrNull(input.appendSequenceEnd),
     worldRevisionStart:numberOrNull(input.worldRevisionStart),
@@ -88,6 +93,16 @@ function within(value,start,end) {
 function selectorMatches(selector,row) {
   const hasSelector=Object.values(selector).some((value)=>value!=null);
   if (!hasSelector) return false;
+  const meta=row?.metadata??{};
+  const identities={
+    chatId:meta.chatId??meta.chatNamespace??meta.conversationId??null,
+    turnId:meta.turnId??null,
+    generationId:meta.generationId??null,
+    correlationId:meta.correlationId??null,
+  };
+  for(const key of ['chatId','turnId','generationId','correlationId']){
+    if(selector[key]!=null&&String(identities[key]??'')!==String(selector[key]))return false;
+  }
   return within(row.appendSequence,selector.appendSequenceStart,selector.appendSequenceEnd)
     && within(row.worldRevision,selector.worldRevisionStart,selector.worldRevisionEnd)
     && within(row.sceneRevision,selector.sceneRevisionStart,selector.sceneRevisionEnd)

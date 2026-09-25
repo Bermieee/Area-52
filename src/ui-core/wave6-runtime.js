@@ -23,7 +23,7 @@ import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces 
 import { Wave8CognitionProductionAdapter } from './wave8-production-adapters.js';
 import { registerWave8Actions, registerWave8Inspectors } from './wave8-workspace.js';
 import { createWave11LiveReceiptBinding, mergeWave11Bridges } from './wave11-live-bindings.js';
-import { Wave13LoreStudyUIAdapter, Wave13OperationalStatusAdapter, Wave13OwnerReadModelAdapter, Wave13ResourceControlAdapter, Wave13RuntimeReceiptUIAdapter } from './wave13-operator-adapters.js';
+import { Wave13CoprocessorStateUIAdapter, Wave13LoreStudyUIAdapter, Wave13OperationalStatusAdapter, Wave13OwnerReadModelAdapter, Wave13ResourceControlAdapter, Wave13RuntimeReceiptUIAdapter } from './wave13-operator-adapters.js';
 import { installWave13OperatorSurfaces, registerWave13OperatorActions } from './wave13-operator-surfaces.js';
 import { VerticalRailPopoutController } from './wave13-floating-navigation.js';
 
@@ -54,7 +54,8 @@ export function createWave6ProductInterface({
   const scene=effectiveBridges.scene?.readModel?new SceneProductionUIAdapter({...effectiveBridges.scene,selectionProvider}):null;
   const runtime=effectiveBridges.runtimeAdapter?new RuntimeProductionUIAdapter(effectiveBridges.runtimeAdapter):
     effectiveBridges.cognition?.readScatterReceipt?new Wave13RuntimeReceiptUIAdapter({readScatter:effectiveBridges.cognition.readScatterReceipt,selectionProvider}):new RuntimeProductionUIAdapter(null);
-  const coprocessor=new CoprocessorProductionUIAdapter(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter??null);
+  const coprocessor=(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter)?new CoprocessorProductionUIAdapter(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter):
+    typeof hostBindings?.readCognitionUiState==='function'?new Wave13CoprocessorStateUIAdapter({readState:(selection)=>hostBindings.readCognitionUiState(selection),selectionProvider}):new CoprocessorProductionUIAdapter(null);
   const promptPlan=new PromptPlanProductionUIAdapter({...effectiveBridges.promptPlan,selectionProvider});
   const forensics=new ForensicsProductionUIAdapter(effectiveBridges.forensics??{});
   const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(effectiveBridges.cognition??{})});

@@ -46,6 +46,28 @@ export class Wave13OwnerReadModelAdapter{
   }
 }
 
+
+export class Wave13RuntimeReceiptUIAdapter{
+  constructor({readScatter=null,selectionProvider=()=>({})}={}){this.readScatter=typeof readScatter==='function'?readScatter:null;this.selectionProvider=selectionProvider;}
+  read(){
+    const selection=this.selectionProvider?.()??{};
+    if(!this.readScatter)return unavailable('Runtime','Runtime scheduler telemetry and selected-turn scatter readers are not exported by the host assembly.','Runtime');
+    if(selection.chatId&&!selection.turnId)return waiting('Runtime','Runtime is connected; waiting for an active turn.','RuntimeTurnReceipt',selection);
+    try{
+      const raw=this.readScatter(selection);
+      if(raw==null)return idle('Runtime','No Runtime execution receipt exists for the selected turn.','RuntimeTurnReceipt',selection);
+      assertSelection(raw,selection,'Runtime',{allowMissingIdentity:true});
+      const jobs=raw.jobs??raw.admittedJobs??[],resourceCount=Number(raw.resourceCount??raw.executionResourceCount??(raw.resourceIds??[]).length??0);
+      const fallback=Number(raw.requiredFallback??raw.fallbackCount??0),pending=Number(raw.opportunisticPending??raw.pending??0);
+      return deepFreeze({
+        source:createProductSourceStatus({mode:fallback?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:fallback?Wave6Health.DEGRADED:pending?Wave6Health.WORKING:Wave6Health.READY,label:'Runtime',operationalState:fallback?OperatorProducerState.DEGRADED:pending?OperatorProducerState.WORKING:OperatorProducerState.LIVE,impact:(Array.isArray(jobs)?jobs.length:Number(raw.admittedJobCount??0))+' logical jobs · '+resourceCount+' physical execution resources for the selected turn.',reason:fallback?'Runtime reports required fallback.':'',producer:raw.kind??'RuntimeTurnReceipt',revision:raw.receiptRevision??null,connected:true,selection,freshness:raw.freshness??'TURN_CURRENT'}),
+        data:{mode:'TURN_RECEIPT',hotActivity:pending?1:0,deepActivity:0,queuedObligations:pending,blockedRecoveringWork:fallback,activeBatches:pending?1:0,resourceCount,admittedJobCount:Number(raw.admittedJobCount??(Array.isArray(jobs)?jobs.length:0)),resourceIds:[...(raw.resourceIds??[])],jobs:cloneSafe(jobs),receipt:cloneSafe(raw)},
+      });
+    }catch(error){return degraded('Runtime','Runtime selected-turn receipt failed coherence or read.','RuntimeTurnReceipt',selection,error);}
+  }
+  subscribe(){return()=>{};}
+}
+
 export class Wave13LoreStudyUIAdapter{
   constructor({bindings={},selectionProvider=()=>({})}={}){
     this.bindings=bindings;this.selectionProvider=selectionProvider;

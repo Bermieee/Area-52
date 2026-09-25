@@ -68,14 +68,17 @@ export class SensoryNetBackbone{
     const localSourceRevisionSet=this.sourceRegistry?.activeRevisionIds?.()??[];
     const context={query,anchorEntityIds:uniq(anchorEntityIds),worldRevision,sceneRevision,sourceRevisionSet:localSourceRevisionSet,currentOwnerArtifacts,hotCognitionSnapshot:this.hotCognition?.snapshot?.()??null,latencyBudgetMs,graphTraversal};
     const scatter=this.channelRegistry.retrieveAllSync({intents,context,channelIds});
-    const graphRevisionRefs=this.graphWalker?.lastReceipt?.trustedSourceRevisionRefs??[];
+    const graphChannelReceipt=scatter.channelReceipts?.find(row=>row.channelId==='ZZ_NATIVE_GRAPH_WALKER')??null;
+    const graphExecuted=Boolean(graphChannelReceipt&&graphChannelReceipt.status!=='SKIPPED_LATENCY_BUDGET'&&graphChannelReceipt.status!=='UNAVAILABLE'&&graphChannelReceipt.status!=='ERROR');
+    const graphReceipt=graphExecuted?clone(this.graphWalker?.lastReceipt??null):null;
+    const graphRevisionRefs=graphReceipt?.trustedSourceRevisionRefs??[];
     const ownerRevisionRefs=uniq([...this.#trustedOwnerRevisionRefs(scatter.nominations),...graphRevisionRefs]);
     if(this.#ownerChannelsExecuted(scatter.channelReceipts)||graphRevisionRefs.length)this.externalRevisionSink(ownerRevisionRefs);
     const sourceRevisionSet=uniq([...localSourceRevisionSet,...ownerRevisionRefs]);
     const envelope=this.candidateBus.fuse({
       nominations:scatter.nominations,retrievalIntents:intents,query,currentRevisionSet:{sourceRevisionSet,worldRevision,sceneRevision},
       unavailableChannels:scatter.unavailableChannels,degradedChannels:scatter.degradedChannels,candidateLimit:candidateBudget,
-      metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors,retrievalBudgetReceipt:scatter.budgetReceipt??null,graphTraversalReceipt:clone(this.graphWalker?.lastReceipt??null)},
+      metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors,retrievalBudgetReceipt:scatter.budgetReceipt??null,graphTraversalReceipt:graphReceipt},
     });
     this.lastEnvelope=envelope;return envelope;
   }
@@ -90,11 +93,14 @@ export class SensoryNetBackbone{
     const localSourceRevisionSet=this.sourceRegistry?.activeRevisionIds?.()??[];
     const context={query,anchorEntityIds:uniq(anchorEntityIds),worldRevision,sceneRevision,sourceRevisionSet:localSourceRevisionSet,currentOwnerArtifacts,hotCognitionSnapshot:this.hotCognition?.snapshot?.()??null,latencyBudgetMs,graphTraversal};
     const scatter=await this.channelRegistry.retrieveAll({intents,context,channelIds});
-    const graphRevisionRefs=this.graphWalker?.lastReceipt?.trustedSourceRevisionRefs??[];
+    const graphChannelReceipt=scatter.channelReceipts?.find(row=>row.channelId==='ZZ_NATIVE_GRAPH_WALKER')??null;
+    const graphExecuted=Boolean(graphChannelReceipt&&graphChannelReceipt.status!=='SKIPPED_LATENCY_BUDGET'&&graphChannelReceipt.status!=='UNAVAILABLE'&&graphChannelReceipt.status!=='ERROR');
+    const graphReceipt=graphExecuted?clone(this.graphWalker?.lastReceipt??null):null;
+    const graphRevisionRefs=graphReceipt?.trustedSourceRevisionRefs??[];
     const ownerRevisionRefs=uniq([...this.#trustedOwnerRevisionRefs(scatter.nominations),...graphRevisionRefs]);
     if(this.#ownerChannelsExecuted(scatter.channelReceipts)||graphRevisionRefs.length)this.externalRevisionSink(ownerRevisionRefs);
     const sourceRevisionSet=uniq([...localSourceRevisionSet,...ownerRevisionRefs]);
-    const envelope=this.candidateBus.fuse({nominations:scatter.nominations,retrievalIntents:intents,query,currentRevisionSet:{sourceRevisionSet,worldRevision,sceneRevision},unavailableChannels:scatter.unavailableChannels,degradedChannels:scatter.degradedChannels,candidateLimit:candidateBudget,metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors,retrievalBudgetReceipt:scatter.budgetReceipt??null,graphTraversalReceipt:clone(this.graphWalker?.lastReceipt??null)}});
+    const envelope=this.candidateBus.fuse({nominations:scatter.nominations,retrievalIntents:intents,query,currentRevisionSet:{sourceRevisionSet,worldRevision,sceneRevision},unavailableChannels:scatter.unavailableChannels,degradedChannels:scatter.degradedChannels,candidateLimit:candidateBudget,metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors,retrievalBudgetReceipt:scatter.budgetReceipt??null,graphTraversalReceipt:graphReceipt}});
     this.lastEnvelope=envelope;return envelope;
   }
 

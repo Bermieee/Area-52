@@ -300,6 +300,9 @@ export class Area52NativeBrain{
     if(!delivery?.ok)throw new Error('NATIVE_BRAIN_DELIVERY_FAILED:'+String(delivery?.status??delivery?.failure?.code??'UNKNOWN'));
     const retrievalSkipped=(published.cognitiveChoiceReceipt?.skippedJobs??[]).includes('RETRIEVAL');
     if(retrievalSkipped){const reason=(published.cognitiveChoiceReceipt?.reasonCodes??[]).includes('HOT_SUFFICIENT')?'HOT_SUFFICIENT':'COGNITIVE_CHOICE_SKIPPED_RETRIEVAL';this.ownerLoreChannel.finalizeSkipped(reason);this.ownerMemoryChannel.finalizeSkipped(reason);}
+    const channelReceipts=published.candidateEnvelope?.metadata?.channelReceipts??[];
+    if(channelReceipts.some(row=>row.channelId===OWNER_KNOWLEDGE_CHANNELS.LORE&&row.status==='SKIPPED_LATENCY_BUDGET'))this.ownerLoreChannel.finalizeSkipped('LATENCY_BUDGET');
+    if(channelReceipts.some(row=>row.channelId===OWNER_KNOWLEDGE_CHANNELS.MEMORY&&row.status==='SKIPPED_LATENCY_BUDGET'))this.ownerMemoryChannel.finalizeSkipped('LATENCY_BUDGET');
     const loreSync=this.#ownerRetrievalReceipt('LORE');
     const memorySync=this.#ownerRetrievalReceipt('MEMORY');
 

@@ -1,9 +1,9 @@
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
-import { DevelopmentDeploymentBrain, createGoldenDeploymentLorebook } from './brain.js';
+import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 
 export const DEVELOPMENT_DEPLOYMENT_PROMPT_ID = 'area52-development-deployment';
-export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.0.0';
+export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.1.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
@@ -30,7 +30,7 @@ function latestUserMessage(context) {
 
 export function classifyDevelopmentDeploymentTurn(text) {
   const value = clean(text).toLowerCase();
-  if (/sun\s+blade/.test(value) && /(what happened|fate|uncertain|unknown|missing|gone|destroyed|removed|surviv)/.test(value)) return 'ambiguous';
+  if (/(uncertain|unknown|ambiguous|conflict(?:ing)?|contradict(?:s|ed|ory|ion)?|disagree(?:s|ment)?|accounts? differ|reports? differ|which (?:account|report|version)|what really happened)/.test(value)) return 'ambiguous';
   if (/(where are we|where am i|where.*now)/.test(value)) return 'simple';
   return 'retrieval';
 }
@@ -48,48 +48,18 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
 
 export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef } = {}) {
   const raw = clean(text);
-  const value = raw.toLowerCase();
   const fields = {};
-  let explicit = false;
-
-  if (/ember\s+tavern\s+ruins|ruins\s+of\s+the\s+ember\s+tavern/.test(value)) {
-    fields.location = sceneField({ location: 'Ember Tavern Ruins' }, revision, evidenceRef);
-    explicit = true;
-  } else if (/(?:are|is|stand|remain|arrive|reach|enter|step|walk|return).{0,28}ember\s+tavern|inside\s+the\s+ember\s+tavern/.test(value)) {
-    fields.location = sceneField({ location: 'Ember Tavern' }, revision, evidenceRef);
-    explicit = true;
+  const locationMatch = raw.match(/\b(?:at|inside|within|outside|near)\s+(?:the\s+)?([A-Z][\p{L}\p{N}'’_-]*(?:\s+(?:[A-Z][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  if (locationMatch?.[1]) {
+    const location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
+    if (location) fields.location = sceneField({ location }, revision, evidenceRef);
   }
-
-  const cast = [];
-  if (/\bmara\b/.test(value)) cast.push({ characterId: 'Mara', state: 'PRESENT' });
-  if (/\beris\b/.test(value)) cast.push({ characterId: 'Eris', state: 'PRESENT' });
-  if (cast.length && explicit) fields.activeCast = sceneField(cast, revision, evidenceRef);
-
-  const mentionsBlade = /sun\s+blade/.test(value);
-  const ambiguousBlade = mentionsBlade && /(what happened|fate|uncertain|unknown|missing|gone|destroyed|removed|surviv)/.test(value);
-  if (mentionsBlade && (explicit || ambiguousBlade)) {
-    fields.immediateObjects = sceneField([
-      {
-        objectId: 'Sun Blade',
-        state: ambiguousBlade ? 'UNCERTAIN' : 'PRESENT',
-        evidenceRefs: [evidenceRef],
-      },
-    ], revision, evidenceRef, ambiguousBlade ? ObservationClass.UNRESOLVED : ObservationClass.OBSERVED, ambiguousBlade ? 0.5 : 1);
-    fields.activeThreads = sceneField(
-      [ambiguousBlade ? 'Determine the Sun Blade fate' : 'Find the Sun Blade'],
-      revision,
-      evidenceRef,
-      ambiguousBlade ? ObservationClass.UNRESOLVED : ObservationClass.OBSERVED,
-      ambiguousBlade ? 0.6 : 1,
-    );
-    explicit = true;
-  }
-
-  if (/ash|rain/.test(value) && explicit) {
-    fields.atmosphere = sceneField('Ash and rain', revision, evidenceRef, ObservationClass.INFERRED, 0.6);
-  }
-
-  return { explicit, fields };
+  return {
+    explicit: Object.keys(fields).length > 0,
+    fields,
+    sourceText: raw,
+    extractionPolicy: 'GENERIC_HOST_EVIDENCE_ONLY',
+  };
 }
 
 function renderPromptPlan(plan) {
@@ -145,25 +115,28 @@ function applyNativeScene(brain, { chatId, message, sourceRevisionId }) {
   const nextRevision = Number(prior?.sceneRevision ?? 0) + 1;
   const parsed = extractDevelopmentDeploymentScene(message.text, { revision: nextRevision, evidenceRef: sourceRevisionId });
   if (!parsed.explicit) {
-    if (!prior) throw new Error('The first live demo turn must explicitly establish an Ember Tavern scene.');
-    return { observed: false, parsed, signal: prior, delta: null };
+    const signal = prior ?? brain.ensureScene({ chatId, sourceRevisionId });
+    return {
+      observed: false,
+      initialized: !prior,
+      parsed,
+      signal,
+      delta: null,
+      reason: prior ? 'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT' : 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS',
+    };
   }
 
-  const location = parsed.fields.location?.value ?? prior?.location ?? { location: 'Ember Tavern' };
-  const activeCast = parsed.fields.activeCast?.value ?? prior?.activeCast ?? [];
-  const activeThreads = parsed.fields.activeThreads?.value ?? prior?.activeThreads ?? [];
-  const objects = parsed.fields.immediateObjects?.value ?? prior?.immediateObjects ?? [];
-  const atmosphere = parsed.fields.atmosphere?.value ?? null;
+  const location = parsed.fields.location.value;
   const observed = brain.observeScene({
     chatId,
     sourceRevisionId,
     location,
-    activeCast,
-    activeThreads,
-    objects,
-    atmosphere,
+    activeCast: prior?.activeCast ?? [],
+    activeThreads: prior?.activeThreads ?? [],
+    objects: prior?.objects ?? [],
+    atmosphere: null,
   });
-  return { observed: true, parsed, signal: observed, delta: observed.delta ?? null };
+  return { observed: true, initialized: false, parsed, signal: observed, delta: observed.delta ?? null, reason: 'HOST_LOCATION_OBSERVED' };
 }
 
 async function injectPrompt(context, result) {
@@ -230,6 +203,9 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
     selection: clone(selection),
     scene: {
       observedFromHostMessage: scene.observed,
+      initializedFromHostMessage: Boolean(scene.initialized),
+      reason: scene.reason ?? null,
+      extractionPolicy: scene.parsed?.extractionPolicy ?? null,
       revision: scene.signal?.sceneRevision ?? null,
       sceneId: scene.signal?.sceneId ?? null,
       delta: clone(scene.delta),
@@ -276,21 +252,24 @@ export class DevelopmentDeploymentSillyTavernSession {
     brain = null,
     mountUi = true,
     onEvidence = null,
+    initialLorebook = null,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
     this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true });
-    this.brain.ingestLorebook(createGoldenDeploymentLorebook());
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
     this.release = null;
     this.processing = null;
     this.processed = new Map();
+    this.turnEvidence = [];
     this.scenarios = { simple: null, retrieval: null, ambiguous: null };
+    this.loreIngestion = [];
     this.degraded = null;
-    this.operatorReview = { promptInspectorConfirmed: false, uiTraceReviewed: false, confirmedAt: null };
+    this.operatorReview = { promptInspectorConfirmed: false, uiTraceReviewed: false, liveSillyTavernConfirmed: false, confirmedAt: null };
     this.errors = [];
+    if (initialLorebook) this.ingestLorebook(initialLorebook, { notify: false });
     if (mountUi) this.mount();
   }
 
@@ -299,6 +278,25 @@ export class DevelopmentDeploymentSillyTavernSession {
     const context = this.sillyTavern.getContext();
     if (!context || typeof context !== 'object') throw new Error('SillyTavern host context is unavailable');
     return context;
+  }
+
+  ingestLorebook(lorebook, { notify = true } = {}) {
+    if (!lorebook || !Array.isArray(lorebook.entries)) throw new TypeError('Lorebook entries are required');
+    const result = this.brain.ingestLorebook(lorebook);
+    const receipt = {
+      kind: 'DevelopmentDeploymentLoreIngestionReceipt',
+      lorebookId: String(lorebook.id ?? 'operator-lore'),
+      title: String(lorebook.title ?? 'Operator Lore'),
+      accepted: true,
+      processed: true,
+      entryCount: lorebook.entries.length,
+      mappingCount: result.mappingCount,
+      retrievable: result.mappingCount > 0,
+      hierarchyRevision: result.retrieval?.hierarchyRevision ?? null,
+    };
+    this.loreIngestion.push(receipt);
+    if (notify) this.#notify();
+    return clone(receipt);
   }
 
   mount() {
@@ -361,14 +359,15 @@ export class DevelopmentDeploymentSillyTavernSession {
 
     const evidence = await executeHostTurn(this.brain, context, message, { mode: chosenMode, inject: true });
     this.processed.set(key, evidence);
+    this.turnEvidence.push(evidence);
     this.scenarios[chosenMode] = evidence;
 
     if (chosenMode === 'ambiguous') {
       const degradedBrain = new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: false });
-      degradedBrain.ingestLorebook(createGoldenDeploymentLorebook());
       const degraded = await executeHostTurn(degradedBrain, context, message, { mode: 'ambiguous', inject: false });
       this.degraded = {
         ...degraded,
+        evidenceClass: 'SIMULATED_FAILURE_PROBE',
         controlledFailure: 'JEV_UNAVAILABLE',
         safe: degraded.delivery.ok && degraded.cognition?.choice?.jev?.unavailable === true && degraded.cognition?.jev == null,
       };
@@ -378,10 +377,11 @@ export class DevelopmentDeploymentSillyTavernSession {
     return clone(evidence);
   }
 
-  confirmOperatorReview({ promptInspectorConfirmed = true, uiTraceReviewed = true } = {}) {
+  confirmOperatorReview({ promptInspectorConfirmed = true, uiTraceReviewed = true, liveSillyTavernConfirmed = false } = {}) {
     this.operatorReview = {
       promptInspectorConfirmed: Boolean(promptInspectorConfirmed),
       uiTraceReviewed: Boolean(uiTraceReviewed),
+      liveSillyTavernConfirmed: Boolean(liveSillyTavernConfirmed),
       confirmedAt: Date.now(),
     };
     this.#notify();
@@ -397,13 +397,35 @@ export class DevelopmentDeploymentSillyTavernSession {
       degraded: Boolean(this.degraded?.safe),
     };
     const executionReady = Object.values(scenarioChecks).every(Boolean);
-    const operatorReady = this.operatorReview.promptInspectorConfirmed && this.operatorReview.uiTraceReviewed;
-    const liveEvidenceComplete = executionReady && operatorReady && Boolean(uiDiagnostics?.mounted ?? this.uiHost);
+    const storyChatIds = [...new Set(this.turnEvidence.map((row) => row?.host?.chatId).filter(Boolean))].sort();
+    const operatorReady = this.operatorReview.promptInspectorConfirmed
+      && this.operatorReview.uiTraceReviewed
+      && this.operatorReview.liveSillyTavernConfirmed;
+    const operatorLiveChecksCaptured = executionReady
+      && operatorReady
+      && storyChatIds.length >= 2
+      && Boolean(uiDiagnostics?.mounted ?? this.uiHost);
+    const latest = this.turnEvidence.at(-1) ?? null;
+    const capabilityEvidence = latest ? {
+      sceneIntelligence: { status: latest.scene?.sceneId ? 'RUN' : 'UNAVAILABLE', reason: latest.scene?.reason ?? null },
+      retrieval: { status: latest.mode === 'simple' ? 'SKIPPED' : latest.runtime?.jobs?.some((job) => job.taskType === 'LORE_RETRIEVAL') ? 'RUN' : 'UNAVAILABLE' },
+      truth: { status: latest.cognition?.truth ? 'RUN' : 'UNAVAILABLE' },
+      cognitiveChoice: { status: latest.cognition?.choice ? 'RUN' : 'UNAVAILABLE' },
+      runtime: { status: latest.runtime?.jobCount > 0 ? 'RUN' : 'SKIPPED', resourceIds: latest.runtime?.resourceIds ?? [] },
+      jev: latest.cognition?.jev
+        ? { status: 'FIXTURE', reason: 'DETERMINISTIC_LOCAL_JEV_NOT_REAL_PROVIDER', liveProvider: false }
+        : { status: latest.mode === 'ambiguous' ? 'UNAVAILABLE' : 'SKIPPED', liveProvider: false },
+      gather: { status: latest.cognition?.gather ? 'RUN' : 'UNAVAILABLE' },
+      promptPlan: { status: latest.delivery?.promptInjection?.succeeded ? 'RUN' : 'UNAVAILABLE', promptPlanId: latest.delivery?.promptPlanId ?? null },
+      memory: { status: 'SKIPPED', reason: 'NO_MEMORY_TASK_ADMITTED_IN_THIS_TURN' },
+      forensics: { status: 'UNAVAILABLE', reason: 'NO_LIVE_OWNER_BINDING' },
+      transactions: { status: 'UNAVAILABLE', reason: 'NO_LIVE_OWNER_BINDING' },
+    } : null;
 
     return clone({
       kind: 'DevelopmentDeploymentLiveDemoEvidence',
       contractVersion: DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION,
-      status: liveEvidenceComplete ? 'LIVE_DEMO_EVIDENCE_CAPTURED' : executionReady ? 'OPERATOR_CONFIRMATION_PENDING' : 'LIVE_DEMO_PENDING',
+      status: operatorLiveChecksCaptured ? 'DIRECTOR_REVIEW_PENDING' : executionReady ? 'OPERATOR_CONFIRMATION_PENDING' : 'LIVE_DEMO_PENDING',
       issue: 224,
       issue224AutomaticPass: false,
       directorApprovalRequired: true,
@@ -412,12 +434,25 @@ export class DevelopmentDeploymentSillyTavernSession {
       externalOrchestrationRequired: false,
       remoteProviderRequired: false,
       scenarios: this.scenarios,
+      turns: this.turnEvidence,
+      storyChatIds,
+      twoStoryCoverage: storyChatIds.length >= 2,
+      loreIngestion: this.loreIngestion,
       degraded: this.degraded,
       checks: scenarioChecks,
+      capabilityEvidence,
+      providerEvidence: {
+        jev: 'DETERMINISTIC_LOCAL_FIXTURE',
+        realProviderCallObserved: false,
+        ft005LivePass: false,
+      },
       operatorReview: this.operatorReview,
+      operatorLiveChecksCaptured,
       ui: uiDiagnostics,
+      uiProducerDiagnosticsAreRegistrationOnly: true,
       errors: this.errors,
-      liveEvidenceComplete,
+      liveEvidenceComplete: false,
+      liveEvidenceCompleteReason: 'DIRECTOR_APPROVAL_AND_REQUIRED_LIVE_GATES_REMAIN_EXTERNAL_TO_THIS_RECORD',
     });
   }
 

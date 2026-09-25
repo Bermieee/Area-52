@@ -47,6 +47,29 @@ export class Wave13OwnerReadModelAdapter{
 }
 
 
+
+export class Wave13CoprocessorStateUIAdapter{
+  constructor({readState=null,selectionProvider=()=>({})}={}){this.readState=typeof readState==='function'?readState:null;this.selectionProvider=selectionProvider;}
+  read(){
+    const selection=this.selectionProvider?.()??{};
+    if(!this.readState)return unavailable('Coprocessor','Worker 2 CognitionUiState is not exported by the host assembly.','CognitionUiState');
+    if(selection.chatId&&!selection.turnId)return waiting('Coprocessor','Worker 2 telemetry is connected; waiting for an active turn.','CognitionUiState',selection);
+    try{
+      const raw=this.readState(selection);
+      if(raw==null)return idle('Coprocessor','No Worker 2 cognition telemetry exists for the selected turn.','CognitionUiState',selection);
+      assertSelection(raw,selection,'Coprocessor',{allowMissingIdentity:true});
+      const state=String(raw.health?.state??raw.health??'READY').toUpperCase(),degraded=['DEGRADED','STALE','BLOCKED','ERROR','UNAVAILABLE'].includes(state);
+      const hot=Number(raw.hotTaskCount??raw.hotActivity??(raw.activeTasks??[]).filter(x=>String(x.layer??x.lane??'').toUpperCase()==='HOT'||['L0','L1'].includes(x.layer)).length);
+      const deep=Number(raw.deepTaskCount??raw.deepActivity??(raw.activeTasks??[]).filter(x=>String(x.layer??x.lane??'').toUpperCase()==='DEEP'||['L2','L3','L4'].includes(x.layer)).length);
+      return deepFreeze({
+        source:createProductSourceStatus({mode:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health:degraded?Wave6Health.DEGRADED:hot+deep?Wave6Health.WORKING:Wave6Health.READY,label:'Coprocessor',operationalState:degraded?OperatorProducerState.DEGRADED:hot+deep?OperatorProducerState.WORKING:OperatorProducerState.LIVE,impact:degraded?'Worker 2 reports degraded cognitive execution telemetry.':hot+deep?'Worker 2 cognitive work is active.':'Worker 2 cognition telemetry is current.',reason:reasonOf(raw),producer:raw.kind??'CognitionUiState',revision:raw.receiptRevision??raw.revision??null,connected:true,selection,freshness:raw.freshness??'TURN_CURRENT'}),
+        data:{...cloneSafe(raw),hotActivity:hot,deepActivity:deep,fallback:Number(raw.fallbackCount??raw.fallback??0),staleDrop:Number(raw.staleDrops??raw.staleDrop??0),warm:cloneSafe(raw.warm??{hit:Number(raw.warmHits??0),miss:Number(raw.warmMisses??0)})},
+      });
+    }catch(error){return degraded('Coprocessor','Worker 2 cognition telemetry failed coherence or read.','CognitionUiState',selection,error);}
+  }
+  subscribe(){return()=>{};}
+}
+
 export class Wave13RuntimeReceiptUIAdapter{
   constructor({readScatter=null,selectionProvider=()=>({})}={}){this.readScatter=typeof readScatter==='function'?readScatter:null;this.selectionProvider=selectionProvider;}
   read(){

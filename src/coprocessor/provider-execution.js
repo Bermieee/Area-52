@@ -19,7 +19,8 @@ export class SpecialistExecutionLayer {
     const providerInput=specialist.buildInput(task,input??{});
     const contextTokens=estimateTokens(providerInput);
     const eligibilityOptions={contextTokens,maxCostClass,requireStructuredOutput:true,
-      expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal)};
+      expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal),
+      maxLatencyMs:positiveFiniteOrNull(task.metadata?.latencyBudgetMs),maxLatencyClass:task.metadata?.maxLatencyClass??null};
     const eligible=(profileId!=null&&leaseHeld
       ? [this.profiles.get(profileId)].filter(Boolean)
       : profileId==null
@@ -81,6 +82,8 @@ export class ProviderExecutionRouter {
 }
 
 export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength(JSON.stringify(value??{}))/4));}
+
+function positiveFiniteOrNull(value){const n=Number(value);return Number.isFinite(n)&&n>0?n:null;}
 
 function profileSatisfiesTask(profile,task,{allowCapabilityFallback=false}={}){
   if(!profile)return false;

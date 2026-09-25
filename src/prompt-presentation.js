@@ -3,7 +3,16 @@ import { deliveryHash } from './adaptive-context-contracts.js';
 const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
 
-function semanticIdentity(plan){
+function semanticIdentity(plan,sealedPacket=null){
+  if(sealedPacket&&typeof sealedPacket==='object'){
+    const semanticPacket={
+      current:clone(sealedPacket.current??[]),historical:clone(sealedPacket.historical??[]),
+      unresolved:clone(sealedPacket.unresolved??[]),activeThreads:clone(sealedPacket.activeThreads??[]),
+      relevantLore:clone(sealedPacket.relevantLore??[]),episodicMemory:clone(sealedPacket.episodicMemory??[]),
+      dependencies:uniq(sealedPacket.dependencies??[]),
+    };
+    return deliveryHash(semanticPacket);
+  }
   const entries=(plan?.sections??[]).flatMap(section=>section.semanticManifest??[]).map(row=>({
     semanticKey:String(row.semanticKey??''),
     authorityClass:row.authorityClass??null,
@@ -43,15 +52,17 @@ export class CorePresentationRouter{
   }
 }
 
-export function createCorePromptDeliveryReceipt({plan,rendered,routing}={}){
+export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPacket=null}={}){
   if(!plan||!rendered)throw new TypeError('plan and rendered input are required');
   const roles=uniq((rendered.messages??[]).map(row=>row.role).concat((plan.sections??[]).map(row=>row.role)));
   const omissions=[...(plan.dropped??[]),...(plan.deferred??[]),...(plan.sections??[]).filter(row=>row.representation==='OMITTED').map(row=>({slot:row.slot,reason:'OMITTED_REPRESENTATION'}))];
   return Object.freeze({
     kind:'CorePromptDeliveryReceipt',contractVersion:1,status:'PLANNED_NOT_OBSERVED',
     generationId:plan.generationId,turnId:plan.turnId,contextSealId:plan.contextSealId,
-    sealedPacketHash:plan.sealedPacketHash,semanticManifestIdentity:semanticIdentity(plan),
-    semanticManifestHash:plan.diagnosticReceipt?.semanticManifestHash??deliveryHash(rendered.semanticManifest??[]),
+    sealedPacketHash:plan.sealedPacketHash,semanticManifestIdentity:semanticIdentity(plan,sealedPacket),
+    semanticManifestScope:'SEALED_PACKET_SEMANTICS',
+    semanticManifestHash:semanticIdentity(plan,sealedPacket),
+    presentedSemanticManifestHash:plan.diagnosticReceipt?.semanticManifestHash??deliveryHash(rendered.semanticManifest??[]),
     requestedProfileId:routing?.requestedProfileId??plan.modelProfileId,profileChoice:plan.modelProfileId,
     profileRevision:plan.modelProfileRevision,providerId:routing?.providerId??null,modelId:routing?.modelId??null,routeId:routing?.routeId??null,
     profileReason:routing?.reason??'DIRECT',profileFallbackUsed:Boolean(routing?.fallbackUsed),cacheAssumption:routing?.cacheAssumption??'PROFILE_DECLARED',

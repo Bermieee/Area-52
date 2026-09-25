@@ -798,13 +798,13 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "b8896b3210ba6aa78967506234fe75684c5331aa",
+      "expectedDigest": "24ae1347d6e7f512c2ad8c01880fec875725ae0f",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "b095ae8d0e7f3374d99a2a431b18ee2050f31bef",
+      "expectedDigest": "b75260e87114dc5af70ff5ba36c8b9d82323e073",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     },
     {

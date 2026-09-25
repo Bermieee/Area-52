@@ -65,7 +65,7 @@ export class GenerationPublicationPipeline {
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
     const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
     const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
-    const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot):null;
+    const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot,{perspectiveConstraint}):null;
     const choiceSession=this.choice?.begin?.({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,

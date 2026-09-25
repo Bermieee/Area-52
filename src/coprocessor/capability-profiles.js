@@ -78,6 +78,22 @@ export class CapabilityProfileRegistry {
   setHealth(profileId,health){const state=this.#requiredState(profileId);state.health=health;state.providerHealth=normalizeProviderHealth(health);}
   setAvailability(profileId,available){const state=this.#requiredState(profileId);state.available=Boolean(available);state.availability=state.available?'AVAILABLE':'UNAVAILABLE';}
   setLoad(profileId,currentLoad){this.#requiredState(profileId).currentLoad=Math.max(0,Number(currentLoad)||0);}
+  setModelId(profileId,modelId){
+    const profile=this.#profiles.get(profileId);if(!profile)throw new Error(`Unknown capability profile: ${profileId}`);
+    const value=String(modelId??'').trim();if(!value)throw new TypeError('modelId must be a non-empty string');
+    this.#profiles.set(profileId,Object.freeze({...profile,modelId:value}));
+    return this.get(profileId);
+  }
+  setCapabilities(profileId,capabilities=[]){
+    const profile=this.#profiles.get(profileId);if(!profile)throw new Error(`Unknown capability profile: ${profileId}`);
+    const values=[...new Set((capabilities??[]).map(String))];
+    const descriptors=values.map((id)=>{
+      const prior=profile.capabilityDescriptors.find((item)=>item.id===id);
+      return Object.freeze(prior?{...prior}:{id,version:1,qualityScore:0,metadata:Object.freeze({})});
+    });
+    this.#profiles.set(profileId,Object.freeze({...profile,capabilities:Object.freeze(values),capabilityDescriptors:Object.freeze(descriptors)}));
+    return this.get(profileId);
+  }
 
   eligibleProfiles(task, options = {}) {
     const requests=primaryRequests(task);

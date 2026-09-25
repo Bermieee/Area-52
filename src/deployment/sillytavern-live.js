@@ -877,7 +877,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!this.nativeBrain||typeof this.nativeBrain.acceptLoreRevisionChange!=='function')return;
     const value=result?.ok===true?result.value??null:result;
     if(!value||typeof value!=='object')return;
-    const events=[...(value.revisionEvents??[]),...(value.restoration?.revisionEvents??[])];
+    const events=[...(value.acceptedRevisionEvents??[]),...(value.revisionEvents??[]),...(value.worker1?.revisionEvents??[]),...(value.restoration?.revisionEvents??[])];
     for(const event of events){
       if(!event?.sourceId||!event?.sourceRevisionId)continue;
       const key=[event.settlementId??value.settlementId??'',event.sourceId,event.previousSourceRevisionId??'',event.sourceRevisionId,event.restoration?'RESTORE':'APPLY'].join('|');

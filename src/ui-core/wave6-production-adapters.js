@@ -192,9 +192,8 @@ export class ForensicsProductionUIAdapter{
       let transactions=this.listTransactions?.(request)??this.listTransactions?.()??[];
       transactions=transactions.filter(x=>{
         if(selected?.chatId&&x?.chatId!=null&&String(x.chatId)!==String(selected.chatId))return false;
-        const sameGeneration=x?.generationId!=null&&String(x.generationId)===String(generationId);
-        const sameTurn=model.turnId!=null&&x?.turnId!=null&&String(x.turnId)===String(model.turnId);
-        return sameGeneration||sameTurn;
+        if(x?.generationId!=null)return String(x.generationId)===String(generationId);
+        return model.turnId!=null&&x?.turnId!=null&&String(x.turnId)===String(model.turnId);
       }).slice(-bounded);
       const timeline=buildForensicTimeline({forensic:model,transactions});
       const health=model.complete?Wave6Health.READY:Wave6Health.DEGRADED;const mode=this.fixture?ProductDataMode.FIXTURE:model.complete?ProductDataMode.LIVE:ProductDataMode.DEGRADED;const impact=model.complete?'Generation reconstruction references are available.':'Reconstruction is partial; missing references remain explicit.';

@@ -36,6 +36,7 @@ for(const [width,height,cycles] of [[1440,900,240],[420,640,160]]){
     if(i%4===0)ui.floatingController.nodes.railHandle.dispatch('keydown',{key:i%8===0?'ArrowLeft':'ArrowRight'});
     if(i%5===0)ui.floatingController.nodes.cardHandle.dispatch('keydown',{key:i%10===0?'ArrowUp':'ArrowDown'});
     if(i%11===0)ui.floatingController.resize(i%22===0?-120:120);
+    if(i%13===0){const side=ui.floatingController.diagnostics().card.side;ui.floatingController.nodes.sideResizeHandle.dispatch('keydown',{key:side==='RIGHT'?'ArrowRight':'ArrowLeft'});}
     if(i%17===0){ui.floatingController.toggleMinimized();ui.floatingController.toggleMinimized();}
     ui.scheduler.flush(i+1);
     const d=ui.floatingController.diagnostics();

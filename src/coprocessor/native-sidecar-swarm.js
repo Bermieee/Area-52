@@ -99,6 +99,7 @@ export class NativeSidecarSwarm{
     const jevOption=checkpoint.proposal.options.find(option=>option.optionId==='jev-adjudication');
     const shouldRunJev=checkpoint.proposal.ownerStageRequests?.jevAdjudication===true&&jevOption?.disposition==='NOMINATED';
     if(shouldRunJev&&jevRequest){
+      if(jevRequest.turnId!==checkpoint.turnId||jevRequest.correlationId!==checkpoint.correlationId)throw new TypeError('Jev request turn identity does not match swarm checkpoint');
       jevReceipt=await this.jev.decide(jevRequest,{currentRevisionState,sealed,signal});
     }
 

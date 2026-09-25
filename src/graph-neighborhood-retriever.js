@@ -78,6 +78,27 @@ export class NativeGraphNeighborhoodRetriever{
   providerContract(providerId){const row=this.providers.get(String(providerId));return row?{kind:'CoreGraphProviderContract',contractVersion:'1.0.0',providerId:row.providerId,owner:row.owner,semanticsVersion:row.semanticsVersion,requiresBoundedQuery:true,requiresRevisionValidation:true,graphMutationAuthority:false,truthAuthority:false,settlementAuthority:false,contextSealAuthority:false}:null;}
   listProviders(){return [...this.providers.keys()].sort().map(id=>this.providerContract(id));}
 
+  ownerInterfaceContract(){
+    return clone({
+      kind:'CoreGraphProviderInterfaceContract',contractVersion:'1.0.0',channelId:'ZZ_NATIVE_GRAPH_WALKER',
+      registration:{required:['providerId','owner','query'],optional:['isRevisionCurrent','semanticsVersion','metadata'],queryExecution:'SYNC_FOREGROUND_BOUNDED'},
+      request:{
+        kind:'CoreGraphQueryRequest',
+        fields:['query','intentKind','anchorEntityIds','allowedEdgeMeanings','maxDepth','maxNodes','maxEdges','maxCandidates','latencyBudgetMs','worldRevision','sceneRevision','sourceRevisionSet','perspective'],
+        bounded:true,graphMutationAuthority:false,truthAuthority:false,settlementAuthority:false,
+      },
+      response:{
+        shapes:['GraphEdge[]','{providerRevision?,edges:GraphEdge[]}'],
+        edgeRequired:['from/fromEntityId','to/toEntityId','edgeMeaning/predicate','sourceRevisionRefs'],
+        edgePreserved:['edgeId','sourceKind','temporalStatus','temporal','authorityClass','dependencyRevisionRefs','provenanceRefs','evidenceRefs','claimRefs','eventRefs','relationshipRefs','artifactRef','artifactRevision','worldRevision','sceneRevision','providerRevision','representationText','perspective','hardRule'],
+        revisionRules:{sourceRevisionRefsRequired:true,dependenciesMustBeCurrent:true,worldFenceCheckedWhenPresent:true,sceneFenceCheckedWhenPresent:true,staleRejectedBeforeCandidateBus:true},
+        provenanceRules:{sourceRevisionRefsAreAlwaysCarriedAsProvenance:true,traversalPathAddedByCore:true,providerAndOwnerIdentityPreserved:true},
+      },
+      authority:{providerOwnsSourceSemantics:true,coreOwnsTraversal:false,graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false},
+      lifecycle:{providerFunctionsPersistedByCore:false,reattachProviderAfterBrainRestore:true,optionalCoprocessorMayWrapSameContract:true,nativeForegroundPathRequiresNoCoprocessor:true},
+    });
+  }
+
   retrieve(intent,context={}){
     const started=now(),request=this.#request(intent,context),edges=[],providerDiagnostics=[],staleEdges=[],trustedSourceRevisionRefs=[];
     edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
@@ -220,7 +241,7 @@ export class NativeGraphNeighborhoodRetriever{
       providerId:provider.providerId,owner:provider.owner,sourceKind:String(raw?.sourceKind??provider.metadata?.sourceKind??'OWNER_GRAPH'),
       fromEntityId:from.entityId,toEntityId:to.entityId,edgeMeaning:String(raw?.edgeMeaning??raw?.predicate??raw?.relationshipType??'RELATED_TO'),
       temporalStatus:status(raw?.temporalStatus??raw?.status),temporal:clone(raw?.temporal??null),authorityClass:raw?.authorityClass??AuthorityClass.UNRESOLVED,
-      sourceRevisionRefs:refs,dependencyRevisionRefs:deps,provenanceRefs:uniq(raw?.provenanceRefs??raw?.provenance?.map?.(x=>typeof x==='string'?x:x?.ref??x?.id)??[]),
+      sourceRevisionRefs:refs,dependencyRevisionRefs:deps,provenanceRefs:uniq([...(raw?.provenanceRefs??raw?.provenance?.map?.(x=>typeof x==='string'?x:x?.ref??x?.id)??[]),...refs]),
       evidenceRefs:uniq(raw?.evidenceRefs??[]),claimRefs:uniq(raw?.claimRefs??[]),eventRefs:uniq(raw?.eventRefs??[]),relationshipRefs:uniq(raw?.relationshipRefs??[]),
       artifactRef:artifactRef(raw),artifactRevision:raw?.artifactRevision??raw?.artifactRef?.revision??1,worldRevision:raw?.worldRevision??request.worldRevision,sceneRevision:raw?.sceneRevision??request.sceneRevision,
       providerRevision:raw?.providerRevision??null,representationText:raw?.representationText??null,representationRef:raw?.representationRef??null,representationRevision:raw?.representationRevision??null,

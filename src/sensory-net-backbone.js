@@ -45,6 +45,7 @@ export class SensoryNetBackbone{
   unregisterChannel(channelId){return this.channelRegistry.unregister(channelId);}
   registerGraphProvider(options){return this.graphWalker.registerProvider(options);}
   unregisterGraphProvider(providerId){return this.graphWalker.unregisterProvider(providerId);}
+  graphProviderInterfaceContract(){return this.graphWalker.ownerInterfaceContract();}
   graphWalkerDiagnostics(){return this.graphWalker.diagnostics();}
   resolveKnowledgeEvidence(candidate){
     const evidenceId=candidate?.metadata?.knowledgeEvidenceId??candidate?.channelNominations?.map(row=>row?.metadata?.knowledgeEvidenceId).find(Boolean)??null;
@@ -80,6 +81,7 @@ export class SensoryNetBackbone{
       unavailableChannels:scatter.unavailableChannels,degradedChannels:scatter.degradedChannels,candidateLimit:candidateBudget,
       metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors,retrievalBudgetReceipt:scatter.budgetReceipt??null,graphTraversalReceipt:graphReceipt},
     });
+    this.#warmGraphNeighborhood(envelope,graphReceipt);
     this.lastEnvelope=envelope;return envelope;
   }
 
@@ -101,6 +103,7 @@ export class SensoryNetBackbone{
     if(this.#ownerChannelsExecuted(scatter.channelReceipts)||graphRevisionRefs.length)this.externalRevisionSink(ownerRevisionRefs);
     const sourceRevisionSet=uniq([...localSourceRevisionSet,...ownerRevisionRefs]);
     const envelope=this.candidateBus.fuse({nominations:scatter.nominations,retrievalIntents:intents,query,currentRevisionSet:{sourceRevisionSet,worldRevision,sceneRevision},unavailableChannels:scatter.unavailableChannels,degradedChannels:scatter.degradedChannels,candidateLimit:candidateBudget,metadata:{...metadata,channelReceipts:scatter.channelReceipts,channelErrors:scatter.errors,retrievalBudgetReceipt:scatter.budgetReceipt??null,graphTraversalReceipt:graphReceipt}});
+    this.#warmGraphNeighborhood(envelope,graphReceipt);
     this.lastEnvelope=envelope;return envelope;
   }
 
@@ -115,6 +118,22 @@ export class SensoryNetBackbone{
 
   manifest(){return this.channelRegistry.manifest();}
   diagnostics(){return frozen({kind:'SensoryNetDiagnostics',candidateBus:this.candidateBus.diagnostics(),channels:this.channelRegistry.manifest(),indexLifecycle:this.indexLifecycle.lifecycleDiagnostics(),graphWalker:this.graphWalker.diagnostics(),lastFusionReceipt:clone(this.lastEnvelope?.fusionReceipt??null),lastRetrievalBudgetReceipt:clone(this.lastEnvelope?.metadata?.retrievalBudgetReceipt??null),retainsCandidatePayloadHistory:false,readOnly:true,mutationAuthority:false});}
+
+  #warmGraphNeighborhood(envelope,graphReceipt){
+    if(!graphReceipt||!this.hotCognition?.hasActiveChat)return null;
+    const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
+    const refs=uniq(rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))));
+    const sourceRevisionRefs=uniq(rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]));
+    const provenanceRefs=uniq(rows.flatMap(candidate=>[
+      ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
+      ...(candidate.evidenceRefs??[]),
+    ]));
+    const degraded=(graphReceipt.providers??[]).some(row=>row?.status==='DEGRADED');
+    return this.hotCognition.setGraphNeighborhood({
+      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,provenanceRefs,
+      updateId:'graph-warm:'+stableHash({candidateSetId:envelope?.candidateSetId??null,worldRevision:envelope?.worldRevision??null,sceneRevision:envelope?.sceneRevision??null,refs},{length:20}),
+    });
+  }
 
   #ownerChannelsExecuted(receipts=[]){
     return (receipts??[]).some((receipt)=>this.channelRegistry.lookup(receipt?.channelId)?.descriptor?.metadata?.ownerRevisionFence===true);

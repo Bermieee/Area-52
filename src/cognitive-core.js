@@ -86,6 +86,7 @@ export class Area52CognitiveCore {
   entityIdentityContract(){return this.entities.contract();}
   registerGraphProvider(options){return this.retrieval.registerGraphProvider(options);}
   unregisterGraphProvider(providerId){return this.retrieval.unregisterGraphProvider(providerId);}
+  graphProviderInterfaceContract(){return this.retrieval.graphProviderInterfaceContract();}
   graphWalkerDiagnostics(){return this.retrieval.graphWalkerDiagnostics();}
   registerJevAdapter(adapter){return this.cognitiveChoice.registerJevAdapter(adapter);}
   cognitiveChoiceReceipt(turnId){return this.cognitiveChoice.getReceipt(turnId);}

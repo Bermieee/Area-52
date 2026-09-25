@@ -265,6 +265,7 @@ export class Area52NativeBrain{
   unregisterGraphProvider(providerId){return this.core.unregisterGraphProvider(providerId);}
   entityIdentityReadModel(options={}){return this.core.entityIdentityReadModel(options);}
   entityIdentityContract(){return this.core.entityIdentityContract();}
+  graphProviderInterfaceContract(){return this.core.graphProviderInterfaceContract();}
   graphWalkerDiagnostics(){return this.core.graphWalkerDiagnostics();}
 
   observeScene(chatId,input){

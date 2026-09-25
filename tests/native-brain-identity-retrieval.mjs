@@ -94,6 +94,19 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
   assert.equal(brain.settleEntityIdentity(modelGuess.proposalId,{decision:'ACCEPT'}).state,'DEFERRED');
   assert.equal(brain.core.entities.resolveSource({providerId:'MODEL',sourceEntityId:'guess:ash'}),null);
 
+  for(const action of ['MERGE','SPLIT']){
+    const ownerBound=brain.proposeEntityIdentity({
+      action,providerId:'LORE_ASTER',targetEntityId:'entity:aster:ash',label:'Ash',worldId:'world:aster',entityType:'PERSON',
+      authorityOrigin:'SOURCE_EXPLICIT',explicit:true,sourceRevisionRefs:[oldLore.sourceRevisionId],
+      provenanceRefs:[oldLore.evidenceId,'identity:'+action.toLowerCase()+':proposal'],
+    });
+    assert.equal(ownerBound.recommendation,'DEFER');
+    assert.equal(ownerBound.recommendationCode,'OWNER_SETTLEMENT_REQUIRED');
+    assert.deepEqual(ownerBound.sourceRevisionRefs,[oldLore.sourceRevisionId]);
+    assert.ok(ownerBound.provenanceRefs.includes(oldLore.evidenceId));
+    assert.equal(brain.settleEntityIdentity(ownerBound.proposalId,{decision:'ACCEPT'}).state,'DEFERRED');
+  }
+
   const beforeCorrection=brain.entityIdentityReadModel();
   const emberBefore=beforeCorrection.identities.find(row=>row.entityId==='entity:ember:ash');
   const corrected=brain.correctLore('lore:aster:ash','Correction: In Aster Vale, Ash is now explicitly called Argent Ash.',{
@@ -280,6 +293,23 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
   const rejected=brain.uiBindings().readRejectedEvidence(chosen.selection);
   assert.ok(rejected.staleGraphEdges.some(row=>row.edgeId==='lore-route-old'));
 
+  const providerContract=brain.graphProviderInterfaceContract();
+  assert.equal(providerContract.kind,'CoreGraphProviderInterfaceContract');
+  assert.equal(providerContract.request.bounded,true);
+  assert.equal(providerContract.response.revisionRules.staleRejectedBeforeCandidateBus,true);
+  assert.equal(providerContract.authority.truth,false);
+  assert.equal(providerContract.lifecycle.nativeForegroundPathRequiresNoCoprocessor,true);
+
+  const hotGraph=brain.core.hotCognitionSnapshot('chat:aster-graph').segments.GRAPH_NEIGHBORHOOD;
+  assert.equal(hotGraph.value.state,'AVAILABLE');
+  assert.ok(hotGraph.value.refs.length>0);
+  assert.ok(hotGraph.value.refs.some(ref=>ref.includes('MEMORY_GRAPH_ASTER|memory-ally')||ref.includes('LORE_GRAPH_ASTER|lore-route-current')));
+  const restoredWarm=Area52NativeBrain.fromSnapshot(brain.snapshot());
+  const restoredGraph=restoredWarm.core.hotCognitionSnapshot('chat:aster-graph').segments.GRAPH_NEIGHBORHOOD;
+  assert.deepEqual(restoredGraph.value.refs,hotGraph.value.refs);
+  restoredWarm.observeScene('chat:aster-graph',scene('glass-spire-shifted',4,{location:'Glass Spire Annex',activeCast:[{entityId:ids.ash,canonicalEntityId:ids.ash,name:'Ash'}]}));
+  assert.notEqual(restoredWarm.core.hotCognitionSnapshot('chat:aster-graph').segments.GRAPH_NEIGHBORHOOD.freshness,'FRESH');
+
   console.log('GRAPH_WAVE_METRIC',JSON.stringify({
     currentPossessionCandidates:currentPossession.candidateCount,
     historicalPossessionCandidates:historicalPossession.candidateCount,
@@ -289,6 +319,7 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
     graphElapsedMs:chosen.graphTraversalReceipt.elapsedMs,
     retrievalElapsedMs:chosen.retrievalBudgetReceipt.elapsedMs,
     finalBrainCandidates:chosen.candidateEnvelope.candidateCount,
+    warmedGraphRefs:hotGraph.value.refs.length,
   }));
 });
 
@@ -419,6 +450,16 @@ test('DETERMINISTIC: small and large delivery budgets preserve protected truth/s
   assert.ok(small.plan.diagnosticReceipt.budgetDecision.omitted.length>0);
   assert.ok(small.plan.diagnosticReceipt.budgetDecision.hardRuleProtectedSlots.includes('WORLD_FOUNDATION'));
   assert.ok(small.plan.sections.some(section=>section.representation==='COMPACT'));
+  for(const section of small.plan.sections.filter(row=>row.representation==='COMPACT')){
+    const largeSection=large.plan.sections.find(row=>row.slot===section.slot);assert.ok(largeSection);
+    for(const manifest of section.semanticManifest??[]){
+      const peer=(largeSection.semanticManifest??[]).find(row=>JSON.stringify(row.sourceRevisionIds??[])===JSON.stringify(manifest.sourceRevisionIds??[])&&row.temporalStatus===manifest.temporalStatus);
+      if(!peer)continue;
+      assert.equal(manifest.authorityClass,peer.authorityClass);
+      assert.equal(manifest.temporalStatus,peer.temporalStatus);
+      assert.deepEqual(manifest.sourceRevisionIds,peer.sourceRevisionIds);
+    }
+  }
   assert.equal(small.plan.sealedPacketHash,large.plan.sealedPacketHash);
   assert.equal(small.rendered.sealedPacketHash,large.rendered.sealedPacketHash);
 

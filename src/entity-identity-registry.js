@@ -208,6 +208,20 @@ export class NativeEntityIdentityRegistry{
     return{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:ref,affectedEntityIds:uniq(affectedEntityIds),retiredAliases:uniq(retiredAliases),retiredLinks:uniq(retiredLinks),historyPreserved:true,unrelatedIdentityMutation:false};
   }
 
+  contract(){
+    return{
+      kind:'CoreEntityIdentityContract',contractVersion:'1.0.0',
+      proposalKind:'IdentityResolutionProposal',receiptKind:'IdentityResolutionReceipt',
+      proposalActions:Object.values(IdentityProposalAction),resolutionStates:Object.values(IdentityResolutionState),
+      explicitAuthorityOrigins:[...authoritativeOrigins].sort(),
+      rules:{
+        proposalMutation:false,modelMergeAuthority:false,retrievalMergeAuthority:false,graphMergeAuthority:false,
+        graphProximityMaySettleIdentity:false,confidenceMaySettleIdentity:false,canonicalMergeSplitRequiresOwnerSettlement:true,
+        sourceRevisionInvalidatesOnlyDependentAssertions:true,historicalAliasPreserved:true,
+      },
+    };
+  }
+
   readModel({limit=128}={}){
     const max=Math.max(1,Math.min(512,Number(limit)||128));
     return{

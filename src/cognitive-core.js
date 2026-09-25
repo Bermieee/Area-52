@@ -83,6 +83,7 @@ export class Area52CognitiveCore {
   settleEntityIdentity(proposalId,options={}){return this.entities.settle(proposalId,options);}
   invalidateEntityIdentityRevision(sourceRevisionId,options={}){return this.entities.invalidateSourceRevision(sourceRevisionId,options);}
   entityIdentityReadModel(options={}){return this.entities.readModel(options);}
+  entityIdentityContract(){return this.entities.contract();}
   registerGraphProvider(options){return this.retrieval.registerGraphProvider(options);}
   unregisterGraphProvider(providerId){return this.retrieval.unregisterGraphProvider(providerId);}
   graphWalkerDiagnostics(){return this.retrieval.graphWalkerDiagnostics();}

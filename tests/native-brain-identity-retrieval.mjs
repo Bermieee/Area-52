@@ -183,6 +183,8 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
       {edgeId:'memory-ally',fromEntityId:ids.ash,toEntityId:ids.lio,edgeMeaning:'ALLY_OF',sourceKind:'MEMORY_EXPERIENCE',temporalStatus:'CURRENT',authorityClass:'OBSERVED',sourceRevisionRefs:[memoryRevision],provenanceRefs:['memory:ally:evidence'],representationText:'Ash and Lio acted as allies.'},
       {edgeId:'memory-ally',fromEntityId:ids.ash,toEntityId:ids.lio,edgeMeaning:'ALLY_OF',sourceKind:'MEMORY_EXPERIENCE',temporalStatus:'CURRENT',authorityClass:'OBSERVED',sourceRevisionRefs:[memoryRevision],provenanceRefs:['memory:ally:evidence'],representationText:'Ash and Lio acted as allies.'},
       {edgeId:'memory-belief',fromEntityId:ids.key,toEntityId:ids.ash,edgeMeaning:'BELIEVES_POSSESSOR',sourceKind:'MEMORY_EXPERIENCE',temporalStatus:'UNCERTAIN',authorityClass:'UNRESOLVED',sourceRevisionRefs:[memoryRevision],provenanceRefs:['memory:mistaken-belief'],perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:ids.ash},representationText:"Ash mistakenly believes the Moon Key is still in Ash's possession."},
+      {edgeId:'memory-report-safe',fromEntityId:ids.key,toEntityId:'report:moon-key:safe',edgeMeaning:'REPORTS_FATE',sourceKind:'MEMORY_EXPERIENCE',temporalStatus:'UNRESOLVED',authorityClass:'UNRESOLVED',sourceRevisionRefs:[memoryRevision],provenanceRefs:['memory:report:safe'],representationText:'One account reports the Moon Key is safe.'},
+      {edgeId:'memory-report-lost',fromEntityId:ids.key,toEntityId:'report:moon-key:lost',edgeMeaning:'REPORTS_FATE',sourceKind:'MEMORY_EXPERIENCE',temporalStatus:'UNRESOLVED',authorityClass:'UNRESOLVED',sourceRevisionRefs:[memoryRevision],provenanceRefs:['memory:report:lost'],representationText:'Another account reports the Moon Key is lost.'},
       {edgeId:'memory-event',fromEntityId:ids.ash,toEntityId:ids.event,edgeMeaning:'PARTICIPATED_IN',sourceKind:'MEMORY_EXPERIENCE',temporalStatus:'HISTORICAL',authorityClass:'OBSERVED',sourceRevisionRefs:[memoryRevision],provenanceRefs:['memory:event:lantern-fall'],representationText:'Ash participated in the historical Lantern Fall.'},
     ]}),
   });
@@ -237,6 +239,15 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
   assert.ok(beliefRow);
   assert.equal(beliefRow.temporalStatus,'UNCERTAIN');
   assert.equal(brain.currentWorldModel().current.find(row=>row.subjectId===ids.key&&row.predicate==='possessor').value,ids.lio);
+
+  const disagreement=brain.core.retrieval.retrieveEnvelope('Conflicting Moon Key fate reports',{
+    intent:'TEMPORAL',anchorEntityIds:[ids.key],channelIds:['ZZ_NATIVE_GRAPH_WALKER'],candidateBudget:20,latencyBudgetMs:1000,
+    graphTraversal:{maxDepth:1,maxNodes:16,maxEdges:32,maxCandidates:20,allowedEdgeMeanings:['REPORTS_FATE']},
+  });
+  const disagreementRows=graphMetadata(disagreement).filter(row=>row.edgeMeaning==='REPORTS_FATE');
+  assert.equal(disagreementRows.length,2);
+  assert.ok(disagreementRows.every(row=>row.temporalStatus==='UNRESOLVED'));
+  assert.equal(brain.currentWorldModel().current.some(row=>row.predicate==='REPORTS_FATE'),false);
 
   const chosen=await brain.prepareTurn({
     chatId:'chat:aster-graph',turnId:'aster-graph:3',generationId:'gen:aster-graph:3',

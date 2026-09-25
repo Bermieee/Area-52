@@ -208,11 +208,13 @@ export class NativeGraphNeighborhoodRetriever{
     const refs=uniq(raw?.sourceRevisionRefs??raw?.revisionFence?.sourceRevisionRefs??[]),deps=uniq(raw?.dependencyRevisionRefs??raw?.revisionFence?.dependencyRevisionRefs??[]);
     let stale=false,staleReason=null;
     if(!refs.length){stale=true;staleReason='OWNER_GRAPH_SOURCE_REVISION_REQUIRED';}
-    else for(const ref of refs){
+    else for(const ref of [...refs,...deps]){
       let current=false;
       try{current=provider.isRevisionCurrent?provider.isRevisionCurrent(ref)===true:this.isSourceRevisionCurrent(ref)===true;}catch{}
-      if(!current){stale=true;staleReason='OWNER_GRAPH_SOURCE_REVISION_STALE';break;}
+      if(!current){stale=true;staleReason=refs.includes(ref)?'OWNER_GRAPH_SOURCE_REVISION_STALE':'OWNER_GRAPH_DEPENDENCY_REVISION_STALE';break;}
     }
+    if(!stale&&raw?.worldRevision!=null&&Number(raw.worldRevision)!==Number(request.worldRevision)){stale=true;staleReason='OWNER_GRAPH_WORLD_REVISION_STALE';}
+    if(!stale&&raw?.sceneRevision!=null&&Number(raw.sceneRevision)!==Number(request.sceneRevision)){stale=true;staleReason='OWNER_GRAPH_SCENE_REVISION_STALE';}
     return{
       edgeId:String(raw?.edgeId??raw?.id??stableHash({provider:provider.providerId,from:from.entityId,to:to.entityId,meaning:raw?.edgeMeaning??raw?.predicate,refs},{length:20})),
       providerId:provider.providerId,owner:provider.owner,sourceKind:String(raw?.sourceKind??provider.metadata?.sourceKind??'OWNER_GRAPH'),

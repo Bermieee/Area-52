@@ -294,3 +294,74 @@ No Ember Tavern/Sun Blade check is used to decide product UI behavior.
 11. Destroy/remount the extension and verify one host subscription, one shell and no retained listeners/root children.
 
 Only after those steps use real owner receipts through one sealed generation should #224 be considered for completion.
+
+
+---
+
+## Contract refresh — live owner heads consumed
+
+Wave 13 was revalidated against the owner-lane interfaces that were current during this handoff:
+
+- Scene owner: `Development-Scene-Scanner@3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf`
+  - consumes `SceneUiReadModel` as the read-only selected Scene projection;
+  - Scene revision/provenance remains owner-authored and UI.Core never settles Scene state.
+- Worker 2: `Development-Sidecar/Jev@00dc4385ca61223cd76715889ad09cec925974d0`
+  - consumes `CognitionUiState` using its real numeric `activeTasks`, `hotTasks`, `deepTasks`, `staleDrops`, `warmHits`, and `fallbackCount` fields;
+  - consumes the public `createCoprocessorResourceHost()` shape: `actions.addResource/connectResource/disconnectResource/testResource`, `read.resources()`, and `subscribe(listener)`;
+  - UI.Core passes only resource configuration and resource IDs. Worker 2 still owns capability validation, provider probing, health, execution, fallback, routing, Jev provider execution, and authority boundaries.
+- Lore owner: `Development-Lorebook-Editor@fa74d3e792d3d8aa4dc4879271bcfc42f43e7c2c`
+  - UI.Core can consume an assembly-owned Lore host surface when supplied;
+  - Worker 4 may also pass the native `LoreStudyRuntime` object as `loreStudyRuntime`. The UI adapter then uses only its existing public ingestion/study/read methods and its public Source Registry / Derived Store reads to project accepted-vs-learned state.
+
+### Worker 2 host binding
+
+Preferred assembly binding:
+
+```js
+hostBindings.resourceHost = createCoprocessorResourceHost(...);
+```
+
+The UI calls:
+
+```text
+resourceHost.actions.addResource(config)   // only for a new resource
+resourceHost.actions.connectResource(resourceId)
+resourceHost.actions.testResource(resourceId)
+resourceHost.actions.disconnectResource(resourceId)
+resourceHost.read.resources()
+resourceHost.subscribe(listener)
+```
+
+The connection form deliberately distinguishes operator **role** from Worker 2 transport kind. A Jev resource is an execution resource advertising `SEMANTIC_JUDGMENT`; the UI does not create a separate Jev router. Sidecar/Jev labels are presentation only. Worker 2 remains execution and routing authority.
+
+The UI never marks a resource connected because configuration exists. `CONFIGURED`, `CONNECTING`, `READY`, `DEGRADED`, `UNAVAILABLE`, and `DISCONNECTED` come from Worker 2. The resource list also shows the owner-reported measurement class and reason.
+
+### Lore host binding
+
+Preferred future assembly seam when the Lore owner publishes a dedicated host wrapper:
+
+```js
+hostBindings.loreStudyHost = {
+  read: { surface() { ... } },
+  actions: {
+    acceptLorebook(input) { ... },
+    runDueLoreStudy(input) { ... },
+  },
+  subscribe(listener) { ... },
+};
+```
+
+Current native fallback supported by UI.Core:
+
+```js
+hostBindings.loreStudyRuntime = nativeLoreStudyRuntime;
+```
+
+For that fallback, `ingestLorebook()` performs source acceptance and `run()` performs explicit operator-requested study work. UI.Core derives a read-only presentation from `registry.listEntries/currentRevision`, `store.currentLearnedRevision/artifactsForLearnedRevision/currentArtifacts/conflicts`, and `listObligations()`. It does not create learned artifacts, rewrite source revisions, or bypass Lore validation.
+
+The current native Lore runtime does **not** publish a subscription contract. Therefore action-driven refresh is supported, but external/background Lore changes cannot be claimed as push-live until the Lore owner exports `subscribe` (or Worker 4 supplies an owner wrapper that does). UI.Core does not add polling to hide that gap.
+
+### Resource and Lore lifecycle
+
+When owner subscriptions are present, UI.Core subscribes once and releases them during `destroy()`. Resource events refresh Home/Brain; Lore events refresh Home/Lore. No raw prompts, provider payloads, API keys, or Lore source text are copied into routine telemetry.
+

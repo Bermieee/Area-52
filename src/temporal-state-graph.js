@@ -133,4 +133,29 @@ export class TemporalStateGraph {
   neighbors(entityId,{limit=16}={}){const out=[];for(const claim of this.allClaims()){if(claim.subjectId===entityId||claim.value===entityId)out.push(claim);if(out.length>=limit)break;}return out;}
   journal(){return clone(this.#journal);}
   receipts(){return clone(this.#receipts);}
+
+  exportState(){
+    return clone({
+      kind:'TemporalStateGraphSnapshot',
+      claims:[...this.#claims.entries()],
+      slotClaims:[...this.#slotClaims.entries()],
+      closures:[...this.#closures.entries()],
+      invalidClaims:[...this.#invalidClaims],
+      receipts:this.#receipts,
+      revision:this.#revision,
+      journal:this.#journal,
+    });
+  }
+
+  restoreState(snapshot){
+    if(!snapshot||snapshot.kind!=='TemporalStateGraphSnapshot')throw new TypeError('TemporalStateGraphSnapshot is required');
+    this.#claims=new Map(clone(snapshot.claims??[]));
+    this.#slotClaims=new Map(clone(snapshot.slotClaims??[]));
+    this.#closures=new Map(clone(snapshot.closures??[]));
+    this.#invalidClaims=new Set(snapshot.invalidClaims??[]);
+    this.#receipts=clone(snapshot.receipts??[]);
+    this.#revision=Number(snapshot.revision??0);
+    this.#journal=clone(snapshot.journal??[]);
+    return this.exportState();
+  }
 }

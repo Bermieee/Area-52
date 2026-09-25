@@ -259,7 +259,7 @@ export class CoprocessorResourceConnections{
         row.activeExecutions+=1;owner.profiles.setLoad(row.providerProfileId,row.activeExecutions);owner.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:owner.now()});
         const started=owner.now();
         try{
-          const execution=await base.execute(request,{prefilter,signal:controller.signal,attempt,profileId:profile.profileId});
+          const execution=await base.execute(request,{prefilter,signal:controller.signal,attempt,profileId:profile.profileId,leaseHeld:true});
           const latency=Math.max(0,owner.now()-started);
           row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:latency,providerId:profile.providerId,workerId:profile.workerId,measurementClass:row.measurementClass};
           owner.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:owner.now()});

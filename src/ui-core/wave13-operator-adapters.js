@@ -229,13 +229,17 @@ export class Wave13ResourceControlAdapter{
     this.configFn=fn(bindings,['listResourceConfigurations','listAvailableResources']);
     this.addFn=fn(bindings,['addResource','configureResource'])??fn(this.host?.actions,['addResource']);
     this.discoverModelsFn=fn(bindings,['discoverModels','loadModels','listProviderModels'])??fn(this.host?.actions,['discoverModels']);
+    this.refreshModelsFn=fn(bindings,['refreshModels','refreshResourceModels'])??fn(this.host?.actions,['refreshModels']);
+    this.setCredentialFn=fn(bindings,['setCredential','setResourceCredential'])??fn(this.host?.actions,['setCredential']);
+    this.clearCredentialFn=fn(bindings,['clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential'])??fn(this.host?.actions,['clearCredential','revokeCredential']);
+    this.selectModelFn=fn(bindings,['selectModel','selectResourceModel'])??fn(this.host?.actions,['selectModel']);
     this.connectFn=fn(bindings,['connectResource','mountResource'])??fn(this.host?.actions,['connectResource']);
     this.disconnectFn=fn(bindings,['disconnectResource','unmountResource'])??fn(this.host?.actions,['disconnectResource']);
     this.testFn=fn(bindings,['testResource','probeResource','testConnection'])??fn(this.host?.actions,['testResource']);
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),setCredential:Boolean(this.setCredentialFn),clearCredential:Boolean(this.clearCredentialFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn)});}
   read(){
     if(!this.listFn)return deepFreeze({
       source:createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label:'Optional resources',operationalState:OperatorProducerState.UNAVAILABLE,impact:'Native Brain remains available. Optional resource control is not exported by this assembly.',reason:'Worker 2 resource host/read contract is not exported by this assembly.',producer:'OptionalResourceControl',connected:false}),
@@ -267,6 +271,30 @@ export class Wave13ResourceControlAdapter{
       this.lastAction={type:'DISCOVER_MODELS',result:cloneSafe(result)};
       return cloneSafe(result);
     }catch(error){this.lastError=error;throw error;}
+  }
+  async refreshModels(resource){
+    return this.#resourceAction('REFRESH_MODELS',this.refreshModelsFn,resource,'Configured-resource model refresh is not exported by the Worker 2 resource host.');
+  }
+  async setCredential(resource,credential){
+    this.lastError=null;
+    if(!this.setCredentialFn){const e=new Error('Session credential update is not exported by the Worker 2 resource host.');e.code='RESOURCE_CREDENTIAL_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
+    const id=resourceId(resource),secret=typeof credential==='string'?credential.trim():'';
+    if(!id){const e=new TypeError('Resource credential action requires resourceId.');e.code='RESOURCE_ID_REQUIRED';this.lastError=e;throw e;}
+    if(!secret){const e=new TypeError('Session credential must be non-empty.');e.code='RESOURCE_CREDENTIAL_REQUIRED';this.lastError=e;throw e;}
+    try{const result=await this.setCredentialFn(id,secret);this.lastAction={type:'SET_CREDENTIAL',result:cloneSafe(result)};return cloneSafe(result);}
+    catch(error){this.lastError=error;throw error;}
+  }
+  async clearCredential(resource){
+    return this.#resourceAction('CLEAR_CREDENTIAL',this.clearCredentialFn,resource,'Session credential clear is not exported by the Worker 2 resource host.');
+  }
+  async selectModel(resource,modelId){
+    this.lastError=null;
+    if(!this.selectModelFn){const e=new Error('Configured-resource model selection is not exported by the Worker 2 resource host.');e.code='RESOURCE_MODEL_SELECTION_UNAVAILABLE';this.lastError=e;throw e;}
+    const id=resourceId(resource),model=text(modelId);
+    if(!id){const e=new TypeError('Resource model selection requires resourceId.');e.code='RESOURCE_ID_REQUIRED';this.lastError=e;throw e;}
+    if(!model){const e=new TypeError('A discovered or owner-permitted model must be selected.');e.code='RESOURCE_MODEL_REQUIRED';this.lastError=e;throw e;}
+    try{const result=await this.selectModelFn(id,model);this.lastAction={type:'SELECT_MODEL',result:cloneSafe(result)};return cloneSafe(result);}
+    catch(error){this.lastError=error;throw error;}
   }
   async connect(config){
     this.lastError=null;
@@ -511,7 +539,7 @@ export class Wave13DiagnosticsCenterAdapter{
       },
       telemetry:{resourceEvents,rawPromptTelemetry:false},
       wiring:{
-        controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
+        controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),discoverModels:Boolean(resourceCaps.discoverModels),refreshModels:Boolean(resourceCaps.refreshModels),setCredential:Boolean(resourceCaps.setCredential),clearCredential:Boolean(resourceCaps.clearCredential),selectModel:Boolean(resourceCaps.selectModel),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
         jev:{expectedCapabilities:['SEMANTIC_JUDGMENT'],lane:lanes.find(x=>x.kind==='JEV')},
         sidecar:{expectedCapabilities:['STRUCTURED_EXTRACTION'],lane:lanes.find(x=>x.kind==='SIDECAR')},
         vectoring:{expectedCapabilities:['RETRIEVAL','EMBED','RERANK'],lane:lanes.find(x=>x.kind==='VECTORING')},
@@ -637,7 +665,9 @@ function normalizeResources(raw){
     const role=capabilities.includes('SEMANTIC_JUDGMENT')?'JEV':capabilities.some(isVectorCapability)?'VECTORING':'SIDECAR';
     return deepFreeze({
       id,displayName:text(row.displayName??row.name)??id,kind:role,transportKind:row.kind??row.resourceKind??null,providerId:row.providerId??null,providerProfileId:row.providerProfileId??row.profileId??null,
-      modelId:row.modelId??null,workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
+      modelId:row.modelId??null,actualModelId:row.actualModelId??null,actualProvider:row.actualProvider??null,modelSelectionMode:row.modelSelectionMode??null,
+      selectedModelQualified:Boolean(row.selectedModelQualified),qualifiedAt:row.qualifiedAt??null,modelDiscovery:cloneSafe(row.modelDiscovery??null),
+      workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,

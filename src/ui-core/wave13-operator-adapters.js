@@ -310,6 +310,83 @@ export class Wave13OperationalStatusAdapter{
   #missing(id,label,selection,turnBound){if(turnBound&&selection.chatId&&!selection.turnId)return stage(id,label,OperatorProducerState.WAITING_FOR_TURN,'Waiting for an active turn.',selection,null,'HOST_SELECTION');return stage(id,label,OperatorProducerState.UNAVAILABLE,'Producer is not exported by the host assembly.',selection,null,'ASSEMBLY_CONTRACT_MISSING');}
 }
 
+
+export class Wave13DiagnosticsCenterAdapter{
+  constructor({operations=null,resources=null,loreStudy=null,cognition=null,liveReceiptBinding=null,productionAdapters={}}={}){
+    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;
+  }
+  read(){
+    const operations=safeRead(()=>this.operations?.read?.(),null);
+    const selection=cloneSafe(this.live?.selection?.()??operations?.selection??{});
+    const resourceRead=safeRead(()=>this.resources?.read?.(),null);
+    const loreRead=safeRead(()=>this.loreStudy?.read?.(),null);
+    const cognitionRead=safeRead(()=>this.cognition?.read?.(selection),null);
+    const runtimeRead=safeRead(()=>this.adapters.runtime?.read?.(selection)??this.adapters.runtime?.read?.(),null);
+    const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
+    const promptPlanRead=safeRead(()=>this.adapters.promptPlan?.read?.(selection)??this.adapters.promptPlan?.read?.(),null);
+    const liveDiagnostics=safeRead(()=>this.live?.diagnostics?.(),null);
+    const resourceCaps=this.resources?.capabilities?.()??{};
+    const rows=resourceRead?.data?.resources??[];
+    const lanes=['JEV','SIDECAR','VECTORING'].map(kind=>{
+      const members=rows.filter(row=>String(row.kind??'SIDECAR').toUpperCase()===kind);
+      return deepFreeze({
+        kind,configured:members.length,connected:members.filter(row=>row.connected).length,callable:members.filter(row=>row.callable).length,
+        activeExecutions:members.reduce((sum,row)=>sum+Number(row.currentLoad??0),0),
+        resourceIds:members.map(row=>row.id),
+        states:members.map(row=>({id:row.id,state:row.state,health:row.health,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
+      });
+    });
+    const cognitionData=cognitionRead?.data??{};
+    const scatter=cognitionData.scatter??null,gather=cognitionData.gather??null,seal=cognitionData.seal??null,jev=cognitionData.jev??null;
+    const sealedIds=new Set(seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[]);
+    const jobs=(scatter?.jobs??[]).map(job=>deepFreeze({
+      taskId:job.taskId??job.jobId??null,taskType:job.taskType??null,capability:job.capability??job.requiredCapabilities?.[0]??null,
+      state:job.state??job.status??null,resourceId:job.resourceId??null,providerId:job.providerId??null,workerId:job.workerId??null,
+    }));
+    const results=(gather?.results??[]).map(result=>deepFreeze({
+      resultId:result.resultId??null,status:result.status??null,capability:result.capability??null,resourceId:result.resourceId??null,
+      destination:result.destination??null,contextAdmitted:Boolean(result.resultId&&sealedIds.has(result.resultId)),
+    }));
+    const resourceEvents=rows.flatMap(row=>(row.diagnostics??[]).slice(-16).map(event=>deepFreeze({
+      source:'RESOURCE',resourceId:row.id,sequence:event.sequence??null,at:event.at??null,code:event.code??null,message:event.message??'',details:cloneSafe(event.details??{}),
+    }))).sort((a,b)=>Number(b.sequence??0)-Number(a.sequence??0)).slice(0,80);
+    const loreData=loreRead?.data??null;
+    const learned=(loreData?.entries??[]).filter(row=>row.learnedRevisionId&&row.freshness==='CURRENT').length;
+    return deepFreeze({
+      kind:'Wave13DiagnosticsCenter',selection,
+      host:{connected:Boolean(operations?.hostConnected),waitingForTurn:Boolean(operations?.waitingForTurn),liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
+      producers:{active:Number(operations?.active??0),failures:Number(operations?.failures??0),stages:cloneSafe(operations?.stages??[])},
+      runtime:diagnosticSource(runtimeRead),coprocessor:diagnosticSource(coprocessorRead),promptPlan:diagnosticSource(promptPlanRead),
+      resources:{
+        source:cloneSafe(resourceRead?.source??null),capabilities:cloneSafe(resourceCaps),nativePathAvailable:resourceRead?.data?.nativePathAvailable!==false,
+        lanes,rows:rows.map(row=>deepFreeze({
+          id:row.id,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
+          providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
+          capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
+          lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+        })),
+      },
+      cognition:{
+        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,jev:jev?deepFreeze({
+          state:jev.state??null,outcome:jev.outcome??null,resourceId:jev.resourceId??null,provider:jev.provider??jev.providerId??null,model:jev.model??jev.modelId??null,
+          serviceStatus:jev.serviceStatus??null,admission:cloneSafe(jev.admission??null),
+        }):null,gather:results,seal:{sealed:Boolean(seal),admittedResultIds:[...sealedIds]},
+      },
+      lore:{
+        source:cloneSafe(loreRead?.source??null),accepted:loreData?.entries?.length??0,learned,retrievalReady:Number(loreData?.retrievalReady??0),
+        lifecycle:cloneSafe(loreData?.lifecycle??null),
+      },
+      telemetry:{resourceEvents,rawPromptTelemetry:false},
+      wiring:{
+        controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
+        jev:{expectedCapabilities:['SEMANTIC_JUDGMENT'],lane:lanes.find(x=>x.kind==='JEV')},
+        sidecar:{expectedCapabilities:['STRUCTURED_EXTRACTION'],lane:lanes.find(x=>x.kind==='SIDECAR')},
+        vectoring:{expectedCapabilities:['RETRIEVAL','EMBED','RERANK'],lane:lanes.find(x=>x.kind==='VECTORING')},
+      },
+    });
+  }
+}
+
 export function parseLoreSubmission({id,title,text:inputText}={}){
   const body=String(inputText??'').trim();
   if(!body){const e=new TypeError('Lore content is required.');e.code='LORE_INPUT_EMPTY';throw e;}
@@ -398,8 +475,8 @@ function normalizeResources(raw){
       modelId:row.modelId??null,workerId:row.workerId??null,local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
-      lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastFailure:cloneSafe(row.lastFailure),
-      lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
+      lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+      diagnostics:cloneSafe(row.diagnostics??[]),callable:Boolean(row.callable),lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
     });
   });
 }
@@ -430,6 +507,8 @@ function resourceId(row){return text(row?.id??row?.resourceId??row?.profileId??r
 function readerExported(x,key){return({
   choice:['readCognitiveChoice','readCognitiveChoiceReceipt'],truth:['readTruth','readTruthAssessment'],jev:['readJev','readJevDecisionReceipt'],gather:['readGather','readGatherReceipt'],seal:['readContextSeal','readContextSealReceipt','readSealReceipt'],
 }[key]??[]).some(name=>typeof x?.[name]==='function');}
+function safeRead(read,fallback=null){try{const value=read?.();return value==null?fallback:value;}catch{return fallback;}}
+function diagnosticSource(read){return deepFreeze({source:cloneSafe(read?.source??null),data:read?.data?cloneSafe(read.data):null});}
 function stageFromSource(id,label,source,selection,{readerPresent=false,reason=null}={}){
   if(!source)return stage(id,label,readerPresent?OperatorProducerState.IDLE:OperatorProducerState.UNAVAILABLE,reason??(readerPresent?'No current owner data.':'Producer not connected.'),selection,null,readerPresent?'NO_DATA':'ASSEMBLY_CONTRACT_MISSING');
   const explicit=source.operationalState;if(explicit&&Object.values(OperatorProducerState).includes(explicit))return stage(id,label,explicit,reason??source.impact??source.reason,selection,source.freshness,source.errorCode??null,source);

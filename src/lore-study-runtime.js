@@ -110,7 +110,7 @@ export class LoreStudyRuntime {
   begin(obligationId) {
     const obligation = this.obligations.get(obligationId);
     if (!obligation) throw new Error('Unknown Lore study obligation: ' + obligationId);
-    if ([StudyState.COMPLETED, StudyState.SUPERSEDED, StudyState.INVALID].includes(obligation.state)) return deepClone(obligation);
+    if ([StudyState.COMPLETED, StudyState.FAILED, StudyState.SUPERSEDED, StudyState.INVALID].includes(obligation.state)) return deepClone(obligation);
     const currentRevision = this.registry.currentRevision(obligation.sourceId);
     if (currentRevision.id !== obligation.sourceRevisionId) {
       obligation.state = StudyState.SUPERSEDED;
@@ -134,8 +134,8 @@ export class LoreStudyRuntime {
   run(obligationId, {maxUnits = Infinity} = {}) {
     const started = this.begin(obligationId);
     const obligation = this.obligations.get(obligationId);
-    if ([StudyState.COMPLETED, StudyState.SUPERSEDED, StudyState.INVALID].includes(obligation.state)) {
-      return {obligation: deepClone(obligation), learnedRevision: null, checkpointed: false};
+    if ([StudyState.COMPLETED, StudyState.FAILED, StudyState.SUPERSEDED, StudyState.INVALID].includes(obligation.state)) {
+      return {obligation: deepClone(obligation), learnedRevision: null, checkpointed: false, failed: obligation.state === StudyState.FAILED};
     }
 
     const currentRevision = this.registry.currentRevision(obligation.sourceId);
@@ -172,9 +172,39 @@ export class LoreStudyRuntime {
         obligation.supersededBy = this.registry.currentRevision(obligation.sourceId).id;
         return {obligation: deepClone(obligation), learnedRevision: null, impactPreview, checkpointed: false};
       }
-      session = this.engine.step(session);
+      const beforeStep = deepClone(session);
+      try {
+        session = this.engine.step(session);
+      } catch (error) {
+        session = beforeStep;
+        this.sessions.set(obligationId, session);
+        obligation.state = StudyState.FAILED;
+        obligation.lastError = {
+          code: String(error?.code || 'LORE_STUDY_EXECUTION_FAILED'),
+          message: String(error?.message || error || 'Lore study execution failed'),
+          unit: session.units[session.unitIndex] || null,
+          attempt: obligation.attempts,
+        };
+        obligation.checkpoint = {
+          ...(obligation.checkpoint || {}),
+          unitIndex: session.unitIndex,
+          totalUnits: session.units.length,
+          failedUnit: session.units[session.unitIndex] || null,
+          checksum: stableHash(session.workspace.unitReceipts),
+        };
+        return {
+          obligation: deepClone(obligation),
+          learnedRevision: null,
+          impactPreview,
+          checkpointed: true,
+          failed: true,
+          error: deepClone(obligation.lastError),
+          stagedArtifactCount: session.workspace.artifacts.length,
+        };
+      }
       this.sessions.set(obligationId, session);
       executed += 1;
+      obligation.lastError = null;
       obligation.checkpoint = {
         unitIndex: session.unitIndex,
         totalUnits: session.units.length,
@@ -252,6 +282,23 @@ export class LoreStudyRuntime {
     return deepClone(obligation);
   }
 
+  retry(obligationId) {
+    const obligation = this.obligations.get(obligationId);
+    if (!obligation) throw new Error('Unknown Lore study obligation: ' + obligationId);
+    if (obligation.state !== StudyState.FAILED) return deepClone(obligation);
+    const currentRevision = this.registry.currentRevision(obligation.sourceId, {allowMissing: true});
+    if (!currentRevision || currentRevision.id !== obligation.sourceRevisionId) {
+      obligation.state = StudyState.SUPERSEDED;
+      obligation.supersededBy = currentRevision?.id || null;
+      return deepClone(obligation);
+    }
+    obligation.state = this.sessions.has(obligationId) ? StudyState.CHECKPOINTED : StudyState.DUE;
+    obligation.retryCount = Number(obligation.retryCount || 0) + 1;
+    obligation.lastError = null;
+    obligation.pauseReason = null;
+    return deepClone(obligation);
+  }
+
   studyStatus() {
     const counts = {};
     for (const state of Object.values(StudyState)) counts[state] = 0;
@@ -261,6 +308,7 @@ export class LoreStudyRuntime {
       counts,
       due: counts.DUE + counts.PENDING + counts.CHECKPOINTED,
       active: counts.ACTIVE,
+      failed: counts.FAILED,
       runtimeSchedulingAuthority: false,
       physicalWorkerAuthority: false,
     };
@@ -276,6 +324,16 @@ export class LoreStudyRuntime {
       const artifacts = fresh && revision.state !== 'REMOVED'
         ? this.store.artifactsForLearnedRevision(learned.id)
         : [];
+      const obligation = this.findObligation(revision.id);
+      const operatorState = fresh
+        ? 'READY'
+        : obligation?.state === StudyState.FAILED || obligation?.state === StudyState.INVALID
+          ? 'FAILED'
+          : obligation?.state === StudyState.DUE
+            ? 'ACCEPTED'
+            : obligation
+              ? 'STUDYING'
+              : 'ACCEPTED';
       return {
         sourceId: source.sourceId,
         lorebookId: source.lorebookId,
@@ -284,6 +342,12 @@ export class LoreStudyRuntime {
         sourceState: revision.state,
         learnedRevisionId: learned?.id || null,
         freshness: fresh ? (revision.state === 'REMOVED' ? 'REMOVED' : 'CURRENT') : 'STALE_OR_UNLEARNED',
+        operatorState,
+        studyState: obligation?.state || null,
+        studyObligationId: obligation?.id || null,
+        studyAttempts: obligation?.attempts || 0,
+        studyError: obligation?.lastError ? deepClone(obligation.lastError) : null,
+        semanticDiff: learned?.semanticDiff ? deepClone(learned.semanticDiff) : null,
         exactSource: revision.state === 'REMOVED' ? null : {
           form: RetrievalForm.EXACT_SOURCE,
           content: revision.exactContent,
@@ -311,7 +375,7 @@ export class LoreStudyRuntime {
     });
     return {
       kind: 'LorePublicIntegrationSurface',
-      contractVersion: 1,
+      contractVersion: 2,
       entries,
       artifacts: currentArtifacts.map((artifact) => ({
         artifactId: artifact.id,

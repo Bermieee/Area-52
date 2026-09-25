@@ -325,7 +325,7 @@ test('DETERMINISTIC: Worker 4 Lore Brain interface stays owner-native and revisi
 
 test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate Bus and quiet turns do not call Historian',async()=>{
   let memoryQueries=0;
-  const writebacks=[],invalidations=[];
+  const writebacks=[],invalidations=[],settlementMirrors=[];
   let memoryRevision='memory:glass-coast@r1';
   let memoryText='Earlier, Lio crossed the moonrail bridge into Bellspire Station.';
   const exactRow=()=>({id:'memory-exact:'+memoryRevision,sourceRevisionId:memoryRevision,exactContent:memoryText,knownBy:['Lio'],metadata:{chatId:'chat:memory-owner'}});
@@ -350,6 +350,7 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
       drillDown(){return[exactRow()];},
       admitExternalEvidenceMapping(input){writebacks.push(structuredClone(input));return{kind:'MemoryExternalEvidenceMappingReceipt',status:'ADMITTED',sourceRevisionId:input.source.sourceRevisionId,authorityGranted:false};},
       invalidateExternalEvidenceMapping(input){invalidations.push(structuredClone(input));return{kind:'MemoryExternalEvidenceInvalidationReceipt',status:'INVALIDATED',sourceRevisionId:writebacks.at(-1)?.source?.sourceRevisionId??null,authorityGranted:false};},
+      applyCoreSettlement(envelope,options){settlementMirrors.push({envelope:structuredClone(envelope),options:structuredClone(options)});return{kind:'MemoryCoreSettlementAdapterReceipt',status:'APPLIED',externalProposalId:envelope.proposal.id,authorityGranted:false};},
       readMemory(selection){return{kind:'MemoryUiReadModel',selection:structuredClone(selection),health:'OK',authorityGranted:false};},
     },
   };
@@ -368,8 +369,15 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
   assert.equal(brain.core.registry.getRevision(memoryRevision),null);
   assert.match(JSON.stringify(recalled.promptPlan),/moonrail bridge/i);
 
-  await brain.completeTurn({turnId:'memory-owner:1',response:'Lio waits beneath the Bellspire tide clock.',knownBy:['Lio']});
+  const learned=await brain.completeTurn({
+    turnId:'memory-owner:1',response:'Lio waits beneath the Bellspire tide clock.',knownBy:['Lio'],
+    observations:[{subjectId:'Lio',predicate:'location',value:'Bellspire Station',at:1}],
+  });
   assert.equal(writebacks.length,1);
+  assert.equal(settlementMirrors.length,1);
+  assert.equal(learned.memorySettlementReceipts[0].status,'APPLIED');
+  assert.equal(settlementMirrors[0].options.evidenceArtifactRefs[0].externalEvidenceRef,writebacks[0].externalEvidenceRef);
+  assert.equal(settlementMirrors[0].envelope.proposal.evidenceIds[0],writebacks[0].externalEvidenceRef);
   assert.match(writebacks[0].source.exactContent,/tide clock/i);
   assert.equal(writebacks[0].ownerArtifactRef.owner,'COGNITIVE_CORE');
 
@@ -382,8 +390,13 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
   assert.equal(quiet.memorySync.status,'SKIPPED');
   assert.equal(quiet.memorySync.reason,'HOT_SUFFICIENT');
 
-  const correctedWriteback=brain.correctTurn({turnId:'memory-owner:1',response:'Correction: Lio waits beneath the west Bellspire tide clock.',knownBy:['Lio']});
+  const correctedWriteback=brain.correctTurn({
+    turnId:'memory-owner:1',response:'Correction: Lio waits beneath the west Bellspire tide clock.',knownBy:['Lio'],
+    observations:[{subjectId:'Lio',predicate:'location',value:'West Bellspire Station',at:1}],
+  });
   assert.equal(correctedWriteback.memoryWriteback.status,'ADMITTED');
+  assert.equal(settlementMirrors.length,2);
+  assert.equal(correctedWriteback.memorySettlementReceipts[0].status,'APPLIED');
   assert.equal(writebacks.length,2);
   assert.equal(invalidations.length,1);
   assert.equal(invalidations[0].replacedBySourceRevisionId,writebacks[1].source.sourceRevisionId);

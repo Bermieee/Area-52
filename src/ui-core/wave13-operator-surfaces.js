@@ -699,7 +699,7 @@ export function renderLoreAuthoringSurface(host,{loreStudy,loreAuthoring,actionR
     ]));
     if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED)merge.append(createKeyValue(d,[{key:'Preview ID',value:mergePreview.previewId},{key:'Source revision fence',value:(mergePreview.sourceRevisionFence??[]).join(', ')||'none'}]));
   }
-  merge.append(message(d,'No destructive Apply action','Worker 4 Wave 6 publishes review-only previews. Settlement-backed destructive application is not integrated or verified, so Area-52 intentionally offers no Apply button.','historical'));
+  merge.append(message(d,'No destructive Apply action','This UI integrates Worker 4’s review-only preview subset. A newer Settlement-backed authoring lifecycle exists on the Lore owner branch, but it is not integrated and verified on this main assembly, so Area-52 intentionally offers no Apply button.','historical'));
   section.append(merge);
   if(state.status)section.append(element(d,'p',{className:'a52-wave13-form-status',text:state.status,attrs:{role:'status','aria-live':'polite'}}));
   host.append(section);

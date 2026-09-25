@@ -9,7 +9,7 @@ export async function runProviderQualification({ registry, executionLayer, task,
   for (let index = 0; index < profiles.length; index += 1) {
     const profile = profiles[index];
     try {
-      const result = await executionLayer.execute(task, { input, attempt: index + 1, signal, profileId: profile.profileId });
+      const result = await executionLayer.execute(task, { input, attempt: index + 1, signal, profileId: profile.profileId, capabilityFallbackApproved: Boolean(negotiation.degraded) });
       attempts.push(Object.freeze({ profileId: profile.profileId ?? null, providerId: result.providerId, status: 'SUCCESS', failureCode: null }));
       return Object.freeze({ status: index === 0 ? 'SUCCESS' : 'FALLBACK', negotiation, attempts: Object.freeze(attempts), result });
     } catch (error) {

@@ -3,7 +3,7 @@
   "schemaVersion": "2",
   "laneId": "jev",
   "branch": "Development-Sidecar/Jev",
-  "acceptedSha": "daa3d7218b2a1d90e68fcab01217559a512180c1",
+  "acceptedSha": "00dc4385ca61223cd76715889ad09cec925974d0",
   "acceptanceRuns": [
     {
       "id": "36065381775",
@@ -16,6 +16,10 @@
     {
       "id": "36065381479",
       "name": "Cognitive Coprocessor Wave 9"
+    },
+    {
+      "id": "36080532197",
+      "name": "Cognitive Coprocessor Wave 12 — source head success"
     }
   ],
   "copiedPaths": [
@@ -348,6 +352,10 @@
       "sourceDigest": "5bc04db4fabb38c55fe81da1f3d705a3e1e86100"
     },
     {
+      "path": "evaluation/resource-connection-wave14-evaluator.mjs",
+      "sourceDigest": "437762c7bd5d12bfe87d3cfcbc97d88df6aa73c9"
+    },
+    {
       "path": "evaluation/speculative-warmer-wave12-evaluator.mjs",
       "sourceDigest": "213b64fdfdeecae052fb1e44ae2bf856d1290fca"
     },
@@ -356,8 +364,12 @@
       "sourceDigest": "239c0edbfe58fce588b8297542240ae978274d41"
     },
     {
+      "path": "scripts/coprocessor-wave14-evaluation.mjs",
+      "sourceDigest": "7f4fcdbede775ddbc9d4242abdcb6e04f5af0a40"
+    },
+    {
       "path": "scripts/ft005-provider-readiness.mjs",
-      "sourceDigest": "c8f4e1ac94ed462c1bc5385ca5e3c52143acaf11"
+      "sourceDigest": "ff085c9a257bf3cab641206298310e731f5e4644"
     },
     {
       "path": "scripts/jev-wave10-evaluation.mjs",
@@ -374,6 +386,10 @@
     {
       "path": "scripts/manual-provider-smoke.mjs",
       "sourceDigest": "9d76a620b594617c9cf84f7dd99c3ad2dd782659"
+    },
+    {
+      "path": "scripts/sidecar-jev-live-connection-smoke.mjs",
+      "sourceDigest": "4b0b65a58a1106c27907cf73d84968176fd72642"
     },
     {
       "path": "scripts/speculative-warmer-wave12-evaluation.mjs",
@@ -429,7 +445,7 @@
     },
     {
       "path": "src/coprocessor/constants.js",
-      "sourceDigest": "7cddfadd9d09117bf20f578e9f43a0707f9ea69e"
+      "sourceDigest": "bf89351d886d26001387faea8cd96d5535fc9d0f"
     },
     {
       "path": "src/coprocessor/continuous-consolidation.js",
@@ -485,7 +501,7 @@
     },
     {
       "path": "src/coprocessor/index.js",
-      "sourceDigest": "cd5663fa258f5aa63a0bf776ea58bbca5b0fe4e5"
+      "sourceDigest": "9637aac59a07232f29e87df85cfdcb0cb0462d4b"
     },
     {
       "path": "src/coprocessor/integration-adapters.js",
@@ -501,7 +517,7 @@
     },
     {
       "path": "src/coprocessor/jev-decision-core.js",
-      "sourceDigest": "644b274029e2c410c0de8739dd962a0032c2e403"
+      "sourceDigest": "cce514532d0c0b3c7e8ea510930b51926e497d2b"
     },
     {
       "path": "src/coprocessor/jev-domain-adapter.js",
@@ -581,7 +597,7 @@
     },
     {
       "path": "src/coprocessor/provider-adapters.js",
-      "sourceDigest": "0547e06aac167cc3b7ef68eba61d1754e42bd239"
+      "sourceDigest": "926806bf9d36595be64d78aedac0e5947fcd4b1b"
     },
     {
       "path": "src/coprocessor/provider-execution-contract.js",
@@ -589,7 +605,7 @@
     },
     {
       "path": "src/coprocessor/provider-execution.js",
-      "sourceDigest": "1455c4160948eeeaeefb716d9d0f68ecebd251a1"
+      "sourceDigest": "edc63a4c5392c131aa1d9c177b2d1d9fea9b5bd8"
     },
     {
       "path": "src/coprocessor/provider-health.js",
@@ -602,6 +618,14 @@
     {
       "path": "src/coprocessor/provider-qualification.js",
       "sourceDigest": "395d42b41db0fae7c373c34e10ac675e4e1cf2e5"
+    },
+    {
+      "path": "src/coprocessor/resource-connections.js",
+      "sourceDigest": "dfbf9475b72a82d71c074f3da6ae8dfb0240062c"
+    },
+    {
+      "path": "src/coprocessor/resource-host-adapter.js",
+      "sourceDigest": "16f2e48099f7196d7acf9ef3bee5239662a69a82"
     },
     {
       "path": "src/coprocessor/retrieval-control-policy.js",
@@ -641,7 +665,7 @@
     },
     {
       "path": "src/coprocessor/telemetry.js",
-      "sourceDigest": "b290becd8bbc5c8a6e8a0fc3973a1c581b1429f0"
+      "sourceDigest": "9c7c50e12abf37fbe9154bbadd62b9a44f76e628"
     },
     {
       "path": "src/coprocessor/turn-event-hub.js",
@@ -754,6 +778,18 @@
     {
       "path": "tests/coprocessor-wave13-stress.test.mjs",
       "sourceDigest": "a2cbbb96364e37fcc1aac7cf8757da5e92466240"
+    },
+    {
+      "path": "tests/coprocessor-wave14-browser.test.mjs",
+      "sourceDigest": "59df68bb5048f4816c8c617d37c998ceb3e568d8"
+    },
+    {
+      "path": "tests/coprocessor-wave14-connections.test.mjs",
+      "sourceDigest": "93d361284fd1c02e2a96dc510ecccdb731fa9b61"
+    },
+    {
+      "path": "tests/coprocessor-wave14-evaluation.test.mjs",
+      "sourceDigest": "5705f4d639f13d668ba8013d975110bcb7e1206d"
     },
     {
       "path": "tests/coprocessor-wave2-stress.test.mjs",
@@ -949,7 +985,9 @@
     "src/coprocessor/wave3-specialists.js",
     "src/coprocessor/wave3-telemetry-helpers.js",
     "src/coprocessor/wave4-benchmark.js",
-    "src/coprocessor/wave5-benchmark.js"
+    "src/coprocessor/wave5-benchmark.js",
+    "src/coprocessor/resource-connections.js",
+    "src/coprocessor/resource-host-adapter.js"
   ],
   "nodeOnlyToolPaths": [
     "evaluation/coprocessor-wave13-evaluator.mjs",
@@ -984,15 +1022,27 @@
   "integrationOnlyPatches": [
     {
       "path": "src/coprocessor/jev-decision-core.js",
-      "sourceDigest": "644b274029e2c410c0de8739dd962a0032c2e403",
-      "expectedDigest": "e66cebbdbde1e303501b663539761872fb4f94b2",
-      "reason": "Worker 4 Jev #211 replay revision/seal freshness with bounded 2048-entry default retention; explicit low-limit eviction remains covered by repro tests"
+      "sourceDigest": "cce514532d0c0b3c7e8ea510930b51926e497d2b",
+      "expectedDigest": "20525741b8b4d2ce4189ed8291123e2a4df8e2d5",
+      "reason": "Preserve deployment bounded replay plus freshness/seal revalidation while accepting Worker 2 provider usage/provenance changes."
     },
     {
       "path": "src/coprocessor/jev-domain-adapter.js",
       "sourceDigest": "3bbeab2946cceeae530a810d9da0ec9802ad30b2",
       "expectedDigest": "15fcfeba73150393deb8955a2a6c8a385c0ad8db",
       "reason": "Worker 4 Jev #211 adapter replay revalidation with bounded 2048-entry default retention; explicit low-limit eviction remains covered by repro tests"
+    },
+    {
+      "path": "src/coprocessor/provider-execution.js",
+      "sourceDigest": "edc63a4c5392c131aa1d9c177b2d1d9fea9b5bd8",
+      "expectedDigest": "296b41f78ed89852e55a04844322f4bc4b94f4eb",
+      "reason": "Only a fallback profile explicitly approved by capability negotiation may bypass primary required-capability equality; placement, health, adapter and scheduling checks still apply."
+    },
+    {
+      "path": "src/coprocessor/provider-qualification.js",
+      "sourceDigest": "395d42b41db0fae7c373c34e10ac675e4e1cf2e5",
+      "expectedDigest": "bb4b8d88a2c8c021c76aad17a46d8af037d9143f",
+      "reason": "Marks degraded capability-negotiation selections as approved fallbacks, repairing the Wave 4 fallback regression without arbitrary profile bypass."
     }
   ],
   "knownConflicts": [],

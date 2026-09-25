@@ -18,11 +18,15 @@ export class ProviderAdapterRegistry {
 }
 
 export class DeterministicProviderAdapter {
-  constructor({providerId='deterministic-provider',modelId='deterministic-model',capabilities=Object.values(Capability),handler=null,handlers={}}={}){
-    this.providerId=providerId;this.modelId=modelId;this.capabilities=[...new Set(capabilities)];
+  constructor({providerId='deterministic-provider',modelId='deterministic-model',capabilities=Object.values(Capability),handler=null,handlers={},measurementClass='LOCAL_DETERMINISTIC'}={}){
+    this.providerId=providerId;this.modelId=modelId;this.capabilities=[...new Set(capabilities)];this.measurementClass=measurementClass;
     this.structuredOutputSupport=true;this.streamingSupport=false;this.abortSupport=true;
     this.contextLimit=Number.MAX_SAFE_INTEGER;this.outputLimit=Number.MAX_SAFE_INTEGER;
     this.handler=handler;this.handlers={...handlers};
+  }
+  async probe({signal=null}={}){
+    if(signal?.aborted)throw new ProviderInvocationError(FailureCode.PROVIDER_ABORTED,'deterministic provider probe aborted',{providerId:this.providerId});
+    return Object.freeze({ok:true,providerId:this.providerId,modelId:this.modelId,latencyMs:0,measurementClass:this.measurementClass,capabilities:Object.freeze([...this.capabilities])});
   }
   async invoke(task,input,{signal=null,attempt=1}={}){
     if(signal?.aborted)throw new ProviderInvocationError(FailureCode.PROVIDER_ABORTED,'deterministic provider invocation aborted',{providerId:this.providerId});
@@ -45,7 +49,7 @@ export class DeterministicProviderAdapter {
       startedAt:Number(envelope.startedAt??startedAt),
       completedAt:Number(envelope.completedAt??startedAt+latencyMs),
       latencyMs,
-      metadata:structuredClone(envelope.metadata??{}),
+      metadata:{...structuredClone(envelope.metadata??{}),measurementClass:this.measurementClass},
     });
   }
 }
@@ -54,7 +58,7 @@ export class OpenAICompatibleProviderAdapter {
   constructor({
     providerId='openai-compatible',modelId,endpoint,apiKey=null,headers={},fetchImpl=globalThis.fetch,
     timeoutMs=30000,contextLimit=null,outputLimit=null,capabilities=Object.values(Capability),
-    local=false,costMetadata=null,
+    local=false,costMetadata=null,healthCheckPath='/models',measurementClass='MEASURED_LIVE',
   }={}){
     if(typeof modelId!=='string'||!modelId)throw new TypeError('modelId is required');
     if(typeof endpoint!=='string'||!endpoint)throw new TypeError('endpoint is required');
@@ -63,7 +67,22 @@ export class OpenAICompatibleProviderAdapter {
     this.headers={...headers};this.fetchImpl=fetchImpl;this.timeoutMs=Math.max(1,Number(timeoutMs)||30000);
     this.contextLimit=contextLimit==null?null:Number(contextLimit);this.outputLimit=outputLimit==null?null:Number(outputLimit);
     this.capabilities=[...new Set(capabilities)];this.structuredOutputSupport=true;this.streamingSupport=false;this.abortSupport=true;
-    this.local=Boolean(local);this.costMetadata=costMetadata==null?null:structuredClone(costMetadata);
+    this.local=Boolean(local);this.costMetadata=costMetadata==null?null:structuredClone(costMetadata);this.healthCheckPath=String(healthCheckPath||'/models');this.measurementClass=measurementClass;
+  }
+  async probe({signal=null,timeoutMs=this.timeoutMs}={}){
+    const controller=new AbortController();let timer=null;let timedOut=false;
+    const abort=()=>controller.abort(signal?.reason);if(signal){if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});}
+    timer=setTimeout(()=>{timedOut=true;controller.abort(new Error('provider probe timeout'));},Math.max(1,Number(timeoutMs)||this.timeoutMs));
+    const startedAt=Date.now();
+    try{
+      const headers={...this.headers};if(this.apiKey)headers.authorization='Bearer '+this.apiKey;
+      const path=this.healthCheckPath.startsWith('/')?this.healthCheckPath:'/'+this.healthCheckPath;
+      const response=await this.fetchImpl(this.endpoint+path,{method:'GET',headers,signal:controller.signal});
+      if(!response?.ok)throw new ProviderInvocationError(FailureCode.PROVIDER_UNAVAILABLE,'OpenAI-compatible provider health check returned HTTP '+Number(response?.status??0),{providerId:this.providerId,status:Number(response?.status??0)});
+      let modelAvailable=null;try{const body=await response.json();const ids=Array.isArray(body?.data)?body.data.map(x=>x?.id).filter(Boolean):[];if(ids.length)modelAvailable=ids.includes(this.modelId);}catch{}
+      const completedAt=Date.now();return Object.freeze({ok:true,providerId:this.providerId,modelId:this.modelId,latencyMs:completedAt-startedAt,modelAvailable,measurementClass:this.measurementClass,capabilities:Object.freeze([...this.capabilities])});
+    }catch(error){if(error instanceof ProviderInvocationError)throw error;if(timedOut)throw new ProviderInvocationError(FailureCode.PROVIDER_TIMEOUT,'OpenAI-compatible provider health check timed out',{providerId:this.providerId,cause:error});if(controller.signal.aborted)throw new ProviderInvocationError(FailureCode.PROVIDER_ABORTED,'OpenAI-compatible provider health check aborted',{providerId:this.providerId,cause:error});throw new ProviderInvocationError(FailureCode.PROVIDER_UNAVAILABLE,error?.message??String(error),{providerId:this.providerId,cause:error});}
+    finally{clearTimeout(timer);if(signal)signal.removeEventListener?.('abort',abort);}
   }
   async invoke(task,input,{signal=null,timeoutMs=this.timeoutMs,maxOutputTokens=null,temperature=0}={}){
     const controller=new AbortController();let timer=null;let timedOut=false;
@@ -91,7 +110,7 @@ export class OpenAICompatibleProviderAdapter {
       const completedAt=Date.now();
       return Object.freeze({providerId:this.providerId,modelId:this.modelId,text,usage:structuredClone(json.usage??{}),
         finishReason:json?.choices?.[0]?.finish_reason??null,startedAt,completedAt,latencyMs:completedAt-startedAt,
-        metadata:{requestId:response.headers?.get?.('x-request-id')??null,local:this.local,costMetadata:this.costMetadata}});
+        metadata:{requestId:response.headers?.get?.('x-request-id')??null,local:this.local,costMetadata:this.costMetadata,measurementClass:this.measurementClass}});
     }catch(error){
       if(error instanceof ProviderInvocationError)throw error;
       if(timedOut)throw new ProviderInvocationError(FailureCode.PROVIDER_TIMEOUT,'OpenAI-compatible provider timed out',{providerId:this.providerId,cause:error});

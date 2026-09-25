@@ -5,7 +5,10 @@ on:
     branches: [main]
     paths:
       - 'src/ui-core/**'
+      - 'src/deployment/sillytavern-live.js'
+      - 'index.js'
       - 'styles/ui-core-*.css'
+      - 'tests/deployment-live-host.test.mjs'
       - 'tests/wave11-*.mjs'
       - 'tests/wave12-*.mjs'
       - 'tests/wave13-*.mjs'
@@ -30,7 +33,9 @@ jobs:
         run: node --test tests/wave12-sillytavern-host.test.mjs tests/wave13-operator-ui.test.mjs
       - name: Wave 12 + 13 lifecycle stress
         run: node tests/wave12-sillytavern-host-stress.mjs && node tests/wave13-operator-ui-stress.mjs
-      - name: Browser-facing UI imports
-        run: node -e "globalThis.Buffer=undefined; Promise.all([import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/wave13-floating-navigation.js'),import('./src/ui-core/wave13-operator-surfaces.js')]).then(()=>console.log('Main demo UI browser imports PASS'))"
-      - name: UI syntax
-        run: find src/ui-core tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+      - name: Installed SillyTavern host lifecycle
+        run: node --test tests/deployment-live-host.test.mjs
+      - name: Browser-facing UI and installed-host imports
+        run: node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined; Promise.all([import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/wave13-floating-navigation.js'),import('./src/ui-core/wave13-operator-surfaces.js'),import('./src/deployment/sillytavern-live.js'),import('./index.js')]).then(()=>console.log('Main demo UI + installed host browser imports PASS'))"
+      - name: UI and installed-host syntax
+        run: (find src/ui-core tests -type f \( -name '*.js' -o -name '*.mjs' \) -print0; printf '%s\\0' index.js src/deployment/sillytavern-live.js) | xargs -0 -n1 node --check

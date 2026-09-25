@@ -3,7 +3,7 @@ import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 
 export const DEVELOPMENT_DEPLOYMENT_PROMPT_ID = 'area52-development-deployment';
-export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.1.0';
+export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.2.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
@@ -221,6 +221,7 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
       choice: clone(result.published.cognitiveChoiceReceipt),
       truth: clone(result.published.assessment),
       jev: clone(result.jevProposal),
+      jevExecution: clone(result.jevExecution),
       gather: clone(result.published.gatherReceipt),
     },
     delivery: {
@@ -408,6 +409,10 @@ export class DevelopmentDeploymentSillyTavernSession {
       && storyChatIds.length >= 2
       && Boolean(uiDiagnostics?.mounted ?? this.uiHost);
     const latest = this.turnEvidence.at(-1) ?? null;
+    const jevExecutions = this.turnEvidence.map((row) => row?.cognition?.jevExecution).filter(Boolean);
+    const liveJevExecution = jevExecutions.find((row) => row.status === 'LIVE_PROVIDER' && row.providerProvenance?.measurementClass === 'MEASURED_LIVE') ?? null;
+    const failedLiveJevExecution = [...jevExecutions].reverse().find((row) => row.status === 'LIVE_PROVIDER_FAILED_NATIVE_FALLBACK') ?? null;
+    const latestJevExecution = latest?.cognition?.jevExecution ?? null;
     const capabilityEvidence = latest ? {
       sceneIntelligence: { status: latest.scene?.sceneId ? 'RUN' : 'UNAVAILABLE', reason: latest.scene?.reason ?? null },
       retrieval: { status: latest.mode === 'simple' ? 'SKIPPED' : latest.runtime?.jobs?.some((job) => job.taskType === 'LORE_RETRIEVAL') ? 'RUN' : 'UNAVAILABLE' },
@@ -415,7 +420,11 @@ export class DevelopmentDeploymentSillyTavernSession {
       cognitiveChoice: { status: latest.cognition?.choice ? 'RUN' : 'UNAVAILABLE' },
       runtime: { status: latest.runtime?.jobCount > 0 ? 'RUN' : 'SKIPPED', resourceIds: latest.runtime?.resourceIds ?? [] },
       jev: latest.cognition?.jev
-        ? { status: 'FIXTURE', reason: 'DETERMINISTIC_LOCAL_JEV_NOT_REAL_PROVIDER', liveProvider: false }
+        ? latestJevExecution?.status === 'LIVE_PROVIDER'
+          ? { status: 'RUN', reason: 'MEASURED_LIVE_PROVIDER', liveProvider: true, providerProvenance: clone(latestJevExecution.providerProvenance) }
+          : latestJevExecution?.status === 'LIVE_PROVIDER_FAILED_NATIVE_FALLBACK'
+            ? { status: 'DEGRADED', reason: 'LIVE_PROVIDER_FAILED_NATIVE_FALLBACK', liveProvider: false, failure: clone(latestJevExecution.failedLiveAttempt ?? latestJevExecution.failure ?? null) }
+            : { status: 'FIXTURE', reason: 'DETERMINISTIC_LOCAL_JEV_NOT_REAL_PROVIDER', liveProvider: false }
         : { status: latest.mode === 'ambiguous' ? 'UNAVAILABLE' : 'SKIPPED', liveProvider: false },
       gather: { status: latest.cognition?.gather ? 'RUN' : 'UNAVAILABLE' },
       promptPlan: { status: latest.delivery?.promptInjection?.succeeded ? 'RUN' : 'UNAVAILABLE', promptPlanId: latest.delivery?.promptPlanId ?? null },
@@ -444,10 +453,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       checks: scenarioChecks,
       capabilityEvidence,
       providerEvidence: {
-        jev: 'DETERMINISTIC_LOCAL_FIXTURE',
-        realProviderCallObserved: false,
-        ft005LivePass: false,
+        jev: liveJevExecution ? 'MEASURED_LIVE_PROVIDER' : 'DETERMINISTIC_LOCAL_FIXTURE',
+        realProviderCallObserved: Boolean(liveJevExecution),
+        ft005LivePass: Boolean(liveJevExecution),
+        liveProviderProvenance: clone(liveJevExecution?.providerProvenance ?? null),
+        failedLiveAttempt: clone(failedLiveJevExecution ?? null),
       },
+      loreStatus: clone(this.brain.readLoreStatus?.() ?? null),
       operatorReview: this.operatorReview,
       operatorLiveChecksCaptured,
       ui: uiDiagnostics,

@@ -876,6 +876,20 @@ export class LoreAuthoringLifecycle {
       const dependencyCheck = checkDependencyFence(this.intelligence, session.dependencyFence, session.type);
       if (!dependencyCheck.ok) return {ok: false, reason: 'DEPENDENCY_FENCE_CHANGED', details: dependencyCheck};
       if (session.type === 'MERGE') {
+        const existingOutputBook = (this.intelligence.runtime.registry.snapshot().books || [])
+          .find((book) => book.id === session.outputLorebookId);
+        if (existingOutputBook) {
+          return {
+            ok: false,
+            reason: 'OUTPUT_LOREBOOK_CONFLICT',
+            details: {
+              kind: 'LoreMergeOutputFenceCheck',
+              outputLorebookId: session.outputLorebookId,
+              existingTitle: existingOutputBook.title || null,
+              existingAuthoringSettlementId: existingOutputBook.metadata?.authoringSettlementId || null,
+            },
+          };
+        }
         const currentPreview = this.merge.preview({lorebookIds: session.inputLorebookIds});
         if (!currentPreview.validation?.ok || currentPreview.previewId !== session.baseProposal.previewId) {
           return {
@@ -1350,6 +1364,24 @@ export class LoreAuthoringLifecycle {
     };
   }
 
+  _assertAppliedSettlementReceiptsCurrent(settlement) {
+    const registry = this.intelligence.runtime.registry;
+    const stale = [];
+    for (const receipt of settlement.receipts || []) {
+      const current = registry.currentRevision(receipt.sourceId, {allowMissing: true});
+      if (!current || current.id !== receipt.sourceRevisionId) {
+        stale.push({
+          operationId: receipt.operationId,
+          sourceId: receipt.sourceId,
+          expectedSourceRevisionId: receipt.sourceRevisionId,
+          currentSourceRevisionId: current?.id || null,
+          currentState: current?.state || 'MISSING',
+        });
+      }
+    }
+    return {ok: stale.length === 0, stale};
+  }
+
   applySettlement({sessionId, maxOperations = MAX_SETTLEMENT_BATCH} = {}) {
     const session = this._session(sessionId);
     let settlement = this._settlementForSession(session.id);
@@ -1364,6 +1396,21 @@ export class LoreAuthoringLifecycle {
       settlement = this._newSettlement(session);
     }
     if ([LoreSettlementState.SETTLED, LoreSettlementState.RESTORED].includes(settlement.state)) {
+      return this.settlementReadModel({settlementId: settlement.id});
+    }
+
+    const appliedFence = this._assertAppliedSettlementReceiptsCurrent(settlement);
+    if (!appliedFence.ok) {
+      settlement.state = LoreSettlementState.FAILED;
+      settlement.lastError = normalizeLoreAuthoringError(Object.assign(
+        new Error('An already-applied Settlement revision changed before resume'),
+        {
+          code: 'LORE_SETTLEMENT_APPLIED_REVISION_STALE',
+          details: {stale: appliedFence.stale},
+        },
+      ));
+      session.stage = LoreAuthoringStage.FAILED;
+      session.lastError = deepClone(settlement.lastError);
       return this.settlementReadModel({settlementId: settlement.id});
     }
 

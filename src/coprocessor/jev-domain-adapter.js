@@ -279,6 +279,11 @@ export function createOwnerProposal({
     requiresOwnerPolicy: true,
     requiresOwnerSettlement: Boolean(receipt?.requiresOwnerSettlement),
     requiresOperatorReview: Boolean(receipt?.requiresOperator),
+    admission: receipt ? {
+      foregroundEligible: receipt.admission?.foregroundEligible !== false,
+      late: Boolean(receipt.admission?.late),
+      destination: receipt.admission?.destination ?? null,
+    } : { foregroundEligible: true, late: false, destination: null },
     path,
     status: receipt?.serviceStatus ?? 'ADAPTER_DEGRADED',
     evidenceCount: request?.evidenceRefs?.length ?? 0,

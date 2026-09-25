@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FrontFaceMode, ProductDetailLevel, UIStateStore,
-  Wave13LoreStudyUIAdapter, Wave13ResourceControlAdapter,
+  Wave13LoreAuthoringUIAdapter, Wave13LoreStudyUIAdapter, Wave13ResourceControlAdapter,
   createWave6ProductInterface, parseLoreSubmission,
 } from '../src/ui-core/index.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
@@ -433,6 +433,49 @@ test('Worker 2 configured resource reconnect uses resourceId and does not duplic
   const{ui}=mount(owner);const row=ui.operator.resources.read().data.resources[0];assert.equal(row.connected,false);
   const result=await ui.actionRouter.route({type:'wave13.resource.connect',target:row});assert.equal(result.ok,true);
   assert.deepEqual(host.calls,[['connect','sidecar:configured']]);ui.destroy();
+});
+
+test('Worker 4 Wave 6 authoring contract stays review-only and renders Tree / merge previews without Apply',async()=>{
+  const calls=[];
+  const authoringHost={
+    kind:'LoreAuthoringOperatorContract',contractVersion:1,
+    read:{
+      sourceDiscoveryIdentity:()=>({ok:true,value:{kind:'LoreSourceDiscoverySurface',books:[
+        {lorebookId:'Moon Harbor',title:'Moon Harbor',discoveryIdentityPersisted:true,sources:[
+          {sourceId:'lore:Moon Harbor:captain',uid:'captain',sourceRevisionId:'lore:Moon Harbor:captain@r1',contentHash:'hash-1',metadata:{title:'Captain Vale'}},
+        ]},
+        {lorebookId:'Mirror Archive',title:'Mirror Archive',discoveryIdentityPersisted:true,sources:[
+          {sourceId:'lore:Mirror Archive:mirror',uid:'mirror',sourceRevisionId:'lore:Mirror Archive:mirror@r1',contentHash:'hash-2',metadata:{title:'Mirror Record'}},
+        ]},
+      ]},error:null}),
+      reviewStates:()=>({ok:true,value:{states:['PROPOSED','NEEDS_REVIEW','APPROVED','REJECTED','DEFERRED','BLOCKED']},error:null}),
+      worker1InvalidationContract:()=>({ok:true,value:{integrationStatus:'PUBLISHED_NOT_CLAIMED_WIRED'},error:null}),
+    },
+    actions:{
+      previewEditImpact:(input)=>{calls.push(['edit',structuredClone(input)]);return{ok:true,value:{kind:'LoreEditImpactPreview',baseSourceRevisionId:'r1',proposedSourceRevisionId:'r2',originalServiceMutated:false,allPreviouslyReadyUnrelatedSourcesRemainReady:true,semanticChange:{claims:{added:[],altered:[{}],superseded:[{}]},relationships:{added:[],removed:[]},invalidationPlan:{targets:[{target:'REPRESENTATIONS'},{target:'RETRIEVAL_INDEX'}]}}},error:null};},
+      proposeTree:(input)=>{calls.push(['tree',structuredClone(input)]);return{ok:true,value:{kind:'LoreStructurePlan',planId:'plan:1',sourceRevisionFence:['r1'],proposals:[{id:'p1',action:'CREATE_NODE',state:'NEEDS_REVIEW',rationale:'Repeated semantic membership suggests a useful navigation node.'}],reviewItems:[],mutationAuthority:false},error:null};},
+      previewMerge:(input)=>{calls.push(['merge',structuredClone(input)]);return{ok:true,value:{kind:'LoreMergePreview',previewId:'merge:1',sourceRevisionFence:['r1','r2'],classifications:{exactDuplicates:[{}],likelyOverlap:[],complementary:[{}],titleKeyCollisions:[],unresolvedContradictions:[{}]},validation:{retainedEverySemanticFact:true,mappedEveryCurrentSource:true,preservedContradictionsSeparately:true},destructiveApplyImplemented:false,mutationAuthority:false},error:null};},
+    },
+    destructiveMergeApply:null,destructiveTreeApply:null,exactSourceMutationAuthority:false,
+  };
+  const direct=new Wave13LoreAuthoringUIAdapter({bindings:{loreAuthoringHost:authoringHost}});
+  assert.equal(direct.capabilities().destructiveApply,false);assert.equal(direct.sourceDiscoveryIdentity({}).ok,true);
+  assert.equal(direct.previewEditImpact({sourceId:'lore:Moon Harbor:captain',content:'Vale carries the revised ledger.'}).ok,true);
+  assert.equal(direct.proposeTree({lorebookIds:['Moon Harbor']}).ok,true);
+  assert.equal(direct.previewMerge({lorebookIds:['Moon Harbor','Mirror Archive']}).ok,true);
+
+  const owner=liveOwner({withLore:true});
+  Object.assign(owner.bindings,{
+    loreAuthoringHost:authoringHost,
+    readSelectedLorebookSelection:()=>({kind:'SillyTavernLorebookSelection',selected:true,lorebookId:'Moon Harbor',title:'Moon Harbor'}),
+    discoverSelectedLorebook:async()=>({id:'Moon Harbor',title:'Moon Harbor',entries:[{uid:'captain',content:'Vale keeps the blue ledger.',metadata:{title:'Captain Vale'}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:1,exactAuthoredSource:true}}),
+  });
+  const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.operator.loreAuthoring.sourceDiscoveryIdentity({});
+  ui.shell.selectWorkspace('lore');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Lore authoring review/);assert.match(body,/Source identity/);assert.match(body,/Edit-impact preview/);assert.match(body,/Tree Builder proposal/);assert.match(body,/Merge \/ reconciliation preview/);assert.match(body,/No destructive Apply action/);
+  const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.equal(buttons.some(x=>x.textContent==='Apply'),false);
+  ui.destroy();
 });
 
 test('Worker 4 Lore intelligence service is consumed through operatorInterface with discovery provenance intact',async()=>{

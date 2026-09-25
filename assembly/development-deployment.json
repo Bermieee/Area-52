@@ -1,12 +1,12 @@
 {
   "kind": "DevelopmentDeploymentAssemblyManifest",
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "repository": "Bermieee/Area-52",
-  "branch": "Development-Deployment",
+  "branch": "main",
   "deploymentBaseSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
   "manifestParentHead": "01d37104c99d0299366de0a6ae552d5426354a65",
-  "status": "INTEGRATED_CANDIDATE_EXACT_HEAD_CI_AND_LIVE_GATE_PENDING",
-  "mainMutationAllowed": false,
+  "status": "OWNER_INTEGRATION_CANDIDATE_EXACT_HEAD_CI_PENDING_LIVE_GATE_OPEN",
+  "mainMutationAllowed": true,
   "sourceDigestAlgorithm": "git-blob-sha1",
   "laneManifests": [
     "assembly/lanes/core.json",
@@ -112,8 +112,8 @@
   ],
   "liveGate": {
     "issue": 224,
-    "status": "PENDING_REAL_SILLYTAVERN_RUN_AND_DIRECTOR_REVIEW",
-    "reason": "Workers 1-3 are integrated on the deployment branch. Automated evidence cannot substitute for clean install/update, two unrelated live chats, Prompt Inspector delivery, and optional-provider checks in the user's SillyTavern instance."
+    "status": "OPEN_PENDING_DIRECTOR_INSTALLED_SILLYTAVERN_PASS",
+    "reason": "Automated integration is not the live demo gate. Director must verify the installed main build in SillyTavern, including real selected Lorebook, native two-turn delivery/learning, Settlement/restoration, optional resources, provider failure/fallback, Prompt Inspector, and navigation."
   },
   "issueState": {
     "180": "OPEN / Worker 2 live-provider machinery integrated; real configured provider call still required",
@@ -156,11 +156,11 @@
     }
   ],
   "mainReview": {
-    "status": "DRAFT_REVIEW_REQUIRED",
-    "mainHeadAtWorker4Start": "8138be59308873fb164c167eadd9e1a58c10364e",
-    "mainRelationship": "main head was fast-forwarded into Development-Deployment as an ancestor; Worker 4 has not mutated main",
-    "promotionAllowed": false,
-    "reason": "Exact-head CI plus real SillyTavern gates and Director approval are required before promotion."
+    "status": "WORKER3_PROMOTION_WAVE",
+    "mainHeadAtWorker3Start": "c7090a5b5e6a5bd8cfc0dcd02dd87546bb4cc6b3",
+    "mainRelationship": "Worker3 created an isolated candidate from the verified main head and merged complete Core, Lore Wave 7 assembly, and Sidecar/Jev owner lineages before semantic repair.",
+    "promotionAllowed": true,
+    "reason": "Promotion is allowed after executable candidate checks complete; #224 remains independently open for Director live acceptance."
   },
   "worker4DemoRepair": {
     "startingDeploymentSha": "ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9",
@@ -214,6 +214,63 @@
       "branch": "Development-UI",
       "acceptedSha": "11701edf85ea5a42c61812c247031968ed489aeb",
       "integrationCommit": "5e1ef35613996e0e6a422d0e2d80711d872c1aa9"
+    }
+  },
+  "installedBytes": {
+    "selector": "HEAD_CONTAINING_THIS_MANIFEST",
+    "intendedRef": "main",
+    "state": "PROMOTE_AFTER_EXECUTABLE_CANDIDATE_CHECKS",
+    "note": "Installed bytes are the complete commit containing this manifest after promotion; do not substitute an owner branch or prior CI head."
+  },
+  "testedBytes": {
+    "selector": "SAME_HEAD_AS_CI_RUN",
+    "status": "PENDING_EXACT_HEAD_INTEGRATION_CI",
+    "workflow": ".github/workflows/main-owner-integration.yml",
+    "note": "Only a workflow run whose head_sha equals the candidate/final main SHA counts as automated tested bytes. Queued work is not green."
+  },
+  "observedOwnerHeads": {
+    "mainAtIntegrationStart": "c7090a5b5e6a5bd8cfc0dcd02dd87546bb4cc6b3",
+    "core": {
+      "branch": "Development-Nexus",
+      "sha": "050c52d57c79f38194d61a6c386b562ed1b0f72a"
+    },
+    "sidecarJev": {
+      "branch": "Development-Sidecar/Jev",
+      "sha": "b25ead2c6edf7262aa81f461633473e8bed50c9b"
+    },
+    "loreSource": {
+      "branch": "Development-Lorebook-Editor",
+      "sha": "f983d4de9168ce3a6add1ec002a3372b96b873b9"
+    },
+    "loreAssembly": {
+      "branch": "Integration-Lore-Wave7",
+      "sha": "bdd8fd3f10f4ed9a294982e3e56666ce443b0791"
+    }
+  },
+  "ownerIntegrationWave": {
+    "worker": 3,
+    "candidateBranch": "Integration-Area52-Live-20260925",
+    "lineageMergeCommits": {
+      "core": "ecfc7c0298090704c7a70c3dc38c0c5ab0bf584c",
+      "loreAssembly": "a01937354a4323638904369dcf5c4d470153a033",
+      "sidecarJev": "dddd0140baa9455e0050db615cc0f31e008a8a64"
+    },
+    "semanticRepairs": [
+      "src/deployment/owner-graph-adapters.js",
+      "src/deployment/brain.js",
+      "src/deployment/sillytavern-live.js",
+      "index.js"
+    ],
+    "invariants": {
+      "ownerGraphCallbacksReattachAfterSnapshotRestore": true,
+      "singleLoreInvalidationForwarder": "#routeLoreRevisionEvents()",
+      "runtimeDirectorOwnsOptionalScheduling": true,
+      "worker2QualifiesAndPhysicallyExecutesOptionalResources": true,
+      "failClosedAssignmentGuardPreserved": true,
+      "previewIsNotSettlement": true,
+      "physicalExecutionIsNotOwnerAcceptance": true,
+      "ownerAcceptanceIsNotContextSealAdmission": true,
+      "nativeBrainRequiresOptionalResources": false
     }
   }
 }

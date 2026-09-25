@@ -692,6 +692,35 @@ function newSourceInvalidationReceipt({sourceId, sourceRevisionId, settlementId}
   };
 }
 
+function sourceMutationInvalidationReceipt({
+  sourceId,
+  fromRevisionId = null,
+  toRevisionId,
+  settlementId,
+  restoration = false,
+  reason = 'SOURCE_MUTATION',
+} = {}) {
+  return {
+    kind: 'LoreInvalidationReceipt',
+    contractVersion: 1,
+    settlementId,
+    restoration,
+    sourceId,
+    fromRevisionId,
+    toRevisionId,
+    reason,
+    targets: [
+      {target: 'STUDY_ARTIFACTS', reason},
+      {target: 'REPRESENTATIONS', reason},
+      {target: 'ONTOLOGY', reason},
+      {target: 'NAVIGATION_SUMMARIES', reason},
+      {target: 'RETRIEVAL_INDEX', reason},
+    ],
+    unrelatedSourcesInvalidated: false,
+    authoritativePreflight: true,
+  };
+}
+
 function revisionEvent({result, settlementId, operationKind, restoration = false}) {
   return {
     kind: 'LoreSourceRevisionChanged',

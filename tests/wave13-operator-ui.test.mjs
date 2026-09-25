@@ -231,6 +231,30 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.destroy();
 });
 
+test('Connections preserves independent non-secret drafts when another slot becomes configured',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const slot=(id)=>walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot===id);
+  const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
+  let sidecar=slot('SIDECAR'),vector=slot('VECTORING');
+  const sideName=fieldByLabel(sidecar,'Sidecar connection name'),sideEndpoint=fieldByLabel(sidecar,'Sidecar endpoint'),sideKey=fieldByLabel(sidecar,'Sidecar API key');
+  const vectorName=fieldByLabel(vector,'Vectoring connection name'),vectorEndpoint=fieldByLabel(vector,'Vectoring endpoint'),vectorKey=fieldByLabel(vector,'Vectoring API key');
+  sideName.value='Draft Sidecar';sideName.dispatch('input');sideEndpoint.value='https://openrouter.ai/api/v1';sideEndpoint.dispatch('input');sideKey.value='sk-side-secret';sideKey.dispatch('input');
+  vectorName.value='Draft Vector';vectorName.dispatch('input');vectorEndpoint.value='https://vector.example/v1';vectorEndpoint.dispatch('input');vectorKey.value='sk-vector-secret';vectorKey.dispatch('input');
+
+  const jev=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'JEV',displayName:'Connected Jev',endpoint:'http://127.0.0.1:8080',modelId:'jev-model',capabilities:['SEMANTIC_JUDGMENT']}});
+  assert.equal(jev.ok,true);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+
+  assert.equal(slot('JEV').dataset.locked,'true');sidecar=slot('SIDECAR');vector=slot('VECTORING');
+  assert.equal(fieldByLabel(sidecar,'Sidecar connection name').value,'Draft Sidecar');assert.equal(fieldByLabel(sidecar,'Sidecar endpoint').value,'https://openrouter.ai/api/v1');
+  assert.equal(fieldByLabel(vector,'Vectoring connection name').value,'Draft Vector');assert.equal(fieldByLabel(vector,'Vectoring endpoint').value,'https://vector.example/v1');
+  assert.equal(fieldByLabel(sidecar,'Sidecar API key').value,'');assert.equal(fieldByLabel(vector,'Vectoring API key').value,'');
+  assert.match(textOf(sidecar),/API key cleared on refresh/);assert.match(textOf(vector),/API key cleared on refresh/);
+  const serialized=JSON.stringify({read:ui.operator.resources.read(),diagnostics:ui.operator.diagnostics.read(),calls:host.calls});
+  assert.doesNotMatch(serialized,/sk-side-secret|sk-vector-secret/);
+  ui.destroy();
+});
+
 test('Connections maps logical fan-out to physical resources and shows owner Gather disposition',()=>{
   const owner=liveOwner({withResources:true}),selection=owner.bindings.readSelection();
   owner.bindings.readScatter=()=>({kind:'RuntimeScatterReceipt',receiptId:'scatter:1',jobs:[

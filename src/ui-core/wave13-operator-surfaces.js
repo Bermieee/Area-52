@@ -32,8 +32,13 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
       renderLoreAuthoringSurface(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
     }});
   }
-  if(registry.has('memory')&&memory){
-    registry.update('memory',{render(host,ctx){renderMemoryOwnerSurface(host,{...ctx,memory});}});
+  if(memory){
+    if(registry.has('memory'))registry.update('memory',{render(host,ctx){renderMemoryOwnerSurface(host,{...ctx,memory});}});
+    else registry.register({
+      id:'memory',title:'Memory',icon:'◫',category:'Product',navigation:{level:'product',order:50},
+      views:['normal','detail','advanced'],supportedActions:['inspect'],
+      render(host,ctx){renderMemoryOwnerSurface(host,{...ctx,memory});},
+    });
   }
   return()=>{for(const release of releases)try{release();}catch{}};
 }

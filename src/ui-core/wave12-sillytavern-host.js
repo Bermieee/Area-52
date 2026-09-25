@@ -30,6 +30,7 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus','listResourceConfigurations','listAvailableResources',
   'addResource','configureResource','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection','subscribeResources','subscribeResourceStatus',
   'loreIntelligenceService','loreStudyService','loreOperatorHost','loreStudyHost','loreHost','loreStudyRuntime','loreRuntime',
+  'loreAuthoringService','loreAuthoringHost','loreAuthoringOperator',
   'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy','subscribeLoreStudy','subscribeLoreStatus',
   'story','characters','lore','memory','world','knowledgeAdapter',
 ]);

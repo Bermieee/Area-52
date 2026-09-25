@@ -4,6 +4,7 @@
 
 - `LoreIntelligenceService` orchestration from accepted SillyTavern source snapshot to Brain retrieval.
 - strict discovered lorebook id / UID handoff validation.
+- required Worker 3 discovery/origin receipt and explicit rejection of the legacy `operator-lore` fallback.
 - Worker 3-compatible operator read/action interface.
 - Worker 1-compatible revision-fenced Brain retrieval interface.
 - explicit `FAILED` study lifecycle state and safe retry.
@@ -17,6 +18,7 @@
 
 - unknown entry discovery metadata is preserved in the revision metadata `extra` map instead of being discarded.
 - public Lore integration surface contract version increased to 2 and now reports per-entry operator/study states, failure information and semantic diff.
+- Intelligence status preserves the existing retrieval-representation fields consumed by Worker 3's current read adapter while adding the stricter Wave 4 state/representation contract.
 - package version advanced to `0.5.0-lore-wave4`.
 - Lore branch CI now runs the Wave 4 suite and imports the complete representation/intelligence stack.
 

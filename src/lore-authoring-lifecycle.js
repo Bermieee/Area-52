@@ -212,6 +212,63 @@ function decisionChange(proposed, change, type) {
   return next;
 }
 
+function proposalEvidenceReceipt(intelligence, identities, proposedOutput, affectedTreeNodes, extra = {}) {
+  const registry = intelligence.runtime.registry;
+  const store = intelligence.runtime.store;
+  const sourceIds = unique((identities || []).map((row) => row.sourceId));
+  const artifacts = sourceIds.flatMap((sourceId) => {
+    const learned = store.currentLearnedRevision(sourceId);
+    if (!learned || learned.state !== 'CURRENT') return [];
+    return store.artifactsForLearnedRevision(learned.id)
+      .filter((artifact) => artifact.sourceRevisionId === registry.currentRevision(sourceId, {allowMissing: true})?.id);
+  });
+  const artifactIds = new Set(artifacts.map((row) => row.id));
+  const contradictions = store.conflicts(registry)
+    .filter((conflict) => (conflict.artifactIds || []).some((id) => artifactIds.has(id)))
+    .map(deepClone);
+  const impact = sourceIds.map((sourceId) => store.impactPreview(sourceId));
+  return {
+    kind: 'LoreProposalEvidenceReceipt',
+    contractVersion: 1,
+    exactSourceRevisions: sourceFenceFromIdentities(identities),
+    learnedEvidenceRefs: artifacts.map((row) => ({
+      artifactId: row.id,
+      semanticId: row.semanticId,
+      artifactType: row.artifactType,
+      sourceId: row.sourceId,
+      sourceRevisionId: row.sourceRevisionId,
+      authorityClass: row.authorityClass,
+      temporalClass: row.temporalClass,
+      unresolved: Boolean(row.unresolved),
+    })).sort((a, b) => a.artifactId.localeCompare(b.artifactId)),
+    contradictionAnalysis: {
+      unresolvedConflictSets: contradictions,
+      additional: deepClone(extra.contradictionAnalysis || null),
+      modelMayNotResolveWithoutReview: true,
+    },
+    impactAnalysis: {
+      affectedTreeNodes: deepClone(affectedTreeNodes || []),
+      sourceImpacts: impact,
+      additional: deepClone(extra.impactAnalysis || null),
+      advisoryOnly: true,
+    },
+    before: identities.map((identity) => ({
+      sourceId: identity.sourceId,
+      lorebookId: identity.lorebookId,
+      uid: identity.uid,
+      sourceRevisionId: identity.sourceRevisionId,
+      sourceState: identity.state,
+      treePath: pathArray(identity.metadata?.treePath),
+      contentHash: identity.contentHash,
+    })),
+    afterProposal: deepClone(proposedOutput),
+    exactSourceTextCopiedIntoReceipt: false,
+    proposalMutationAuthority: false,
+    explicitApprovalRequired: true,
+    settlementRequired: true,
+  };
+}
+
 function stableActionId(type, sessionSeed, key) {
   return 'lore-authoring-action:' + stableHash({type, sessionSeed, key});
 }
@@ -244,6 +301,14 @@ function treeActionRows(plan, intelligence, sessionSeed) {
       })),
     };
     const key = proposal.id || stableHash({index, proposal});
+    const affectedTreeNodes = actionTreeNodes(proposal);
+    const evidenceReceipt = proposalEvidenceReceipt(
+      intelligence,
+      identities,
+      proposal,
+      affectedTreeNodes,
+      {impactAnalysis: {semanticMembershipRefs: semanticDependencies.semanticMembershipRefs}},
+    );
     return {
       kind: 'LoreAuthoringReviewAction',
       id: stableActionId('TREE', sessionSeed, key),
@@ -256,8 +321,9 @@ function treeActionRows(plan, intelligence, sessionSeed) {
       inputSourceIds: sourceIds,
       inputUids: unique(identities.map((row) => row.uid)),
       inputSourceRevisions: sourceFenceFromIdentities(identities),
-      affectedTreeNodes: actionTreeNodes(proposal),
+      affectedTreeNodes,
       semanticDependencies,
+      evidenceReceipt,
       originalProposal: deepClone(proposal),
       proposedOutput: deepClone(proposal),
       decision: null,
@@ -306,6 +372,22 @@ function mergeActionRows(preview, intelligence, sessionSeed) {
     const proposed = deepClone(output);
     proposed.uid = uidPlan.get(output.outputId);
     const treeNodes = identities.map((identity) => pathArray(identity.metadata?.treePath));
+    const evidenceReceipt = proposalEvidenceReceipt(
+      intelligence,
+      identities,
+      proposed,
+      treeNodes,
+      {
+        contradictionAnalysis: {
+          previewClassifications: deepClone(preview.classifications || {}),
+          sourceRefs: unique(output.sourceRefs || []),
+        },
+        impactAnalysis: {
+          reconstructionManifestAvailable: Boolean(preview.reconstructionManifest),
+          proposedOutputId: output.outputId,
+        },
+      },
+    );
     return {
       kind: 'LoreAuthoringReviewAction',
       id: stableActionId('MERGE', sessionSeed, output.outputId),
@@ -323,6 +405,7 @@ function mergeActionRows(preview, intelligence, sessionSeed) {
         semanticFactRefs: unique(output.semanticFactRefs || []),
         uniqueFactRefs: unique(output.uniqueFactRefs || []),
       },
+      evidenceReceipt,
       originalProposal: deepClone(output),
       proposedOutput: proposed,
       decision: null,

@@ -13,7 +13,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     registry.update('brain',{render(host,ctx){current.render?.(host,ctx);if(operations&&ctx.productAdapter.getDetailLevel()!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});}});
   }
   if(!registry.has('connections'))registry.register({
-    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','connect','disconnect','test'],
+    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','refresh-models','set-credential','clear-credential','select-model','connect','disconnect','test'],
     render(host,ctx){
       host.append(header(host.ownerDocument,'Connections','Connect Jev, Sidecar, and Vectoring resources separately, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
       if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter,connectionDrafts});
@@ -40,12 +40,20 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
   if(resources){
     releases.push(actionRouter.registerSubsystem('wave13-resources',async(action)=>{
       if(action.type==='wave13.resource.discoverModels')return resources.discoverModels(action.payload??{});
+      if(action.type==='wave13.resource.refreshModels')return resources.refreshModels(action.target??action.payload??{});
+      if(action.type==='wave13.resource.setCredential')return resources.setCredential(action.target??{},action.payload?.credential??'');
+      if(action.type==='wave13.resource.clearCredential')return resources.clearCredential(action.target??action.payload??{});
+      if(action.type==='wave13.resource.selectModel')return resources.selectModel(action.target??{},action.payload?.modelId??'');
       if(action.type==='wave13.resource.connect')return resources.connect(action.payload??action.target??{});
       if(action.type==='wave13.resource.disconnect')return resources.disconnect(action.target??action.payload??{});
       if(action.type==='wave13.resource.test')return resources.test(action.target??action.payload??{});
       throw new Error('Unsupported Wave 13 resource action');
     }));
     releases.push(actionRouter.registerAction('wave13.resource.discoverModels',{subsystem:'wave13-resources'}));
+    releases.push(actionRouter.registerAction('wave13.resource.refreshModels',{subsystem:'wave13-resources'}));
+    releases.push(actionRouter.registerAction('wave13.resource.setCredential',{subsystem:'wave13-resources'}));
+    releases.push(actionRouter.registerAction('wave13.resource.clearCredential',{subsystem:'wave13-resources'}));
+    releases.push(actionRouter.registerAction('wave13.resource.selectModel',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.connect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.disconnect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.test',{subsystem:'wave13-resources'}));
@@ -152,7 +160,7 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
 
   if(configured){
     const locked=element(d,'div',{className:'a52-wave13-connection-slot__locked'});
-    for(const row of rows)locked.append(renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifications,caps}));
+    for(const row of rows)locked.append(renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}));
     slot.append(locked);
     return slot;
   }
@@ -249,21 +257,62 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   slot.append(form);return slot;
 }
 
-function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifications,caps}){
+function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}){
   const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health}});
   const top=element(d,'div',{className:'a52-inline-status'});
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
-  const qualification=row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
+  const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
   card.append(top,createKeyValue(d,[
     {key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},{key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
     {key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
-    {key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
+    {key:'Provider',value:row.actualProvider??row.providerId??'—'},{key:'Model',value:row.actualModelId??row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
   ]));
-  if(row.connected&&!row.callable)card.append(message(d,'Connected is not qualified','Worker 2 reports a transport/configuration connection, but this resource is not currently callable. Run Test and follow the owner health result before treating it as working.','warning'));
+  if(!row.selectedModelQualified&&row.connected)card.append(message(d,'Connected is not qualified','Worker 2 reports a connection, but the selected model is not currently qualified. Requalify before treating this resource as callable.','warning'));
+  else if(!row.callable)card.append(message(d,'Resource is not callable','Worker 2 does not currently consider this resource callable. Refresh models, update the session credential if needed, select a valid model, then requalify and Test.','warning'));
+
+  const management=element(d,'div',{className:'a52-wave13-connection-slot__form'});
+  const lockedKey='locked:'+row.id,credentialWasCleared=connectionDrafts?.consumeCredentialPresence?.(lockedKey)===true;
+  const credential=field(d,'input',(spec?.title??row.kind??'Resource')+' session credential',{type:'password',placeholder:'Replace session credential',autocomplete:'off',spellcheck:'false'});
+  listenField(scope,credential,'input',()=>connectionDrafts?.setCredentialPresence?.(lockedKey,Boolean(String(credential.value||'').trim())));
+  const discovered=Array.isArray(row.modelDiscovery?.models)?row.modelDiscovery.models:[];
+  const model=field(d,'select',(spec?.title??row.kind??'Resource')+' qualified model');
+  model.append(option(d,'',discovered.length?'Choose discovered model':'Refresh models to choose'));
+  for(const item of discovered)model.append(option(d,String(item.id??item.modelId??''),String(item.displayName??item.name??item.id??item.modelId??'model')));
+  if(discovered.some(item=>String(item.id??item.modelId??'')===String(row.modelId??'')))model.value=String(row.modelId);
+  model.disabled=!discovered.length;model.setAttribute('aria-disabled',String(!discovered.length));
+
+  const managementStatus=element(d,'p',{className:'a52-wave13-connection-slot__hint',attrs:{role:'status','aria-live':'polite'},text:'Operational settings remain owner-backed. Saving a model or credential invalidates prior qualification until Worker 2 passes a new authenticated check.'});
+  const manageActions=element(d,'div',{className:'a52-wave13-resource-actions'});
+  if(caps.setCredential)manageActions.append(createButton(d,{label:'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+    const secret=String(credential.value||'').trim();
+    if(!secret){managementStatus.textContent='Enter a credential before saving it to the Worker 2 session.';return;}
+    const result=await actionRouter.route({type:'wave13.resource.setCredential',target:row,payload:{credential:secret}});
+    credential.value='';connectionDrafts?.setCredentialPresence?.(lockedKey,false);
+    managementStatus.textContent=result.ok?'Session credential updated. Prior model qualification is no longer assumed.':'Credential update failed: '+String(result.error??'unknown error');
+    reportAction(notifications,result,'Session credential update');refresh?.();
+  }}));
+  if(caps.clearCredential&&row.credentialConfigured)manageActions.append(createButton(d,{label:'Clear session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.resource.clearCredential',target:row});reportAction(notifications,result,'Session credential clear');refresh?.();
+  }}));
+  if(caps.refreshModels)manageActions.append(createButton(d,{label:'Refresh models',scope,size:'sm',variant:'quiet',onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.resource.refreshModels',target:row});reportAction(notifications,result,'Configured resource model refresh');refresh?.();
+  }}));
+  if(caps.selectModel)manageActions.append(createButton(d,{label:'Select model',scope,size:'sm',variant:'quiet',disabled:!discovered.length,onPress:async()=>{
+    const modelId=String(model.value||'').trim();if(!modelId){managementStatus.textContent='Choose a discovered model first.';return;}
+    const result=await actionRouter.route({type:'wave13.resource.selectModel',target:row,payload:{modelId}});
+    managementStatus.textContent=result.ok?'Model selected. Requalification is required before this resource is callable.':'Model selection failed: '+String(result.error??'unknown error');
+    reportAction(notifications,result,'Configured resource model selection');refresh?.();
+  }}));
+  if(manageActions.children?.length){
+    management.append(labelWrap(d,'Session credential',credential),labelWrap(d,'Discovered model',model),manageActions,managementStatus);
+    if(credentialWasCleared)management.append(message(d,'API key cleared on refresh','For security, the unsubmitted session credential was not retained when this workspace refreshed. Re-enter it before saving or requalifying.','warning'));
+    card.append(management);
+  }
+
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
-  if(caps.connect&&!row.connected)actions.append(createButton(d,{label:'Reconnect',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource connection');refresh?.();}}));
+  if(caps.connect&&!row.callable)actions.append(createButton(d,{label:row.connected?'Requalify':'Connect / qualify',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource qualification');refresh?.();}}));
   if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportResourceTest(notifications,result,'Resource test');refresh?.();}}));
   if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
   const test=resources.testResult(row.id);if(test)card.append(element(d,'p',{className:'a52-muted',text:'Latest connection test: '+testSummary(test)}));

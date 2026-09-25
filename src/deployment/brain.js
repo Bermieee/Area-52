@@ -18,6 +18,11 @@ import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
 import { createCoprocessorResourceHost } from '../coprocessor/resource-host-adapter.js';
+import { CoprocessorResourceConnections } from '../coprocessor/resource-connections.js';
+import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler.js';
+import { RuntimeDirectorAdmissionBridge } from '../coprocessor/runtime-director-bridge.js';
+import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
+import { createOwnerGraphProviders } from './owner-graph-adapters.js';
 import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
 import { JevDomain } from '../coprocessor/jev-domain-adapter.js';
@@ -284,7 +289,34 @@ export class DevelopmentDeploymentBrain {
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
     this.core.registerRetrievalChannel(this.loreChannel);
     this.coprocessorTelemetry = new CoprocessorTelemetry({ limit: 2000 });
-    this.optionalResources = createCoprocessorResourceHost({ telemetry: this.coprocessorTelemetry });
+    this.resourceConnections = new CoprocessorResourceConnections({ telemetry: this.coprocessorTelemetry });
+    this.resourceDirectorResults = [];
+    this.resourceOwnerReceipts = [];
+    this.resourceDirector = new WorkerDirector({
+      persistence: null,
+      capacity: { CPU: Math.max(1, Number(resourceCount) || 1) },
+      foregroundReserve: { CPU: 1 },
+      batch: { base: 1, max: 1 },
+      maxRetries: 0,
+      isTurnSealed: (turnId) => this.core.publication.seal.isTurnSealed(turnId),
+      resultSink: (result) => this.resourceDirectorResults.push(clone(result)),
+    });
+    this.resourcePlacementScheduler = new NativeHotDeepScheduler({
+      resourceSlots: Math.max(1, Number(resourceCount) || 1),
+      foregroundReserve: 1,
+      maxDeepQueue: Math.max(2, Number(resourceCount) || 1),
+    });
+    this.resourceDirectorBridge = new RuntimeDirectorAdmissionBridge({
+      director: this.resourceDirector,
+      capabilityRegistry: this.resourceConnections.profiles,
+      placementScheduler: this.resourcePlacementScheduler,
+    });
+    this.optionalResources = createCoprocessorResourceHost({
+      connections: this.resourceConnections,
+      telemetry: this.coprocessorTelemetry,
+      scheduler: this.resourcePlacementScheduler,
+      ownerReceipts: () => this.resourceOwnerReceipts,
+    });
     this.jevExecution = new Map();
     const liveJevExecutor = this.optionalResources.execution.createJevProviderExecutor();
     const fixtureJevExecutor = localJevExecutor();
@@ -295,7 +327,7 @@ export class DevelopmentDeploymentBrain {
           const turnId = String(request?.turnId ?? request?.decisionId ?? 'unknown');
           if (liveJevExecutor.hasEligibleProvider(request, options.prefilter)) {
             try {
-              const result = await liveJevExecutor.execute(request, options);
+              const result = await this.#executeLiveJevThroughDirector(liveJevExecutor, request, options);
               this.jevExecution.set(turnId, {
                 kind: 'DeploymentJevExecutionEvidence',
                 status: 'LIVE_PROVIDER',
@@ -667,8 +699,10 @@ export class DevelopmentDeploymentBrain {
         timeoutMs: config.timeoutMs ?? 30000,
         healthTimeoutMs: config.healthTimeoutMs ?? 10000,
       });
+      this.#syncOptionalDirectorProfiles();
     }
     const result = await this.optionalResources.actions.connectResource(resourceId);
+    this.#syncOptionalDirectorProfiles();
     this.#emit({ type: 'OPTIONAL_RESOURCE_CHANGED', resourceId, action: 'CONNECT' });
     return clone(result);
   }
@@ -677,6 +711,7 @@ export class DevelopmentDeploymentBrain {
     const resourceId = String(typeof resource === 'string' ? resource : resource.id ?? resource.resourceId ?? resource.profileId ?? '');
     if (!resourceId) throw new TypeError('resource id is required');
     const result = await this.optionalResources.actions.disconnectResource(resourceId);
+    this.#syncOptionalDirectorProfiles();
     this.#emit({ type: 'OPTIONAL_RESOURCE_CHANGED', resourceId, action: 'DISCONNECT' });
     return clone(result);
   }
@@ -684,7 +719,9 @@ export class DevelopmentDeploymentBrain {
   async testOptionalResource(resource = {}) {
     const resourceId = String(typeof resource === 'string' ? resource : resource.id ?? resource.resourceId ?? resource.profileId ?? '');
     if (!resourceId) throw new TypeError('resource id is required');
-    return clone(await this.optionalResources.actions.testResource(resourceId));
+    const result = await this.optionalResources.actions.testResource(resourceId);
+    this.#syncOptionalDirectorProfiles();
+    return clone(result);
   }
 
   hostBindings() {
@@ -752,6 +789,17 @@ export class DevelopmentDeploymentBrain {
       loreStudyHost,
       loreHost: loreStudyHost,
       loreBrainInterface: this.loreIntelligence.brainInterface(),
+      memoryIntegrationSurface: this.memorySurface,
+      sceneRuntime: this.scene,
+      graphProviders: createOwnerGraphProviders({
+        loreInterface: this.loreIntelligence.brainInterface(),
+        memoryInterface: this.memorySurface,
+        sceneRuntime: this.scene,
+      }),
+      resourceDirectorBridge: this.resourceDirectorBridge,
+      beginOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.beginGeneration(meta),
+      completeOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.completeGeneration(meta),
+      readOptionalResourceRuntime: () => clone(this.resourceDirector.snapshot()),
       loreAuthoringService: this.loreAuthoring,
       loreAuthoringHost,
       loreAuthoringOperator: loreAuthoringHost,
@@ -900,6 +948,106 @@ export class DevelopmentDeploymentBrain {
       .sort();
     this.sourceMap.set(sourceId, { laneRevisionId: revision.id, coreRevisionId: coreRevision.id, claimIds, extractionMode });
     return this.sourceMap.get(sourceId);
+  }
+
+  #syncOptionalDirectorProfiles() {
+    const profiles = this.resourceConnections.profiles.list();
+    this.resourceDirectorBridge.registerProfiles({ profiles });
+    for (const profile of profiles) this.resourceDirectorBridge.syncProfileState(profile.profileId);
+    return profiles;
+  }
+
+  async #executeLiveJevThroughDirector(liveJevExecutor, request, options = {}) {
+    const baseTask = createJevCognitiveTask(request, { prefilter: options.prefilter ?? null });
+    const input = createJevProviderInput(request, options.prefilter ?? null);
+    const attempt = Math.max(1, Number(options.attempt ?? 1));
+    const task = Object.freeze({
+      ...baseTask,
+      taskId: baseTask.taskId + ':optional-resource:' + attempt,
+      dedupeKey: (baseTask.dedupeKey ?? baseTask.taskId) + ':optional-resource:' + attempt,
+    });
+    const contextTokens = Math.max(1, Math.ceil(new TextEncoder().encode(JSON.stringify(input)).length / 4));
+    this.#syncOptionalDirectorProfiles();
+
+    let execution = null;
+    let executionError = null;
+    const executor = {
+      execute: async (context = {}) => {
+        try {
+          execution = await liveJevExecutor.execute(request, {
+            ...options,
+            profileId: context?.worker?.workerId ?? null,
+            signal: context?.signal ?? options.signal ?? null,
+          });
+          return execution;
+        } catch (error) {
+          executionError = error;
+          throw error;
+        }
+      },
+      validate: ({ output } = {}) => Boolean(output?.decision && output?.providerProvenance),
+      commit: ({ output } = {}) => ({
+        kind: 'DeploymentOptionalResourceCommitReceipt',
+        taskId: task.taskId,
+        providerExecution: clone(output?.providerProvenance ?? null),
+        authorityGranted: false,
+        canonicalMutation: false,
+        settlementPerformed: false,
+      }),
+    };
+    const admission = this.resourceDirectorBridge.admit(task, {
+      executor,
+      constraints: {
+        contextTokens,
+        expectedOutputTokens: Number(task.metadata?.expectedOutputTokens ?? 700),
+        maxCostClass: 'HIGH',
+        requireStructuredOutput: true,
+        resourceClass: task.metadata?.resourceClass ?? null,
+      },
+      owner: 'JEV_OPTIONAL_RESOURCE',
+    });
+    if (admission.status !== 'ADMITTED') {
+      const error = new Error('Optional resource was not admitted by the Runtime Director: ' + admission.status);
+      error.code = 'OPTIONAL_RESOURCE_DIRECTOR_' + admission.status;
+      throw error;
+    }
+
+    await this.resourceDirector.runCycle({ waitForTaskIds: [task.taskId] });
+    this.#syncOptionalDirectorProfiles();
+    if (executionError) throw executionError;
+    if (!execution) {
+      const record = this.resourceDirector.ledger.get(task.taskId);
+      const error = new Error('Optional resource execution did not produce a provider result: ' + String(record?.executionStatus ?? 'UNKNOWN'));
+      error.code = 'OPTIONAL_RESOURCE_EXECUTION_MISSING';
+      throw error;
+    }
+
+    const provenance = execution.providerProvenance ?? {};
+    this.resourceOwnerReceipts.push({
+      kind: 'DeploymentOptionalResourceOwnerReceipt',
+      turnId: request?.turnId ?? null,
+      correlationId: request?.correlationId ?? null,
+      ownerDecision: 'ACCEPTED_FOR_JEV_REVIEW',
+      ownerAdmissionPerformed: true,
+      settlementPerformed: false,
+      canonicalMutation: false,
+      admissions: [{
+        taskId: task.taskId,
+        resultId: execution?.decision?.decisionId ?? null,
+        resourceId: provenance.resourceId ?? null,
+        providerProfileId: provenance.providerProfileId ?? null,
+        providerId: provenance.providerId ?? null,
+        workerId: provenance.workerId ?? null,
+        acceptedByOwner: true,
+        destination: 'JEV_DECISION_CORE',
+        stale: false,
+        late: false,
+        invalid: false,
+        reason: 'OWNER_REVIEW_ACCEPTED',
+      }],
+    });
+    while (this.resourceOwnerReceipts.length > 128) this.resourceOwnerReceipts.shift();
+    return execution;
   }
 
   async #invokeRuntime({ task, job }) {

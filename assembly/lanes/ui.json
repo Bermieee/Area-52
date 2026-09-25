@@ -798,7 +798,7 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "999ad6d2fe1d5cfbdd997d7945c7a47efc892285",
+      "expectedDigest": "0c331c7506b8896e8ef17b5f0557882796a75991",
       "reason": "Acceptance coverage for labels, attachment, resize/collapse controls, independent scroll positions, Connections, fan-out/Gather, and Settings."
     }
   ],

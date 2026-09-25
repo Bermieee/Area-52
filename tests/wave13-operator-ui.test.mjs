@@ -99,11 +99,15 @@ test('attached rail/panel keyboard movement, resize, collapse, restore and close
   c.open();assert.equal(ui.shell.currentWorkspace,'story');ui.destroy();
 });
 
-test('narrow viewport clamps rail and card to reachable bounds',()=>{
-  const owner=liveOwner(),{ui}=mount(owner,{width:420,height:620});ui.floatingController.open('brain');ui.presentation.setWidth(720);ui.scheduler.flush(2);
+test('narrow viewport clamps rail and attached card to reachable bounds even near viewport center',()=>{
+  const owner=liveOwner(),{ui,document}=mount(owner,{width:420,height:620});ui.floatingController.open('brain');ui.presentation.setWidth(720);ui.scheduler.flush(2);
+  const handle=ui.floatingController.nodes.railHandle,start=ui.floatingController.diagnostics().rail;
+  handle.dispatch('pointerdown',{button:0,clientX:start.x,clientY:start.y,pointerId:7});
+  document.dispatch('pointermove',{clientX:150,clientY:100,pointerId:7});document.dispatch('pointerup',{clientX:150,clientY:100,pointerId:7});ui.scheduler.flush(3);
   const d=ui.floatingController.diagnostics();
   assert.ok(d.rail.x>=8&&d.rail.x+d.rail.width<=412);
   assert.ok(d.card.x>=8);assert.ok(d.card.x+d.card.width<=412);assert.equal(d.card.attached,true);
+  if(d.card.side==='RIGHT')assert.equal(d.card.x,d.rail.x+d.rail.width);else assert.equal(d.card.x+d.card.width,d.rail.x);
   assert.ok(d.card.y>=8&&d.card.y<620);
   ui.destroy();
 });

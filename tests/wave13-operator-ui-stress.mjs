@@ -39,7 +39,8 @@ for(const [width,height,cycles] of [[1440,900,240],[420,640,160]]){
     if(i%13===0){const side=ui.floatingController.diagnostics().card.side;ui.floatingController.nodes.sideResizeHandle.dispatch('keydown',{key:side==='RIGHT'?'ArrowRight':'ArrowLeft'});}
     if(i%17===0){ui.floatingController.toggleMinimized();ui.floatingController.toggleMinimized();}
     ui.scheduler.flush(i+1);
-    const d=ui.floatingController.diagnostics();
+    const d=ui.floatingController.diagnostics(),telemetry=ui.operator.diagnostics.read();
+    assert.equal(telemetry.selection.chatId,selection.chatId);assert.equal(telemetry.selection.turnId,selection.turnId);assert.equal(telemetry.telemetry.rawPromptTelemetry,false);
     assert.ok(d.rail.x>=8&&d.rail.x+d.rail.width<=width-8);
     assert.ok(d.card.x>=8&&d.card.x+d.card.width<=width-8);assert.equal(d.card.attached,true);
     maxPending=Math.max(maxPending,ui.scheduler.pendingCount);

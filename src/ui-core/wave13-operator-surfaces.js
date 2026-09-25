@@ -3,7 +3,7 @@ import { OperatorProducerState, parseLoreSubmission } from './wave13-operator-ad
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
 export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
-  const releases=[];
+  const releases=[],connectionDrafts=createConnectionDraftStore();
   if(registry.has('home')){
     const current=registry.get('home');
     registry.update('home',{render(host,ctx){current.render?.(host,ctx);if(operations)renderOperationalSummary(host,{...ctx,operations});}});
@@ -16,7 +16,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','connect','disconnect','test'],
     render(host,ctx){
       host.append(header(host.ownerDocument,'Connections','Connect Jev, Sidecar, and Vectoring resources separately, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
-      if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter});
+      if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter,connectionDrafts});
       else host.append(message(host.ownerDocument,'Connections unavailable','Worker 2 resource host is not exported by this assembly. Native Brain operation remains available.','offline'));
       renderFanoutGatherSurface(host,{...ctx,cognition});
     },
@@ -87,7 +87,7 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
   section.append(grid);host.append(section);
 }
 
-export function renderResourceSurface(host,{resources,actionRouter,scope,refresh,notifications}={}){
+export function renderResourceSurface(host,{resources,actionRouter,scope,refresh,notifications,connectionDrafts=null}={}){
   const d=host.ownerDocument,read=resources.read(),source=read.source,data=read.data??{resources:[],configurations:[],nativePathAvailable:true};
   const section=element(d,'section',{className:'a52-wave13-resources',attrs:{'aria-label':'Optional execution resource connections'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
@@ -99,14 +99,15 @@ export function renderResourceSurface(host,{resources,actionRouter,scope,refresh
   if(caps.read&&(!caps.connect||!caps.test||!caps.disconnect))section.append(message(d,'Resource controls incomplete','Resource status is readable, but connect/test/disconnect are not all exported by the assembly. Worker 2 remains the routing/execution owner.','warning'));
 
   const slots=element(d,'div',{className:'a52-wave13-connection-slots'});
-  for(const spec of connectionSlotSpecs())slots.append(renderConnectionSlot(d,{spec,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id),resources,actionRouter,scope,refresh,notifications,caps}));
+  const drafts=connectionDrafts??createConnectionDraftStore();
+  for(const spec of connectionSlotSpecs())slots.append(renderConnectionSlot(d,{spec,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id),resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts:drafts}));
   section.append(slots);
 
   if(!data.resources.length)section.append(message(d,'No optional resource connected',caps.read?'Worker 2 reports no configured optional resources. Native cognition remains available.':'The host assembly has not exported Worker 2 resource status/actions yet.','historical'));
   host.append(section);
 }
 
-function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,notifications,caps}){
+function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}){
   const connected=rows.some(row=>row.connected),configured=rows.length>0;
   const slot=element(d,'section',{className:'a52-wave13-connection-slot',dataset:{slot:spec.id,connected:String(connected),locked:String(configured)}});
   const head=element(d,'div',{className:'a52-wave13-connection-slot__head'});
@@ -125,43 +126,61 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
     return slot;
   }
 
+  const draft=connectionDrafts.get(spec);
+  const credentialWasCleared=connectionDrafts.consumeCredentialPresence(spec.id);
   const form=element(d,'div',{className:'a52-wave13-connection-slot__form'});
   const connectionName=field(d,'input',spec.title+' connection name',{type:'text',placeholder:spec.defaultName,autocomplete:'off'});
-  connectionName.value=spec.defaultName;
+  connectionName.value=draft.connectionName??spec.defaultName;
   const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:spec.remotePlaceholder??'https://provider.example/v1'});
+  endpoint.value=draft.endpoint??'';
   const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:'Required when the provider requires authentication',autocomplete:'off',spellcheck:'false'});
   const capabilities=field(d,'input',spec.title+' capabilities',{type:'text',placeholder:spec.defaultCapabilities.join(', ')});
-  capabilities.value=spec.defaultCapabilities.join(', ');
+  capabilities.value=draft.capabilities??spec.defaultCapabilities.join(', ');
   if(spec.fixedCapabilities){
     capabilities.disabled=true;capabilities.setAttribute('aria-disabled','true');capabilities.title='Jev capability is fixed by the owner contract.';
   }
   const modelChoice=field(d,'select',spec.title+' discovered model');
-  modelChoice.append(option(d,'','Load models first'));
-  modelChoice.disabled=true;modelChoice.setAttribute('aria-disabled','true');
+  const draftModels=Array.isArray(draft.models)?draft.models:[];
+  modelChoice.append(option(d,'',draftModels.length?'Choose a discovered model':'Load models first'));
+  for(const modelRow of draftModels)modelChoice.append(option(d,modelRow.id,modelRow.label));
+  modelChoice.value=draft.selectedModel??'';
+  const discoveryReady=draft.discoveryState==='READY'&&draftModels.length>0;
+  modelChoice.disabled=!discoveryReady;modelChoice.setAttribute('aria-disabled',String(!discoveryReady));
   const manualModel=field(d,'input',spec.title+' manual model fallback',{type:'text',placeholder:'Manual model ID fallback',autocomplete:'off'});
-  manualModel.disabled=Boolean(caps.discoverModels);manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
-  const discoveryState=element(d,'p',{className:'a52-wave13-connection-slot__hint',text:caps.discoverModels?'Load models from the provider before testing the connection. Choosing a model does not prove the connection works.':'Worker 2 model discovery is not exported here. Manual model entry is available only as a compatibility fallback.'});
+  manualModel.value=draft.manualModel??'';
+  manualModel.disabled=draft.manualAllowed===true?false:Boolean(caps.discoverModels);manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
+  const discoveryState=element(d,'p',{className:'a52-wave13-connection-slot__hint',text:draft.discoveryMessage??(caps.discoverModels?'Load models from the provider before testing the connection. Choosing a model does not prove the connection works.':'Worker 2 model discovery is not exported here. Manual model entry is available only as a compatibility fallback.')});
+  const updateDraft=()=>connectionDrafts.patch(spec.id,{
+    connectionName:String(connectionName.value||spec.defaultName),endpoint:String(endpoint.value||''),capabilities:String(capabilities.value||''),
+    selectedModel:String(modelChoice.value||''),manualModel:String(manualModel.value||''),
+  });
+  listenField(scope,connectionName,'input',updateDraft);listenField(scope,endpoint,'input',updateDraft);listenField(scope,capabilities,'input',updateDraft);
+  listenField(scope,modelChoice,'change',updateDraft);listenField(scope,manualModel,'input',updateDraft);
+  listenField(scope,apiKey,'input',()=>connectionDrafts.setCredentialPresence(spec.id,Boolean(String(apiKey.value||'').trim())));
   const loadModels=createButton(d,{label:'Load / Refresh Models',scope,size:'sm',variant:'quiet',disabled:!caps.discoverModels,onPress:async()=>{
+    updateDraft();
     const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
     const result=await actionRouter.route({type:'wave13.resource.discoverModels',payload:{
       role:spec.role,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,
     }});
     if(!result.ok){
+      const text='Model discovery failed: '+String(result.error??'unknown error')+'.';
+      connectionDrafts.patch(spec.id,{models:[],selectedModel:'',manualAllowed:false,discoveryState:'FAILED',discoveryMessage:text});
       modelChoice.replaceChildren(option(d,'','Discovery failed'));modelChoice.disabled=true;modelChoice.setAttribute('aria-disabled','true');
-      manualModel.disabled=true;manualModel.setAttribute('aria-disabled','true');
-      discoveryState.textContent='Model discovery failed: '+String(result.error??'unknown error')+'.';
+      manualModel.disabled=true;manualModel.setAttribute('aria-disabled','true');discoveryState.textContent=text;
       reportAction(notifications,result,spec.title+' model discovery');return;
     }
-    const discovery=result.result??{},models=discoveryModels(discovery),state=String(discovery.state??'FAILED').toUpperCase();
+    const discovery=result.result??{},models=discoveryModels(discovery),state=String(discovery.state??'FAILED').toUpperCase(),statusText=discoveryStatusText(state,discovery,models.length);
+    connectionDrafts.patch(spec.id,{models,selectedModel:'',manualAllowed:discovery.manualModelEntryAllowed===true,discoveryState:state,discoveryMessage:statusText});
     modelChoice.replaceChildren(option(d,'',models.length?'Choose a discovered model':'No models returned'));
     for(const modelRow of models)modelChoice.append(option(d,modelRow.id,modelRow.label));
     const ready=state==='READY'&&models.length>0;
     modelChoice.disabled=!ready;modelChoice.setAttribute('aria-disabled',String(!ready));
     manualModel.disabled=discovery.manualModelEntryAllowed!==true;manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
-    discoveryState.textContent=discoveryStatusText(state,discovery,models.length);
-    reportAction(notifications,result,spec.title+' model discovery');
+    discoveryState.textContent=statusText;reportAction(notifications,result,spec.title+' model discovery');
   }});
   const testConnection=createButton(d,{label:'Test Connection',scope,onPress:async()=>{
+    updateDraft();
     const selectedModel=modelChoice.disabled?String(manualModel.value||'').trim():String(modelChoice.value||'').trim();
     if(!selectedModel){
       discoveryState.textContent='Choose a discovered model first'+(manualModel.disabled?'.':' or enter the manual fallback model ID.');
@@ -172,11 +191,12 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
       role:spec.role,displayName:connectionName.value||spec.defaultName,transportKind:'OPENAI_COMPATIBLE',
       endpoint:endpoint.value||null,modelId:selectedModel,apiKey:apiKey.value||null,capabilities:parsedCaps,local:isLocalConnectionEndpoint(endpoint.value),
     }});
-    apiKey.value='';
+    apiKey.value='';connectionDrafts.setCredentialPresence(spec.id,false);
     if(!connectResult.ok){
       discoveryState.textContent='Connection failed: '+String(connectResult.error??'unknown error')+'.';
       reportAction(notifications,connectResult,spec.title+' connection');refresh?.();return;
     }
+    connectionDrafts.clear(spec.id);
     const connectedRow=resources.read().data.resources.find(row=>row.displayName===(connectionName.value||spec.defaultName)&&connectionSlotFor(row)===spec.id);
     const testResult=connectedRow?await actionRouter.route({type:'wave13.resource.test',target:connectedRow}):connectResult;
     discoveryState.textContent=testResult.ok?'Connection test completed. Owner-reported status is shown in the locked resource card.':'Connection test failed: '+String(testResult.error??'unknown error')+'.';
@@ -185,7 +205,8 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   form.append(
     labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
     loadModels,labelWrap(d,'Model',modelChoice),labelWrap(d,'Manual model fallback',manualModel),discoveryState,
-    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 creates the internal Resource ID automatically. API keys stay masked, are sent only to the owner connection contract, and are cleared from this field after connection submission.'}),
+    ...(credentialWasCleared?[message(d,'API key cleared on refresh','For security, the unsubmitted API key was not retained when this workspace refreshed. Re-enter it before loading models or testing the connection.','warning')]:[]),
+    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 keeps non-secret draft fields for each open slot across refreshes. API-key values are never copied into draft storage; submitted keys are cleared from the field immediately.'}),
     testConnection
   );
   slot.append(form);return slot;
@@ -211,6 +232,19 @@ function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifi
   if(actions.children?.length)card.append(actions);
   return card;
 }
+
+function createConnectionDraftStore(){
+  const drafts=new Map(),credentialPresence=new Map();
+  const initial=(spec)=>({connectionName:spec.defaultName,endpoint:'',capabilities:spec.defaultCapabilities.join(', '),models:[],selectedModel:'',manualModel:'',manualAllowed:false,discoveryState:null,discoveryMessage:null});
+  return{
+    get(spec){if(!drafts.has(spec.id))drafts.set(spec.id,initial(spec));return drafts.get(spec.id);},
+    patch(id,patch){const current=drafts.get(id)??{};drafts.set(id,{...current,...patch});return drafts.get(id);},
+    clear(id){drafts.delete(id);credentialPresence.delete(id);},
+    setCredentialPresence(id,present){credentialPresence.set(id,Boolean(present));},
+    consumeCredentialPresence(id){const present=credentialPresence.get(id)===true;credentialPresence.set(id,false);return present;},
+  };
+}
+function listenField(scope,node,type,handler){if(scope?.listen)scope.listen(node,type,handler);else node.addEventListener(type,handler);}
 
 function discoveryModels(result){
   const raw=Array.isArray(result?.models)?result.models:[];

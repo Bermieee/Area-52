@@ -30,6 +30,16 @@ function assistantMessage(context,index=null){
   return null;
 }
 
+function safeProviderOutcome(value){
+  if(!value||typeof value!=='object')return value==null?null:{status:String(value)};
+  return{
+    status:value.status??value.state??value.result??null,
+    code:value.code??value.reasonCode??value.errorCode??null,
+    message:typeof value.message==='string'?value.message.slice(0,400):typeof value.reason==='string'?value.reason.slice(0,400):null,
+    latencyMs:Number.isFinite(Number(value.latencyMs??value.durationMs))?Number(value.latencyMs??value.durationMs):null,
+  };
+}
+
 function operatorResultSummary(result){
   if(!result)return null;
   const value=result?.ok===true?result.value??null:null;
@@ -616,7 +626,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     }catch(error){loreOperatorEvidence={available:false,error:String(error?.code??error?.message??error)};}
     try{
       const resourceAdapter=this.uiHost?.ui?.operator?.resources,read=resourceAdapter?.read?.();
-      resourceOperatorEvidence={available:Boolean(resourceAdapter),state:read?.source?.operationalState??null,resources:(read?.data?.resources??[]).map(row=>({id:row.id,kind:row.kind,state:row.state,health:row.health,connected:row.connected,callable:row.callable,modelId:row.modelId,capabilities:[...(row.capabilities??[])],measurementClass:row.measurementClass,lastTest:clone(row.lastTest??null),lastFailure:clone(row.lastFailure??null)}))};
+      resourceOperatorEvidence={available:Boolean(resourceAdapter),state:read?.source?.operationalState??null,resources:(read?.data?.resources??[]).map(row=>({id:row.id,kind:row.kind,state:row.state,health:row.health,connected:row.connected,callable:row.callable,modelId:row.modelId,capabilities:[...(row.capabilities??[])],measurementClass:row.measurementClass,lastTest:safeProviderOutcome(row.lastTest),lastFailure:safeProviderOutcome(row.lastFailure)}))};
     }catch(error){resourceOperatorEvidence={available:false,error:String(error?.code??error?.message??error)};}
     try{
       const authoring=this.uiHost?.ui?.operator?.loreAuthoring,snap=authoring?.snapshot?.();

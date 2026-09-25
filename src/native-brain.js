@@ -155,10 +155,11 @@ export class Area52NativeBrain{
     const sourceRevisionId=req(event.sourceRevisionId,'LoreSourceRevisionChanged.sourceRevisionId');
     req(event.contentHash,'LoreSourceRevisionChanged.contentHash');
     if(previousSourceRevisionId===sourceRevisionId)throw new Error('LORE_REVISION_CHANGE_REUSED_REVISION_ID');
-    const invalidatedChats=[];
+    const invalidatedChats=[],checkedChats=[];
     const persisted=this.core.hotCognition.exportState();
     for(const state of persisted?.states??[]){
       const chatNamespace=String(state?.chatNamespace??'');if(!chatNamespace)continue;
+      checkedChats.push(chatNamespace);
       const receipt=this.core.hotCognition.invalidateKnowledge({
         chatNamespace,updateId:'owner-lore-revision:'+sourceId+':'+previousSourceRevisionId+'->'+sourceRevisionId,
         invalidatedSourceRevisionRefs:[previousSourceRevisionId],invalidatedDependencyRevisionRefs:[previousSourceRevisionId],
@@ -173,7 +174,7 @@ export class Area52NativeBrain{
     this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>ref!==previousSourceRevisionId));
     return{
       kind:'NativeBrainLoreRevisionInvalidationReceipt',contractVersion:1,status:'INVALIDATED',sourceId,lorebookId,uid,
-      previousSourceRevisionId,sourceRevisionId,invalidatedChats:uniq(invalidatedChats),
+      previousSourceRevisionId,sourceRevisionId,checkedChats:uniq(checkedChats),invalidatedChats:uniq(invalidatedChats),
       nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:true,
       authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealAuthority:false,
     };

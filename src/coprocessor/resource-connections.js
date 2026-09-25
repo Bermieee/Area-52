@@ -219,6 +219,24 @@ export class CoprocessorResourceConnections{
     }
   }
 
+  async executeTaskWithFallback(task,{input={},signal=null,attempt=1,maxCostClass='HIGH',maxProviders=2}={}){
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:0,maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+      .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
+      .slice(0,Math.max(1,Number(maxProviders)||1));
+    const attempts=[];let lastError=null;
+    for(let index=0;index<eligible.length;index+=1){
+      const profile=eligible[index];
+      try{
+        const result=await this.executeTask(task,{input,profileId:profile.profileId,signal,attempt:attempt+index,maxCostClass});
+        attempts.push(Object.freeze({profileId:profile.profileId,providerId:profile.providerId,status:'SUCCESS',failureCode:null}));
+        return Object.freeze({kind:'ConnectedResourceFallbackExecution',status:index?'FALLBACK':'SUCCESS',result,attempts:Object.freeze(attempts),authority:'NONE'});
+      }catch(error){
+        lastError=error;attempts.push(Object.freeze({profileId:profile.profileId,providerId:profile.providerId,status:'FAIL',failureCode:error?.code??FailureCode.PROVIDER_FAILURE}));
+      }
+    }
+    return Object.freeze({kind:'ConnectedResourceFallbackExecution',status:'FAILED',result:null,attempts:Object.freeze(attempts),failure:Object.freeze({code:lastError?.code??FailureCode.CAPABILITY_UNAVAILABLE,message:safeMessage(lastError?.message??'No connected provider succeeded.')}),authority:'NONE'});
+  }
+
   createJevProviderExecutor(options={}){
     return new JevProviderExecutor({profiles:this.profiles,adapters:this.adapters,...options});
   }

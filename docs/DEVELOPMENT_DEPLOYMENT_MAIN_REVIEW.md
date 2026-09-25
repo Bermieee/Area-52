@@ -4,12 +4,12 @@
 
 ## Worker 4 lineage
 
-- Worker 4 starting deployment SHA: `ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9`.
+- Worker 4 demo-repair starting deployment SHA: `fb463f596922fb8ac08bbddaf5786eb80ac4099e`.
 - `main` verified at Worker 4 start: `8138be59308873fb164c167eadd9e1a58c10364e`.
 - That `main` head was fast-forwarded into `Development-Deployment` as an ancestor before Worker 4 repairs. Worker 4 has not mutated `main`.
-- Worker 1 Memory pin: `22d59f3062b495cb837841a2a8cb01aea7575ce5`.
-- Worker 2 Sidecar/Jev pin: `00dc4385ca61223cd76715889ad09cec925974d0`.
-- Worker 3 UI pin: `11701edf85ea5a42c61812c247031968ed489aeb`.
+- Worker 1 Memory accepted pin: `94669e656f7ebf24b072cdde2f31e3b3cf5d0b2f`; current worker branch head inspected at handoff: `51aa0d6e7293ddeaa3899e81f6699794d0c22b2c`.
+- Worker 2 Sidecar/Jev accepted/current pin: `e4da2ffcabd8a385b44fc1836b95a85836cfaf6e`.
+- Worker 3 UI accepted/current pin: `751b23fe2209165295d047106c35bce160e74a5c`.
 - Exact copied-path digests and deployment-only reconciliations are recorded in `assembly/lanes/*.json`.
 
 ## Worker 4 integration repairs

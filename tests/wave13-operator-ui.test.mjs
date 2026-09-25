@@ -590,6 +590,16 @@ test('Lore workspace shows Worker 4 multi-resolution and hierarchical summaries 
   ui.destroy();
 });
 
+test('Lore UI marks edited source revisions stale until the owner re-studies them',()=>{
+  const owner=liveOwner({withLore:true});
+  owner.bindings.readLoreStatus=()=>({kind:'LoreIntelligenceStatus',counts:{ACCEPTED:1,STUDYING:0,READY:0,FAILED:0,REMOVED:0},entries:[{
+    sourceId:'lore:moon:captain',lorebookId:'moon',uid:'captain',sourceRevisionId:'r2',sourceState:'CURRENT',learnedRevisionId:'learned:r1',freshness:'STALE_OR_UNLEARNED',operatorState:'ACCEPTED',studyState:'DUE',semanticDiff:{kind:'LoreSemanticDiff',changed:true},retrievalReady:false,retrievalRepresentations:[],
+  }],artifacts:[],conflicts:[],lifecycle:{counts:{DUE:1},due:1,active:0},...owner.bindings.readSelection()});
+  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Source revision changed/);assert.match(body,/not treated as current until the Lore owner re-studies/i);assert.doesNotMatch(body,/retrieval-ready.*Yes/i);
+  ui.destroy();
+});
+
 test('Worker 4 v2 lifecycle gates Settlement behind review Final Preview and explicit approval',async()=>{
   const calls=[];let stage='DRAFT_REVIEW',decision=null,finalPreview=null,settlement=null;
   const progress=()=>({kind:'LoreAuthoringProgressReadModel',sessionId:'session:tree',type:'TREE',stage,draftRevision:1,build:{cursor:1,total:1,complete:true},decisions:decision?{[decision]:1}:{PENDING:1},totalActions:1,materializedActions:1,stale:null,lastError:null,finalPreviewId:finalPreview?.finalPreviewId??null,finalPreviewReady:Boolean(finalPreview?.validation?.ok),approval:stage==='READY_TO_SETTLE'?{operatorApprovalId:'ui:approval'}:null,settlement:settlement?{settlementId:settlement.settlementId,state:settlement.state,cursor:settlement.cursor,operationCount:1,appliedCount:settlement.cursor}:null});

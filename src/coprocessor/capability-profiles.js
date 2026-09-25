@@ -95,6 +95,17 @@ export class CapabilityProfileRegistry {
     return this.get(profileId);
   }
 
+  applyQualification(profileId,{maxContextTokens=null,maxOutputTokens=null,profileMetadata={}}={}){
+    const profile=this.#profiles.get(profileId);if(!profile)throw new Error(`Unknown capability profile: ${profileId}`);
+    const context=qualifiedLimit(maxContextTokens,profile.maxContextTokens);
+    const output=qualifiedLimit(maxOutputTokens,profile.maxOutputTokens);
+    this.#profiles.set(profileId,Object.freeze({
+      ...profile,maxContextTokens:context,maxContext:context,maxOutputTokens:output,maxOutput:output,
+      profileMetadata:Object.freeze({...profile.profileMetadata,...structuredClone(profileMetadata??{})}),
+    }));
+    return this.get(profileId);
+  }
+
   eligibleProfiles(task, options = {}) {
     const requests=primaryRequests(task);
     return this.#eligibleForRequests(task,requests,options);
@@ -245,3 +256,5 @@ function providerHealthEligible(value) {
   const state=normalizeProviderHealth(value);
   return state==='HEALTHY'||state==='DEGRADED';
 }
+
+function qualifiedLimit(value,fallback){ const n=Number(value); return Number.isFinite(n)&&n>0?n:fallback; }

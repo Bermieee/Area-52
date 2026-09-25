@@ -242,21 +242,59 @@ export class Wave13LoreStudyUIAdapter{
       this.acceptFn??=(input)=>this.runtime.ingestLorebook(input);
       this.runFn??=(input)=>runLoreRuntime(this.runtime,input);
     }
-    this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;
+    this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;this.discoveredLorebookKey=null;this.discoveryEpoch=0;this.discoveryInflight=null;this.discoveryState={status:'IDLE',key:null,error:null};
   }
   capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),summaries:Boolean(this.summaryFn),subscribe:Boolean(this.subscribeFn)});}
   selectedLorebook(){
-    const selected=safeRead(this.selectionFn,null);
-    return deepFreeze({selection:cloneSafe(selected),snapshot:cloneSafe(this.discoveredLorebook)});
+    const selected=safeRead(this.selectionFn,null),key=this.#selectedLorebookKey(selected);
+    const snapshot=key&&key===this.discoveredLorebookKey?this.discoveredLorebook:null;
+    return deepFreeze({selection:cloneSafe(selected),snapshot:cloneSafe(snapshot),discovery:cloneSafe(this.discoveryState)});
   }
-  async discoverSelectedLorebook(){
+  async ensureSelectedLorebook({force=false}={}){
     this.lastError=null;
     if(!this.discoverFn){const e=new Error('SillyTavern selected-Lorebook discovery is not exported by the host.');e.code='LORE_DISCOVERY_UNAVAILABLE';this.lastError=e;throw e;}
-    try{
-      const result=await this.discoverFn();
-      this.discoveredLorebook=cloneSafe(result);this.lastAction={type:'DISCOVER',result:cloneSafe(result?.discovery??null)};
+    const selected=safeRead(this.selectionFn,null),key=this.#selectedLorebookKey(selected);
+    if(!selected?.selected||!key){
+      this.discoveryEpoch+=1;this.discoveryInflight=null;this.discoveredLorebook=null;this.discoveredLorebookKey=null;
+      this.discoveryState={status:'NO_SELECTION',key:null,error:null};
+      return null;
+    }
+    if(!force&&this.discoveredLorebook&&this.discoveredLorebookKey===key){
+      this.discoveryState={status:'READY',key,error:null};
+      return cloneSafe(this.discoveredLorebook);
+    }
+    if(!force&&this.discoveryInflight?.key===key)return this.discoveryInflight.promise;
+    const epoch=++this.discoveryEpoch;
+    this.discoveryState={status:'LOADING',key,error:null};
+    const promise=Promise.resolve().then(()=>this.discoverFn()).then((result)=>{
+      const current=safeRead(this.selectionFn,null),currentKey=this.#selectedLorebookKey(current);
+      if(epoch!==this.discoveryEpoch||currentKey!==key){
+        const e=new Error('Selected Lorebook changed while Area-52 was loading it.');e.code='LORE_DISCOVERY_STALE_SELECTION';throw e;
+      }
+      const expectedId=String(current?.lorebookId??current?.title??'').trim(),actualId=String(result?.id??result?.discovery?.lorebookId??'').trim();
+      if(expectedId&&actualId&&expectedId!==actualId){
+        const e=new Error('SillyTavern returned a different Lorebook than the current selection.');e.code='LORE_DISCOVERY_IDENTITY_MISMATCH';throw e;
+      }
+      this.discoveredLorebook=cloneSafe(result);this.discoveredLorebookKey=key;
+      this.discoveryState={status:'READY',key,error:null};this.lastAction={type:'DISCOVER',result:cloneSafe(result?.discovery??null)};
       return cloneSafe(result);
-    }catch(error){this.lastError=error;throw error;}
+    }).catch((error)=>{
+      if(epoch===this.discoveryEpoch){
+        if(error?.code!=='LORE_DISCOVERY_STALE_SELECTION'){
+          this.lastError=error;this.discoveredLorebook=null;this.discoveredLorebookKey=null;
+          this.discoveryState={status:'ERROR',key,error:{code:error?.code??'LORE_DISCOVERY_FAILED',message:String(error?.message??error)}};
+        }
+      }
+      throw error;
+    }).finally(()=>{if(this.discoveryInflight?.epoch===epoch)this.discoveryInflight=null;});
+    this.discoveryInflight={key,epoch,promise};return promise;
+  }
+  async discoverSelectedLorebook(){return this.ensureSelectedLorebook({force:true});}
+  #selectedLorebookKey(selected){
+    if(!selected?.selected)return null;
+    const lorebookId=String(selected?.lorebookId??selected?.title??'').trim();if(!lorebookId)return null;
+    const selection=this.selectionProvider?.()??{},chatId=String(selection?.chatId??'').trim();
+    return chatId+'|'+lorebookId;
   }
   read(){
     const selection=this.selectionProvider?.()??{};

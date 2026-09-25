@@ -230,6 +230,7 @@ export class Wave13LoreStudyUIAdapter{
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
     this.readFn=fn(this.host?.read,['surface','status','loreStudy'])??fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus']);
     this.selectionFn=fn(bindings,['readSelectedLorebookSelection']);
+    this.selectionSubscribeFn=fn(bindings,['subscribeSelectedLorebookSelection']);
     this.discoverFn=fn(bindings,['discoverSelectedLorebook']);
     this.acceptFn=fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook'])??fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook']);
     this.runFn=fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
@@ -244,7 +245,11 @@ export class Wave13LoreStudyUIAdapter{
     }
     this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;this.discoveredLorebookKey=null;this.discoveryEpoch=0;this.discoveryInflight=null;this.discoveryState={status:'IDLE',key:null,error:null};
   }
-  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),summaries:Boolean(this.summaryFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),summaries:Boolean(this.summaryFn),subscribe:Boolean(this.subscribeFn),selectionSubscribe:Boolean(this.selectionSubscribeFn)});}
+  subscribeSelection(listener){
+    if(typeof listener!=='function'||!this.selectionSubscribeFn)return()=>{};
+    const release=this.selectionSubscribeFn(listener);return typeof release==='function'?release:()=>{};
+  }
   selectedLorebook(){
     const selected=safeRead(this.selectionFn,null),key=this.#selectedLorebookKey(selected);
     const snapshot=key&&key===this.discoveredLorebookKey?this.discoveredLorebook:null;

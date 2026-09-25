@@ -270,7 +270,10 @@ export class NativeGraphNeighborhoodRetriever{
     const queue=admittedAnchors.map(id=>({entityId:id,depth:0,path:[]})),visited=new Set(admittedAnchors),selected=[],seenEdges=new Set();
     let examinedEdgeCount=0,boundedEdges=0,boundedNodes=Math.max(0,request.anchorEntityIds.length-admittedAnchors.length),boundedCandidates=0;
     while(queue.length){
-      if(now()-started>=request.latencyBudgetMs)break;
+      // Once edges have been admitted, traversal is bounded deterministically by
+      // maxDepth/maxNodes/maxEdges/maxCandidates. Do not discard already-admitted
+      // native evidence because wall-clock time was consumed by optional providers
+      // or runner scheduling before the walk began.
       const node=queue.shift();if(node.depth>=request.maxDepth)continue;
       for(const edge of adjacency.get(node.entityId)??[]){
         if(examinedEdgeCount>=request.maxEdges){boundedEdges++;queue.length=0;break;}

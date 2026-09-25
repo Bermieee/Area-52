@@ -370,6 +370,13 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
   assert.equal(quiet.memorySync.status,'SKIPPED');
   assert.equal(quiet.memorySync.reason,'HOT_SUFFICIENT');
 
+  const correctedWriteback=brain.correctTurn({turnId:'memory-owner:1',response:'Correction: Lio waits beneath the west Bellspire tide clock.',knownBy:['Lio']});
+  assert.equal(correctedWriteback.memoryWriteback.status,'ADMITTED');
+  assert.equal(writebacks.length,2);
+  assert.equal(writebacks[0].externalEvidenceRef,writebacks[1].externalEvidenceRef);
+  assert.ok(writebacks[1].ownerArtifactRef.revision>writebacks[0].ownerArtifactRef.revision);
+  assert.notEqual(writebacks[0].source.sourceRevisionId,writebacks[1].source.sourceRevisionId);
+
   memoryRevision='memory:glass-coast@r2';
   memoryText='Correction: Lio crossed the lower moonrail bridge, not the upper span.';
   const revised=await brain.prepareTurn({

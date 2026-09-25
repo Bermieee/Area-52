@@ -292,7 +292,7 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
+  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
   const passwordFields=walk(sidecar).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,1);
   ui.destroy();
 });

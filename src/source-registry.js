@@ -74,4 +74,35 @@ export class SourceRegistry {
     return visit(artifactId);
   }
   activeRevisionIds(){return[...this.#activeRevisionBySource.values()].sort();}
+
+  exportState(){
+    return structuredClone({
+      kind:'SourceRegistrySnapshot',
+      sources:[...this.#sources.entries()],
+      revisions:[...this.#revisions.entries()],
+      revisionIdsBySource:[...this.#revisionIdsBySource.entries()],
+      activeRevisionBySource:[...this.#activeRevisionBySource.entries()],
+      retiredSources:[...this.#retiredSources.entries()],
+      artifacts:[...this.#artifacts.entries()],
+      artifactDeps:[...this.#artifactDeps.entries()],
+      artifactChildren:[...this.#artifactChildren.entries()].map(([key,set])=>[key,[...set]]),
+      revisionChildren:[...this.#revisionChildren.entries()].map(([key,set])=>[key,[...set]]),
+      invalidated:[...this.#invalidated.entries()],
+    });
+  }
+
+  restoreState(snapshot){
+    if(!snapshot||snapshot.kind!=='SourceRegistrySnapshot')throw new TypeError('SourceRegistrySnapshot is required');
+    this.#sources=new Map(structuredClone(snapshot.sources??[]));
+    this.#revisions=new Map(structuredClone(snapshot.revisions??[]));
+    this.#revisionIdsBySource=new Map(structuredClone(snapshot.revisionIdsBySource??[]));
+    this.#activeRevisionBySource=new Map(structuredClone(snapshot.activeRevisionBySource??[]));
+    this.#retiredSources=new Map(structuredClone(snapshot.retiredSources??[]));
+    this.#artifacts=new Map(structuredClone(snapshot.artifacts??[]));
+    this.#artifactDeps=new Map(structuredClone(snapshot.artifactDeps??[]));
+    this.#artifactChildren=new Map((snapshot.artifactChildren??[]).map(([key,rows])=>[key,new Set(rows)]));
+    this.#revisionChildren=new Map((snapshot.revisionChildren??[]).map(([key,rows])=>[key,new Set(rows)]));
+    this.#invalidated=new Map(structuredClone(snapshot.invalidated??[]));
+    return this.exportState();
+  }
 }

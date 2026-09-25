@@ -193,13 +193,15 @@ export class Wave13ResourceControlAdapter{
     try{
       let result;
       if(this.publicHost){
-        const normalized=normalizeWorker2ResourceConfig(config);
-        const existing=this.read().data.resources.find(row=>row.id===normalized.resourceId);
-        if(!existing){
+        const requestedId=resourceId(config);
+        const existing=requestedId?this.read().data.resources.find(row=>row.id===requestedId):null;
+        if(existing)result=await this.connectFn(existing.id);
+        else{
+          const normalized=normalizeWorker2ResourceConfig(config);
           if(!this.addFn){const e=new Error('Worker 2 resource host requires addResource() before connectResource().');e.code='RESOURCE_CONFIGURE_ACTION_UNAVAILABLE';throw e;}
           await this.addFn(normalized);
+          result=await this.connectFn(normalized.resourceId);
         }
-        result=await this.connectFn(normalized.resourceId);
       }else result=await this.connectFn(cloneSafe(config));
       this.lastAction={type:'CONNECT',result:cloneSafe(result)};return cloneSafe(result);
     }catch(error){this.lastError=error;throw error;}

@@ -43,7 +43,7 @@ function edgeText(edge){
   if(edge.representationText)return String(edge.representationText).slice(0,1200);
   return [edge.fromEntityId,edge.edgeMeaning,edge.toEntityId,'['+status(edge.temporalStatus)+']'].filter(Boolean).join(' ');
 }
-function edgeIdentity(edge){return edge.evidenceIdentity??(edge.claimRefs?.length?'claim:'+edge.claimRefs[0]):('graph-edge:'+edge.providerId+':'+edge.edgeId));}
+function edgeIdentity(edge){return edge.evidenceIdentity??(edge.claimRefs?.length?('claim:'+edge.claimRefs[0]):('graph-edge:'+edge.providerId+':'+edge.edgeId));}
 function artifactRef(edge){return clone(edge.artifactRef??{artifactId:edge.edgeId,artifactType:edge.artifactType??'GraphEdge',revision:edge.artifactRevision??1});}
 
 export class NativeGraphNeighborhoodRetriever{

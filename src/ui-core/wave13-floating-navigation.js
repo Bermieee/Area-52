@@ -165,8 +165,8 @@ export class VerticalRailPopoutController{
   #cardGeometry(){
     const vp=this.#viewport(),rail=this.#railSize(),p=this.presentation.get();
     this.#chooseSide();
-    const room=Math.max(MIN_CARD,this.state.side==='RIGHT'?vp.width-(this.state.railX+rail.width)-EDGE:this.state.railX-EDGE);
-    const width=Math.min(Number(p.frontFaceWidth)||560,MAX_CARD,room);
+    const room=Math.max(80,this.state.side==='RIGHT'?vp.width-(this.state.railX+rail.width)-EDGE:this.state.railX-EDGE);
+    const width=Math.max(80,Math.min(Number(p.frontFaceWidth)||560,MAX_CARD,room));
     const height=this.state.minimized?48:Math.max(220,Math.min(vp.height-EDGE*2,Math.round(vp.height*.82)));
     const x=this.state.side==='RIGHT'?this.state.railX+rail.width:this.state.railX-width;
     const y=clamp(this.state.railY,EDGE,Math.max(EDGE,vp.height-height-EDGE));

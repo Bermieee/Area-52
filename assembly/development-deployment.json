@@ -5,7 +5,7 @@
   "branch": "main",
   "deploymentBaseSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
   "manifestParentHead": "01d37104c99d0299366de0a6ae552d5426354a65",
-  "status": "OWNER_INTEGRATION_CANDIDATE_EXACT_HEAD_CI_PENDING_LIVE_GATE_OPEN",
+  "status": "OWNER_INTEGRATION_PROMOTION_READY_CI_RUNNER_BACKLOG_LIVE_GATE_OPEN",
   "mainMutationAllowed": true,
   "sourceDigestAlgorithm": "git-blob-sha1",
   "laneManifests": [
@@ -156,11 +156,11 @@
     }
   ],
   "mainReview": {
-    "status": "WORKER3_PROMOTION_WAVE",
+    "status": "WORKER3_PROMOTION_READY_CI_QUEUED",
     "mainHeadAtWorker3Start": "c7090a5b5e6a5bd8cfc0dcd02dd87546bb4cc6b3",
     "mainRelationship": "Worker3 created an isolated candidate from the verified main head and merged complete Core, Lore Wave 7 assembly, and Sidecar/Jev owner lineages before semantic repair.",
     "promotionAllowed": true,
-    "reason": "Promotion is allowed after executable candidate checks complete; #224 remains independently open for Director live acceptance."
+    "reason": "Complete owner lineages merged cleanly and semantic host seams were statically reconciled. Repository-wide Actions backlog prevents executable CI from starting; promotion proceeds so the Director can install main, while exact-head CI remains explicitly pending and #224 stays open."
   },
   "worker4DemoRepair": {
     "startingDeploymentSha": "ad8bdea5d4e3b9248841b4e5f60f8fb0e7cabea9",
@@ -219,14 +219,14 @@
   "installedBytes": {
     "selector": "HEAD_CONTAINING_THIS_MANIFEST",
     "intendedRef": "main",
-    "state": "PROMOTE_AFTER_EXECUTABLE_CANDIDATE_CHECKS",
-    "note": "Installed bytes are the complete commit containing this manifest after promotion; do not substitute an owner branch or prior CI head."
+    "state": "PROMOTION_READY_WITH_EXACT_HEAD_CI_RUNNER_BACKLOG",
+    "note": "Installed bytes are the complete commit containing this manifest after promotion to main. GitHub Actions was runner-queued across the repository at promotion time; queued work is not green."
   },
   "testedBytes": {
     "selector": "SAME_HEAD_AS_CI_RUN",
-    "status": "PENDING_EXACT_HEAD_INTEGRATION_CI",
+    "status": "PENDING_EXACT_HEAD_INTEGRATION_CI_RUNNER_QUEUED",
     "workflow": ".github/workflows/main-owner-integration.yml",
-    "note": "Only a workflow run whose head_sha equals the candidate/final main SHA counts as automated tested bytes. Queued work is not green."
+    "note": "No queued workflow is counted as passed. Static contract/API review and clean lineage reconciliation completed; exact-head automated execution remains pending the GitHub runner backlog."
   },
   "observedOwnerHeads": {
     "mainAtIntegrationStart": "c7090a5b5e6a5bd8cfc0dcd02dd87546bb4cc6b3",

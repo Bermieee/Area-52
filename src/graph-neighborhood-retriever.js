@@ -62,7 +62,7 @@ export class NativeGraphNeighborhoodRetriever{
       channelId:'ZZ_NATIVE_GRAPH_WALKER',
       capabilities:[RetrievalChannelCapability.GRAPH,RetrievalChannelCapability.WORLD_STATE],
       supportedIntentKinds:['*'],maxCandidates:this.limits.maxCandidates,health:RetrievalChannelHealth.HEALTHY,available:true,
-      metadata:{source:'CORE_GRAPH_WALKER',providerNeutral:true,graphMutationAuthority:false,truthAuthority:false,ownerRevisionFence:true,ownerRevisionValidated:true},
+      metadata:{source:'CORE_GRAPH_WALKER',providerNeutral:true,graphMutationAuthority:false,truthAuthority:false,ownerRevisionFence:false,validatedExternalRevisionProvider:true},
     });
   }
 
@@ -79,7 +79,7 @@ export class NativeGraphNeighborhoodRetriever{
   listProviders(){return [...this.providers.keys()].sort().map(id=>this.providerContract(id));}
 
   retrieve(intent,context={}){
-    const started=now(),request=this.#request(intent,context),edges=[],providerDiagnostics=[],staleEdges=[];
+    const started=now(),request=this.#request(intent,context),edges=[],providerDiagnostics=[],staleEdges=[],trustedSourceRevisionRefs=[];
     edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
     for(const provider of [...this.providers.values()].sort((a,b)=>a.providerId.localeCompare(b.providerId)).slice(0,this.limits.maxProviders)){
       if(request.latencyBudgetMs>=0&&now()-started>=request.latencyBudgetMs){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_LATENCY_BUDGET',edgeCount:0});continue;}
@@ -91,7 +91,7 @@ export class NativeGraphNeighborhoodRetriever{
         for(const raw of rows.slice(0,request.maxEdges)){
           const normalized=this.#externalEdge(raw,provider,request);
           if(normalized.stale){staleEdges.push({providerId:provider.providerId,edgeId:normalized.edgeId,sourceRevisionRefs:normalized.sourceRevisionRefs,reason:normalized.staleReason});rejected++;continue;}
-          edges.push(normalized);admitted++;
+          edges.push(normalized);trustedSourceRevisionRefs.push(...normalized.sourceRevisionRefs);admitted++;
         }
         providerDiagnostics.push({providerId:provider.providerId,status:'OK',edgeCount:admitted,rejectedStale:rejected,providerRevision:value?.providerRevision??null});
       }catch(error){providerDiagnostics.push({providerId:provider.providerId,status:'DEGRADED',edgeCount:0,error:String(error?.message??error)});}
@@ -142,7 +142,7 @@ export class NativeGraphNeighborhoodRetriever{
       kind:'GraphTraversalReceipt',contractVersion:'1.0.0',intentId:intent.intentId,query:request.query,anchorEntityIds:[...request.anchorEntityIds],
       providers:providerDiagnostics,providerCount:providerDiagnostics.length+2,examinedEdgeCount:traversed.examinedEdgeCount,
       traversedEdgeCount:traversed.rows.length,visitedNodeCount:traversed.visitedNodeCount,nominationCount:nominations.length,
-      staleRejectedCount:staleEdges.length,staleRejected:staleEdges.slice(0,32),
+      staleRejectedCount:staleEdges.length,staleRejected:staleEdges.slice(0,32),trustedSourceRevisionRefs:uniq(trustedSourceRevisionRefs),
       boundedOut:{edges:traversed.boundedEdges,nodes:traversed.boundedNodes,candidates:traversed.boundedCandidates},
       limits:{maxDepth:request.maxDepth,maxNodes:request.maxNodes,maxEdges:request.maxEdges,maxCandidates:request.maxCandidates,latencyBudgetMs:request.latencyBudgetMs},
       elapsedMs,latencyBudgetExceeded:elapsedMs>=request.latencyBudgetMs&&request.latencyBudgetMs>=0,

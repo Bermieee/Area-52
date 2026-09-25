@@ -7,6 +7,8 @@ const clone=(v)=>v==null?v:structuredClone(v);
 const uniq=(xs)=>[...new Set((xs??[]).filter(x=>typeof x==='string'&&x.trim()).map(x=>x.trim()))].sort();
 function freezeDeep(v){if(v&&typeof v==='object'&&!Object.isFrozen(v)){for(const x of Object.values(v))freezeDeep(x);Object.freeze(v);}return v;}
 const frozen=(v)=>freezeDeep(clone(v));
+const now=()=>globalThis.performance?.now?.()??Date.now();
+const latencyBudget=(context)=>Number.isFinite(Number(context?.latencyBudgetMs))?Math.max(0,Number(context.latencyBudgetMs)):null;
 
 export class RetrievalChannelRegistry{
   #channels=new Map();
@@ -68,8 +70,10 @@ export class RetrievalChannelRegistry{
 
   async retrieveAll({intents=[],context={},channelIds=null}={}){
     const rows=channelIds?uniq(channelIds).map(id=>this.#channels.get(id)).filter(Boolean):[...this.#channels.values()];
-    const nominations=[],unavailableChannels=[],degradedChannels=[],errors=[],channelReceipts=[];
+    const nominations=[],unavailableChannels=[],degradedChannels=[],errors=[],channelReceipts=[],skippedChannels=[];
+    const started=now(),budget=latencyBudget(context);
     for(const row of rows.sort((a,b)=>a.descriptor.channelId.localeCompare(b.descriptor.channelId))){
+      if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health});continue;}
       const id=row.descriptor.channelId;
       if(!row.available||[RetrievalChannelHealth.UNAVAILABLE,RetrievalChannelHealth.ERROR].includes(row.health)){
         unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0});continue;
@@ -91,13 +95,16 @@ export class RetrievalChannelRegistry{
       }
       channelReceipts.push({channelId:id,status,nominationCount:count,health:row.health});
     }
-    return frozen({nominations,unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),errors,channelReceipts});
+    const elapsedMs=Math.max(0,now()-started);
+    return frozen({nominations,unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),errors,channelReceipts,budgetReceipt:{kind:'RetrievalLatencyBudgetReceipt',latencyBudgetMs:budget,elapsedMs,skippedChannels:uniq(skippedChannels),budgetExceeded:budget!==null&&elapsedMs>=budget}});
   }
 
   retrieveAllSync({intents=[],context={},channelIds=null}={}){
     const rows=channelIds?uniq(channelIds).map(id=>this.#channels.get(id)).filter(Boolean):[...this.#channels.values()];
-    const nominations=[],unavailableChannels=[],degradedChannels=[],errors=[],channelReceipts=[];
+    const nominations=[],unavailableChannels=[],degradedChannels=[],errors=[],channelReceipts=[],skippedChannels=[];
+    const started=now(),budget=latencyBudget(context);
     for(const row of rows.sort((a,b)=>a.descriptor.channelId.localeCompare(b.descriptor.channelId))){
+      if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health});continue;}
       const id=row.descriptor.channelId;
       if(!row.available||[RetrievalChannelHealth.UNAVAILABLE,RetrievalChannelHealth.ERROR].includes(row.health)){
         unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0});continue;
@@ -120,7 +127,8 @@ export class RetrievalChannelRegistry{
       }
       channelReceipts.push({channelId:id,status,nominationCount:count,health:row.health});
     }
-    return frozen({nominations,unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),errors,channelReceipts});
+    const elapsedMs=Math.max(0,now()-started);
+    return frozen({nominations,unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),errors,channelReceipts,budgetReceipt:{kind:'RetrievalLatencyBudgetReceipt',latencyBudgetMs:budget,elapsedMs,skippedChannels:uniq(skippedChannels),budgetExceeded:budget!==null&&elapsedMs>=budget}});
   }
 
   manifest(){

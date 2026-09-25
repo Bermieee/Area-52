@@ -1,17 +1,18 @@
 {
   "name": "area-52",
-  "version": "0.4.0-lore-wave3",
+  "version": "0.5.0-lore-wave4",
   "private": true,
   "type": "module",
-  "description": "Area-52 native Lore Study, multi-resolution representations, hierarchy and contextual retrieval",
+  "description": "Area-52 native Lore Intelligence: exact-source study, semantic diff, multi-resolution compilation, lifecycle, and Brain retrieval",
   "scripts": {
-    "test": "node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs tests/lore-browser-safe.mjs",
+    "test": "node --test tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs tests/lore-wave4.mjs tests/lore-browser-safe.mjs",
     "test:wave1": "node --test tests/lore-wave1.mjs",
     "test:wave2": "node --test tests/lore-wave2.mjs",
     "test:wave3": "node --test tests/lore-wave3.mjs",
     "test:stress": "node tests/lore-wave1-stress.mjs && node tests/lore-wave2-stress.mjs && node tests/lore-wave3-stress.mjs",
     "test:stress:wave1": "node tests/lore-wave1-stress.mjs",
     "test:stress:wave2": "node tests/lore-wave2-stress.mjs",
-    "test:stress:wave3": "node tests/lore-wave3-stress.mjs"
+    "test:stress:wave3": "node tests/lore-wave3-stress.mjs",
+    "test:wave4": "node --test tests/lore-wave4.mjs"
   }
 }

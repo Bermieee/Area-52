@@ -100,7 +100,7 @@ export class CognitiveChoiceController{
   begin({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     hotSnapshot=null,worldRevision=0,sceneRevision=0,budgetBytes=null,deadline=null,channelIds=null,channelManifest=null,sceneContext=null,
-    candidateBudget=64,latencyBudgetMs=20,
+    candidateBudget=64,latencyBudgetMs=100,
   }={}){
     const startedAt=now();
     const requested=channelIds?.length?uniq(channelIds):uniq((channelManifest?.channels??[]).filter(x=>x.available!==false).map(x=>x.channelId));

@@ -79,7 +79,7 @@ export class TruthPublicationGate {
     });
   }
 
-  executeCorrective(assessment,{retrieval,anchorEntityIds=[],perspectiveConstraint=null,candidateBudget=64,latencyBudgetMs=20,graphTraversal=null}={}){
+  executeCorrective(assessment,{retrieval,anchorEntityIds=[],perspectiveConstraint=null,candidateBudget=64,latencyBudgetMs=100,graphTraversal=null}={}){
     const request=assessment.correctiveRequest;
     if(!request)return{assessment,candidates:[],executed:false,terminated:true};
     if(request.attempt>request.maxAttempts)return{assessment,candidates:[],executed:false,terminated:true};

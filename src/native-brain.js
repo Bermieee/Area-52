@@ -273,7 +273,7 @@ export class Area52NativeBrain{
     scene=null,sceneSignal=null,anchorEntityIds=[],perspectiveConstraint=null,
     budgetBytes=5000,budgetTokens=null,deadline=null,modelProfileId='CACHE_STABLE',
     systemPolicy=null,activeThreads=[],precisionAvailable=true,channelIds=null,
-    candidateBudget=64,latencyBudgetMs=20,graphTraversal=null,
+    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
     executionLabel='LIVE_HOST',
   }={}){
     const chat=req(chatId,'chatId'),turn=req(turnId,'turnId'),generation=req(generationId,'generationId'),q=req(query,'query');

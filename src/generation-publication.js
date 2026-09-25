@@ -46,7 +46,7 @@ export class GenerationPublicationPipeline {
   publish({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,perspectiveConstraint=null,
-    candidateBudget=64,latencyBudgetMs=20,graphTraversal=null,
+    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
   }){
     const fingerprint=stableHash({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,

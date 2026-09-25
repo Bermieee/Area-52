@@ -57,7 +57,7 @@ export class SensoryNetBackbone{
     return this.channelRegistry.register(provider);
   }
 
-  retrieveEnvelope(query,{intent='CURRENT',retrievalIntents=null,anchorEntityIds=[],worldRevision=this.graph?.revision??0,sceneRevision=0,channelIds=null,currentOwnerArtifacts=null,metadata={},candidateBudget=64,latencyBudgetMs=20,graphTraversal=null}={}){
+  retrieveEnvelope(query,{intent='CURRENT',retrievalIntents=null,anchorEntityIds=[],worldRevision=this.graph?.revision??0,sceneRevision=0,channelIds=null,currentOwnerArtifacts=null,metadata={},candidateBudget=64,latencyBudgetMs=100,graphTraversal=null}={}){
     const intents=(retrievalIntents?.length?retrievalIntents:[{intentId:'intent:'+stableHash({query,intent,anchorEntityIds},{length:16}),kind:intent,query,entityRefs:anchorEntityIds}])
       .map((row,index)=>row?.kind==='RetrievalIntent'?row:createRetrievalIntent({
         intentId:row.intentId??row.id??('intent:'+index+':'+stableHash(row,{length:12})),kind:row.kind??row.intentKind??intent,
@@ -83,7 +83,7 @@ export class SensoryNetBackbone{
     this.lastEnvelope=envelope;return envelope;
   }
 
-  async retrieveEnvelopeAsync(query,{intent='CURRENT',retrievalIntents=null,anchorEntityIds=[],worldRevision=this.graph?.revision??0,sceneRevision=0,channelIds=null,currentOwnerArtifacts=null,metadata={},candidateBudget=64,latencyBudgetMs=20,graphTraversal=null}={}){
+  async retrieveEnvelopeAsync(query,{intent='CURRENT',retrievalIntents=null,anchorEntityIds=[],worldRevision=this.graph?.revision??0,sceneRevision=0,channelIds=null,currentOwnerArtifacts=null,metadata={},candidateBudget=64,latencyBudgetMs=100,graphTraversal=null}={}){
     const intents=(retrievalIntents?.length?retrievalIntents:[{intentId:'intent:'+stableHash({query,intent,anchorEntityIds},{length:16}),kind:intent,query,entityRefs:anchorEntityIds}])
       .map((row,index)=>row?.kind==='RetrievalIntent'?row:createRetrievalIntent({
         intentId:row.intentId??row.id??('intent:'+index+':'+stableHash(row,{length:12})),kind:row.kind??row.intentKind??intent,

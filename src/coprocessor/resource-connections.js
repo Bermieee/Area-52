@@ -10,7 +10,7 @@ import { JevProviderExecutor, createJevCognitiveTask, createJevProviderInput } f
 import { emitTelemetry } from './telemetry.js';
 import { normalizeProviderUsageReceipt } from './usage-receipt.js';
 
-export const RESOURCE_CONNECTION_VERSION='1.2.0';
+export const RESOURCE_CONNECTION_VERSION='1.3.0';
 
 export const ResourceConnectionState=Object.freeze({
   CONFIGURED:'CONFIGURED',
@@ -159,6 +159,8 @@ export class CoprocessorResourceConnections{
       endpoint:safeEndpoint(endpoint),credentialConfigured:Boolean(input.apiKey),credentialRequired,credentialStorage:ResourceCredentialStorage.SESSION_MEMORY_ONLY,credentialVersion:Boolean(input.apiKey)?1:0,
       local,selectedModelQualified:kind===ResourceKind.DETERMINISTIC_LOCAL,qualifiedAt:kind===ResourceKind.DETERMINISTIC_LOCAL?at:null,actualModelId:kind===ResourceKind.DETERMINISTIC_LOCAL?modelId:null,actualProvider:null,
       modelSelectionMode:kind===ResourceKind.DETERMINISTIC_LOCAL?'LOCAL_DETERMINISTIC':'CONFIGURED_UNQUALIFIED',
+      qualifiedCapabilities:kind===ResourceKind.DETERMINISTIC_LOCAL?[...routableCapabilities]:[],
+      qualificationEvidence:kind===ResourceKind.DETERMINISTIC_LOCAL?deepFreeze({qualified:true,modelListed:null,transportProbe:'LOCAL_DETERMINISTIC',discoveryState:'UNSUPPORTED',contextLength:null,maxOutputTokens:null,inputModalities:[],outputModalities:[],supportedParameters:[],actualModelId:modelId,actualProvider:'LOCAL_DETERMINISTIC'}):null,
       modelDiscovery:createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode}),
       diagnostics:[],
     };
@@ -263,7 +265,7 @@ export class CoprocessorResourceConnections{
       throw new ProviderInvocationError(FailureCode.MODEL_DISCOVERY_UNSUPPORTED,'Load/Refresh Models must complete before selecting a model; manual entry is allowed only when discovery is unsupported',{providerId:row.providerId});
     }
     const adapter=this.adapters.get(row.providerId);adapter?.setModelId?.(value);this.profiles.setModelId(row.providerProfileId,value);row.modelId=value;
-    row.modelSelectionMode=found?'DISCOVERED':'MANUAL_FALLBACK';
+    row.modelSelectionMode=found?'DISCOVERED':'MANUAL_FALLBACK';row.qualifiedCapabilities=[];row.qualificationEvidence=found?qualificationEvidence(found,discovery.state,row.transportMode,{qualified:false}):null;
     this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.MODEL_SELECTED,reason:'Model selected; authenticated qualification is required.'});
     this.#diagnostic(row,'MODEL_SELECTED','Model selection updated.',{selectionMode:row.modelSelectionMode});
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_MODEL_SELECTED,{...this.#telemetryRow(row),selectionMode:row.modelSelectionMode});
@@ -288,6 +290,9 @@ export class CoprocessorResourceConnections{
       const adapter=this.adapters.get(row.providerId);const probe=await adapter.probe({signal,timeoutMs:this.privateConfig.get(row.resourceId)?.healthTimeoutMs});
       row.lastHealthCheckAt=this.now();row.lastHealthLatencyMs=finiteOrNull(probe?.latencyMs??(this.now()-started));row.lastHealthResult='PASS';
       row.connectedAt=this.now();row.disconnectedAt=null;row.selectedModelQualified=true;row.qualifiedAt=this.now();row.actualModelId=probe?.modelId??row.modelId;row.actualProvider=probe?.actualProvider??null;
+      const discovered=(row.modelDiscovery?.models??[]).find(model=>model.id===row.modelId)??null;
+      row.qualifiedCapabilities=[...row.routableCapabilities];
+      row.qualificationEvidence=qualificationEvidence(discovered,probe?.discoveryState??row.modelDiscovery?.state,row.transportMode,{qualified:true,actualModelId:row.actualModelId,actualProvider:row.actualProvider});
       row.state=probe?.degraded?ResourceConnectionState.DEGRADED:ResourceConnectionState.READY;
       row.reasonCode=ResourceConnectionReason.HEALTH_CHECK_PASSED;row.reason=probe?.degraded?'Authenticated model qualification passed in degraded mode.':'Authenticated model qualification passed.';
       this.profiles.setAvailability(row.providerProfileId,true);this.profiles.setHealth(row.providerProfileId,probe?.degraded?'DEGRADED':'HEALTHY');
@@ -308,7 +313,7 @@ export class CoprocessorResourceConnections{
     for(const controller of this.controllers.get(resourceId)??[])if(!controller.signal.aborted)controller.abort('resource-disconnected');
     this.controllers.delete(resourceId);
     row.state=ResourceConnectionState.DISCONNECTED;row.reasonCode=ResourceConnectionReason.OPERATOR_DISCONNECT;row.reason=safeMessage(reason);row.disconnectedAt=this.now();
-    row.selectedModelQualified=false;row.qualifiedAt=null;
+    row.selectedModelQualified=false;row.qualifiedAt=null;row.qualifiedCapabilities=[];
     row.activeExecutions=0;this.profiles.setLoad(row.providerProfileId,0);this.profiles.setAvailability(row.providerProfileId,false);this.profiles.setHealth(row.providerProfileId,'UNAVAILABLE');
     this.health.setManualDisabled(row.providerProfileId,true,{now:this.now()});
     this.#diagnostic(row,'DISCONNECTED',row.reason);emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_DISCONNECTED,this.#telemetryRow(row));this.#notify('RESOURCE_DISCONNECTED',row);
@@ -374,6 +379,27 @@ export class CoprocessorResourceConnections{
     }
   }
 
+  routeQualifiedProviders(task,{maxProviders=8,maxCostClass='HIGH',preferLocal=false}={}){
+    if(!task||task.kind!=='CognitiveTask')throw new TypeError('CognitiveTask is required for qualified routing');
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:0,maxCostClass,preferLocal,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+      .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
+      .slice(0,Math.max(1,Number(maxProviders)||1));
+    return deepFreeze({
+      kind:'QualifiedCapabilityRoute',contractVersion:RESOURCE_CONNECTION_VERSION,
+      taskContract:projectCognitiveTaskContract(task),
+      candidates:eligible.map((profile,index)=>{
+        const row=this.#resourceByProfile(profile.profileId);
+        return {
+          rank:index+1,resourceId:row.resourceId,providerProfileId:profile.profileId,providerId:profile.providerId,workerId:profile.workerId,
+          requestedModelId:profile.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,
+          capabilities:[...(row.qualifiedCapabilities?.length?row.qualifiedCapabilities:profile.capabilities)],
+          qualification:clone(row.qualificationEvidence),health:profile.providerHealth??profile.health,availability:profile.availability,
+        };
+      }),
+      authority:'NONE',truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,finalChoiceAuthority:false,
+    });
+  }
+
   async executeTask(task,{input={},profileId=null,signal=null,attempt=1,maxCostClass='HIGH'}={}){
     const eligible=this.profiles.eligibleProfiles(task,{contextTokens:0,maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)));
@@ -412,13 +438,15 @@ export class CoprocessorResourceConnections{
       const profile=eligible[index];
       try{
         const result=await this.executeTask(task,{input,profileId:profile.profileId,signal,attempt:attempt+index,maxCostClass});
-        attempts.push(Object.freeze({profileId:profile.profileId,providerId:profile.providerId,status:'SUCCESS',failureCode:null}));
-        return Object.freeze({kind:'ConnectedResourceFallbackExecution',status:index?'FALLBACK':'SUCCESS',result,attempts:Object.freeze(attempts),authority:'NONE'});
+        attempts.push(Object.freeze({profileId:profile.profileId,providerId:profile.providerId,resourceId:profile.profileMetadata?.resourceId??null,modelId:profile.modelId,status:'SUCCESS',failureCode:null}));
+        if(index>0)emitTelemetry(this.telemetry,TelemetryEvent.FALLBACK_USED,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:index+1,providerProfileId:profile.profileId,providerId:profile.providerId,resourceId:profile.profileMetadata?.resourceId??null});
+        return Object.freeze({kind:'ConnectedResourceFallbackExecution',status:index?'FALLBACK':'SUCCESS',taskContract:projectCognitiveTaskContract(task),result,attempts:Object.freeze(attempts),authority:'NONE'});
       }catch(error){
-        lastError=error;attempts.push(Object.freeze({profileId:profile.profileId,providerId:profile.providerId,status:'FAIL',failureCode:error?.code??FailureCode.PROVIDER_FAILURE}));
+        lastError=error;attempts.push(Object.freeze({profileId:profile.profileId,providerId:profile.providerId,resourceId:profile.profileMetadata?.resourceId??null,modelId:profile.modelId,status:'FAIL',failureCode:error?.code??FailureCode.PROVIDER_FAILURE}));
+        if(index+1<eligible.length)emitTelemetry(this.telemetry,TelemetryEvent.RETRY,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:index+2,failedProviderProfileId:profile.profileId,failedProviderId:profile.providerId,failureCode:error?.code??FailureCode.PROVIDER_FAILURE});
       }
     }
-    return Object.freeze({kind:'ConnectedResourceFallbackExecution',status:'FAILED',result:null,attempts:Object.freeze(attempts),failure:Object.freeze({code:lastError?.code??FailureCode.CAPABILITY_UNAVAILABLE,message:safeMessage(lastError?.message??'No connected provider succeeded.')}),authority:'NONE'});
+    return Object.freeze({kind:'ConnectedResourceFallbackExecution',status:'FAILED',taskContract:projectCognitiveTaskContract(task),result:null,attempts:Object.freeze(attempts),failure:Object.freeze({code:lastError?.code??FailureCode.CAPABILITY_UNAVAILABLE,message:safeMessage(lastError?.message??'No connected provider succeeded.')}),authority:'NONE'});
   }
 
   createJevProviderExecutor(options={}){
@@ -472,6 +500,7 @@ export class CoprocessorResourceConnections{
   readResource(resourceId){
     const row=this.#row(resourceId);const profile=this.profiles.get(row.providerProfileId);const health=this.health.snapshot(row.providerProfileId);
     const callable=Boolean(this.adapters.get(row.providerId)&&this.#isExecutable(row)&&row.selectedModelQualified);
+    const physicalExecutionAttempted=Boolean(row.lastExecution);const physicalExecutionSucceeded=row.lastExecution?.status==='SUCCESS';
     return deepFreeze({
       kind:'CoprocessorResourceReadModel',contractVersion:RESOURCE_CONNECTION_VERSION,resourceId:row.resourceId,displayName:row.displayName,kind:row.kind,
       state:row.state,reasonCode:row.reasonCode,reason:row.reason,providerProfileId:row.providerProfileId,providerId:row.providerId,modelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,workerId:row.workerId,
@@ -479,7 +508,10 @@ export class CoprocessorResourceConnections{
       measurementClass:row.measurementClass,configuredAt:row.configuredAt,connectedAt:row.connectedAt,disconnectedAt:row.disconnectedAt,qualifiedAt:row.qualifiedAt,selectedModelQualified:Boolean(row.selectedModelQualified),modelSelectionMode:row.modelSelectionMode,
       lastHealthCheckAt:row.lastHealthCheckAt,lastHealthLatencyMs:row.lastHealthLatencyMs,lastHealthResult:row.lastHealthResult,
       endpoint:row.endpoint,credentialConfigured:row.credentialConfigured,credentialRequired:row.credentialRequired,credentialStorage:row.credentialStorage,credentialVersion:row.credentialVersion,
-      modelDiscovery:clone(row.modelDiscovery),local:row.local,connected:callable,maxConcurrency:row.maxConcurrency,activeExecutions:row.activeExecutions,
+      modelDiscovery:clone(row.modelDiscovery),local:row.local,configured:true,connected:callable,maxConcurrency:row.maxConcurrency,activeExecutions:row.activeExecutions,
+      qualifiedCapabilities:callable?[...(row.qualifiedCapabilities?.length?row.qualifiedCapabilities:profile?.capabilities??[])]:[],
+      qualification:deepFreeze({qualified:Boolean(row.selectedModelQualified),qualifiedAt:row.qualifiedAt,modelSelectionMode:row.modelSelectionMode,evidence:clone(row.qualificationEvidence)}),
+      physicalExecutionAttempted,physicalExecutionSucceeded,ownerAccepted:null,ownerAcceptanceSource:'OWNER_RECEIPT_REQUIRED',
       health:health.health,availability:profile?.availability??'UNAVAILABLE',currentLoad:profile?.currentLoad??row.activeExecutions,
       lastTest:clone(row.lastTest),lastExecution:clone(row.lastExecution),lastFailure:clone(row.lastFailure),diagnostics:deepFreeze(row.diagnostics.map(clone)),
       callable,authority:'NONE',truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,
@@ -516,7 +548,8 @@ export class CoprocessorResourceConnections{
   #resourceByProfile(profileId){for(const row of this.resources.values())if(row.providerProfileId===profileId)return row;return null;}
   #isExecutable(row){return Boolean(row&&row.selectedModelQualified&&[ResourceConnectionState.READY,ResourceConnectionState.DEGRADED].includes(row.state));}
   #invalidateQualification(row,{reasonCode=ResourceConnectionReason.NOT_READY,reason='Resource qualification invalidated.',unavailable=false}={}){
-    row.selectedModelQualified=false;row.qualifiedAt=null;row.actualModelId=null;row.actualProvider=null;row.connectedAt=null;
+    row.selectedModelQualified=false;row.qualifiedAt=null;row.actualModelId=null;row.actualProvider=null;row.connectedAt=null;row.qualifiedCapabilities=[];
+    if(row.qualificationEvidence)row.qualificationEvidence=deepFreeze({...row.qualificationEvidence,qualified:false,actualModelId:null,actualProvider:null,transportProbe:'PENDING'});
     row.state=unavailable?ResourceConnectionState.UNAVAILABLE:ResourceConnectionState.CONFIGURED;row.reasonCode=reasonCode;row.reason=reason;row.lastHealthResult=null;
     this.profiles.setAvailability(row.providerProfileId,false);this.profiles.setHealth(row.providerProfileId,'UNAVAILABLE');this.health.setManualDisabled(row.providerProfileId,true,{now:this.now()});
   }
@@ -526,6 +559,30 @@ export class CoprocessorResourceConnections{
   }
   #telemetryRow(row){return{resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,modelId:row.modelId,actualModelId:row.actualModelId??null,providerFamily:row.providerIdentity?.family??null,transportMode:row.transportMode,state:row.state,reasonCode:row.reasonCode,measurementClass:row.measurementClass,capabilities:[...row.routableCapabilities],activeExecutions:row.activeExecutions,maxConcurrency:row.maxConcurrency,local:row.local,credentialConfigured:row.credentialConfigured,selectedModelQualified:Boolean(row.selectedModelQualified)};}
   #notify(type,row){const event=deepFreeze({kind:'CoprocessorResourceConnectionEvent',sequence:++this.sequence,type,resource:this.readResource(row.resourceId)});for(const listener of this.subscribers){try{listener(event);}catch{}}}
+}
+
+export function projectCognitiveTaskContract(task){
+  if(!task||task.kind!=='CognitiveTask')throw new TypeError('CognitiveTask is required');
+  const {
+    schemaVersion,kind,taskId,taskType,turnId,correlationId,causationId,requiredCapabilities,optionalCapabilities,fallbackCapabilities,
+    capabilityRequests,fallbackCapabilitySets,cognitiveLayer,resultClass,inputRevisionSet,sceneRevision,worldRevision,sourceRevisionSet,
+    characterStateRevision,softDeadline,hardDeadline,batchMetadata,outputSchema,dedupeKey,fallbackPolicy,placement,contextSealPolicy,
+    compilerLane,intentFingerprint,metadata,
+  }=task;
+  return deepFreeze(clone({schemaVersion,kind,taskId,taskType,turnId,correlationId,causationId,requiredCapabilities,optionalCapabilities,fallbackCapabilities,
+    capabilityRequests,fallbackCapabilitySets,cognitiveLayer,resultClass,inputRevisionSet,sceneRevision,worldRevision,sourceRevisionSet,
+    characterStateRevision,softDeadline,hardDeadline,batchMetadata,outputSchema,dedupeKey,fallbackPolicy,placement,contextSealPolicy,
+    compilerLane,intentFingerprint,metadata}));
+}
+
+function qualificationEvidence(model,discoveryState,transportMode,{qualified=false,actualModelId=null,actualProvider=null}={}){
+  return deepFreeze({
+    qualified:Boolean(qualified),modelListed:model?true:discoveryState===ResourceModelDiscoveryState.UNSUPPORTED?null:false,
+    discoveryState:discoveryState??null,transportMode,transportProbe:qualified?'PASS':'PENDING',
+    contextLength:finiteOrNull(model?.contextLength),maxOutputTokens:finiteOrNull(model?.maxOutputTokens),
+    inputModalities:[...(model?.inputModalities??[])],outputModalities:[...(model?.outputModalities??[])],
+    supportedParameters:[...(model?.supportedParameters??[])],actualModelId:actualModelId??null,actualProvider:actualProvider??null,
+  });
 }
 
 function createAdapter(kind,input){

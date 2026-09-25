@@ -2,8 +2,8 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
-  const releases=[],connectionDrafts=createConnectionDraftStore();
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,diagnostics=null,actionRouter=null,cognition=null,frontFacePresentation=null}={}){
+  const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
   if(registry.has('home')){
     const current=registry.get('home');
     registry.update('home',{render(host,ctx){current.render?.(host,ctx);if(operations)renderOperationalSummary(host,{...ctx,operations});}});
@@ -27,12 +27,15 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   });
   if(registry.has('lore')){
     const current=registry.get('lore');
-    registry.update('lore',{render(host,ctx){renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});}});
+    registry.update('lore',{render(host,ctx){
+      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
+      renderLoreAuthoringSurface(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
+    }});
   }
   return()=>{for(const release of releases)try{release();}catch{}};
 }
 
-export function registerWave13OperatorActions(actionRouter,{resources=null,loreStudy=null}={}){
+export function registerWave13OperatorActions(actionRouter,{resources=null,loreStudy=null,loreAuthoring=null}={}){
   const releases=[];
   if(resources){
     releases.push(actionRouter.registerSubsystem('wave13-resources',async(action)=>{
@@ -55,6 +58,18 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
     }));
     releases.push(actionRouter.registerAction('wave13.lore.accept',{subsystem:'wave13-lore'}));
     releases.push(actionRouter.registerAction('wave13.lore.run',{subsystem:'wave13-lore'}));
+  }
+  if(loreAuthoring){
+    releases.push(actionRouter.registerSubsystem('wave13-lore-authoring',async(action)=>{
+      if(action.type==='wave13.loreAuthoring.discover')return loreAuthoring.sourceDiscoveryIdentity(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.previewEdit')return loreAuthoring.previewEditImpact(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.proposeTree')return loreAuthoring.proposeTree(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.previewMerge')return loreAuthoring.previewMerge(action.payload??{});
+      throw new Error('Unsupported Wave 13 Lore authoring action');
+    }));
+    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge']){
+      releases.push(actionRouter.registerAction(type,{subsystem:'wave13-lore-authoring'}));
+    }
   }
   return()=>{for(const release of releases.reverse())try{release?.();}catch{}};
 }
@@ -554,6 +569,128 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(!caps.accept)form.append(message(d,'Acceptance action unavailable','Worker 4 must export its Lore operator acceptance contract through the host binding.','offline'));
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Do not treat acceptance as retrieval readiness.','warning'));
   host.append(form);
+}
+
+export function renderLoreAuthoringSurface(host,{loreStudy,loreAuthoring,actionRouter,scope,refresh,productAdapter,draft=null}={}){
+  const d=host.ownerDocument,section=element(d,'section',{className:'a52-wave13-lore-authoring',attrs:{'aria-label':'Lore authoring review'}});
+  section.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h2',{text:'Lore authoring review'}),makeBadge(d,'PREVIEW ONLY','historical')),
+    element(d,'p',{className:'a52-muted',text:'Review exact source identity, edit impact, Tree proposals, and merge reconciliation from the Lore owner. These controls do not mutate Lore or Tree state.'}));
+  if(!loreAuthoring){
+    section.append(message(d,'Authoring contract unavailable','Worker 4 Lore authoring is not exported by this assembly. Study and retrieval remain separate from authoring review.','offline'));host.append(section);return;
+  }
+  const caps=loreAuthoring.capabilities(),state=draft??createLoreAuthoringDraftStore(),snapshot=loreAuthoring.snapshot?.()??{last:{}};
+  const discovery=operatorValue(snapshot.last?.discovery),books=discovery?.books??[];
+  const actions=element(d,'div',{className:'a52-inline-status'});
+  actions.append(createButton(d,{label:books.length?'Refresh authoring sources':'Load authoring sources',scope,size:'sm',variant:'quiet',disabled:!caps.discovery,onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.loreAuthoring.discover',payload:{}});
+    state.status=operatorRouteMessage(result,'Source identity loaded.');refresh?.();
+  }}));
+  section.append(actions);
+  if(!caps.discovery)section.append(message(d,'Source identity unavailable','Worker 4 sourceDiscoveryIdentity() is not exported. No authoring preview will invent source identity.','offline'));
+  if(!books.length){
+    section.append(message(d,'No authoring sources loaded',state.status||'Load Worker 4’s persisted source identities after the selected Lorebook has been accepted and studied.','historical'));host.append(section);return;
+  }
+
+  const currentBookId=state.bookId&&books.some(x=>x.lorebookId===state.bookId)?state.bookId:(loreStudy?.selectedLorebook?.().snapshot?.id&&books.some(x=>x.lorebookId===loreStudy.selectedLorebook().snapshot.id)?loreStudy.selectedLorebook().snapshot.id:books[0].lorebookId);
+  state.bookId=currentBookId;
+  const book=books.find(x=>x.lorebookId===currentBookId)??books[0],sources=book.sources??[];
+  if(!state.sourceId||!sources.some(x=>x.sourceId===state.sourceId))state.sourceId=sources[0]?.sourceId??null;
+  const source=sources.find(x=>x.sourceId===state.sourceId)??null;
+  const selectedSnapshot=loreStudy?.selectedLorebook?.().snapshot??null;
+  const exactEntry=selectedSnapshot?.id===book.lorebookId?selectedSnapshot.entries?.find(x=>String(x.uid)===String(source?.uid)):null;
+  if(state.contentSourceId!==source?.sourceId){
+    state.contentSourceId=source?.sourceId??null;state.editContent=exactEntry?.content??'';
+  }
+
+  const identity=element(d,'section',{className:'a52-card'});
+  identity.append(element(d,'h3',{text:'1. Source identity'}),createKeyValue(d,[
+    {key:'Lorebook',value:book.title??book.lorebookId},{key:'Persisted discovery receipt',value:book.discoveryIdentityPersisted?'Yes':'No'},
+    {key:'Sources',value:sources.length},{key:'Current source',value:source?.metadata?.title??source?.uid??'none'},
+  ]));
+  const bookSelect=field(d,'select','Authoring lorebook');for(const row of books)bookSelect.append(option(d,row.lorebookId,row.title??row.lorebookId));bookSelect.value=book.lorebookId;
+  const sourceSelect=field(d,'select','Authoring source');for(const row of sources)sourceSelect.append(option(d,row.sourceId,row.metadata?.title??row.uid??row.sourceId));sourceSelect.value=source?.sourceId??'';
+  listenField(scope,bookSelect,'change',()=>{state.bookId=bookSelect.value;state.sourceId=null;state.contentSourceId=null;refresh?.();});
+  listenField(scope,sourceSelect,'change',()=>{state.sourceId=sourceSelect.value;state.contentSourceId=null;refresh?.();});
+  identity.append(labelWrap(d,'Lorebook',bookSelect),labelWrap(d,'Source',sourceSelect));
+  if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED&&source)identity.append(createKeyValue(d,[
+    {key:'Source ID',value:source.sourceId},{key:'Source revision',value:source.sourceRevisionId},{key:'Content hash',value:source.contentHash},{key:'UID',value:source.uid},
+  ]));
+  section.append(identity);
+
+  const edit=element(d,'section',{className:'a52-card'});
+  edit.append(element(d,'h3',{text:'2. Edit-impact preview'}),element(d,'p',{className:'a52-muted',text:'Edit a local copy of the exact selected SillyTavern entry, then ask Worker 4 what would change. No source revision is applied.'}));
+  const textarea=field(d,'textarea','Proposed authored content',{rows:'7',placeholder:exactEntry?'Edit this exact authored text to preview impact.':'Select this Lorebook in SillyTavern and refresh it before previewing an edit.'});textarea.value=state.editContent??'';
+  listenField(scope,textarea,'input',()=>{state.editContent=String(textarea.value??'');});
+  const previewEdit=createButton(d,{label:'Preview edit impact',scope,disabled:!caps.previewEdit||!source||!String(state.editContent??'').trim(),onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.loreAuthoring.previewEdit',payload:{sourceId:source.sourceId,content:String(state.editContent??'')}});
+    state.status=operatorRouteMessage(result,'Edit impact preview ready.');refresh?.();
+  }});
+  edit.append(textarea,previewEdit);
+  if(!exactEntry)edit.append(message(d,'Exact authored text not loaded','The authoring identity contract proves the source, but this UI only pre-fills editable text from the currently selected SillyTavern Lorebook. Select that book and reload it instead of editing guessed content.','warning'));
+  const editPreview=operatorValue(loreAuthoring.snapshot?.().last?.edit);
+  if(editPreview){
+    const change=editPreview.semanticChange??{},claims=change.claims??{},rels=change.relationships??{},plan=change.invalidationPlan??{};
+    edit.append(message(d,'Preview only','Worker 4 evaluated a proposed revision without mutating the original Lore service.','ready'),createKeyValue(d,[
+      {key:'Claims added / altered / superseded',value:[claims.added?.length??0,claims.altered?.length??0,claims.superseded?.length??0].join(' / ')},
+      {key:'Relationships added / removed',value:[rels.added?.length??0,rels.removed?.length??0].join(' / ')},
+      {key:'Unrelated ready sources remain ready',value:editPreview.allPreviouslyReadyUnrelatedSourcesRemainReady?'Yes':'No'},
+      {key:'Invalidation targets',value:(plan.targets??[]).map(x=>x.target??x).join(', ')||'None reported'},
+    ]));
+    if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED)edit.append(createKeyValue(d,[{key:'Base revision',value:editPreview.baseSourceRevisionId},{key:'Proposed revision',value:editPreview.proposedSourceRevisionId}]));
+  }
+  section.append(edit);
+
+  const tree=element(d,'section',{className:'a52-card'});
+  tree.append(element(d,'h3',{text:'3. Tree Builder proposal'}),element(d,'p',{className:'a52-muted',text:'Tree placement is a navigation proposal, not semantic truth and not a mutation.'}));
+  tree.append(createButton(d,{label:'Preview Tree proposal',scope,disabled:!caps.tree,onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.loreAuthoring.proposeTree',payload:{lorebookIds:[book.lorebookId]}});
+    state.status=operatorRouteMessage(result,'Tree proposal ready.');refresh?.();
+  }}));
+  const treePlan=operatorValue(loreAuthoring.snapshot?.().last?.tree);
+  if(treePlan){
+    tree.append(createKeyValue(d,[{key:'Proposals',value:treePlan.proposals?.length??0},{key:'Review items',value:treePlan.reviewItems?.length??0},{key:'Revision fence',value:(treePlan.sourceRevisionFence??[]).length+' source revisions'},{key:'Mutation authority',value:treePlan.mutationAuthority?'Granted':'Not granted'}]));
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const row of (treePlan.proposals??[]).slice(0,20)){
+      const item=element(d,'article',{className:'a52-wave13-flow-row'});item.append(makeBadge(d,humanLabel(row.state??'NEEDS_REVIEW'),flowStatus(row.state)),element(d,'strong',{text:humanLabel(row.action)}),element(d,'span',{text:row.rationale??'Review proposal'}));list.append(item);
+    }
+    if(treePlan.proposals?.length)tree.append(list);
+    if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED)tree.append(createKeyValue(d,[{key:'Plan ID',value:treePlan.planId},{key:'Source revision fence',value:(treePlan.sourceRevisionFence??[]).join(', ')||'none'}]));
+  }
+  section.append(tree);
+
+  const merge=element(d,'section',{className:'a52-card'});
+  merge.append(element(d,'h3',{text:'4. Merge / reconciliation preview'}),element(d,'p',{className:'a52-muted',text:'Compare two studied Lorebooks while preserving contradictions and unique facts. Similarity is advisory only.'}));
+  const secondSelect=field(d,'select','Merge comparison lorebook');const otherBooks=books.filter(x=>x.lorebookId!==book.lorebookId);secondSelect.append(option(d,'','Choose second Lorebook'));for(const row of otherBooks)secondSelect.append(option(d,row.lorebookId,row.title??row.lorebookId));secondSelect.value=state.mergeBookId??'';
+  listenField(scope,secondSelect,'change',()=>{state.mergeBookId=secondSelect.value;});
+  merge.append(labelWrap(d,'Compare with',secondSelect),createButton(d,{label:'Preview merge reconciliation',scope,disabled:!caps.merge||!state.mergeBookId,onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.loreAuthoring.previewMerge',payload:{lorebookIds:[book.lorebookId,state.mergeBookId]}});
+    state.status=operatorRouteMessage(result,'Merge preview ready.');refresh?.();
+  }}));
+  const mergePreview=operatorValue(loreAuthoring.snapshot?.().last?.merge);
+  if(mergePreview){
+    const cls=mergePreview.classifications??{},validation=mergePreview.validation??{};
+    merge.append(createKeyValue(d,[
+      {key:'Unique semantic facts retained',value:validation.retainedEverySemanticFact?'Yes':'No'},
+      {key:'Every current source mapped',value:validation.mappedEveryCurrentSource?'Yes':'No'},
+      {key:'Contradictions kept separate',value:validation.preservedContradictionsSeparately?'Yes':'No'},
+      {key:'Exact duplicates',value:cls.exactDuplicates?.length??0},{key:'Likely overlap',value:cls.likelyOverlap?.length??0},
+      {key:'Complementary',value:cls.complementary?.length??0},{key:'Title/key collisions',value:cls.titleKeyCollisions?.length??0},{key:'Unresolved contradictions',value:cls.unresolvedContradictions?.length??0},
+    ]));
+    if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED)merge.append(createKeyValue(d,[{key:'Preview ID',value:mergePreview.previewId},{key:'Source revision fence',value:(mergePreview.sourceRevisionFence??[]).join(', ')||'none'}]));
+  }
+  merge.append(message(d,'No destructive Apply action','Worker 4 Wave 6 publishes review-only previews. Settlement-backed destructive application is not integrated or verified, so Area-52 intentionally offers no Apply button.','historical'));
+  section.append(merge);
+  if(state.status)section.append(element(d,'p',{className:'a52-wave13-form-status',text:state.status,attrs:{role:'status','aria-live':'polite'}}));
+  host.append(section);
+}
+
+function createLoreAuthoringDraftStore(){return{bookId:null,sourceId:null,contentSourceId:null,editContent:'',mergeBookId:null,status:''};}
+function operatorValue(result){return result?.ok===true?result.value??null:null;}
+function operatorRouteMessage(route,success){
+  if(!route?.ok)return'UI routing failed: '+String(route?.error??'unknown error');
+  const owner=route.result;
+  if(owner?.ok===false)return'Owner preview failed: '+String(owner.error?.message??owner.error?.code??'unknown error');
+  return success;
 }
 
 function renderLoreEntries(d,entries,scope,{showIds=false}={}){

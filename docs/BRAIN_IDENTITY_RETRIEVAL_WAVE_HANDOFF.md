@@ -26,7 +26,7 @@ Graph read-only UI receipt: `uiBindings().readGraphTraversal(selection)`. Stale 
 
 ## Retrieval and budget receipts for Worker 3
 
-Worker 3 should treat these as read-only diagnostics for the same stable turn/generation selection:
+Worker 3 should treat these as read-only diagnostics for the same stable turn/generation selection. On the current main host, `src/deployment/sillytavern-live.js#uiHostBindings` already forwards the older Native Brain receipt set but its `nativeKeys` allowlist does not yet include the four new wave receipts. Integration should add `readIdentityResolution`, `readGraphTraversal`, `readRetrievalBudget`, and `readRejectedEvidence` to that allowlist without changing their read-only authority.
 
 - `readCognitiveChoice`: why Hot/retrieval/Graph/Jev work was admitted or skipped.
 - `readSensoryTrace` / `readCandidateBusEnvelope` / `readCandidateFusionReceipt`: bounded native nominations and deduplication.

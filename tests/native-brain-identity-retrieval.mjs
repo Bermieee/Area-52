@@ -94,6 +94,16 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
   assert.equal(brain.settleEntityIdentity(modelGuess.proposalId,{decision:'ACCEPT'}).state,'DEFERRED');
   assert.equal(brain.core.entities.resolveSource({providerId:'MODEL',sourceEntityId:'guess:ash'}),null);
 
+  const graphGuess=brain.proposeEntityIdentity({
+    action:'LINK',providerId:'GRAPH_WALKER',sourceEntityId:'graph-neighbor:ash',label:'Ash',
+    targetEntityId:'entity:aster:ash',worldId:'world:aster',entityType:'PERSON',
+    authorityOrigin:'GRAPH_PROXIMITY',explicit:false,confidence:1,
+    provenanceRefs:['graph:path:proximity-only'],
+  });
+  assert.equal(graphGuess.recommendation,'DEFER');
+  assert.equal(brain.settleEntityIdentity(graphGuess.proposalId,{decision:'ACCEPT'}).state,'DEFERRED');
+  assert.equal(brain.core.entities.resolveSource({providerId:'GRAPH_WALKER',sourceEntityId:'graph-neighbor:ash'}),null);
+
   for(const action of ['MERGE','SPLIT']){
     const ownerBound=brain.proposeEntityIdentity({
       action,providerId:'LORE_ASTER',targetEntityId:'entity:aster:ash',label:'Ash',worldId:'world:aster',entityType:'PERSON',

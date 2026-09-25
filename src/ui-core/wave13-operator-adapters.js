@@ -97,6 +97,8 @@ export class Wave13LoreStudyUIAdapter{
     this.host=bindings.loreStudyHost??bindings.loreHost??null;
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
     this.readFn=fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus'])??fn(this.host?.read,['surface','status','loreStudy']);
+    this.selectionFn=fn(bindings,['readSelectedLorebookSelection']);
+    this.discoverFn=fn(bindings,['discoverSelectedLorebook']);
     this.acceptFn=fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook'])??fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook']);
     this.runFn=fn(bindings,['runLoreStudy','startLoreStudy','runDueLoreStudy'])??fn(this.host?.actions,['runLoreStudy','startLoreStudy','runDueLoreStudy']);
     this.retryFn=fn(bindings,['retryLoreStudy'])??fn(this.host?.actions,['retryLoreStudy']);
@@ -106,9 +108,22 @@ export class Wave13LoreStudyUIAdapter{
       this.acceptFn??=(input)=>this.runtime.ingestLorebook(input);
       this.runFn??=(input)=>runLoreRuntime(this.runtime,input);
     }
-    this.lastAction=null;this.lastError=null;
+    this.lastAction=null;this.lastError=null;this.discoveredLorebook=null;
   }
-  capabilities(){return deepFreeze({read:Boolean(this.readFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.readFn),discover:Boolean(this.discoverFn),accept:Boolean(this.acceptFn),run:Boolean(this.runFn),retry:Boolean(this.retryFn),subscribe:Boolean(this.subscribeFn)});}
+  selectedLorebook(){
+    const selected=safeRead(this.selectionFn,null);
+    return deepFreeze({selection:cloneSafe(selected),snapshot:cloneSafe(this.discoveredLorebook)});
+  }
+  async discoverSelectedLorebook(){
+    this.lastError=null;
+    if(!this.discoverFn){const e=new Error('SillyTavern selected-Lorebook discovery is not exported by the host.');e.code='LORE_DISCOVERY_UNAVAILABLE';this.lastError=e;throw e;}
+    try{
+      const result=await this.discoverFn();
+      this.discoveredLorebook=cloneSafe(result);this.lastAction={type:'DISCOVER',result:cloneSafe(result?.discovery??null)};
+      return cloneSafe(result);
+    }catch(error){this.lastError=error;throw error;}
+  }
   read(){
     const selection=this.selectionProvider?.()??{};
     if(!this.readFn)return unavailable('Lore Study','Lore Study read contract is not exported by the host assembly.','LoreStudyRuntime');
@@ -420,13 +435,22 @@ function normalizeLoreSurface(raw){
   const x=raw.study?.kind==='LorePublicIntegrationSurface'?raw.study:raw.kind==='LorePublicIntegrationSurface'?raw:raw.publicSurface??raw.study??raw;
   const entries=(x.entries??[]).map(row=>({
     sourceId:row.sourceId??null,lorebookId:row.lorebookId??null,uid:row.uid??null,sourceRevisionId:row.sourceRevisionId??null,sourceState:row.sourceState??null,
-    learnedRevisionId:row.learnedRevisionId??null,freshness:row.freshness??'STALE_OR_UNLEARNED',artifactIds:[...(row.artifactIds??[])],
+    learnedRevisionId:row.learnedRevisionId??null,freshness:row.freshness??'STALE_OR_UNLEARNED',operatorState:row.operatorState??null,
+    studyState:row.studyState??null,studyObligationId:row.studyObligationId??null,studyAttempts:Number(row.studyAttempts??0),studyError:cloneSafe(row.studyError??null),
+    representationReady:Boolean(row.representationReady),retrievalReady:Boolean(row.retrievalReady),compileFailure:cloneSafe(row.compileFailure??null),
+    artifactIds:[...(row.artifactIds??[])],
     retrievalRepresentations:(row.retrievalRepresentations??[]).map(rep=>({artifactId:rep.artifactId,sourceRevisionId:rep.sourceRevisionId,authorityClass:rep.authorityClass,temporalClass:rep.temporalClass,unresolved:Boolean(rep.unresolved),provenance:cloneSafe(rep.provenance)})),
   }));
+  const operatorCounts={ACCEPTED:0,STUDYING:0,READY:0,FAILED:0,REMOVED:0};
+  for(const row of entries){
+    const state=row.operatorState??(row.sourceState==='REMOVED'?'REMOVED':row.learnedRevisionId&&row.freshness==='CURRENT'?'READY':row.studyState==='FAILED'||row.studyState==='INVALID'?'FAILED':row.studyState?'STUDYING':'ACCEPTED');
+    row.operatorState=state;if(Object.hasOwn(operatorCounts,state))operatorCounts[state]+=1;
+  }
   return{
-    kind:'Wave13LoreStudySurface',entries,artifacts:(x.artifacts??[]).map(a=>({artifactId:a.artifactId,artifactType:a.artifactType,sourceId:a.sourceId,sourceRevisionId:a.sourceRevisionId,temporalClass:a.temporalClass,authorityClass:a.authorityClass,freshness:a.freshness,unresolved:Boolean(a.unresolved),provenance:cloneSafe(a.provenance)})),
+    kind:'Wave13LoreStudySurface',entries,operatorCounts:{...operatorCounts,...cloneSafe(x.counts??{})},
+    artifacts:(x.artifacts??[]).map(a=>({artifactId:a.artifactId,artifactType:a.artifactType,sourceId:a.sourceId,sourceRevisionId:a.sourceRevisionId,temporalClass:a.temporalClass,authorityClass:a.authorityClass,freshness:a.freshness,unresolved:Boolean(a.unresolved),provenance:cloneSafe(a.provenance)})),
     conflicts:cloneSafe(x.conflicts??[]),lifecycle:cloneSafe(x.lifecycle??raw.lifecycle??{}),revision:raw.hierarchyRevision??raw.revision??null,
-    retrievalReady:entries.filter(e=>e.learnedRevisionId&&e.freshness==='CURRENT'&&e.retrievalRepresentations.length>0).length,
+    retrievalReady:entries.filter(e=>e.operatorState==='READY'&&(e.retrievalReady||e.retrievalRepresentations.length>0)).length,
   };
 }
 

@@ -665,6 +665,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     if(accepted||studying)host.append(message(d,'Study still in progress',(accepted+studying)+' entr'+(accepted+studying===1?'y is':'ies are')+' accepted or studying; they are not yet retrieval-ready.','warning'));
     if(failed)host.append(message(d,'Study failure',failed+' entr'+(failed===1?'y requires':'ies require')+' owner-reported retry or correction before readiness.','warning'));
     if(data.entries?.length)host.append(renderLoreEntries(d,data.entries,scope,{showIds:productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED}));
+    host.append(renderLoreDerivedRepresentations(d,{entries:data.entries??[],summarySurface:loreStudy.summaries?.(),detail:productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL}));
   }else host.append(message(d,'No Lore accepted yet','Choose a Lorebook in SillyTavern, verify it below, then accept it for study.','historical'));
 
   const form=element(d,'section',{className:'a52-card a52-wave13-lore-form'});
@@ -707,6 +708,38 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(!caps.accept)form.append(message(d,'Acceptance action unavailable','Worker 4 must export its Lore operator acceptance contract through the host binding.','offline'));
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Do not treat acceptance as retrieval readiness.','warning'));
   host.append(form);
+}
+
+function renderLoreDerivedRepresentations(d,{entries=[],summarySurface=null,detail=ProductDetailLevel.NORMAL}={}){
+  const root=element(d,'section',{className:'a52-wave13-lore-derived',attrs:{'aria-label':'Lore derived representations'}});
+  root.append(element(d,'h2',{text:'Derived Lore representations'}),element(d,'p',{className:'a52-muted',text:'Summaries and compressed representations are derived retrieval/navigation artifacts. Exact authored Lore remains the source; these views do not gain truth or Settlement authority.'}));
+  const represented=entries.filter(row=>Array.isArray(row.representations)&&row.representations.length);
+  if(represented.length){
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const entry of represented.slice(0,40)){
+      for(const rep of entry.representations.slice(0,8)){
+        const row=element(d,'article',{className:'a52-wave13-flow-row'});
+        row.append(element(d,'strong',{text:humanLabel(rep.profile??rep.representationProfile??'Representation')}),makeBadge(d,humanLabel(rep.qualityStatus??'UNKNOWN'),String(rep.qualityStatus??'').toUpperCase()==='PASS'?'ready':'warning'),element(d,'span',{text:'Source '+String(entry.uid??'entry')+' · '+(rep.representationRevision??'revision not published')}));
+        if(detail===ProductDetailLevel.ADVANCED&&rep.representationRef)row.append(element(d,'code',{text:rep.representationRef}));
+        list.append(row);
+      }
+    }
+    root.append(element(d,'h3',{text:'Per-source resolutions'}),list);
+  }else root.append(message(d,'No multi-resolution representations published','The Lore owner has not exposed Lean/Balanced/Heavy representation receipts for these entries yet. No preview is treated as canonical.','historical'));
+
+  const summaries=summarySurface?.summaries??[];
+  if(summaries.length){
+    root.append(element(d,'h3',{text:'Hierarchical navigation summaries'}));
+    for(const summary of summaries.slice(0,40)){
+      const card=element(d,'article',{className:'a52-card'}),quality=summary.qualityReceipt?.status??'UNKNOWN';
+      card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:summary.label??humanLabel(summary.level??'Summary')}),makeBadge(d,humanLabel(summary.level??'SUMMARY'),'observed'),makeBadge(d,humanLabel(quality),String(quality).toUpperCase()==='PASS'?'ready':'warning'),makeBadge(d,'DERIVED / NO SOURCE AUTHORITY','historical')),
+        createKeyValue(d,[{key:'Source revisions',value:(summary.sourceRevisionRefs??[]).length},{key:'Child summaries',value:(summary.childSummaryRefs??[]).length},{key:'Authority',value:summary.authorityClass??'DERIVED'},{key:'Exact source drillback',value:summarySurface.exactSourceDrillbackAvailable?'Available':'Not published'}]));
+      if(detail!==ProductDetailLevel.NORMAL&&summary.content)card.append(element(d,'p',{text:String(summary.content).slice(0,1600)}));
+      if(detail===ProductDetailLevel.ADVANCED)card.append(createKeyValue(d,[{key:'Summary ref',value:summary.summaryRef??'—'},{key:'Scope',value:summary.scopeId??'—'},{key:'Source revision fence',value:(summary.sourceRevisionRefs??[]).join(', ')||'none'}]));
+      root.append(card);
+    }
+  }else root.append(message(d,'No hierarchical Lore summaries published','Worker 4 has not exposed a current navigation-summary surface through this installed assembly.','historical'));
+  return root;
 }
 
 export function renderLoreAuthoringSurface(host,{loreStudy,loreAuthoring,actionRouter,scope,refresh,productAdapter,draft=null}={}){

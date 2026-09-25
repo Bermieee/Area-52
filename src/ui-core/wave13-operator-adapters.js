@@ -629,14 +629,15 @@ export class Wave13OperationalStatusAdapter{
 
 
 export class Wave13DiagnosticsCenterAdapter{
-  constructor({operations=null,resources=null,loreStudy=null,cognition=null,liveReceiptBinding=null,productionAdapters={}}={}){
-    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;
+  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={}}={}){
+    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;
   }
   read(){
     const operations=safeRead(()=>this.operations?.read?.(),null);
     const selection=cloneSafe(this.live?.selection?.()??operations?.selection??{});
     const resourceRead=safeRead(()=>this.resources?.read?.(),null);
     const loreRead=safeRead(()=>this.loreStudy?.read?.(),null);
+    const memoryRead=safeRead(()=>this.memory?.read?.(),null);
     const cognitionRead=safeRead(()=>this.cognition?.read?.(selection),null);
     const runtimeRead=safeRead(()=>this.adapters.runtime?.read?.(selection)??this.adapters.runtime?.read?.(),null);
     const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
@@ -694,6 +695,11 @@ export class Wave13DiagnosticsCenterAdapter{
       lore:{
         source:cloneSafe(loreRead?.source??null),accepted:loreData?.entries?.length??0,learned,retrievalReady:Number(loreData?.retrievalReady??0),
         lifecycle:cloneSafe(loreData?.lifecycle??null),
+      },
+      memory:{
+        source:cloneSafe(memoryRead?.source??null),
+        counts:cloneSafe(memoryRead?.data?.counts??null),freshness:cloneSafe(memoryRead?.data?.freshness??null),
+        retrievalStatus:memoryRead?.data?.retrieval?.status??null,revision:memoryRead?.data?.revision??null,
       },
       telemetry:{resourceEvents,rawPromptTelemetry:false},
       wiring:{
@@ -888,6 +894,9 @@ function diagnosticSource(read){
     hotActivity:data.hotActivity??null,deepActivity:data.deepActivity??null,activeTaskCount:data.activeTaskCount??null,
     queuedObligations:data.queuedObligations??null,blockedRecoveringWork:data.blockedRecoveringWork??null,activeBatches:data.activeBatches??null,
     warm:data.warm?cloneSafe(data.warm):null,fallback:data.fallback??null,staleDrop:data.staleDrop??null,retry:data.retry??null,
+    lifecycleCounts:data.lifecycleCounts?cloneSafe(data.lifecycleCounts):null,queueDepth:data.queueDepth?cloneSafe(data.queueDepth):null,
+    borrowedBackgroundLeases:data.resources?.borrowedBackgroundLeases??null,retainedSignals:data.telemetry?.retainedSignals??null,telemetrySinkFailures:data.telemetry?.sinkFailures??null,
+    batchProgressAvailable:data.batchProgressAvailable??null,lateResultHistoryAvailable:data.lateResultHistoryAvailable??null,
     resourceTelemetry:data.resources?cloneSafe(data.resources):null,providerCalls:data.providerCalls?cloneSafe(data.providerCalls):null,eventCounts:data.eventCounts?cloneSafe(data.eventCounts):null,
     promptPlanId:data.promptPlanId??null,totalTokens:data.totalTokens??null,budgetTotal:data.budgetTotal??null,
     segmentCount:Array.isArray(data.segments)?data.segments.length:null,droppedCount:Array.isArray(data.dropped)?data.dropped.length:null,deferredCount:Array.isArray(data.deferred)?data.deferred.length:null,

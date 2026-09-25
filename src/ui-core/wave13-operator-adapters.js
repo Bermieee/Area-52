@@ -144,13 +144,21 @@ function runtimeLifecycleSnapshot(raw){
   const queuedObligations=Object.values(queueDepth).reduce((sum,value)=>sum+(Number(value)||0),0);
   const hotLayers=new Set(['HOT','L0','L1']),deepLayers=new Set(['DEEP','L2','L3','L4']);
   const activeRows=lifecycle.filter(row=>['ACTIVE','YIELDING'].includes(String(row.executionStatus??'').toUpperCase()));
+  const durations=lifecycle.map(row=>Number(row.lastSliceDurationMs)).filter(value=>Number.isFinite(value)&&value>=0);
+  const latencyMs=durations.length?{
+    samples:durations.length,
+    average:Math.round(durations.reduce((sum,value)=>sum+value,0)/durations.length),
+    max:Math.max(...durations),
+  }:{samples:0,average:null,max:null};
   return deepFreeze({
     lifecycle:cloneSafe(lifecycle),lifecycleCounts:counts,queueDepth,
     queuedObligations,
     blockedRecoveringWork:lifecycle.filter(row=>['BLOCKED','RECOVERING'].includes(String(row.executionStatus??'').toUpperCase())).length,
     activeBatches:activeRows.length,
+    yielding:lifecycle.filter(row=>String(row.executionStatus??'').toUpperCase()==='YIELDING'||row.yieldRequested===true).length,
     hotActivity:activeRows.filter(row=>hotLayers.has(String(row.layer??'').toUpperCase())).length,
     deepActivity:activeRows.filter(row=>deepLayers.has(String(row.layer??'').toUpperCase())).length,
+    latencyMs,
     resources:cloneSafe(raw.resources??null),workers:cloneSafe(raw.workers??null),dependencies:cloneSafe(raw.dependencies??null),
     telemetry:cloneSafe(raw.telemetry??null),eventTypes:Array.isArray(raw.eventTypes)?[...raw.eventTypes]:[],
     batchProgressAvailable:false,lateResultHistoryAvailable:false,
@@ -961,7 +969,7 @@ function diagnosticSource(read){
     warm:data.warm?cloneSafe(data.warm):null,fallback:data.fallback??null,staleDrop:data.staleDrop??null,retry:data.retry??null,
     lifecycleCounts:data.lifecycleCounts?cloneSafe(data.lifecycleCounts):null,queueDepth:data.queueDepth?cloneSafe(data.queueDepth):null,
     borrowedBackgroundLeases:data.resources?.borrowedBackgroundLeases??null,retainedSignals:data.telemetry?.retainedSignals??null,telemetrySinkFailures:data.telemetry?.sinkFailures??null,
-    batchProgressAvailable:data.batchProgressAvailable??null,lateResultHistoryAvailable:data.lateResultHistoryAvailable??null,
+    batchProgressAvailable:data.batchProgressAvailable??null,lateResultHistoryAvailable:data.lateResultHistoryAvailable??null,latencyMs:data.latencyMs?cloneSafe(data.latencyMs):null,yielding:data.yielding??null,
     resourceTelemetry:data.resources?cloneSafe(data.resources):null,providerCalls:data.providerCalls?cloneSafe(data.providerCalls):null,eventCounts:data.eventCounts?cloneSafe(data.eventCounts):null,
     queue:data.queue?cloneSafe(data.queue):null,physicalExecution:data.physicalExecution?cloneSafe(data.physicalExecution):null,lifecycle:data.lifecycle?cloneSafe(data.lifecycle):null,
     resultDestinations:data.resultDestinations?cloneSafe(data.resultDestinations):null,ownerAcceptanceCount:Array.isArray(data.ownerAcceptance)?data.ownerAcceptance.length:null,validationFailures:data.validationFailures??null,lateResults:data.lateResults??null,

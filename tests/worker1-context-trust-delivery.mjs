@@ -45,6 +45,11 @@ test('DETERMINISTIC: context retirement requires durable retrieval proof and pre
   assert.equal(stale.retireEligibleMessageIds.length,0);
   assert.ok(stale.decisions.find(row=>row.messageId==='m1').reasons.includes('COVERAGE_STALE'));
 
+  const revisionFencedPolicy=new NativeContextRetirementPolicy({defaultRecentWindow:3,isSourceRevisionCurrent:(ref)=>ref==='episode:r2'});
+  const staleRevision=revisionFencedPolicy.evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
+  assert.equal(staleRevision.retireEligibleMessageIds.length,0);
+  assert.ok(staleRevision.decisions.find(row=>row.messageId==='m1').reasons.includes('COVERAGE_SOURCE_REVISION_STALE'));
+
   const wrongChat=policy.evaluate({chatId:'chat:imported',messages:rows,coverage:proven,recentWindow:3});
   assert.equal(wrongChat.retireEligibleMessageIds.length,0);
   assert.ok(wrongChat.decisions.find(row=>row.messageId==='m1').reasons.includes('CHAT_IDENTITY_MISMATCH'));

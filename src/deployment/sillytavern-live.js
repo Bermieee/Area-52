@@ -323,6 +323,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeHistory = [];
     this.nativeRejections = [];
     this.nativeLoreRevisionEvents = [];
+    this.routedLoreRevisionKeys = new Set();
     this.nativeOwnerAttachments = {lore:null,memory:null};
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
@@ -762,11 +763,46 @@ export class DevelopmentDeploymentSillyTavernSession {
       'loreStudyHost','loreHost','acceptLorebook','runLoreStudy',
     ];
     for(const key of optionalDemoKeys)if(!Object.prototype.hasOwnProperty.call(this.ownerBindings,key))delete merged[key];
+    const authoringHost=this.#nativeAwareLoreAuthoringHost();
+    if(authoringHost)merged.loreAuthoringHost=authoringHost;
     for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
     merged.readNativeBrainHostLifecycle=base.readNativeBrainHostLifecycle;
     return merged;
+  }
+
+  #nativeAwareLoreAuthoringHost(){
+    if(!this.nativeBrain)return null;
+    let host=this.ownerBindings.loreAuthoringHost??this.ownerBindings.loreAuthoringOperator??null;
+    if(!host&&typeof this.ownerBindings.loreAuthoringService?.operatorContract==='function'){
+      try{host=this.ownerBindings.loreAuthoringService.operatorContract();}catch{return null;}
+    }
+    if(!host?.actions||!host?.read)return null;
+    const actions={...host.actions};
+    for(const name of ['applySettlement','restoreSettlement']){
+      const original=host.actions[name];if(typeof original!=='function')continue;
+      actions[name]=(...args)=>{
+        const result=original(...args);
+        if(result&&typeof result.then==='function')return result.then(value=>{this.#routeLoreRevisionEvents(value);return value;});
+        this.#routeLoreRevisionEvents(result);return result;
+      };
+    }
+    return Object.freeze({...host,actions:Object.freeze(actions)});
+  }
+
+  #routeLoreRevisionEvents(result){
+    if(!this.nativeBrain||typeof this.nativeBrain.acceptLoreRevisionChange!=='function')return;
+    const value=result?.ok===true?result.value??null:result;
+    if(!value||typeof value!=='object')return;
+    const events=[...(value.revisionEvents??[]),...(value.restoration?.revisionEvents??[])];
+    for(const event of events){
+      if(!event?.sourceId||!event?.sourceRevisionId)continue;
+      const key=[event.settlementId??value.settlementId??'',event.sourceId,event.previousSourceRevisionId??'',event.sourceRevisionId,event.restoration?'RESTORE':'APPLY'].join('|');
+      if(this.routedLoreRevisionKeys.has(key))continue;
+      try{this.acceptLoreRevisionChange(event);this.routedLoreRevisionKeys.add(key);}
+      catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'LORE_REVISION_INVALIDATION_ROUTE',sourceId:event.sourceId,sourceRevisionId:event.sourceRevisionId});}
+    }
   }
 
   #recordHostNarrativeEvent(type,args=[]){

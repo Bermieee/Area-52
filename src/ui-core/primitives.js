@@ -7,8 +7,12 @@ export function element(doc, tag, { className, text, attrs = {}, dataset = {} } 
   if (text != null) node.textContent = text;
   for (const [key, value] of Object.entries(attrs)) {
     if (value == null) continue;
-    if (key in node && !key.startsWith('aria-') && key !== 'role') node[key] = value;
-    else node.setAttribute(key, String(value));
+    const attributeOnly = key.startsWith('aria-') || key === 'role' || (node.tagName === 'INPUT' && key === 'list');
+    if (!attributeOnly && key in node) {
+      try { node[key] = value; continue; }
+      catch {}
+    }
+    node.setAttribute(key, String(value));
   }
   Object.assign(node.dataset, dataset);
   return node;

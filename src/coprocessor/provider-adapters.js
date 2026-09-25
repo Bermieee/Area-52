@@ -122,7 +122,8 @@ export class OpenAICompatibleProviderAdapter {
     try{discovery=await this.discoverModels({signal,timeoutMs});}
     catch(error){throw error;}
     const modelAvailable=discovery.supported?discovery.models.some((row)=>row.id===this.modelId):null;
-    if(discovery.supported&&!modelAvailable)throw new ProviderInvocationError(FailureCode.MODEL_UNAVAILABLE,'Configured model is not available from provider discovery',{providerId:this.providerId,status:404});
+    // Discovery is advisory: providers may omit callable models from /models. The
+    // selected ID is qualified by an authenticated execution probe below.
     const qualification=this.transportMode===ProviderTransportMode.EMBEDDINGS
       ? await this.#qualificationEmbedding({signal,timeoutMs})
       : await this.#qualificationChat({signal,timeoutMs});

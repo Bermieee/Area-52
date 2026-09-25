@@ -6,7 +6,7 @@ import {
 } from '../src/ui-core/index.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 import { createWave11LiveHost, makeWave11Turn } from './fixtures/wave11-live-receipts.mjs';
-import { discoverSelectedSillyTavernLorebook } from '../src/ui-core/wave12-sillytavern-host.js';
+import { createWave12SillyTavernHostBindings, discoverSelectedSillyTavernLorebook } from '../src/ui-core/wave12-sillytavern-host.js';
 
 class HostNode extends FakeNode{
   constructor(tag,doc){super(tag,doc);this.id='';}
@@ -96,6 +96,12 @@ test('SillyTavern selected Lorebook discovery preserves editor identity and exac
   assert.equal(result.id,'Moon Harbor');assert.equal(result.title,'Moon Harbor');assert.equal(result.entries.length,2);
   assert.equal(result.entries[0].content,'Captain Vale keeps the blue ledger.');
   assert.deepEqual(result.discovery,{kind:'SillyTavernLorebookDiscoveryReceipt',contractVersion:1,source:'SILLYTAVERN_WORLD_INFO_EDITOR',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:2,chatId:'chat:moon',exactAuthoredSource:true});
+});
+
+test('SillyTavern host bindings preserve Worker 4 Lore operator service ownership',()=>{
+  const service={operatorInterface(){return{kind:'LoreStudyOperatorHost',read:{status:()=>({entries:[],counts:{}})},actions:{acceptLorebook(){},runLoreStudy(){}}};}};
+  const bound=createWave12SillyTavernHostBindings({getContext:()=>({chatId:'chat:lore'}),hostBindings:{loreIntelligenceService:service}});
+  assert.equal(bound.hostBindings.loreIntelligenceService,service);bound.destroy();
 });
 
 test('Wave 12 mounts one floating UI.Core product beside verified #sheld without cloning host chat',()=>{

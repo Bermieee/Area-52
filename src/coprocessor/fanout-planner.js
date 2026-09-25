@@ -92,9 +92,9 @@ export class DynamicFanOutPlanner {
     const trivial = /^(ok|okay|thanks|thank you|got it|sure|yep|yes)[.! ]*$/.test(normalized);
     const prefetch = Array.isArray(prefetchRecommendations) ? prefetchRecommendations : [];
     const sceneUncertain = Array.isArray(uncertainSceneFields) ? uncertainSceneFields : [];
-    const physical = /\b(where|location|inventory|item|weapon|blade|find|looking|returns?|ruin|tavern|carried|left)\b/.test(normalized)
+    const physical = /\b(where|location|inventory|item|object|weapon|equipment|find|looking|returns?|arrives?|leaves?|carried|left|placed|stored|moved|current state|physical state)\b/.test(normalized)
       || ['LOCATION', 'INVENTORY', 'PHYSICAL_STATE', 'CURRENT_STATE'].includes(queryIntent);
-    const dialogue = /\b(speaks?|speaking|talks?|asks?|tells?|mara|dialogue)\b/.test(normalized) || activeCast.length > 1;
+    const dialogue = /\b(speaks?|speaking|talks?|asks?|tells?|replies?|answers?|dialogue|conversation)\b/.test(normalized) || activeCast.length > 1;
     const conflict = conflictSignals.length > 0 || sceneUncertain.length > 0 || ['MIXED', 'LOW'].includes(retrievalQuality)
       || /\b(conflict|contradiction|ambiguous|truth|current|historical)\b/.test(normalized);
     const continuity = activeThreads.length > 0 || sceneEntities.length > 0 || normalized.length > 20 || prefetch.length > 0;

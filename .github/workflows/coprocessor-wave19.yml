@@ -1,0 +1,47 @@
+name: Cognitive Coprocessor Wave 19
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave19:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 19 standing wiring acceptance
+        run: npm run test:wave19
+      - name: Revalidate Worker 4 Jev replay repairs that failed Wave 17
+        run: node --test tests/worker4-jev211-repro.test.mjs
+      - name: Preserve Wave 18 native scheduling acceptance
+        run: npm run test:wave18
+      - name: Preserve Wave 17 browser and owner/UI contracts
+        run: npm run test:wave17
+      - name: Preserve Wave 16 resource and Jev acceptance
+        run: npm run test:wave16
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Non-gating live-provider observation
+        env:
+          AREA52_OPENROUTER_API_KEY: ${{ secrets.AREA52_OPENROUTER_API_KEY }}
+          AREA52_JEV_MODEL: ${{ vars.AREA52_JEV_MODEL }}
+          AREA52_SIDECAR_MODEL: ${{ vars.AREA52_SIDECAR_MODEL }}
+          AREA52_VECTOR_MODEL: ${{ vars.AREA52_VECTOR_MODEL }}
+        run: |
+          echo "This observation is not accepted as installed-SillyTavern proof."
+          npm run smoke:wave16:live

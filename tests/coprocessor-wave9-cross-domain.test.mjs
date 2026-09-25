@@ -20,11 +20,13 @@ function sharedHandler({ input }) {
 
 test('adapter registry is explicit, deterministic, bounded by stable ID, and rejects duplicates/unsupported lookup', () => {
   const registry = createDefaultJevDomainAdapterRegistry();
-  assert.equal(registry.size, 3);
-  assert.deepEqual(registry.list().map((x) => x.adapterId), ['jev.adapter.lore.v1', 'jev.adapter.retrieval-truth.v1', 'jev.adapter.scene.v1']);
+  assert.equal(registry.size, 5);
+  assert.deepEqual(registry.list().map((x) => x.adapterId), ['jev.adapter.lore.v1', 'jev.adapter.memory.v1', 'jev.adapter.retrieval-truth.v1', 'jev.adapter.scene.v1', 'jev.adapter.temporal.v1']);
   assert.equal(registry.resolve('LORE', 'LORE_RECONCILIATION').adapterId, 'jev.adapter.lore.v1');
   assert.throws(() => registry.register(createLoreJevAdapter()), /duplicate Jev adapterId/);
   assert.throws(() => registry.resolve('MEMORY', 'FAKE_MEMORY_DECISION'), /unsupported Jev adapter/);
+  assert.equal(registry.resolve('MEMORY', 'MEMORY_CONSOLIDATION_REVIEW').adapterId, 'jev.adapter.memory.v1');
+  assert.equal(registry.resolve('TEMPORAL', 'TEMPORAL_TRANSITION_CONTRADICTION').adapterId, 'jev.adapter.temporal.v1');
 });
 
 test('three independent owner domains use the same Jev core and separate owner proposal types', async () => {

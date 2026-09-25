@@ -1,0 +1,38 @@
+name: Cognitive Coprocessor Wave 20
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave20:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 20 backend/runtime closure
+        run: npm run test:wave20
+      - name: Revalidate Jev 211 replay debt
+        run: node --test tests/worker4-jev211-repro.test.mjs
+      - name: Preserve Wave 19 standing wiring
+        run: npm run test:wave19
+      - name: Preserve Wave 18 scheduling and Memory/Temporal
+        run: npm run test:wave18
+      - name: Preserve Wave 17 regression surface
+        run: npm run test:wave17
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"

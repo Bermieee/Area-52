@@ -527,204 +527,107 @@ Sidecars are specialized cognitive coprocessors. The runtime fans work out in pa
 
 ---
 
-## 22. Wave 9 Core Cognitive Choice Controller
+## 22. Wave 1 implementation record
 
-`Development-Nexus` owns the deterministic Core half of the per-turn cognitive-choice path.
+Sidecar/Jev Wave 1 implements the native deterministic swarm skeleton on `Development-Sidecar/Jev`.
 
-The controller answers one bounded question:
+Implementation modules:
 
-> Given the current turn, Hot Cognition, revision fences, capability availability, and retrieval outcome, which cognitive work is worth executing and which validated evidence may continue toward Gather / Context Compiler / Context Seal?
+- `src/coprocessor/contracts.js` — provider-neutral task/result/correlation contracts;
+- `src/coprocessor/capability-profiles.js` — capability profiles and Runtime-compatible registration descriptors;
+- `src/coprocessor/turn-event-hub.js` — immutable Turn Event creation/dedupe;
+- `src/coprocessor/fanout-planner.js` — zero-to-many expected-value fan-out;
+- `src/coprocessor/deadline-policy.js` — bounded soft/hard deadline behavior;
+- `src/coprocessor/validation.js` — structured output/freshness validation;
+- `src/coprocessor/gather-coordinator.js` — deterministic correlation, dedupe, disagreement and foreground quorum;
+- `src/coprocessor/integration-adapters.js` — Result Bus / Context Seal boundary adapters;
+- `src/coprocessor/swarm.js` — orchestration proof using injected execution routing;
+- `src/coprocessor/jev-migration.js` — Jev responsibility-to-capability mapping;
+- `src/coprocessor/telemetry.js` — lightweight coprocessor lifecycle vocabulary;
+- `src/coprocessor/benchmark.js` — deterministic swarm metrics.
 
-It is **not** a canon authority, another Truth Gate, another Candidate Bus, another scheduler, or another Jev engine.
-
-### 22.1 Canonical per-turn path
-
-```text
-TURN_EVENT
-  -> Hot Cognition sufficiency check
-  -> candidate cognitive jobs
-  -> admit / skip / defer
-  -> Sensory Net + Candidate Bus when retrieval is required
-  -> retrieval quality
-       HIGH  -> Truth -> Precision only when useful
-       MIXED -> exactly one corrective retrieval -> reevaluate
-       LOW   -> abstain from weak long-term-memory evidence
-  -> bounded ambiguity check
-       -> Jev seam only when explicit unresolved alternatives remain
-       -> preserve UNRESOLVED when Jev is unavailable/abstains
-  -> Gather
-  -> Context Compiler
-  -> Context Seal
-```
-
-Hot-only turns do not perform fake retrieval to create activity. Skipping work and abstaining are successful bounded outcomes.
-
-### 22.2 `CognitiveChoiceReceipt`
-
-Each sealed turn exposes one revision-fenced structured receipt containing:
-
-- turn/correlation identity and turn revision;
-- considered, admitted, skipped, and deferred logical cognition jobs;
-- deterministic reason codes;
-- retrieval intents;
-- Sensory channels requested and actually used;
-- Candidate Bus nomination/normalization/dedupe counts;
-- retrieval quality and corrective-retrieval state;
-- Truth outcome counts;
-- Jev consideration/invocation/unavailable/abstention state;
-- Precision consideration/invocation/fallback state;
-- final generation-facing evidence references;
-- abstention/unresolved state;
-- latency/resource budget;
-- source/candidate/representation/world/scene revisions;
-- freshness/stale/late result state;
-- Context Seal publication boundary.
-
-The receipt explains Core routing. It grants no truth, settlement, canonical mutation, or Context Seal bypass authority.
-
-### 22.3 Hot-only admission
-
-Hot-only is intentionally conservative. It requires fresh revision-matching Hot Cognition and an explicitly local/current request that can be answered by the maintained Scene projection. Anchored long-term lookup, historical intent, unknown needs, or stale Hot state force the normal retrieval path.
-
-### 22.4 Adaptive retrieval routing
-
-Core consumes the existing retrieval-quality contract:
-
-- `HIGH` proceeds;
-- `MIXED` permits one and only one corrective pass;
-- `LOW` removes weak long-term-memory evidence from generation-facing compilation.
-
-Corrective retrieval re-enters the same Candidate Bus / Truth path. It cannot recurse.
-
-### 22.5 Truth, Jev, and Precision boundaries
-
-Truth classifications remain owned by Truth Gate. Retrieval scores, fusion strength, channel count, and recency cannot upgrade truth or authority.
-
-Jev is a bounded integration seam. Core may emit/invoke an explicit-alternatives request, but Jev does not receive canonical mutation authority. Missing or abstaining Jev preserves unresolved evidence.
-
-Precision runs only when the admitted set is broad/redundant or MIXED. A tiny exact set skips it. If required Precision is unavailable, Core uses the deterministic pre-Precision ordering as a safe fallback and records that fallback.
-
-### 22.6 Seal and replay semantics
-
-Context Seal closes the active foreground generation. Late results are routed by the Result Bus and appended only to decision telemetry; they cannot reopen the sealed packet. Stale results remain stale.
-
-Identical publication replay for an already sealed turn returns the sealed result without re-running retrieval, correction, Precision, or Jev. A replay with materially different cognitive-choice inputs is rejected.
-
-### 22.7 Ownership boundaries
-
-Core owns:
-
-- cognitive-choice policy and receipt;
-- adaptive retrieval routing;
-- Truth/Precision/Jev integration boundaries;
-- generation-facing evidence trace;
-- Gather/compiler/seal routing semantics.
-
-Core does not own:
-
-- Jev internals;
-- Historian, Graph Walker, Green Room, or Scene Intelligence implementations;
-- Worker Director scheduling/resource pools;
-- UI rendering;
-- canonical owner Settlement.
-
-The permanent invariants remain: logical jobs are not physical sidecars; relevance is not truth; Jev is not Settlement; skip and abstention are not failures; revisions fence every decision; and late work cannot mutate sealed context.
-
+Wave 1 does not implement another scheduler, Work Ledger, Resource Governor, Batch Engine, Result Bus, Context Seal, or canonical Settlement authority. Those remain owned by their canonical lanes.
 
 ---
 
-## 23. Wave 10 native Scene -> Core integration seam
+## 23. Phase 1 Wave 6 — real Character Cognition + Continuous Consolidation
 
-Wave 10 consumes the accepted Scene Intelligence public surface from `Development-Scene-Scanner@3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf`. Core does not copy Scene Registry, extraction, boundary detection, cast/spatial/temporal tracking, Episode compilation, host scraping, or Scene scheduling.
+Wave 6 moves Green Room and Consolidation from starter contracts to executable cognitive workers while preserving the Wave 5 fabric.
 
-The legal integration path is:
+### Character Green Room
 
-```text
-SceneIntegrationSignal / normalized Scene event / SceneContextInvalidationSignal
-  -> SceneCoreIntegrationBridge
-  -> Hot Cognition
-  -> revision/freshness fence
-  -> Cognitive Choice
-  -> existing Sensory / Truth / Precision / Jev seam
-  -> Result Bus / deterministic Gather receipt
-  -> Context Compiler
-  -> Context Seal
-  -> Adaptive Context Runtime
-  -> PromptPlan
-```
+Canonical implementation is now \`src/coprocessor/green-room.js\`.
 
-### 23.1 Public contracts only
+\`foreground-specialists.js\` remains compatibility-only for the older provider envelope and delegates to the canonical Green Room validator/provider-input/state model. \`GreenRoomEphemeralStore\` is a wrapper over \`GreenRoomStore\`, not a second independent state system.
 
-The bridge accepts the Scene-owned version-1 public contracts documented by:
+Production behavior:
+- HOT / L1 / normally OPPORTUNISTIC;
+- one bounded active-cast request for PRESENT and legitimate UNCERTAIN characters;
+- MENTIONED_ONLY does not activate automatically;
+- bounded reference-first Scene/dialogue/relationship/Character-State/unresolved evidence;
+- explicit INFERRED micro-state;
+- deterministic Scene/time/departure/contradiction/revision/TTL/chat/correction expiry;
+- prior inference kept separate from direct evidence;
+- reflection proposals count independent support identities rather than repeated guesses;
+- compact generation-facing projection;
+- post-Seal results cannot mutate current ephemeral foreground state.
 
-- `docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md`;
-- `docs/SCENE_EVENT_INTEGRATION_CONTRACT.md`;
-- `docs/SCENE_CONTEXT_INVALIDATION_CONTRACT.md`.
+See \`docs/CHARACTER_GREEN_ROOM.md\`.
 
-Those documents remain Scene-owned and authoritative for producer semantics.
+### Continuous Consolidation
 
-### 23.2 Scene identity and revision fencing
+Canonical implementation remains \`src/coprocessor/continuous-consolidation.js\`, deepened in place rather than replaced.
 
-Scene revision is scoped to Scene identity. Core tracks `sceneId + sceneRevision`, not one global monotonic Scene number. A new Scene may open at revision 1 after the prior Scene reached revision N.
+Production behavior:
+- DEEP / L3 / DEFERRED;
+- revisioned ArtifactReference inputs;
+- bounded evidence slices;
+- provider-neutral execution;
+- multi-proposal semantic bundles;
+- per-proposal provenance/confidence/authority/temporal identity;
+- episode, atomic-claim, relationship/state, Reflection, compressed-representation and cross-episode/hypothesis proposal families;
+- deterministic proposal/unit dedupe and revision lineage;
+- stale-source invalidation;
+- checkpoint/yield/resume contracts;
+- bounded Sidecar-local backlog;
+- compact Memory owner handoff with no persistence/Settlement authority.
 
-Within one Scene identity:
+See \`docs/CONTINUOUS_CONSOLIDATION_WORKER.md\`.
 
-- older revision -> STALE;
-- exact duplicate -> idempotent no-op;
-- different payload at the same accepted revision -> conflict/reject;
-- retired Scene output cannot silently reactivate current cognition;
-- accepted `RESUMES` may reactivate the same conceptual Scene at a newer revision.
+### Real HOT + DEEP coexistence
 
-The Scene identity/revision/source/provenance tuple survives the generation-facing path and is inspectable in the sealed packet, Gather receipt, Cognitive Choice receipt and PromptPlan diagnostics.
+\`src/coprocessor/cognitive-worker-pipelines.js\` demonstrates actual cognition on the same provider-neutral execution layer:
+- \`CharacterCognitionWorker\` can contribute fresh Green Room state before seal;
+- \`ContinuousConsolidationWorker\` processes prior Experience/SceneEpisode evidence in background;
+- foreground Character cognition does not await DEEP consolidation;
+- both remain proposal/inference-only;
+- Runtime remains scheduler/Resource Governor/Work Ledger owner;
+- Memory remains durable Memory/Reflection/Temporal-State owner.
 
-### 23.3 Hot Cognition and active anchors
+Wave 6 does not implement Memory persistence, Lore, Sensory Net, Scene ownership, Runtime scheduling, visual UI or Phase 2 provider learning.
 
-Native Scene signals hydrate:
+---
 
-- Scene identity/relationship;
-- location;
-- narrative time;
-- active cast;
-- active objects;
-- active threads;
-- atmosphere/continuity metadata.
+## 24. Phase 1 Wave 7 — Historian + adaptive retrieval cognition
 
-`MENTIONED_ONLY` observations remain observable but are never promoted to active cognition anchors.
+Wave 7 makes Historian a real HOT/L1 retrieval worker over Memory-owned, revisioned evidence and deepens the existing adaptive retrieval controller rather than replacing it.
 
-Scene state stays descriptive. Repetition, confidence, revision and retrieval strength do not grant canonical truth.
-
-### 23.4 Context invalidation
-
-`SceneContextInvalidationSignal` invalidates only the Scene working-context cone it names. Core maps accepted Scene scopes onto current Hot/Scene working segments.
-
-Permanent rule:
+Production flow:
 
 ```text
-Scene context invalidation != narrative evidence deletion
+retrieval intents
+ -> HistorianMemoryRequest
+ -> Memory resolver seam
+ -> bounded ArtifactReference evidence
+ -> provider-neutral Historian cognition
+ -> Candidate Bus-compatible nominations
+ -> intent-coverage quality
+ -> HIGH / one MIXED correction / LOW abstention
+ -> Truth / Precision
+ -> Gather
 ```
 
-A transition whose target Scene has already been freshly hydrated may record the invalidation epoch without destroying that newer target state.
+Perspective, temporal status, provenance, owner authority and revisions remain attached to evidence. Historian never turns retrieval score into truth, and Reflection remains inferential.
 
-### 23.5 Cognitive Choice
+See `docs/HISTORIAN_RETRIEVAL_WORKER.md` and `docs/ADAPTIVE_RETRIEVAL_CONTROL.md`.
 
-The Wave 9 controller is reused.
-
-Stable same-Scene changes may remain Hot-only. A confirmed transition, location/time shift, new active participant, or explicit Scene-context invalidation can make retrieval/cognition useful and prevents stale Hot-only reuse.
-
-The bridge emits logical cognition needs only. Worker Director remains the physical scheduling owner.
-
-### 23.6 Boundary and temporal semantics
-
-A `SCENE_BOUNDARY_CANDIDATE` cannot close/reset Core Scene state. Core follows Scene's accepted boundary decision rather than reinterpreting narrative prose.
-
-`FLASHBACK_OF`, `PARALLEL_TO`, `INTERRUPTS` and `RESUMES` remain explicit relationships through publication. They do not mutate canonical present-world truth merely because they are current narrative focus.
-
-### 23.7 Context Seal and late work
-
-Once a turn is sealed, Scene work may inform future cognition but cannot mutate that sealed packet. Stale Scene revisions remain excluded; late/old Scene artifacts cannot reopen the active generation.
-
-### 23.8 FT002 native-contract evidence
-
-Core CI uses an exact read-only checkout of the accepted Scene Wave 3 checkpoint and executes Scene's own `SceneLifecycleRuntime`, `SceneEventPublisher`, `SceneContextInvalidationPublisher` and `integrationSignal()`. The generated native artifacts feed Core directly.
-
-This replaces the former fixture-generated `CurrentScene` boundary for the Core FT002 acceptance while preserving lane ownership. Full live FT002 still belongs to assembled `main` + SillyTavern acceptance.

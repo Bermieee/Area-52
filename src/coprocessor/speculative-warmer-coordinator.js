@@ -60,6 +60,12 @@ export class SpeculativeWarmCoordinator {
     avoidedTruth: 0,
     avoidedPrecision: 0,
     avoidedCompile: 0,
+    totalQueueTimeMs: 0,
+    maxQueueTimeMs: 0,
+    totalExecutionTimeMs: 0,
+    maxExecutionTimeMs: 0,
+    totalForegroundYieldWaitMs: 0,
+    maxForegroundYieldWaitMs: 0,
   };
 
   constructor({
@@ -146,7 +152,16 @@ export class SpeculativeWarmCoordinator {
       promise,
       yielded: false,
       enqueuedAt: this.clock(),
+      queuedAt: null,
+      firstStartedAt: null,
+      runningStartedAt: null,
+      executionTimeMs: 0,
+      queueTimeMs: 0,
+      foregroundYieldWaitMs: 0,
+      parkedAt: null,
+      timingRecorded: false,
     };
+    job.queuedAt = job.enqueuedAt;
     this.#jobsByKey.set(key, job);
     this.#queue.push(job);
     this.#diag('PREPARATION_QUEUED', { preparationId, queueDepth: this.#queue.length });
@@ -421,6 +436,14 @@ export class SpeculativeWarmCoordinator {
     while (this.#activeJobs.size < this.limits.maxActivePreparations && this.#queue.length) {
       const job = this.#queue.shift();
       if (!job || job.cancelled || FINAL_STATES.has(job.status)) continue;
+      const startAt=this.clock();
+      job.queueTimeMs += Math.max(0,startAt-Number(job.queuedAt??job.enqueuedAt));
+      if(job.parkedAt!=null){
+        job.foregroundYieldWaitMs += Math.max(0,startAt-Number(job.parkedAt));
+        job.parkedAt=null;
+      }
+      if(job.firstStartedAt==null)job.firstStartedAt=startAt;
+      job.runningStartedAt=startAt;
       if (job.yielded) this.#metrics.preparationsResumed += 1;
       job.status = 'RUNNING';
       this.#activeJobs.add(job);
@@ -523,7 +546,9 @@ export class SpeculativeWarmCoordinator {
         precision: Boolean(this.adapters.precisionRank && precisionReceipt),
         compile: Boolean(compiledRepresentation?.reusable),
       };
-      const elapsedMs = Math.max(0, this.clock() - startedAt);
+      const nowAt=this.clock();
+      const elapsedMs = Math.max(0,job.executionTimeMs+(job.runningStartedAt==null?0:nowAt-job.runningStartedAt));
+      const wallMs = Math.max(0,nowAt-job.enqueuedAt);
       const packet = createWarmPacket({
         identity: request.identity,
         recommendation: request.recommendation,
@@ -540,6 +565,10 @@ export class SpeculativeWarmCoordinator {
           providerMode: this.adapters.providerMode,
           stageCoverage,
           preparationCostMs: elapsedMs,
+          preparationExecutionMs: elapsedMs,
+          preparationQueueMs: job.queueTimeMs,
+          foregroundYieldWaitMs: job.foregroundYieldWaitMs,
+          preparationWallMs: wallMs,
           retrievalBatchCount: job.checkpoint.retrievalReceipts.length,
           intentCount: request.intents.length,
           authority: 'NONE',
@@ -593,6 +622,10 @@ export class SpeculativeWarmCoordinator {
 
   #park(job) {
     if (!this.#activeJobs.has(job)) return;
+    this.#captureRunningTime(job);
+    const parkedAt=this.clock();
+    job.parkedAt=parkedAt;
+    job.queuedAt=parkedAt;
     this.#activeJobs.delete(job);
     job.status = 'PARKED';
     job.yielded = true;
@@ -629,11 +662,30 @@ export class SpeculativeWarmCoordinator {
   }
 
   #finish(job, result) {
+    this.#captureRunningTime(job);
+    this.#recordTiming(job);
     this.#activeJobs.delete(job);
     this.#queue = this.#queue.filter((entry) => entry !== job);
     this.#jobsByKey.delete(job.key);
     try { job.resolve(result); } catch {}
     this.#drain();
+  }
+
+  #captureRunningTime(job) {
+    if(job?.runningStartedAt==null)return;
+    job.executionTimeMs += Math.max(0,this.clock()-Number(job.runningStartedAt));
+    job.runningStartedAt=null;
+  }
+
+  #recordTiming(job) {
+    if(!job||job.timingRecorded)return;
+    job.timingRecorded=true;
+    this.#metrics.totalQueueTimeMs += Math.max(0,Number(job.queueTimeMs)||0);
+    this.#metrics.maxQueueTimeMs = Math.max(this.#metrics.maxQueueTimeMs,Math.max(0,Number(job.queueTimeMs)||0));
+    this.#metrics.totalExecutionTimeMs += Math.max(0,Number(job.executionTimeMs)||0);
+    this.#metrics.maxExecutionTimeMs = Math.max(this.#metrics.maxExecutionTimeMs,Math.max(0,Number(job.executionTimeMs)||0));
+    this.#metrics.totalForegroundYieldWaitMs += Math.max(0,Number(job.foregroundYieldWaitMs)||0);
+    this.#metrics.maxForegroundYieldWaitMs = Math.max(this.#metrics.maxForegroundYieldWaitMs,Math.max(0,Number(job.foregroundYieldWaitMs)||0));
   }
 
   #findPacketByIdentity(identity) {
@@ -851,6 +903,8 @@ function normalizeCompiledResult(value, limits, identity = null) {
 }
 
 function artifactReferenceMatchesIdentity(reference, identity) {
+  const refChatId=reference.chatId??reference.chatNamespace??reference.conversationId??null;
+  if (refChatId != null && String(refChatId) !== String(identity.chatId??'')) return false;
   if (reference.sceneRevision != null && Number(reference.sceneRevision) !== Number(identity.sceneRevision)) return false;
   if (reference.worldRevision != null && Number(reference.worldRevision) !== Number(identity.worldRevision)) return false;
   if (Array.isArray(reference.sourceRevisionSet) && reference.sourceRevisionSet.length) {
@@ -873,7 +927,8 @@ function assertPacketBounds(packet, limits) {
 }
 
 function samePreparationFences(a, b) {
-  return a.sceneRevision === b.sceneRevision
+  return a.chatId === b.chatId
+    && a.sceneRevision === b.sceneRevision
     && a.worldRevision === b.worldRevision
     && a.characterStateRevision === b.characterStateRevision
     && a.intentFingerprint === b.intentFingerprint

@@ -1,0 +1,56 @@
+name: Cognitive Coprocessor Wave 15
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave15:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve Wave 14 resource acceptance
+        run: npm run test:wave14
+      - name: Wave 15 native swarm and Jev completion goldens
+        run: npm run test:wave15:native
+      - name: Wave 15 local deterministic evaluation
+        run: npm run test:wave15:evaluation
+      - name: Wave 15 browser portability
+        run: npm run test:browser:wave15
+      - name: Generate Wave 15 evaluation artifact
+        run: npm run report:wave15
+      - name: Opt-in measured live native swarm smoke
+        id: live_swarm
+        continue-on-error: true
+        run: npm run smoke:swarm:live
+      - name: Opt-in measured live Jev smoke
+        id: live_jev
+        continue-on-error: true
+        run: npm run smoke:sidecar-jev:live
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Upload Wave 15 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-sidecar-swarm-wave15
+          path: artifacts/native-sidecar-swarm-wave15/
+      - name: Record live-provider observations
+        if: always()
+        run: |
+          echo "Measured live native swarm smoke observation: ${{ steps.live_swarm.outcome }}"
+          echo "Measured live Jev smoke observation: ${{ steps.live_jev.outcome }}"

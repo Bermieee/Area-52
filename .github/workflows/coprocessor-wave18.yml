@@ -1,0 +1,53 @@
+name: Cognitive Coprocessor Wave 18
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave18:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 18 focused native-path acceptance
+        run: npm run test:wave18
+      - name: Wave 18 bounded stress
+        run: npm run test:wave18:stress
+      - name: Wave 18 browser portability
+        run: npm run test:browser:wave18
+      - name: Preserve Wave 17 browser, owner-handoff and UI backend contract
+        run: npm run test:wave17
+      - name: Preserve Wave 16 resource and Jev acceptance
+        run: npm run test:wave16
+      - name: Preserve Wave 15 native swarm acceptance
+        run: npm run test:wave15
+      - name: Preserve Wave 12 speculative warmer acceptance
+        run: npm run test:wave12
+      - name: Preserve Wave 9 Jev domain regressions
+        run: npm run test:wave9
+      - name: Generate Wave 18 LOCAL_DETERMINISTIC report
+        run: npm run report:wave18
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Wave 18 evaluator ESM import
+        run: node -e "import('./evaluation/coprocessor-wave18-evaluator.mjs').then(()=>console.log('Wave18 evaluator ESM import PASS'))"
+      - name: Upload Wave 18 deterministic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-jev-wave18
+          path: artifacts/coprocessor-wave18-evaluation.json

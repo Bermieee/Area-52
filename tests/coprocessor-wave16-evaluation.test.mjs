@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {runWave16ResourceJevEvaluation} from '../evaluation/resource-jev-wave16-evaluator.mjs';
+
+test('Wave16 evaluation keeps deterministic HTTP evidence separate from live OpenRouter acceptance',async()=>{
+  const report=await runWave16ResourceJevEvaluation();
+  assert.equal(report.benchmark,'AREA52_RESOURCE_JEV_WAVE16');
+  assert.equal(report.measurementClasses.controlledHttp,'LOCAL_DETERMINISTIC');
+  assert.equal(report.measurementClasses.failureInjection,'SIMULATED_FAILURE');
+  assert.equal(report.measurementClasses.externalOpenRouter,'NOT_MEASURED_IN_DEFAULT_CI');
+  assert.equal(report.liveEvidence.realProviderCallObserved,false);
+  assert.equal(report.liveEvidence.ft005LivePass,false);
+  assert.equal(report.liveEvidence.jevLivePass,false);
+  assert.equal(report.nativeBrain.zeroResourcesUsable,true);
+  assert.deepEqual(report.resourceCounts,{zero:0,one:1,two:2});
+  assert.equal(report.connections.chatQualified,true);
+  assert.equal(report.connections.vectorQualified,true);
+  assert.equal(report.routing.chatTransport,'CHAT_COMPLETIONS');
+  assert.equal(report.routing.vectorTransport,'EMBEDDINGS');
+  assert.deepEqual(report.routing.vectorRoutableCapabilities,['EMBED']);
+  assert.equal(report.execution.embedding.vectorCount,2);
+  assert.equal(report.jev.clearServiceStatus,'JEV_SKIPPED');
+  assert.equal(report.jev.clearProviderCalls,0);
+  assert.equal(report.jev.deterministicBaseline,'UNRESOLVED');
+  assert.equal(report.jev.optionalOutcome,'DECIDED');
+  assert.equal(report.jev.changedDecision,true);
+  assert.equal(report.jev.abstentionOutcome,'ABSTAINED');
+  assert.equal(report.jev.authorityGranted,false);
+  assert.equal(report.jev.settlementPerformed,false);
+  assert.equal(report.authority.finalChoice,false);
+  assert.equal(report.authority.contextSeal,false);
+});

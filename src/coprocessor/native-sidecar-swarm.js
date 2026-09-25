@@ -257,7 +257,7 @@ export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Dat
   const checkpoint=deepFreeze({
     kind:'CoprocessorSwarmCheckpoint',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
     checkpointId:'cop-swarm:'+sha256Hex(stable(base)).slice(0,24),createdAt:Number(createdAt),parentCheckpointId,
-    turnId:base.turnId,correlationId:base.correlationId,revisionFence:deepFreeze(revisionFence),proposal:clone(proposal),
+    turnId:base.turnId,correlationId:base.correlationId,proposalId:base.proposalId,revisionFence:deepFreeze(revisionFence),proposal:clone(proposal),
     pendingTasks:tasks.map(clone),authority:'NONE',
   });
   assertBytes(checkpoint,maxBytes,'swarm checkpoint');

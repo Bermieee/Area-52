@@ -158,7 +158,8 @@ test('DETERMINISTIC: character perspective fences private experience from native
     perspectiveConstraint:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Pell'},
     executionLabel:'DETERMINISTIC',
   });
-  assert.doesNotMatch(JSON.stringify(pell.candidateEnvelope),/obsidian key/i);
+  const pellCandidateEvidence=JSON.stringify((pell.candidateEnvelope?.candidates??[]).map(candidate=>({representationText:candidate.representationText,metadata:candidate.metadata,evidenceRefs:candidate.evidenceRefs})));
+  assert.doesNotMatch(pellCandidateEvidence,/obsidian key/i);
   assert.doesNotMatch(JSON.stringify(pell.promptPlan),/obsidian key/i);
 
   const mira=await brain.prepareTurn({

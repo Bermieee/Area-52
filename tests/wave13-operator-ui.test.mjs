@@ -260,6 +260,40 @@ test('Settings is a labeled product workspace with explicit display controls',()
   ui.destroy();
 });
 
+test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and three resource lanes',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);
+  for(const config of [
+    {role:'JEV',resourceId:'jev:diag',endpoint:'http://127.0.0.1:8080',modelId:'jev-model',capabilities:[]},
+    {role:'SIDECAR',resourceId:'sidecar:diag',endpoint:'http://127.0.0.1:8081',modelId:'sidecar-model',capabilities:[]},
+    {role:'VECTORING',resourceId:'vector:diag',endpoint:'http://127.0.0.1:8082',modelId:'vector-model',capabilities:[]},
+  ])assert.equal((await ui.actionRouter.route({type:'wave13.resource.connect',payload:config})).ok,true);
+  for(const row of ui.operator.resources.read().data.resources)assert.equal((await ui.actionRouter.route({type:'wave13.resource.test',target:row})).ok,true);
+  ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/raw prompts are never collected/i);
+  const snap=ui.operator.diagnostics.read();
+  assert.equal(snap.telemetry.rawPromptTelemetry,false);assert.equal(snap.host.rawPromptTelemetry,false);
+  assert.deepEqual(snap.resources.lanes.map(x=>[x.kind,x.connected]),[['JEV',1],['SIDECAR',1],['VECTORING',1]]);
+  assert.deepEqual(host.calls.filter(x=>x[0]==='add').map(x=>[x[1].resourceId,x[1].capabilities]),[
+    ['jev:diag',['SEMANTIC_JUDGMENT']],['sidecar:diag',['STRUCTURED_EXTRACTION']],['vector:diag',['RETRIEVAL','EMBED']],
+  ]);
+  assert.ok(snap.telemetry.resourceEvents.some(x=>x.code==='TEST_PASSED'));
+  ui.destroy();assert.equal(host.listenerCount(),0);
+});
+
+test('Diagnostics Center follows chat switches and rejects stale turn telemetry',()=>{
+  const owner=liveOwner(),oldSelection=owner.bindings.readSelection(),staleScatter=scatter(oldSelection);
+  owner.bindings.readScatter=()=>staleScatter;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
+  owner.switchStory({chatId:'chat:diagnostics-new',turnId:'turn:diagnostics-new',generationId:'gen:diagnostics-new',location:'Copper Basin'});ui.scheduler.flush(2);
+  const snap=ui.operator.diagnostics.read();
+  assert.equal(snap.selection.chatId,'chat:diagnostics-new');assert.equal(snap.selection.turnId,'turn:diagnostics-new');
+  assert.equal(snap.cognition.jobs.length,0);assert.equal(snap.cognition.errors.scatter.code,'LIVE_RECEIPT_IDENTITY_MISMATCH');
+  assert.doesNotMatch(textOf(ui.shell.nodes.workspace),/turn:1/);
+  ui.destroy();
+});
+
 test('two unrelated stories remain generic through the same UI surface',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('story');ui.scheduler.flush(1);assert.match(textOf(ui.shell.nodes.workspace),/Moon Harbor/);
   owner.switchStory({chatId:'chat:desert',turnId:'turn:desert',generationId:'gen:desert',location:'Saffron Observatory'});ui.scheduler.flush(2);
@@ -313,15 +347,16 @@ test('native LoreStudyRuntime object can be projected and driven through its exi
 function worker2ResourceHost({configured=false}={}){
   const calls=[],listeners=new Set();let sequence=0;
   const rows=[];
-  if(configured)rows.push({kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:true,maxConcurrency:1,activeExecutions:0,callable:false});
+  const diagnostic=(row,code,message,details={})=>{row.diagnostics??=[];row.diagnostics.push({sequence:++sequence,at:sequence,code,message,details});};
+  if(configured){const row={kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:true,maxConcurrency:1,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);}
   const emit=(type,row)=>{sequence+=1;for(const listener of [...listeners])listener({kind:'CoprocessorResourceConnectionEvent',sequence,type,resource:{...row}});};
   return{
     calls,
     actions:{
-      addResource(config){calls.push(['add',{...config,capabilities:[...config.capabilities]}]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false};rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
-      async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Health probe passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.callable=true;emit('RESOURCE_READY',row);return{...row};},
-      disconnectResource(id){calls.push(['disconnect',id]);const row=rows.find(x=>x.resourceId===id);row.state='DISCONNECTED';row.reasonCode='OPERATOR_DISCONNECT';row.reason='Operator disconnected resource.';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.activeCapabilities=[];row.callable=false;emit('RESOURCE_DISCONNECTED',row);return{...row};},
-      async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
+      addResource(config){calls.push(['add',{...config,capabilities:[...config.capabilities]}]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
+      async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Health probe passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.callable=true;diagnostic(row,'HEALTH_CHECK_PASSED','Health probe passed.');emit('RESOURCE_READY',row);return{...row};},
+      disconnectResource(id){calls.push(['disconnect',id]);const row=rows.find(x=>x.resourceId===id);row.state='DISCONNECTED';row.reasonCode='OPERATOR_DISCONNECT';row.reason='Operator disconnected resource.';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.activeCapabilities=[];row.callable=false;diagnostic(row,'DISCONNECTED','Operator disconnected resource.');emit('RESOURCE_DISCONNECTED',row);return{...row};},
+      async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
     },
     read:{resources:()=>({kind:'CoprocessorResourceConnectionReadModel',contractVersion:'1.0.0',sequence,resources:rows.map(x=>({...x,declaredCapabilities:[...x.declaredCapabilities],activeCapabilities:[...x.activeCapabilities]})),readyResourceCount:rows.filter(x=>x.state==='READY').length,nativePathRequired:!rows.some(x=>x.state==='READY')})},
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},

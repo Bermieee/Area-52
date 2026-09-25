@@ -13,7 +13,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     registry.update('brain',{render(host,ctx){current.render?.(host,ctx);if(operations&&ctx.productAdapter.getDetailLevel()!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});}});
   }
   if(!registry.has('connections'))registry.register({
-    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','connect','disconnect','test'],
+    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','connect','disconnect','test'],
     render(host,ctx){
       host.append(header(host.ownerDocument,'Connections','Connect Jev, Sidecar, and Vectoring resources separately, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
       if(resources)renderResourceSurface(host,{...ctx,resources,actionRouter});
@@ -36,11 +36,13 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
   const releases=[];
   if(resources){
     releases.push(actionRouter.registerSubsystem('wave13-resources',async(action)=>{
+      if(action.type==='wave13.resource.discoverModels')return resources.discoverModels(action.payload??{});
       if(action.type==='wave13.resource.connect')return resources.connect(action.payload??action.target??{});
       if(action.type==='wave13.resource.disconnect')return resources.disconnect(action.target??action.payload??{});
       if(action.type==='wave13.resource.test')return resources.test(action.target??action.payload??{});
       throw new Error('Unsupported Wave 13 resource action');
     }));
+    releases.push(actionRouter.registerAction('wave13.resource.discoverModels',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.connect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.disconnect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.test',{subsystem:'wave13-resources'}));
@@ -126,28 +128,65 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   const form=element(d,'div',{className:'a52-wave13-connection-slot__form'});
   const connectionName=field(d,'input',spec.title+' connection name',{type:'text',placeholder:spec.defaultName,autocomplete:'off'});
   connectionName.value=spec.defaultName;
-  const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:'http://127.0.0.1:...'});
-  const model=field(d,'input',spec.title+' model ID',{type:'text',placeholder:'model name'});
-  const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:'Optional for local providers',autocomplete:'off',spellcheck:'false'});
+  const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:spec.remotePlaceholder??'https://provider.example/v1'});
+  const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:'Required when the provider requires authentication',autocomplete:'off',spellcheck:'false'});
   const capabilities=field(d,'input',spec.title+' capabilities',{type:'text',placeholder:spec.defaultCapabilities.join(', ')});
   capabilities.value=spec.defaultCapabilities.join(', ');
   if(spec.fixedCapabilities){
     capabilities.disabled=true;capabilities.setAttribute('aria-disabled','true');capabilities.title='Jev capability is fixed by the owner contract.';
   }
-  const connect=createButton(d,{label:'Connect '+spec.title,scope,onPress:async()=>{
+  const modelChoice=field(d,'select',spec.title+' discovered model');
+  modelChoice.append(option(d,'','Load models first'));
+  modelChoice.disabled=true;modelChoice.setAttribute('aria-disabled','true');
+  const manualModel=field(d,'input',spec.title+' manual model fallback',{type:'text',placeholder:'Manual model ID fallback',autocomplete:'off'});
+  manualModel.disabled=Boolean(caps.discoverModels);manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
+  const discoveryState=element(d,'p',{className:'a52-wave13-connection-slot__hint',text:caps.discoverModels?'Load models from the provider before testing the connection. Choosing a model does not prove the connection works.':'Worker 2 model discovery is not exported here. Manual model entry is available only as a compatibility fallback.'});
+  const loadModels=createButton(d,{label:'Load / Refresh Models',scope,size:'sm',variant:'quiet',disabled:!caps.discoverModels,onPress:async()=>{
     const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
-    const result=await actionRouter.route({type:'wave13.resource.connect',payload:{
+    const result=await actionRouter.route({type:'wave13.resource.discoverModels',payload:{
+      role:spec.role,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,
+    }});
+    if(!result.ok){
+      modelChoice.replaceChildren(option(d,'','Discovery failed'));modelChoice.disabled=true;modelChoice.setAttribute('aria-disabled','true');
+      manualModel.disabled=true;manualModel.setAttribute('aria-disabled','true');
+      discoveryState.textContent='Model discovery failed: '+String(result.error??'unknown error')+'.';
+      reportAction(notifications,result,spec.title+' model discovery');return;
+    }
+    const discovery=result.result??{},models=discoveryModels(discovery),state=String(discovery.state??'FAILED').toUpperCase();
+    modelChoice.replaceChildren(option(d,'',models.length?'Choose a discovered model':'No models returned'));
+    for(const modelRow of models)modelChoice.append(option(d,modelRow.id,modelRow.label));
+    const ready=state==='READY'&&models.length>0;
+    modelChoice.disabled=!ready;modelChoice.setAttribute('aria-disabled',String(!ready));
+    manualModel.disabled=discovery.manualModelEntryAllowed!==true;manualModel.setAttribute('aria-disabled',String(manualModel.disabled));
+    discoveryState.textContent=discoveryStatusText(state,discovery,models.length);
+    reportAction(notifications,result,spec.title+' model discovery');
+  }});
+  const testConnection=createButton(d,{label:'Test Connection',scope,onPress:async()=>{
+    const selectedModel=modelChoice.disabled?String(manualModel.value||'').trim():String(modelChoice.value||'').trim();
+    if(!selectedModel){
+      discoveryState.textContent='Choose a discovered model first'+(manualModel.disabled?'.':' or enter the manual fallback model ID.');
+      return;
+    }
+    const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const connectResult=await actionRouter.route({type:'wave13.resource.connect',payload:{
       role:spec.role,displayName:connectionName.value||spec.defaultName,transportKind:'OPENAI_COMPATIBLE',
-      endpoint:endpoint.value||null,modelId:model.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,local:isLocalConnectionEndpoint(endpoint.value),
+      endpoint:endpoint.value||null,modelId:selectedModel,apiKey:apiKey.value||null,capabilities:parsedCaps,local:isLocalConnectionEndpoint(endpoint.value),
     }});
     apiKey.value='';
-    reportAction(notifications,result,spec.title+' connection');refresh?.();
+    if(!connectResult.ok){
+      discoveryState.textContent='Connection failed: '+String(connectResult.error??'unknown error')+'.';
+      reportAction(notifications,connectResult,spec.title+' connection');refresh?.();return;
+    }
+    const connectedRow=resources.read().data.resources.find(row=>row.displayName===(connectionName.value||spec.defaultName)&&connectionSlotFor(row)===spec.id);
+    const testResult=connectedRow?await actionRouter.route({type:'wave13.resource.test',target:connectedRow}):connectResult;
+    discoveryState.textContent=testResult.ok?'Connection test completed. Owner-reported status is shown in the locked resource card.':'Connection test failed: '+String(testResult.error??'unknown error')+'.';
+    reportAction(notifications,testResult,spec.title+' connection test');refresh?.();
   }});
   form.append(
-    labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),
-    labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
-    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 creates the internal Resource ID automatically. API keys are sent only to the owner connection contract and are never shown back in plaintext.'}),
-    connect
+    labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
+    loadModels,labelWrap(d,'Model',modelChoice),labelWrap(d,'Manual model fallback',manualModel),discoveryState,
+    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 creates the internal Resource ID automatically. API keys stay masked, are sent only to the owner connection contract, and are cleared from this field after connection submission.'}),
+    testConnection
   );
   slot.append(form);return slot;
 }
@@ -171,6 +210,28 @@ function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifi
   if(row.lastError)card.append(message(d,'Resource issue',String(row.lastError),'warning'));
   if(actions.children?.length)card.append(actions);
   return card;
+}
+
+function discoveryModels(result){
+  const raw=Array.isArray(result?.models)?result.models:[];
+  return raw.map((row,index)=>{
+    if(typeof row==='string')return{id:row,label:row};
+    const id=String(row?.id??row?.modelId??row?.name??'').trim();
+    if(!id)return null;
+    const label=String(row?.displayName??row?.label??row?.name??id);
+    return{id,label};
+  }).filter(Boolean);
+}
+
+function discoveryStatusText(state,result,count){
+  const reason=String(result?.reason??'').trim();
+  if(state==='READY')return count+' model'+(count===1?'':'s')+' loaded. Choose one, then test the connection; selection alone is not proof of connectivity.';
+  if(state==='UNAUTHORIZED')return reason||'Authentication was rejected or a credential is required before model discovery.';
+  if(state==='UNSUPPORTED')return (reason||'This provider does not support model discovery.')+(result?.manualModelEntryAllowed===true?' Manual model fallback is available.':'');
+  if(state==='EMPTY')return (reason||'The provider returned no selectable models.')+(result?.manualModelEntryAllowed===true?' Manual model fallback is available.':'');
+  if(state==='UNREACHABLE')return reason||'The provider endpoint could not be reached.';
+  if(state==='LOADING')return'Loading models from the provider…';
+  return reason||'Model discovery failed.';
 }
 
 function connectionSlotSpecs(){return[

@@ -91,7 +91,7 @@ export class Area52NativeBrain{
     if(snapshot?.core?.contextSeal)this.core.publication.seal.restoreState(snapshot.core.contextSeal);
 
     this.feedback=new NativeLearningFeedback({snapshot:snapshot?.feedback??null});
-    this.contextRetirement=new NativeContextRetirementPolicy();
+    this.contextRetirement=new NativeContextRetirementPolicy({isSourceRevisionCurrent:(ref)=>this.core.isSourceRevisionCurrent(ref)});
     this.knowledge=new NativeKnowledgeStore({registry:this.core.registry,snapshot:snapshot?.knowledge??null});
     this.ownerEvidence=new Map();
     this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));

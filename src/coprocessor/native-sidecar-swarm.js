@@ -50,6 +50,7 @@ export class NativeSidecarSwarm{
       telemetry:this.telemetry,
       availableCapabilities:resources.activeCapabilities,
       resourceCount:Math.max(1,resources.readyResourceCount),
+      capabilityAliases:{'jev-adjudication':['SEMANTIC_JUDGMENT']},
     });
     const checkpoint=createSwarmCheckpoint({
       turnEvent,proposal:plan.choiceProposal,tasks:plan.fanOutPlan.tasks,createdAt:this.now(),maxBytes:this.maxCheckpointBytes,

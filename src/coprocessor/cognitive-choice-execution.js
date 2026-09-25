@@ -72,7 +72,7 @@ function fact(option,{runtime,swarm,provider,routes}){
   const started=numberOrNull(swarm?.startedAt??provider?.startedAt??runtime?.startedAt),completed=numberOrNull(swarm?.completedAt??provider?.completedAt??runtime?.completedAt);
   return freeze({
     kind:'CoprocessorChoiceExecutionFact',optionId:option.optionId,logicalCapability:option.logicalCapability,taskId:option.taskId,proposalDisposition:option.disposition,state,
-    executionResourceId:valueOrNull(swarm?.workerId??provider?.workerId??runtime?.workerId??runtime?.negotiation?.selectedWorkerId??runtime?.negotiation?.workerId),
+    executionResourceId:valueOrNull(swarm?.executionResourceId??provider?.executionResourceId??runtime?.executionResourceId??swarm?.workerId??provider?.workerId??runtime?.workerId??runtime?.negotiation?.selectedWorkerId??runtime?.negotiation?.workerId),
     providerProfileId:valueOrNull(swarm?.providerId??provider?.providerProfileId??provider?.providerId??runtime?.providerProfileId),
     startedAt:started,completedAt:completed,latencyMs:numberOrNull(swarm?.latencyMs??provider?.latencyMs??((started!=null&&completed!=null)?completed-started:null)),
     failureCode:valueOrNull(failureCode),fallbackUsed,late,stale,invalid,degradedReasonCodes:freeze([...new Set(degraded)]),

@@ -302,8 +302,26 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
+  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Model/);assert.doesNotMatch(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
   const passwordFields=walk(sidecar).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,1);
+  ui.destroy();
+});
+
+test('Connections model input stays editable and discovered models are suggestions rather than a whitelist',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const sidecar=walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');
+  const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
+  const buttonByLabel=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  const endpoint=fieldByLabel(sidecar,'Sidecar endpoint'),model=fieldByLabel(sidecar,'Sidecar model');
+  assert.equal(model.tagName,'INPUT');assert.equal(model.disabled,false);assert.ok(model.getAttribute('list'));
+  endpoint.value='https://openrouter.ai/api/v1';endpoint.dispatch('input');
+  buttonByLabel(sidecar,'Load / Refresh Models').dispatch('click');await Promise.resolve();await Promise.resolve();
+  const suggestions=walk(sidecar).find(x=>x.tagName==='DATALIST');
+  assert.ok(suggestions);assert.ok(walk(suggestions).some(x=>x.tagName==='OPTION'&&x.value==='owner/model-a'));
+  model.value='owner/manual-not-in-list';model.dispatch('input');
+  buttonByLabel(sidecar,'Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  assert.ok(host.calls.some(x=>x[0]==='add'&&x[1]?.modelId==='owner/manual-not-in-list'));
   ui.destroy();
 });
 

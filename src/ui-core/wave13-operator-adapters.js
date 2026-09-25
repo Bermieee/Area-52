@@ -316,7 +316,7 @@ export class Wave13OperationalStatusAdapter{
   }
   read(){
     const selection=this.live?.selection?.()??{};
-    const cognition=this.#cognition(selection);
+    const cognition=this.#cognition(selection),generation=this.#generation(selection),hostLifecycle=this.#hostLifecycle();
     const stages=[
       this.#adapterStage('scene','Scene',this.adapters.scene,selection,{turnBound:true,exported:Boolean(this.hostBindings.readScene||this.hostBindings.readSceneModel||this.hostBindings.readSceneUiReadModel)}),
       this.#runtimeStage(selection,cognition),
@@ -327,6 +327,8 @@ export class Wave13OperationalStatusAdapter{
       this.#cognitionStage('gather','Gather',cognition,selection),
       this.#cognitionStage('seal','Context Seal',cognition,selection),
       this.#adapterStage('promptPlan','PromptPlan',this.adapters.promptPlan,selection,{turnBound:true,exported:Boolean(this.hostBindings.readPromptPlan||this.hostBindings.readPromptPlanReadModel||this.hostBindings.readGeneration)}),
+      this.#generationStage(selection,generation),
+      this.#learningStage(selection,generation),
       this.#sourceStage('lore','Lore Study',this.loreStudy?.read?.(),selection),
       this.#memoryStage(selection),
       this.#forensicsStage(selection),
@@ -334,17 +336,52 @@ export class Wave13OperationalStatusAdapter{
     const active=stages.filter(x=>[OperatorProducerState.LIVE,OperatorProducerState.WORKING,OperatorProducerState.IDLE].includes(x.state)).length;
     const failures=stages.filter(x=>x.state===OperatorProducerState.DEGRADED).length;
     const scatter=cognition?.data?.scatter??null,gather=cognition?.data?.gather??null,seal=cognition?.data?.seal??null;
-    const registeredIds=new Set(['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan']);
+    const registeredIds=new Set(['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning']);
     const registered=stages.filter(x=>registeredIds.has(x.id)&&![OperatorProducerState.UNAVAILABLE,OperatorProducerState.DISCONNECTED].includes(x.state)).length;
     const jobs=scatter?.jobs??[],results=gather?.results??[],admitted=seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[];
+    const learning=generation?.learningReceipt??null,delivery=Boolean(generation?.promptPlan||generation?.contextSeal);
     const pipeline=deepFreeze({
       registeredProducers:registered,executionReceipt:Boolean(scatter),executedJobs:Array.isArray(jobs)?jobs.length:0,
       resultReceipt:Boolean(gather),returnedResults:Array.isArray(results)?results.length:0,
       admissionReceipt:Boolean(seal),contextAdmitted:Array.isArray(admitted)?admitted.length:0,
+      generationReader:Boolean(fn(this.hostBindings,['readGeneration'])),generationReceipt:Boolean(generation),generationState:generation?.state??null,
+      deliveryReceipt:delivery,learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
+      hostLifecycle:cloneSafe(hostLifecycle),
     });
     return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
   }
   #cognition(selection){try{return this.adapters.cognition?.read?.(selection)??null;}catch{return null;}}
+  #generation(selection){
+    const reader=fn(this.hostBindings,['readGeneration']);
+    if(!reader||!selection?.generationId)return null;
+    try{
+      const value=reader({generationId:selection.generationId,...cloneSafe(selection)});
+      if(value&&typeof value.then==='function')return null;
+      if(value)assertSelection(value,selection,'Generation',{allowMissingIdentity:true});
+      return value??null;
+    }catch{return null;}
+  }
+  #hostLifecycle(){
+    const reader=fn(this.hostBindings,['readNativeBrainHostLifecycle']);
+    if(!reader)return null;
+    try{const value=reader();return value&&typeof value.then!=='function'?cloneSafe(value):null;}catch{return null;}
+  }
+  #generationStage(selection,generation){
+    const exported=Boolean(fn(this.hostBindings,['readGeneration']));
+    if(!exported)return stage('generation','Generation delivery',OperatorProducerState.UNAVAILABLE,'Assembly does not export the native Brain generation read contract.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
+    if(selection.chatId&&!selection.generationId)return stage('generation','Generation delivery',OperatorProducerState.WAITING_FOR_TURN,'Waiting for a generation identity from the selected chat.',selection,null,'HOST_SELECTION');
+    if(!generation)return stage('generation','Generation delivery',OperatorProducerState.IDLE,'No owner generation receipt exists for the selected generation.',selection,null,'NO_RECEIPT');
+    const delivered=Boolean(generation.promptPlan||generation.contextSeal);
+    return stage('generation','Generation delivery',delivered?OperatorProducerState.LIVE:OperatorProducerState.IDLE,delivered?'The owner recorded sealed context delivery for this generation.':'The generation exists but no sealed delivery receipt is published.',selection,null,delivered?'OWNER_DELIVERY_RECEIPT':'NO_DELIVERY_RECEIPT');
+  }
+  #learningStage(selection,generation){
+    const exported=Boolean(fn(this.hostBindings,['readGeneration']));
+    if(!exported)return stage('learning','Learning write-back',OperatorProducerState.UNAVAILABLE,'Assembly does not export the native Brain generation/learning read contract.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
+    if(selection.chatId&&!selection.generationId)return stage('learning','Learning write-back',OperatorProducerState.WAITING_FOR_TURN,'Learning is tied to a completed generation response.',selection,null,'HOST_SELECTION');
+    if(!generation)return stage('learning','Learning write-back',OperatorProducerState.IDLE,'No owner generation receipt exists to inspect for learning.',selection,null,'NO_RECEIPT');
+    if(!generation.learningReceipt)return stage('learning','Learning write-back',OperatorProducerState.IDLE,'Generation delivery may be complete, but no post-response learning receipt has been published yet.',selection,null,'NO_LEARNING_RECEIPT');
+    return stage('learning','Learning write-back',OperatorProducerState.LIVE,'The native Brain recorded post-response learning for this generation.',selection,null,'OWNER_LEARNING_RECEIPT');
+  }
   #adapterStage(id,label,adapter,selection,{turnBound=false,exported=true}={}){
     if(!exported)return stage(id,label,OperatorProducerState.UNAVAILABLE,'Assembly does not export the '+label+' owner reader.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
     if(!adapter)return this.#missing(id,label,selection,turnBound);

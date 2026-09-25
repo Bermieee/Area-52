@@ -47,6 +47,7 @@ export class CoprocessorTelemetry {
     const choice={proposals:0,options:0,nominated:0,skipped:0,deferred:0,unavailable:0,executions:0,degraded:0,states:{}};
     const resources={configured:0,connecting:0,ready:0,disconnected:0,testsPassed:0,testsFailed:0,executionsSucceeded:0,executionsFailed:0,states:{},measurementClasses:{}};
     const providerCalls={invoked:0,failed:0,usageReceipts:0,costMeasured:0,costNotMeasured:0,measurementClasses:{}};
+    const swarm={turnsPlanned:0,assignments:0,results:0,checkpoints:0,resumes:0,fallbacks:0,states:{},resources:{}};
     for (const event of this.#events) {
       if (event.type === TelemetryEvent.WARM_HIT || (event.type === TelemetryEvent.CACHE_HIT && event.payload.cacheClass === 'WARM')) warmHit += 1;
       if (event.type === TelemetryEvent.WARM_MISS) warmMiss += 1;
@@ -81,6 +82,11 @@ export class CoprocessorTelemetry {
       if (event.type === TelemetryEvent.PROVIDER_INVOKED) { providerCalls.invoked += 1; const m=event.payload.measurementClass; if(m)providerCalls.measurementClasses[m]=(providerCalls.measurementClasses[m]??0)+1; }
       if (event.type === TelemetryEvent.PROVIDER_FAILED) providerCalls.failed += 1;
       if (event.type === TelemetryEvent.PROVIDER_USAGE) { providerCalls.usageReceipts += 1; const status=event.payload.usageReceipt?.cost?.status; if(status==='MEASURED')providerCalls.costMeasured+=1; else providerCalls.costNotMeasured+=1; const m=event.payload.measurementClass; if(m)providerCalls.measurementClasses[m]=(providerCalls.measurementClasses[m]??0)+1; }
+      if (event.type === TelemetryEvent.SWARM_TURN_PLANNED) swarm.turnsPlanned += 1;
+      if (event.type === TelemetryEvent.SWARM_TASK_ASSIGNED) { swarm.assignments += 1; const r=event.payload.resourceId; if(r)swarm.resources[r]=(swarm.resources[r]??0)+1; }
+      if (event.type === TelemetryEvent.SWARM_TASK_RESULT) { swarm.results += 1; const state=event.payload.state; if(state)swarm.states[state]=(swarm.states[state]??0)+1; if(event.payload.fallbackUsed)swarm.fallbacks+=1; }
+      if (event.type === TelemetryEvent.SWARM_CHECKPOINTED) swarm.checkpoints += 1;
+      if (event.type === TelemetryEvent.SWARM_RESUMED) swarm.resumes += 1;
     }
     return Object.freeze({
       totalEvents: this.#events.length,
@@ -97,6 +103,7 @@ export class CoprocessorTelemetry {
       choice: Object.freeze({...choice,states:Object.freeze(choice.states)}),
       resources: Object.freeze({...resources,states:Object.freeze(resources.states),measurementClasses:Object.freeze(resources.measurementClasses)}),
       providerCalls: Object.freeze({...providerCalls,measurementClasses:Object.freeze(providerCalls.measurementClasses)}),
+      swarm: Object.freeze({...swarm,states:Object.freeze(swarm.states),resources:Object.freeze(swarm.resources)}),
     });
   }
 }

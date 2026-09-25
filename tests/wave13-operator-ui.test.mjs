@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   FrontFaceMode, ProductDetailLevel, UIStateStore,
   Wave13LoreAuthoringUIAdapter, Wave13LoreStudyUIAdapter, Wave13ResourceControlAdapter,
@@ -282,6 +283,11 @@ test('Memory no-evidence owner code is translated to plain language while the co
   const{ui}=mount(owner),stage=ui.operator.operations.read().stages.find(x=>x.id==='memory');
   assert.equal(stage.state,'IDLE');assert.equal(stage.reason,'No memories recorded for this chat yet.');assert.equal(stage.errorCode,'MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT');
   ui.destroy();
+});
+
+test('Connections cards use panel-width responsive tracks instead of fixed three-column squeezing',()=>{
+  const css=readFileSync(new URL('../styles/ui-core-wave13.css',import.meta.url),'utf8');
+  assert.match(css,/\.a52-wave13-connection-slots\{[^}]*repeat\(auto-fit,minmax\(min\(100%,280px\),1fr\)\)/);
 });
 
 test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{

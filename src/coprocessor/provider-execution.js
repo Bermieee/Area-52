@@ -40,7 +40,10 @@ export class SpecialistExecutionLayer {
       queueTime:Number(task.metadata?.queueTime??0),local:profile.local,providerHealth:profile.health,attempt});
     let invocation;
     try{
-      invocation=await adapter.invoke(task,providerInput,{signal,attempt,maxOutputTokens:Number.isFinite(profile.maxOutputTokens)?profile.maxOutputTokens:null});
+      const expectedOutputTokens=positiveFiniteOrNull(task?.metadata?.expectedOutputTokens);
+      const qualifiedOutputLimit=positiveFiniteOrNull(profile.maxOutputTokens);
+      const requestedOutputTokens=expectedOutputTokens==null?null:(qualifiedOutputLimit==null?expectedOutputTokens:Math.min(expectedOutputTokens,qualifiedOutputLimit));
+      invocation=await adapter.invoke(task,providerInput,{signal,attempt,maxOutputTokens:requestedOutputTokens});
     }catch(error){
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_FAILED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
         taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,attempt,reason:error?.code??FailureCode.PROVIDER_FAILURE});

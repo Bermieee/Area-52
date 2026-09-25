@@ -2351,6 +2351,90 @@ export class LoreAuthoringLifecycle {
     };
   }
 
+  _restoreSourceOperation(settlement, operation, appliedReceipt) {
+    const registry = this.intelligence.runtime.registry;
+    const current = registry.currentRevision(operation.sourceId, {allowMissing: true});
+    let result;
+    let resumed = false;
+
+    if (operation.kind === 'SOURCE_CREATE') {
+      if (current?.state === 'REMOVED' && current.replacesRevisionId === appliedReceipt.sourceRevisionId) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== appliedReceipt.sourceRevisionId) {
+          throw Object.assign(new Error('Created source changed after Settlement: ' + operation.sourceId), {
+            code: 'LORE_RESTORE_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.removeEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          reason: 'authoring-source-create-restoration:' + settlement.id,
+        });
+      }
+    } else {
+      if (exactRevisionMatches(current, operation.beforeContent, operation.beforeMetadata)) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== appliedReceipt.sourceRevisionId) {
+          throw Object.assign(new Error('Source changed after Settlement before restoration: ' + operation.sourceId), {
+            code: 'LORE_RESTORE_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.upsertEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          content: operation.beforeContent,
+          metadata: operation.beforeMetadata,
+        });
+      }
+    }
+
+    const event = revisionEvent({
+      result,
+      settlementId: settlement.id,
+      operationKind: operation.kind + '_RESTORATION',
+      restoration: true,
+    });
+    return {
+      receipt: {
+        kind: 'LoreRestorationOperationReceipt',
+        operationId: operation.operationId,
+        mutationKind: operation.kind,
+        sourceId: result.source.sourceId,
+        sourceRevisionId: result.revision.id,
+        sourceState: result.revision.state,
+        changed: Boolean(result.changed),
+        resumedIdempotently: resumed,
+        studyObligationId: result.obligation?.id || null,
+        restoredContentHash: operation.beforeContent == null ? null : stableHash(operation.beforeContent),
+      },
+      event,
+      invalidation: sourceMutationInvalidationReceipt({
+        sourceId: result.source.sourceId,
+        fromRevisionId: appliedReceipt.sourceRevisionId,
+        toRevisionId: result.revision.id,
+        settlementId: settlement.id,
+        restoration: true,
+        reason: operation.kind + '_RESTORATION',
+      }),
+    };
+  }
+
   restoreSettlement({settlementId, restorationId = null, maxOperations = MAX_SETTLEMENT_BATCH} = {}) {
     const settlement = this.settlements.get(String(settlementId));
     if (!settlement) throw Object.assign(new Error('Unknown Lore Settlement: ' + settlementId), {code: 'LORE_SETTLEMENT_UNKNOWN'});
@@ -2372,7 +2456,9 @@ export class LoreAuthoringLifecycle {
         const operation = settlement.operations.find((row) => row.operationId === appliedReceipt.operationId);
         const result = settlement.type === 'TREE'
           ? this._restoreTreeOperation(settlement, operation, appliedReceipt)
-          : this._restoreMergeOperation(settlement, operation, appliedReceipt);
+          : settlement.type === 'MERGE'
+            ? this._restoreMergeOperation(settlement, operation, appliedReceipt)
+            : this._restoreSourceOperation(settlement, operation, appliedReceipt);
         restoration.receipts.push(result.receipt);
         restoration.revisionEvents.push(result.event);
         restoration.invalidationReceipts.push(result.invalidation);

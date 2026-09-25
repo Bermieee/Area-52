@@ -82,7 +82,7 @@ export async function init() {
       root.querySelector('[data-a52-arm]').textContent = 'Disarm';
     }
   });
-  root.querySelector('[data-a52-run]')?.addEventListener('click', () => void session.processCurrentTurn());
+  root.querySelector('[data-a52-run]')?.addEventListener('click', () => void session.processCurrentTurn().catch(() => {}));
   root.querySelector('[data-a52-confirm]')?.addEventListener('click', () => session.confirmOperatorReview());
   root.querySelector('[data-a52-copy]')?.addEventListener('click', async () => {
     const text = JSON.stringify(session.exportEvidence(), null, 2);

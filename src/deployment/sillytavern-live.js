@@ -315,20 +315,14 @@ export class DevelopmentDeploymentSillyTavernSession {
   start() {
     if (this.running) return this;
     const context = this.getContext();
-    const eventName = context.eventTypes?.GENERATION_AFTER_COMMANDS
-      ?? context.event_types?.GENERATION_AFTER_COMMANDS
-      ?? context.eventTypes?.MESSAGE_SENT
+    const eventName = context.eventTypes?.MESSAGE_SENT
       ?? context.event_types?.MESSAGE_SENT;
     if (!eventName || !context.eventSource || typeof context.eventSource.on !== 'function') {
       throw new Error('No supported SillyTavern pre-generation event is available');
     }
     const handler = async () => {
-      try {
-        await this.processCurrentTurn();
-      } catch (error) {
-        this.errors.push({ at: Date.now(), message: String(error?.message ?? error) });
-        this.#notify();
-      }
+      try { await this.processCurrentTurn(); }
+      catch { /* processCurrentTurn records the failure for the operator. */ }
     };
     context.eventSource.on(eventName, handler);
     this.release = () => context.eventSource.removeListener?.(eventName, handler);
@@ -347,7 +341,13 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   async processCurrentTurn({ mode = null } = {}) {
     if (this.processing) return this.processing;
-    this.processing = this.#processCurrentTurn({ mode }).finally(() => { this.processing = null; });
+    this.processing = this.#processCurrentTurn({ mode })
+      .catch((error) => {
+        this.errors.push({ at: Date.now(), message: String(error?.message ?? error) });
+        this.#notify();
+        throw error;
+      })
+      .finally(() => { this.processing = null; });
     return this.processing;
   }
 

@@ -12,15 +12,30 @@ function makeHost() {
   const context = {
     chatId: 'chat:live-224',
     chat: [],
-    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands' },
+    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', MESSAGE_SENT: 'message_sent' },
     eventSource: {
       on(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
       removeListener(type, fn) { listeners.get(type)?.delete(fn); },
     },
     async setExtensionPrompt(...args) { promptCalls.push(args); },
   };
-  return { sillyTavern: { getContext: () => context }, context, promptCalls };
+  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners };
 }
+
+test('armed demo processes a newly sent message and reports manual failures', async () => {
+  const { sillyTavern, context, listeners } = makeHost();
+  const session = createDevelopmentDeploymentSillyTavernSession({ sillyTavern, document: null, mountUi: false });
+  session.start();
+  assert.equal(listeners.get('message_sent')?.size, 1);
+  assert.equal(listeners.get('generation_after_commands')?.size ?? 0, 0);
+  pushUser(context, 'Mara and Eris are inside the Ember Tavern with the Sun Blade present. Where are we?');
+  await Promise.all([...listeners.get('message_sent')].map(fn => fn()));
+  assert.equal(session.exportEvidence().checks.simple, true);
+  context.chatId = null;
+  await assert.rejects(session.processCurrentTurn(), /chatId is unavailable/);
+  assert.match(session.exportEvidence().errors.at(-1).message, /chatId is unavailable/);
+  session.destroy();
+});
 
 function pushUser(context, mes) {
   context.chat.push({ is_user: true, mes, send_date: Date.now() });

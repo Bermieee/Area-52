@@ -220,3 +220,92 @@ test('DETERMINISTIC: interrupted native feedback work survives reload and comple
   const receipts=restored.feedback.turns.filter(x=>x.turnId==='resume:1');
   assert.equal(receipts.length,1);
 });
+
+
+test('HOST-CONTRACT: runTurn delivers sealed context to generation callback and learns the returned narrative',async()=>{
+  const brain=new Area52NativeBrain();
+  let hostCall=null;
+  const result=await brain.runTurn({
+    chatId:'chat:host',turnId:'host:1',generationId:'gen:host:1',query:'Continue from the lantern quay.',
+    scene:scene('lantern-quay',1,{location:'Lantern Quay',activeCast:['Sera']}),
+    executionLabel:'HOST_CONTRACT',
+  },{
+    generate:async(rendered,meta)=>{
+      hostCall={rendered,meta};
+      return 'Sera leaves Lantern Quay and enters the tide archive.';
+    },
+    completeOptions:{
+      knownBy:['Sera'],
+      observations:[{subjectId:'Sera',predicate:'location',value:'Tide Archive',at:1}],
+    },
+  });
+  assert.ok(hostCall);
+  assert.equal(hostCall.meta.selection.chatId,'chat:host');
+  assert.equal(hostCall.meta.selection.generationId,'gen:host:1');
+  assert.ok(hostCall.meta.contextSealReceipt?.sealedState);
+  assert.ok(result.prepared.promptPlan?.promptPlanId);
+  assert.equal(result.learning.rawExperienceRecoverable,true);
+  assert.equal(brain.currentWorldModel().current.find(x=>x.subjectId==='Sera'&&x.predicate==='location').value,'Tide Archive');
+});
+
+test('DETERMINISTIC: Worker 4 Lore Brain interface drillback feeds native retrieval without importing authority',async()=>{
+  const loreInterface={
+    kind:'LoreBrainRetrievalInterface',contractVersion:1,
+    query:()=>({
+      kind:'LoreBrainRetrievalPacket',contractVersion:1,query:'skywhales',intent:'AUTO',
+      retrievalIntentId:'lore-intent:1',indexRevision:'idx:7',ontologyRevision:'ontology:3',
+      sourceRevisionFence:['lore:skywhales@r7'],
+      nominations:[{nomination:{nominationId:'lore:n1'},drillback:[{
+        sourceId:'lore:skywhales',sourceRevisionId:'lore:skywhales@r7',
+        exactAuthoredText:'Skywhales return to the Lantern Reefs when the violet tide rises.',
+        representationRef:'source:lore:skywhales@r7',provenance:[{kind:'LoreRetrievalProvenance',sourceRevisionId:'lore:skywhales@r7'}],
+      }]}],
+      thematicCommunities:[],summaries:[],conflicts:[],provenanceRequired:true,
+      exactSourceDrillbackAvailable:true,candidateBusAdmissionAuthority:false,truthGateAuthority:false,
+      settlementAuthority:false,contextSealAuthority:false,
+    }),
+  };
+  const brain=new Area52NativeBrain({loreInterface});
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:lore-contract',turnId:'lore-contract:1',generationId:'gen:lore-contract:1',
+    query:'When do Skywhales return to the Lantern Reefs?',intent:'CURRENT',
+    scene:scene('reef-watch',1,{location:'Lantern Reefs',activeCast:['Orr']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.loreSync.status,'SYNCED');
+  assert.equal(prepared.loreSync.admitted,1);
+  assert.ok(prepared.selection.ownerSourceRevisionRefs.includes('lore:skywhales@r7'));
+  assert.ok(channelIds(prepared).has('NATIVE_LORE'));
+  assert.ok(slots(prepared).has('RELEVANT_LORE'));
+  const loreRow=brain.knowledge.currentRecordForSource('lore:skywhales');
+  assert.equal(loreRow.evidence.authorityClass,'SOURCE_CANON');
+  assert.equal(loreRow.evidence.extensions.metadata.externalSourceRevisionId,'lore:skywhales@r7');
+  assert.equal(prepared.loreSync.authorityGranted,false);
+});
+
+test('DETERMINISTIC: correcting narrative evidence fences dependent reflections from future retrieval',async()=>{
+  const brain=new Area52NativeBrain();
+  await brain.prepareTurn({
+    chatId:'chat:reflection-fence',turnId:'reflection-fence:1',generationId:'gen:reflection-fence:1',query:'Continue.',
+    scene:scene('old-bridge',1,{location:'Old Bridge',activeCast:['Sol']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  await brain.completeTurn({
+    turnId:'reflection-fence:1',response:'Sol studies a crack in the Old Bridge.',knownBy:['Sol'],
+    reflections:[{statement:'Sol believes the Old Bridge will collapse before dawn.',knownBy:['Sol'],confidence:.6}],
+  });
+  const prior=brain.readTurn('reflection-fence:1').experience.sourceRevisionId;
+  brain.correctTurn({
+    turnId:'reflection-fence:1',response:'Correction: Sol saw no structural crack in the Old Bridge.',knownBy:['Sol'],
+  });
+  assert.equal(brain.core.registry.isActiveRevision(prior),false);
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:reflection-fence',turnId:'reflection-fence:2',generationId:'gen:reflection-fence:2',
+    query:'What does Sol believe about the Old Bridge?',intent:'HISTORICAL',
+    scene:scene('old-bridge-dawn',2,{location:'Old Bridge',activeCast:['Sol'],relationship:'PRECEDES'}),
+    perspectiveConstraint:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Sol'},
+    executionLabel:'DETERMINISTIC',
+  });
+  const representations=(prepared.candidateEnvelope?.candidates??[]).map(x=>x.representationText??'').join('\n');
+  assert.doesNotMatch(representations,/will collapse before dawn/i);
+});

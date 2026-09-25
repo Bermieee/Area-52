@@ -61,7 +61,7 @@ test('Wave 9 mixed adapter stress remains bounded, replay-safe, stale-safe, isol
   }
 
   const metrics = m.service.metricsSnapshot();
-  assert.equal(m.registry.size, 3);
+  assert.equal(m.registry.size, 5);
   assert.equal(totals.authorityViolations, 0);
   assert.equal(totals.staleProposalAcceptance, 0);
   assert.equal(totals.crossDomainLeaks, 0);

@@ -325,7 +325,7 @@ test('new Wave 3 provider-backed capabilities route through the existing provide
 
 test('Wave 3 provider output claiming owner authority is rejected before Result Bus eligibility', async () => {
   const task = createConsolidationTask(createConsolidationUnit({ unitId: 'provider-c', artifactRefs: [artifact()], sourceRevisionSet: ['src:1'], worldRevision: 5, sceneRevision: 7, characterStateRevision: 3 }), { turnId: 't', correlationId: 'c', softDeadline: 10, hardDeadline: 20 });
-  const profiles = new CapabilityProfileRegistry(); profiles.register({ profileId: 'c-profile', workerId: 'slot', providerId: 'provider-c', capabilities: [Capability.CONSOLIDATION, Capability.COMPRESSION], foregroundEligible: false, backgroundEligible: true, placements: ['DEEP'], supportedLayers: ['L3'] });
+  const profiles = new CapabilityProfileRegistry(); profiles.register({ profileId: 'c-profile', workerId: 'slot', providerId: 'provider-c', capabilities: [Capability.CONSOLIDATION, Capability.COMPRESSION], resourceClass: 'DEEP_BACKGROUND', foregroundEligible: false, backgroundEligible: true, placements: ['DEEP'], supportedLayers: ['L3'] });
   const adapters = new ProviderAdapterRegistry(); adapters.register(new DeterministicProviderAdapter({ providerId: 'provider-c', capabilities: [Capability.CONSOLIDATION, Capability.COMPRESSION], handlers: { CONSOLIDATION: async () => ({ payload: { proposalId: 'bad', proposalKind: 'CLAIM_CANDIDATE', sourceArtifactRefs: [artifact()], authority: 'CURRENT', settlementAuthority: true, payload: {} } }) } }));
   const layer = new SpecialistExecutionLayer({ profiles, adapters });
   await assert.rejects(() => layer.execute(task, { input: { unit: { artifactRefs: [artifact()] } } }), (error) => error.code === FailureCode.AUTHORITY_VIOLATION);

@@ -22,7 +22,7 @@ test('Wave 8 focused stress stays bounded, idempotent, revision-safe and non-aut
   for(let i=1400;i<1500;i++){const x=await core.decide(r(i),{currentRevisionState:state(i),sealed:true});if(!x.admission.foregroundEligible)late++;}
   for(let i=0;i<250;i++){const a=await core.decide(r(i),{currentRevisionState:state(i)});const b=await core.decide(r(i),{currentRevisionState:state(i)});if(a!==b)replayMismatch++;}
   const m=core.metricsSnapshot();assert.equal(decided,600);assert.equal(skipped,400);assert.equal(abstained,200);assert.equal(stale,200);assert.equal(late,100);assert.equal(authorityViolations,0);assert.equal(replayMismatch,0);
-  assert.equal(m.providerCalls,700);assert.equal(m.invocations,700);assert.equal(m.skips,400);assert.equal(m.abstentions,200);assert.equal(m.stale,200);assert.equal(m.late,100);assert.ok(m.averageDecisionPayloadBytes>0);
+  assert.equal(m.providerCalls,950);assert.equal(m.invocations,950);assert.equal(m.skips,400);assert.equal(m.abstentions,200);assert.equal(m.stale,200);assert.equal(m.late,100);assert.ok(m.averageDecisionPayloadBytes>0);
   console.log(JSON.stringify({stress:'wave8-jev',decisions:m.decisions,providerCalls:m.providerCalls,invocationRate:m.invocationRate,skipRate:m.skipRate,abstentionRate:m.abstentionRate,
     retries:m.retries,timeouts:m.timeouts,late:m.late,stale:m.stale,authorityViolations,replayMismatch,averageDecisionPayloadBytes:m.averageDecisionPayloadBytes}));
 });

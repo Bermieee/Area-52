@@ -29,7 +29,7 @@ function layer(handler){
   profiles.register({
     profileId:'deep-profile',workerId:'deep-slot',providerId:'deep-provider',
     capabilities:[Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
-    foregroundEligible:false,backgroundEligible:true,placements:[Placement.DEEP],supportedLayers:['L3'],
+    resourceClass:'DEEP_BACKGROUND',foregroundEligible:false,backgroundEligible:true,placements:[Placement.DEEP],supportedLayers:['L3'],
   });
   const adapters=new ProviderAdapterRegistry();
   adapters.register(new DeterministicProviderAdapter({

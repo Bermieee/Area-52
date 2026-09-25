@@ -17,7 +17,7 @@ function combinedLayer({slowDeep=false}={}){
   profiles.register({
     profileId:'cognition',workerId:'slot:cognition',providerId:'cognition-provider',
     capabilities:[Capability.SEMANTIC_JUDGMENT,Capability.CHARACTER_INFERENCE,Capability.FAST_CLASSIFICATION,Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
-    foregroundEligible:true,backgroundEligible:true,placements:[Placement.HOT,Placement.DEEP],supportedLayers:['L1','L3'],
+    resourceClass:'DEEP_BACKGROUND',foregroundEligible:true,backgroundEligible:true,placements:[Placement.HOT,Placement.DEEP],supportedLayers:['L1','L3'],
   });
   const adapters=new ProviderAdapterRegistry();
   adapters.register(new DeterministicProviderAdapter({

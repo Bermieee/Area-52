@@ -17,6 +17,12 @@ jobs:
           node-version: 20
       - name: Cognitive tests
         run: npm test
+      - name: Native Brain focused acceptance
+        run: node --test tests/native-brain.mjs
+      - name: Identity and graph retrieval focused acceptance
+        run: node --test tests/native-brain-identity-retrieval.mjs
+      - name: Native Brain ESM load
+        run: node -e "import('./src/native-brain.js').then(()=>console.log('NATIVE BRAIN ESM PASS'))"
       - name: Syntax checks
         run: npm run check
       - name: ESM load
@@ -61,6 +67,27 @@ jobs:
         run: node scripts/cognitive-choice-wave9-acceptance-report.mjs
       - name: Cognitive Choice Wave 9 stress
         run: node scripts/cognitive-choice-wave9-stress-report.mjs
+      - name: Checkout accepted Memory Wave 4 owner reference
+        uses: actions/checkout@v4
+        with:
+          repository: Bermieee/Area-52
+          ref: 51aa0d6e7293ddeaa3899e81f6699794d0c22b2c
+          path: .integration/memory-wave4
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout current Lore owner reference
+        uses: actions/checkout@v4
+        with:
+          repository: Bermieee/Area-52
+          ref: f983d4de9168ce3a6add1ec002a3372b96b873b9
+          path: .integration/lore-current
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Native Brain Memory and Lore owner integration
+        env:
+          AREA52_MEMORY_REF_ROOT: ${{ github.workspace }}/.integration/memory-wave4
+          AREA52_LORE_REF_ROOT: ${{ github.workspace }}/.integration/lore-current
+        run: node scripts/native-brain-owner-integration.mjs
       - name: Checkout accepted Scene Wave 3 integration reference
         uses: actions/checkout@v4
         with:

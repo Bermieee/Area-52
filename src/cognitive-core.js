@@ -18,16 +18,18 @@ import { KnowledgeIntegrationSpine } from './knowledge-integration-spine.js';
 import { HotCognitionRuntime } from './hot-cognition-runtime.js';
 import { CognitiveChoiceController } from './cognitive-choice-controller.js';
 import { SceneCoreIntegrationBridge,SUPPORTED_SCENE_EVENT_TYPES } from './scene-core-integration.js';
+import { NativeEntityIdentityRegistry } from './entity-identity-registry.js';
 
 export class Area52CognitiveCore {
   constructor(){
-    this.registry=new SourceRegistry();this.study=new LoreStudyEngine({registry:this.registry});this.graph=new TemporalStateGraph();
+    this.registry=new SourceRegistry();this.study=new LoreStudyEngine({registry:this.registry});this.graph=new TemporalStateGraph();this.entities=new NativeEntityIdentityRegistry();
     this.settlementCore=new SettlementEngine({registry:this.registry,graph:this.graph});
     this.settlement=new SettlementBoundary({registry:this.registry,graph:this.graph,worldStateSettlement:this.settlementCore});
-    this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
+    this.externalKnowledgeResolver=null;this.externalCurrentSourceRevisionRefs=new Set();
+    this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.isSourceRevisionCurrent(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
     this.hotCognition=new HotCognitionRuntime({sourceRegistry:this.registry,getWorldRevision:()=>this.graph.revision});
-    this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition});
+    this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition,entityRegistry:this.entities,isSourceRevisionCurrent:(revisionId)=>this.isSourceRevisionCurrent(revisionId),externalRevisionSink:(refs)=>this.setExternalCurrentSourceRevisionRefs(refs)});
     this.cognitiveChoice=new CognitiveChoiceController();
     this.sceneIntegration=new SceneCoreIntegrationBridge({core:this});
     this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});this.observation=new CoreObservationSpine();
@@ -43,7 +45,7 @@ export class Area52CognitiveCore {
     this.studyResults.set(result.revision.id,result);const settledRefs=receipts.filter(x=>x?.outcome==='SETTLED').flatMap(x=>x.settledArtifactIds??[]);if(settledRefs.length&&this.hotCognition.hasActiveChat)this.hotCognition.consumeOwnerWorldChange({updateId:`world:${this.graph.revision}:${result.revision.id}`,worldRevision:this.graph.revision,sourceRevisionRefs:[result.revision.id],artifactRefs:settledRefs,provenanceRefs:[result.revision.id],eventType:'STATE_SETTLED'});return{result,receipts,decisions};
   }
   studyBatch(sourceIds,{batchSize=8}={}){const batches=this.study.prepareBatch(sourceIds,{batchSize}),results=[];for(const batch of batches){const execution=this.study.executeBatch(batch),validation=this.study.validateBatch(execution);if(!validation.valid)throw new Error(`Study batch failed validation: ${validation.errors.join(',')}`);for(const result of this.study.commitBatch(validation)){const receipts=[],decisions=[],corr=`study:${result.revision.id}`;for(const proposal of result.proposals){const proposalTx=this.audit.recordProposal(proposal,{correlationId:corr});const before=this.graph.revision;const settled=this.settlement.settle(proposal);this.audit.recordSettlement(proposal,settled,{correlationId:corr,causationId:proposalTx.transactionId,beforeRevision:before,afterRevision:this.graph.revision});decisions.push(settled.decision);if(settled.receipt)receipts.push(settled.receipt);}const settledRefs=receipts.filter(x=>x?.outcome==='SETTLED').flatMap(x=>x.settledArtifactIds??[]);if(settledRefs.length&&this.hotCognition.hasActiveChat)this.hotCognition.consumeOwnerWorldChange({updateId:`world:${this.graph.revision}:${result.revision.id}`,worldRevision:this.graph.revision,sourceRevisionRefs:[result.revision.id],artifactRefs:settledRefs,provenanceRefs:[result.revision.id],eventType:'STATE_SETTLED'});results.push({result,receipts,decisions});}}return results;}
-  editAndRelearn(sourceId,content){const oldRevision=this.registry.getActiveRevision(sourceId),replacement=this.registry.replaceSource(sourceId,content);if(!replacement.changed)return{replacement,relearned:null,invalidatedGraphClaimIds:[],reflectionRefresh:[]};const corr=`source:${replacement.revision.id}`,sourceTx=this.audit.recordSourceAdmission({sourceId,revision:replacement.revision,correlationId:corr,beforeRevision:oldRevision.revision,reasonCode:'SOURCE_REVISION_REPLACED'});const invalidatedGraphClaimIds=this.graph.invalidateClaimsBySourceRevision(oldRevision.id),allInvalidated=[...new Set([...(replacement.invalidatedArtifactIds??[]),...invalidatedGraphClaimIds])].sort(),invalidTx=this.audit.recordInvalidation({artifactIds:allInvalidated,sourceRevisionIds:[oldRevision.id,replacement.revision.id],correlationId:corr,causationId:sourceTx.transactionId,reasonCode:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});if(this.hotCognition.hasActiveChat)this.hotCognition.invalidateKnowledge({updateId:`knowledge-invalidated:${oldRevision.id}->${replacement.revision.id}`,invalidatedSourceRevisionRefs:[oldRevision.id],reason:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});this.retrieval?.indexLifecycle?.invalidateBySourceRevision?.(oldRevision.id,{reason:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});const relearned=this.learnSource(sourceId,{correlationId:corr,causationId:invalidTx?.transactionId??sourceTx.transactionId}),reflectionRefresh=this.reflection.refreshAll();return{replacement,relearned,invalidatedGraphClaimIds,reflectionRefresh};}
+  editAndRelearn(sourceId,content){const oldRevision=this.registry.getActiveRevision(sourceId),replacement=this.registry.replaceSource(sourceId,content);if(!replacement.changed)return{replacement,relearned:null,invalidatedGraphClaimIds:[],reflectionRefresh:[]};this.entities.invalidateSourceRevision(oldRevision.id,{reason:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});const corr=`source:${replacement.revision.id}`,sourceTx=this.audit.recordSourceAdmission({sourceId,revision:replacement.revision,correlationId:corr,beforeRevision:oldRevision.revision,reasonCode:'SOURCE_REVISION_REPLACED'});const invalidatedGraphClaimIds=this.graph.invalidateClaimsBySourceRevision(oldRevision.id),allInvalidated=[...new Set([...(replacement.invalidatedArtifactIds??[]),...invalidatedGraphClaimIds])].sort(),invalidTx=this.audit.recordInvalidation({artifactIds:allInvalidated,sourceRevisionIds:[oldRevision.id,replacement.revision.id],correlationId:corr,causationId:sourceTx.transactionId,reasonCode:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});if(this.hotCognition.hasActiveChat)this.hotCognition.invalidateKnowledge({updateId:`knowledge-invalidated:${oldRevision.id}->${replacement.revision.id}`,invalidatedSourceRevisionRefs:[oldRevision.id],reason:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});this.retrieval?.indexLifecycle?.invalidateBySourceRevision?.(oldRevision.id,{reason:'SOURCE_EDIT_INVALIDATED_DEPENDENCY_CONE'});const relearned=this.learnSource(sourceId,{correlationId:corr,causationId:invalidTx?.transactionId??sourceTx.transactionId}),reflectionRefresh=this.reflection.refreshAll();return{replacement,relearned,invalidatedGraphClaimIds,reflectionRefresh};}
   query(query,{intent='CURRENT',anchorEntityIds=[]}={}){const candidates=this.retrieval.retrieve(query,{intent,anchorEntityIds}),truth=this.truthGate.classifyAll(candidates,{intent}),packet=this.compiler.compile({query,intent,truthResults:truth});return{candidates,truth,packet};}
   publishGenerationContext(options){const published=this.publication.publish(options);if(!published.duplicate)this.audit.recordContextPublished(published,{turnId:options.turnId,correlationId:options.correlationId,generationId:options.generationId??null});return published;}
   deliverGenerationContext({published,...deliveryOptions}){
@@ -65,6 +67,27 @@ export class Area52CognitiveCore {
   hotCognitionSnapshot(chatNamespace){return this.hotCognition.snapshot(chatNamespace);}
   sceneIntegrationSnapshot(chatNamespace){return this.sceneIntegration.snapshot(chatNamespace);}
   sceneIntegrationDiagnostics(chatNamespace){return this.sceneIntegration.diagnostics(chatNamespace);}
+  setExternalCurrentSourceRevisionRefs(refs=[]){this.externalCurrentSourceRevisionRefs=new Set((refs??[]).filter(Boolean).map(String));return this.externalCurrentSourceRevisionIds();}
+  externalCurrentSourceRevisionIds(){return [...this.externalCurrentSourceRevisionRefs].sort();}
+  currentSourceRevisionIds(){return [...new Set([...this.registry.activeRevisionIds(),...this.externalCurrentSourceRevisionIds()])].sort();}
+  isSourceRevisionCurrent(revisionId){const id=String(revisionId);return this.registry.getRevision(id)?this.registry.isActiveRevision(id):this.externalCurrentSourceRevisionRefs.has(id);}
+  registerExternalKnowledgeResolver(resolver=null){
+    if(resolver!==null&&typeof resolver!=='function')throw new TypeError('external knowledge resolver must be a function');
+    this.externalKnowledgeResolver=resolver;
+    this.truthGate.setExternalEvidenceResolver(resolver);
+    return{registered:Boolean(resolver),authorityGranted:false,settlementAuthority:false};
+  }
+  resolveExternalKnowledge(candidate){return this.retrieval.resolveKnowledgeEvidence?.(candidate)??this.externalKnowledgeResolver?.(candidate)??null;}
+  registerEntityIdentity(input){return this.entities.registerIdentity(input);}
+  proposeEntityIdentity(input){return this.entities.propose(input);}
+  settleEntityIdentity(proposalId,options={}){return this.entities.settle(proposalId,options);}
+  invalidateEntityIdentityRevision(sourceRevisionId,options={}){return this.entities.invalidateSourceRevision(sourceRevisionId,options);}
+  entityIdentityReadModel(options={}){return this.entities.readModel(options);}
+  entityIdentityContract(){return this.entities.contract();}
+  registerGraphProvider(options){return this.retrieval.registerGraphProvider(options);}
+  unregisterGraphProvider(providerId){return this.retrieval.unregisterGraphProvider(providerId);}
+  graphProviderInterfaceContract(){return this.retrieval.graphProviderInterfaceContract();}
+  graphWalkerDiagnostics(){return this.retrieval.graphWalkerDiagnostics();}
   registerJevAdapter(adapter){return this.cognitiveChoice.registerJevAdapter(adapter);}
   cognitiveChoiceReceipt(turnId){return this.cognitiveChoice.getReceipt(turnId);}
   sensoryEnvelope(query,options={}){return this.retrieval.retrieveEnvelope(query,options);}
@@ -73,5 +96,5 @@ export class Area52CognitiveCore {
   registerRetrievalChannel(provider){return this.retrieval.registerChannel(provider);}
   registerRetrievalIndexChannel(options){return this.retrieval.registerIndexChannel(options);}
   indexRetrievalArtifact(artifact,options={}){return this.retrieval.indexLifecycle.indexArtifact(artifact,options);}
-  currentWorldModel(){return{revision:this.graph.revision,current:this.graph.currentProjection(),unresolved:this.graph.unresolvedClaims().map(c=>({subjectId:c.subjectId,predicate:c.predicate,value:c.value,status:c.status,claimId:c.id,sourceRevisionIds:c.provenance?.sourceRevisionIds??[]}))};}
+  currentWorldModel(){return{revision:this.graph.revision,current:this.graph.currentProjection(),historical:this.graph.historicalClaims().map(c=>({subjectId:c.subjectId,predicate:c.predicate,value:c.value,status:c.status,claimId:c.id,sourceRevisionIds:c.provenance?.sourceRevisionIds??[]})),unresolved:this.graph.unresolvedClaims().map(c=>({subjectId:c.subjectId,predicate:c.predicate,value:c.value,status:c.status,claimId:c.id,sourceRevisionIds:c.provenance?.sourceRevisionIds??[]}))};}
 }

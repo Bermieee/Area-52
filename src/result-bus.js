@@ -10,8 +10,9 @@ export class ResultBus {
   #routes=new Map();
   #sequence=0;
 
-  constructor({registry=null,getWorldRevision=()=>0,getSceneRevision=()=>0,isTurnSealed=()=>false}={}){
+  constructor({registry=null,getWorldRevision=()=>0,getSceneRevision=()=>0,isTurnSealed=()=>false,isSourceRevisionCurrent=null}={}){
     this.registry=registry;
+    this.isSourceRevisionCurrent=typeof isSourceRevisionCurrent==='function'?isSourceRevisionCurrent:(id)=>!registry||registry.isActiveRevision(id);
     this.getWorldRevision=getWorldRevision;
     this.getSceneRevision=getSceneRevision;
     this.isTurnSealed=isTurnSealed;
@@ -63,7 +64,7 @@ export class ResultBus {
   }
 
   #freshness(result){
-    if(result.sourceRevisionIds.some(id=>this.registry&&!this.registry.isActiveRevision(id)))return ResultFreshness.STALE;
+    if(result.sourceRevisionIds.some(id=>!this.isSourceRevisionCurrent(id)))return ResultFreshness.STALE;
     const world=Number(this.getWorldRevision());
     const scene=Number(this.getSceneRevision());
     if(Number.isFinite(world)){

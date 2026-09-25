@@ -125,7 +125,7 @@ export class CandidateBus{
 
   fuse({
     nominations=[],retrievalIntents=[],query=null,currentRevisionSet={},unavailableChannels=[],degradedChannels=[],
-    candidateSetId=null,metadata={},
+    candidateSetId=null,metadata={},candidateLimit=null,
   }={}){
     const intentIds=uniq(retrievalIntents.map(x=>typeof x==='string'?x:x?.intentId).filter(Boolean));
     const invalid=[],normalized=[];
@@ -203,10 +203,12 @@ export class CandidateBus{
     }
 
     candidates.sort((a,b)=>cmpTuple(candidatePriority(a),candidatePriority(b)));
+    const requestedCandidateLimit=candidateLimit!=null&&Number.isFinite(Number(candidateLimit))?Math.max(1,Math.floor(Number(candidateLimit))):this.limits.maxTotalCandidates;
+    const effectiveCandidateLimit=Math.min(this.limits.maxTotalCandidates,requestedCandidateLimit);
     const selected=[],intentCounts=new Map(),prunedCandidateIds=[];
     for(const candidate of candidates){
       const ids=candidate.retrievalIntentIds.length?candidate.retrievalIntentIds:['__NO_INTENT__'];
-      if(selected.length>=this.limits.maxTotalCandidates||ids.some(id=>(intentCounts.get(id)??0)>=this.limits.maxPerIntent)){prunedCandidateIds.push(candidate.candidateId);continue;}
+      if(selected.length>=effectiveCandidateLimit||ids.some(id=>(intentCounts.get(id)??0)>=this.limits.maxPerIntent)){prunedCandidateIds.push(candidate.candidateId);continue;}
       selected.push(candidate);for(const id of ids)intentCounts.set(id,(intentCounts.get(id)??0)+1);
     }
     selected.sort((a,b)=>a.candidateId.localeCompare(b.candidateId));
@@ -236,6 +238,7 @@ export class CandidateBus{
       fusionPolicyVersion:FUSION_POLICY_VERSION,diagnostics:{
         invalidNominations:invalid.slice(0,32),boundedNominationIds:uniq(boundedNominationIds).slice(0,64),
         candidatePayloadBytes:selected.reduce((sum,c)=>sum+candidatePayloadBytes(c),0),
+        requestedCandidateLimit,effectiveCandidateLimit,
       },
     });
     const envelope=createCandidateBusEnvelope({

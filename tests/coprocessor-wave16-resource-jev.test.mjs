@@ -50,6 +50,13 @@ async function startProvider(){
     if(req.method==='POST'&&req.url==='/api/v1/chat/completions'){
       calls.chat++;let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw||'{}');
       if(body.model!=='story-chat'&&body.model!=='alternate-chat'){res.writeHead(404,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'model missing'}}));return;}
+      if(mode==='strict-qualification'){
+        if('temperature' in body||'max_tokens' in body||'max_completion_tokens' in body||body.messages?.length!==1||body.messages?.[0]?.role!=='user'){
+          res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'qualification request used unsupported optional parameters'}}));return;
+        }
+        res.writeHead(200,{'content-type':'application/json','x-request-id':'fixture-reasoning'});
+        res.end(JSON.stringify({model:body.model,provider:'fixture-reasoning-upstream',choices:[{message:{content:null,reasoning:'qualification accepted'},finish_reason:'length'}]}));return;
+      }
       const system=String(body.messages?.[0]?.content??''),user=String(body.messages?.[1]?.content??'');
       if(delayMs&&system.includes('Graph Walker'))await sleep(delayMs);
       let content='{}';
@@ -123,6 +130,22 @@ test('Wave16 credential lifecycle is session-only, redacted, replaceable and rev
     const publicText=JSON.stringify({model:registry.readModel(),telemetry:registry.telemetry?.list?.()??[]});
     assert.equal(publicText.includes('good-key'),false);assert.equal(publicText.includes('bad-key'),false);
     row=registry.clearResourceCredential('chat');assert.equal(row.credentialConfigured,false);assert.equal(row.selectedModelQualified,false);assert.equal(row.callable,false);
+  }finally{await provider.close();}
+});
+
+test('Wave16 chat qualification accepts minimal reasoning-style completion responses',async()=>{
+  const provider=await startProvider();
+  try{
+    provider.setMode('strict-qualification');
+    const registry=new CoprocessorResourceConnections();addChat(registry,provider.baseUrl,{apiKey:'good-key'});
+    const discovery=await registry.refreshResourceModels('chat');assert.equal(discovery.state,ResourceModelDiscoveryState.READY);
+    const ready=await registry.connectResource('chat');
+    assert.equal(ready.state,ResourceConnectionState.READY);
+    assert.equal(ready.selectedModelQualified,true);
+    assert.equal(ready.callable,true);
+    assert.equal(ready.actualModelId,'story-chat');
+    assert.equal(ready.actualProvider,'fixture-reasoning-upstream');
+    assert.ok(provider.calls().chat>=1);
   }finally{await provider.close();}
 });
 

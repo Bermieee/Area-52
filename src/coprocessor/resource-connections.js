@@ -384,9 +384,12 @@ export class CoprocessorResourceConnections{
     }
   }
 
-  routeQualifiedProviders(task,{maxProviders=8,maxCostClass='HIGH',preferLocal=false}={}){
+  routeQualifiedProviders(task,{maxProviders=8,maxCostClass='HIGH',preferLocal=false,maxLatencyMs=null,maxLatencyClass=null}={}){
     if(!task||task.kind!=='CognitiveTask')throw new TypeError('CognitiveTask is required for qualified routing');
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,preferLocal,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,preferLocal,requireStructuredOutput:true,
+      expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
+      maxLatencyMs:positiveFiniteOrNull(maxLatencyMs??task?.metadata?.latencyBudgetMs),
+      maxLatencyClass:maxLatencyClass??task?.metadata?.maxLatencyClass??null})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
       .slice(0,Math.max(1,Number(maxProviders)||1));
     return deepFreeze({
@@ -435,7 +438,9 @@ export class CoprocessorResourceConnections{
   }
 
   async executeTaskWithFallback(task,{input={},signal=null,attempt=1,maxCostClass='HIGH',maxProviders=2}={}){
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,
+      expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
+      maxLatencyMs:positiveFiniteOrNull(task?.metadata?.latencyBudgetMs),maxLatencyClass:task?.metadata?.maxLatencyClass??null})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
       .slice(0,Math.max(1,Number(maxProviders)||1));
     const attempts=[];let lastError=null;
@@ -695,5 +700,6 @@ function req(value,name){if(typeof value!=='string'||!value.trim())throw new Typ
 function positiveInt(value,name){const n=Number(value);if(!Number.isInteger(n)||n<1)throw new TypeError(name+' must be a positive integer');return n;}
 function finiteOrNull(value){if(value==null)return null;const n=Number(value);return Number.isFinite(n)?n:null;}
 function taskContextTokens(task){const n=Number(task?.metadata?.contextTokens??task?.metadata?.inputContextTokens??0);return Number.isFinite(n)&&n>0?n:0;}
+function positiveFiniteOrNull(value){const n=Number(value);return Number.isFinite(n)&&n>0?n:null;}
 function clone(value){return value==null?value:structuredClone(value);}
 function deepFreeze(value){if(!value||typeof value!=='object'||Object.isFrozen(value))return value;Object.freeze(value);for(const child of Object.values(value))deepFreeze(child);return value;}

@@ -1,4 +1,5 @@
 import { createDevelopmentDeploymentSillyTavernSession } from './src/deployment/sillytavern-live.js';
+import { Area52NativeBrain } from './src/native-brain.js';
 
 const ROOT_ID = 'area52-development-deployment-controls';
 let session = null;
@@ -111,7 +112,7 @@ export async function init() {
   try {
     session = createDevelopmentDeploymentSillyTavernSession({
       onEvidence: (evidence) => renderEvidence(root, evidence),
-      nativeBrain: globalThis.Area52NativeBrainOwner ?? null,
+      nativeBrain: globalThis.Area52NativeBrainOwner ?? new Area52NativeBrain(),
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
       persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
     });

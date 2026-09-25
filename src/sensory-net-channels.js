@@ -82,7 +82,11 @@ export class ActiveContinuityRetrievalChannel{
     for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_CAST]?.value??[])make(HotSegmentKind.ACTIVE_CAST,'cast:'+row.id,row,{authorityClass:row.authorityClass??snapshot.segments[HotSegmentKind.ACTIVE_CAST].authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.97,continuitySignals:[{type:'ACTIVE_CAST',entityRef:row.id}]});
     for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_ENTITIES]?.value??[])make(HotSegmentKind.ACTIVE_ENTITIES,'entity:'+row.id,row,{authorityClass:row.authorityClass??snapshot.segments[HotSegmentKind.ACTIVE_ENTITIES].authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.94,continuitySignals:[{type:'ACTIVE_ENTITY',entityRef:row.id}]});
     for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_THREADS]?.value??[])make(HotSegmentKind.ACTIVE_THREADS,'thread:'+row.threadId,row,{authorityClass:row.authorityClass??'UNRESOLVED',truthStatusHint:CandidateTruthStatus.UNRESOLVED,rank:.96,continuitySignals:[{type:'ACTIVE_THREAD',threadId:row.threadId}]});
-    for(const row of snapshot.segments?.[HotSegmentKind.RECENT_EPISODE_TAIL]?.value??[])make(HotSegmentKind.RECENT_EPISODE_TAIL,'episode:'+String(row.refId??row.sourceRevisionId),row,{authorityClass:'OBSERVED',truthStatusHint:CandidateTruthStatus.HISTORICAL,rank:.75,continuitySignals:[{type:'RECENT_EPISODE'}]});
+    const perspective=intent?.perspective??null,scope=String(perspective?.scope??'WORLD'),characterRef=perspective?.characterRef??perspective?.characterId??null;
+    for(const row of snapshot.segments?.[HotSegmentKind.RECENT_EPISODE_TAIL]?.value??[]){
+      if(scope==='CHARACTER_KNOWLEDGE'&&(!characterRef||(!row.publicToAll&&!(row.knownBy??[]).includes(String(characterRef)))))continue;
+      make(HotSegmentKind.RECENT_EPISODE_TAIL,'episode:'+String(row.refId??row.sourceRevisionId),row,{authorityClass:'OBSERVED',truthStatusHint:CandidateTruthStatus.HISTORICAL,rank:.75,continuitySignals:[{type:'RECENT_EPISODE'}]});
+    }
     const graph=snapshot.segments?.[HotSegmentKind.GRAPH_NEIGHBORHOOD]?.value;if(graph?.state==='AVAILABLE')for(const ref of graph.refs??[])make(HotSegmentKind.GRAPH_NEIGHBORHOOD,'graph:'+ref,{ref},{authorityClass:'UNRESOLVED',truthStatusHint:CandidateTruthStatus.UNKNOWN,rank:.7,continuitySignals:[{type:'ACTIVE_GRAPH_REF',ref}]});
     return out;
   }

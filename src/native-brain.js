@@ -216,7 +216,10 @@ export class Area52NativeBrain{
     if(sceneSignal||scene)this.observeScene(chat,sceneSignal??scene);
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
-    const loreSync=await this.#syncLoreForTurn({query:q,intent});
+    this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
+    const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
+    this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
+    this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
 
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
@@ -229,20 +232,24 @@ export class Area52NativeBrain{
       published,generationId,modelProfileId,budgetTokens,systemPolicy,userInput:q,
     });
     if(!delivery?.ok)throw new Error('NATIVE_BRAIN_DELIVERY_FAILED:'+String(delivery?.status??delivery?.failure?.code??'UNKNOWN'));
+    const retrievalSkipped=(published.cognitiveChoiceReceipt?.skippedJobs??[]).includes('RETRIEVAL');
+    if(retrievalSkipped){const reason=(published.cognitiveChoiceReceipt?.reasonCodes??[]).includes('HOT_SUFFICIENT')?'HOT_SUFFICIENT':'COGNITIVE_CHOICE_SKIPPED_RETRIEVAL';this.ownerLoreChannel.finalizeSkipped(reason);this.ownerMemoryChannel.finalizeSkipped(reason);}
+    const loreSync=this.#ownerRetrievalReceipt('LORE');
+    const memorySync=this.#ownerRetrievalReceipt('MEMORY');
 
     const record={
       kind:'NativeBrainTurnRecord',turnId:turn,sequence,chatId:chat,generationId:generation,correlationId:corr,
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet:this.core.registry.activeRevisionIds(),
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
-      published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
+      published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       state:'SEALED_FOR_GENERATION',
     };
     this.#rememberTurn(record);
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,loreSync,cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,loreSync,memorySync,cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       promptPlan:delivery.plan,rendered:delivery.rendered,

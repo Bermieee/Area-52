@@ -150,10 +150,37 @@ export class GenerationPublicationPipeline {
       .filter(x=>x.result.resultType==='PRECISION_RESULT')
       .map(x=>x.result.payload);
     const lowAbstention=assessment?.confidence==='LOW';
+    const admittedKnowledgeCandidateIds=new Set([
+      ...(publicationAssessment?.admittedCandidateIds??[]),
+      ...(publicationAssessment?.supportCandidateIds??[]),
+    ]);
+    const precisionByCandidate=new Map(usablePrecision.map(row=>[row.candidateId,row]));
+    const admittedKnowledgeEvidence=(lowAbstention||choiceSession?.hotOnly?[]:candidates)
+      .filter(candidate=>admittedKnowledgeCandidateIds.has(candidate.candidateId))
+      .map(candidate=>{
+        const evidence=this.core.resolveExternalKnowledge?.(candidate)??null;
+        if(!evidence)return null;
+        const precision=precisionByCandidate.get(candidate.candidateId)??null;
+        return {
+          ...structuredClone(evidence),
+          representationText:candidate.representationText??'',
+          candidateLineage:{
+            ...(structuredClone(evidence.candidateLineage??{})),
+            candidateRefs:uniq([...(evidence.candidateLineage?.candidateRefs??[]),candidate.candidateId]),
+            nominationChannels:uniq([...(evidence.candidateLineage?.nominationChannels??[]),...(candidate.channelNominations??[]).map(x=>x.channelId)]),
+            evidenceRefs:uniq([...(evidence.candidateLineage?.evidenceRefs??[]),...(candidate.evidenceRefs??[])]),
+          },
+          retrievalMetadata:{
+            ...(structuredClone(evidence.retrievalMetadata??{})),
+            fusionScore:candidate.fusionScore??null,
+            precision:precision?{candidateId:precision.candidateId,finalRank:precision.finalRank,score:precision.normalizedScore,freshness:precision.freshness}:null,
+          },
+        };
+      }).filter(Boolean);
     const unknownSlots=lowAbstention||choiceSession?.hotOnly?[]:this.#unknownSlots(query,intent,effectiveAnchorEntityIds);
     let compiled=this.compiler.compile({
       query,intent,truthAssessment:publicationAssessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,
-      rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,
+      rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,knowledgeEvidence:admittedKnowledgeEvidence,
     });
     let hotContributions=[];
     if(hotProjection?.facts?.length){

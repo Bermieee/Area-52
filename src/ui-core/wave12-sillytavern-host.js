@@ -9,6 +9,7 @@ const HOST_EVENT_KEYS=Object.freeze([
   'CHAT_CHANGED','CHAT_LOADED',
   'MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED',
   'GENERATION_STARTED','GENERATION_STOPPED','GENERATION_ENDED',
+  'WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED',
 ]);
 
 const OWNER_BINDING_KEYS=Object.freeze([
@@ -290,6 +291,8 @@ export class Wave12SillyTavernHostAdapter{
       const liveBindings={
         ...pickOwnerBindings(this.ownerBindings),
         readSelection:()=>this.selectionBridge.readSelection(),
+        readSelectedLorebookSelection:()=>readSelectedSillyTavernLorebookSelection(this.document),
+        discoverSelectedLorebook:()=>discoverSelectedSillyTavernLorebook({document:this.document,getContext:this.getContext}),
         subscribe:(listener)=>this.selectionBridge.subscribe(listener),
       };
       this.ui=createWave6ProductInterface({
@@ -389,10 +392,52 @@ export function createWave12SillyTavernHostBindings({getContext,hostBindings={}}
     hostBindings:{
       ...pickOwnerBindings(hostBindings),
       readSelection:()=>bridge.readSelection(),
+      readSelectedLorebookSelection:()=>readSelectedSillyTavernLorebookSelection(globalThis.document??null),
+      discoverSelectedLorebook:()=>discoverSelectedSillyTavernLorebook({document:globalThis.document??null,getContext}),
       subscribe:(listener)=>bridge.subscribe(listener),
     },
     destroy:()=>bridge.destroy(),
   };
+}
+
+export function readSelectedSillyTavernLorebookSelection(document=globalThis.document??null){
+  const select=document?.querySelector?.('#world_editor_select')??document?.getElementById?.('world_editor_select')??null;
+  if(!select)return Object.freeze({kind:'SillyTavernLorebookSelection',selected:false,lorebookId:null,title:null,reason:'SillyTavern World Info editor selection is unavailable.'});
+  const options=Array.from(select.options??select.children??[]),selected=select.selectedOptions?.[0]??options.find(row=>row?.selected)??options[Number(select.value)]??null;
+  const title=cleanText(selected?.textContent??selected?.text??selected?.label);
+  if(!title||title==='--- None ---')return Object.freeze({kind:'SillyTavernLorebookSelection',selected:false,lorebookId:null,title:null,reason:'No Lorebook is selected in SillyTavern.'});
+  return Object.freeze({kind:'SillyTavernLorebookSelection',selected:true,lorebookId:title,title,entryCount:null,source:'SILLYTAVERN_WORLD_INFO_EDITOR'});
+}
+
+export async function discoverSelectedSillyTavernLorebook({document=globalThis.document??null,getContext}={}){
+  const selection=readSelectedSillyTavernLorebookSelection(document);
+  if(!selection.selected){const error=new SillyTavernHostUnavailableError('SILLYTAVERN_LOREBOOK_NOT_SELECTED',selection.reason);throw error;}
+  const context=typeof getContext==='function'?getContext():null;
+  if(!context||typeof context.loadWorldInfo!=='function')throw new SillyTavernHostUnavailableError('SILLYTAVERN_LOREBOOK_API_UNAVAILABLE','SillyTavern loadWorldInfo() is unavailable to the extension host.');
+  const raw=await context.loadWorldInfo(selection.lorebookId);
+  if(!raw||typeof raw!=='object')throw new SillyTavernHostUnavailableError('SILLYTAVERN_LOREBOOK_LOAD_FAILED','SillyTavern did not return the selected Lorebook.');
+  const rows=Array.isArray(raw.entries)?raw.entries:Object.entries(raw.entries??{}).map(([key,value])=>({...(value??{}),uid:value?.uid??key}));
+  const entries=rows.map((entry,index)=>{
+    const uid=cleanText(entry?.uid??entry?.id);if(!uid)throw new SillyTavernHostUnavailableError('SILLYTAVERN_LOREBOOK_UID_MISSING','Selected Lorebook entry '+String(index+1)+' has no SillyTavern UID.');
+    if(typeof entry?.content!=='string')throw new SillyTavernHostUnavailableError('SILLYTAVERN_LOREBOOK_CONTENT_INVALID','Selected Lorebook entry '+uid+' has no authored text content.');
+    return{
+      uid,content:entry.content,
+      metadata:{
+        title:cleanText(entry.comment??entry.name??entry.title),
+        keys:Array.isArray(entry.key)?[...entry.key]:[],
+        secondaryKeys:Array.isArray(entry.keysecondary)?[...entry.keysecondary]:[],
+        constant:Boolean(entry.constant),selective:Boolean(entry.selective),disabled:Boolean(entry.disable),
+        order:Number.isFinite(Number(entry.order))?Number(entry.order):null,
+        position:entry.position??null,depth:Number.isFinite(Number(entry.depth))?Number(entry.depth):null,
+      },
+    };
+  });
+  const receipt=Object.freeze({
+    kind:'SillyTavernLorebookDiscoveryReceipt',contractVersion:1,source:'SILLYTAVERN_WORLD_INFO_EDITOR',
+    lorebookId:selection.lorebookId,title:selection.title,entryCount:entries.length,
+    chatId:cleanText(context.chatId??safeCall(context.getCurrentChatId)),exactAuthoredSource:true,
+  });
+  return Object.freeze({id:selection.lorebookId,title:selection.title,entries,fullSnapshot:true,discovery:receipt});
 }
 
 function resolveGetContext(getContext,sillyTavern){

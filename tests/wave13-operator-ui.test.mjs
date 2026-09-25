@@ -202,3 +202,94 @@ test('two unrelated stories remain generic through the same UI surface',()=>{
   owner.switchStory({chatId:'chat:desert',turnId:'turn:desert',generationId:'gen:desert',location:'Saffron Observatory'});ui.scheduler.flush(2);
   const text=textOf(ui.shell.nodes.workspace);assert.match(text,/Saffron Observatory/);assert.doesNotMatch(text,/Ember Tavern|Sun Blade/);ui.destroy();
 });
+
+
+test('Worker 2 CognitionUiState exact numeric counters stay live instead of degrading',()=>{
+  const owner=liveOwner();
+  owner.bindings.readCognitionUiState=()=>({kind:'CognitionUiState',turnId:'turn:1',activeTasks:2,hotTasks:1,deepTasks:1,requiredPending:1,opportunisticPending:1,deferredTasks:0,lateResults:0,staleDrops:1,warmHits:4,fallbackCount:0,providerHealth:[],health:'STALE'});
+  const{ui}=mount(owner),snap=ui.productAdapter.getSnapshot();
+  assert.equal(snap.coprocessor.activeTaskCount,2);assert.equal(snap.coprocessor.hotActivity,1);assert.equal(snap.coprocessor.deepActivity,1);assert.equal(snap.coprocessor.warm.hit,4);
+  assert.equal(snap.wave6.sources.coprocessor.mode,'DEGRADED');ui.destroy();
+});
+
+test('Worker 2 public resource host add/connect/test/disconnect contract is consumed without UI routing logic',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);
+  assert.equal(host.listenerCount(),1);
+  const connected=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'JEV',resourceId:'jev:local',endpoint:'http://127.0.0.1:8080',modelId:'jev-local',capabilities:[]}});
+  assert.equal(connected.ok,true);
+  assert.deepEqual(host.calls.slice(0,2).map(x=>x[0]),['add','connect']);
+  assert.equal(host.calls[0][1].kind,'OPENAI_COMPATIBLE');assert.deepEqual(host.calls[0][1].capabilities,['SEMANTIC_JUDGMENT']);assert.equal(host.calls[1][1],'jev:local');
+  let read=ui.operator.resources.read();assert.equal(read.data.resources[0].kind,'JEV');assert.equal(read.data.resources[0].state,'READY');assert.deepEqual(read.data.resources[0].capabilities,['SEMANTIC_JUDGMENT']);
+  const tested=await ui.actionRouter.route({type:'wave13.resource.test',target:read.data.resources[0]});assert.equal(tested.ok,true);assert.equal(host.calls.at(-1)[0],'test');assert.equal(host.calls.at(-1)[1],'jev:local');
+  const disconnected=await ui.actionRouter.route({type:'wave13.resource.disconnect',target:read.data.resources[0]});assert.equal(disconnected.ok,true);assert.equal(host.calls.at(-1)[0],'disconnect');assert.equal(host.calls.at(-1)[1],'jev:local');
+  ui.destroy();assert.equal(host.listenerCount(),0);
+});
+
+test('Worker 2 configured resource reconnect uses resourceId and does not duplicate addResource',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost({configured:true});owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);const row=ui.operator.resources.read().data.resources[0];assert.equal(row.connected,false);
+  const result=await ui.actionRouter.route({type:'wave13.resource.connect',target:row});assert.equal(result.ok,true);
+  assert.deepEqual(host.calls,[['connect','sidecar:configured']]);ui.destroy();
+});
+
+test('native LoreStudyRuntime object can be projected and driven through its existing public methods',async()=>{
+  const owner=liveOwner(),runtime=directLoreRuntime();owner.bindings.loreStudyRuntime=runtime;
+  const{ui}=mount(owner);assert.equal(runtime.listenerCount,undefined);
+  let read=ui.operator.loreStudy.read();assert.equal(read.data.entries.length,0);
+  const accepted=await ui.actionRouter.route({type:'wave13.lore.accept',payload:{id:'harbor',title:'Harbor',entries:[{uid:'captain',content:'Vale keeps the blue ledger.',metadata:{}}],fullSnapshot:true}});
+  assert.equal(accepted.ok,true);read=ui.operator.loreStudy.read();assert.equal(read.data.entries[0].freshness,'STALE_OR_UNLEARNED');assert.equal(read.data.lifecycle.due,1);
+  const studied=await ui.actionRouter.route({type:'wave13.lore.run',payload:{scope:'DUE'}});assert.equal(studied.ok,true);
+  read=ui.operator.loreStudy.read();assert.equal(read.data.entries[0].freshness,'CURRENT');assert.equal(read.data.retrievalReady,1);assert.equal(read.data.lifecycle.due,0);
+  ui.destroy();
+});
+
+function worker2ResourceHost({configured=false}={}){
+  const calls=[],listeners=new Set();let sequence=0;
+  const rows=[];
+  if(configured)rows.push({kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:true,maxConcurrency:1,activeExecutions:0,callable:false});
+  const emit=(type,row)=>{sequence+=1;for(const listener of [...listeners])listener({kind:'CoprocessorResourceConnectionEvent',sequence,type,resource:{...row}});};
+  return{
+    calls,
+    actions:{
+      addResource(config){calls.push(['add',{...config,capabilities:[...config.capabilities]}]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false};rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
+      async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Health probe passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.callable=true;emit('RESOURCE_READY',row);return{...row};},
+      disconnectResource(id){calls.push(['disconnect',id]);const row=rows.find(x=>x.resourceId===id);row.state='DISCONNECTED';row.reasonCode='OPERATOR_DISCONNECT';row.reason='Operator disconnected resource.';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.activeCapabilities=[];row.callable=false;emit('RESOURCE_DISCONNECTED',row);return{...row};},
+      async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
+    },
+    read:{resources:()=>({kind:'CoprocessorResourceConnectionReadModel',contractVersion:'1.0.0',sequence,resources:rows.map(x=>({...x,declaredCapabilities:[...x.declaredCapabilities],activeCapabilities:[...x.activeCapabilities]})),readyResourceCount:rows.filter(x=>x.state==='READY').length,nativePathRequired:!rows.some(x=>x.state==='READY')})},
+    subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
+    listenerCount:()=>listeners.size,
+  };
+}
+
+function directLoreRuntime(){
+  const entries=[],revisions=new Map(),learned=new Map(),artifacts=new Map(),obligations=[];
+  const registry={
+    sequence:0,
+    listEntries(){return entries.map(x=>({...x}));},
+    currentRevision(sourceId,{allowMissing=false}={}){const row=revisions.get(sourceId);if(!row&&!allowMissing)throw new Error('missing');return row?{...row}:null;},
+  };
+  const store={
+    publicationSequence:0,
+    currentLearnedRevision(sourceId){const row=learned.get(sourceId);return row?{...row}:null;},
+    artifactsForLearnedRevision(id){return (artifacts.get(id)??[]).map(x=>structuredClone(x));},
+    currentArtifacts(){return [...artifacts.values()].flat().map(x=>structuredClone(x));},
+    conflicts(){return[];},
+  };
+  return{
+    registry,store,
+    ingestLorebook(book){
+      for(const entry of book.entries){const sourceId='lore:'+book.id+':'+entry.uid,revision={id:sourceId+'@r1',sourceId,state:'CURRENT'};entries.push({sourceId,lorebookId:book.id,uid:entry.uid});revisions.set(sourceId,revision);obligations.push({id:'obligation:'+entry.uid,sourceId,sourceRevisionId:revision.id,state:'DUE'});registry.sequence+=1;}
+      return entries.map(x=>({...x}));
+    },
+    listObligations(){return obligations.map(x=>({...x}));},
+    dueObligations(){return obligations.filter(x=>['DUE','PENDING','CHECKPOINTED'].includes(x.state)).map(x=>({...x}));},
+    run(id){
+      const obligation=obligations.find(x=>x.id===id);obligation.state='COMPLETED';const revision=revisions.get(obligation.sourceId),learnedId='learned:'+obligation.sourceId;
+      learned.set(obligation.sourceId,{id:learnedId,sourceId:obligation.sourceId,sourceRevisionId:revision.id,state:'CURRENT'});
+      artifacts.set(learnedId,[{kind:'LoreLearnedArtifact',artifactType:'RETRIEVAL',id:'retrieval:'+obligation.sourceId,sourceId:obligation.sourceId,sourceRevisionId:revision.id,authorityClass:'DERIVED',temporalClass:'CURRENT',freshness:'CURRENT',unresolved:false,provenance:{sourceId:obligation.sourceId,sourceRevisionId:revision.id}}]);store.publicationSequence+=1;
+      return{obligation:{...obligation},learnedRevision:{...learned.get(obligation.sourceId)},checkpointed:false};
+    },
+  };
+}

@@ -82,17 +82,21 @@ export function renderResourceSurface(host,{resources,actionRouter,scope,refresh
 
   const caps=resources.capabilities();
   if(caps.read&&(!caps.connect||!caps.test||!caps.disconnect))section.append(message(d,'Resource controls incomplete','Resource status is readable, but connect/test/disconnect are not all exported by the assembly. Worker 2 remains the routing/execution owner.','warning'));
-  if(caps.connect){
+  if(caps.connect&&caps.configure){
     const form=element(d,'div',{className:'a52-wave13-resource-connect'});
-    const kind=field(d,'select','Resource type');for(const value of ['SIDECAR','JEV'])kind.append(option(d,value,value));
-    const profile=field(d,'input','Profile ID',{type:'text',placeholder:'local-resource'});
+    const role=field(d,'select','Resource role');for(const value of ['SIDECAR','JEV'])role.append(option(d,value,value==='JEV'?'Jev decision':'Sidecar execution'));
+    const resourceId=field(d,'input','Resource ID',{type:'text',placeholder:'local-resource'});
     const endpoint=field(d,'input','Local endpoint',{type:'url',placeholder:'http://127.0.0.1:...'});
-    const model=field(d,'input','Model ID',{type:'text',placeholder:'optional model id'});
-    const connect=createButton(d,{label:'Connect resource',scope,onPress:async()=>{
-      const result=await actionRouter.route({type:'wave13.resource.connect',payload:{kind:kind.value||'SIDECAR',profileId:profile.value||null,endpoint:endpoint.value||null,modelId:model.value||null,local:true}});
+    const model=field(d,'input','Model ID',{type:'text',placeholder:'model name'});
+    const capabilities=field(d,'input','Capabilities',{type:'text',placeholder:'STRUCTURED_EXTRACTION, GRAPH'});
+    const connect=createButton(d,{label:'Configure + connect',scope,onPress:async()=>{
+      const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+      const result=await actionRouter.route({type:'wave13.resource.connect',payload:{role:role.value||'SIDECAR',resourceId:resourceId.value||null,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,modelId:model.value||null,capabilities:parsedCaps,local:true}});
       reportAction(notifications,result,'Resource connection');refresh?.();
     }});
-    form.append(labelWrap(d,'Type',kind),labelWrap(d,'Profile',profile),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),connect);section.append(form);
+    form.append(labelWrap(d,'Role',role),labelWrap(d,'Resource ID',resourceId),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),labelWrap(d,'Capabilities',capabilities),connect);section.append(form);
+  }else if(caps.connect&&!caps.configure){
+    section.append(message(d,'Connect existing resources only','The assembly exports connectResource(), but not Worker 2 addResource(). Existing configured resources can reconnect; new resource configuration remains unavailable.','warning'));
   }
 
   if(!data.resources.length)section.append(message(d,'No optional resource connected',caps.read?'Worker 2 reports no connected optional resources. Native cognition remains available.':'The host assembly has not exported Worker 2 resource status/actions yet.','historical'));
@@ -103,13 +107,16 @@ export function renderResourceSurface(host,{resources,actionRouter,scope,refresh
       const top=element(d,'div',{className:'a52-inline-status'});
       top.append(element(d,'strong',{text:row.id}),makeBadge(d,row.kind,'observed'),makeBadge(d,row.health,resourceStatus(row.health)));
       card.append(top,createKeyValue(d,[
-        {key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},{key:'Placement',value:(row.placements??[]).join(', ')||'—'},
+        {key:'Connection',value:row.state??(row.connected?'READY':'DISCONNECTED')},{key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
+        {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
         {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??[]).join(', ')||'none published'},
       ]));
       const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
+      if(caps.connect&&!row.connected)actions.append(createButton(d,{label:'Connect',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource connection');refresh?.();}}));
       if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportAction(notifications,result,'Resource test');refresh?.();}}));
       if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
       const test=resources.testResult(row.id);if(test)card.append(element(d,'p',{className:'a52-muted',text:'Latest connection test: '+testSummary(test)}));
+      if(row.reason&&!row.lastError)card.append(element(d,'p',{className:'a52-muted',text:row.reason}));
       if(row.lastError)card.append(message(d,'Resource issue',String(row.lastError),'warning'));
       if(actions.children?.length)card.append(actions);list.append(card);
     }

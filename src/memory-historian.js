@@ -253,6 +253,8 @@ export class MemoryHistorianIndex {
     const candidateIds=new Set();
     for (const token of queryTokens) {
       for (const id of this.inverted.get(token)??[]) {
+        const record=this.records.get(id);
+        if(!recordAllowed(record))continue;
         candidateIds.add(id);
         if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
       }
@@ -260,6 +262,7 @@ export class MemoryHistorianIndex {
     }
     for (const entityId of activeEntityIds) {
       for (const record of this.records.values()) {
+        if (!recordAllowed(record)) continue;
         if (record.entityRefs.includes(entityId)||record.participants.includes(entityId)) candidateIds.add(record.id);
         if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
       }

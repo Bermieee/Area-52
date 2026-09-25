@@ -546,7 +546,13 @@ export class CoprocessorResourceConnections{
   }
 
   #observeFailure(row,error){
-    const code=error?.code??FailureCode.PROVIDER_FAILURE;const timeout=code===FailureCode.PROVIDER_TIMEOUT,transport=[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.PROVIDER_FAILURE].includes(code),validation=[FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED].includes(code);
+    const code=error?.code??FailureCode.PROVIDER_FAILURE;
+    if(code===FailureCode.CAPABILITY_UNAVAILABLE){
+      row.lastFailure={code,message:safeMessage(error?.message??String(error)),at:this.now()};
+      this.#diagnostic(row,'EXECUTION_REJECTED_CAPABILITY',row.lastFailure.message,{code});
+      return;
+    }
+    const timeout=code===FailureCode.PROVIDER_TIMEOUT,transport=[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.PROVIDER_FAILURE].includes(code),validation=[FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED].includes(code);
     const snapshot=this.health.observe(row.providerProfileId,{outcome:'FAIL',timeout,transportFailure:transport,validationFailure:validation,activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:row.lastExecution?.latencyMs??row.lastTest?.latencyMs??null,now:this.now()});
     row.lastFailure={code,message:safeMessage(error?.message??String(error)),at:this.now()};
     if(row.state!==ResourceConnectionState.DISCONNECTED){

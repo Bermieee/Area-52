@@ -321,7 +321,7 @@ export class Wave13LoreAuthoringUIAdapter{
     return deepFreeze({
       discovery:Boolean(this.discoveryFn),reviewStates:Boolean(this.reviewStatesFn),invalidation:Boolean(this.invalidationFn),
       previewEdit:Boolean(this.previewEditFn),tree:Boolean(this.treeFn),merge:Boolean(this.mergeFn),
-      lifecycle,mergeLifecycle:lifecycle&&Boolean(this.startMergeBuildFn),settlement:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
+      lifecycle,mergeLifecycle:lifecycle&&Boolean(this.startMergeBuildFn),reclassify:lifecycle&&Boolean(this.reclassifyFn),settlement:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
       restoration:lifecycle&&Boolean(this.restoreSettlementFn),worker1Receipts:Boolean(this.worker1ReceiptsFn),
       destructiveApply:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
     });

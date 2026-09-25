@@ -226,3 +226,14 @@ test('disconnecting a Jev resource mid-decision preserves UNRESOLVED instead of 
   assert.equal(result.contribution.jevReceipt.authorityGranted,false);
   assert.equal(result.contribution.resultsForOwner.length,0);
 });
+
+test('tampered durable checkpoint identity is rejected before optional execution',async()=>{
+  const registry=new CoprocessorResourceConnections();
+  addResource(registry,{capabilities:[Capability.GRAPH],handlers:{GRAPH_WALK:()=>graphOutput('ridge-array')}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:250,defaultHardBudgetMs:500})});
+  const t=turn('tamper');
+  const prepared=swarm.prepareTurn({turnEvent:t,plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION'}});
+  const bad=JSON.parse(JSON.stringify(prepared.checkpoint));bad.pendingTasks[0].correlationId='corr:other';
+  await assert.rejects(()=>swarm.executeCheckpoint(bad,{currentRevisionState:t}),/checkpoint task identity mismatch/);
+});

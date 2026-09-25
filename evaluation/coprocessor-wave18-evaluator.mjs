@@ -120,7 +120,7 @@ export async function evaluateCoprocessorWave18(){
   });
   scheduler.enqueueDeep(deepFactory.work);
   scheduler.beginForeground({workId:'story-b:foreground'});
-  const yielded=scheduler.runDeepSlice(deepFactory.work.workId,{context:{sealed:false}});
+  const yielded=await scheduler.runDeepSlice(deepFactory.work.workId,{context:{sealed:false}});
   scheduler.endForeground({workId:'story-b:foreground'});
   tick(3);
   const firstDeep=await scheduler.runDeepSlice(deepFactory.work.workId,{context:{sealed:false}});

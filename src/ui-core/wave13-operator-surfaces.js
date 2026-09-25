@@ -859,14 +859,116 @@ export function renderLoreAuthoringSurface(host,{loreStudy,loreAuthoring,actionR
     ]));
     if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED)merge.append(createKeyValue(d,[{key:'Preview ID',value:mergePreview.previewId},{key:'Source revision fence',value:(mergePreview.sourceRevisionFence??[]).join(', ')||'none'}]));
   }
-  merge.append(message(d,'No destructive Apply action','This UI integrates Worker 4’s review-only preview subset. A newer Settlement-backed authoring lifecycle exists on the Lore owner branch, but it is not integrated and verified on this main assembly, so Area-52 intentionally offers no Apply button.','historical'));
+  if(!caps.lifecycle)merge.append(message(d,'No destructive Apply action','This installed assembly exposes Worker 4’s review-only preview subset. Settlement-backed authoring is not exported here, so Area-52 intentionally offers no Apply button.','historical'));
   section.append(merge);
+  if(caps.lifecycle)section.append(renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refresh,state,caps,book,secondBookId:state.mergeBookId}));
   if(state.status)section.append(element(d,'p',{className:'a52-wave13-form-status',text:state.status,attrs:{role:'status','aria-live':'polite'}}));
   host.append(section);
 }
 
-function createLoreAuthoringDraftStore(){return{bookId:null,sourceId:null,contentSourceId:null,editContent:'',mergeBookId:null,status:''};}
+function renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refresh,state,caps,book,secondBookId}={}){
+  const root=element(d,'section',{className:'a52-card a52-wave13-lore-settlement'});
+  root.append(element(d,'h3',{text:'5. Reviewed authoring lifecycle'}),element(d,'p',{className:'a52-muted',text:'This path is shown only because the installed Worker 4 contract exports checkpointed review, Final Preview, explicit approval, and Settlement. Preview or model suggestion alone cannot mutate Lore.'}));
+  const outputId=field(d,'input','Merge output Lorebook ID',{type:'text',placeholder:'New Lorebook ID for approved merge',autocomplete:'off'});outputId.value=state.mergeOutputId??'';
+  listenField(scope,outputId,'input',()=>{state.mergeOutputId=String(outputId.value??'').trim();refresh?.();});
+  const start=element(d,'div',{className:'a52-wave13-resource-actions'});
+  start.append(createButton(d,{label:'Start reviewed Tree build',scope,size:'sm',disabled:Boolean(state.sessionId),onPress:async()=>{
+    const route=await actionRouter.route({type:'wave13.loreAuthoring.startTreeBuild',payload:{lorebookIds:[book.lorebookId]}});
+    const value=operatorRouteValue(route);if(value?.sessionId){state.sessionId=value.sessionId;state.status='Tree authoring session started. Review owner progress below.';}else state.status=operatorRouteMessage(route,'Tree authoring session started.');refresh?.();
+  }}));
+  const startMerge=createButton(d,{label:'Start reviewed Merge build',scope,size:'sm',disabled:Boolean(state.sessionId)||!secondBookId||!state.mergeOutputId,onPress:async()=>{
+    const route=await actionRouter.route({type:'wave13.loreAuthoring.startMergeBuild',payload:{lorebookIds:[book.lorebookId,secondBookId],outputLorebookId:state.mergeOutputId}});
+    const value=operatorRouteValue(route);if(value?.sessionId){state.sessionId=value.sessionId;state.status='Merge authoring session started. Review owner progress below.';}else state.status=operatorRouteMessage(route,'Merge authoring session started.');refresh?.();
+  }});
+  start.append(startMerge);root.append(start);
+  if(caps.mergeLifecycle)root.append(labelWrap(d,'Merge output ID',outputId));
+
+  if(!state.sessionId){root.append(message(d,'No active reviewed session','Start a Tree or Merge build to enter Worker 4’s checkpointed Draft Review flow. Nothing is applied during proposal/build stages.','historical'));return root;}
+  const progress=operatorValue(loreAuthoring.authoringProgress({sessionId:state.sessionId}));
+  if(!progress){root.append(message(d,'Authoring session unavailable','Worker 4 did not return progress for '+state.sessionId+'. No mutation control is enabled.','warning'));return root;}
+  if(progress.settlement?.settlementId)state.settlementId=progress.settlement.settlementId;
+  root.append(createKeyValue(d,[
+    {key:'Type',value:progress.type??'—'},{key:'Stage',value:humanLabel(progress.stage??'UNKNOWN')},{key:'Build',value:String(progress.build?.cursor??0)+' / '+String(progress.build?.total??progress.totalActions??0)},
+    {key:'Decisions',value:Object.entries(progress.decisions??{}).map(([key,value])=>humanLabel(key)+' '+value).join(' · ')||'None yet'},
+    {key:'Draft revision',value:progress.draftRevision??'—'},{key:'Stale fence',value:progress.stale?.reason??'Current'},
+  ]));
+  if(progress.lastError)root.append(message(d,'Owner authoring failure',progress.lastError.message??progress.lastError.code??'Authoring failed.','warning'));
+
+  if(['BUILDING','CHECKPOINTED'].includes(String(progress.stage))&&!progress.settlement){
+    root.append(createButton(d,{label:'Resume build checkpoint',scope,size:'sm',onPress:async()=>{
+      const route=await actionRouter.route({type:'wave13.loreAuthoring.resumeBuild',payload:{sessionId:state.sessionId,maxActions:32}});state.status=operatorRouteMessage(route,'Build checkpoint advanced.');refresh?.();
+    }}));
+  }
+
+  const draft=operatorValue(loreAuthoring.draftReview({sessionId:state.sessionId}));
+  if(draft?.actions?.length&&['DRAFT_REVIEW','FINAL_PREVIEW','READY_TO_SETTLE'].includes(String(progress.stage))){
+    root.append(element(d,'h4',{text:'Draft Review'}));
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const action of draft.actions.slice(0,60)){
+      const item=element(d,'article',{className:'a52-card'}),decision=action.decision??null;
+      item.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:humanLabel(action.action??action.type??action.proposedOutput?.action??'Authoring action')}),makeBadge(d,decision?humanLabel(decision):'Decision required',decision?'observed':'warning')),
+        element(d,'p',{className:'a52-muted',text:action.rationale??action.proposedOutput?.rationale??'Review the owner proposal against its exact source-revision fence.'}),
+        createKeyValue(d,[{key:'Input source revisions',value:(action.inputSourceRevisions??[]).length},{key:'Affected Tree nodes',value:(action.affectedTreeNodes??[]).length},{key:'Materialized',value:action.materialized?'Yes':'No'}]));
+      if(!decision){
+        const decisions=element(d,'div',{className:'a52-wave13-resource-actions'});
+        for(const choice of ['ACCEPT','REJECT','DEFER'])decisions.append(createButton(d,{label:humanLabel(choice),scope,size:'sm',variant:choice==='ACCEPT'?'primary':'quiet',onPress:async()=>{
+          const route=await actionRouter.route({type:'wave13.loreAuthoring.recordDecision',payload:{sessionId:state.sessionId,actionId:action.id,decision:choice,operatorDecisionId:'ui:'+state.sessionId+':'+action.id+':'+choice}});
+          state.status=operatorRouteMessage(route,'Draft decision recorded.');refresh?.();
+        }}));
+        item.append(decisions);
+      }
+      if(productAdapterLevelSafe(state)===ProductDetailLevel.ADVANCED&&action.id)item.append(element(d,'code',{text:action.id}));
+      list.append(item);
+    }
+    root.append(list);
+  }
+  const allDecided=Boolean(draft?.actions?.length)&&draft.actions.every(action=>Boolean(action.decision));
+  if(String(progress.stage)==='DRAFT_REVIEW'&&allDecided)root.append(createButton(d,{label:'Compute revision-fenced Final Preview',scope,onPress:async()=>{
+    const route=await actionRouter.route({type:'wave13.loreAuthoring.computeFinalPreview',payload:{sessionId:state.sessionId}});state.status=operatorRouteMessage(route,'Final Preview computed from current source/dependency fences.');refresh?.();
+  }}));
+
+  const finalPreview=operatorValue(loreAuthoring.finalPreview({sessionId:state.sessionId}));
+  if(finalPreview){
+    root.append(element(d,'h4',{text:'Final Preview'}),createKeyValue(d,[
+      {key:'Validation',value:finalPreview.validation?.ok?'PASS':'FAIL'},{key:'Operations',value:finalPreview.operations?.length??0},
+      {key:'Authoritative semantic preflight',value:finalPreview.authoritativeSemanticPreflight?'Yes':'No'},{key:'Explicit approval required',value:finalPreview.explicitApprovalRequired?'Yes':'No'},
+      {key:'Final Preview ID',value:finalPreview.finalPreviewId??'—'},
+    ]));
+    if(finalPreview.validation?.failures?.length)root.append(message(d,'Final Preview validation failed',finalPreview.validation.failures.join(', '),'warning'));
+  }
+  if(String(progress.stage)==='FINAL_PREVIEW'&&finalPreview?.validation?.ok)root.append(createButton(d,{label:'Approve current Final Preview',scope,onPress:async()=>{
+    const route=await actionRouter.route({type:'wave13.loreAuthoring.approveFinalPreview',payload:{sessionId:state.sessionId,operatorApprovalId:'ui:final:'+state.sessionId+':'+String(progress.draftRevision??1)}});
+    state.status=operatorRouteMessage(route,'Final Preview explicitly approved. Settlement is now owner-authorized against the current fences.');refresh?.();
+  }}));
+
+  if(caps.settlement&&(['READY_TO_SETTLE'].includes(String(progress.stage))||(progress.settlement&&String(progress.settlement.state)==='CHECKPOINTED'))){
+    root.append(createButton(d,{label:progress.settlement?'Resume approved Settlement':'Apply approved Settlement',scope,onPress:async()=>{
+      const route=await actionRouter.route({type:'wave13.loreAuthoring.applySettlement',payload:{sessionId:state.sessionId,maxOperations:32}});
+      const value=operatorRouteValue(route);if(value?.settlementId)state.settlementId=value.settlementId;
+      state.status=operatorRouteMessage(route,'Settlement owner processed the approved operations.');refresh?.();
+    }}));
+  }
+  const settlementId=state.settlementId??progress.settlement?.settlementId??null;
+  const settlement=settlementId?operatorValue(loreAuthoring.settlement({settlementId})):null;
+  if(settlement){
+    root.append(element(d,'h4',{text:'Settlement receipt'}),createKeyValue(d,[
+      {key:'State',value:humanLabel(settlement.state??'UNKNOWN')},{key:'Applied',value:String(settlement.cursor??0)+' / '+String(settlement.operationCount??0)},
+      {key:'Revision events',value:settlement.revisionEvents?.length??0},{key:'Invalidation receipts',value:settlement.invalidationReceipts?.length??0},
+      {key:'Original sources deleted',value:settlement.originalSourcesDeleted?'Yes':'No'},{key:'Reconstructable',value:settlement.reconstructable?'Yes':'No'},
+    ]));
+    if(settlement.lastError)root.append(message(d,'Settlement failure',settlement.lastError.message??settlement.lastError.code??'Settlement failed.','warning'));
+    if(caps.restoration&&String(settlement.state)==='SETTLED')root.append(createButton(d,{label:'Restore settled revisions',scope,variant:'quiet',onPress:async()=>{
+      const route=await actionRouter.route({type:'wave13.loreAuthoring.restoreSettlement',payload:{settlementId,restorationId:'ui:restore:'+settlementId,maxOperations:32}});
+      state.status=operatorRouteMessage(route,'Restoration owner processed the selected Settlement.');refresh?.();
+    }}));
+  }
+  return root;
+}
+
+function productAdapterLevelSafe(){return ProductDetailLevel.NORMAL;}
+function createLoreAuthoringDraftStore(){return{bookId:null,sourceId:null,contentSourceId:null,editContent:'',mergeBookId:null,mergeOutputId:'',sessionId:null,settlementId:null,status:''};}
 function operatorValue(result){return result?.ok===true?result.value??null:null;}
+function operatorRouteValue(route){return route?.ok===true&&route.result?.ok===true?route.result.value??null:null;}
 function operatorRouteMessage(route,success){
   if(!route?.ok)return'UI routing failed: '+String(route?.error??'unknown error');
   const owner=route.result;

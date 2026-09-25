@@ -19,11 +19,11 @@ if(!providers.length){
   const layer=new SpecialistExecutionLayer({profiles,adapters,telemetry});
   const task=createCognitiveTask({taskId:'ft005:historian',taskType:'HISTORIAN_RETRIEVAL',turnId:'ft005:turn',correlationId:'ft005:corr',
     requiredCapabilities:[Capability.RETRIEVAL,Capability.LONG_CONTEXT],softDeadline:Date.now()+10000,hardDeadline:Date.now()+30000,
-    compilerLane:'loreEvidence',intentFingerprint:'ft005:current-location',metadata:{expectedOutputTokens:512},
+    compilerLane:'loreEvidence',intentFingerprint:'ft005:generic-current-state',metadata:{expectedOutputTokens:512},
     inputRevisionSet:createRevisionSet({sourceRevisionSet:['ft005:fixture'],worldRevision:1,sceneRevision:1,characterStateRevision:1})});
-  const input={intent:'CURRENT_LOCATION',maxRefs:2,candidates:[
-    {ref:'E1',summary:'CURRENT: Mara is at Ember Tavern.',semanticKey:'mara:location',temporalStatus:'CURRENT',authority:'SOURCE_CANON'},
-    {ref:'E2',summary:'HISTORICAL: Mara was at the old forge.',semanticKey:'mara:location',temporalStatus:'HISTORICAL',authority:'SOURCE_CANON'},
+  const input={intent:'CURRENT_STATE',maxRefs:2,candidates:[
+    {ref:'E1',summary:'CURRENT: entity-alpha is assigned to sector-7.',semanticKey:'entity-alpha:assignment',temporalStatus:'CURRENT',authority:'SOURCE_CANON'},
+    {ref:'E2',summary:'HISTORICAL: entity-alpha was assigned to sector-2.',semanticKey:'entity-alpha:assignment',temporalStatus:'HISTORICAL',authority:'SOURCE_CANON'},
   ]};
   const negotiation=negotiateCapabilities(profiles,task,{maxCostClass:'HIGH'});
   console.log(`PROVIDER CONNECTED: ${providers.map(p=>p.name).join(', ')}`);

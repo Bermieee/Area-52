@@ -467,6 +467,35 @@ test('Worker 2 configured resource reconnect uses resourceId and does not duplic
   assert.deepEqual(host.calls,[['connect','sidecar:configured']]);ui.destroy();
 });
 
+test('configured Worker 2 resources can recover credential model selection and qualification without exposing secrets',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost({configured:true});owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const slot=()=>walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');
+  const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
+  const button=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+
+  let sidecar=slot();assert.match(textOf(sidecar),/Resource is not callable/);
+  let key=fieldByLabel(sidecar,'Sidecar session credential');key.value='sk-recovery-secret';key.dispatch('input');
+  button(sidecar,'Save session credential').dispatch('click');await Promise.resolve();ui.scheduler.flush(2);
+  assert.doesNotMatch(JSON.stringify(host.calls),/sk-recovery-secret/);assert.ok(host.calls.some(x=>x[0]==='setCredential'&&x[2].credentialConfigured===true));
+
+  sidecar=slot();button(sidecar,'Refresh models').dispatch('click');await Promise.resolve();ui.scheduler.flush(3);
+  sidecar=slot();const model=fieldByLabel(sidecar,'Sidecar qualified model');assert.equal(model.disabled,false);model.value='owner/model-b';
+  button(sidecar,'Select model').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
+  assert.ok(host.calls.some(x=>x[0]==='selectModel'&&x[2]==='owner/model-b'));
+
+  sidecar=slot();button(sidecar,'Connect / qualify').dispatch('click');await Promise.resolve();ui.scheduler.flush(5);
+  let read=ui.operator.resources.read(),row=read.data.resources.find(x=>x.id==='sidecar:configured');
+  assert.equal(row.selectedModelQualified,true);assert.equal(row.callable,true);assert.equal(row.actualModelId,'owner/model-b');
+  sidecar=slot();assert.match(textOf(sidecar),/Qualified callable by owner/);
+
+  key=fieldByLabel(sidecar,'Sidecar session credential');key.value='sk-unsubmitted';key.dispatch('input');
+  ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(6);sidecar=slot();
+  assert.equal(fieldByLabel(sidecar,'Sidecar session credential').value,'');assert.match(textOf(sidecar),/API key cleared on refresh/);
+  assert.doesNotMatch(JSON.stringify({calls:host.calls,read:ui.operator.resources.read(),diagnostics:ui.operator.diagnostics.read()}),/sk-recovery-secret|sk-unsubmitted/);
+  ui.destroy();
+});
+
 test('Worker 4 Wave 6 authoring contract stays review-only and renders Tree / merge previews without Apply',async()=>{
   const calls=[];
   const authoringHost={
@@ -559,7 +588,7 @@ function worker2ResourceHost({configured=false,discoveryState='READY',testFailur
   const calls=[],listeners=new Set();let sequence=0;
   const rows=[];
   const diagnostic=(row,code,message,details={})=>{row.diagnostics??=[];row.diagnostics.push({sequence:++sequence,at:sequence,code,message,details});};
-  if(configured){const row={kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:true,maxConcurrency:1,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);}
+  if(configured){const row={kind:'CoprocessorResourceReadModel',resourceId:'sidecar:configured',displayName:'Configured sidecar',state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:'profile:sidecar:configured',providerId:'provider:sidecar:configured',modelId:'local',actualModelId:null,selectedModelQualified:false,qualifiedAt:null,modelSelectionMode:'CONFIGURED_UNQUALIFIED',modelDiscovery:{state:'IDLE',models:[],manualModelEntryAllowed:false},workerId:'resource:sidecar:configured',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:false,local:true,maxConcurrency:1,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);}
   const emit=(type,row)=>{sequence+=1;for(const listener of [...listeners])listener({kind:'CoprocessorResourceConnectionEvent',sequence,type,resource:{...row}});};
   return{
     calls,
@@ -571,11 +600,15 @@ function worker2ResourceHost({configured=false,discoveryState='READY',testFailur
         if(discoveryState==='UNREACHABLE')return{kind:'ResourceModelDiscoveryResult',state:'UNREACHABLE',models:[],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_UNREACHABLE',reason:'Provider endpoint is unreachable.',credentialConfigured:Boolean(config.apiKey)};
         return{kind:'ResourceModelDiscoveryResult',state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'}],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_READY',reason:'Provider model discovery completed.',credentialConfigured:Boolean(config.apiKey)};},
       addResource(config){const safe={...config,capabilities:[...config.capabilities]};delete safe.apiKey;safe.credentialConfigured=Boolean(config.apiKey);calls.push(['add',safe]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:Boolean(config.apiKey),local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
-      async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Health probe passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.callable=true;diagnostic(row,'HEALTH_CHECK_PASSED','Health probe passed.');emit('RESOURCE_READY',row);return{...row};},
+      async refreshModels(id){calls.push(['refreshModels',id]);const row=rows.find(x=>x.resourceId===id);row.modelDiscovery={state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'},{id:'owner/model-b',displayName:'Owner Model B'}],manualModelEntryAllowed:false};diagnostic(row,'MODEL_DISCOVERY_READY','Model discovery completed.',{modelCount:2});emit('RESOURCE_MODELS_REFRESHED',row);return structuredClone(row.modelDiscovery);},
+      setCredential(id,credential){calls.push(['setCredential',id,{credentialConfigured:Boolean(credential)}]);const row=rows.find(x=>x.resourceId===id);row.credentialConfigured=true;row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='CONFIGURED';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'CREDENTIAL_UPDATED','Session credential replaced.');emit('RESOURCE_CREDENTIAL',row);return{...row};},
+      clearCredential(id){calls.push(['clearCredential',id]);const row=rows.find(x=>x.resourceId===id);row.credentialConfigured=false;row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='UNAVAILABLE';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'CREDENTIAL_REVOKED','Session credential revoked.');emit('RESOURCE_CREDENTIAL',row);return{...row};},
+      selectModel(id,modelId){calls.push(['selectModel',id,modelId]);const row=rows.find(x=>x.resourceId===id);row.modelId=modelId;row.modelSelectionMode='DISCOVERED';row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='CONFIGURED';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'MODEL_SELECTED','Model selection updated.');emit('RESOURCE_MODEL_SELECTED',row);return{...row};},
+      async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Authenticated model qualification passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.selectedModelQualified=true;row.qualifiedAt=sequence+1;row.actualModelId=row.modelId;row.callable=true;diagnostic(row,'HEALTH_CHECK_PASSED','Authenticated model qualification passed.');emit('RESOURCE_READY',row);return{...row};},
       disconnectResource(id){calls.push(['disconnect',id]);const row=rows.find(x=>x.resourceId===id);row.state='DISCONNECTED';row.reasonCode='OPERATOR_DISCONNECT';row.reason='Operator disconnected resource.';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.activeCapabilities=[];row.callable=false;diagnostic(row,'DISCONNECTED','Operator disconnected resource.');emit('RESOURCE_DISCONNECTED',row);return{...row};},
       async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);
         if(testFailureMessage){row.state='UNAVAILABLE';row.reasonCode='HEALTH_CHECK_FAILED';row.reason=testFailureMessage;row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.callable=false;row.lastFailure={code:'PROVIDER_UNAVAILABLE',message:testFailureMessage};row.lastTest={status:'FAIL',mode:'PROBE',failureCode:'PROVIDER_UNAVAILABLE'};diagnostic(row,'TEST_FAILED',testFailureMessage);emit('RESOURCE_TESTED',row);return{resource:{...row},result:null,failure:{code:'PROVIDER_UNAVAILABLE',message:testFailureMessage}};}
-        row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
+        row.selectedModelQualified=true;row.qualifiedAt=sequence+1;row.actualModelId=row.modelId;row.callable=true;row.state='READY';row.health='HEALTHY';row.availability='AVAILABLE';row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
     },
     read:{resources:()=>({kind:'CoprocessorResourceConnectionReadModel',contractVersion:'1.0.0',sequence,resources:rows.map(x=>({...x,declaredCapabilities:[...x.declaredCapabilities],activeCapabilities:[...x.activeCapabilities]})),readyResourceCount:rows.filter(x=>x.state==='READY').length,nativePathRequired:!rows.some(x=>x.state==='READY')})},
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},

@@ -1,79 +1,93 @@
 # Development Deployment — Live #224 Evidence Runbook
 
-**Gate state:** **LIVE DEMO PENDING.** Automated and browser-shaped evidence can prepare this candidate, but only a real SillyTavern session plus Director review can close #224.
+**Gate state:** **LIVE DEMO PENDING.** Workers 1–3 are integrated on `Development-Deployment`, but #224 cannot close until this exact candidate is exercised in the user's SillyTavern instance and reviewed by the Director.
 
-## Installation and update behavior
+## Installation / update gate
 
-Area-52 is one SillyTavern extension. Jev/sidecars remain optional resources; no database, Redis, Dapr, remote provider, or secondary install is required for native operation.
+Area-52 remains one SillyTavern extension. Jev and sidecars are optional execution resources; no external database, Redis, Dapr, remote provider, or second install is required for native Brain operation.
 
-The first demo's HTTP 500 was caused by the installed Git checkout no longer being fast-forwardable after repository history changed. SillyTavern's update endpoint performs a normal pull of the extension's current branch and intentionally reports pull failures as HTTP 500; Area-52 must not force-reset user checkouts to hide that condition.
+The first demo's HTTP 500 is consistent with SillyTavern's supported updater encountering a divergent installed Git checkout: SillyTavern performs a normal pull of the extension's current branch and reports pull failure as HTTP 500. Area-52 must not hide that condition with a force reset.
 
-For this review candidate:
-
-1. Open **Manage Extensions** in SillyTavern.
-2. If Area-52 is already a normal Git install, use **Switch branch** and select `Development-Deployment`.
-3. If the old checkout is divergent or is no longer a Git repository, delete Area-52 through Manage Extensions, reinstall `https://github.com/Bermieee/Area-52`, then use **Switch branch** to select `Development-Deployment`. This is the supported recovery path; do not manually replace the extension folder.
+1. Open **Manage Extensions**.
+2. For a healthy Git install, use **Switch branch** and select `Development-Deployment`.
+3. If the old install is divergent or no longer a valid Git checkout, remove Area-52 through Manage Extensions, reinstall `https://github.com/Bermieee/Area-52`, then use **Switch branch** to select `Development-Deployment`. Do not manually replace the extension folder.
 4. Reload SillyTavern.
-5. Reopen Manage Extensions. The version row should report `0.3.0-development-deployment` plus `Development-Deployment-<short commit>`. Compare that commit with the SHA in the Worker 4 Director handoff.
-6. When a newer fast-forward commit exists on the selected branch, SillyTavern's normal update path must advance the checkout and, after reload, the displayed short commit must change.
+5. Reopen Manage Extensions. Verify version `0.3.0-development-deployment` and the displayed `Development-Deployment-<short SHA>` matches the Worker 4 handoff.
+6. After a newer fast-forward commit is published on this branch, use SillyTavern's normal update path, reload, and verify the displayed commit changes.
 
-The manifest enables normal automatic update checks. SillyTavern's per-extension download icon is shown only when its version check reports an update; its absence by itself does not prove that update support is missing.
+The manifest enables normal automatic update checking. SillyTavern can hide the per-extension update icon when no update is detected, so the icon's absence alone is not an update failure.
 
-## Story-independent live behavior
+## UI gate
 
-The live adapter no longer loads the deterministic Ember Tavern fixture and no longer requires any named scene, character, or object. On a first turn with no extractable location, Scene Intelligence opens the selected chat's Scene with unknown fields rather than inventing a setting or rejecting the turn.
+Verify the installed extension—not a standalone harness—shows:
 
-The deterministic Ember fixture still exists in the repository only for regression tests. It is not imported by the live SillyTavern adapter.
+- vertical draggable navigation;
+- edge-aware pop-out cards and shrink/expand behavior;
+- truthful producer/operational states;
+- **Jev / sidecar resources** with Connect, Test, and Disconnect controls;
+- **Lore Study** with Accept for study and Run pending study controls.
 
-## Operator test
+A mounted panel or registered producer is not enough. The status view must change in response to actual owner reads/actions.
 
-Use **two unrelated real chats**. Do not use Ember Tavern, Mara, Eris, or Sun Blade for this gate.
+## Lore Study gate
 
-### Chat A — ordinary story
+Use the Lore Study form with a small lorebook unrelated to the deterministic Ember fixture.
 
-1. Arm the Area-52 evidence control.
-2. Send an ordinary in-character turn that does not name a location, such as a character examining an object or continuing dialogue.
-3. Verify the turn is accepted, a Scene exists, unknown fields remain unknown rather than being fabricated, and a sealed PromptPlan is injected.
-4. Send a second turn that explicitly names your actual location and requests relevant history.
-5. Verify Scene revision/delta, Retrieval, Truth, Gather, Context Seal, and PromptPlan receipts are tied to this chat/turn/generation.
+1. Submit authored lore with **Accept for study**.
+2. Confirm the owner read model reports the source as accepted but not yet learned/retrieval-ready.
+3. Run **Run pending study**.
+4. Confirm the owner read model reports processed/current knowledge and retrieval representations for the accepted source.
+5. Use that lore in a later story turn and verify the retrieved evidence drills back to the authored source revision.
 
-### Chat B — unrelated story
+Acceptance, processing, and retrievability are distinct states. A successful submission alone does not pass #247.
+
+## Story-independent turn gate
+
+Use **two unrelated real chats**. Do not use Ember Tavern, Mara, Eris, or Sun Blade.
+
+### Chat A
+
+1. Arm Area-52 live evidence.
+2. Send an ordinary in-character turn that does **not** explicitly name a location.
+3. Verify the turn is accepted, a Scene exists, and unknown fields remain unknown rather than being invented.
+4. Send a second turn naming the actual location and requesting relevant history.
+5. Verify Scene revision/delta, Retrieval, Truth, Gather, Context Seal, and PromptPlan receipts all match Chat A's chat/turn/generation.
+
+### Chat B
 
 1. Switch to a completely unrelated chat.
-2. Send an ordinary turn and then a turn involving genuinely uncertain or conflicting story evidence.
-3. Verify Area-52 binds receipts to Chat B rather than reusing Chat A selection/state.
-4. Verify the deterministic built-in Jev path is labeled **FIXTURE**. It does not satisfy FT005. A real configured provider/sidecar call must carry separate provider provenance before #180 can pass.
+2. Send an ordinary turn, then a turn involving genuinely conflicting/uncertain story evidence.
+3. Verify receipts bind to Chat B and do not reuse Chat A state.
+4. Verify the ambiguous turn records Jev execution as either a measured live provider call, deterministic fixture/fallback, or a specific unavailable/failure state.
 
-### Prompt delivery
+## Prompt delivery gate
 
 For at least one generation in each chat:
 
-1. Open SillyTavern's Prompt Inspector/itemization.
-2. Verify the `area52-development-deployment` extension prompt is present in the request context.
-3. Match its PromptPlan/generation/context-seal identifiers to the Area-52 evidence record.
-4. Confirm that a late/stale optional result does not alter the already sealed context.
+1. Open SillyTavern Prompt Inspector/itemization.
+2. Verify the `area52-development-deployment` extension prompt is present in the actual request context.
+3. Match PromptPlan, generation, and context-seal IDs to Area-52 live evidence.
+4. Confirm the sealed context is unchanged by any late/stale optional result.
 
-## Lore Study evidence
+## Optional resource / FT005 gate
 
-The deployment Brain now records Lore ingestion as separate `accepted`, `processed`, and `retrievable` states. That backing contract is not a substitute for #247's required production Lore Study UI.
+Native operation must first work with **no optional resource attached**.
 
-Until Worker 3's #247 UI is present on the accepted UI lane, **Lore Study UI acceptance remains blocked**. Do not call #247 or #224 complete based on console/API ingestion alone.
+Then, if a real OpenAI-compatible local Jev/sidecar endpoint is available:
 
-## UI and optional-resource evidence boundary
+1. In **Jev / sidecar resources**, choose the resource type, enter profile ID, endpoint, and model ID, then Connect.
+2. Test the resource and verify the UI reports the actual connection/health result.
+3. Generate an ambiguous turn that invokes Jev.
+4. Export evidence and verify `providerEvidence.realProviderCallObserved === true`, `providerEvidence.ft005LivePass === true`, and provider provenance is `MEASURED_LIVE`.
+5. Disconnect the resource and repeat a native turn; the Brain must continue safely.
 
-Current Worker 4 evidence distinguishes execution from registration:
+The deterministic built-in Jev is labeled fixture/fallback evidence and never satisfies #180/FT005.
 
-- Scene Intelligence, Retrieval, Truth, Cognitive Choice, Runtime, Gather, and PromptPlan report whether they actually ran or were skipped/unavailable for the selected turn.
-- UI producer diagnostics are explicitly marked registration-only and cannot create a live pass by themselves.
-- the native deterministic Jev path is labeled `FIXTURE`, with `realProviderCallObserved=false` and `ft005LivePass=false`;
-- Memory reports skipped when no Memory task was admitted;
-- Forensics/Transactions report unavailable when no live owner binding exists.
+Automated Worker 2 tests cover timeout, unavailable, malformed-output, and connection-state degradation. The live gate still needs at least the real connected call plus disconnected/native behavior; record any live provider failure rather than converting it into a fixture pass.
 
-The following remain external blockers until their owning lanes deliver and Worker 4 integrates them: #243 production vertical/draggable/edge-aware navigation, #246 Jev/sidecar connection controls and inspection, #247 Lore Study ingestion UI, and #180 a real-provider call plus controlled failure evidence.
+## Export / review
 
-## Export and review
-
-After the real checks, click **Confirm Prompt Inspector + UI trace**, then **Copy evidence**, or run:
+After the two-story, Prompt Inspector, UI, Lore, and any available real-provider checks, click **Confirm Prompt Inspector + UI trace**, then **Copy evidence**, or run:
 
 ```js
 JSON.stringify(Area52DevelopmentDeployment.exportLiveEvidence(), null, 2)
@@ -82,11 +96,11 @@ JSON.stringify(Area52DevelopmentDeployment.exportLiveEvidence(), null, 2)
 Expected properties include:
 
 - `twoStoryCoverage === true`;
-- each tested live turn has a verified Context Seal and PromptPlan injection receipt;
-- `providerEvidence.realProviderCallObserved === false` until a real provider is integrated and exercised;
-- the controlled Jev-unavailable probe is labeled `SIMULATED_FAILURE_PROBE`;
-- `operatorReview.liveSillyTavernConfirmed === true` after the button is clicked;
+- tested turns have verified Context Seal and PromptPlan injection receipts;
+- measured provider evidence is clearly distinct from deterministic fixture evidence;
+- controlled Jev-unavailable probe is labeled `SIMULATED_FAILURE_PROBE`;
+- `operatorReview.liveSillyTavernConfirmed === true`;
 - `issue224AutomaticPass === false`;
-- `liveEvidenceComplete === false` even after operator capture, because Director approval and remaining live gates are intentionally external to this record.
+- `liveEvidenceComplete === false` because Director approval remains external to this record.
 
-Attach the exported evidence and screenshots to Director review. Promotion to `main` remains prohibited until the required live gates are complete and approved.
+Attach the evidence JSON and screenshots to Director review. Do not promote to `main` until this live gate, exact-head CI, and Director approval are all complete.

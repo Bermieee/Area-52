@@ -306,7 +306,9 @@ function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,n
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
-    management.append(labelWrap(d,'Session credential',credential),labelWrap(d,'Discovered model',model),manageActions,managementStatus);
+    if(caps.setCredential||caps.clearCredential)management.append(labelWrap(d,'Session credential',credential));
+    if(caps.refreshModels||caps.selectModel)management.append(labelWrap(d,'Discovered model',model));
+    management.append(manageActions,managementStatus);
     if(credentialWasCleared)management.append(message(d,'API key cleared on refresh','For security, the unsubmitted session credential was not retained when this workspace refreshed. Re-enter it before saving or requalifying.','warning'));
     card.append(management);
   }

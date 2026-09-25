@@ -268,6 +268,11 @@ export function validateCheckpoint(value,maxBytes=131072){
   assertBytes(value,maxBytes,'swarm checkpoint');
   if(value.proposal?.proposalId!==value.proposalId)throw new TypeError('checkpoint proposal identity mismatch');
   if(value.proposal?.turnId!==value.turnId||value.proposal?.correlationId!==value.correlationId)throw new TypeError('checkpoint turn identity mismatch');
+  if(!Array.isArray(value.pendingTasks))throw new TypeError('checkpoint pendingTasks must be an array');
+  for(const task of value.pendingTasks){
+    if(task?.kind!=='CognitiveTask'||task.turnId!==value.turnId||task.correlationId!==value.correlationId)throw new TypeError('checkpoint task identity mismatch');
+    if(classifyFreshness(task.inputRevisionSet,value.revisionFence)!==Freshness.FRESH)throw new TypeError('checkpoint task revision fence mismatch');
+  }
   return deepFreeze(clone(value));
 }
 

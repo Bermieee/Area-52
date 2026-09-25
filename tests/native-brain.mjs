@@ -416,6 +416,7 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
   assert.equal(settlementMirrors[0].envelope.proposal.evidenceIds[0],writebacks[0].externalEvidenceRef);
   assert.match(writebacks[0].source.exactContent,/tide clock/i);
   assert.equal(writebacks[0].ownerArtifactRef.owner,'COGNITIVE_CORE');
+  assert.equal(writebacks[0].externalEvidenceRef,writebacks[0].ownerArtifactRef.artifactId);
 
   const beforeQuietQueries=memoryQueries;
   const quiet=await brain.prepareTurn({
@@ -437,6 +438,9 @@ test('DETERMINISTIC: MemoryIntegrationSurface nominations flow through Candidate
   assert.equal(invalidations.length,1);
   assert.equal(invalidations[0].replacedBySourceRevisionId,writebacks[1].source.sourceRevisionId);
   assert.equal(writebacks[0].externalEvidenceRef,writebacks[1].externalEvidenceRef);
+  assert.equal(writebacks[1].externalEvidenceRef,writebacks[1].ownerArtifactRef.artifactId);
+  assert.equal(settlementMirrors[1].envelope.proposal.evidenceIds[0],writebacks[1].externalEvidenceRef);
+  assert.equal(settlementMirrors[1].envelope.decision.evidenceIds[0],writebacks[1].externalEvidenceRef);
   assert.ok(writebacks[1].ownerArtifactRef.revision>writebacks[0].ownerArtifactRef.revision);
   assert.notEqual(writebacks[0].source.sourceRevisionId,writebacks[1].source.sourceRevisionId);
 

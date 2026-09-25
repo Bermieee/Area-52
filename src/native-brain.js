@@ -721,11 +721,14 @@ export class Area52NativeBrain{
   #mirrorSettlementsToMemory(record,experience,settlements=[]){
     const apply=this.memoryInterface?.applyCoreSettlement??this.memoryInterface?.adapters?.applyCoreSettlement;
     if(!this.memoryInterface||typeof apply!=='function')return[];
-    const artifactRef=this.#memoryOwnerArtifactRef(record,experience),receipts=[];
+    const artifactRef=this.#memoryOwnerArtifactRef(record,experience),externalEvidenceRef=artifactRef.artifactId,receipts=[];
     for(const settlement of settlements??[]){
       if(!settlement?.proposal||!settlement?.decision)continue;
       try{
-        const receipt=apply({proposal:clone(settlement.proposal),decision:clone(settlement.decision),receipt:clone(settlement.receipt??null)},{evidenceArtifactRefs:[{externalEvidenceRef:experience.artifactId,artifactRef}]});
+        const memoryEnvelope={proposal:clone(settlement.proposal),decision:clone(settlement.decision),receipt:clone(settlement.receipt??null)};
+        memoryEnvelope.proposal.evidenceIds=(memoryEnvelope.proposal.evidenceIds??[]).map(id=>id===experience.artifactId?externalEvidenceRef:id);
+        memoryEnvelope.decision.evidenceIds=(memoryEnvelope.decision.evidenceIds??[]).map(id=>id===experience.artifactId?externalEvidenceRef:id);
+        const receipt=apply(memoryEnvelope,{evidenceArtifactRefs:[{externalEvidenceRef,artifactRef}]});
         if(receipt&&typeof receipt.then==='function')receipts.push({kind:'NativeBrainMemorySettlementMirrorReceipt',status:'DEGRADED',reason:'MEMORY_ASYNC_SETTLEMENT_MIRROR_UNSUPPORTED'});
         else receipts.push(clone(receipt));
       }catch(error){receipts.push({kind:'NativeBrainMemorySettlementMirrorReceipt',status:'DEGRADED',reason:error?.message??String(error),authorityGranted:false});}
@@ -739,12 +742,12 @@ export class Area52NativeBrain{
     if(typeof admit!=='function')return{kind:'NativeBrainMemoryWritebackReceipt',status:'UNSUPPORTED',reason:'MEMORY_EXACT_EVIDENCE_MAPPING_UNAVAILABLE',authorityGranted:false};
     try{
       const ownerArtifactRef=this.#memoryOwnerArtifactRef(record,experience),ownerRevision=ownerArtifactRef.revision;
-      const externalEvidenceRef=experience.artifactId;
+      const externalEvidenceRef=ownerArtifactRef.artifactId;
       let invalidation=null;
       const invalidate=this.memoryInterface?.invalidateExternalEvidenceMapping??this.memoryInterface?.adapters?.invalidateExternalEvidenceMapping;
       if(priorExperience&&typeof invalidate==='function'){
         const priorOwnerArtifactRef=this.#memoryOwnerArtifactRef(record,priorExperience);
-        invalidation=invalidate({ownerArtifactRef:priorOwnerArtifactRef,externalEvidenceRef:priorExperience.artifactId,replacedBySourceRevisionId:experience.sourceRevisionId,removed:false,reason:'NARRATIVE_SOURCE_CORRECTED'});
+        invalidation=invalidate({ownerArtifactRef:priorOwnerArtifactRef,externalEvidenceRef:priorOwnerArtifactRef.artifactId,replacedBySourceRevisionId:experience.sourceRevisionId,removed:false,reason:'NARRATIVE_SOURCE_CORRECTED'});
         if(invalidation&&typeof invalidation.then==='function')throw new Error('MEMORY_ASYNC_INVALIDATION_UNSUPPORTED_IN_SYNC_COMMIT');
       }
       const receipt=admit({

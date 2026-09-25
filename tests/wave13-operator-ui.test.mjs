@@ -386,7 +386,7 @@ test('Worker 2 model discovery stays owner-backed and does not leak submitted cr
 
 test('Worker 2 typed provider failure remains visibly failed even when the UI action itself completes',async()=>{
   const owner=liveOwner(),host=worker2ResourceHost({testFailureMessage:"Failed to execute 'fetch' on 'Window': Illegal invocation"});owner.bindings.resourceHost=host;
-  const{ui}=mount(owner);assert.equal((await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'SIDECAR',resourceId:'sidecar:fail',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['STRUCTURED_EXTRACTION']})).ok,true);
+  const{ui}=mount(owner);assert.equal((await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'SIDECAR',resourceId:'sidecar:fail',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['STRUCTURED_EXTRACTION']}})).ok,true);
   const row=ui.operator.resources.read().data.resources[0],tested=await ui.actionRouter.route({type:'wave13.resource.test',target:row});assert.equal(tested.ok,true);assert.ok(tested.result.failure);
   ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Latest connection test: FAIL/);assert.match(body,/Illegal invocation/);assert.doesNotMatch(body,/Connection test passed/);

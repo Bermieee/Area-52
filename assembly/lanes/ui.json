@@ -756,7 +756,7 @@
     {
       "path": "src/ui-core/wave12-sillytavern-host.js",
       "sourceDigest": "bf1ae71396e28e0f0c1a13a2538fe9ece513e394",
-      "expectedDigest": "1afbe5bad333393d1c6198cace5c0ba1367b5db0",
+      "expectedDigest": "8a2769b0379037a976bc8ec588b469b0144bea5b",
       "reason": "Director-authorized main demo correction: floating UI reserves zero host width so the empty blue host strip is not visible."
     },
     {
@@ -768,7 +768,7 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "d7ad472cb5c45a14b23d67b10c372b48729ed746",
+      "expectedDigest": "37c871b1846271d21f953c8f7ca699dc4515b4a9",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
@@ -786,7 +786,7 @@
     {
       "path": "tests/wave12-sillytavern-host.test.mjs",
       "sourceDigest": "93ea9462b4c83377c07599ab94026d03e768a70e",
-      "expectedDigest": "8885c5511a89d690f914b55e88defd67eedb5bdf",
+      "expectedDigest": "e16970203ffd406a9755cfe34b260eb05d86460f",
       "reason": "Validation for zero-width floating host reservation."
     },
     {
@@ -798,14 +798,26 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "f38c46b3c18a0cb517573e8bddedbd8b2688cb1a",
+      "expectedDigest": "982a5f5649864655169cdf57cec5cfccec72e398",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "aba84e8cbb98ee2579ff48330511f74381f470ce",
+      "expectedDigest": "2a124d5832ced627927a6d45bb31acb479a49588",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
+    },
+    {
+      "path": "tests/wave6.test.mjs",
+      "sourceDigest": "e672d31742df0a2a524770a69514556b985549be",
+      "expectedDigest": "24fa232acbe9f6c231249f736ad01ab1c1d78878",
+      "reason": "UI.Core conformance regression now includes the accepted Connections and Settings product workspaces."
+    },
+    {
+      "path": "tests/wave9.test.mjs",
+      "sourceDigest": "16433a27ce7775f54bc80f37dc0d812a1fe654e2",
+      "expectedDigest": "48d00ab8598bf3bebd37988e2d4517c25949b5af",
+      "reason": "Phase-2 workspace conformance validates the canonical nine product workspaces instead of the obsolete seven-workspace count."
     }
   ],
   "knownConflicts": []

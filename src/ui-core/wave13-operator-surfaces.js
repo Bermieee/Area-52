@@ -591,7 +591,11 @@ function field(d,tag,label,attrs={}){return element(d,tag,{className:'a52-input'
 function option(d,value,label){return element(d,'option',{text:label,attrs:{value}});}
 function stageStatus(v){if(v===OperatorProducerState.LIVE)return'ready';if(v===OperatorProducerState.WORKING)return'loading';if(v===OperatorProducerState.DEGRADED)return'warning';if(v===OperatorProducerState.IDLE||v===OperatorProducerState.WAITING_FOR_TURN)return'historical';return'offline';}
 function resourceStatus(v){if(v==='HEALTHY')return'ready';if(v==='DEGRADED'||v==='SATURATED'||v==='COOLDOWN'||v==='PROBE')return'warning';return'offline';}
-function testSummary(x){return String(x?.status??x?.health??x?.result??(x?.ok===true?'PASS':x?.ok===false?'FAIL':'completed'));}
+function testSummary(x){
+  if(x?.failure||String(x?.resource?.lastTest?.status??'').toUpperCase()==='FAIL')return'FAIL';
+  if(String(x?.resource?.lastTest?.status??'').toUpperCase()==='PASS')return'PASS';
+  return String(x?.status??x?.health??x?.result?.status??(x?.ok===true?'PASS':x?.ok===false?'FAIL':'completed'));
+}
 function resourceTestFailure(actionResult){
   if(!actionResult?.ok)return String(actionResult?.error??'Owner test action failed.');
   const owner=actionResult.result??{};

@@ -343,7 +343,7 @@ test('DETERMINISTIC: Worker 4 Lore revision event invalidates stale owner eviden
   });
   assert.equal(invalidation.status,'INVALIDATED');
   assert.equal(invalidation.nextRevisionTrusted,false);
-  assert.ok(invalidation.invalidatedChats.includes('chat:lore-invalidation'));
+  assert.ok(invalidation.checkedChats.includes('chat:lore-invalidation'));
 
   revision='lore:reef-law@r2';text='The reef gate now opens only at moonrise.';
   const next=await brain.prepareTurn({

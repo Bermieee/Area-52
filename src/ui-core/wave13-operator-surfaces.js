@@ -861,12 +861,12 @@ export function renderLoreAuthoringSurface(host,{loreStudy,loreAuthoring,actionR
   }
   if(!caps.lifecycle)merge.append(message(d,'No destructive Apply action','This installed assembly exposes Worker 4’s review-only preview subset. Settlement-backed authoring is not exported here, so Area-52 intentionally offers no Apply button.','historical'));
   section.append(merge);
-  if(caps.lifecycle)section.append(renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refresh,state,caps,book,secondBookId:state.mergeBookId}));
+  if(caps.lifecycle)section.append(renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refresh,state,caps,book,secondBookId:state.mergeBookId,productAdapter}));
   if(state.status)section.append(element(d,'p',{className:'a52-wave13-form-status',text:state.status,attrs:{role:'status','aria-live':'polite'}}));
   host.append(section);
 }
 
-function renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refresh,state,caps,book,secondBookId}={}){
+function renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refresh,state,caps,book,secondBookId,productAdapter}={}){
   const root=element(d,'section',{className:'a52-card a52-wave13-lore-settlement'});
   root.append(element(d,'h3',{text:'5. Reviewed authoring lifecycle'}),element(d,'p',{className:'a52-muted',text:'This path is shown only because the installed Worker 4 contract exports checkpointed review, Final Preview, explicit approval, and Settlement. Preview or model suggestion alone cannot mutate Lore.'}));
   const outputId=field(d,'input','Merge output Lorebook ID',{type:'text',placeholder:'New Lorebook ID for approved merge',autocomplete:'off'});outputId.value=state.mergeOutputId??'';
@@ -917,7 +917,7 @@ function renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refre
         }}));
         item.append(decisions);
       }
-      if(productAdapterLevelSafe(state)===ProductDetailLevel.ADVANCED&&action.id)item.append(element(d,'code',{text:action.id}));
+      if(productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED&&action.id)item.append(element(d,'code',{text:action.id}));
       list.append(item);
     }
     root.append(list);
@@ -965,7 +965,6 @@ function renderLoreSettlementLifecycle(d,{loreAuthoring,actionRouter,scope,refre
   return root;
 }
 
-function productAdapterLevelSafe(){return ProductDetailLevel.NORMAL;}
 function createLoreAuthoringDraftStore(){return{bookId:null,sourceId:null,contentSourceId:null,editContent:'',mergeBookId:null,mergeOutputId:'',sessionId:null,settlementId:null,status:''};}
 function operatorValue(result){return result?.ok===true?result.value??null:null;}
 function operatorRouteValue(route){return route?.ok===true&&route.result?.ok===true?route.result.value??null:null;}

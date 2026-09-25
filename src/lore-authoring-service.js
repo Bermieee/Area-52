@@ -12,6 +12,7 @@ import {LoreSemanticCompiler} from './lore-semantic-authoring.js';
 import {LoreStructurePlanner} from './lore-structure-planner.js';
 import {LoreMergePreviewer} from './lore-merge-preview.js';
 import {LoreAuthoringLifecycle} from './lore-authoring-lifecycle.js';
+import {LoreAdaptiveNavigationBuilder} from './lore-adaptive-navigation-builder.js';
 
 export class LoreAuthoringService {
   constructor({intelligence, lifecycleSnapshot = null} = {}) {
@@ -20,6 +21,7 @@ export class LoreAuthoringService {
     this.semantic = new LoreSemanticCompiler({intelligence});
     this.structure = new LoreStructurePlanner({intelligence});
     this.merge = new LoreMergePreviewer({intelligence});
+    this.navigation = new LoreAdaptiveNavigationBuilder({intelligence, structure: this.structure});
     this.lifecycle = new LoreAuthoringLifecycle({
       intelligence,
       semantic: this.semantic,
@@ -48,7 +50,30 @@ export class LoreAuthoringService {
       .sort((a, b) => a.sourceId.localeCompare(b.sourceId));
   }
 
-  _storyWriteAdmission({chatId = null, lorebookIds = null} = {}) {
+  _storyReadLorebooks({chatId = null, lorebookIds = null} = {}) {
+    const authority = this.intelligence.storyAuthority;
+    if (!authority?.hasScopedAuthority?.()) return lorebookIds;
+    if (chatId == null || String(chatId).trim() === '') {
+      throw Object.assign(new Error('Story-scoped Lore read requires exact chatId'), {
+        code: 'LORE_AUTHORING_STORY_SCOPE_REQUIRED',
+      });
+    }
+    const scope = authority.scopeReceipt(String(chatId));
+    const allowed = new Set(scope.readLorebookIds || []);
+    const requested = lorebookIds == null
+      ? [...allowed].sort()
+      : [...new Set((lorebookIds || []).map(String))].sort();
+    const blocked = requested.filter((id) => !allowed.has(id));
+    if (blocked.length) {
+      throw Object.assign(new Error('Lorebook is outside the story read scope'), {
+        code: 'LORE_AUTHORING_READ_SCOPE_BLOCKED',
+        details: {chatId: String(chatId), lorebookIds: blocked},
+      });
+    }
+    return requested;
+  }
+
+    _storyWriteAdmission({chatId = null, lorebookIds = null} = {}) {
     const authority = this.intelligence.storyAuthority;
     if (!authority?.hasScopedAuthority?.()) return null;
     if (chatId == null || String(chatId).trim() === '') {
@@ -153,6 +178,34 @@ export class LoreAuthoringService {
 
   mergePreview(request) {
     return this.merge.preview(request);
+  }
+
+  adaptiveNavigationPreview(request = {}) {
+    const lorebookIds = this._storyReadLorebooks({
+      chatId: request?.chatId ?? request?.storyScope?.chatId ?? null,
+      lorebookIds: request?.lorebookIds ?? null,
+    });
+    return this.navigation.preview({...request, lorebookIds});
+  }
+
+  rebuildAffectedNavigation(request = {}) {
+    const chatId = request?.chatId ?? request?.storyScope?.chatId ?? null;
+    if (this.intelligence.storyAuthority?.hasScopedAuthority?.()) {
+      this._storyReadLorebooks({chatId, lorebookIds: null});
+      const scope = this.intelligence.storyAuthority.scopeReceipt(String(chatId));
+      const allowed = new Set(scope.readLorebookIds || []);
+      const blocked = (request.sourceIds || []).filter((sourceId) => {
+        const source = this.intelligence.runtime.registry.getEntry(String(sourceId));
+        return !source || !allowed.has(source.lorebookId);
+      });
+      if (blocked.length) {
+        throw Object.assign(new Error('Targeted navigation rebuild source is outside story read scope'), {
+          code: 'LORE_NAV_STORY_SCOPE_BLOCKED',
+          details: {sourceIds: blocked},
+        });
+      }
+    }
+    return this.navigation.rebuildAffected(request);
   }
 
   startTreeBuild(request = {}) {
@@ -383,6 +436,7 @@ export class LoreAuthoringService {
         progress: 'LoreAuthoringProgressReadModel',
         draftReview: 'LoreDraftReview',
         finalPreview: 'LoreFinalPreview',
+        adaptiveNavigation: 'LoreAdaptiveNavigationPreview',
         settlement: 'LoreSettlementReadModel',
         worker1Receipts: 'LoreWorker1SettlementReceipts',
       },
@@ -392,6 +446,7 @@ export class LoreAuthoringService {
         'resumeAuthoringBuild',
         'recordDraftDecision',
         'reclassifyAfterTaxonomyEdit',
+        'rebuildAffectedNavigation',
         'computeFinalPreview',
         'approveFinalPreview',
         'applySettlement',
@@ -421,6 +476,7 @@ export class LoreAuthoringService {
       progress: safe((request) => this.authoringProgress(request?.sessionId)),
       draftReview: safe((request) => this.draftReview(request)),
       finalPreview: safe((request) => this.lifecycle.finalPreview(request)),
+      adaptiveNavigation: safe((request = {}) => this.adaptiveNavigationPreview(request)),
       settlement: safe((request) => this.settlementReadModel(request)),
       worker1Receipts: safe((request) => this.worker1SettlementReceipts(request)),
     });
@@ -434,6 +490,7 @@ export class LoreAuthoringService {
       resumeAuthoringBuild: safe((request) => this.resumeAuthoringBuild(request)),
       recordDraftDecision: safe((request) => this.recordDraftDecision(request)),
       reclassifyAfterTaxonomyEdit: safe((request) => this.reclassifyAfterTaxonomyEdit(request)),
+      rebuildAffectedNavigation: safe((request = {}) => this.rebuildAffectedNavigation(request)),
       computeFinalPreview: safe((request) => this.computeFinalPreview(request)),
       approveFinalPreview: safe((request) => this.approveFinalPreview(request)),
       applySettlement: safe((request) => this.applySettlement(request)),

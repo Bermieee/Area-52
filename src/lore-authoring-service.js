@@ -314,12 +314,12 @@ export class LoreAuthoringService {
       restoreSettlement: safe((request) => this.restoreSettlement(request)),
     });
     return Object.freeze({
-      kind: 'LoreStudyOperatorHost',
+      kind: 'LoreAuthoringOperatorContract',
       contractVersion: 2,
       read,
       actions,
-      destructiveMergeApply: 'actions.applySettlement',
-      destructiveTreeApply: 'actions.applySettlement',
+      destructiveMergeApply: null,
+      destructiveTreeApply: null,
       exactSourceMutationAuthority: false,
       safeErrorShape: normalizeLoreAuthoringError(new Error('example')).kind,
       integrationStatus: 'BACKEND_CONTRACT_ONLY_NOT_WORKER3_WIRED',

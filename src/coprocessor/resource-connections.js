@@ -264,6 +264,8 @@ export class CoprocessorResourceConnections{
           row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:latency,providerId:profile.providerId,workerId:profile.workerId,measurementClass:row.measurementClass};
           owner.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:owner.now()});
           emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),taskId:task.taskId,taskType:'JEV_DECISION',status:'SUCCESS',latencyMs:latency,workerId:profile.workerId,providerId:profile.providerId});
+          emitTelemetry(owner.telemetry,TelemetryEvent.PROVIDER_INVOKED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,taskClass:'JEV_DECISION',executionLatency:execution.latencyMetadata?.providerLatencyMs??latency,validationLatency:execution.latencyMetadata?.validationLatencyMs??0,attempt,measurementClass:execution.providerProvenance?.measurementClass??row.measurementClass});
+          emitTelemetry(owner.telemetry,TelemetryEvent.PROVIDER_USAGE,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,providerProfileId:profile.profileId,measurementClass:execution.providerProvenance?.measurementClass??row.measurementClass,usageReceipt:execution.providerProvenance?.usageReceipt??null});
           return execution;
         }catch(error){
           row.lastExecution={status:'FAIL',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:Math.max(0,owner.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};

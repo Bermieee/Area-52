@@ -347,6 +347,7 @@ export class HotCognitionRuntime{
         refId:'recent:'+evidence.sourceRevisionId,sourceRevisionId:evidence.sourceRevisionId,messageId:evidence.messageId??null,
         messageRevision:evidence.messageRevision??null,role:evidence.role??null,activity,contentDigest:stableHash(String(evidence.content),{length:16,alreadyString:true}),
         excerpt:boundedText(evidence.content),turnId:evidence.turnId??null,sequence:Number(evidence.sequence??0),
+        knownBy:uniq(evidence.knownBy??[]),publicToAll:Boolean(evidence.publicToAll),
       });
     }
     tail=cap(tail,this.limits.maxRecentTail);

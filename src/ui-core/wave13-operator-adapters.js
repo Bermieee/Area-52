@@ -175,7 +175,7 @@ export class Wave13OperationalStatusAdapter{
     const selection=this.live?.selection?.()??{};
     const cognition=this.#cognition(selection);
     const stages=[
-      this.#adapterStage('scene','Scene',this.adapters.scene,selection,{turnBound:true}),
+      this.#adapterStage('scene','Scene',this.adapters.scene,selection,{turnBound:true,exported:Boolean(this.hostBindings.readScene||this.hostBindings.readSceneModel||this.hostBindings.readSceneUiReadModel)}),
       this.#runtimeStage(selection,cognition),
       this.#coprocessorStage(selection),
       this.#cognitionStage('choice','Cognitive Choice',cognition,selection),
@@ -183,7 +183,7 @@ export class Wave13OperationalStatusAdapter{
       this.#cognitionStage('jev','Jev',cognition,selection,{optional:true}),
       this.#cognitionStage('gather','Gather',cognition,selection),
       this.#cognitionStage('seal','Context Seal',cognition,selection),
-      this.#adapterStage('promptPlan','PromptPlan',this.adapters.promptPlan,selection,{turnBound:true}),
+      this.#adapterStage('promptPlan','PromptPlan',this.adapters.promptPlan,selection,{turnBound:true,exported:Boolean(this.hostBindings.readPromptPlan||this.hostBindings.readPromptPlanReadModel||this.hostBindings.readGeneration)}),
       this.#sourceStage('lore','Lore Study',this.loreStudy?.read?.(),selection),
       this.#memoryStage(selection),
       this.#forensicsStage(selection),
@@ -193,7 +193,8 @@ export class Wave13OperationalStatusAdapter{
     return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
   }
   #cognition(selection){try{return this.adapters.cognition?.read?.(selection)??null;}catch{return null;}}
-  #adapterStage(id,label,adapter,selection,{turnBound=false}={}){
+  #adapterStage(id,label,adapter,selection,{turnBound=false,exported=true}={}){
+    if(!exported)return stage(id,label,OperatorProducerState.UNAVAILABLE,'Assembly does not export the '+label+' owner reader.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
     if(!adapter)return this.#missing(id,label,selection,turnBound);
     if(turnBound&&selection.chatId&&!selection.turnId)return stage(id,label,OperatorProducerState.WAITING_FOR_TURN,'Waiting for an active turn.',selection,null,'HOST_SELECTION');
     let read;try{read=adapter.read?.(selection)??adapter.read?.();}catch(error){return stage(id,label,OperatorProducerState.DEGRADED,String(error?.message??error),selection,null,'READ_ERROR');}
@@ -211,21 +212,20 @@ export class Wave13OperationalStatusAdapter{
   }
   #coprocessorStage(selection){
     const has=Boolean(this.hostBindings.coprocessorTelemetry||this.hostBindings.coprocessorAdapter||this.hostBindings.readCognitionUiState||this.hostBindings.readCoprocessorChoiceContribution);
-    if(selection.chatId&&!selection.turnId&&has)return stage('coprocessor','Coprocessor',OperatorProducerState.WAITING_FOR_TURN,'Coprocessor is available; waiting for an active turn.',selection,null,'HOST_SELECTION');
+    if(!has)return stage('coprocessor','Coprocessor',OperatorProducerState.UNAVAILABLE,'Assembly does not export Worker 2 CognitionUiState or Coprocessor choice contribution.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
+    if(selection.chatId&&!selection.turnId)return stage('coprocessor','Coprocessor',OperatorProducerState.WAITING_FOR_TURN,'Coprocessor is available; waiting for an active turn.',selection,null,'HOST_SELECTION');
     const normal=this.#adapterStage('coprocessor','Coprocessor',this.adapters.coprocessor,selection);
     if(normal.state!==OperatorProducerState.UNAVAILABLE)return normal;
-    return has?stage('coprocessor','Coprocessor',OperatorProducerState.IDLE,'Coprocessor boundary is exported but has no selected-turn telemetry.',selection,null,'NO_TELEMETRY'):stage('coprocessor','Coprocessor',OperatorProducerState.UNAVAILABLE,'Assembly does not export Worker 2 CognitionUiState or Coprocessor choice contribution.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
+    return stage('coprocessor','Coprocessor',OperatorProducerState.IDLE,'Coprocessor boundary is exported but has no selected-turn telemetry.',selection,null,'NO_TELEMETRY');
   }
   #cognitionStage(key,label,cognition,selection,{optional=false}={}){
-    const source=cognition?.sources?.[key]??null,data=cognition?.data?.[key]??null;
+    const source=cognition?.sources?.[key]??null,data=cognition?.data?.[key]??null,exported=readerExported(this.hostBindings,key);
+    if(!exported)return stage(key,label,optional?OperatorProducerState.DISCONNECTED:OperatorProducerState.UNAVAILABLE,optional?'Optional '+label+' reader/resource is not connected.':'Assembly does not export the '+label+' owner reader.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
     if(selection.chatId&&!selection.turnId)return stage(key,label,OperatorProducerState.WAITING_FOR_TURN,'Waiting for an active turn.',selection,null,'HOST_SELECTION');
     if(data)return stageFromSource(key,label,source,selection,{readerPresent:true});
     if(source?.mode===ProductDataMode.DEGRADED)return stageFromSource(key,label,source,selection,{readerPresent:true});
-    if(source?.mode===ProductDataMode.UNAVAILABLE){
-      const exported=readerExported(this.hostBindings,key);
-      return stage(key,label,exported?OperatorProducerState.IDLE:optional?OperatorProducerState.DISCONNECTED:OperatorProducerState.UNAVAILABLE,exported?'No receipt was published for the selected turn.':optional?'Optional '+label+' reader/resource is not connected.':'Assembly does not export the '+label+' owner reader.',selection,null,exported?'NO_RECEIPT':'ASSEMBLY_CONTRACT_MISSING');
-    }
-    return stageFromSource(key,label,source,selection,{readerPresent:Boolean(source)});
+    if(source?.mode===ProductDataMode.UNAVAILABLE)return stage(key,label,OperatorProducerState.IDLE,'No receipt was published for the selected turn.',selection,null,'NO_RECEIPT');
+    return stageFromSource(key,label,source,selection,{readerPresent:true});
   }
   #sourceStage(id,label,read,selection){
     if(!read)return this.#missing(id,label,selection,false);
@@ -248,8 +248,8 @@ export class Wave13OperationalStatusAdapter{
   #missing(id,label,selection,turnBound){if(turnBound&&selection.chatId&&!selection.turnId)return stage(id,label,OperatorProducerState.WAITING_FOR_TURN,'Waiting for an active turn.',selection,null,'HOST_SELECTION');return stage(id,label,OperatorProducerState.UNAVAILABLE,'Producer is not exported by the host assembly.',selection,null,'ASSEMBLY_CONTRACT_MISSING');}
 }
 
-export function parseLoreSubmission({id,title,text}={}){
-  const body=String(text??'').trim();
+export function parseLoreSubmission({id,title,text:inputText}={}){
+  const body=String(inputText??'').trim();
   if(!body){const e=new TypeError('Lore content is required.');e.code='LORE_INPUT_EMPTY';throw e;}
   let parsed;
   if(body.startsWith('{')||body.startsWith('[')){

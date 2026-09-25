@@ -66,6 +66,13 @@ export function renderOperationalSummary(host,{operations,scope,inspect}={}){
   section.append(head);
   if(status.waitingForTurn)section.append(message(d,'Waiting for a turn','The selected chat is current. Turn-scoped receipts will appear after the Brain receives a generation event.','historical'));
   else if(!status.hostConnected)section.append(message(d,'No selected chat','Area-52 has no host chat identity to bind cognitive receipts to.','offline'));
+  const pipeline=status.pipeline??{};
+  section.append(element(d,'h3',{text:'Brain activity'}),element(d,'div',{className:'a52-wave13-diagnostics__activity'},
+    flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
+    flowStep(d,'Work executed',pipeline.executionReceipt?String(pipeline.executedJobs??0)+' jobs':'No execution receipt'),
+    flowStep(d,'Results returned',pipeline.resultReceipt?String(pipeline.returnedResults??0):'No Gather receipt'),
+    flowStep(d,'Context admitted',pipeline.admissionReceipt?String(pipeline.contextAdmitted??0):'No Context Seal receipt')
+  ));
   const grid=element(d,'div',{className:'a52-wave13-status-grid'});
   for(const row of status.stages.slice(0,8))grid.append(stageCard(d,row,scope,inspect));
   section.append(grid);host.append(section);
@@ -82,8 +89,15 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
     {key:'World revision',value:selection.worldRevision??'—'},
     {key:'Scene revision',value:selection.sceneRevision??'—'},
   ]));
+  const pipeline=status.pipeline??{};
+  section.append(element(d,'h3',{text:'Execution / admission'}),createKeyValue(d,[
+    {key:'Registered producers',value:pipeline.registeredProducers??0},{key:'Execution receipt',value:pipeline.executionReceipt?'Published':'None'},
+    {key:'Executed jobs',value:pipeline.executedJobs??0},{key:'Gather receipt',value:pipeline.resultReceipt?'Published':'None'},
+    {key:'Returned results',value:pipeline.returnedResults??0},{key:'Context Seal receipt',value:pipeline.admissionReceipt?'Published':'None'},
+    {key:'Context-admitted results',value:pipeline.contextAdmitted??0},
+  ]));
   const grid=element(d,'div',{className:'a52-wave13-status-grid'});
-  for(const row of status.stages)grid.append(stageCard(d,row,scope,inspect));
+  for(const row of status.stages)grid.append(stageCard(d,row,scope,inspect,{showIds:true}));
   section.append(grid);host.append(section);
 }
 
@@ -360,21 +374,25 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
   }
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
   displayActions.append(inspector);display.append(displayActions);root.append(display);
-  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect}));
+  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel:productAdapter?.getDetailLevel?.()}));
   host.append(root);
 }
 
-export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
+export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel=ProductDetailLevel.NORMAL}={}){
   const snapshot=diagnostics.read(),center=element(d,'section',{className:'a52-wave13-settings__group a52-wave13-diagnostics',attrs:{'aria-label':'Diagnostics Center'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
   const unhealthy=(snapshot.producers?.failures??0)>0||snapshot.resources?.rows?.some(row=>['DEGRADED','UNAVAILABLE'].includes(String(row.state))||['DEGRADED','UNAVAILABLE','COOLDOWN'].includes(String(row.health)));
   head.append(element(d,'strong',{text:'Diagnostics Center'}),makeBadge(d,unhealthy?'ATTENTION':snapshot.host?.waitingForTurn?'WAITING':'LIVE',unhealthy?'warning':snapshot.host?.waitingForTurn?'historical':'ready'));
-  center.append(head,element(d,'p',{className:'a52-muted',text:'Central read-only telemetry for the selected chat/turn. Owner receipts, resource health, routing evidence, and failures appear here; raw prompts are never collected.'}));
+  const advanced=detailLevel===ProductDetailLevel.ADVANCED;
+  center.append(head,element(d,'p',{className:'a52-muted',text:'Operational read-only summary for the selected chat/turn. This is not a complete forensic transaction timeline. Owner receipts, resource health, routing evidence, and failures appear here; raw prompts and credentials are never collected.'}));
   const selection=snapshot.selection??{};
-  center.append(createKeyValue(d,[
-    {key:'Chat',value:selection.chatId??'none'},{key:'Turn',value:selection.turnId??'waiting'},{key:'Generation',value:selection.generationId??'waiting'},
+  center.append(createKeyValue(d,advanced?[
+    {key:'Chat ID',value:selection.chatId??'none'},{key:'Turn ID',value:selection.turnId??'waiting'},{key:'Generation ID',value:selection.generationId??'waiting'},
     {key:'World / Scene revision',value:(selection.worldRevision??'—')+' / '+(selection.sceneRevision??'—')},
     {key:'Live-binding reads',value:snapshot.host?.liveBinding?.reads??'—'},{key:'Rejected stale/foreign reads',value:snapshot.host?.liveBinding?.rejected??0},
+  ]:[
+    {key:'Selected chat',value:selection.chatId?'Current chat selected':'No chat selected'},{key:'Turn',value:selection.turnId?'Active turn':'Waiting for turn'},{key:'Generation',value:selection.generationId?'Active generation':'Waiting for generation'},
+    {key:'Owner read coherence',value:(snapshot.host?.liveBinding?.rejected??0)>0?'Stale/foreign reads contained':'Current selection coherent'},
   ]));
   const copro=snapshot.coprocessor?.summary??{},resourceTelemetry=copro.resourceTelemetry??{},providerCalls=copro.providerCalls??{};
   center.append(element(d,'h3',{text:'Coprocessor telemetry'}),createKeyValue(d,[
@@ -400,7 +418,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
       const states=element(d,'div',{className:'a52-wave13-diagnostic-events'});
       for(const row of lane.states.slice(0,8)){
         const line=element(d,'div',{className:'a52-wave13-diagnostic-event'});
-        line.append(element(d,'code',{text:row.id}),makeBadge(d,row.state??row.health??'UNKNOWN',resourceStatus(row.health)));
+        line.append(advanced?element(d,'code',{text:row.id}):element(d,'span',{text:row.displayName??'Configured resource'}),makeBadge(d,row.state??row.health??'UNKNOWN',resourceStatus(row.health)));
         if(row.lastExecution?.status)line.append(element(d,'span',{className:'a52-muted',text:'last execution '+row.lastExecution.status+(row.lastExecution.taskType?' · '+row.lastExecution.taskType:'')}));
         states.append(line);
       }
@@ -411,7 +429,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
   center.append(element(d,'h3',{text:'Jev / Sidecar / Vectoring wiring'}),wiring);
 
   const stages=element(d,'div',{className:'a52-wave13-status-grid'});
-  for(const row of snapshot.producers?.stages??[])stages.append(stageCard(d,row,scope,inspect));
+  for(const row of snapshot.producers?.stages??[])stages.append(stageCard(d,row,scope,inspect,{showIds:advanced}));
   center.append(element(d,'h3',{text:'Producer telemetry'}),stages);
 
   const activity=element(d,'div',{className:'a52-wave13-diagnostics__activity'});
@@ -422,7 +440,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const job of jobs.slice(0,40)){
       const row=element(d,'div',{className:'a52-wave13-flow-row'});
-      row.append(element(d,'strong',{text:job.taskType??job.capability??job.taskId??'Job'}),element(d,'code',{text:job.resourceId??'native / unreported'}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
+      row.append(element(d,'strong',{text:job.taskType??job.capability??'Cognitive job'}),advanced?element(d,'code',{text:job.resourceId??job.taskId??'native / unreported'}):element(d,'span',{className:'a52-muted',text:job.resourceId?'Optional resource':'Native / owner resource'}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
       list.append(row);
     }
     center.append(list);
@@ -431,7 +449,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect}={}){
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const result of results.slice(0,40)){
       const row=element(d,'div',{className:'a52-wave13-flow-row'});
-      row.append(element(d,'strong',{text:result.capability??result.resultId??'Result'}),element(d,'code',{text:result.resourceId??'owner'}),makeBadge(d,result.contextAdmitted?'CONTEXT ADMITTED':result.status??'RETURNED',result.contextAdmitted?'ready':flowStatus(result.status)));
+      row.append(element(d,'strong',{text:result.capability??'Returned result'}),advanced?element(d,'code',{text:result.resourceId??result.resultId??'owner'}):element(d,'span',{className:'a52-muted',text:result.resourceId?'Optional resource result':'Owner result'}),makeBadge(d,result.contextAdmitted?'CONTEXT ADMITTED':result.status??'RETURNED',result.contextAdmitted?'ready':flowStatus(result.status)));
       list.append(row);
     }
     center.append(list);
@@ -468,7 +486,7 @@ function flowStep(d,label,value){const node=element(d,'div',{className:'a52-wave
 function flowStatus(value){const v=String(value??'').toUpperCase();if(['COMPLETE','COMPLETED','READY','SUCCEEDED','ADMITTED'].includes(v))return'ready';if(['ACTIVE','RUNNING','QUEUED','WORKING'].includes(v))return'loading';if(['FAILED','ERROR','INVALID','LATE','STALE','REJECTED'].includes(v))return'warning';return'historical';}
 function humanLabel(value){return String(value??'').toLowerCase().replace(/(^|_)([a-z])/g,(_,space,letter)=>(space?' ':'')+letter.toUpperCase());}
 
-export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender}={}){
+export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter}={}){
   const d=host.ownerDocument;
   host.append(header(d,'Lore','Use the Lorebook currently selected in SillyTavern, accept its exact authored entries for study, then watch the Lore owner report readiness.'));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
@@ -485,7 +503,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     const denominator=Math.max(1,total-removed),progress=Math.round(ready/denominator*100);host.append(createProgressBar(d,{value:total?progress:0,label:'Lore readiness progress'}));
     if(accepted||studying)host.append(message(d,'Study still in progress',(accepted+studying)+' entr'+(accepted+studying===1?'y is':'ies are')+' accepted or studying; they are not yet retrieval-ready.','warning'));
     if(failed)host.append(message(d,'Study failure',failed+' entr'+(failed===1?'y requires':'ies require')+' owner-reported retry or correction before readiness.','warning'));
-    if(data.entries?.length)host.append(renderLoreEntries(d,data.entries,scope));
+    if(data.entries?.length)host.append(renderLoreEntries(d,data.entries,scope,{showIds:productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED}));
   }else host.append(message(d,'No Lore accepted yet','Choose a Lorebook in SillyTavern, verify it below, then accept it for study.','historical'));
 
   const form=element(d,'section',{className:'a52-card a52-wave13-lore-form'});
@@ -530,7 +548,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   host.append(form);
 }
 
-function renderLoreEntries(d,entries,scope){
+function renderLoreEntries(d,entries,scope,{showIds=false}={}){
   const root=element(d,'div',{className:'a52-wave13-lore-entries'});
   for(const row of entries.slice(0,80)){
     const state=String(row.operatorState??'ACCEPTED').toUpperCase(),card=element(d,'article',{className:'a52-card a52-wave13-lore-entry',dataset:{state}});
@@ -540,7 +558,9 @@ function renderLoreEntries(d,entries,scope){
       :state==='FAILED'?'The Lore owner reports study failure; this entry must not be presented as ready.'
       :state==='REMOVED'?'The source entry has been removed and is not retrieval-ready.'
       :'The authored source has been accepted, but acceptance alone is not learning or readiness.';
-    card.append(element(d,'p',{text:explanation}),createKeyValue(d,[{key:'Entry UID',value:row.uid??'—'},{key:'Source revision',value:row.sourceRevisionId??'—'},{key:'Study state',value:row.studyState??'—'},{key:'Representations',value:row.retrievalRepresentations?.length??0}]));
+    const details=[{key:'Study state',value:row.studyState??humanLabel(state)},{key:'Representations',value:row.retrievalRepresentations?.length??0}];
+    if(showIds)details.push({key:'Entry UID',value:row.uid??'—'},{key:'Source revision',value:row.sourceRevisionId??'—'},{key:'Learned revision',value:row.learnedRevisionId??'—'});
+    card.append(element(d,'p',{text:explanation}),createKeyValue(d,details));
     if(row.studyError)card.append(message(d,'Study error',row.studyError.message??row.studyError.code??'Owner reported a study failure.','warning'));
     if(row.retrievalRepresentations?.some(x=>x.unresolved))card.append(makeBadge(d,'UNRESOLVED','warning'));root.append(card);
   }
@@ -548,11 +568,11 @@ function renderLoreEntries(d,entries,scope){
 }
 
 function loreStateStatus(state){if(state==='READY')return'ready';if(state==='STUDYING')return'loading';if(state==='FAILED')return'warning';if(state==='REMOVED')return'offline';return'historical';}
-function stageCard(d,row,scope,inspect){
+function stageCard(d,row,scope,inspect,{showIds=false}={}){
   const card=element(d,'article',{className:'a52-wave13-stage',dataset:{state:row.state}});
   card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:row.label}),makeBadge(d,row.state,stageStatus(row.state))));
   card.append(element(d,'p',{text:row.reason||'No additional detail.'}));
-  if(row.turnId)card.append(element(d,'span',{className:'a52-muted',text:'turn '+row.turnId+(row.freshness?' · '+row.freshness:'')}));
+  if(showIds&&row.turnId)card.append(element(d,'span',{className:'a52-muted',text:'turn '+row.turnId+(row.freshness?' · '+row.freshness:'')+(row.errorCode?' · '+row.errorCode:'')}));
   if(inspect)card.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-producer-status',id:row.id,title:row.label,payload:row})}));
   return card;
 }

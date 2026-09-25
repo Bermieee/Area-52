@@ -132,3 +132,33 @@ No Trello card is closed by this branch-only acceptance.
 2. Worker 4's Lore Study implementation remains on its owner branch. This branch consumes its public `LoreBrainRetrievalInterface@1` but does not merge or own Lore Study.
 3. Optional Jev/sidecar execution remains Worker 2-owned. Native operation does not depend on it.
 4. Umbrella cards #6, #11 and #39 contain broader optional/other-owner work beyond the native Brain loop and should not be closed solely from this branch.
+
+## Direct owner-contract integration follow-up
+
+The native Brain now consumes the published owner contracts without copying owner stores into Core:
+
+- **Lore:** when a Worker 4 `LoreBrainRetrievalInterface v1` is attached, the Brain registers `OWNER_LORE` and does **not** register the fallback `NATIVE_LORE` channel. The channel queries `brainInterface().query()` only when Cognitive Choice actually runs retrieval, validates exact authored drillback plus `sourceRevisionFence[]`, carries the owner source revision into Candidate Bus / Truth / Gather / Seal, and leaves the owner revision outside Core's `SourceRegistry`.
+- **Memory:** when a `MemoryIntegrationSurface v1.x` is attached, the Brain registers `OWNER_MEMORY` and does **not** register fallback `NATIVE_MEMORY`. Historian nominations require exact `drillDown()` evidence, preserve Memory authority/temporal status and perspective, and flow through the normal Candidate Bus / Truth / Gather / Seal path. Core does not self-admit Memory nominations.
+- **Trusted external revision fences:** only registered owner channels marked as owner-revision sources can extend the current source-revision fence. Result Bus revalidates those refs through Core before foreground use. A later owner query can replace the fence; a corrective pass that does not execute an owner channel does not erase the primary-pass owner fence.
+- **Quiet-turn bound:** owner Lore/Memory queries are no longer performed before Cognitive Choice. A `HOT_SUFFICIENT` turn leaves both owner channels uncalled and records `SKIPPED / HOT_SUFFICIENT`.
+- **Post-generation Memory write-back:** after a completed narrative, Core can send exact observed narrative evidence through Memory's `admitExternalEvidenceMapping` contract. Corrections reuse the same external evidence identity with a higher Core artifact revision and a new source revision. This mapping grants no Settlement or Context Seal authority; Scene/Memory remain responsible for episode/hierarchy interpretation.
+- **Fallback invariant:** with no owner interface attached, the local `NATIVE_LORE` / `NATIVE_MEMORY` deterministic fallback remains available so one local Brain resource still works without an external service. When the real owner is attached, the owner channel replaces the corresponding fallback retrieval channel to avoid parallel owner-store retrieval.
+
+Current owner references consumed during this follow-up:
+
+- Memory: `Development-Memory@51aa0d6e7293ddeaa3899e81f6699794d0c22b2c` — `MemoryIntegrationSurface v1.0.0`.
+- Lore: `Development-Lorebook-Editor@0e588d59e4daafc87525f1e38150e105f9618a7` — `LoreBrainRetrievalInterface v1` / Wave 5 source lifecycle.
+- Optional Jev: `Development-Sidecar/Jev@440d9633e38d35b042a6841d74e2fbeee549ce15` — still optional and not a native-path dependency.
+- UI host reference inspected: `main@44de1257a38bb445f1ba6873cc32647cc3794bb8` — Worker 3 live-binding/host adapter remains the integration target and must not be overwritten from this branch.
+
+### Worker 3 contract
+
+Instantiate/restore one `Area52NativeBrain` for the active Brain resource, pass real chat/turn/generation/correlation identity, route Scene owner updates into `observeScene()`, call `prepareTurn()` (or `runTurn()`) before the actual model request, send `prepared.rendered` to the real generation, then call `completeTurn()` with the returned assistant narrative. Bind the UI through `brain.uiBindings()`; the surface now includes selection, Scene, Hot Cognition, Cognitive Choice, Sensory/Candidate Bus, Truth, Gather, Context Seal, Lore status, Memory status, Runtime status, PromptPlan, context receipt, generation list/read, and subscriptions. Missing owner data remains unavailable/degraded rather than being inferred by UI.
+
+### Worker 4 contract
+
+Attach `loreService.brainInterface()` with `brain.attachLoreInterface(...)`. Keep exact authored source revisions and drillback current; derived summaries/ontology remain navigation/ranking material and never gain `SOURCE_CANON`, Settlement, Candidate Bus admission, or Context Seal authority. Removed or replaced Lore must disappear from the current `sourceRevisionFence[]`; historical authored revisions remain owner-side audit/history.
+
+### Remaining assembly deficiency
+
+This branch can prove the native subsystem and owner-consumer contracts, but it cannot truthfully claim the **live SillyTavern generation loop** is complete until Worker 3's current `main` host path instantiates this Brain and the assembled build proves: real user Send -> Brain prepare/seal -> real model generation -> Brain completion/write-back. Likewise, the exact cross-branch Memory/Lore owner implementations must be exercised together in the assembled build. Those are integration gates, not reasons to copy owner implementations into `Development-Nexus`.

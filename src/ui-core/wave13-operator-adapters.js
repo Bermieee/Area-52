@@ -140,6 +140,71 @@ function runtimeLifecycleSnapshot(raw){
   });
 }
 
+export class Wave13MemoryUIAdapter{
+  constructor({bindings={},selectionProvider=()=>({})}={}){
+    this.bindings=bindings;this.selectionProvider=selectionProvider;
+    this.surface=bindings.memoryIntegrationSurface??bindings.memoryInterface??bindings.memoryOwner??null;
+    this.readFn=fn(this.surface,['readMemory'])??fn(this.surface?.adapters,['readMemory'])??fn(bindings,['readMemory','readMemoryReadModel','readMemoryStatus']);
+    this.summaryStatusFn=fn(this.surface,['summaryStatus'])??fn(this.surface?.adapters,['summaryStatus'])??fn(bindings,['readMemorySummaryStatus']);
+    this.readRetrievalFn=fn(this.surface,['readRetrieval'])??fn(this.surface?.adapters,['readRetrieval'])??fn(bindings,['readMemoryRetrieval']);
+    this.subscribeFn=fn(this.surface,['subscribe'])??fn(this.surface?.adapters,['subscribe'])??fn(bindings,['subscribeMemory','subscribeMemoryStatus']);
+  }
+  capabilities(){return deepFreeze({read:Boolean(this.readFn),summaryStatus:Boolean(this.summaryStatusFn),retrieval:Boolean(this.readRetrievalFn),subscribe:Boolean(this.subscribeFn),mutation:false});}
+  read(){
+    const selection=this.selectionProvider?.()??{};
+    if(!this.readFn)return unavailable('Memory','Memory owner read model is not exported by the host assembly.','MemoryUiReadModel');
+    if(!selection.chatId)return waiting('Memory','Select a SillyTavern chat to inspect its owner-backed Memory state.','MemoryUiReadModel',selection);
+    try{
+      const raw=this.readFn(selection);
+      if(raw==null)return idle('Memory','No memories recorded for this chat yet.','MemoryUiReadModel',selection);
+      if(raw.kind==='NativeBrainMemoryStatus'&&raw.sync==null&&raw.fallbackStore==null)return idle('Memory','No memories recorded for this chat yet.','MemoryUiReadModel',selection);
+      assertSelection(raw,selection,'Memory',{allowMissingIdentity:true});
+      const data=normalizeMemorySurface(raw);
+      const health=String(raw.health?.state??raw.health??(data.freshness.staleEvidence+data.freshness.staleSummaries>0?'DEGRADED':'READY')).toUpperCase();
+      const degradedState=['DEGRADED','STALE','BLOCKED','ERROR','UNAVAILABLE'].includes(health);
+      return deepFreeze({
+        source:createProductSourceStatus({
+          mode:degradedState?ProductDataMode.DEGRADED:ProductDataMode.LIVE,
+          health:degradedState?Wave6Health.DEGRADED:data.counts.total?Wave6Health.READY:Wave6Health.IDLE,
+          label:'Memory',operationalState:degradedState?OperatorProducerState.DEGRADED:data.counts.total?OperatorProducerState.LIVE:OperatorProducerState.IDLE,
+          impact:data.counts.total?data.counts.total+' owner-backed Memory record'+(data.counts.total===1?' is':'s are')+' visible for the selected chat.':'No memories recorded for this chat yet.',
+          reason:(raw.health?.reasons??[]).join(', '),producer:raw.kind??'MemoryUiReadModel',revision:raw.revision??null,connected:true,selection,freshness:degradedState?'STALE_OR_DEGRADED':'CURRENT',
+        }),
+        data,
+      });
+    }catch(error){return degraded('Memory','Memory owner read failed for the selected chat.','MemoryUiReadModel',selection,error);}
+  }
+  summaryStatus(){
+    if(!this.summaryStatusFn)return null;
+    try{return cloneSafe(this.summaryStatusFn());}catch{return null;}
+  }
+  subscribe(listener){
+    if(typeof listener!=='function'||!this.subscribeFn)return()=>{};
+    const release=this.subscribeFn(listener);return typeof release==='function'?release:()=>{};
+  }
+}
+
+function normalizeMemorySurface(raw){
+  const state=raw.state??{},evidence=Array.isArray(raw.evidence)?raw.evidence:[],episodes=Array.isArray(raw.episodes)?raw.episodes:[],reflections=Array.isArray(raw.reflections)?raw.reflections:[],summaries=Array.isArray(raw.summaries)?raw.summaries:[];
+  const current=Array.isArray(state.current)?state.current:[],historical=Array.isArray(state.historical)?state.historical:[],unresolved=Array.isArray(state.unresolved)?state.unresolved:[];
+  const freshness=raw.freshness??{};
+  return{
+    kind:'Wave13MemorySurface',chatId:raw.chatId??null,turnId:raw.turnId??null,generationId:raw.generationId??null,
+    worldRevision:raw.worldRevision??null,sceneRevision:raw.sceneRevision??null,revision:raw.revision??null,
+    sourceRevisionRefs:[...(raw.sourceRevisionRefs??[])],revisionRefs:cloneSafe(raw.revisionRefs??null),
+    evidence:cloneSafe(evidence),state:{current:cloneSafe(current),historical:cloneSafe(historical),unresolved:cloneSafe(unresolved)},
+    episodes:cloneSafe(episodes),reflections:cloneSafe(reflections),summaries:cloneSafe(summaries),retrieval:cloneSafe(raw.retrieval??null),provenance:cloneSafe(raw.provenance??null),
+    freshness:{
+      freshEvidence:Number(freshness.freshEvidence??evidence.filter(x=>x.freshness==='FRESH').length),staleEvidence:Number(freshness.staleEvidence??evidence.filter(x=>x.freshness&&x.freshness!=='FRESH').length),
+      freshEpisodes:Number(freshness.freshEpisodes??episodes.filter(x=>x.freshness==='FRESH').length),staleEpisodes:Number(freshness.staleEpisodes??episodes.filter(x=>x.freshness&&x.freshness!=='FRESH').length),
+      freshReflections:Number(freshness.freshReflections??reflections.filter(x=>x.freshness==='FRESH').length),staleReflections:Number(freshness.staleReflections??reflections.filter(x=>x.freshness&&x.freshness!=='FRESH').length),
+      freshSummaries:Number(freshness.freshSummaries??summaries.filter(x=>x.freshness==='FRESH').length),staleSummaries:Number(freshness.staleSummaries??summaries.filter(x=>x.freshness&&x.freshness!=='FRESH').length),
+    },
+    counts:{exactEvidence:evidence.length,current:current.length,historical:historical.length,unresolved:unresolved.length,episodes:episodes.length,reflections:reflections.length,summaries:summaries.length,total:evidence.length+current.length+historical.length+unresolved.length+episodes.length+reflections.length+summaries.length},
+    readOnly:raw.readOnly!==false,mutationAuthority:Boolean(raw.mutationAuthority),settlementAuthority:Boolean(raw.settlementAuthority),contextSealAuthority:Boolean(raw.contextSealAuthority),
+  };
+}
+
 export class Wave13LoreStudyUIAdapter{
   constructor({bindings={},selectionProvider=()=>({})}={}){
     this.bindings=bindings;this.selectionProvider=selectionProvider;

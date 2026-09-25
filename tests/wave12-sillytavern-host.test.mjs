@@ -6,6 +6,7 @@ import {
 } from '../src/ui-core/index.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 import { createWave11LiveHost, makeWave11Turn } from './fixtures/wave11-live-receipts.mjs';
+import { discoverSelectedSillyTavernLorebook } from '../src/ui-core/wave12-sillytavern-host.js';
 
 class HostNode extends FakeNode{
   constructor(tag,doc){super(tag,doc);this.id='';}
@@ -79,6 +80,23 @@ function environment({records=null,initialTurnId=null,bindings=null,initialChatI
   });
   return{document,sheld,events,owner,adapter,mountRoot,setChatId:value=>{chatId=value;}};
 }
+
+test('SillyTavern selected Lorebook discovery preserves editor identity and exact authored entries',async()=>{
+  const{document}=hostDocument(),select=document.createElement('select');select.id='world_editor_select';select.value='1';
+  const none=document.createElement('option');none.textContent='--- None ---';none.value='';
+  const book=document.createElement('option');book.textContent='Moon Harbor';book.value='1';book.selected=true;
+  select.append(none,book);document.body.append(select);
+  const result=await discoverSelectedSillyTavernLorebook({document,getContext:()=>({
+    chatId:'chat:moon',
+    loadWorldInfo:async(name)=>{assert.equal(name,'Moon Harbor');return{entries:{
+      7:{uid:7,comment:'Captain Vale',content:'Captain Vale keeps the blue ledger.',key:['Vale'],keysecondary:[]},
+      9:{uid:9,comment:'East Dock',content:'The east dock closes at midnight.',key:['dock'],keysecondary:[]},
+    }};},
+  })});
+  assert.equal(result.id,'Moon Harbor');assert.equal(result.title,'Moon Harbor');assert.equal(result.entries.length,2);
+  assert.equal(result.entries[0].content,'Captain Vale keeps the blue ledger.');
+  assert.deepEqual(result.discovery,{kind:'SillyTavernLorebookDiscoveryReceipt',contractVersion:1,source:'SILLYTAVERN_WORLD_INFO_EDITOR',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:2,chatId:'chat:moon',exactAuthoredSource:true});
+});
 
 test('Wave 12 mounts one floating UI.Core product beside verified #sheld without cloning host chat',()=>{
   const{a}=turns(),env=environment({records:[a],initialTurnId:'turn:a'});

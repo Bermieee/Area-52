@@ -313,6 +313,47 @@ export class LoreIntelligenceService {
     };
   }
 
+  summarySurface() {
+    const scopes = new Map((this.hierarchy.hierarchy?.scopes || []).map((scope) => [scope.id, scope]));
+    const summaries = this.hierarchy.summaryRegistry.activeSummaries().map((summary) => {
+      const scope = scopes.get(summary.targetScopeId) || null;
+      let level = 'TOPIC';
+      if (scope?.type === 'LEAF') level = 'ENTRY';
+      else if (scope?.type === 'TREE' && (scope.treePath || []).length === 0 && scope.lorebookId) level = 'BOOK';
+      else if (scope?.type === 'CORPUS') level = 'CORPUS';
+      else if (scope?.type === 'COMMUNITY') level = 'COMMUNITY';
+      return {
+        summaryRef: summary.id,
+        level,
+        scopeId: summary.targetScopeId,
+        scopeType: summary.targetScopeType,
+        label: summary.targetLabel,
+        lorebookId: scope?.lorebookId || null,
+        sourceRevisionRefs: [...summary.sourceRevisionSet],
+        childSummaryRefs: summary.childSummaryDependencies.map((row) => row.summaryId),
+        content: summary.content,
+        qualityReceipt: deepClone(summary.qualityReceipt),
+        provenance: deepClone(summary.provenance),
+        authorityClass: summary.authorityClass,
+        sourceAuthority: false,
+        truthAuthority: false,
+        settlementAuthority: false,
+      };
+    });
+    return {
+      kind: 'LoreMultiLevelSummarySurface',
+      contractVersion: 1,
+      summaries,
+      counts: summaries.reduce((acc, row) => {
+        acc[row.level] = (acc[row.level] || 0) + 1;
+        return acc;
+      }, {}),
+      exactSourceDrillbackAvailable: true,
+      sourceAuthority: false,
+      temporalStateAuthority: false,
+    };
+  }
+
   queryForBrain({query, intent = 'AUTO', intentId = null, profile = null} = {}) {
     const result = this.hierarchy.query({query, intent, intentId});
     const desiredProfile = profile
@@ -349,6 +390,9 @@ export class LoreIntelligenceService {
       thematicCommunities: this.ontology.communitiesForSources(
         [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceId)))],
       ),
+      summaries: this.summarySurface().summaries.filter((summary) => (
+        summary.sourceRevisionRefs.some((revisionId) => sourceRevisionFence.includes(revisionId))
+      )),
       conflicts: this.runtime.store.conflicts(this.runtime.registry),
       provenanceRequired: true,
       exactSourceDrillbackAvailable: true,
@@ -365,6 +409,7 @@ export class LoreIntelligenceService {
       contractVersion: 1,
       query: (request) => this.queryForBrain(request),
       status: () => this.status(),
+      summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
     });
   }

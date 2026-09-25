@@ -375,7 +375,7 @@ export class LoreStudyRuntime {
     });
     return {
       kind: 'LorePublicIntegrationSurface',
-      contractVersion: 2,
+      contractVersion: 1,
       entries,
       artifacts: currentArtifacts.map((artifact) => ({
         artifactId: artifact.id,

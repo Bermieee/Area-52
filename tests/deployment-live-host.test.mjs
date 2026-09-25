@@ -27,6 +27,7 @@ function operatorLore() {
   return {
     id: 'operator-unrelated-worlds',
     title: 'Operator Unrelated Worlds',
+    discovery: { kind: 'DeploymentLiveFixture', stableId: 'operator-unrelated-worlds', exactAuthoredSource: true },
     entries: [
       { uid: 'observatory', content: 'The Moonlit Observatory is maintained by Ilya.', metadata: { title: 'Moonlit Observatory', at: 1, treePath: ['Places', 'Observatory'] } },
       { uid: 'compass-a', content: 'The Glass Compass was stored inside the Moonlit Observatory.', metadata: { title: 'Glass Compass Storage', at: 2, treePath: ['Objects', 'Glass Compass'] } },

@@ -507,6 +507,11 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     {key:'Resource executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)},
     {key:'Provider calls invoked / failed',value:(providerCalls.invoked??0)+' / '+(providerCalls.failed??0)},
   ]));
+  const coproPlot=compactTelemetryPlot(d,'Coprocessor activity plot',[
+    ['Warm hit',copro.warm?.hit],['Warm miss',copro.warm?.miss],['Fallback',copro.fallback],['Stale drop',copro.staleDrop],['Retry',copro.retry],
+    ['Provider invoked',providerCalls.invoked],['Provider failed',providerCalls.failed],
+  ]);
+  if(coproPlot)center.append(coproPlot);
   const runtime=snapshot.runtime?.summary??{},runtimeCounts=runtime.lifecycleCounts??{};
   center.append(element(d,'h3',{text:'Runtime lifecycle telemetry'}),createKeyValue(d,[
     {key:'Queued by layer',value:Object.entries(runtime.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},
@@ -516,6 +521,19 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     {key:'Batch history',value:runtime.batchProgressAvailable===false?'Not published by owner snapshot':runtime.batchProgressAvailable?'Published':'Not available'},
     {key:'Late-result history',value:runtime.lateResultHistoryAvailable===false?'Not published by owner snapshot':runtime.lateResultHistoryAvailable?'Published':'Not available'},
   ]));
+  if(snapshot.runtime?.summary){
+    const runtimePlot=compactTelemetryPlot(d,'Runtime lifecycle plot',[
+      ['Queued',runtimeCounts.QUEUED],['Active',runtimeCounts.ACTIVE],['Yielding',runtimeCounts.YIELDING],['Parked',runtimeCounts.PARKED],
+      ['Recovering',runtimeCounts.RECOVERING],['Complete',runtimeCounts.COMPLETE],['Failed',runtimeCounts.FAILED],
+    ]);
+    if(runtimePlot)center.append(runtimePlot);
+    if(Number(runtime.latencyMs?.samples)>0){
+      const latencyPlot=compactTelemetryPlot(d,'Runtime slice latency plot',[
+        ['Average',runtime.latencyMs.average],['Maximum',runtime.latencyMs.max],
+      ],{unit:' ms'});
+      if(latencyPlot)center.append(latencyPlot);
+    }
+  }
 
   const wiring=element(d,'div',{className:'a52-wave13-diagnostic-lanes'});
   for(const spec of [
@@ -632,6 +650,22 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     center.append(list);
   }else center.append(message(d,'No resource events yet','Connect, test, disconnect, reconnect, or execute an optional resource and owner telemetry will appear here.','historical'));
   return center;
+}
+
+function compactTelemetryPlot(d,title,series,{unit=''}={}){
+  const rows=(Array.isArray(series)?series:[]).slice(0,8).map(([label,value])=>({label:String(label??'Metric').slice(0,48),value:Number(value)})).filter(row=>Number.isFinite(row.value)&&row.value>=0);
+  if(!rows.length)return null;
+  const max=Math.max(1,...rows.map(row=>row.value)),plot=element(d,'figure',{className:'a52-wave13-telemetry-plot',attrs:{'aria-label':title}});
+  plot.append(element(d,'figcaption',{text:title}),element(d,'p',{className:'a52-muted',text:'Bounded metadata-only owner snapshot; bars are relative within this plot and do not reconstruct missing history.'}));
+  const list=element(d,'div',{className:'a52-wave13-telemetry-plot__rows'});
+  for(const row of rows){
+    const blocks=row.value===0?'·':'▇'.repeat(Math.max(1,Math.min(12,Math.round((row.value/max)*12))));
+    const line=element(d,'div',{className:'a52-wave13-telemetry-plot__row'});
+    line.append(element(d,'span',{text:row.label}),element(d,'code',{text:blocks,attrs:{'aria-hidden':'true'}}),element(d,'strong',{text:String(row.value)+unit}));
+    list.append(line);
+  }
+  plot.append(list);
+  return plot;
 }
 
 function formatReceiptCounts(counts){

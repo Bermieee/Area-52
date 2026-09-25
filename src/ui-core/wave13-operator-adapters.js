@@ -360,8 +360,8 @@ export class Wave13DiagnosticsCenterAdapter{
       resources:{
         source:cloneSafe(resourceRead?.source??null),capabilities:cloneSafe(resourceCaps),nativePathAvailable:resourceRead?.data?.nativePathAvailable!==false,
         lanes,rows:rows.map(row=>deepFreeze({
-          id:row.id,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
-          providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
+          id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
+          credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
           capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
           lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
         })),
@@ -471,8 +471,9 @@ function normalizeResources(raw){
     const capabilities=active.length?active:declared;
     const role=capabilities.includes('SEMANTIC_JUDGMENT')?'JEV':capabilities.some(isVectorCapability)?'VECTORING':'SIDECAR';
     return deepFreeze({
-      id,kind:role,transportKind:row.kind??row.resourceKind??null,providerId:row.providerId??null,providerProfileId:row.providerProfileId??row.profileId??null,
-      modelId:row.modelId??null,workerId:row.workerId??null,local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
+      id,displayName:text(row.displayName??row.name)??id,kind:role,transportKind:row.kind??row.resourceKind??null,providerId:row.providerId??null,providerProfileId:row.providerProfileId??row.profileId??null,
+      modelId:row.modelId??null,workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
+      local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
       lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
@@ -482,25 +483,31 @@ function normalizeResources(raw){
 }
 
 function normalizeWorker2ResourceConfig(input={}){
-  const resourceIdValue=resourceId(input);
-  if(!resourceIdValue){const e=new TypeError('Resource ID is required.');e.code='RESOURCE_ID_REQUIRED';throw e;}
   const role=String(input.role??input.resourceRole??input.kind??'SIDECAR').toUpperCase();
+  const displayName=text(input.displayName??input.connectionName)??('Primary '+(role==='JEV'?'Jev':role==='VECTORING'?'Vectoring':'Sidecar'));
+  const resourceIdValue=resourceId(input)??generatedResourceId(role,displayName);
   const supplied=Array.isArray(input.capabilities)?input.capabilities:String(input.capabilities??'').split(',').map(x=>x.trim()).filter(Boolean);
   const defaults=role==='JEV'?['SEMANTIC_JUDGMENT']:role==='VECTORING'?['RETRIEVAL','EMBED']:['STRUCTURED_EXTRACTION'];
   const capabilities=[...new Set((supplied.length?supplied:defaults).map(String))];
   const transport=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(String(input.transportKind??input.kind??'').toUpperCase())?String(input.transportKind??input.kind).toUpperCase():'OPENAI_COMPATIBLE';
   const out={
-    resourceId:resourceIdValue,displayName:text(input.displayName)??resourceIdValue,kind:transport,capabilities,
+    resourceId:resourceIdValue,displayName,kind:transport,capabilities,
     providerProfileId:text(input.providerProfileId)??('profile:'+resourceIdValue),providerId:text(input.providerId)??('provider:'+resourceIdValue),
     modelId:text(input.modelId)??(transport==='DETERMINISTIC_LOCAL'?'local-deterministic':'model'),workerId:text(input.workerId)??('resource:'+resourceIdValue),
     maxConcurrency:Math.max(1,Number(input.maxConcurrency??input.concurrencyCapacity??1)||1),local:input.local!==false,
   };
   if(transport==='OPENAI_COMPATIBLE'){
-    const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('Local OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
+    const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
+    const apiKey=typeof input.apiKey==='string'?input.apiKey.trim():'';if(apiKey)out.apiKey=apiKey;
   }
   return out;
 }
 
+function generatedResourceId(role,name){
+  const prefix=String(role??'SIDECAR').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'resource';
+  const slug=String(name??'primary').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,64)||'primary';
+  return prefix+':'+slug;
+}
 function isVectorCapability(value){return ['RETRIEVAL','RETRIEVAL_QUALITY','RERANK','LATE_INTERACTION','CROSS_ENCODER_RERANK','EMBED'].includes(String(value??'').toUpperCase());}
 function normalizeConfiguration(row,index=0){return deepFreeze({id:text(row?.id??row?.configurationId??row?.resourceId??row?.profileId)??'config:'+index,label:text(row?.label??row?.name??row?.displayName??row?.id)??'Resource configuration',kind:text(row?.kind??row?.resourceKind)??'SIDECAR',endpoint:text(row?.endpoint),modelId:text(row?.modelId),local:Boolean(row?.local),capabilities:[...(row?.capabilities??row?.declaredCapabilities??[])]});}
 function resourceId(row){return text(row?.id??row?.resourceId??row?.profileId??row?.providerProfileId??row?.workerId);}

@@ -89,8 +89,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Accepted Memory Wave 1+2+3 regressions and stress
-        run: node --test tests/memory-wave1.mjs tests/memory-wave2.mjs tests/memory-wave3.mjs tests/memory-wave1-stress.mjs tests/memory-wave2-stress.mjs tests/memory-wave3-stress.mjs
+      - name: Accepted Memory Wave 1+2+3+4 regressions and stress
+        run: node --test tests/memory-wave1.mjs tests/memory-wave2.mjs tests/memory-wave3.mjs tests/memory-wave4.mjs tests/memory-wave1-stress.mjs tests/memory-wave2-stress.mjs tests/memory-wave3-stress.mjs tests/memory-wave4-stress.mjs
 
   coprocessor:
     runs-on: ubuntu-latest
@@ -102,8 +102,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Coprocessor Wave 13 cognitive-choice regressions
-        run: node --test tests/coprocessor-wave13-browser.test.mjs tests/coprocessor-wave13-choice.test.mjs tests/coprocessor-wave13-evaluation.test.mjs tests/coprocessor-wave13-stress.test.mjs
+      - name: Coprocessor Wave 4 + 13 + 14 routing, connection, and provider regressions
+        run: node --test tests/coprocessor-wave4.test.mjs tests/coprocessor-wave13-browser.test.mjs tests/coprocessor-wave13-choice.test.mjs tests/coprocessor-wave13-evaluation.test.mjs tests/coprocessor-wave13-stress.test.mjs tests/coprocessor-wave14-browser.test.mjs tests/coprocessor-wave14-connections.test.mjs tests/coprocessor-wave14-evaluation.test.mjs
 
   ui:
     runs-on: ubuntu-latest
@@ -115,8 +115,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: UI live binding and SillyTavern host regressions
-        run: node --test tests/wave11-live-bindings.test.mjs tests/wave11-live-bindings-stress.mjs tests/wave12-sillytavern-host.test.mjs tests/wave12-sillytavern-host-stress.mjs
+      - name: UI live binding, SillyTavern host, and Wave 13 operator regressions
+        run: node --test tests/wave11-live-bindings.test.mjs tests/wave11-live-bindings-stress.mjs tests/wave12-sillytavern-host.test.mjs tests/wave12-sillytavern-host-stress.mjs tests/wave13-operator-ui.test.mjs tests/wave13-operator-ui-stress.mjs
 
   browser:
     runs-on: ubuntu-latest
@@ -130,7 +130,7 @@ jobs:
           node-version: 22
       - name: Browser-facing deployment imports
         run: |
-          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/memory-temporal-producer.js'),import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"
+          node -e "globalThis.Buffer=undefined; Promise.all([import('./src/deployment/index.js'),import('./src/memory-temporal-producer.js'),import('./src/ui-core/index.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/wave13-operator-adapters.js'),import('./src/coprocessor/resource-host-adapter.js'),import('./demo/phase2-shell/app.js')]).then(()=>console.log('Deployment browser imports PASS'))"
 
   manifest:
     runs-on: ubuntu-latest

@@ -259,8 +259,9 @@ export class NativeGraphNeighborhoodRetriever{
     for(const edge of edgeRows){
       for(const id of [edge.fromEntityId,edge.toEntityId]){const rows=adjacency.get(id)??[];rows.push(edge);adjacency.set(id,rows);}
     }
-    const queue=request.anchorEntityIds.map(id=>({entityId:id,depth:0,path:[]})),visited=new Set(request.anchorEntityIds),selected=[],seenEdges=new Set();
-    let examinedEdgeCount=0,boundedEdges=0,boundedNodes=0,boundedCandidates=0;
+    const admittedAnchors=request.anchorEntityIds.slice(0,request.maxNodes);
+    const queue=admittedAnchors.map(id=>({entityId:id,depth:0,path:[]})),visited=new Set(admittedAnchors),selected=[],seenEdges=new Set();
+    let examinedEdgeCount=0,boundedEdges=0,boundedNodes=Math.max(0,request.anchorEntityIds.length-admittedAnchors.length),boundedCandidates=0;
     while(queue.length){
       if(now()-started>=request.latencyBudgetMs)break;
       const node=queue.shift();if(node.depth>=request.maxDepth)continue;

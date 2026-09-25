@@ -379,6 +379,14 @@ test('DETERMINISTIC: graph traversal candidate/node/edge/latency budgets are har
   assert.equal(receipt.authority.truth,false);
   assert.equal(receipt.authority.settlement,false);
 
+  const manyAnchors=brain.core.retrieval.retrieveEnvelope('stress graph many anchors',{
+    intent:'CURRENT',anchorEntityIds:[anchor,...Array.from({length:20},(_,index)=>'stress-anchor-extra:'+index)],
+    channelIds:['ZZ_NATIVE_GRAPH_WALKER'],candidateBudget:5,latencyBudgetMs:1000,
+    graphTraversal:{maxDepth:1,maxNodes:3,maxEdges:20,maxCandidates:7},
+  });
+  assert.ok(manyAnchors.metadata.graphTraversalReceipt.visitedNodeCount<=3);
+  assert.ok(manyAnchors.metadata.graphTraversalReceipt.boundedOut.nodes>=18);
+
   const latency=brain.core.retrieval.retrieveEnvelope('stress graph latency cutoff',{
     intent:'CURRENT',anchorEntityIds:[anchor],channelIds:['ZZ_NATIVE_GRAPH_WALKER'],candidateBudget:5,latencyBudgetMs:0,
     graphTraversal:{maxDepth:1,maxNodes:12,maxEdges:20,maxCandidates:7},

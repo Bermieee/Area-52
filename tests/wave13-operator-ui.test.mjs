@@ -211,6 +211,8 @@ test('Lore workspace contains generic ingestion controls and no fixed Ember Tave
 test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
   const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Connections/);assert.match(body,/Jev/);assert.match(body,/Sidecar/);assert.match(body,/Vectoring/);assert.match(body,/Fan-out → Gather/);assert.match(body,/Native Brain remains available|native cognition remains available|native Brain remains usable/i);
+  assert.match(body,/Load \/ Refresh Models/);assert.match(body,/Manual model fallback/);assert.match(body,/Test Connection/);
+  const passwordFields=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,3);
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.ok(buttons.length>0);assert.ok(buttons.every(x=>x.attributes?.type==='button'));
   ui.destroy();
 });
@@ -224,7 +226,7 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(sidecar),/Connect Sidecar/);
+  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Test Connection/);
   ui.destroy();
 });
 
@@ -309,6 +311,19 @@ test('Worker 2 CognitionUiState exact numeric counters stay live instead of degr
   assert.equal(snap.wave6.sources.coprocessor.mode,'DEGRADED');ui.destroy();
 });
 
+test('Worker 2 model discovery stays owner-backed and does not leak submitted credentials',async()=>{
+  const host=worker2ResourceHost(),adapter=new Wave13ResourceControlAdapter({bindings:{resourceHost:host}});
+  assert.equal(adapter.capabilities().discoverModels,true);
+  const discovery=await adapter.discoverModels({role:'SIDECAR',endpoint:'https://openrouter.ai/api/v1',apiKey:'sk-ui-secret',capabilities:['STRUCTURED_EXTRACTION']});
+  assert.equal(discovery.state,'READY');assert.equal(discovery.models[0].id,'owner/model-a');
+  assert.deepEqual(host.calls[0],['discover',{kind:'OPENAI_COMPATIBLE',endpoint:'https://openrouter.ai/api/v1',capabilities:['STRUCTURED_EXTRACTION'],credentialConfigured:true}]);
+  assert.doesNotMatch(JSON.stringify(host.calls),/sk-ui-secret/);assert.doesNotMatch(JSON.stringify(adapter.read()),/sk-ui-secret/);assert.doesNotMatch(JSON.stringify(adapter.lastAction),/sk-ui-secret/);
+
+  const deniedHost=worker2ResourceHost({discoveryState:'UNAUTHORIZED'}),denied=new Wave13ResourceControlAdapter({bindings:{resourceHost:deniedHost}});
+  const deniedResult=await denied.discoverModels({role:'JEV',endpoint:'https://openrouter.ai/api/v1',capabilities:['SEMANTIC_JUDGMENT']});
+  assert.equal(deniedResult.state,'UNAUTHORIZED');assert.equal(deniedResult.manualModelEntryAllowed,false);
+});
+
 test('Worker 2 public resource host add/connect/test/disconnect contract is consumed without UI routing logic',async()=>{
   const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
   const{ui}=mount(owner);
@@ -344,7 +359,7 @@ test('native LoreStudyRuntime object can be projected and driven through its exi
   ui.destroy();
 });
 
-function worker2ResourceHost({configured=false}={}){
+function worker2ResourceHost({configured=false,discoveryState='READY'}={}){
   const calls=[],listeners=new Set();let sequence=0;
   const rows=[];
   const diagnostic=(row,code,message,details={})=>{row.diagnostics??=[];row.diagnostics.push({sequence:++sequence,at:sequence,code,message,details});};
@@ -353,7 +368,13 @@ function worker2ResourceHost({configured=false}={}){
   return{
     calls,
     actions:{
-      addResource(config){calls.push(['add',{...config,capabilities:[...config.capabilities]}]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
+      async discoverModels(config){const safe={kind:config.kind,endpoint:config.endpoint,capabilities:[...(config.capabilities??[])],credentialConfigured:Boolean(config.apiKey)};calls.push(['discover',safe]);
+        if(discoveryState==='UNAUTHORIZED')return{kind:'ResourceModelDiscoveryResult',state:'UNAUTHORIZED',models:[],manualModelEntryAllowed:false,reasonCode:'CREDENTIAL_REQUIRED',reason:'A session credential is required before model discovery.',credentialConfigured:false};
+        if(discoveryState==='UNSUPPORTED')return{kind:'ResourceModelDiscoveryResult',state:'UNSUPPORTED',models:[],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_UNSUPPORTED',reason:'Provider does not support discovery.',credentialConfigured:Boolean(config.apiKey)};
+        if(discoveryState==='EMPTY')return{kind:'ResourceModelDiscoveryResult',state:'EMPTY',models:[],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_EMPTY',reason:'Provider returned no models.',credentialConfigured:Boolean(config.apiKey)};
+        if(discoveryState==='UNREACHABLE')return{kind:'ResourceModelDiscoveryResult',state:'UNREACHABLE',models:[],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_UNREACHABLE',reason:'Provider endpoint is unreachable.',credentialConfigured:Boolean(config.apiKey)};
+        return{kind:'ResourceModelDiscoveryResult',state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'}],manualModelEntryAllowed:false,reasonCode:'MODEL_DISCOVERY_READY',reason:'Provider model discovery completed.',credentialConfigured:Boolean(config.apiKey)};},
+      addResource(config){const safe={...config,capabilities:[...config.capabilities]};delete safe.apiKey;safe.credentialConfigured=Boolean(config.apiKey);calls.push(['add',safe]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:Boolean(config.apiKey),local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
       async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Health probe passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.callable=true;diagnostic(row,'HEALTH_CHECK_PASSED','Health probe passed.');emit('RESOURCE_READY',row);return{...row};},
       disconnectResource(id){calls.push(['disconnect',id]);const row=rows.find(x=>x.resourceId===id);row.state='DISCONNECTED';row.reasonCode='OPERATOR_DISCONNECT';row.reason='Operator disconnected resource.';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.activeCapabilities=[];row.callable=false;diagnostic(row,'DISCONNECTED','Operator disconnected resource.');emit('RESOURCE_DISCONNECTED',row);return{...row};},
       async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},

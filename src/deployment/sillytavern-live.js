@@ -324,6 +324,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeRejections = [];
     this.nativeLoreRevisionEvents = [];
     this.nativeOwnerAttachments = {lore:null,memory:null};
+    this.releaseLoreOwnerEvents = null;
     this.nativeSequence = 0;
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
@@ -696,6 +697,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(this.nativePending.size)this.#expireNativePending('SESSION_DESTROYED');
     this.uiHost?.destroy?.();
     this.uiHost = null;
+    this.releaseLoreOwnerEvents?.();
+    this.releaseLoreOwnerEvents = null;
   }
 
   async #persistNativeBrainCheckpoint({chatId,turnId,generationId}={}){
@@ -713,9 +716,10 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   #attachNativeKnowledgeOwners(){
     if(!this.nativeBrain)return;
-    const loreService=this.ownerBindings.loreIntelligenceService??this.ownerBindings.loreStudyService??null;
-    const loreInterface=this.ownerBindings.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
-    const memoryInterface=this.ownerBindings.memoryIntegrationSurface??this.ownerBindings.memoryInterface??this.ownerBindings.memoryOwner??null;
+    const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+    const loreService=this.ownerBindings.loreIntelligenceService??this.ownerBindings.loreStudyService??brainBindings.loreIntelligenceService??brainBindings.loreStudyService??null;
+    const loreInterface=this.ownerBindings.loreBrainInterface??brainBindings.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
+    const memoryInterface=this.ownerBindings.memoryIntegrationSurface??this.ownerBindings.memoryInterface??this.ownerBindings.memoryOwner??brainBindings.memoryIntegrationSurface??brainBindings.memoryInterface??brainBindings.memoryOwner??null;
     if(typeof this.nativeBrain.attachLoreInterface==='function'){
       try{const receipt=this.nativeBrain.attachLoreInterface(loreInterface??null);this.nativeOwnerAttachments.lore={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??loreInterface?.contractVersion??null};}
       catch(error){this.nativeOwnerAttachments.lore={attached:false,error:String(error?.code??error?.message??error)};}
@@ -723,6 +727,22 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(typeof this.nativeBrain.attachMemoryInterface==='function'){
       try{const receipt=this.nativeBrain.attachMemoryInterface(memoryInterface??null);this.nativeOwnerAttachments.memory={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryInterface?.contractVersion??null};}
       catch(error){this.nativeOwnerAttachments.memory={attached:false,error:String(error?.code??error?.message??error)};}
+    }
+    this.releaseLoreOwnerEvents?.();
+    this.releaseLoreOwnerEvents=null;
+    if(typeof brainBindings.subscribe==='function'){
+      this.releaseLoreOwnerEvents=brainBindings.subscribe((event)=>{
+        if(event?.type!=='LORE_AUTHORING_SETTLEMENT')return;
+        const revisions=event?.result?.worker1?.revisionEvents??[];
+        for(const revisionEvent of revisions){
+          try{
+            if(this.nativeBrain&&typeof this.nativeBrain.acceptLoreRevisionChange==='function')this.acceptLoreRevisionChange(revisionEvent);
+          }catch(error){
+            this.errors.push({at:Date.now(),message:String(error?.code??error?.message??error),stage:'LORE_REVISION_INVALIDATION'});
+          }
+        }
+        this.#notify();
+      });
     }
   }
 

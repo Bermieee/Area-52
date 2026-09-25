@@ -206,3 +206,23 @@ test('zero optional resources preserves native Brain path and reports optional w
   assert.ok(result.contribution.choiceContribution.consideredOptions.some(x=>x.disposition==='UNAVAILABLE'));
   assert.equal(result.contribution.finalChoiceAuthority,false);
 });
+
+test('disconnecting a Jev resource mid-decision preserves UNRESOLVED instead of manufacturing an invalid decision',async()=>{
+  const registry=new CoprocessorResourceConnections();
+  addResource(registry,{capabilities:[Capability.SEMANTIC_JUDGMENT],handlers:{JEV_DECISION:({signal})=>new Promise((resolve,reject)=>{
+    const fail=()=>{const error=new Error('resource disconnected');error.code='PROVIDER_ABORTED';reject(error);};
+    if(signal?.aborted)fail();else signal?.addEventListener('abort',fail,{once:true});
+  })}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:250,defaultHardBudgetMs:500})});
+  const request=jevRequest('disconnect'),t=turn('disconnect');
+  const running=swarm.runTurn({turnEvent:t,plannerInput:{text:'Which bounded interpretation is supported?',conflictSignals:['unresolved']},
+    ownerSignals:{jevGate:{route:'INVOKE_JEV',expectedDecisionValue:.9},jevQuestion:{questionId:request.decisionId,decisionShape:request.decisionShape,optionIds:['option-a','option-b'],evidenceRefs:['ev:a','ev:b']}},
+    jevRequest:request,currentRevisionState:()=>freshJev(request)});
+  await sleep(10);registry.disconnectResource('one');
+  const result=await running;
+  assert.equal(result.contribution.jevReceipt.outcome,'UNRESOLVED');
+  assert.equal(result.contribution.jevReceipt.serviceStatus,'JEV_UNAVAILABLE');
+  assert.equal(result.contribution.jevReceipt.authorityGranted,false);
+  assert.equal(result.contribution.resultsForOwner.length,0);
+});

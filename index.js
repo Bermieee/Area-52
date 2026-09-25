@@ -29,7 +29,9 @@ function renderEvidence(root, evidence) {
   setGate(root,'native-multiturn',Boolean(evidence.nativeBrainIntegration?.multiTurnObserved),'Run two learned turns in one selected story');
   setGate(root,'lore-study',Boolean(evidence.loreOperatorEvidence?.selected?.selected&&Number(evidence.loreOperatorEvidence?.retrievalReady??0)>0),'Select, accept, and study a SillyTavern Lorebook');
   setGate(root,'lore-revision',Boolean(evidence.nativeBrainIntegration?.loreRevisionInvalidations?.length),'Route one corrected Lore revision before the next turn');
-  setGate(root,'optional-provider',Boolean(evidence.resourceOperatorEvidence?.resources?.some(row=>row.callable&&row.measurementClass==='MEASURED_LIVE')),'Qualify one optional Jev/Sidecar/Vectoring resource');
+  const measuredResources=evidence.resourceOperatorEvidence?.resources??[];
+  setGate(root,'optional-provider',Boolean(measuredResources.some(row=>['JEV','SIDECAR'].includes(String(row.kind))&&row.callable&&row.measurementClass==='MEASURED_LIVE')),'Qualify and exercise one optional Jev or Sidecar resource');
+  setGate(root,'vectoring',Boolean(measuredResources.some(row=>String(row.kind)==='VECTORING'&&row.callable&&row.measurementClass==='MEASURED_LIVE'&&(row.capabilities??[]).some(cap=>['EMBED','RETRIEVAL','RETRIEVAL_QUALITY','RERANK'].includes(String(cap))))),'Qualify a measured Vectoring resource with owner-advertised retrieval/embed capability');
   setGate(root,'provider-failure',Boolean(evidence.resourceOperatorEvidence?.resources?.some(row=>row.lastFailure)||evidence.providerEvidence?.failedLiveAttempt),'Exercise one provider failure/fallback');
   setGate(root,'navigation',Boolean(evidence.navigationEvidence?.mounted&&evidence.operatorReview?.uiTraceReviewed),'Review rail/panel navigation in SillyTavern');
   const output = root?.querySelector?.('[data-a52-live-output]');
@@ -87,7 +89,8 @@ export async function init() {
     '<li><span data-a52-gate="native-multiturn">○ Pending</span> — Arm Area-52, send two ordinary turns in one selected story, and verify Generation delivery then Learning write-back in Brain.</li>',
     '<li><span data-a52-gate="lore-study">○ Pending</span> — Select a real SillyTavern Lorebook, open Lore, Load selected Lorebook → Accept for study → Run pending study until owner state is READY.</li>',
     '<li><span data-a52-gate="lore-revision">○ Pending</span> — After the Settlement-backed Lore owner is integrated, apply one approved correction and route its LoreSourceRevisionChanged receipt before the next generation.</li>',
-    '<li><span data-a52-gate="optional-provider">○ Pending</span> — In Connections, discover/select/test one Jev or Sidecar and qualify Vectoring with owner-advertised retrieval/embed capability.</li>',
+    '<li><span data-a52-gate="optional-provider">○ Pending</span> — In Connections, discover/select/qualify/test one Jev or Sidecar and exercise it on a live turn.</li>',
+    '<li><span data-a52-gate="vectoring">○ Pending</span> — Separately qualify Vectoring with owner-advertised retrieval/embed capability; a Jev/Sidecar pass does not satisfy this gate.</li>',
     '<li><span data-a52-gate="provider-failure">○ Pending</span> — Exercise an unreachable/invalid provider and verify failure/fallback is shown without a false healthy state.</li>',
     '<li><span data-a52-gate="navigation">○ Pending</span> — Drag, resize, collapse, keyboard-navigate, switch workspaces, and narrow the SillyTavern viewport; confirm the panel stays reachable.</li>',
     '</ol>',

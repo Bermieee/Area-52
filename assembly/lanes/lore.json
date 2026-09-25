@@ -432,5 +432,17 @@
     "sourceCommit": "ea7e2e3acd3e53224302c3e55b0540697936148a",
     "deploymentTransferCommit": "26f38d160a070ebcfca145b4a175a86aff186f3b",
     "ownerTransferStatus": "PENDING"
+  },
+  "copyRevision": {
+    "copiedAt": "2026-09-25T05:37:50Z",
+    "sourceCopyCommit": "b8fae802d9b54a920503ded4137bdb1807d30197",
+    "hostIntegrationCommits": [
+      "6f659835bb4c2471d161b6da4e78b912d9cafa81",
+      "1129a9a17210568ccde68eed00f50a8ceab5b1df",
+      "fdb7b7e8695884a832b11d8fc7d663dba7eb4f39",
+      "877a27cd3d0726b9fa3c816606afd2584cbe42c5"
+    ],
+    "supersedingIntegrationSha": "877a27cd3d0726b9fa3c816606afd2584cbe42c5",
+    "reconstructedFromManifest": true
   }
 }

@@ -295,6 +295,10 @@ test('Wave 7 approved merge applies to a new reconstructable book, resumes, and 
   const finalPreview = authoring.computeFinalPreview({sessionId: started.sessionId});
   assert.equal(finalPreview.validation.ok, true);
   assert.equal(finalPreview.validation.baseMergePreviewValid, true);
+  assert.equal(finalPreview.validation.authoritativeSourcePreflight, true);
+  assert.equal(finalPreview.sourcePreflights.every((report) => (
+    report.invalidationPlan?.authoritativePreflight === true
+  )), true);
   assert.equal(finalPreview.validation.missingSourceIds.length, 0);
   assert.equal(finalPreview.validation.missingSemanticFactRefs.length, 0);
   assert.equal(finalPreview.validation.unsafeContradictionPairs.length, 0);

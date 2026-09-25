@@ -1,11 +1,13 @@
 import { CoprocessorResourceConnections } from './resource-connections.js';
 import { NativeSidecarSwarm, validateCheckpoint } from './native-sidecar-swarm.js';
+import { createCognitionUiReadModelReader } from './coprocessor-ui-read-model.js';
 
-export const RESOURCE_HOST_ADAPTER_VERSION='1.2.0';
+export const RESOURCE_HOST_ADAPTER_VERSION='1.3.0';
 
-export function createCoprocessorResourceHost({connections=null,swarm=null,planner=null,...options}={}){
+export function createCoprocessorResourceHost({connections=null,swarm=null,planner=null,ownerReceipts=null,queuePressure=null,...options}={}){
   const registry=connections??new CoprocessorResourceConnections(options);
-  const coordinator=swarm??new NativeSidecarSwarm({connections:registry,planner,telemetry:options.telemetry,now:options.now});
+  const coordinator=swarm??new NativeSidecarSwarm({connections:registry,planner,telemetry:options.telemetry??registry.telemetry,now:options.now});
+  const cognition=createCognitionUiReadModelReader({telemetry:options.telemetry??registry.telemetry,resourceConnections:registry,ownerReceipts,queuePressure});
   return Object.freeze({
     kind:'CoprocessorResourceHostAdapter',
     contractVersion:RESOURCE_HOST_ADAPTER_VERSION,
@@ -26,6 +28,8 @@ export function createCoprocessorResourceHost({connections=null,swarm=null,plann
       resources:()=>registry.readModel(),
       resource:(resourceId)=>registry.readResource(resourceId),
       capabilityProfiles:()=>Object.freeze(registry.profiles.list()),
+      capabilityRoute:(task,opts)=>registry.routeQualifiedProviders(task,opts),
+      cognition:(selection)=>cognition.read(selection),
       swarm:()=>coordinator.readModel(),
       swarmTurn:(turnId)=>coordinator.readTurn(turnId),
     }),

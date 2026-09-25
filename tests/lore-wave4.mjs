@@ -234,14 +234,30 @@ test('failed study job is visible, retains safe checkpoint, and can be retried w
   assert.ok(ready.representations.length >= 3);
 });
 
-test('service refuses invented/default identifiers at the Worker 3 handoff boundary', () => {
+test('service refuses manual/fallback payloads at the Worker 3 discovery handoff boundary', () => {
   const service = new LoreIntelligenceService();
   assert.throws(
     () => service.acceptLorebook({entries: [{uid: 'x', content: 'The Gate is ancient.'}]}),
     (error) => error.code === 'LORE_DISCOVERY_ID_REQUIRED',
   );
   assert.throws(
-    () => service.acceptLorebook({id: 'book', entries: [{content: 'The Gate is ancient.'}]}),
+    () => service.acceptLorebook({id: 'book', entries: [{uid: 'x', content: 'The Gate is ancient.'}]}),
+    (error) => error.code === 'LORE_DISCOVERY_RECEIPT_REQUIRED',
+  );
+  assert.throws(
+    () => service.acceptLorebook({
+      id: 'operator-lore',
+      discovery: {kind: 'SillyTavernCurrentLorebook'},
+      entries: [{uid: 'x', content: 'The Gate is ancient.'}],
+    }),
+    (error) => error.code === 'LORE_DISCOVERY_DEFAULT_ID_REJECTED',
+  );
+  assert.throws(
+    () => service.acceptLorebook({
+      id: 'book',
+      discovery: {kind: 'SillyTavernCurrentLorebook'},
+      entries: [{content: 'The Gate is ancient.'}],
+    }),
     (error) => error.code === 'LORE_DISCOVERY_UID_REQUIRED',
   );
 });

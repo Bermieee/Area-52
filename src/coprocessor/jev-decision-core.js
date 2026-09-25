@@ -2,6 +2,7 @@ import { Capability, FailureCode, Placement, ResultClass, ResultDestination } fr
 import { createCognitiveTask, deepFreeze } from './contracts.js';
 import { ProviderInvocationError } from './provider-adapters.js';
 import { utf8ByteLength } from './browser-compat.js';
+import { normalizeProviderUsageReceipt } from './usage-receipt.js';
 import {
   JevDecisionShape,JevEscalationTarget,JevGateRoute,JevOutcome,JevReasonCode,JevServiceStatus,
   createJevDecisionReceipt,createJevDecisionRequest,evaluateJevFreshness,jevRequestFingerprint,lateJevAdmission,
@@ -94,8 +95,10 @@ export class JevProviderExecutor{
     try{invocation=await adapter.invoke(task,input,{signal,attempt,maxOutputTokens:Number.isFinite(profile.maxOutputTokens)?Math.min(profile.maxOutputTokens,1200):1200});}
     catch(error){if(error instanceof ProviderInvocationError)throw error;throw new ProviderInvocationError(error?.code??FailureCode.PROVIDER_FAILURE,error?.message??String(error),{providerId:profile.providerId,cause:error});}
     const validationStarted=Date.now();const decision=validateJevProviderOutput(invocation.text,{request,prefilter});const validationLatency=Math.max(0,Date.now()-validationStarted);
+    const measurementClass=invocation.metadata?.measurementClass??adapter.measurementClass??profile.profileMetadata?.measurementClass??null;
+    const usageReceipt=normalizeProviderUsageReceipt({usage:invocation.usage??{},providerProfileId:profile.profileId,capability:Capability.SEMANTIC_JUDGMENT,latencyMs:invocation.latencyMs,pricing:profile.costMetadata});
     return deepFreeze({task,input,decision,providerProvenance:{providerProfileId:profile.profileId,providerId:profile.providerId,modelId:profile.modelId,workerId:profile.workerId,
-      capability:'SEMANTIC_JUDGMENT',attempt,finishReason:invocation.finishReason??null,usage:structuredClone(invocation.usage??{})},
+      capability:'SEMANTIC_JUDGMENT',attempt,finishReason:invocation.finishReason??null,usage:structuredClone(invocation.usage??{}),usageReceipt,measurementClass},
       latencyMetadata:{providerLatencyMs:Number(invocation.latencyMs??0),validationLatencyMs:validationLatency,totalLatencyMs:Math.max(0,Date.now()-started),attempts:attempt},
       payloadBytes:utf8ByteLength(JSON.stringify(input.data))});
   }

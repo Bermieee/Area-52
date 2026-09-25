@@ -92,7 +92,10 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
   assert.equal(listeners.get('generation_after_commands')?.size ?? 0, 0);
   pushUser(context, 'At Moonlit Observatory, where are we?');
   await Promise.all([...listeners.get('message_sent')].map(fn => fn()));
-  assert.equal(session.exportEvidence().checks.simple, true);
+  const evidence = session.exportEvidence();
+  assert.equal(evidence.checks.anyReadyTurn, true);
+  assert.equal(evidence.checks.twoUnrelatedStories, false);
+  assert.equal(evidence.modeCoverage.simple, true);
   context.chatId = null;
   await assert.rejects(session.processCurrentTurn(), /chatId is unavailable/);
   assert.match(session.exportEvidence().errors.at(-1).message, /chatId is unavailable/);
@@ -145,7 +148,16 @@ test('two unrelated chats run Scene -> retrieval/Truth -> optional Jev -> Gather
   assert.equal(ambiguous.delivery.ok, true);
 
   const beforeReview = session.exportEvidence();
-  assert.deepEqual(beforeReview.checks, { simple: true, retrieval: true, ambiguous: true, degraded: true });
+  assert.deepEqual(beforeReview.checks, {
+    anyReadyTurn: true,
+    twoUnrelatedStories: true,
+    promptDeliveryObserved: true,
+    sealedContextObserved: true,
+    genericScenePolicyObserved: true,
+  });
+  assert.deepEqual(beforeReview.modeCoverage, { simple: true, retrieval: true, ambiguous: true });
+  assert.equal(beforeReview.deterministicFixtureEvidence.acceptanceAuthority, false);
+  assert.equal(beforeReview.deterministicFixtureEvidence.simulatedJevFailureSafe, true);
   assert.equal(beforeReview.degraded.evidenceClass, 'SIMULATED_FAILURE_PROBE');
   assert.equal(beforeReview.degraded.safe, true);
   assert.equal(beforeReview.twoStoryCoverage, true);
@@ -166,5 +178,41 @@ test('two unrelated chats run Scene -> retrieval/Truth -> optional Jev -> Gather
   assert.equal(afterReview.liveEvidenceComplete, false);
   assert.equal(afterReview.issue224AutomaticPass, false);
   assert.equal(afterReview.directorApprovalRequired, true);
+  session.destroy();
+});
+
+
+test('two unrelated live stories satisfy the live gate without scripted mode coverage', async () => {
+  const { sillyTavern, context } = makeHost();
+  const session = createDevelopmentDeploymentSillyTavernSession({
+    sillyTavern,
+    document: null,
+    mountUi: false,
+    initialLorebook: operatorLore(),
+  });
+
+  pushUser(context, 'At Moonlit Observatory, I study the Glass Compass on the central table.');
+  const first = await session.processCurrentTurn();
+  assert.equal(first.mode, 'retrieval');
+
+  context.chatId = 'chat:harbor';
+  context.chat = [];
+  pushUser(context, 'At Harbor Archive, I inspect the Tide Ledger beside the flood records.');
+  const second = await session.processCurrentTurn();
+  assert.equal(second.mode, 'retrieval');
+
+  const evidence = session.exportEvidence();
+  assert.deepEqual(evidence.modeCoverage, { simple: false, retrieval: true, ambiguous: false });
+  assert.deepEqual(evidence.checks, {
+    anyReadyTurn: true,
+    twoUnrelatedStories: true,
+    promptDeliveryObserved: true,
+    sealedContextObserved: true,
+    genericScenePolicyObserved: true,
+  });
+  assert.equal(evidence.status, 'OPERATOR_CONFIRMATION_PENDING');
+  assert.equal(evidence.deterministicFixtureEvidence.acceptanceAuthority, false);
+  assert.equal(evidence.issue224AutomaticPass, false);
+  assert.equal(evidence.liveEvidenceComplete, false);
   session.destroy();
 });

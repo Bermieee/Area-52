@@ -182,6 +182,6 @@ jobs:
         with:
           node-version: 22
       - name: Host-driven live evidence package regression
-        run: node --test tests/deployment-live-host.test.mjs
+        run: node --test tests/deployment-live-host.test.mjs tests/deployment-install-contract.test.mjs
       - name: Root SillyTavern extension imports without Node Buffer
         run: node -e "globalThis.Buffer=undefined; import('./index.js').then(()=>console.log('Development Deployment extension import PASS'))"

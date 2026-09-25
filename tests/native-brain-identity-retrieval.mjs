@@ -22,6 +22,12 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
     semantic:{subjectId:'entity:aster:ash',predicate:'alias',value:'Silver Ash'},
     metadata:{representationText:'Ash of Aster Vale is explicitly called Silver Ash.'},
   });
+  const emberLore=brain.acceptLore({
+    sourceId:'lore:ember:ash',sourceType:'LORE_ENTRY',
+    exactContent:'In Ember Reach, a different person named Ash is also explicitly called Silver Ash.',
+    semantic:{subjectId:'entity:ember:ash',predicate:'alias',value:'Silver Ash'},
+    metadata:{representationText:'The unrelated Ember Reach Ash is also explicitly called Silver Ash.'},
+  });
 
   brain.registerEntityIdentity({entityId:'entity:aster:ash',canonicalLabel:'Ash',entityType:'PERSON',worldId:'world:aster',providerId:'LORE_ASTER',provenanceRefs:['owner:aster']});
   brain.registerEntityIdentity({entityId:'entity:ember:ash',canonicalLabel:'Ash',entityType:'PERSON',worldId:'world:ember',providerId:'LORE_EMBER',provenanceRefs:['owner:ember']});
@@ -39,6 +45,16 @@ test('DETERMINISTIC: cross-source entity identity links explicit aliases but def
   assert.equal(aliasSettled.state,'ALIAS_ADDED');
   assert.equal(aliasSettled.applied,true);
   assert.equal(brain.core.entities.resolveMention({label:'Silver Ash',worldId:'world:aster',entityType:'PERSON'}).entity.entityId,'entity:aster:ash');
+
+  const emberAlias=brain.proposeEntityIdentity({
+    action:'ALIAS_ADD',providerId:'LORE_EMBER',sourceEntityId:'ember-person-ash',alias:'Silver Ash',
+    targetEntityId:'entity:ember:ash',worldId:'world:ember',entityType:'PERSON',
+    authorityOrigin:'SOURCE_EXPLICIT',explicit:true,sourceRevisionRefs:[emberLore.sourceRevisionId],
+    provenanceRefs:[emberLore.evidenceId,'lore:ember-explicit-alias'],
+  });
+  assert.equal(brain.settleEntityIdentity(emberAlias.proposalId,{decision:'ACCEPT'}).state,'ALIAS_ADDED');
+  assert.equal(brain.core.entities.resolveMention({label:'Silver Ash',worldId:'world:ember',entityType:'PERSON'}).entity.entityId,'entity:ember:ash');
+  assert.equal(brain.core.entities.resolveMention({label:'Silver Ash',entityType:'PERSON'}).state,'UNRESOLVED');
 
   const falseFriend=brain.proposeEntityIdentity({
     action:'LINK',providerId:'LORE_ASTER',sourceEntityId:'aster-object-ash',label:'Ash',

@@ -237,3 +237,15 @@ test('tampered durable checkpoint identity is rejected before optional execution
   const bad=JSON.parse(JSON.stringify(prepared.checkpoint));bad.pendingTasks[0].correlationId='corr:other';
   await assert.rejects(()=>swarm.executeCheckpoint(bad,{currentRevisionState:t}),/checkpoint task identity mismatch/);
 });
+
+test('cross-turn Jev request is rejected before provider execution',async()=>{
+  const registry=new CoprocessorResourceConnections();let calls=0;
+  addResource(registry,{capabilities:[Capability.SEMANTIC_JUDGMENT],handlers:{JEV_DECISION:()=>{calls++;return jevAbstain();}}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:250,defaultHardBudgetMs:500})});
+  const t=turn('jev-fence'),request=jevRequest('different-turn');
+  await assert.rejects(()=>swarm.runTurn({turnEvent:t,plannerInput:{text:'Which bounded interpretation is supported?',conflictSignals:['unresolved']},
+    ownerSignals:{jevGate:{route:'INVOKE_JEV',expectedDecisionValue:.9},jevQuestion:{questionId:request.decisionId,decisionShape:request.decisionShape,optionIds:['option-a','option-b'],evidenceRefs:['ev:a','ev:b']}},
+    jevRequest:request,currentRevisionState:t}),/Jev request turn identity does not match swarm checkpoint/);
+  assert.equal(calls,0);
+});

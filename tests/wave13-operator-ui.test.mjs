@@ -348,9 +348,10 @@ test('Diagnostics Center follows chat switches and rejects stale turn telemetry'
   owner.bindings.readScatter=()=>staleScatter;
   const{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
   owner.switchStory({chatId:'chat:diagnostics-new',turnId:'turn:diagnostics-new',generationId:'gen:diagnostics-new',location:'Copper Basin'});ui.scheduler.flush(2);
-  const snap=ui.operator.diagnostics.read();
+  const snap=ui.operator.diagnostics.read(),operations=ui.operator.operations.read();
   assert.equal(snap.selection.chatId,'chat:diagnostics-new');assert.equal(snap.selection.turnId,'turn:diagnostics-new');
   assert.equal(snap.cognition.jobs.length,0);assert.equal(snap.cognition.errors.scatter.code,'LIVE_RECEIPT_IDENTITY_MISMATCH');
+  assert.equal(operations.pipeline.executedJobs,0);assert.equal(operations.pipeline.returnedResults,0);assert.equal(operations.pipeline.contextAdmitted,0);
   assert.doesNotMatch(textOf(ui.shell.nodes.workspace),/turn:1/);
   ui.destroy();
 });
@@ -381,6 +382,30 @@ test('Worker 2 model discovery stays owner-backed and does not leak submitted cr
   const deniedHost=worker2ResourceHost({discoveryState:'UNAUTHORIZED'}),denied=new Wave13ResourceControlAdapter({bindings:{resourceHost:deniedHost}});
   const deniedResult=await denied.discoverModels({role:'JEV',endpoint:'https://openrouter.ai/api/v1',capabilities:['SEMANTIC_JUDGMENT']});
   assert.equal(deniedResult.state,'UNAUTHORIZED');assert.equal(deniedResult.manualModelEntryAllowed,false);
+});
+
+test('Worker 2 typed provider failure remains visibly failed even when the UI action itself completes',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost({testFailureMessage:"Failed to execute 'fetch' on 'Window': Illegal invocation"});owner.bindings.resourceHost=host;
+  const{ui}=mount(owner);assert.equal((await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'SIDECAR',resourceId:'sidecar:fail',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['STRUCTURED_EXTRACTION']})).ok,true);
+  const row=ui.operator.resources.read().data.resources[0],tested=await ui.actionRouter.route({type:'wave13.resource.test',target:row});assert.equal(tested.ok,true);assert.ok(tested.result.failure);
+  ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Latest connection test: FAIL/);assert.match(body,/Illegal invocation/);assert.doesNotMatch(body,/Connection test passed/);
+  ui.destroy();
+});
+
+test('Worker 4 operator lifecycle states are preserved instead of inferred from acceptance',async()=>{
+  const status={kind:'LoreIntelligenceStatus',counts:{ACCEPTED:1,STUDYING:1,READY:1,FAILED:1,REMOVED:1},entries:[
+    {sourceId:'lore:book:a',lorebookId:'book',uid:'a',sourceRevisionId:'a@1',sourceState:'CURRENT',operatorState:'ACCEPTED',studyState:'DUE',retrievalReady:false,retrievalRepresentations:[]},
+    {sourceId:'lore:book:b',lorebookId:'book',uid:'b',sourceRevisionId:'b@1',sourceState:'CURRENT',operatorState:'STUDYING',studyState:'ACTIVE',retrievalReady:false,retrievalRepresentations:[]},
+    {sourceId:'lore:book:c',lorebookId:'book',uid:'c',sourceRevisionId:'c@1',sourceState:'CURRENT',learnedRevisionId:'learned:c',freshness:'CURRENT',operatorState:'READY',studyState:'COMPLETED',retrievalReady:true,retrievalRepresentations:[{artifactId:'r:c'}]},
+    {sourceId:'lore:book:d',lorebookId:'book',uid:'d',sourceRevisionId:'d@1',sourceState:'CURRENT',operatorState:'FAILED',studyState:'FAILED',studyError:{code:'COMPILE_FAILED',message:'Compilation failed.'},retrievalReady:false,retrievalRepresentations:[]},
+    {sourceId:'lore:book:e',lorebookId:'book',uid:'e',sourceRevisionId:'e@2',sourceState:'REMOVED',operatorState:'REMOVED',studyState:'COMPLETED',retrievalReady:false,retrievalRepresentations:[]},
+  ],lifecycle:{counts:{DUE:1,ACTIVE:1,INVALID:0},due:1,active:1}};
+  let accepted=null;
+  const host={read:{status:()=>status},actions:{acceptLorebook(input){if(!input.discovery)throw new Error('discovery required');accepted=input;return{kind:'LoreSourceAcceptanceReceipt',lorebookId:input.id};},runLoreStudy:()=>({kind:'LoreStudyRun'})}};
+  const bindings={loreStudyHost:host,readSelectedLorebookSelection:()=>({selected:true,lorebookId:'book',title:'Book'}),discoverSelectedLorebook:async()=>({id:'book',title:'Book',entries:[{uid:'a',content:'A',metadata:{}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'book',entryCount:1}})};
+  const adapter=new Wave13LoreStudyUIAdapter({bindings});await adapter.discoverSelectedLorebook();await adapter.accept(adapter.selectedLorebook().snapshot);
+  assert.ok(accepted.discovery);const read=adapter.read();assert.deepEqual(read.data.operatorCounts,{ACCEPTED:1,STUDYING:1,READY:1,FAILED:1,REMOVED:1});assert.equal(read.data.retrievalReady,1);assert.equal(read.source.operationalState,'DEGRADED');
 });
 
 test('Worker 2 public resource host add/connect/test/disconnect contract is consumed without UI routing logic',async()=>{
@@ -418,7 +443,7 @@ test('native LoreStudyRuntime object can be projected and driven through its exi
   ui.destroy();
 });
 
-function worker2ResourceHost({configured=false,discoveryState='READY'}={}){
+function worker2ResourceHost({configured=false,discoveryState='READY',testFailureMessage=null}={}){
   const calls=[],listeners=new Set();let sequence=0;
   const rows=[];
   const diagnostic=(row,code,message,details={})=>{row.diagnostics??=[];row.diagnostics.push({sequence:++sequence,at:sequence,code,message,details});};
@@ -436,7 +461,9 @@ function worker2ResourceHost({configured=false,discoveryState='READY'}={}){
       addResource(config){const safe={...config,capabilities:[...config.capabilities]};delete safe.apiKey;safe.credentialConfigured=Boolean(config.apiKey);calls.push(['add',safe]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:Boolean(config.apiKey),local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
       async connectResource(id){calls.push(['connect',id]);const row=rows.find(x=>x.resourceId===id);row.state='READY';row.reasonCode='HEALTH_CHECK_PASSED';row.reason='Health probe passed.';row.health='HEALTHY';row.availability='AVAILABLE';row.activeCapabilities=[...row.declaredCapabilities];row.callable=true;diagnostic(row,'HEALTH_CHECK_PASSED','Health probe passed.');emit('RESOURCE_READY',row);return{...row};},
       disconnectResource(id){calls.push(['disconnect',id]);const row=rows.find(x=>x.resourceId===id);row.state='DISCONNECTED';row.reasonCode='OPERATOR_DISCONNECT';row.reason='Operator disconnected resource.';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.activeCapabilities=[];row.callable=false;diagnostic(row,'DISCONNECTED','Operator disconnected resource.');emit('RESOURCE_DISCONNECTED',row);return{...row};},
-      async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
+      async testResource(id){calls.push(['test',id]);const row=rows.find(x=>x.resourceId===id);
+        if(testFailureMessage){row.state='UNAVAILABLE';row.reasonCode='HEALTH_CHECK_FAILED';row.reason=testFailureMessage;row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.callable=false;row.lastFailure={code:'PROVIDER_UNAVAILABLE',message:testFailureMessage};row.lastTest={status:'FAIL',mode:'PROBE',failureCode:'PROVIDER_UNAVAILABLE'};diagnostic(row,'TEST_FAILED',testFailureMessage);emit('RESOURCE_TESTED',row);return{resource:{...row},result:null,failure:{code:'PROVIDER_UNAVAILABLE',message:testFailureMessage}};}
+        row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
     },
     read:{resources:()=>({kind:'CoprocessorResourceConnectionReadModel',contractVersion:'1.0.0',sequence,resources:rows.map(x=>({...x,declaredCapabilities:[...x.declaredCapabilities],activeCapabilities:[...x.activeCapabilities]})),readyResourceCount:rows.filter(x=>x.state==='READY').length,nativePathRequired:!rows.some(x=>x.state==='READY')})},
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},

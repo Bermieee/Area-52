@@ -293,6 +293,10 @@ export class CoprocessorResourceConnections{
       const discovered=(row.modelDiscovery?.models??[]).find(model=>model.id===row.modelId)??null;
       row.qualifiedCapabilities=[...row.routableCapabilities];
       row.qualificationEvidence=qualificationEvidence(discovered,probe?.discoveryState??row.modelDiscovery?.state,row.transportMode,{qualified:true,actualModelId:row.actualModelId,actualProvider:row.actualProvider});
+      this.profiles.applyQualification(row.providerProfileId,{
+        maxContextTokens:discovered?.contextLength,maxOutputTokens:discovered?.maxOutputTokens,
+        profileMetadata:{qualification:{resourceId:row.resourceId,qualifiedAt:row.qualifiedAt,modelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,discoveryState:row.qualificationEvidence.discoveryState}},
+      });
       row.state=probe?.degraded?ResourceConnectionState.DEGRADED:ResourceConnectionState.READY;
       row.reasonCode=ResourceConnectionReason.HEALTH_CHECK_PASSED;row.reason=probe?.degraded?'Authenticated model qualification passed in degraded mode.':'Authenticated model qualification passed.';
       this.profiles.setAvailability(row.providerProfileId,true);this.profiles.setHealth(row.providerProfileId,probe?.degraded?'DEGRADED':'HEALTHY');
@@ -300,7 +304,8 @@ export class CoprocessorResourceConnections{
       this.#diagnostic(row,'HEALTH_CHECK_PASSED',row.reason,{latencyMs:row.lastHealthLatencyMs,modelAvailable:probe?.modelAvailable??null,transportMode:row.transportMode});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_READY,this.#telemetryRow(row));this.#notify('RESOURCE_READY',row);return this.readResource(resourceId);
     }catch(error){
-      row.lastHealthCheckAt=this.now();row.lastHealthLatencyMs=Math.max(0,this.now()-started);row.lastHealthResult='FAIL';row.state=ResourceConnectionState.UNAVAILABLE;row.selectedModelQualified=false;row.qualifiedAt=null;
+      row.lastHealthCheckAt=this.now();row.lastHealthLatencyMs=Math.max(0,this.now()-started);row.lastHealthResult='FAIL';row.state=ResourceConnectionState.UNAVAILABLE;row.selectedModelQualified=false;row.qualifiedAt=null;row.qualifiedCapabilities=[];
+      if(row.qualificationEvidence)row.qualificationEvidence=deepFreeze({...row.qualificationEvidence,qualified:false,transportProbe:'FAIL',actualModelId:null,actualProvider:null});
       row.reasonCode=reasonFromError(error);row.reason=safeMessage(error?.message??'Authenticated model qualification failed.');row.lastFailure={code:error?.code??FailureCode.PROVIDER_UNAVAILABLE,message:row.reason,at:this.now()};
       this.profiles.setAvailability(row.providerProfileId,false);this.profiles.setHealth(row.providerProfileId,'UNAVAILABLE');this.health.markUnavailable(row.providerProfileId,{now:this.now()});
       this.#diagnostic(row,'HEALTH_CHECK_FAILED',row.reason,{code:row.lastFailure.code,latencyMs:row.lastHealthLatencyMs});
@@ -381,7 +386,7 @@ export class CoprocessorResourceConnections{
 
   routeQualifiedProviders(task,{maxProviders=8,maxCostClass='HIGH',preferLocal=false}={}){
     if(!task||task.kind!=='CognitiveTask')throw new TypeError('CognitiveTask is required for qualified routing');
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:0,maxCostClass,preferLocal,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,preferLocal,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
       .slice(0,Math.max(1,Number(maxProviders)||1));
     return deepFreeze({
@@ -401,7 +406,7 @@ export class CoprocessorResourceConnections{
   }
 
   async executeTask(task,{input={},profileId=null,signal=null,attempt=1,maxCostClass='HIGH'}={}){
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:0,maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)));
     const profile=profileId==null?eligible[0]:eligible.find(x=>x.profileId===profileId);
     if(!profile)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'No connected resource satisfies task capabilities',{providerId:null});
@@ -430,7 +435,7 @@ export class CoprocessorResourceConnections{
   }
 
   async executeTaskWithFallback(task,{input={},signal=null,attempt=1,maxCostClass='HIGH',maxProviders=2}={}){
-    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:0,maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
+    const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0)})
       .filter(profile=>this.adapters.get(profile.providerId)&&this.#resourceByProfile(profile.profileId)&&this.#isExecutable(this.#resourceByProfile(profile.profileId)))
       .slice(0,Math.max(1,Number(maxProviders)||1));
     const attempts=[];let lastError=null;
@@ -689,5 +694,6 @@ function linkAbort(signal,controller){if(!signal)return()=>{};const abort=()=>co
 function req(value,name){if(typeof value!=='string'||!value.trim())throw new TypeError(name+' must be a non-empty string');return value.trim();}
 function positiveInt(value,name){const n=Number(value);if(!Number.isInteger(n)||n<1)throw new TypeError(name+' must be a positive integer');return n;}
 function finiteOrNull(value){if(value==null)return null;const n=Number(value);return Number.isFinite(n)?n:null;}
+function taskContextTokens(task){const n=Number(task?.metadata?.contextTokens??task?.metadata?.inputContextTokens??0);return Number.isFinite(n)&&n>0?n:0;}
 function clone(value){return value==null?value:structuredClone(value);}
 function deepFreeze(value){if(!value||typeof value!=='object'||Object.isFrozen(value))return value;Object.freeze(value);for(const child of Object.values(value))deepFreeze(child);return value;}

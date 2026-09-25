@@ -768,13 +768,13 @@
     {
       "path": "src/ui-core/wave13-operator-surfaces.js",
       "sourceDigest": "112c3033450aefcf410b6b3958f1a1252c0b1719",
-      "expectedDigest": "7fed47f3ae96c8584b39873e9e6394f00c2bc75e",
+      "expectedDigest": "5365fcf58c8c487e96346cadaf544e76d962629a",
       "reason": "Director-authorized demo UI: Settings Diagnostics Center plus separate Jev, Sidecar, and Vectoring connection slots with owner-backed locked configuration."
     },
     {
       "path": "src/ui-core/wave6-runtime.js",
       "sourceDigest": "ca538a04addd44193b7ef8b98997a36648078321",
-      "expectedDigest": "3a6f7e51535a0662852f81889abd99c3950bef7d",
+      "expectedDigest": "6cc4fe52f192de313bc1edf1c4ce88aec2f1c6f8",
       "reason": "Director-authorized demo UI: route live owner/resource/Lore/cognition telemetry into Settings Diagnostics Center and refresh it from owner subscriptions."
     },
     {
@@ -798,13 +798,13 @@
     {
       "path": "tests/wave13-operator-ui.test.mjs",
       "sourceDigest": "a71e62061f821517703cc2bde4dc41588d2ccd7f",
-      "expectedDigest": "1a1d142a8ea06452dec909e899b8cfda18c6c7ce",
+      "expectedDigest": "df470adc988fc673a362248c4f49f578b852cc20",
       "reason": "Acceptance coverage for Diagnostics Center, stale chat-turn rejection, three resource lanes, connection locking, and side-edge resize."
     },
     {
       "path": "src/ui-core/wave13-operator-adapters.js",
       "sourceDigest": "79fdb113f37c5a0e083e8185796155772ebff382",
-      "expectedDigest": "eb7c885fcba21f3679f1d6a7006979a5039a7ac8",
+      "expectedDigest": "c2f331b3a044714fe656e5c8e82f50db7d6d8165",
       "reason": "Director-authorized demo UI: centralized prompt-safe diagnostics plus Jev/Sidecar/Vectoring resource classification and owner telemetry."
     },
     {
@@ -824,7 +824,7 @@
   "backlogClosureAudit": {
     "kind": "Worker3UiHostCheckpoint",
     "recordedDate": "2026-09-25",
-    "directMainParent": "129b6674031d614aa6bd51d4ae8b9cc786169c75",
+    "directMainParent": "813b79edbe3db437ae83306c38cb251c9b1d70da",
     "installedLanePins": {
       "core": {
         "branch": "Development-Nexus",
@@ -854,7 +854,7 @@
     "observedOwnerHeads": {
       "core": {
         "branch": "Development-Nexus",
-        "sha": "c0731ae5707d1ea4fce46dc2065c3bb48262a216",
+        "sha": "8555fc56b5e448fde8eb381ef5fd6fc8d84463f2",
         "installed": false
       },
       "lore": {
@@ -864,7 +864,7 @@
       },
       "jev": {
         "branch": "Development-Sidecar/Jev",
-        "sha": "dad0045004fdb829885fc18151a7fa4cd29206b8",
+        "sha": "1f5521f37520907e9ffb3e93af4e124a608bb1e4",
         "installed": false
       },
       "memory": {
@@ -885,15 +885,15 @@
     },
     "directMainFiles": {
       "src/ui-core/wave12-sillytavern-host.js": "0f4fc791a444aa772a926a1d8c70219e2687fbc0",
-      "src/ui-core/wave13-operator-adapters.js": "eb7c885fcba21f3679f1d6a7006979a5039a7ac8",
-      "src/ui-core/wave13-operator-surfaces.js": "7fed47f3ae96c8584b39873e9e6394f00c2bc75e",
-      "src/ui-core/wave6-runtime.js": "3a6f7e51535a0662852f81889abd99c3950bef7d",
-      "tests/wave13-operator-ui.test.mjs": "1a1d142a8ea06452dec909e899b8cfda18c6c7ce",
-      "src/deployment/sillytavern-live.js": "7aee9a95d6f8e2610409167bc3a341ad6eae9d3b",
-      "tests/deployment-live-host.test.mjs": "4c1f744e0bd4dfa720c8e7a028a0962f0d3a0667",
+      "src/ui-core/wave13-operator-adapters.js": "c2f331b3a044714fe656e5c8e82f50db7d6d8165",
+      "src/ui-core/wave13-operator-surfaces.js": "5365fcf58c8c487e96346cadaf544e76d962629a",
+      "src/ui-core/wave6-runtime.js": "6cc4fe52f192de313bc1edf1c4ce88aec2f1c6f8",
+      "tests/wave13-operator-ui.test.mjs": "df470adc988fc673a362248c4f49f578b852cc20",
+      "src/deployment/sillytavern-live.js": "711d2ff9652a3300dda2ee5e829051dbbc8dcdc6",
+      "tests/deployment-live-host.test.mjs": "06dcecf340dccb08bfa0717392fd9325f7ae412f",
       "index.js": "ddf9c2a5e5f581d92538c362b89a9fd4978fa0b9",
       ".github/workflows/main-demo-ui.yml": "158fbb552efc962c82e59bffa2d9ef031e056bd4"
     },
-    "rule": "Observed owner branch heads are informational drift markers and are not claimed installed until their accepted lane checkpoint is copied/reconciled into main."
+    "rule": "Installed lane pins are accepted revisions actually present in main. Observed owner heads are drift markers only; branch-only behavior is not claimed live until copied/reconciled and exact-head validated."
   }
 }

@@ -38,7 +38,7 @@ function liveOwner({withResources=false,withLore=false}={}){
   const emit=()=>{for(const fn of [...listeners])fn({kind:'OWNER_UPDATE',selection:{...selection}});};
   const bindings={
     readSelection:()=>({...selection}),subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn);},
-    readScene:()=>scene(selection,location),readScatter:()=>scatter(selection),readCognitiveChoice:()=>choice(selection),
+    readScene:()=>selection.turnId?scene(selection,location):null,readScatter:()=>selection.turnId?scatter(selection):null,readCognitiveChoice:()=>selection.turnId?choice(selection):null,
     readLoreStatus:()=>({...lore,...selection}),readMemoryStatus:()=>({kind:'MemoryStatus',state:'READY',count:2,...selection}),
     ...(withResources?{
       listResourceProfiles:()=>resources.map(x=>({...x})),

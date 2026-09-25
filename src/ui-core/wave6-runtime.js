@@ -58,8 +58,17 @@ export function createWave6ProductInterface({
       readStatus:typeof hostBindings?.readRuntimeStatus==='function'?hostBindings.readRuntimeStatus.bind(hostBindings):null,
       selectionProvider,
     }):new RuntimeProductionUIAdapter(null);
+  const resourceCognitionReader=typeof hostBindings?.readCognitionUiState==='function'
+    ?(selection)=>hostBindings.readCognitionUiState(selection)
+    :typeof hostBindings?.resourceHost?.read?.cognition==='function'
+      ?(selection)=>hostBindings.resourceHost.read.cognition(selection)
+      :typeof hostBindings?.coprocessorResourceHost?.read?.cognition==='function'
+        ?(selection)=>hostBindings.coprocessorResourceHost.read.cognition(selection)
+        :typeof hostBindings?.resourceConnectionsHost?.read?.cognition==='function'
+          ?(selection)=>hostBindings.resourceConnectionsHost.read.cognition(selection)
+          :null;
   const coprocessor=(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter)?new CoprocessorProductionUIAdapter(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter):
-    typeof hostBindings?.readCognitionUiState==='function'?new Wave13CoprocessorStateUIAdapter({readState:(selection)=>hostBindings.readCognitionUiState(selection),selectionProvider}):new CoprocessorProductionUIAdapter(null);
+    resourceCognitionReader?new Wave13CoprocessorStateUIAdapter({readState:resourceCognitionReader,selectionProvider}):new CoprocessorProductionUIAdapter(null);
   const promptPlan=new PromptPlanProductionUIAdapter({...effectiveBridges.promptPlan,selectionProvider});
   const forensics=new ForensicsProductionUIAdapter(effectiveBridges.forensics??{});
   const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(effectiveBridges.cognition??{})});

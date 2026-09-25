@@ -416,6 +416,27 @@ test('Worker 2 CognitionUiState exact numeric counters stay live instead of degr
   assert.equal(snap.wave6.sources.coprocessor.mode,'DEGRADED');ui.destroy();
 });
 
+test('Worker 2 resourceHost cognition v2 is consumed directly with lifecycle and owner-admission distinctions',()=>{
+  const owner=liveOwner(),host=worker2ResourceHost({configured:true});owner.bindings.resourceHost=host;
+  const{ui}=mount(owner),read=ui.productionAdapters.coprocessor.read();
+  assert.equal(read.data.queue.queued,4);assert.equal(read.data.queue.yields,2);assert.equal(read.data.queue.parks,1);assert.equal(read.data.queue.resumes,1);
+  assert.deepEqual(read.data.physicalExecution,{attempts:3,succeeded:2,failed:1});assert.equal(read.data.lifecycle.ownerAccepted,1);
+  assert.equal(read.data.validationFailures,1);assert.equal(read.data.lateResults,1);assert.equal(read.data.rawPromptIncluded,false);assert.equal(read.data.credentialIncluded,false);
+  ui.shell.selectWorkspace('coprocessor-live');ui.scheduler.flush(2);const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Worker lifecycle signals/);assert.match(body,/Execution \/ owner admission/);assert.match(body,/Physically executed resources/);assert.match(body,/Owner-accepted resources/);
+  ui.destroy();
+});
+
+test('resource read model keeps configured connected qualified executed and owner-accepted states separate',()=>{
+  const adapter=new Wave13ResourceControlAdapter({bindings:{resourceHost:{
+    actions:{connectResource(){},disconnectResource(){},testResource(){}},
+    read:{resources:()=>({kind:'CoprocessorResourceConnectionReadModel',resources:[{resourceId:'sidecar:wave19',displayName:'Wave19 Sidecar',kind:'OPENAI_COMPATIBLE',state:'READY',health:'HEALTHY',availability:'AVAILABLE',connected:true,selectedModelQualified:true,qualifiedAt:44,qualification:{qualified:true,evidence:{discoveryState:'READY'}},physicalExecutionAttempted:true,physicalExecutionSucceeded:true,ownerAccepted:null,ownerAcceptanceSource:'OWNER_RECEIPT_REQUIRED',declaredCapabilities:['STRUCTURED_EXTRACTION'],activeCapabilities:['STRUCTURED_EXTRACTION'],qualifiedCapabilities:['STRUCTURED_EXTRACTION'],routableCapabilities:['STRUCTURED_EXTRACTION'],callable:true}]})},
+  }}});
+  const row=adapter.read().data.resources[0];
+  assert.equal(row.connected,true);assert.equal(row.selectedModelQualified,true);assert.equal(row.physicalExecutionAttempted,true);assert.equal(row.physicalExecutionSucceeded,true);assert.equal(row.ownerAccepted,null);assert.equal(row.ownerAcceptanceSource,'OWNER_RECEIPT_REQUIRED');
+  assert.deepEqual(row.qualifiedCapabilities,['STRUCTURED_EXTRACTION']);assert.equal(row.qualification.evidence.discoveryState,'READY');
+});
+
 test('Worker 2 model discovery stays owner-backed and does not leak submitted credentials',async()=>{
   const host=worker2ResourceHost(),adapter=new Wave13ResourceControlAdapter({bindings:{resourceHost:host}});
   assert.equal(adapter.capabilities().discoverModels,true);
@@ -722,7 +743,10 @@ function worker2ResourceHost({configured=false,discoveryState='READY',testFailur
         if(testFailureMessage){row.state='UNAVAILABLE';row.reasonCode='HEALTH_CHECK_FAILED';row.reason=testFailureMessage;row.health='UNAVAILABLE';row.availability='UNAVAILABLE';row.callable=false;row.lastFailure={code:'PROVIDER_UNAVAILABLE',message:testFailureMessage};row.lastTest={status:'FAIL',mode:'PROBE',failureCode:'PROVIDER_UNAVAILABLE'};diagnostic(row,'TEST_FAILED',testFailureMessage);emit('RESOURCE_TESTED',row);return{resource:{...row},result:null,failure:{code:'PROVIDER_UNAVAILABLE',message:testFailureMessage}};}
         row.selectedModelQualified=true;row.qualifiedAt=sequence+1;row.actualModelId=row.modelId;row.callable=true;row.state='READY';row.health='HEALTHY';row.availability='AVAILABLE';row.lastTest={status:'PASS',mode:'PROBE',latencyMs:3};diagnostic(row,'TEST_PASSED','Resource test passed.',{latencyMs:3});emit('RESOURCE_TESTED',row);return{resource:{...row},result:{kind:'ResourceProbeResult',ok:true,latencyMs:3,measurementClass:'MEASURED_LIVE'}};},
     },
-    read:{resources:()=>({kind:'CoprocessorResourceConnectionReadModel',contractVersion:'1.0.0',sequence,resources:rows.map(x=>({...x,declaredCapabilities:[...x.declaredCapabilities],activeCapabilities:[...x.activeCapabilities]})),readyResourceCount:rows.filter(x=>x.state==='READY').length,nativePathRequired:!rows.some(x=>x.state==='READY')})},
+    read:{
+      resources:()=>({kind:'CoprocessorResourceConnectionReadModel',contractVersion:'1.0.0',sequence,resources:rows.map(x=>({...x,declaredCapabilities:[...x.declaredCapabilities],activeCapabilities:[...x.activeCapabilities]})),readyResourceCount:rows.filter(x=>x.state==='READY').length,nativePathRequired:!rows.some(x=>x.state==='READY')}),
+      cognition:(selection={})=>({kind:'CognitionUiState',contractVersion:'2.0.0',...selection,activeTasks:1,hotTasks:0,deepTasks:1,lateResults:1,staleDrops:2,warmHits:3,warmMisses:1,fallbackCount:1,retryCount:2,validationFailures:1,health:'DEGRADED',queue:{queued:4,yields:2,parks:1,resumes:1,pressure:{activeDeep:1}},physicalExecution:{attempts:3,succeeded:2,failed:1},resultDestinations:{CONTEXT:1,LATE:1},lifecycle:{configured:rows.length,connected:rows.filter(x=>x.state==='READY').length,physicallyExecuted:1,ownerAccepted:1},ownerAcceptance:[{kind:'NativeSidecarSwarmOwnerHandoffReceipt',ownerAdmissionPerformed:true,admissions:[{taskId:'task:1',resourceId:rows[0]?.resourceId??'sidecar:configured',acceptedByOwner:true,destination:'CONTEXT'}]}],resources:rows.map(x=>({resourceId:x.resourceId,configured:true,connected:x.state==='READY',qualified:Boolean(x.selectedModelQualified),callable:Boolean(x.callable),physicalExecutionAttempted:Boolean(x.lastExecution),physicalExecutionSucceeded:x.lastExecution?.status==='SUCCESS',ownerAccepted:false})),rawPromptIncluded:false,rawPayloadIncluded:false,credentialIncluded:false}),
+    },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     listenerCount:()=>listeners.size,
   };

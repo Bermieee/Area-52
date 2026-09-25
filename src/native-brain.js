@@ -71,6 +71,7 @@ export class Area52NativeBrain{
     runtimeCapacity={CPU:1},
     foregroundReserve={CPU:1},
     maxTurns=256,
+    loreInterface=null,
   }={}){
     this.maxTurns=Math.max(16,Number(maxTurns)||256);
     this.core=new Area52CognitiveCore();
@@ -87,6 +88,8 @@ export class Area52NativeBrain{
     this.knowledge=new NativeKnowledgeStore({registry:this.core.registry,snapshot:snapshot?.knowledge??null});
     this.core.registerExternalKnowledgeResolver((candidate)=>this.knowledge.evidenceForCandidate(candidate));
     this.#registerKnowledgeChannels();
+    this.loreInterface=null;
+    this.attachLoreInterface(loreInterface);
 
     this.turns=new Map(clone(snapshot?.turns??[]));
     this.turnOrder=clone(snapshot?.turnOrder??[]);
@@ -124,6 +127,13 @@ export class Area52NativeBrain{
     for(const id of ['NATIVE_LORE','NATIVE_MEMORY'])this.core.retrieval.unregisterChannel(id);
     this.core.registerRetrievalChannel(this.knowledge.channel('LORE',{channelId:'NATIVE_LORE',rankBias:(id)=>this.feedback.biasFor(id)}));
     this.core.registerRetrievalChannel(this.knowledge.channel('MEMORY',{channelId:'NATIVE_MEMORY',rankBias:(id)=>this.feedback.biasFor(id)}));
+  }
+
+  attachLoreInterface(loreInterface=null){
+    if(loreInterface!==null&&typeof loreInterface?.query!=='function')throw new TypeError('Lore interface must expose query(request)');
+    if(loreInterface?.contractVersion!=null&&Number(loreInterface.contractVersion)!==1)throw new Error('Unsupported Lore Brain interface contract version: '+loreInterface.contractVersion);
+    this.loreInterface=loreInterface;
+    return{kind:'NativeBrainLoreInterfaceReceipt',attached:Boolean(loreInterface),contractVersion:loreInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
 
   acceptLore(input){
@@ -183,6 +193,7 @@ export class Area52NativeBrain{
     if(sceneSignal||scene)this.observeScene(chat,sceneSignal??scene);
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
+    const loreSync=await this.#syncLoreForTurn({query:q,intent});
 
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
@@ -207,7 +218,7 @@ export class Area52NativeBrain{
     this.#rememberTurn(record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,loreSync,cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       promptPlan:delivery.plan,rendered:delivery.rendered,
@@ -316,6 +327,7 @@ export class Area52NativeBrain{
       turns:this.turns.size,activeChat:this.core.hotCognition.activeChatNamespace,
       world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),
       knowledge:this.knowledge.diagnostics(),feedback:this.feedback.diagnostics(),
+      loreInterface:{attached:Boolean(this.loreInterface),kind:this.loreInterface?.kind??null,contractVersion:this.loreInterface?.contractVersion??null},
       runtime:this.runtimeDirector.snapshot(),
       nativeRequirements:{jevRequired:false,sidecarRequired:false,externalDatabaseRequired:false,sqlRequired:false,remoteModelRequired:false,userOrchestratorRequired:false},
     };
@@ -424,7 +436,38 @@ export class Area52NativeBrain{
   }
 
   #selection(record){
-    return{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,sceneId:record.sceneId,sceneRevision:record.sceneRevision,worldRevision:record.worldRevision,sourceRevisionRefs:[...record.sourceRevisionSet]};
+    const ownerSourceRevisionRefs=uniq(this.knowledge.currentRecords({channelFamily:'LORE'}).map(row=>row.evidence?.extensions?.metadata?.externalSourceRevisionId));
+    return{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,sceneId:record.sceneId,sceneRevision:record.sceneRevision,worldRevision:record.worldRevision,sourceRevisionRefs:[...record.sourceRevisionSet],ownerSourceRevisionRefs};
+  }
+
+  async #syncLoreForTurn({query,intent}){
+    if(!this.loreInterface)return{kind:'NativeBrainLoreSyncReceipt',status:'NOT_ATTACHED',queried:false,admitted:0,unchanged:0,skipped:0,sourceRevisionFence:[],authorityGranted:false};
+    try{
+      const packet=await this.loreInterface.query({query,intent});
+      if(!packet||packet.kind!=='LoreBrainRetrievalPacket'||Number(packet.contractVersion)!==1)throw new Error('LORE_BRAIN_PACKET_CONTRACT_MISMATCH');
+      let admitted=0,unchanged=0,skipped=0;
+      const seen=new Set();
+      for(const nomination of packet.nominations??[]){
+        for(const source of nomination?.drillback??[]){
+          const sourceId=source?.sourceId==null?null:String(source.sourceId),ownerRevision=source?.sourceRevisionId==null?null:String(source.sourceRevisionId),exact=source?.exactAuthoredText;
+          const key=sourceId&&ownerRevision?sourceId+'|'+ownerRevision:null;
+          if(!key||seen.has(key)){if(!key)skipped++;continue;}seen.add(key);
+          if(typeof exact!=='string'||!exact.length){skipped++;continue;}
+          const prior=this.knowledge.currentRecordForSource(sourceId);
+          const priorOwnerRevision=prior?.evidence?.extensions?.metadata?.externalSourceRevisionId??null;
+          if(prior&&prior.exactContent===exact&&priorOwnerRevision===ownerRevision){unchanged++;continue;}
+          this.acceptLore({
+            sourceId,sourceType:'LORE_ENTRY',exactContent:exact,
+            provenanceRefs:[ownerRevision],
+            metadata:{representationText:exact,externalSourceRevisionId:ownerRevision,loreInterfaceKind:packet.kind,loreOntologyRevision:packet.ontologyRevision??null,loreIndexRevision:packet.indexRevision??null},
+          });
+          admitted++;
+        }
+      }
+      return{kind:'NativeBrainLoreSyncReceipt',status:'SYNCED',queried:true,admitted,unchanged,skipped,sourceRevisionFence:uniq(packet.sourceRevisionFence??[]),ontologyRevision:packet.ontologyRevision??null,indexRevision:packet.indexRevision??null,authorityGranted:false};
+    }catch(error){
+      return{kind:'NativeBrainLoreSyncReceipt',status:'DEGRADED',queried:true,admitted:0,unchanged:0,skipped:0,sourceRevisionFence:[],reason:error?.message??String(error),authorityGranted:false};
+    }
   }
 
   #usedWork(published){

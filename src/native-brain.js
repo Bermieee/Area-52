@@ -96,6 +96,7 @@ export class Area52NativeBrain{
     this.sceneSignals=new Map(clone(snapshot?.sceneSignals??[]));
     this.turnSequence=Number(snapshot?.turnSequence??0);
     this.runtimeResults=clone(snapshot?.runtimeResults??[]).slice(-128);
+    this.listeners=new Set();
 
     for(const [chatId,signal] of this.sceneSignals){
       this.core.activateHotCognitionChat(chatId,{reason:'IMPORT_OR_RELOAD'});
@@ -217,10 +218,11 @@ export class Area52NativeBrain{
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet:this.core.registry.activeRevisionIds(),
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
-      published:clone(published),delivery:clone(delivery),response:null,experience:null,settlements:[],reflections:[],feedback:null,
+      published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       state:'SEALED_FOR_GENERATION',
     };
     this.#rememberTurn(record);
+    this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
       scene:sceneState,loreSync,cognitiveChoice:published.cognitiveChoiceReceipt,
@@ -293,6 +295,7 @@ export class Area52NativeBrain{
       rawExperienceRecoverable:Boolean(this.core.registry.getRevision(experience.sourceRevisionId)?.exactContent===text),
       canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
     };
+    this.#notify('TURN_LEARNED',latest);
     return clone(latest.learningReceipt);
   }
 
@@ -315,7 +318,35 @@ export class Area52NativeBrain{
     });
     const settlements=observations.map((row,index)=>this.#settleObservation(record,corrected,row,index));
     record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.state='LEARNED';
+    this.#notify('TURN_CORRECTED',record);
     return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
+  }
+
+  subscribe(listener){
+    if(typeof listener!=='function')throw new TypeError('native Brain listener must be a function');
+    this.listeners.add(listener);return()=>this.listeners.delete(listener);
+  }
+
+  uiBindings(){
+    return Object.freeze({
+      readSelection:({chatId}={})=>this.#selectionForChat(chatId),
+      subscribe:(listener)=>this.subscribe(listener),
+      readScene:(selection={})=>this.#readStage(selection,record=>this.core.sceneIntegrationSnapshot(record.chatId)),
+      readHotCognition:(selection={})=>this.#readStage(selection,record=>this.core.hotCognitionSnapshot(record.chatId)),
+      readCognitiveChoice:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt??null),
+      readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
+      readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
+      readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
+      readTruth:(selection={})=>this.#readStage(selection,record=>record.published?.publicationAssessment??record.published?.assessment??null),
+      readCorrectiveRetrieval:(selection={})=>this.#readStage(selection,record=>record.published?.corrective??null),
+      readGather:(selection={})=>this.#readStage(selection,record=>record.published?.gatherReceipt??null),
+      readContextSeal:(selection={})=>this.#readStage(selection,record=>record.published?.sealReceipt??null),
+      readLoreStatus:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainLoreStatus',...this.#selection(record),sync:clone(record.loreSync??null),store:this.knowledge.diagnostics(),authorityGranted:false})),
+      readPromptPlan:(selection={})=>this.#readStage(selection,record=>record.delivery?.plan??null),
+      readContextReceipt:(selection={})=>this.#readStage(selection,record=>record.delivery?.receipt??record.delivery?.contextReceipt??null),
+      listGenerations:({limit=50,selection={}}={})=>this.#listGenerations({limit,selection}),
+      readGeneration:({generationId,...selection}={})=>this.#readGeneration(generationId,selection),
+    });
   }
 
   receiveCognitiveResult(result){
@@ -438,6 +469,40 @@ export class Area52NativeBrain{
   #recordRuntimeResult(envelope){
     this.runtimeResults.push(clone(envelope));if(this.runtimeResults.length>128)this.runtimeResults.splice(0,this.runtimeResults.length-128);
     return envelope;
+  }
+
+  #selectionForChat(chatId=null){
+    const wanted=chatId==null?null:String(chatId);
+    for(let index=this.turnOrder.length-1;index>=0;index--){const record=this.turns.get(this.turnOrder[index]);if(record&&(!wanted||record.chatId===wanted))return this.#selection(record);}
+    if(wanted){const scene=this.core.sceneIntegrationSnapshot(wanted);if(scene?.sceneId)return{chatId:wanted,turnId:null,generationId:null,correlationId:null,sceneId:scene.sceneId,sceneRevision:scene.sceneRevision,worldRevision:this.core.graph.revision,sourceRevisionRefs:this.core.registry.activeRevisionIds(),ownerSourceRevisionRefs:[]};}
+    return{chatId:wanted,turnId:null,generationId:null,correlationId:null,sceneId:null,sceneRevision:null,worldRevision:this.core.graph.revision,sourceRevisionRefs:this.core.registry.activeRevisionIds(),ownerSourceRevisionRefs:[]};
+  }
+
+  #recordForSelection(selection={}){
+    const turnId=selection?.turnId==null?null:String(selection.turnId),generationId=selection?.generationId==null?null:String(selection.generationId),chatId=selection?.chatId==null?null:String(selection.chatId);
+    let record=turnId?this.turns.get(turnId):null;
+    if(!record&&generationId)record=[...this.turns.values()].find(row=>row.generationId===generationId&&(!chatId||row.chatId===chatId))??null;
+    if(!record&&chatId){for(let index=this.turnOrder.length-1;index>=0;index--){const row=this.turns.get(this.turnOrder[index]);if(row?.chatId===chatId){record=row;break;}}}
+    if(!record)return null;
+    if(chatId&&record.chatId!==chatId)return null;if(generationId&&record.generationId!==generationId)return null;
+    if(selection?.correlationId!=null&&record.correlationId!==String(selection.correlationId))return null;
+    if(selection?.sceneRevision!=null&&Number(record.sceneRevision)!==Number(selection.sceneRevision))return null;
+    if(selection?.worldRevision!=null&&Number(record.worldRevision)!==Number(selection.worldRevision))return null;
+    return record;
+  }
+
+  #readStage(selection,reader){const record=this.#recordForSelection(selection);if(!record)return null;const value=reader(record);return value==null?null:clone(value);}
+
+  #listGenerations({limit=50,selection={}}={}){
+    const max=Math.max(1,Math.min(200,Number(limit)||50)),chatId=selection?.chatId==null?null:String(selection.chatId);
+    return this.turnOrder.slice().reverse().map(id=>this.turns.get(id)).filter(Boolean).filter(row=>!chatId||row.chatId===chatId).slice(0,max).map(row=>({kind:'NativeBrainGenerationSummary',...this.#selection(row),state:row.state,executionLabel:row.executionLabel,sealId:row.published?.sealReceipt?.id??null,promptPlanId:row.delivery?.plan?.promptPlanId??null}));
+  }
+
+  #readGeneration(generationId,selection={}){if(generationId==null)return null;const record=this.#recordForSelection({...selection,generationId});if(!record)return null;return clone({kind:'NativeBrainGenerationReadModel',...this.#selection(record),state:record.state,executionLabel:record.executionLabel,cognitiveChoice:record.published?.cognitiveChoiceReceipt??null,candidateEnvelope:record.published?.candidateEnvelope??null,truth:record.published?.publicationAssessment??record.published?.assessment??null,gather:record.published?.gatherReceipt??null,contextSeal:record.published?.sealReceipt??null,promptPlan:record.delivery?.plan??null,loreSync:record.loreSync??null,learningReceipt:record.learningReceipt??null});}
+
+  #notify(stage,record){
+    if(!this.listeners.size||!record)return;const event=Object.freeze({kind:'NativeBrainReceiptUpdate',stage:String(stage),selection:this.#selection(record),rawPromptIncluded:false,rawResponseIncluded:false});
+    for(const listener of [...this.listeners])try{listener(event);}catch{}
   }
 
   #selection(record){

@@ -70,7 +70,7 @@ function readyTwoBooks() {
   service.acceptLorebook(harborBook());
   service.acceptLorebook(archiveBook());
   const run = service.runStudy();
-  assert.equal(run.results.every((row) => ['COMPLETED', 'REMOVED'].includes(row.state)), true);
+  assert.equal(run.results.every((row) => row.obligation?.state === 'COMPLETED'), true);
   const status = service.status();
   assert.equal(status.entries.length, 7);
   assert.equal(status.entries.every((row) => row.operatorState === 'READY'), true);
@@ -253,7 +253,7 @@ test('Wave 6 removal and checkpoint recovery preserve authored revision history'
   const checkpoint = LoreIntelligenceService.fromSnapshot(base.snapshot());
   checkpoint.acceptLorebook(harborBook({tideglass: 'damaged'}));
   const partial = checkpoint.runStudy({maxUnitsPerObligation: 2, rebuildRetrieval: false});
-  assert.equal(partial.results.some((row) => row.state === 'CHECKPOINTED' || row.state === 'PENDING'), true);
+  assert.equal(partial.results.some((row) => row.obligation?.state === 'CHECKPOINTED' || row.obligation?.state === 'PENDING'), true);
   const restored = LoreIntelligenceService.fromSnapshot(checkpoint.snapshot());
   restored.runStudy();
   const resumed = restored.runtime.registry.currentRevision('lore:harbor-authored:tideglass');

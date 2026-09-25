@@ -26,7 +26,7 @@ const textOf=node=>walk(node).map(x=>x.textContent??'').filter(Boolean).join(' '
 function scene(selection,location){
   return{kind:'SceneUiReadModel',sceneId:'scene:'+selection.chatId,revision:selection.sceneRevision,lifecycle:'ACTIVE',location:{value:{name:location},authority:'OBSERVED'},narrativeTime:{value:'evening'},activeCast:['Ari'],objects:[],activeThreads:['arrival'],uncertainFields:[],provenanceRefs:['scene-source'],health:{state:'READY',reasons:[]},...selection};
 }
-function scatter(selection){return{kind:'RuntimeScatterReceipt',jobs:[{taskId:'job:1',capability:'GRAPH'}],admittedJobCount:1,resourceCount:1,resourceIds:['local:1'],requiredFallback:0,opportunisticPending:0,...selection};}
+function scatter(selection){return{kind:'RuntimeScatterReceipt',jobs:[{taskId:'job:1',capability:'GRAPH',state:'COMPLETE',resourceId:'local:1'}],admittedJobCount:1,resourceCount:1,resourceIds:['local:1'],requiredFallback:0,opportunisticPending:0,...selection};}
 function choice(selection){return{kind:'CognitiveChoiceReceipt',id:'choice:'+selection.turnId,receiptRevision:1,status:'COMPLETE',paths:['HOT_ONLY'],functionDecisions:[],admittedJobs:[],skippedJobs:[],deferredJobs:[],consideredCognitionOptions:[],reasonCodes:['HOT_SUFFICIENT'],retrievalIntents:[],sensoryChannelsRequested:[],sensoryChannelsUsed:[],candidateCounts:{},measurements:{},...selection};}
 
 function liveOwner({withResources=false,withLore=false}={}){
@@ -61,12 +61,15 @@ function mount(owner,{width=1280,height=800,floating=true}={}){
   ui.scheduler.flush(0);return{document,root,ui,stateStore};
 }
 
-test('Wave 13 rail is vertical, edge-aware and opens the existing workspace card',()=>{
+test('Wave 13 rail is labeled, edge-aware and opens one attached workspace panel',()=>{
   const owner=liveOwner(),{ui}=mount(owner,{width:1280,height:800});
   assert.ok(ui.floatingController);
   let d=ui.floatingController.diagnostics();
-  assert.equal(d.card.side,'LEFT');
+  assert.equal(d.card.side,'LEFT');assert.equal(d.card.attached,true);
   assert.equal(ui.shell.currentWorkspace,'home');
+  const navText=textOf(ui.floatingController.nodes.nav);
+  for(const label of ['Home','Story','Characters','Lore','Memory','World','Brain','Connections','Settings'])assert.match(navText,new RegExp(label));
+  assert.doesNotMatch(textOf(ui.floatingController.nodes.controls),/[+−]/);
   const brain=[...ui.floatingController.nodes.nav.querySelectorAll('[data-workspace-id]')].find(x=>x.dataset.workspaceId==='brain');
   brain.dispatch('click');ui.scheduler.flush(1);
   assert.equal(ui.shell.currentWorkspace,'brain');assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.EXPANDED);
@@ -80,18 +83,18 @@ test('rail pointer drag crosses viewport and pop-out flips toward available spac
   handle.dispatch('pointerdown',{button:0,clientX:start.x,clientY:start.y,pointerId:1});
   document.dispatch('pointermove',{clientX:12,clientY:80,pointerId:1});document.dispatch('pointerup',{clientX:12,clientY:80,pointerId:1});
   const d=ui.floatingController.diagnostics();
-  assert.ok(d.rail.x<=20);assert.equal(d.card.side,'RIGHT');assert.ok(d.card.x>d.rail.x);
+  assert.ok(d.rail.x<=20);assert.equal(d.card.side,'RIGHT');assert.equal(d.card.x,d.rail.x+d.rail.width);
   ui.destroy();
 });
 
-test('rail and card keyboard movement, shrink, minimize, restore and close remain reachable',()=>{
+test('attached rail/panel keyboard movement, resize, collapse, restore and close remain reachable',()=>{
   const owner=liveOwner(),{ui}=mount(owner,{width:920,height:680});
   const c=ui.floatingController;c.open('story');ui.scheduler.flush(1);
   const before=c.diagnostics();c.nodes.railHandle.dispatch('keydown',{key:'ArrowLeft'});c.nodes.cardHandle.dispatch('keydown',{key:'ArrowUp'});ui.scheduler.flush(2);
-  const moved=c.diagnostics();assert.ok(moved.rail.x<=before.rail.x);assert.ok(moved.card.y<=before.card.y);
-  const width=ui.presentation.get().frontFaceWidth;c.nodes.shrink.dispatch('click');assert.ok(ui.presentation.get().frontFaceWidth<=width);
-  c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,true);assert.equal(ui.shell.currentWorkspace,'story');
-  c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,false);
+  const moved=c.diagnostics();assert.ok(moved.rail.x<=before.rail.x);assert.ok(moved.rail.y<=before.rail.y);assert.equal(moved.card.attached,true);
+  const width=ui.presentation.get().frontFaceWidth;c.nodes.resizeHandle.dispatch('keydown',{key:moved.card.side==='RIGHT'?'ArrowLeft':'ArrowRight'});assert.ok(ui.presentation.get().frontFaceWidth<=width);
+  c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,true);assert.equal(ui.shell.currentWorkspace,'story');assert.equal(c.nodes.minimize.textContent,'Expand');
+  c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,false);assert.equal(c.nodes.minimize.textContent,'Collapse');
   c.nodes.close.dispatch('click');assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.COLLAPSED);
   c.open();assert.equal(ui.shell.currentWorkspace,'story');ui.destroy();
 });
@@ -99,9 +102,9 @@ test('rail and card keyboard movement, shrink, minimize, restore and close remai
 test('narrow viewport clamps rail and card to reachable bounds',()=>{
   const owner=liveOwner(),{ui}=mount(owner,{width:420,height:620});ui.floatingController.open('brain');ui.presentation.setWidth(720);ui.scheduler.flush(2);
   const d=ui.floatingController.diagnostics();
-  assert.ok(d.rail.x>=10&&d.rail.x+64<=410);
-  assert.ok(d.card.x>=10);assert.ok(d.card.x+d.card.width<=410);
-  assert.ok(d.card.y>=10&&d.card.y<620);
+  assert.ok(d.rail.x>=8&&d.rail.x+d.rail.width<=412);
+  assert.ok(d.card.x>=8);assert.ok(d.card.x+d.card.width<=412);assert.equal(d.card.attached,true);
+  assert.ok(d.card.y>=8&&d.card.y<620);
   ui.destroy();
 });
 
@@ -190,10 +193,42 @@ test('Lore workspace contains generic ingestion controls and no fixed Ember Tave
   ui.destroy();
 });
 
-test('Brain resource controls are keyboard buttons and native Brain remains visible with no optional resource',()=>{
-  const owner=liveOwner(),{ui}=mount(owner);ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('brain');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Jev \/ sidecar resources/);assert.match(body,/Native Brain remains available|native Brain remains usable/i);
+test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{
+  const owner=liveOwner(),{ui}=mount(owner);ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Connections/);assert.match(body,/Jev \/ sidecar resources/);assert.match(body,/Fan-out → Gather/);assert.match(body,/Native Brain remains available|native cognition remains available|native Brain remains usable/i);
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.ok(buttons.length>0);assert.ok(buttons.every(x=>x.attributes?.type==='button'));
+  ui.destroy();
+});
+
+test('Connections maps logical fan-out to physical resources and shows owner Gather disposition',()=>{
+  const owner=liveOwner({withResources:true}),selection=owner.bindings.readSelection();
+  owner.bindings.readScatter=()=>({kind:'RuntimeScatterReceipt',receiptId:'scatter:1',jobs:[
+    {taskId:'job:a',capability:'LORE_RETRIEVAL',state:'COMPLETE',resourceId:'sidecar:local'},
+    {taskId:'job:b',capability:'GRAPH',state:'COMPLETE',resourceId:'sidecar:local'},
+    {taskId:'job:c',capability:'SEMANTIC_JUDGMENT',state:'COMPLETE',resourceId:'jev:local'},
+  ],...selection});
+  owner.bindings.readGather=()=>({kind:'GatherReceipt',receiptId:'gather:1',results:[
+    {resultId:'result:a',capability:'LORE_RETRIEVAL',status:'ADMITTED',accepted:true,resourceId:'sidecar:local',destination:'CONTEXT'},
+    {resultId:'result:b',capability:'GRAPH',status:'LATE',accepted:false,resourceId:'sidecar:local',destination:'LATE'},
+  ],...selection});
+  owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',sealId:'seal:1',sealed:true,admittedResultIds:['result:a'],...selection});
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/3 logical jobs → 2 physical resources/);assert.match(body,/LORE RETRIEVAL|Lore Retrieval/);assert.match(body,/SEALED/);assert.match(body,/LATE/);
+  ui.destroy();
+});
+
+test('each product workspace keeps an independent scroll position while the panel header remains mounted',()=>{
+  const owner=liveOwner({withLore:true}),{ui}=mount(owner);
+  ui.floatingController.open('lore');ui.scheduler.flush(1);ui.shell.nodes.workspace.scrollTop=137;ui.shell.nodes.workspace.dispatch('scroll');
+  ui.floatingController.open('brain');ui.scheduler.flush(2);ui.shell.nodes.workspace.scrollTop=41;ui.shell.nodes.workspace.dispatch('scroll');
+  ui.floatingController.open('lore');ui.scheduler.flush(3);assert.equal(ui.shell.nodes.workspace.scrollTop,137);
+  assert.ok(ui.floatingController.nodes.cardHead.parentNode===ui.floatingController.nodes.card);
+  ui.destroy();
+});
+
+test('Settings is a labeled product workspace with explicit display controls',()=>{
+  const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Resize/);
   ui.destroy();
 });
 

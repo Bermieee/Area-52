@@ -26,7 +26,7 @@ Graph read-only UI receipt: `uiBindings().readGraphTraversal(selection)`. Stale 
 
 ## Retrieval and budget receipts for Worker 3
 
-Worker 3 should treat these as read-only diagnostics for the same stable turn/generation selection. On the current main host, `src/deployment/sillytavern-live.js#uiHostBindings` already forwards the older Native Brain receipt set but its `nativeKeys` allowlist does not yet include the four new wave receipts. Integration should add `readIdentityResolution`, `readGraphTraversal`, `readRetrievalBudget`, and `readRejectedEvidence` to that allowlist without changing their read-only authority.
+Worker 3 should treat these as read-only diagnostics for the same stable turn/generation selection. Current `main` at the Worker 1 integration review (`f7bedb85d03c58489aa77c7b9c1c579563badf91`) already forwards `readIdentityResolution`, `readGraphTraversal`, `readRetrievalBudget`, and `readRejectedEvidence` through `src/deployment/sillytavern-live.js#uiHostBindings`, and the Wave 12 host recognizes the same families. Worker 1 therefore has no UI allowlist patch to make; preserve those bindings as read-only during integration. Main also contains Worker 3's Native Brain request/response lifecycle, but that assembled host path is outside this branch's deterministic evidence and is not claimed LIVE here.
 
 - `readCognitiveChoice`: why Hot/retrieval/Graph/Jev work was admitted or skipped.
 - `readSensoryTrace` / `readCandidateBusEnvelope` / `readCandidateFusionReceipt`: bounded native nominations and deduplication.
@@ -48,7 +48,7 @@ After a successful bounded graph turn, the fused fresh graph refs may warm Hot C
 
 Worker 1 owns the Core identity registry, native graph walker, Candidate Bus admission path, Truth/Temporal interaction, Hot working-set behavior, Context Seal, and model-budget delivery semantics on `Development-Nexus`.
 
-Worker 4 remains authoritative for Lore ontology/source revisions/exact drillback and Memory owner experience semantics. Scene remains authoritative for Scene observations and its graph semantics. Their branches should expose adapters implementing the published contracts; Worker 1 should not copy or mutate their owner graphs.
+Worker 4 remains authoritative for Lore ontology/source revisions/exact drillback and Memory owner experience semantics. Scene remains authoritative for Scene observations and its graph semantics. The current Lore Brain retrieval interface exposes exact drillback/revision status, Memory exposes Historian/current/as-of surfaces, and Scene exposes Scene graph/reference semantics; none of those reviewed owner heads yet publishes the new `CoreGraphProviderInterfaceContract` directly. Owner/assembly adapters should translate those native semantics into the provider-neutral graph contract without copying or mutating owner graphs.
 
 Worker 2 owns optional Coprocessor/Sidecar execution and the provider-neutral scatter/gather route required by the full #203 acceptance.
 

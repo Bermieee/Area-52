@@ -29,6 +29,84 @@ export class LoreAuthoringService {
     });
   }
 
+  _currentSourceRevisionFence(lorebookIds = []) {
+    const allowed = new Set((lorebookIds || []).map(String));
+    return this.intelligence.runtime.registry.listEntries({includeRemoved: true})
+      .filter((source) => allowed.has(source.lorebookId))
+      .map((source) => {
+        const revision = this.intelligence.runtime.registry.currentRevision(source.sourceId, {allowMissing: true});
+        return revision ? {
+          sourceId: source.sourceId,
+          lorebookId: source.lorebookId,
+          uid: source.uid,
+          sourceRevisionId: revision.id,
+          sourceState: revision.state,
+          contentHash: revision.contentHash,
+        } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+  }
+
+  _storyWriteAdmission({chatId = null, lorebookIds = null} = {}) {
+    const authority = this.intelligence.storyAuthority;
+    if (!authority?.hasScopedAuthority?.()) return null;
+    if (chatId == null || String(chatId).trim() === '') {
+      throw Object.assign(new Error('Story-scoped Lore authoring requires exact chatId'), {
+        code: 'LORE_AUTHORING_STORY_SCOPE_REQUIRED',
+      });
+    }
+    const scope = authority.scopeReceipt(String(chatId));
+    const books = lorebookIds == null
+      ? (scope.writeAuthorities || []).filter((row) => row.state === 'ACTIVE').map((row) => row.lorebookId)
+      : [...new Set((lorebookIds || []).map(String))].sort();
+    if (!books.length) {
+      throw Object.assign(new Error('Story-scoped Lore authoring requires explicit writable Lorebooks'), {
+        code: 'LORE_AUTHORING_WRITE_SCOPE_REQUIRED',
+      });
+    }
+    const currentSourceRevisionFence = this._currentSourceRevisionFence(books);
+    const admission = authority.assertWriteAllowed({
+      chatId: String(chatId),
+      lorebookIds: books,
+      currentSourceRevisionFence,
+    });
+    return {
+      kind: 'LoreAuthoringStoryScopeFence',
+      contractVersion: 1,
+      chatId: String(chatId),
+      lorebookIds: books,
+      storyScope: scope,
+      writeAdmission: admission,
+      sourceRevisionFence: currentSourceRevisionFence,
+      directMutationAuthority: false,
+      settlementRequired: true,
+    };
+  }
+
+  _assertSessionWriteAuthority(sessionId, {allowTransactionResume = false, restoration = false} = {}) {
+    const progress = this.lifecycle.progress(sessionId);
+    if (!progress.storyScope) {
+      if (this.intelligence.storyAuthority?.hasScopedAuthority?.()) {
+        throw Object.assign(new Error('Legacy unscoped authoring session cannot mutate after story authority is active'), {
+          code: 'LORE_AUTHORING_UNSCOPED_SESSION_BLOCKED',
+        });
+      }
+      return null;
+    }
+    const transaction = progress.settlement;
+    if (allowTransactionResume && transaction) {
+      if (!restoration && ['APPLYING','CHECKPOINTED','SETTLED','FAILED'].includes(String(transaction.state))) {
+        return progress.storyScope;
+      }
+      if (restoration && transaction.restoration) return progress.storyScope;
+    }
+    return this._storyWriteAdmission({
+      chatId: progress.storyScope.chatId,
+      lorebookIds: progress.inputLorebookIds,
+    });
+  }
+
   sourceDiscoveryIdentity({lorebookId = null} = {}) {
     const registry = this.intelligence.runtime.registry;
     const snapshot = registry.snapshot();
@@ -78,11 +156,27 @@ export class LoreAuthoringService {
   }
 
   startTreeBuild(request = {}) {
-    return this.lifecycle.startTreeBuild(request);
+    const admission = this._storyWriteAdmission({
+      chatId: request?.chatId ?? request?.storyScope?.chatId ?? null,
+      lorebookIds: request?.lorebookIds ?? null,
+    });
+    const lorebookIds = admission?.lorebookIds ?? request?.lorebookIds ?? null;
+    return this.lifecycle.startTreeBuild({
+      ...request,
+      lorebookIds,
+      storyScope: admission,
+    });
   }
 
-  startMergeBuild(request) {
-    return this.lifecycle.startMergeBuild(request);
+  startMergeBuild(request = {}) {
+    const admission = this._storyWriteAdmission({
+      chatId: request?.chatId ?? request?.storyScope?.chatId ?? null,
+      lorebookIds: request?.lorebookIds ?? null,
+    });
+    return this.lifecycle.startMergeBuild({
+      ...request,
+      storyScope: admission,
+    });
   }
 
   resumeAuthoringBuild(request) {
@@ -106,15 +200,36 @@ export class LoreAuthoringService {
   }
 
   approveFinalPreview(request) {
+    this._assertSessionWriteAuthority(request?.sessionId);
     return this.lifecycle.approveFinalPreview(request);
   }
 
   applySettlement(request) {
-    return this.lifecycle.applySettlement(request);
+    const progress = this.lifecycle.progress(request?.sessionId);
+    if (!progress.settlement) this._assertSessionWriteAuthority(request?.sessionId);
+    const read = this.lifecycle.applySettlement(request);
+    this.intelligence.recordRevisionChanges(read.revisionEvents || [], {origin: 'SETTLEMENT'});
+    return {
+      ...read,
+      storyRevisionReceipts: this.intelligence.storyRevisionReceipts({
+        chatId: read.storyScope?.chatId ?? null,
+      }),
+    };
   }
 
   restoreSettlement(request) {
-    return this.lifecycle.restoreSettlement(request);
+    const before = this.lifecycle.settlementReadModel({settlementId: request?.settlementId});
+    const progress = this.lifecycle.progress(before.sessionId);
+    if (!before.restoration) this._assertSessionWriteAuthority(progress.sessionId, {restoration: true});
+    const read = this.lifecycle.restoreSettlement(request);
+    const restorationEvents = read.restoration?.revisionEvents || [];
+    this.intelligence.recordRevisionChanges(restorationEvents, {origin: 'RESTORATION'});
+    return {
+      ...read,
+      storyRevisionReceipts: this.intelligence.storyRevisionReceipts({
+        chatId: read.storyScope?.chatId ?? null,
+      }),
+    };
   }
 
   authoringProgress(sessionId) {
@@ -210,6 +325,14 @@ export class LoreAuthoringService {
         minimalityRule: 'Invalidate only artifacts fenced by the changed source revision and aggregates that explicitly depend on it.',
         unrelatedSourceArtifactsRemainReusable: true,
         retrievalMustFenceSourceRevision: true,
+        storyScopeReceiptsRequiredForWorker1: true,
+      },
+      storyAuthority: {
+        exactChatBound: true,
+        selectedLorebookAutoAccepted: false,
+        readAndWriteAuthoritySeparated: true,
+        writeAuthorityRevisionFenced: true,
+        settlementOwnsMutation: true,
       },
       invalidationReceipt: {
         kind: 'LoreInvalidationReceipt',
@@ -279,6 +402,9 @@ export class LoreAuthoringService {
       stalePreviewReturnsToDraftReview: true,
       checkpointResumeSupported: true,
       restorationSupported: true,
+      storyScopedWriteAuthority: true,
+      exactChatIdRequiredWhenStoryAuthorityIsActive: true,
+      writeAuthorityRevisionFenced: true,
       safeErrors: true,
       uiImplementationOwner: 'Worker 3',
       integrationStatus: 'BACKEND_CONTRACT_ONLY_NOT_WORKER3_WIRED',

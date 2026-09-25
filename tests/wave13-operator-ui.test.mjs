@@ -432,6 +432,31 @@ test('Worker 2 configured resource reconnect uses resourceId and does not duplic
   assert.deepEqual(host.calls,[['connect','sidecar:configured']]);ui.destroy();
 });
 
+test('Worker 4 Lore intelligence service is consumed through operatorInterface with discovery provenance intact',async()=>{
+  const calls=[];let operatorCalls=0;
+  const service={
+    operatorInterface(){
+      operatorCalls+=1;
+      return{
+        kind:'LoreStudyOperatorHost',contractVersion:1,
+        read:{status:()=>({kind:'LoreIntelligenceStatus',counts:{ACCEPTED:0,STUDYING:0,READY:0,FAILED:0,REMOVED:0},entries:[],artifacts:[],conflicts:[],lifecycle:{counts:{},due:0,active:0}})},
+        actions:{
+          acceptLorebook(input){calls.push(['accept',structuredClone(input)]);return{accepted:true};},
+          runLoreStudy(input){calls.push(['run',structuredClone(input)]);return{completed:true};},
+          retryLoreStudy(input){calls.push(['retry',structuredClone(input)]);return{retried:true};},
+        },
+      };
+    },
+  };
+  const selection={chatId:'chat:lore',turnId:'turn:lore',generationId:'gen:lore'};
+  const adapter=new Wave13LoreStudyUIAdapter({bindings:{loreIntelligenceService:service},selectionProvider:()=>selection});
+  assert.equal(operatorCalls,1);assert.equal(adapter.capabilities().read,true);assert.equal(adapter.capabilities().accept,true);assert.equal(adapter.capabilities().run,true);assert.equal(adapter.capabilities().retry,true);
+  const discovered={id:'Moon Harbor',title:'Moon Harbor',entries:[{uid:'captain',content:'Vale keeps the blue ledger.',metadata:{title:'Captain Vale'}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:1,exactAuthoredSource:true}};
+  await adapter.accept(discovered);await adapter.run({scope:'DUE'});
+  assert.equal(calls[0][0],'accept');assert.equal(calls[0][1].id,'Moon Harbor');assert.equal(calls[0][1].entries[0].uid,'captain');assert.equal(calls[0][1].discovery.kind,'SillyTavernLorebookDiscoveryReceipt');
+  assert.equal(calls[1][0],'run');assert.deepEqual(calls[1][1],{scope:'DUE'});
+});
+
 test('native LoreStudyRuntime object can be projected and driven through its existing public methods',async()=>{
   const owner=liveOwner(),runtime=directLoreRuntime();delete owner.bindings.readLoreStatus;owner.bindings.loreStudyRuntime=runtime;
   const{ui}=mount(owner);assert.equal(runtime.listenerCount,undefined);

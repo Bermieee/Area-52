@@ -23,6 +23,7 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'readLazyForensicPayload','readLazyPayload','searchForensics','search',
   'readHotCognition','readHotCognitionReadModel','readCognitiveChoice','readCognitiveChoiceReceipt',
   'readScatter','readScatterReceipt','readRuntimeTurn','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt',
+  'readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence',
   'readTruth','readTruthAssessment','readCorrectiveRetrieval','readCorrectiveRetrievalReceipt',
   'readJev','readJevDecisionReceipt','readPrecision','readPrecisionReceipt','readGather','readGatherReceipt','readLoreStatus','readLoreStudyStatus','readLoreStudySurface','readMemoryStatus',
   'readRuntimeStatus','readCognitionUiState','readCoprocessorChoiceContribution',
@@ -31,6 +32,7 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'addResource','configureResource','discoverModels','loadModels','listProviderModels','refreshModels','refreshResourceModels','setCredential','setResourceCredential','clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential','selectModel','selectResourceModel','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection','subscribeResources','subscribeResourceStatus',
   'loreIntelligenceService','loreStudyService','loreOperatorHost','loreStudyHost','loreHost','loreStudyRuntime','loreRuntime',
   'loreAuthoringService','loreAuthoringHost','loreAuthoringOperator',
+  'memoryIntegrationSurface','memoryInterface','memoryOwner','readMemory','readMemoryReadModel','readMemoryRetrieval','readMemorySummaryStatus',
   'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy','subscribeLoreStudy','subscribeLoreStatus',
   'story','characters','lore','memory','world','knowledgeAdapter',
 ]);
@@ -41,6 +43,10 @@ const FAMILY_KEYS=Object.freeze({
   cognitiveChoice:['readCognitiveChoice','readCognitiveChoiceReceipt'],
   runtimeScatter:['readScatter','readScatterReceipt','readRuntimeTurn'],
   sensory:['readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt'],
+  identityResolution:['readIdentityResolution'],
+  graphTraversal:['readGraphTraversal'],
+  retrievalBudget:['readRetrievalBudget'],
+  rejectedEvidence:['readRejectedEvidence'],
   truth:['readTruth','readTruthAssessment'],
   correctiveRetrieval:['readCorrectiveRetrieval','readCorrectiveRetrievalReceipt'],
   jev:['readJev','readJevDecisionReceipt'],
@@ -57,7 +63,7 @@ const FAMILY_KEYS=Object.freeze({
   coprocessor:['coprocessorTelemetry','coprocessorAdapter','readCognitionUiState','readCoprocessorChoiceContribution'],
   resources:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'],
   resourceActions:['resourceHost','coprocessorResourceHost','resourceConnectionsHost','addResource','configureResource','discoverModels','loadModels','listProviderModels','refreshModels','refreshResourceModels','setCredential','setResourceCredential','clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential','selectModel','selectResourceModel','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection'],
-  memory:['memory','readMemoryStatus'],
+  memory:['memory','memoryIntegrationSurface','memoryInterface','memoryOwner','readMemoryStatus','readMemory','readMemoryReadModel','readMemoryRetrieval','readMemorySummaryStatus'],
 });
 
 export class SillyTavernHostUnavailableError extends Error{

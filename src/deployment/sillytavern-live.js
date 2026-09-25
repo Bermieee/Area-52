@@ -305,11 +305,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     onEvidence = null,
     initialLorebook = null,
     nativeBrain = null,
+    ownerBindings = {},
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
     this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true });
     this.nativeBrain = null;
+    this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
     this.nativePending = new Map();
     this.nativeHistory = [];
     this.nativeRejections = [];
@@ -611,7 +613,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   #uiHostBindings(){
-    const base=this.brain.hostBindings(),contract=nativeBrainContract(this.nativeBrain);
+    const base={...this.brain.hostBindings(),...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
     const nativeKeys=['readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readRuntimeStatus','readPromptPlan','readContextReceipt','listGenerations','readGeneration'];

@@ -279,7 +279,16 @@ export class Wave13OperationalStatusAdapter{
     ];
     const active=stages.filter(x=>[OperatorProducerState.LIVE,OperatorProducerState.WORKING,OperatorProducerState.IDLE].includes(x.state)).length;
     const failures=stages.filter(x=>x.state===OperatorProducerState.DEGRADED).length;
-    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
+    const scatter=cognition?.data?.scatter??null,gather=cognition?.data?.gather??null,seal=cognition?.data?.seal??null;
+    const registeredIds=new Set(['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan']);
+    const registered=stages.filter(x=>registeredIds.has(x.id)&&![OperatorProducerState.UNAVAILABLE,OperatorProducerState.DISCONNECTED].includes(x.state)).length;
+    const jobs=scatter?.jobs??[],results=gather?.results??[],admitted=seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[];
+    const pipeline=deepFreeze({
+      registeredProducers:registered,executionReceipt:Boolean(scatter),executedJobs:Array.isArray(jobs)?jobs.length:0,
+      resultReceipt:Boolean(gather),returnedResults:Array.isArray(results)?results.length:0,
+      admissionReceipt:Boolean(seal),contextAdmitted:Array.isArray(admitted)?admitted.length:0,
+    });
+    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
   }
   #cognition(selection){try{return this.adapters.cognition?.read?.(selection)??null;}catch{return null;}}
   #adapterStage(id,label,adapter,selection,{turnBound=false,exported=true}={}){
@@ -324,8 +333,13 @@ export class Wave13OperationalStatusAdapter{
     const reader=fn(this.hostBindings,['readMemoryStatus','readMemory','readMemoryReadModel']);
     if(!reader)return stage('memory','Memory',OperatorProducerState.UNAVAILABLE,'Assembly does not export a Memory status reader.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
     if(selection.chatId&&!selection.turnId)return stage('memory','Memory',OperatorProducerState.IDLE,'Memory producer is available; no active turn is required to inspect retained state.',selection,null,'NO_ACTIVE_TURN');
-    try{const raw=reader(selection);if(!raw)return stage('memory','Memory',OperatorProducerState.IDLE,'Memory producer has no current status record.',selection,null,'NO_STATUS');assertSelection(raw,selection,'Memory',{allowMissingIdentity:true});return stage('memory','Memory',OperatorProducerState.LIVE,'Memory owner status is available.',selection,freshnessOf(raw),'OWNER_STATUS');}
-    catch(error){return stage('memory','Memory',OperatorProducerState.DEGRADED,String(error?.message??error),selection,null,error?.code??'READ_ERROR');}
+    try{
+      const raw=reader(selection);if(!raw)return stage('memory','Memory',OperatorProducerState.IDLE,'Memory producer has no current status record.',selection,null,'NO_STATUS');
+      assertSelection(raw,selection,'Memory',{allowMissingIdentity:true});
+      const reasonCode=String(raw.reasonCode??raw.code??raw.reason?.code??'').toUpperCase();
+      if(reasonCode==='MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT')return stage('memory','Memory',OperatorProducerState.IDLE,'No memories recorded for this chat yet.',selection,freshnessOf(raw),reasonCode);
+      return stage('memory','Memory',OperatorProducerState.LIVE,'Memory owner status is available for the selected chat.',selection,freshnessOf(raw),reasonCode||'OWNER_STATUS');
+    }catch(error){return stage('memory','Memory',OperatorProducerState.DEGRADED,String(error?.message??error),selection,null,error?.code??'READ_ERROR');}
   }
   #forensicsStage(selection){
     const exported=Boolean(this.hostBindings.readForensic||this.hostBindings.readForensicReadModel||this.hostBindings.listForensics||this.hostBindings.listTransactions);
@@ -360,7 +374,7 @@ export class Wave13DiagnosticsCenterAdapter{
         kind,configured:members.length,connected:members.filter(row=>row.connected).length,callable:members.filter(row=>row.callable).length,
         activeExecutions:members.reduce((sum,row)=>sum+Number(row.currentLoad??0),0),
         resourceIds:members.map(row=>row.id),
-        states:members.map(row=>({id:row.id,state:row.state,health:row.health,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
+        states:members.map(row=>({id:row.id,displayName:row.displayName,state:row.state,health:row.health,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
       });
     });
     const cognitionData=cognitionRead?.data??{};

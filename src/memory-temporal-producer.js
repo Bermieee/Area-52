@@ -11,6 +11,11 @@ import {MemoryExperienceStore} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';
 import {MemorySummaryHierarchy} from './memory-summary-hierarchy.js';
 import {MemoryExternalEvidenceBridge} from './memory-evidence-bridge.js';
+import {
+  MemoryUiReadModelProducer,
+  evidenceBelongsToChat,
+  normalizeMemorySelection,
+} from './memory-ui-read-model.js';
 
 export class MemoryTemporalProducer {
   constructor({
@@ -20,6 +25,7 @@ export class MemoryTemporalProducer {
     historian=null,
     summaryHierarchy=null,
     evidenceBridge=null,
+    uiReadModel=null,
     snapshot=null,
   }={}) {
     this.graph=graph;
@@ -28,19 +34,48 @@ export class MemoryTemporalProducer {
     this.historian=historian??new MemoryHistorianIndex({graph,experienceStore:this.experienceStore});
     this.summaryHierarchy=summaryHierarchy??new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore});
     this.evidenceBridge=evidenceBridge??new MemoryExternalEvidenceBridge({graph:this.graph});
+    this.uiReadModel=uiReadModel??new MemoryUiReadModelProducer({producer:this});
     this.diagnostics=[];
     if (snapshot) this.restore(snapshot);
+  }
+
+  selectionFromEvidenceRefs(evidenceRefs=[]) {
+    const rows=[...new Set(evidenceRefs)].map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
+    if (!rows.length) return {};
+    const identities=rows.map((row)=>row.metadata??{});
+    const common=(keys)=>{
+      const values=identities.map((meta)=>{
+        for (const key of keys) if (meta?.[key]!=null&&String(meta[key]).length) return String(meta[key]);
+        return null;
+      }).filter(Boolean);
+      return values.length&&new Set(values).size===1?values[0]:null;
+    };
+    return {
+      chatId:common(['chatId','chatNamespace','conversationId']),
+      turnId:common(['turnId']),
+      generationId:common(['generationId']),
+      correlationId:common(['correlationId']),
+      worldRevision:Math.max(...rows.map((row)=>Number(row.worldRevision??0))),
+      sceneRevision:Math.max(...rows.map((row)=>Number(row.sceneRevision??0)).filter(Number.isFinite),0)||null,
+      sourceRevisionRefs:[...new Set(rows.map((row)=>row.sourceRevisionId))].sort(),
+    };
+  }
+
+  notifyUi(type,evidenceRefs=[],details={}) {
+    return this.uiReadModel.notify(type,this.selectionFromEvidenceRefs(evidenceRefs),details);
   }
 
   appendEvidence(input) {
     const evidence=this.graph.appendEvidence(input);
     this.summaryHierarchy.onEvidenceAppended(evidence);
+    this.notifyUi('MEMORY_EVIDENCE_APPENDED',[evidence.id],{evidenceId:evidence.id});
     return evidence;
   }
 
   appendRawExperience(input) {
     const evidence=this.experienceStore.appendRawExperience(input);
     this.summaryHierarchy.onEvidenceAppended(evidence);
+    this.notifyUi('MEMORY_EXPERIENCE_APPENDED',[evidence.id],{evidenceId:evidence.id});
     return evidence;
   }
 
@@ -60,6 +95,9 @@ export class MemoryTemporalProducer {
     this.summaryHierarchy.onEpisodePublished(episode);
     if (episode.freshness==='FRESH'&&resolution.status==='RESOLVED') this.ensureSceneSummaryScope(record.proposal,episode,resolution);
     this.historian.build();
+    this.notifyUi('MEMORY_SCENE_EPISODE_REFRESHED',episode.evidenceRefs??[],{
+      episodeId:episode.id,logicalId:episode.logicalId,freshness:episode.freshness,
+    });
     return episode;
   }
 
@@ -98,6 +136,9 @@ export class MemoryTemporalProducer {
       }
       if (materializedSceneEpisodes.length) this.historian.build();
     }
+    if (receipt.status==='ADMITTED') this.notifyUi('MEMORY_EXTERNAL_EVIDENCE_MAPPED',[receipt.memoryEvidenceId],{
+      mappingId:receipt.mappingId,sourceRevisionId:receipt.sourceRevisionId,
+    });
     return {
       ...receipt,
       materializedSceneEpisodes:materializedSceneEpisodes.map((episode)=>({
@@ -170,6 +211,9 @@ export class MemoryTemporalProducer {
     const result=this.graph.applySettlement(envelope);
     this.summaryHierarchy.invalidateEvidenceRefs(envelope?.proposal?.evidenceIds??[],'SETTLEMENT_CHANGED');
     this.historian.build();
+    this.notifyUi('MEMORY_SETTLEMENT_APPLIED',envelope?.proposal?.evidenceIds??[],{
+      proposalId:envelope?.proposal?.id??null,decisionId:envelope?.decision?.id??null,
+    });
     return result;
   }
 
@@ -254,6 +298,7 @@ export class MemoryTemporalProducer {
     const reflection=this.experienceStore.reflectionFromGreenRoomProposal(proposal,options);
     this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
+    this.notifyUi('MEMORY_REFLECTION_PUBLISHED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
     return reflection;
   }
 
@@ -261,6 +306,7 @@ export class MemoryTemporalProducer {
     const reflection=this.experienceStore.reviseReflection(input);
     this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
+    this.notifyUi('MEMORY_REFLECTION_REVISED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
     return reflection;
   }
 
@@ -283,6 +329,8 @@ export class MemoryTemporalProducer {
       unrelatedMemoryMutation:false,
     };
     this.pushDiagnostic(receipt);
+    const affectedEvidence=[...this.graph.evidenceOrder].filter((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId===sourceRevisionId);
+    this.notifyUi('MEMORY_SOURCE_INVALIDATED',affectedEvidence,{sourceRevisionId,reason:options.reason??'SOURCE_REVISION_INVALIDATED'});
     return receipt;
   }
 
@@ -292,11 +340,40 @@ export class MemoryTemporalProducer {
 
   queryHistorian(request) {
     try {
-      return this.summaryHierarchy.queryHistorian(request??{},(baseRequest)=>this.historian.query(baseRequest));
+      const raw=this.summaryHierarchy.queryHistorian(request??{},(baseRequest)=>this.historian.query(baseRequest));
+      const selection=normalizeMemorySelection(request?.selection??{});
+      let result=raw;
+      if (selection.chatId) {
+        const nominations=(raw.nominations??[]).filter((nomination)=>this.nominationBelongsToChat(nomination,selection));
+        result={
+          ...raw,
+          nominations,
+          diagnostics:{
+            ...(raw.diagnostics??{}),
+            selectionFiltered:true,
+            selectedChatId:selection.chatId,
+            selectionFilteredOut:Math.max(0,(raw.nominations??[]).length-nominations.length),
+            returned:nominations.length,
+          },
+        };
+        this.uiReadModel.recordRetrieval(selection,request,result);
+      }
+      return result;
     } catch (error) {
       this.pushDiagnostic({kind:'MemoryHistorianDegraded',reason:error?.message??String(error)});
-      return this.historian.degradedResult({query:request?.query??'',mode:request?.mode??'EXPLICIT_HISTORY',reason:error?.message??'HISTORIAN_FAILED'});
+      const degraded=this.historian.degradedResult({query:request?.query??'',mode:request?.mode??'EXPLICIT_HISTORY',reason:error?.message??'HISTORIAN_FAILED'});
+      const selection=normalizeMemorySelection(request?.selection??{});
+      if(selection.chatId)this.uiReadModel.recordRetrieval(selection,request,degraded);
+      return degraded;
     }
+  }
+
+  nominationBelongsToChat(nomination,selection) {
+    const summary=nomination?.metadata?.historianChannel==='HIERARCHICAL_SUMMARY';
+    const rows=summary
+      ? this.summaryHierarchy.drillDown(nomination)
+      : (nomination?.evidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
+    return rows.length>0&&rows.every((row)=>evidenceBelongsToChat(row,selection));
   }
 
   resolveHistorianMemoryRequest(request) {
@@ -448,10 +525,12 @@ export class MemoryTemporalProducer {
     const perspective=options.perspectiveConstraint
       ??(typeof nominationOrRecordRef==='object'?nominationOrRecordRef?.metadata?.perspective:null)
       ??{scope:'WORLD'};
-    if(perspective?.scope!=='CHARACTER_KNOWLEDGE')return rows;
+    const selection=normalizeMemorySelection(options.selection??{});
+    const selected=selection.chatId?rows.filter((row)=>evidenceBelongsToChat(row,selection)):rows;
+    if(perspective?.scope!=='CHARACTER_KNOWLEDGE')return selected;
     const characterRef=perspective.characterRef??perspective.characterId??null;
     if(!characterRef)return [];
-    return rows.filter((row)=>(row.knownBy??[]).includes(characterRef));
+    return selected.filter((row)=>(row.knownBy??[]).includes(characterRef));
   }
 
   profileHierarchyQuery(request,options={}) {
@@ -464,6 +543,10 @@ export class MemoryTemporalProducer {
 
   runSummaryCompaction(options={}) {
     const result=this.summaryHierarchy.runCompaction(options);
+    if((result.publishedArtifactIds??[]).length)this.uiReadModel.notify('MEMORY_SUMMARY_UPDATED',{},{
+      artifactIds:result.publishedArtifactIds,
+      pendingWorkUnits:result.pendingWorkUnits,
+    });
     return result;
   }
 
@@ -491,14 +574,34 @@ export class MemoryTemporalProducer {
     return [...this.historian.memoryRevisionRefs(),this.summaryHierarchy.revisionRef(),this.evidenceBridge.revisionRef()].sort();
   }
 
-  startConsolidation(jobs=[]) {
-    return this.experienceStore.startConsolidation(jobs);
+  startConsolidation(jobs=[],options={}) {
+    return this.experienceStore.startConsolidation(jobs,options);
+  }
+
+  consolidationWorkUnits(sessionId,options={}) {
+    return this.experienceStore.consolidationWorkUnits(sessionId,options);
   }
 
   runConsolidation(sessionId,options={}) {
     const result=this.experienceStore.runConsolidation(sessionId,options);
-    if (result.publishedArtifactIds.length) this.historian.build();
+    if (result.publishedArtifactIds.length) {
+      this.historian.build();
+      const evidenceRefs=result.publishedArtifactIds.flatMap((id)=>this.experienceStore.artifact(id)?.supportEvidenceRefs??[]);
+      this.notifyUi('MEMORY_CONSOLIDATION_PUBLISHED',evidenceRefs,{sessionId,publishedArtifactIds:result.publishedArtifactIds});
+    }
     return result;
+  }
+
+  readMemoryUi(selection={}) {
+    return this.uiReadModel.read(selection);
+  }
+
+  subscribeMemory(listener) {
+    return this.uiReadModel.subscribe(listener);
+  }
+
+  createMemoryUiProducer(options={}) {
+    return this.uiReadModel.createProducer(options);
   }
 
   checkpoint({cursor=0,pendingWork=[]}={}) {
@@ -530,6 +633,9 @@ export class MemoryTemporalProducer {
         'CORE_SETTLEMENT_EVIDENCE_MAPPING',
         'RESOLUTION_AWARE_HISTORIAN',
         'SUMMARY_WORK_REVISION_FENCES',
+        'GENERATION_FENCED_CONSOLIDATION_WORK',
+        'SELECTION_AWARE_UI_READ_MODEL',
+        'MEMORY_READ_SUBSCRIBE',
         'SNAPSHOT_RELOAD',
       ],
       bounds:deepClone(MEMORY_LIMITS),
@@ -541,6 +647,7 @@ export class MemoryTemporalProducer {
         historian:'NOMINATION_ONLY',
         summaries:'DERIVED_NAVIGATION_ONLY',
         evidenceBridge:'IDENTITY_AND_EXACT_CONTENT_ONLY',
+        uiReadModel:'READ_ONLY_SELECTION_AWARE',
         candidateBusAdmission:false,
         truthGate:false,
         settlement:false,
@@ -554,6 +661,8 @@ export class MemoryTemporalProducer {
         historian:'HistorianMemoryResolution v1.0.0 + CandidateNomination v1.0.0',
         hierarchy:'MemoryHierarchicalSummary v1.0.0 + MemorySummaryCompactionWorkUnit v1.0.0',
         evidenceBridge:'MemoryExternalEvidenceMapping v1.0.0 + MemoryCoreSettlementAdapterReceipt v1.0.0',
+        ui:'MemoryUiReadModel v1.0.0 + MemoryUiProducer v1.0.0',
+        consolidation:'MemoryConsolidationWorkUnit v1.0.0',
       },
     };
   }
@@ -572,6 +681,11 @@ export class MemoryTemporalProducer {
       historian:this.historian.status(),
       summaryHierarchy:this.summaryHierarchy.status(),
       evidenceBridge:this.evidenceBridge.status(),
+      uiReadModel:{
+        contractVersion:'1.0.0',
+        retrievalHistory:this.uiReadModel.retrievalHistory.length,
+        subscribers:this.uiReadModel.listeners.size,
+      },
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -591,6 +705,7 @@ export class MemoryTemporalProducer {
       historian:this.historian.snapshot(),
       summaryHierarchy:this.summaryHierarchy.snapshot(),
       evidenceBridge:this.evidenceBridge.snapshot(),
+      uiReadModel:this.uiReadModel.snapshot(),
       diagnostics:deepClone(this.diagnostics),
     };
   }
@@ -602,6 +717,7 @@ export class MemoryTemporalProducer {
     this.historian=new MemoryHistorianIndex({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.historian??null});
     this.summaryHierarchy=new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.summaryHierarchy??null});
     this.evidenceBridge=new MemoryExternalEvidenceBridge({graph:this.graph,snapshot:snapshot?.evidenceBridge??null});
+    this.uiReadModel=new MemoryUiReadModelProducer({producer:this,snapshot:snapshot?.uiReadModel??null});
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
   }
 

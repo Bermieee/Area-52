@@ -86,7 +86,9 @@ export function renderOperationalSummary(host,{operations,scope,inspect}={}){
     flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
     flowStep(d,'Work executed',pipeline.executionReceipt?String(pipeline.executedJobs??0)+' jobs':'No execution receipt'),
     flowStep(d,'Results returned',pipeline.resultReceipt?String(pipeline.returnedResults??0):'No Gather receipt'),
-    flowStep(d,'Context admitted',pipeline.admissionReceipt?String(pipeline.contextAdmitted??0):'No Context Seal receipt')
+    flowStep(d,'Context admitted',pipeline.admissionReceipt?String(pipeline.contextAdmitted??0):'No Context Seal receipt'),
+    flowStep(d,'Generation delivery',pipeline.deliveryReceipt?(pipeline.generationState?humanLabel(pipeline.generationState):'Sealed context delivered'):pipeline.generationReader?'No delivery receipt':'Owner generation reader unavailable'),
+    flowStep(d,'Learning write-back',pipeline.learningReceipt?'Learning receipt recorded':pipeline.generationReceipt?'No learning receipt yet':'No generation receipt')
   ));
   const grid=element(d,'div',{className:'a52-wave13-status-grid'});
   for(const row of status.stages.slice(0,8))grid.append(stageCard(d,row,scope,inspect));
@@ -110,6 +112,9 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
     {key:'Executed jobs',value:pipeline.executedJobs??0},{key:'Gather receipt',value:pipeline.resultReceipt?'Published':'None'},
     {key:'Returned results',value:pipeline.returnedResults??0},{key:'Context Seal receipt',value:pipeline.admissionReceipt?'Published':'None'},
     {key:'Context-admitted results',value:pipeline.contextAdmitted??0},
+    {key:'Generation receipt',value:pipeline.generationReceipt?'Published':'None'},{key:'Generation state',value:pipeline.generationState??'—'},
+    {key:'Post-response learning',value:pipeline.learningReceipt?(pipeline.learningKind??'Published'):'None'},
+    {key:'Host lifecycle',value:pipeline.hostLifecycle?String(pipeline.hostLifecycle.learned??0)+' learned · '+String(pipeline.hostLifecycle.pending??0)+' pending':'Not exported'},
   ]));
   const grid=element(d,'div',{className:'a52-wave13-status-grid'});
   for(const row of status.stages)grid.append(stageCard(d,row,scope,inspect,{showIds:true}));

@@ -396,6 +396,7 @@ export class Wave13DiagnosticsCenterAdapter{
     return deepFreeze({
       kind:'Wave13DiagnosticsCenter',selection,
       host:{connected:Boolean(operations?.hostConnected),waitingForTurn:Boolean(operations?.waitingForTurn),liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
+      pipeline:cloneSafe(operations?.pipeline??{}),
       producers:{active:Number(operations?.active??0),failures:Number(operations?.failures??0),stages:cloneSafe(operations?.stages??[])},
       runtime:diagnosticSource(runtimeRead),coprocessor:diagnosticSource(coprocessorRead),promptPlan:diagnosticSource(promptPlanRead),
       resources:{

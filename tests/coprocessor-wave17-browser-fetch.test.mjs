@@ -34,8 +34,8 @@ function installWindowBoundFetch(){
     const href=String(url),method=String(init.method??'GET').toUpperCase(),authorization=header(init.headers,'authorization');
     calls.push({href,method,authorization});
     if(authMode==='denied'||authorization!=='Bearer browser-key')return response({error:{message:'unauthorized'}},401);
-    if(method==='GET'&&href.endsWith('/models'))return response({data:[{id:'browser-chat',name:'Browser Chat',architecture:{input_modalities:['text'],output_modalities:['text']}}]});
     if(method==='GET'&&href.endsWith('/embeddings/models'))return response({data:[{id:'browser-embed',name:'Browser Embed',architecture:{input_modalities:['text'],output_modalities:['embeddings']}}]});
+    if(method==='GET'&&href.endsWith('/models'))return response({data:[{id:'browser-chat',name:'Browser Chat',architecture:{input_modalities:['text'],output_modalities:['text']}}]});
     if(method==='POST'&&href.endsWith('/chat/completions')){
       const body=JSON.parse(init.body??'{}'),system=String(body.messages?.[0]?.content??'');
       const content=system.includes('Graph Walker')?JSON.stringify(graphOutput()):'{"probe":"ok"}';

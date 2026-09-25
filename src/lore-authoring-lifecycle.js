@@ -1187,7 +1187,23 @@ export class LoreAuthoringLifecycle {
       revisionEvents: [],
       invalidationReceipts: [],
       checkpoints: [],
-      reconstructionManifest: deepClone(session.finalPreview.output?.reconstructionManifest || null),
+      reconstructionManifest: session.type === 'TREE'
+        ? {
+          kind: 'LoreTreeReconstructionManifest',
+          sources: operations.map((operation) => ({
+            sourceId: operation.sourceId,
+            lorebookId: operation.lorebookId,
+            uid: operation.uid,
+            sourceRevisionId: operation.expectedSourceRevisionId,
+            exactContent: operation.exactContent,
+            beforeMetadata: deepClone(operation.beforeMetadata),
+            afterMetadata: deepClone(operation.afterMetadata),
+          })),
+          preservesExactAuthoredText: true,
+          restoresByNewRevision: true,
+          reconstructable: true,
+        }
+        : deepClone(session.finalPreview.output?.reconstructionManifest || null),
       restoration: null,
       lastError: null,
     };

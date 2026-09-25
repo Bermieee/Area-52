@@ -275,7 +275,10 @@ function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,n
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
   card.append(top,createKeyValue(d,[
-    {key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},{key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
+    {key:'Configured',value:'Yes'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
+    {key:'Physical execution',value:row.physicalExecutionAttempted?(row.physicalExecutionSucceeded?'Succeeded':'Attempted / not successful'):'No cognitive execution observed'},
+    {key:'Owner accepted',value:row.ownerAccepted===true?'Yes':row.ownerAccepted===false?'No':row.ownerAcceptanceSource==='OWNER_RECEIPT_REQUIRED'?'Requires owner receipt':'Not reported'},
+    {key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
     {key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
     {key:'Provider',value:row.actualProvider??row.providerId??'—'},{key:'Model',value:row.actualModelId??row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},

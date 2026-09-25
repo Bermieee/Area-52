@@ -5,6 +5,7 @@ const BLOCKED_KEYS = new Set([
   'candidateText', 'sourceText', 'retrievedSourceText', 'retrievedText', 'fullArtifact', 'rawArtifact',
   'conversation', 'fullConversation', 'chatHistory', 'lorebook', 'fullLorebook', 'memory', 'allMemory',
   'privateDiagnostics', 'chainOfThought', 'reasoning',
+  'apiKey', 'api_key', 'authorization', 'credential', 'credentials', 'secret', 'token', 'accessToken', 'refreshToken',
 ]);
 const DEFAULT_BOUNDS = Object.freeze({ maxDepth: 5, maxKeys: 64, maxArray: 64, maxString: 768 });
 

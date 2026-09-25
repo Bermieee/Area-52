@@ -6,7 +6,7 @@ import {runWave16ResourceJevEvaluation} from './resource-jev-wave16-evaluator.mj
 
 export async function runWave17SidecarJevEvaluation(){
   const wave16=await runWave16ResourceJevEvaluation();
-  const nativeFetch=measureBrowserFetchBinding();
+  const nativeFetch=await measureBrowserFetchBinding();
   const owner=await measureOwnerAdmission();
   const zero=await measureZeroResource();
   return Object.freeze({
@@ -37,14 +37,15 @@ export async function runWave17SidecarJevEvaluation(){
   });
 }
 
-function measureBrowserFetchBinding(){
+async function measureBrowserFetchBinding(){
   const original=globalThis.fetch;
   let called=false,receiverCorrect=false;
   const nativeLike=function(){called=true;receiverCorrect=this===globalThis;return Promise.resolve({ok:true,status:200});};
   globalThis.fetch=nativeLike;
   try{
     const bound=bindProviderFetch();
-    return Object.freeze({supported:true,calledAfterInvoke:Promise.resolve(bound('https://example.invalid')).then(()=>called),receiverCorrectAfterInvoke:Promise.resolve(bound('https://example.invalid')).then(()=>receiverCorrect)});
+    await bound('https://example.invalid');
+    return Object.freeze({supported:true,calledAfterInvoke:called,receiverCorrectAfterInvoke:receiverCorrect});
   }finally{globalThis.fetch=original;}
 }
 

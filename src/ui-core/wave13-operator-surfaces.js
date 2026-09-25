@@ -397,11 +397,11 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
   }
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
   displayActions.append(inspector);display.append(displayActions);root.append(display);
-  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel:productAdapter?.getDetailLevel?.()}));
+  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,detailLevel:productAdapter?.getDetailLevel?.()}));
   host.append(root);
 }
 
-export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel=ProductDetailLevel.NORMAL}={}){
+export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,detailLevel=ProductDetailLevel.NORMAL}={}){
   const snapshot=diagnostics.read(),center=element(d,'section',{className:'a52-wave13-settings__group a52-wave13-diagnostics',attrs:{'aria-label':'Diagnostics Center'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
   const unhealthy=(snapshot.producers?.failures??0)>0||snapshot.resources?.rows?.some(row=>['DEGRADED','UNAVAILABLE'].includes(String(row.state))||['DEGRADED','UNAVAILABLE','COOLDOWN'].includes(String(row.health)));
@@ -461,9 +461,25 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,detailLevel
     flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
     flowStep(d,'Work executed',pipeline.executionReceipt?jobs.length+' jobs':'No execution receipt'),
     flowStep(d,'Results returned',pipeline.resultReceipt?results.length+' returned':'No Gather receipt'),
-    flowStep(d,'Context admitted',pipeline.admissionReceipt?String(snapshot.cognition?.seal?.admittedResultIds?.length??0):'No Context Seal receipt')
+    flowStep(d,'Context admitted',pipeline.admissionReceipt?String(snapshot.cognition?.seal?.admittedResultIds?.length??0):'No Context Seal receipt'),
+    flowStep(d,'Generation delivered',pipeline.deliveryReceipt?(pipeline.generationState?humanLabel(pipeline.generationState):'Owner delivery recorded'):pipeline.generationReader?'No delivery receipt':'Owner generation reader unavailable'),
+    flowStep(d,'Learning recorded',pipeline.learningReceipt?'Owner learning receipt recorded':pipeline.generationReceipt?'Not yet':'No generation receipt')
   );
   center.append(element(d,'h3',{text:'Current turn activity'}),activity);
+  const path=element(d,'section',{className:'a52-card a52-wave13-turn-path',attrs:{'aria-label':'Selected turn owner receipt path'}});
+  path.append(element(d,'h3',{text:'Selected-turn receipt path'}),element(d,'p',{className:'a52-muted',text:'A read-only owner-receipt path for this selected turn. This is an operational trace, not a complete cognitive transaction ledger.'}));
+  const stageMap=new Map((snapshot.producers?.stages??[]).map(row=>[row.id,row]));
+  for(const [id,label] of [['choice','Choice'],['runtime','Execution'],['truth','Truth'],['gather','Returned evidence'],['seal','Context Seal'],['generation','Generation delivery'],['learning','Learning write-back']]){
+    const row=stageMap.get(id),line=element(d,'div',{className:'a52-wave13-flow-row'});
+    line.append(element(d,'strong',{text:label}),makeBadge(d,row?.state??'UNAVAILABLE',stageStatus(row?.state)));
+    line.append(element(d,'span',{className:'a52-muted',text:row?.reason??'Owner receipt not exported.'}));
+    if(advanced&&row?.errorCode)line.append(element(d,'code',{text:row.errorCode}));
+    path.append(line);
+  }
+  const forensicStage=stageMap.get('forensics');
+  if(navigate&&forensicStage&&forensicStage.state!==OperatorProducerState.UNAVAILABLE)path.append(createButton(d,{label:'Open Forensics',scope,size:'sm',variant:'quiet',onPress:()=>navigate('forensics')}));
+  else path.append(element(d,'p',{className:'a52-muted',text:'A full forensic timeline requires the owner transaction/forensics readers; missing owner data is not reconstructed by the UI.'}));
+  center.append(path);
   if(jobs.length){
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const job of jobs.slice(0,40)){

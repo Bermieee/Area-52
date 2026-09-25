@@ -279,9 +279,12 @@ export class CoprocessorResourceConnections{
     const code=error?.code??FailureCode.PROVIDER_FAILURE;const timeout=code===FailureCode.PROVIDER_TIMEOUT,transport=[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.PROVIDER_FAILURE].includes(code),validation=[FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED].includes(code);
     const snapshot=this.health.observe(row.providerProfileId,{outcome:'FAIL',timeout,transportFailure:transport,validationFailure:validation,activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:row.lastExecution?.latencyMs??row.lastTest?.latencyMs??null,now:this.now()});
     row.lastFailure={code,message:safeMessage(error?.message??String(error)),at:this.now()};
-    if(['UNAVAILABLE','COOLDOWN'].includes(snapshot.health)){row.state=ResourceConnectionState.UNAVAILABLE;this.profiles.setAvailability(row.providerProfileId,false);this.profiles.setHealth(row.providerProfileId,'UNAVAILABLE');}
-    else{row.state=ResourceConnectionState.DEGRADED;this.profiles.setAvailability(row.providerProfileId,true);this.profiles.setHealth(row.providerProfileId,'DEGRADED');}
-    row.reasonCode=reasonFromError(error);row.reason=row.lastFailure.message;this.#diagnostic(row,'EXECUTION_FAILED',row.reason,{code});
+    if(row.state!==ResourceConnectionState.DISCONNECTED){
+      if(['UNAVAILABLE','COOLDOWN'].includes(snapshot.health)){row.state=ResourceConnectionState.UNAVAILABLE;this.profiles.setAvailability(row.providerProfileId,false);this.profiles.setHealth(row.providerProfileId,'UNAVAILABLE');}
+      else{row.state=ResourceConnectionState.DEGRADED;this.profiles.setAvailability(row.providerProfileId,true);this.profiles.setHealth(row.providerProfileId,'DEGRADED');}
+      row.reasonCode=reasonFromError(error);row.reason=row.lastFailure.message;
+    }
+    this.#diagnostic(row,'EXECUTION_FAILED',row.lastFailure.message,{code});
   }
 
   #resourceByProfile(profileId){for(const row of this.resources.values())if(row.providerProfileId===profileId)return row;return null;}

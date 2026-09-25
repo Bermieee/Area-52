@@ -217,14 +217,29 @@ export function validateGreenRoomProviderOutput(value, context = {}, limits = {}
   const sceneRevision = nonNegativeInteger(object.sceneRevision ?? context.sceneRevision, 'sceneRevision');
   if (context.sceneRevision != null && sceneRevision !== Number(context.sceneRevision)) fail(FailureCode.STALE_RESULT, 'Green Room output Scene revision expired');
   const knownEvidence = context.knownEvidenceRefs == null ? null : new Set(context.knownEvidenceRefs);
+  const knownByCharacter = normalizeKnownEvidenceByCharacter(context.knownEvidenceRefsByCharacter);
   const knownCharacters = context.knownCharacterRefs == null ? null : new Set(context.knownCharacterRefs);
   const batch = createGreenRoomBatch({ ...object, sceneRevision }, limits);
   for (const row of batch.characters) {
     if (knownCharacters && !knownCharacters.has(row.characterRef)) fail(FailureCode.UNKNOWN_REFERENCE, 'Unknown Green Room character: ' + row.characterRef);
     if (knownEvidence) for (const ref of row.directEvidenceRefs) if (!knownEvidence.has(ref)) fail(FailureCode.UNKNOWN_REFERENCE, 'Unknown Green Room evidence ref: ' + ref);
+    const perspectiveEvidence=knownByCharacter?.get(row.characterRef)??null;
+    if (perspectiveEvidence) for (const ref of row.directEvidenceRefs) if (!perspectiveEvidence.has(ref)) fail(FailureCode.AUTHORITY_VIOLATION, 'Green Room evidence is not available to character perspective: ' + row.characterRef + ' -> ' + ref);
     if (knownEvidence) for (const ref of row.priorInferenceRefs) if (!knownEvidence.has(ref) && !String(ref).startsWith('green-room:')) fail(FailureCode.UNKNOWN_REFERENCE, 'Unknown Green Room prior-inference ref: ' + ref);
   }
   return batch;
+}
+
+
+function normalizeKnownEvidenceByCharacter(value) {
+  if(value==null)return null;
+  const entries=value instanceof Map?[...value.entries()]:Object.entries(value);
+  const out=new Map();
+  for(const [characterRef,refs] of entries){
+    if(!Array.isArray(refs))throw new TypeError('knownEvidenceRefsByCharacter values must be arrays');
+    out.set(String(characterRef),new Set(refs.map(String)));
+  }
+  return out;
 }
 
 export class GreenRoomStore {

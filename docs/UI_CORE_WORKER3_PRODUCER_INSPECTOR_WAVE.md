@@ -18,7 +18,7 @@ The operational producer list includes Scene, Runtime, Coprocessor, Cognitive Ch
 
 ## Worker 2 lifecycle contract
 
-At Worker 2 head `Development-Sidecar/Jev@fa67f4d253a52e8cea054f39f73c475b709298b1`, `CognitionUiState` resource rows publish independent evidence for:
+From the Worker 2 contract snapshot inspected at `Development-Sidecar/Jev@fa67f4d253a52e8cea054f39f73c475b709298b1`, `CognitionUiState` resource rows publish independent evidence for:
 
 - configured / connected
 - selected-model qualified / callable
@@ -31,7 +31,7 @@ UI.Core preserves those as separate fields. It must not derive physical executio
 
 The checked-out main baseline does **not** publish a host-observation receipt. Therefore the current UI may show PromptPlan planning data and any actual ContextReceipt/Context Seal that exists, but must show real-host observation as UNAVAILABLE.
 
-At Worker 1 head `Development-Nexus@ba19ef76a311b90a9a9db1b0ab7d4cf3559eb8f0`, the branch adds the integration seam expected by this UI:
+From the Worker 1 contract snapshot inspected at `Development-Nexus@ba19ef76a311b90a9a9db1b0ab7d4cf3559eb8f0`, the branch adds the integration seam expected by this UI:
 
 - `readPromptDeliveryReceipt(selection)`
 - `attachObservedHostPromptEvidence(receipt, evidence)`
@@ -66,3 +66,13 @@ The installed session remains auto-started. Functional SillyTavern listeners now
 Code/host-event tests can establish identity fencing, bounded reads, unavailable-producer behavior, regeneration containment, stale/late containment, and listener topology. They cannot establish a real SillyTavern operator pass.
 
 Until a director/operator runs a real installed turn, live behavior is **PENDING OPERATOR TEST** and #224 must remain incomplete.
+
+
+## Automated acceptance coverage used by this wave
+
+- `tests/deployment-live-host.test.mjs`: direct host sequence, single listener topology, user-turn narrative event, generation preparation, prompt-ready injection, assistant completion, post-turn learning, cross-chat completion rejection, no raw prompt/response capture.
+- `tests/wave12-sillytavern-host.test.mjs`: chat switching, stale-owner identity drop, remount/reload idempotence, missing Choice/Truth/Seal, Sensory unavailable vs owner-declared skip, late Gather/Seal containment, small-window workspace behavior.
+- `tests/wave13-operator-ui.test.mjs`: workspace navigation, cross-chat Scene containment, diagnostics following chat switches, Worker 2 connection/qualification lifecycle, Lore/Memory selected-chat presentation.
+- `tests/worker3-ui-producer-inspector-wave.test.mjs`: plan/injection/observation separation, raw-secret exclusion, foreign-generation delivery rejection, bounded forensic reconstruction, and regeneration containment.
+
+These are realistic host/owner contract tests, not a substitute for the next installed SillyTavern operator turn.

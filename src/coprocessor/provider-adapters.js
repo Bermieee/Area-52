@@ -78,7 +78,7 @@ export class OpenAICompatibleProviderAdapter {
     if(typeof fetchImpl!=='function')throw new TypeError('fetchImpl is required');
     if(!Object.values(ProviderTransportMode).includes(transportMode))throw new TypeError('unsupported provider transport mode: '+transportMode);
     this.providerId=providerId;this.modelId=modelId;this.endpoint=endpoint.replace(/\/$/,'');this.setCredential(apiKey);
-    this.headers={...headers};this.fetchImpl=fetchImpl;this.timeoutMs=Math.max(1,Number(timeoutMs)||30000);
+    this.headers={...headers};this.fetchImpl=bindProviderFetch(fetchImpl);this.timeoutMs=Math.max(1,Number(timeoutMs)||30000);
     this.contextLimit=contextLimit==null?null:Number(contextLimit);this.outputLimit=outputLimit==null?null:Number(outputLimit);
     this.capabilities=[...new Set(capabilities)];this.structuredOutputSupport=transportMode===ProviderTransportMode.CHAT_COMPLETIONS;
     this.streamingSupport=false;this.abortSupport=true;this.local=Boolean(local);this.costMetadata=costMetadata==null?null:structuredClone(costMetadata);
@@ -208,6 +208,12 @@ export class OpenAICompatibleProviderAdapter {
   #requestHeaders(extra={}){
     const headers={...this.headers,...extra};if(this.#apiKey)headers.authorization='Bearer '+this.#apiKey;return headers;
   }
+}
+
+export function bindProviderFetch(fetchImpl=globalThis.fetch,{host=globalThis}={}){
+  if(typeof fetchImpl!=='function')throw new TypeError('fetchImpl is required');
+  if(host&&typeof host.fetch==='function'&&fetchImpl===host.fetch)return fetchImpl.bind(host);
+  return fetchImpl;
 }
 
 export function assertAdapter(adapter){

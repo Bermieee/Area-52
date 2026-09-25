@@ -77,8 +77,9 @@ assert.equal(corrected.memoryWriteback.status,'ADMITTED');
 assert.equal(corrected.memorySettlementReceipts.length,1);
 assert.equal(corrected.memorySettlementReceipts[0].status,'APPLIED');
 assert.notEqual(corrected.sourceRevisionId,priorSourceRevisionId);
-const correctedProjection=memoryProducer.currentProjection({includeStale:true});
+const correctedProjection=memoryProducer.currentProjection();
 assert.ok(correctedProjection.some(row=>row.subjectId==='Nemi'&&row.predicate==='location'&&row.value==='Eastern Glass Canal'));
+assert.equal(correctedProjection.some(row=>row.subjectId==='Nemi'&&row.predicate==='location'&&row.value==='Moon Orchard'),false);
 
 console.log('NATIVE_BRAIN_OWNER_INTEGRATION',JSON.stringify({
   pass:true,

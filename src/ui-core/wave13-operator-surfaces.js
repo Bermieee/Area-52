@@ -684,11 +684,12 @@ export function renderLoreAuthoringSurface(host,{loreStudy,loreAuthoring,actionR
   const merge=element(d,'section',{className:'a52-card'});
   merge.append(element(d,'h3',{text:'4. Merge / reconciliation preview'}),element(d,'p',{className:'a52-muted',text:'Compare two studied Lorebooks while preserving contradictions and unique facts. Similarity is advisory only.'}));
   const secondSelect=field(d,'select','Merge comparison lorebook');const otherBooks=books.filter(x=>x.lorebookId!==book.lorebookId);secondSelect.append(option(d,'','Choose second Lorebook'));for(const row of otherBooks)secondSelect.append(option(d,row.lorebookId,row.title??row.lorebookId));secondSelect.value=state.mergeBookId??'';
-  listenField(scope,secondSelect,'change',()=>{state.mergeBookId=secondSelect.value;});
-  merge.append(labelWrap(d,'Compare with',secondSelect),createButton(d,{label:'Preview merge reconciliation',scope,disabled:!caps.merge||!state.mergeBookId,onPress:async()=>{
+  const previewMerge=createButton(d,{label:'Preview merge reconciliation',scope,disabled:!caps.merge||!state.mergeBookId,onPress:async()=>{
     const result=await actionRouter.route({type:'wave13.loreAuthoring.previewMerge',payload:{lorebookIds:[book.lorebookId,state.mergeBookId]}});
     state.status=operatorRouteMessage(result,'Merge preview ready.');refresh?.();
-  }}));
+  }});
+  listenField(scope,secondSelect,'change',()=>{state.mergeBookId=secondSelect.value;previewMerge.disabled=!caps.merge||!state.mergeBookId;});
+  merge.append(labelWrap(d,'Compare with',secondSelect),previewMerge);
   const mergePreview=operatorValue(loreAuthoring.snapshot?.().last?.merge);
   if(mergePreview){
     const cls=mergePreview.classifications??{},validation=mergePreview.validation??{};

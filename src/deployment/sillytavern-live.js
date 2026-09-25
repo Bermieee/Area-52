@@ -733,7 +733,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(typeof brainBindings.subscribe==='function'){
       this.releaseLoreOwnerEvents=brainBindings.subscribe((event)=>{
         if(event?.type!=='LORE_AUTHORING_SETTLEMENT')return;
-        const revisions=event?.result?.worker1?.revisionEvents??[];
+        const revisions=event?.result?.acceptedRevisionEvents??[];
         for(const revisionEvent of revisions){
           try{
             if(this.nativeBrain&&typeof this.nativeBrain.acceptLoreRevisionChange==='function')this.acceptLoreRevisionChange(revisionEvent);

@@ -69,6 +69,9 @@ export class LoreHierarchyRetrievalSystem {
       });
     }
     const before = new Map(this.summaryRegistry.activeSummaries().map((row) => [row.targetScopeId, row.id]));
+    const preexistingStaleScopeIds = new Set([...this.summaryRegistry.summaries.values()]
+      .filter((row) => row?.freshness === 'STALE' && row?.targetScopeId)
+      .map((row) => row.targetScopeId));
     const previousScopes = this.hierarchy ? hierarchyScopeMap(this.hierarchy) : new Map();
     const previousAffectedScopeIds = new Set([...previousScopes.values()]
       .filter((scope) => (scope.sourceIds || []).some((sourceId) => wanted.has(String(sourceId))))
@@ -79,6 +82,9 @@ export class LoreHierarchyRetrievalSystem {
       .filter((scope) => (scope.sourceIds || []).some((sourceId) => wanted.has(String(sourceId))))
       .map((scope) => scope.id));
     for (const scopeId of previousAffectedScopeIds) {
+      if (scopes.has(scopeId)) affectedSetFromSource.add(scopeId);
+    }
+    for (const scopeId of preexistingStaleScopeIds) {
       if (scopes.has(scopeId)) affectedSetFromSource.add(scopeId);
     }
     const affected = [...affectedSetFromSource].sort();
@@ -136,6 +142,7 @@ export class LoreHierarchyRetrievalSystem {
       hierarchyRevision: this.hierarchy?.hierarchyRevision || null,
       affectedScopeIds: affected,
       previousAffectedScopeIds: [...previousAffectedScopeIds].sort(),
+      preexistingStaleScopeIds: [...preexistingStaleScopeIds].filter((scopeId) => scopes.has(scopeId)).sort(),
       executionPlan: plan,
       results,
       builtScopeIds: results.filter((row) => row.state === 'BUILT').map((row) => row.scopeId),

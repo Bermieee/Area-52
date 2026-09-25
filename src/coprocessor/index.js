@@ -78,3 +78,6 @@ export * from './jev-scene-adapter.js';
 export * from './jev-retrieval-truth-adapter.js';
 export * from './jev-adapter-matrix.js';
 export * from './native-coprocessor-bootstrap.js';
+export * from './native-hot-deep-scheduler.js';
+export * from './owner-integration.js';
+export * from './jev-memory-temporal-adapter.js';

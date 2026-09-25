@@ -13,7 +13,7 @@ function makeHost() {
   const context = {
     chatId: 'chat:observatory',
     chat: [],
-    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', MESSAGE_SENT: 'message_sent' },
+    eventTypes: { GENERATION_AFTER_COMMANDS: 'generation_after_commands', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received', GENERATION_STOPPED: 'generation_stopped' },
     eventSource: {
       on(type, fn) { if (!listeners.has(type)) listeners.set(type, new Set()); listeners.get(type).add(fn); },
       removeListener(type, fn) { listeners.get(type)?.delete(fn); },
@@ -40,6 +40,45 @@ function operatorLore() {
 
 function pushUser(context, mes) {
   context.chat.push({ is_user: true, mes, send_date: Date.now() });
+}
+
+function pushAssistant(context, mes) {
+  context.chat.push({ is_user: false, mes, send_date: Date.now() });
+  return context.chat.length - 1;
+}
+
+function fakeNativeBrain(){
+  const calls={prepare:[],complete:[],subscriptions:0};
+  const listeners=new Set();
+  return{
+    calls,
+    async prepareTurn(input){
+      calls.prepare.push(structuredClone(input));
+      const selection={chatId:input.chatId,turnId:input.turnId,generationId:input.generationId,correlationId:'corr:'+input.turnId,worldRevision:9,sceneRevision:input.sceneSignal?.sceneRevision??1,sourceRevisionRefs:[...(input.sceneSignal?.sourceRevisionRefs??[])]};
+      const prepared={
+        kind:'NativeBrainPreparedTurn',selection,
+        promptPlan:{promptPlanId:'native-plan:'+input.turnId,generationId:input.generationId,contextSealId:'native-seal:'+input.turnId,sections:[
+          {slot:'CURRENT_WORLD_STATE',representation:'RICH',text:'The sealed owner state says the harbor lantern is lit.'},
+          {slot:'USER_INPUT',representation:'RICH',text:input.query},
+        ]},
+        contextSealReceipt:{id:'native-seal:'+input.turnId,sealedState:true},
+      };
+      for(const fn of listeners)fn({kind:'NativeBrainReceiptUpdate',stage:'TURN_PREPARED',selection,rawPromptIncluded:false,rawResponseIncluded:false});
+      return prepared;
+    },
+    async completeTurn(input){
+      calls.complete.push(structuredClone(input));
+      const receipt={kind:'NativeBrainLearningReceipt',turnId:input.turnId,sourceRevisionId:'narrative:'+input.turnId+'@r1',rawExperienceRecoverable:true,settlements:[]};
+      for(const fn of listeners)fn({kind:'NativeBrainReceiptUpdate',stage:'TURN_LEARNED',selection:{turnId:input.turnId},rawPromptIncluded:false,rawResponseIncluded:false});
+      return receipt;
+    },
+    uiBindings(){
+      return{
+        subscribe(fn){listeners.add(fn);calls.subscriptions+=1;return()=>listeners.delete(fn);},
+        readSelection:()=>({}),
+      };
+    },
+  };
 }
 
 test('live adapter source contains no Ember fixture names or fixed-scenario rejection', () => {
@@ -99,6 +138,42 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
   context.chatId = null;
   await assert.rejects(session.processCurrentTurn(), /chatId is unavailable/);
   assert.match(session.exportEvidence().errors.at(-1).message, /chatId is unavailable/);
+  session.destroy();
+});
+
+test('native Brain host lifecycle seals before model request and learns completed assistant response',async()=>{
+  const {sillyTavern,context,promptCalls,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();
+  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size??0,0);
+  pushUser(context,'At Moonlit Observatory, tell me what the lantern shows.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  assert.equal(nativeBrain.calls.prepare.length,1);assert.equal(promptCalls.length,1);
+  assert.match(String(promptCalls[0][1]),/sealed native Brain context/i);
+  assert.match(String(promptCalls[0][1]),/harbor lantern is lit/i);
+  assert.doesNotMatch(String(promptCalls[0][1]),/tell me what the lantern shows/i);
+  assert.equal(session.exportEvidence().nativeBrainIntegration.pendingCount,1);
+  const assistantIndex=pushAssistant(context,'The lantern throws a steady blue light across the observatory floor.');
+  await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
+  assert.equal(nativeBrain.calls.complete.length,1);assert.match(nativeBrain.calls.complete[0].response,/steady blue light/);
+  const evidence=session.exportEvidence();
+  assert.equal(evidence.nativeBrainIntegration.endToEndObserved,true);
+  assert.equal(evidence.nativeBrainIntegration.pendingCount,0);
+  assert.equal(evidence.nativeBrainIntegration.rawPromptCaptured,false);assert.equal(evidence.nativeBrainIntegration.rawResponseCaptured,false);
+  assert.doesNotMatch(JSON.stringify(evidence.nativeBrainIntegration),/steady blue light|tell me what the lantern shows/i);
+  session.destroy();
+});
+
+test('native Brain completion rejects cross-chat response instead of learning into the wrong story',async()=>{
+  const {sillyTavern,context,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});session.start();
+  pushUser(context,'At Moonlit Observatory, continue.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  context.chatId='chat:harbor';context.chat=[];const assistantIndex=pushAssistant(context,'A harbor reply appears in another story.');
+  await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
+  assert.equal(nativeBrain.calls.complete.length,0);
+  const evidence=session.exportEvidence();
+  assert.equal(evidence.nativeBrainIntegration.staleOrForeignCompletionRejected,1);assert.equal(evidence.nativeBrainIntegration.pendingCount,1);
   session.destroy();
 });
 

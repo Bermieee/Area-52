@@ -370,7 +370,7 @@
     },
     {
       "path": "tests/lore-assembly-integration.test.mjs",
-      "expectedDigest": "41fc43e9336c9e5a644e2530a2b2bbd02e0dc721"
+      "expectedDigest": "169d4f051a0b99e5bb9f3de885542aa80b52a060"
     },
     {
       "path": "tests/deployment-brain.integration.test.mjs",

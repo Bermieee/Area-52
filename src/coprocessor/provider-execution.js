@@ -13,17 +13,20 @@ export class SpecialistExecutionLayer {
     this.profiles=profiles;this.adapters=adapters;this.telemetry=telemetry;this.specialists=specialists;
   }
 
-  async execute(task,{input,attempt=1,signal=null,maxCostClass='HIGH',profileId=null}={}){
+  async execute(task,{input,attempt=1,signal=null,maxCostClass='HIGH',profileId=null,leaseHeld=false}={}){
     const specialist=this.specialists?.[task.taskType]??specialistForTask(task.taskType);
     if(!specialist)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No specialist contract for ${task.taskType}`);
     const providerInput=specialist.buildInput(task,input??{});
     const contextTokens=estimateTokens(providerInput);
     const eligibilityOptions={contextTokens,maxCostClass,requireStructuredOutput:true,
       expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),preferLocal:Boolean(task.metadata?.preferLocal)};
-    const eligible=(profileId==null
-      ? this.profiles.eligibleProfiles(task,eligibilityOptions)
-      : this.profiles.discover(task,eligibilityOptions).profiles)
-      .filter(profile=>this.adapters.get(profile.providerId));
+    const eligible=(profileId!=null&&leaseHeld
+      ? [this.profiles.get(profileId)].filter(Boolean)
+      : profileId==null
+        ? this.profiles.eligibleProfiles(task,eligibilityOptions)
+        : this.profiles.discover(task,eligibilityOptions).profiles)
+      .filter(profile=>this.adapters.get(profile.providerId))
+      .filter(profile=>profileSatisfiesTask(profile,task));
     if(!eligible.length)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`No eligible provider adapter for ${task.taskId}`);
     const profile=profileId==null?eligible[0]:eligible.find((candidate)=>candidate.profileId===profileId);
     if(!profile)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,`Requested Runtime-selected profile is not eligible for ${task.taskId}`);
@@ -78,6 +81,18 @@ export class ProviderExecutionRouter {
 
 export function estimateTokens(value){return Math.max(1,Math.ceil(utf8ByteLength(JSON.stringify(value??{}))/4));}
 
+function profileSatisfiesTask(profile,task){
+  if(!profile)return false;
+  const capabilities=new Set(profile.capabilities??[]);
+  if((task.requiredCapabilities??[]).some(capability=>!capabilities.has(capability)))return false;
+  if(!(profile.supportedLayers??[]).includes(task.cognitiveLayer))return false;
+  if(!(profile.placements??[]).includes(task.placement))return false;
+  if(task.resultClass==='DEFERRED'&&profile.backgroundEligible===false)return false;
+  if(task.resultClass!=='DEFERRED'&&profile.foregroundEligible===false)return false;
+  if(profile.available===false)return false;
+  if(!['HEALTHY','DEGRADED','SATURATED'].includes(String(profile.providerHealth??profile.health??'').toUpperCase()))return false;
+  return true;
+}
 function collectRefs(input){
   const refs=[];const visit=(v)=>{
     if(Array.isArray(v)){for(const x of v)visit(x);return;}

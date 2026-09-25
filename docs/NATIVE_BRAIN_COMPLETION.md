@@ -147,9 +147,9 @@ The native Brain now consumes the published owner contracts without copying owne
 Current owner references consumed during this follow-up:
 
 - Memory: `Development-Memory@51aa0d6e7293ddeaa3899e81f6699794d0c22b2c` — `MemoryIntegrationSurface v1.0.0`.
-- Lore: `Development-Lorebook-Editor@0e588d59e4daafc87525f1e38150e105f9618a7` — `LoreBrainRetrievalInterface v1` / Wave 5 source lifecycle.
-- Optional Jev: `Development-Sidecar/Jev@440d9633e38d35b042a6841d74e2fbeee549ce15` — still optional and not a native-path dependency.
-- UI host reference first inspected at `main@44de1257a38bb445f1ba6873cc32647cc3794bb8`; re-verified after Worker 3 advanced `main` to `e756b296c5cdccd397ccf8e75af2a69fe86cc091` — Worker 3 live-binding/host adapter remains the integration target and must not be overwritten from this branch.
+- Lore: `Development-Lorebook-Editor@0adfdf9ae7221905baab2ea9c8f36f3c47b84c37` — `LoreBrainRetrievalInterface v1` plus Wave 6 `LoreSourceRevisionRetrievalInvalidationContract v1`.
+- Optional Jev: `Development-Sidecar/Jev@fa7138271e451a4fb4891bcb1c064e71d1a768bb` — still optional and not a native-path dependency.
+- UI host reference was re-verified during this pass at `main@4ea027c805bf5495429aa8b5a4fcf98c5520fac6`; Worker 3's Wave 12 host allowlist includes the native Brain read surface plus current Memory/Lore/resource readers. `main` remains Worker 3-owned and was not merged or overwritten here.
 
 ### Worker 3 contract
 
@@ -157,8 +157,47 @@ Instantiate/restore one `Area52NativeBrain` for the active Brain resource, pass 
 
 ### Worker 4 contract
 
-Attach `loreService.brainInterface()` with `brain.attachLoreInterface(...)`. Keep exact authored source revisions and drillback current; derived summaries/ontology remain navigation/ranking material and never gain `SOURCE_CANON`, Settlement, Candidate Bus admission, or Context Seal authority. Removed or replaced Lore must disappear from the current `sourceRevisionFence[]`; historical authored revisions remain owner-side audit/history.
+Attach `loreService.brainInterface()` with `brain.attachLoreInterface(...)`. Keep exact authored source revisions and drillback current; derived summaries/ontology remain navigation/ranking material and never gain `SOURCE_CANON`, Settlement, Candidate Bus admission, or Context Seal authority. When an authored source changes, publish Worker 4's `LoreSourceRevisionChanged` event (`sourceId`, `lorebookId`, `uid`, `previousSourceRevisionId`, `sourceRevisionId`, `contentHash`) and route it to `brain.acceptLoreRevisionChange(event)` before the next generation. The Brain invalidates the old revision from current owner evidence and any dependent Hot Cognition state, but deliberately does **not** trust the replacement revision until a fresh owner retrieval returns exact drillback fenced by that revision. Historical authored revisions remain owner-side audit/history.
 
 ### Remaining assembly deficiency
 
-This branch can prove the native subsystem and owner-consumer contracts, but it cannot truthfully claim the **live SillyTavern generation loop** is complete until Worker 3's current `main` host path instantiates this Brain and the assembled build proves: real user Send -> Brain prepare/seal -> real model generation -> Brain completion/write-back. Likewise, the exact cross-branch Memory/Lore owner implementations must be exercised together in the assembled build. Those are integration gates, not reasons to copy owner implementations into `Development-Nexus`.
+This branch can prove the native subsystem and owner-consumer contracts, but it cannot truthfully claim the **live SillyTavern generation loop** is complete until Worker 3's current `main` host path instantiates this Brain and the assembled build proves: real user Send -> Brain prepare/seal -> real model generation -> Brain completion/write-back. The exact published Memory Wave 4 and Lore Wave 6 owner implementations are now exercised together by `scripts/native-brain-owner-integration.mjs` in Cognitive Core CI. A real assembled SillyTavern session is still required for the live host gate; deterministic cross-owner CI is not a substitute for that live acceptance.
+
+
+## 2026-09-25 native completion audit
+
+This pass started by re-verifying the requested baseline and live branches before editing:
+
+- requested/last-observed `Development-Nexus`: `ba4619f56db8e4f94873256dc26589e1680b7d29`;
+- actual live `Development-Nexus` at takeover: `9049e75a46c7b5d2f2103eff124067a49593c770`, **62 commits ahead / 0 behind** that observed baseline;
+- `main` at takeover: `4ea027c805bf5495429aa8b5a4fcf98c5520fac6`;
+- no new branch was created and no `main`, UI, Lore, Memory, or Jev owner file was overwritten.
+
+The takeover head's exact CI run `36092447684` failed only in the newly changed native Brain path: 11 native tests all raised `ReferenceError: memorySettlementReceipts is not defined`. The pre-existing non-Brain regressions in that run remained green. The completion pass repaired that regression and added direct owner-contract coverage rather than hiding it in the report.
+
+### Native owner integration added
+
+- Completed-turn Core Settlements are now mirrored into an attached Memory owner **after** exact narrative evidence mapping. Memory receives the original Core proposal/decision plus explicit evidence-artifact descriptors; Memory still cannot create Settlement authority.
+- Corrections invalidate the prior Memory mapping, admit the corrected exact source revision, and mirror the corrected Core Settlement. This preserves Memory history while moving the current projection.
+- Worker 4 Wave 6 source-edit invalidation is now a first-class Brain input through `acceptLoreRevisionChange(event)`. Old Lore revision fences are removed immediately; the replacement revision is not trusted until exact owner retrieval proves it.
+- Failed attached Lore or Memory retrieval degrades the affected channel and clears unproven owner revision fences without preventing the native sealed generation path.
+- `scripts/native-brain-owner-integration.mjs` checks out and imports the exact accepted Memory Wave 4 and Lore Wave 6 owner implementations in CI. It runs a sealed `runTurn(...,{generate})` callback, proves owner Lore reached the generation payload, writes the resulting narrative into real Memory, mirrors a real Core Settlement, corrects the narrative, and requires the real Memory current projection to move to the corrected state.
+
+### Updated standing-card evidence
+
+| Card | Additional completion evidence from this pass |
+| --- | --- |
+| #27 Hot Cognition Runtime | Worker 4 source edits now invalidate only Hot segments that actually depend on the replaced Lore revision; unrelated Hot state is not blanket-cleared. |
+| #6 Hybrid Sensory Net / Candidate Bus | Real Lore Wave 6 and Memory Wave 4 owner implementations are exercised through the same native Candidate Bus/Truth/Gather/Seal path in exact-head CI; optional owner failure remains degraded rather than fatal. |
+| #5 Temporal State Graph | Core Settlement now crosses the real Memory evidence bridge after exact evidence mapping; correction moves Memory's current projection while retaining the superseded source/history. |
+| #11 Cognitive Runtime Fabric | Native generation remains self-contained when owner retrieval fails; owner contracts are synchronous foreground inputs while optional Jev/sidecar execution remains non-required. |
+| #39 Learning Feedback Loop | Exact narrative experience and corrected experience are durably written to the real Memory owner; canonical state still changes only through Core Settlement. Retrieval feedback remains non-canonical rank bias. |
+| #133 Adaptive Context Runtime | The real-owner integration test sends the sealed rendered PromptPlan into the generation callback before any post-turn learning and verifies the same Context Seal identity at the callback boundary. |
+
+### Live versus deterministic labels
+
+- **DETERMINISTIC:** repository regression/focused suites and the pinned real-owner Memory/Lore integration job.
+- **HOST-CONTRACT:** `runTurn` generation callback receives sealed rendered context and the returned narrative is learned afterward.
+- **LIVE:** still not claimed. Worker 3 must wire the current `main` SillyTavern host to this Brain and execute a real user-send -> prepare/seal -> model request -> response -> completion/write-back loop.
+
+The Brain should therefore be described as **native subsystem ready for live host assembly**, not 100% complete, until that real host loop passes.

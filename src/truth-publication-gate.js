@@ -79,14 +79,14 @@ export class TruthPublicationGate {
     });
   }
 
-  executeCorrective(assessment,{retrieval,anchorEntityIds=[],perspectiveConstraint=null}={}){
+  executeCorrective(assessment,{retrieval,anchorEntityIds=[],perspectiveConstraint=null,candidateBudget=64,latencyBudgetMs=20,graphTraversal=null}={}){
     const request=assessment.correctiveRequest;
     if(!request)return{assessment,candidates:[],executed:false,terminated:true};
     if(request.attempt>request.maxAttempts)return{assessment,candidates:[],executed:false,terminated:true};
 
     const correctiveIntent=request.intent==='HISTORICAL'?'TEMPORAL':'CONTRADICTION';
     try{
-      const candidates=retrieval.retrieve(request.originalQuery,{intent:correctiveIntent,anchorEntityIds,worldRevision:request.worldRevision,sceneRevision:request.sceneRevision,retrievalIntents:[{kind:correctiveIntent,query:request.originalQuery,entityRefs:anchorEntityIds,perspective:perspectiveConstraint}]});
+      const candidates=retrieval.retrieve(request.originalQuery,{intent:correctiveIntent,anchorEntityIds,worldRevision:request.worldRevision,sceneRevision:request.sceneRevision,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:[{kind:correctiveIntent,query:request.originalQuery,entityRefs:anchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}]});
       return{assessment,candidates,executed:true,terminated:request.attempt>=request.maxAttempts,failed:false,error:null};
     }catch(error){
       return{assessment,candidates:[],executed:true,terminated:true,failed:true,error:error?.message??String(error)};

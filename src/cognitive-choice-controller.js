@@ -100,13 +100,14 @@ export class CognitiveChoiceController{
   begin({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     hotSnapshot=null,worldRevision=0,sceneRevision=0,budgetBytes=null,deadline=null,channelIds=null,channelManifest=null,sceneContext=null,
+    candidateBudget=64,latencyBudgetMs=20,
   }={}){
     const startedAt=now();
     const requested=channelIds?.length?uniq(channelIds):uniq((channelManifest?.channels??[]).filter(x=>x.available!==false).map(x=>x.channelId));
     const hotOnly=hotSufficient({snapshot:hotSnapshot,query,intent,anchorEntityIds,worldRevision,sceneRevision,sceneContext});
     const session={
       turnId:String(turnId),turnRevision:Number(turnRevision)||0,correlationId:String(correlationId),query:String(query),intent:String(intent),
-      anchorEntityIds:uniq(anchorEntityIds),startedAt,budgetBytes,deadline,hotSnapshotId:hotSnapshot?.snapshotId??null,
+      anchorEntityIds:uniq(anchorEntityIds),startedAt,budgetBytes,deadline,candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),hotSnapshotId:hotSnapshot?.snapshotId??null,
       worldRevision:Number(worldRevision)||0,sceneRevision:Number(sceneRevision)||0,sceneContext:clone(sceneContext),requestedChannels:requested,
       paths:new Set([hotOnly?CognitiveChoicePath.HOT_ONLY:CognitiveChoicePath.STANDARD_RETRIEVAL]),
       admitted:new Set([CognitiveJob.CONTEXT_COMPILER,CognitiveJob.CONTEXT_SEAL]),
@@ -135,6 +136,8 @@ export class CognitiveChoiceController{
     for(const id of envelope.retrievalIntentIds??[])session.retrievalIntents.add(id);
     for(const candidate of envelope.candidates??[])session.candidateIds.add(candidate.candidateId);
     const channels=channelSummary(envelope);for(const id of channels.used)session.channelsUsed.add(id);
+    if(channels.used.includes('ZZ_NATIVE_GRAPH_WALKER')){session.admitted.add(CognitiveJob.GRAPH_WALKER);session.skipped.delete(CognitiveJob.GRAPH_WALKER);}
+    if(channels.used.some(id=>['OWNER_MEMORY','NATIVE_MEMORY'].includes(id))){session.admitted.add(CognitiveJob.HISTORIAN);session.skipped.delete(CognitiveJob.HISTORIAN);}
     for(const id of envelope.unavailableChannels??[])session.reasons.add(CognitiveReason.CHANNEL_UNAVAILABLE);
     if(phase==='CORRECTIVE'){session.correctionExecuted=true;session.correctionCount+=1;session.admitted.add(CognitiveJob.CORRECTIVE_RETRIEVAL);}
   }
@@ -273,8 +276,12 @@ export class CognitiveChoiceController{
       finalEvidenceRefs:refs,abstained:assessment?.confidence==='LOW',
       unresolved:counts.CONTRADICTED+counts.UNCERTAIN+counts.UNRESOLVED>0,
       latencyResourceBudget:{
-        budgetBytes:session.budgetBytes,deadline:session.deadline,
+        budgetBytes:session.budgetBytes,deadline:session.deadline,candidateBudget:session.candidateBudget,latencyBudgetMs:session.latencyBudgetMs,
         controllerOverheadMs:Math.max(0,Number(finishedAt)-Number(session.startedAt)),
+        retrievalElapsedMs:envelopes.reduce((sum,envelope)=>sum+Number(envelope?.metadata?.retrievalBudgetReceipt?.elapsedMs??0),0),
+        retrievalBudgetExceeded:envelopes.some(envelope=>envelope?.metadata?.retrievalBudgetReceipt?.budgetExceeded===true),
+        skippedByLatency:uniq(envelopes.flatMap(envelope=>envelope?.metadata?.retrievalBudgetReceipt?.skippedChannels??[])),
+        effectiveCandidateLimit:envelopes.map(envelope=>envelope?.fusionReceipt?.diagnostics?.effectiveCandidateLimit).find(value=>value!=null)??session.candidateBudget,
         compilerBytes:compilerReceipt?.compiledBytes??null,
       },
       revisions:{

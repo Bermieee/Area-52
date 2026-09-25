@@ -20,6 +20,9 @@ function externalRow(evidence){
     semantic:semantic?structuredClone(semantic):null,
     hardRule:Boolean(evidence.hardRule),
     artifactRef:structuredClone(evidence.artifactRef),
+    sourceRevisionRefs:uniq(evidence.sourceRevisionRefs??[]),
+    dependencyRevisionRefs:uniq(evidence.dependencyRevisionRefs??[]),
+    provenanceRefs:uniq(evidence.provenanceRefs??[]),
   };
 }
 
@@ -70,7 +73,7 @@ export class ContextCompiler {
 
     for(const thread of threads){provenanceIndex[thread.id]=[...thread.sourceRevisionIds];for(const ref of thread.sourceRevisionIds)dependencies.add(ref);}
     const finalize=(map,section)=>[...map.values()].map(f=>{
-      const out={e:f.e,p:f.p,v:f.v,a:f.a,cf:f.cf,id:f.id};const support=uniq(f._supportIds);if(support.length>1)out.supportIds=support;if(section!=='current')out.t=[f._from,f._to,f._status];
+      const out={e:f.e,p:f.p,v:f.v,a:f.a,cf:f.cf,id:f.id};const sourceRefs=uniq(provenanceIndex[f.id]??[]);if(sourceRefs.length)out.sr=sourceRefs;const support=uniq(f._supportIds);if(support.length>1)out.supportIds=support;if(section!=='current')out.t=[f._from,f._to,f._status];
       const knowledge=[...new Map((f._knowledge??[]).map(x=>[x.evidenceId,x])).values()];
       if(knowledge.length){
         out.q=knowledge.map(x=>({evidenceId:x.evidenceId,sourceClass:x.sourceClass,authorityClass:x.authorityClass,temporalStatus:x.temporalStatus,currentApplicability:x.currentApplicability??null,hardRule:Boolean(x.hardRule)}));

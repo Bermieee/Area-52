@@ -91,7 +91,7 @@ export class NativeGraphNeighborhoodRetriever{
         for(const raw of rows.slice(0,request.maxEdges)){
           const normalized=this.#externalEdge(raw,provider,request);
           if(normalized.stale){staleEdges.push({providerId:provider.providerId,edgeId:normalized.edgeId,sourceRevisionRefs:normalized.sourceRevisionRefs,reason:normalized.staleReason});rejected++;continue;}
-          edges.push(normalized);trustedSourceRevisionRefs.push(...normalized.sourceRevisionRefs);admitted++;
+          edges.push(normalized);admitted++;
         }
         providerDiagnostics.push({providerId:provider.providerId,status:'OK',edgeCount:admitted,rejectedStale:rejected,providerRevision:value?.providerRevision??null});
       }catch(error){providerDiagnostics.push({providerId:provider.providerId,status:'DEGRADED',edgeCount:0,error:String(error?.message??error)});}
@@ -137,6 +137,7 @@ export class NativeGraphNeighborhoodRetriever{
         worldRevision:null,sceneRevision:null,
       }));
     }
+    trustedSourceRevisionRefs.push(...traversed.rows.filter(row=>!['CORE_TEMPORAL_STATE','SCENE_OWNER'].includes(row.edge.providerId)).flatMap(row=>row.edge.sourceRevisionRefs));
     const elapsedMs=Math.max(0,now()-started);
     this.lastReceipt={
       kind:'GraphTraversalReceipt',contractVersion:'1.0.0',intentId:intent.intentId,query:request.query,anchorEntityIds:[...request.anchorEntityIds],

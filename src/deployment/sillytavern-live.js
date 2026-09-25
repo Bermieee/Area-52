@@ -859,7 +859,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       try{host=mergedOwners.loreAuthoringService.operatorContract();}catch{return null;}
     }
     if(!host?.actions||!host?.read)return null;
-    const requiredActions=['finalPreview','approveReview','applySettlement','restoreSettlement'];
+    const requiredActions=['computeFinalPreview','approveFinalPreview','applySettlement','restoreSettlement'];
     if(!requiredActions.every(name=>typeof host.actions?.[name]==='function'))return null;
     const actions={...host.actions};
     for(const name of ['applySettlement','restoreSettlement']){

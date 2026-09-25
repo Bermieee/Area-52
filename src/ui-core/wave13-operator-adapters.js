@@ -666,10 +666,11 @@ export class Wave13DiagnosticsCenterAdapter{
     const lanes=['JEV','SIDECAR','VECTORING'].map(kind=>{
       const members=rows.filter(row=>String(row.kind??'SIDECAR').toUpperCase()===kind);
       return deepFreeze({
-        kind,configured:members.length,connected:members.filter(row=>row.connected).length,callable:members.filter(row=>row.callable).length,
+        kind,configured:members.length,connected:members.filter(row=>row.connected).length,qualified:members.filter(row=>row.selectedModelQualified).length,callable:members.filter(row=>row.callable).length,
+        physicallyExecuted:members.filter(row=>row.physicalExecutionAttempted).length,physicalSuccesses:members.filter(row=>row.physicalExecutionSucceeded).length,ownerAccepted:members.filter(row=>row.ownerAccepted===true).length,
         activeExecutions:members.reduce((sum,row)=>sum+Number(row.currentLoad??0),0),
         resourceIds:members.map(row=>row.id),
-        states:members.map(row=>({id:row.id,displayName:row.displayName,state:row.state,health:row.health,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
+        states:members.map(row=>({id:row.id,displayName:row.displayName,state:row.state,health:row.health,configured:true,connected:row.connected,qualified:row.selectedModelQualified,callable:row.callable,physicalExecutionAttempted:row.physicalExecutionAttempted,physicalExecutionSucceeded:row.physicalExecutionSucceeded,ownerAccepted:row.ownerAccepted,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
       });
     });
     const cognitionData=cognitionRead?.data??{};
@@ -698,8 +699,9 @@ export class Wave13DiagnosticsCenterAdapter{
       resources:{
         source:cloneSafe(resourceRead?.source??null),capabilities:cloneSafe(resourceCaps),nativePathAvailable:resourceRead?.data?.nativePathAvailable!==false,
         lanes,rows:rows.map(row=>deepFreeze({
-          id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
-          credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
+          id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,configured:true,connected:row.connected,selectedModelQualified:row.selectedModelQualified,callable:row.callable,
+          physicalExecutionAttempted:row.physicalExecutionAttempted,physicalExecutionSucceeded:row.physicalExecutionSucceeded,ownerAccepted:row.ownerAccepted,ownerAcceptanceSource:row.ownerAcceptanceSource,
+          credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,workerId:row.workerId,measurementClass:row.measurementClass,
           capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
           lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
         })),

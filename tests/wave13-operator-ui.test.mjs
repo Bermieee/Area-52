@@ -286,6 +286,9 @@ test('Worker 2 public resource host add/connect/test/disconnect contract is cons
   let read=ui.operator.resources.read();assert.equal(read.data.nativePathAvailable,true);assert.equal(read.data.resources[0].kind,'JEV');assert.equal(read.data.resources[0].state,'READY');assert.deepEqual(read.data.resources[0].capabilities,['SEMANTIC_JUDGMENT']);
   const tested=await ui.actionRouter.route({type:'wave13.resource.test',target:read.data.resources[0]});assert.equal(tested.ok,true);assert.equal(host.calls.at(-1)[0],'test');assert.equal(host.calls.at(-1)[1],'jev:local');
   const disconnected=await ui.actionRouter.route({type:'wave13.resource.disconnect',target:read.data.resources[0]});assert.equal(disconnected.ok,true);assert.equal(host.calls.at(-1)[0],'disconnect');assert.equal(host.calls.at(-1)[1],'jev:local');
+  const vector=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{role:'VECTORING',resourceId:'vector:local',endpoint:'http://127.0.0.1:8090',modelId:'embed-local',capabilities:[]}});
+  assert.equal(vector.ok,true);const vectorAdd=host.calls.find(x=>x[0]==='add'&&x[1].resourceId==='vector:local');assert.deepEqual(vectorAdd[1].capabilities,['RETRIEVAL','EMBED']);
+  read=ui.operator.resources.read();const vectorRow=read.data.resources.find(x=>x.id==='vector:local');assert.equal(vectorRow.kind,'VECTORING');assert.equal(vectorRow.connected,true);
   ui.destroy();assert.equal(host.listenerCount(),0);
 });
 

@@ -574,12 +574,19 @@ export class Area52NativeBrain{
     try{
       const revision=this.core.registry.getRevision(experience.sourceRevisionId),ownerRevision=Math.max(1,Number(revision?.revision??experience?.evidence?.artifactRef?.revision??1));
       const externalEvidenceRef='narrative:'+record.chatId+':'+record.turnId+':assistant';
+      const ownerArtifactRef={
+        kind:'ArtifactReference',artifactId:'core-narrative:'+record.chatId+':'+record.turnId+':assistant',artifactType:'NarrativeExperience',owner:'COGNITIVE_CORE',revision:ownerRevision,
+        sourceRevisionSet:[experience.sourceRevisionId],worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,
+      };
+      let invalidation=null;
+      const invalidate=this.memoryInterface?.invalidateExternalEvidenceMapping??this.memoryInterface?.adapters?.invalidateExternalEvidenceMapping;
+      if(ownerRevision>1&&typeof invalidate==='function'){
+        invalidation=invalidate({ownerArtifactRef,externalEvidenceRef,replacedBySourceRevisionId:experience.sourceRevisionId,removed:false,reason:'NARRATIVE_SOURCE_CORRECTED'});
+        if(invalidation&&typeof invalidation.then==='function')throw new Error('MEMORY_ASYNC_INVALIDATION_UNSUPPORTED_IN_SYNC_COMMIT');
+      }
       const receipt=admit({
         kind:'MemoryExternalEvidenceMappingRequest',contractVersion:'1.0.0',
-        ownerArtifactRef:{
-          kind:'ArtifactReference',artifactId:'core-narrative:'+record.chatId+':'+record.turnId+':assistant',artifactType:'NarrativeExperience',owner:'COGNITIVE_CORE',revision:ownerRevision,
-          sourceRevisionSet:[experience.sourceRevisionId],worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,
-        },
+        ownerArtifactRef,
         externalEvidenceRef,
         source:{
           sourceId:experience.sourceId,sourceRevisionId:experience.sourceRevisionId,exactContent:String(exactContent??experience.exactContent??''),
@@ -592,7 +599,7 @@ export class Area52NativeBrain{
         provenanceRefs:['native-brain:'+record.turnId],
       });
       if(receipt&&typeof receipt.then==='function')return{kind:'NativeBrainMemoryWritebackReceipt',status:'DEGRADED',reason:'MEMORY_ASYNC_WRITEBACK_UNSUPPORTED_IN_SYNC_COMMIT',authorityGranted:false};
-      return{kind:'NativeBrainMemoryWritebackReceipt',status:receipt?.status??'ADMITTED',ownerReceipt:clone(receipt??null),sourceRevisionId:experience.sourceRevisionId,authorityGranted:false,canonicalMutationAuthority:false};
+      return{kind:'NativeBrainMemoryWritebackReceipt',status:receipt?.status??'ADMITTED',ownerReceipt:clone(receipt??null),invalidation:clone(invalidation),sourceRevisionId:experience.sourceRevisionId,authorityGranted:false,canonicalMutationAuthority:false};
     }catch(error){return{kind:'NativeBrainMemoryWritebackReceipt',status:'DEGRADED',reason:error?.message??String(error),sourceRevisionId:experience.sourceRevisionId,authorityGranted:false};}
   }
 

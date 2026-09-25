@@ -87,55 +87,91 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
 
 export function renderResourceSurface(host,{resources,actionRouter,scope,refresh,notifications}={}){
   const d=host.ownerDocument,read=resources.read(),source=read.source,data=read.data??{resources:[],configurations:[],nativePathAvailable:true};
-  const section=element(d,'section',{className:'a52-wave13-resources',attrs:{'aria-label':'Jev and sidecar resources'}});
+  const section=element(d,'section',{className:'a52-wave13-resources',attrs:{'aria-label':'Optional execution resource connections'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
-  head.append(element(d,'h2',{text:'Jev / sidecar resources'}),makeHealthPill(d,{label:source.operationalState??source.health,status:source.statusToken,detail:source.impact}));
-  section.append(head,element(d,'p',{className:'a52-muted',text:'Optional execution resources add capabilities. The native Brain remains valid when none are attached.'}));
+  head.append(element(d,'h2',{text:'Connections'}),makeHealthPill(d,{label:source.operationalState??source.health,status:source.statusToken,detail:source.impact}));
+  section.append(head,element(d,'p',{className:'a52-muted',text:'Jev, Sidecar, and Vectoring are configured separately. Once a resource exists, its connection configuration is locked to the owner record; disconnect/test/reconnect remain available.'}));
   if(source.reason)section.append(message(d,source.operationalState==='UNAVAILABLE'?'Assembly action seam not connected':'Resource status',source.reason,source.statusToken));
 
   const caps=resources.capabilities();
   if(caps.read&&(!caps.connect||!caps.test||!caps.disconnect))section.append(message(d,'Resource controls incomplete','Resource status is readable, but connect/test/disconnect are not all exported by the assembly. Worker 2 remains the routing/execution owner.','warning'));
-  if(caps.connect&&caps.configure){
-    const form=element(d,'div',{className:'a52-wave13-resource-connect'});
-    const role=field(d,'select','Resource role');for(const value of ['SIDECAR','JEV'])role.append(option(d,value,value==='JEV'?'Jev decision':'Sidecar execution'));
-    const resourceId=field(d,'input','Resource ID',{type:'text',placeholder:'local-resource'});
-    const endpoint=field(d,'input','Local endpoint',{type:'url',placeholder:'http://127.0.0.1:...'});
-    const model=field(d,'input','Model ID',{type:'text',placeholder:'model name'});
-    const capabilities=field(d,'input','Capabilities',{type:'text',placeholder:'STRUCTURED_EXTRACTION, GRAPH'});
-    const connect=createButton(d,{label:'Configure + connect',scope,onPress:async()=>{
-      const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
-      const result=await actionRouter.route({type:'wave13.resource.connect',payload:{role:role.value||'SIDECAR',resourceId:resourceId.value||null,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,modelId:model.value||null,capabilities:parsedCaps,local:true}});
-      reportAction(notifications,result,'Resource connection');refresh?.();
-    }});
-    form.append(labelWrap(d,'Role',role),labelWrap(d,'Resource ID',resourceId),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),labelWrap(d,'Capabilities',capabilities),connect);section.append(form);
-  }else if(caps.connect&&!caps.configure){
-    section.append(message(d,'Connect existing resources only','The assembly exports connectResource(), but not Worker 2 addResource(). Existing configured resources can reconnect; new resource configuration remains unavailable.','warning'));
+
+  const slots=element(d,'div',{className:'a52-wave13-connection-slots'});
+  for(const spec of connectionSlotSpecs())slots.append(renderConnectionSlot(d,{spec,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id),resources,actionRouter,scope,refresh,notifications,caps}));
+  section.append(slots);
+
+  if(!data.resources.length)section.append(message(d,'No optional resource connected',caps.read?'Worker 2 reports no configured optional resources. Native cognition remains available.':'The host assembly has not exported Worker 2 resource status/actions yet.','historical'));
+  host.append(section);
+}
+
+function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,notifications,caps}){
+  const connected=rows.some(row=>row.connected),configured=rows.length>0;
+  const slot=element(d,'section',{className:'a52-wave13-connection-slot',dataset:{slot:spec.id,connected:String(connected),locked:String(configured)}});
+  const head=element(d,'div',{className:'a52-wave13-connection-slot__head'});
+  head.append(element(d,'h3',{text:spec.title}),makeBadge(d,connected?'CONNECTED':configured?'LOCKED':'OPEN',connected?'ready':configured?'observed':'historical'));
+  slot.append(head,element(d,'p',{className:'a52-wave13-connection-slot__hint',text:spec.description}));
+
+  if(configured){
+    const locked=element(d,'div',{className:'a52-wave13-connection-slot__locked'});
+    for(const row of rows)locked.append(renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifications,caps}));
+    slot.append(locked);
+    return slot;
   }
 
-  if(!data.resources.length)section.append(message(d,'No optional resource connected',caps.read?'Worker 2 reports no connected optional resources. Native cognition remains available.':'The host assembly has not exported Worker 2 resource status/actions yet.','historical'));
-  else{
-    const list=element(d,'div',{className:'a52-wave13-resource-list'});
-    for(const row of data.resources){
-      const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health}});
-      const top=element(d,'div',{className:'a52-inline-status'});
-      top.append(element(d,'strong',{text:row.id}),makeBadge(d,row.kind,'observed'),makeBadge(d,row.health,resourceStatus(row.health)));
-      card.append(top,createKeyValue(d,[
-        {key:'Connection',value:row.state??(row.connected?'READY':'DISCONNECTED')},{key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
-        {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
-        {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??[]).join(', ')||'none published'},
-      ]));
-      const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
-      if(caps.connect&&!row.connected)actions.append(createButton(d,{label:'Connect',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource connection');refresh?.();}}));
-      if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportAction(notifications,result,'Resource test');refresh?.();}}));
-      if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
-      const test=resources.testResult(row.id);if(test)card.append(element(d,'p',{className:'a52-muted',text:'Latest connection test: '+testSummary(test)}));
-      if(row.reason&&!row.lastError)card.append(element(d,'p',{className:'a52-muted',text:row.reason}));
-      if(row.lastError)card.append(message(d,'Resource issue',String(row.lastError),'warning'));
-      if(actions.children?.length)card.append(actions);list.append(card);
-    }
-    section.append(list);
+  if(!(caps.connect&&caps.configure)){
+    slot.append(message(d,'Connection setup unavailable',caps.connect?'This assembly can reconnect owner-configured resources, but cannot add a new one.':'Worker 2 connection actions are not exported by this assembly.','warning'));
+    return slot;
   }
-  host.append(section);
+
+  const form=element(d,'div',{className:'a52-wave13-connection-slot__form'});
+  const resourceId=field(d,'input',spec.title+' resource ID',{type:'text',placeholder:spec.id.toLowerCase()+':local'});
+  const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:'http://127.0.0.1:...'});
+  const model=field(d,'input',spec.title+' model ID',{type:'text',placeholder:'model name'});
+  const capabilities=field(d,'input',spec.title+' capabilities',{type:'text',placeholder:spec.defaultCapabilities.join(', ')});
+  capabilities.value=spec.defaultCapabilities.join(', ');
+  if(spec.fixedCapabilities){
+    capabilities.disabled=true;capabilities.setAttribute('aria-disabled','true');capabilities.title='Jev capability is fixed by the owner contract.';
+  }
+  const connect=createButton(d,{label:'Connect '+spec.title,scope,onPress:async()=>{
+    const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const result=await actionRouter.route({type:'wave13.resource.connect',payload:{role:spec.role,resourceId:resourceId.value||null,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,modelId:model.value||null,capabilities:parsedCaps,local:true}});
+    reportAction(notifications,result,spec.title+' connection');refresh?.();
+  }});
+  form.append(labelWrap(d,'Resource ID',resourceId),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'Model',model),labelWrap(d,'Capabilities',capabilities),connect);
+  slot.append(form);return slot;
+}
+
+function renderLockedResource(d,{row,resources,actionRouter,scope,refresh,notifications,caps}){
+  const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health}});
+  const top=element(d,'div',{className:'a52-inline-status'});
+  top.append(element(d,'strong',{text:row.id}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
+  card.append(top,createKeyValue(d,[
+    {key:'Connection',value:row.state??(row.connected?'READY':'DISCONNECTED')},{key:'Provider',value:row.providerId??'—'},{key:'Model',value:row.modelId??'—'},
+    {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
+    {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
+  ]));
+  const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
+  if(caps.connect&&!row.connected)actions.append(createButton(d,{label:'Reconnect',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource connection');refresh?.();}}));
+  if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportAction(notifications,result,'Resource test');refresh?.();}}));
+  if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
+  const test=resources.testResult(row.id);if(test)card.append(element(d,'p',{className:'a52-muted',text:'Latest connection test: '+testSummary(test)}));
+  if(row.reason&&!row.lastError)card.append(element(d,'p',{className:'a52-muted',text:row.reason}));
+  if(row.lastError)card.append(message(d,'Resource issue',String(row.lastError),'warning'));
+  if(actions.children?.length)card.append(actions);
+  return card;
+}
+
+function connectionSlotSpecs(){return[
+  {id:'JEV',title:'Jev',role:'JEV',description:'Semantic judgment resource. The UI does not decide when Jev runs.',defaultCapabilities:['SEMANTIC_JUDGMENT'],fixedCapabilities:true},
+  {id:'SIDECAR',title:'Sidecar',role:'SIDECAR',description:'General optional execution resource used only when Worker 2 routing admits matching work.',defaultCapabilities:['STRUCTURED_EXTRACTION'],fixedCapabilities:false},
+  {id:'VECTORING',title:'Vectoring',role:'VECTORING',description:'Retrieval/vector execution resource. Capabilities remain owner-advertised and routing stays with Worker 2.',defaultCapabilities:['RETRIEVAL','EMBED'],fixedCapabilities:false},
+];}
+
+function connectionSlotFor(row){
+  const capabilities=new Set([...(row.capabilities??[]),...(row.declaredCapabilities??[]),...(row.activeCapabilities??[])].map(String));
+  if(capabilities.has('SEMANTIC_JUDGMENT'))return'JEV';
+  if(['EMBED','RETRIEVAL','RETRIEVAL_QUALITY','RERANK','LATE_INTERACTION','CROSS_ENCODER_RERANK'].some(capability=>capabilities.has(capability)))return'VECTORING';
+  return'SIDECAR';
 }
 
 export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){

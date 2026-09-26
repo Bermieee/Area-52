@@ -22,6 +22,9 @@ on:
       - 'src/deployment/owner-graph-adapters.js'
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
+      - 'tests/scene-completion-wave4-gaps.mjs'
+      - 'tests/scene-browser-load-harness.html'
+      - 'scripts/scene-research-evaluation.mjs'
       - 'docs/SCENE_*'
       - '.github/workflows/scene-intelligence-completion.yml'
   workflow_dispatch:

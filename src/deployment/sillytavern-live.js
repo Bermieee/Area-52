@@ -100,6 +100,18 @@ function operatorResultSummary(result){
   return{ok:result?.ok===true,kind:value?.kind??null,errorCode:result?.error?.code??null};
 }
 
+function sceneUiReadModelForSelection(sceneRuntime,selection={}){
+  const chatId=clean(selection?.chatId);if(!chatId||typeof sceneRuntime?.uiReadModel!=='function')return null;
+  const model=sceneRuntime.uiReadModel(chatId);if(!model||model.kind!=='SceneUiReadModel')return null;
+  if(selection?.sceneRevision!=null&&Number(model.revision)!==Number(selection.sceneRevision))return null;
+  const expectedRefs=new Set((selection?.sourceRevisionRefs??[]).map(String));
+  if(expectedRefs.size&&(model.sourceRevisionRefs??[]).some(ref=>!expectedRefs.has(String(ref))))return null;
+  return{
+    ...clone(model),chatId,
+    turnId:selection?.turnId??null,generationId:selection?.generationId??null,correlationId:selection?.correlationId??null,
+  };
+}
+
 function nativeBrainContract(brain){
   if(!brain)return{available:false,reason:'Worker 1 Area52NativeBrain is not integrated into this main assembly.'};
   const required=['runTurn','uiBindings'];
@@ -922,10 +934,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     else{
       delete merged.loreAuthoringHost;delete merged.loreAuthoringOperator;
     }
-    for(const key of nativeKeys){
-      if(key==='readScene'&&typeof merged.readScene==='function')continue;
-      if(typeof native?.[key]==='function')merged[key]=native[key];
-    }
+    for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
+    const deploymentSceneReader=typeof base.readScene==='function'?base.readScene:null;
+    merged.readScene=(selection={})=>{
+      const direct=deploymentSceneReader?.(selection);
+      if(direct?.kind==='SceneUiReadModel')return direct;
+      return sceneUiReadModelForSelection(this.brain?.scene,selection);
+    };
     const nativeSelectedTurnReader=typeof merged.readSelectedTurnReceipt==='function'?merged.readSelectedTurnReceipt:null;
     if(nativeSelectedTurnReader)merged.readSelectedTurnReceipt=(selection={})=>{
       const owner=nativeSelectedTurnReader(selection);if(!owner)return null;

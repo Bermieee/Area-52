@@ -1,5 +1,5 @@
 import {EXECUTION_STATUS,LIFECYCLE_STATUS} from './constants.js';
-import {CausalReceiptKind,CausalReasonCode} from './causal-receipts.js';
+import {CausalLifecycleState,CausalReceiptKind,CausalReasonCode,createCausalReceipt} from './causal-receipts.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
 const req=(value,name)=>{if(typeof value!=='string'||!value.trim())throw new TypeError(name+' must be a non-empty string');return value.trim();};
@@ -28,10 +28,35 @@ export class CognitiveObligationReconciler{
       obligation:clone(input.obligation??{}),cause:clone(input.cause??{}),
       authorityGranted:false,canonicalMutationAuthority:false,
     });
-    if(!this.expected.has(expectedId))this.order.push(expectedId);
-    this.expected.set(expectedId,{declaration,executor});
+    const prior=this.expected.get(expectedId)??null;
+    if(!prior)this.order.push(expectedId);
+    this.expected.set(expectedId,{declaration,executor:executor??prior?.executor??null,evidence:[...(prior?.evidence??[])]});
     while(this.order.length>this.maxExpected){const old=this.order.shift();this.expected.delete(old);}
     return clone(declaration);
+  }
+
+  recordEvidence(expectedId,input={}){
+    const entry=this.expected.get(String(expectedId));if(!entry)throw new Error('Unknown expected work: '+expectedId);
+    const d=entry.declaration,kind=input.kind??input.eventKind;
+    const defaults={
+      [CausalReceiptKind.PHYSICAL_EXECUTION_STARTED]:[CausalLifecycleState.RUNNING,CausalReasonCode.PHYSICAL_EXECUTION_STARTED],
+      [CausalReceiptKind.RESULT_RETURNED]:[CausalLifecycleState.RETURNED,CausalReasonCode.RESULT_RETURNED],
+      [CausalReceiptKind.OWNER_ADMISSION]:[CausalLifecycleState.ACCEPTED,CausalReasonCode.OWNER_ACCEPTED],
+      [CausalReceiptKind.SETTLEMENT]:[CausalLifecycleState.SETTLED,CausalReasonCode.SETTLED],
+      [CausalReceiptKind.WORK_FAILED]:[CausalLifecycleState.FAILED,CausalReasonCode.TASK_FAILED],
+      [CausalReceiptKind.RESULT_STALE]:[CausalLifecycleState.STALE,CausalReasonCode.STALE_RESULT],
+      [CausalReceiptKind.RESULT_LATE]:[CausalLifecycleState.LATE,CausalReasonCode.LATE_RESULT],
+      [CausalReceiptKind.OWNER_REJECTED]:[CausalLifecycleState.FAILED,CausalReasonCode.OWNER_REJECTED],
+    };
+    if(!defaults[kind])throw new TypeError('Unsupported external reconciliation evidence kind: '+kind);
+    const index=(entry.evidence?.length??0)+1,[defaultState,defaultReason]=defaults[kind];
+    const receipt=createCausalReceipt({
+      id:input.id??('expected:'+d.expectedId+':e'+index+':'+kind),kind,lifecycleState:input.lifecycleState??defaultState,reasonCode:input.reasonCode??defaultReason,
+      taskId:input.taskId??null,taskType:d.obligation?.taskType??null,owner:d.owner,producerId:input.producerId??d.owner,consumerId:input.consumerId??d.cause?.consumerId??null,
+      parentReceiptId:input.parentReceiptId??null,workerId:input.workerId??null,durationMs:input.durationMs??null,ownerAccepted:input.ownerAccepted??(kind===CausalReceiptKind.OWNER_ADMISSION?true:kind===CausalReceiptKind.OWNER_REJECTED?false:null),
+      cause:{...clone(d.cause),...clone(input.cause??{})},metadata:clone(input.metadata??{}),
+    });
+    entry.evidence=[...(entry.evidence??[]),receipt].slice(-64);return clone(receipt);
   }
 
   reconcile(expectedId,{admit=true}={}){
@@ -51,14 +76,14 @@ export class CognitiveObligationReconciler{
       if(!admission.accepted)return this.#receipt(d,ReconciliationStatus.BLOCKED,admission.reason==='backpressure'?CausalReasonCode.BACKPRESSURE:CausalReasonCode.DEPENDENCY_BLOCKED,null,[]);
       record=this.director.ledger.get(admission.task.taskId);
     }
-    if(!record)return this.#receipt(d,ReconciliationStatus.DUE,CausalReasonCode.TASK_NOT_ADMITTED,null,[]);
-    const evidence=[...(record.causalReceipts??[])];
-    if(record.lifecycleStatus===LIFECYCLE_STATUS.CANCELLED)return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.CANCELLED,record,evidence);
-    if(record.lifecycleStatus===LIFECYCLE_STATUS.SUPERSEDED)return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.SUPERSEDED,record,evidence);
-    if(record.executionStatus===EXECUTION_STATUS.FAILED)return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.TASK_FAILED,record,evidence);
+    const evidence=[...(entry.evidence??[]),...(record?.causalReceipts??[])];
+    if(record?.lifecycleStatus===LIFECYCLE_STATUS.CANCELLED)return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.CANCELLED,record,evidence);
+    if(record?.lifecycleStatus===LIFECYCLE_STATUS.SUPERSEDED)return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.SUPERSEDED,record,evidence);
+    if(record?.executionStatus===EXECUTION_STATUS.FAILED)return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.TASK_FAILED,record,evidence);
     if(evidence.some(x=>x.eventKind===CausalReceiptKind.RESULT_STALE))return this.#receipt(d,ReconciliationStatus.STALE,CausalReasonCode.STALE_RESULT,record,evidence);
     if(evidence.some(x=>x.eventKind===CausalReceiptKind.RESULT_LATE))return this.#receipt(d,ReconciliationStatus.LATE,CausalReasonCode.LATE_RESULT,record,evidence);
     if(evidence.some(x=>x.eventKind===CausalReceiptKind.OWNER_REJECTED||x.ownerAccepted===false))return this.#receipt(d,ReconciliationStatus.FAILED,CausalReasonCode.OWNER_REJECTED,record,evidence);
+    if(evidence.some(x=>x.eventKind===CausalReceiptKind.WORK_FAILED))return this.#receipt(d,ReconciliationStatus.FAILED,evidence.findLast(x=>x.eventKind===CausalReceiptKind.WORK_FAILED)?.reasonCode??CausalReasonCode.TASK_FAILED,record,evidence);
 
     const has=(name)=>{
       if(name==='PHYSICAL_EXECUTION')return evidence.some(x=>x.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED);
@@ -69,6 +94,7 @@ export class CognitiveObligationReconciler{
     };
     const missing=d.requiredEvidence.filter(name=>!has(name));
     if(!missing.length)return this.#receipt(d,ReconciliationStatus.DONE,d.requiredEvidence.includes('SETTLEMENT')?CausalReasonCode.SETTLED:CausalReasonCode.OWNER_ACCEPTED,record,evidence);
+    if(!record&&!evidence.length)return this.#receipt(d,ReconciliationStatus.DUE,CausalReasonCode.TASK_NOT_ADMITTED,null,[]);
     const reason=!has('PHYSICAL_EXECUTION')?CausalReasonCode.LOGICAL_ADMISSION_ONLY:CausalReasonCode.NO_EVIDENCE;
     return this.#receipt(d,ReconciliationStatus.DUE,reason,record,evidence,{missingEvidence:missing});
   }
@@ -77,15 +103,15 @@ export class CognitiveObligationReconciler{
 
   snapshot(){
     return Object.freeze({
-      kind:'CognitiveObligationReconcilerSnapshot',contractVersion:1,maxExpected:this.maxExpected,
-      declarations:this.order.map(id=>clone(this.expected.get(id)?.declaration)).filter(Boolean),
+      kind:'CognitiveObligationReconcilerSnapshot',contractVersion:2,maxExpected:this.maxExpected,
+      entries:this.order.map(id=>{const row=this.expected.get(id);return row?{declaration:clone(row.declaration),evidence:clone(row.evidence??[])}:null;}).filter(Boolean),
     });
   }
 
   restore(snapshot={}){
-    const rows=Array.isArray(snapshot?.declarations)?snapshot.declarations:[];
+    const rows=Array.isArray(snapshot?.entries)?snapshot.entries:Array.isArray(snapshot?.declarations)?snapshot.declarations.map(declaration=>({declaration,evidence:[]})):[];
     this.expected.clear();this.order=[];
-    for(const declaration of rows.slice(-this.maxExpected))this.declare(declaration,null);
+    for(const row of rows.slice(-this.maxExpected)){const declaration=row?.declaration??row;this.declare(declaration,null);const entry=this.expected.get(declaration.expectedId);if(entry)entry.evidence=clone(row?.evidence??[]).slice(-64);}
     return this.snapshot();
   }
 

@@ -35,6 +35,34 @@ export function worker4SelectedLorebook({
   };
 }
 
+export function worker4LargeCurrentLorebook({count = 105, chatId = WORKER4_SELECTED_CHAT} = {}) {
+  const size = Math.max(1, Math.trunc(Number(count) || 105));
+  return {
+    id: 'worker4-large-current-lore',
+    title: 'Worker 4 Large Current Lore',
+    discovery: {
+      kind: 'SillyTavernLorebookDiscoveryReceipt',
+      contractVersion: 1,
+      source: 'SILLYTAVERN_WORLD_INFO_EDITOR',
+      lorebookId: 'worker4-large-current-lore',
+      title: 'Worker 4 Large Current Lore',
+      entryCount: size,
+      chatId,
+      exactAuthoredSource: true,
+    },
+    fullSnapshot: true,
+    entries: Array.from({length: size}, (_, index) => ({
+      uid: String(index + 1),
+      content: 'Harbor archive fact ' + (index + 1) + ' carries marker W4-' + (index + 1) + '.',
+      metadata: {
+        title: 'Harbor Archive ' + (index + 1),
+        treePath: ['Harbor Archive', 'Batch ' + (Math.floor(index / 15) + 1)],
+        order: index + 1,
+      },
+    })),
+  };
+}
+
 export function worker4UnacceptedLorebook() {
   return {
     id: 'worker4-unaccepted-lore',

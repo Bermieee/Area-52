@@ -453,15 +453,23 @@ export class Wave13ResourceControlAdapter{
       const saved=this.savedProfiles();
       if(!saved.length)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:0,restored:0,alreadyPresent:0,failed:[]});
       if(!this.addFn)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored:0,alreadyPresent:0,failed:saved.map(row=>({role:row.role,resourceId:row.resourceId,code:'RESOURCE_CONFIGURE_ACTION_UNAVAILABLE'}))});
-      let restored=0,alreadyPresent=0;const failed=[];
+      let restored=0,alreadyPresent=0,requalified=0;const failed=[];
       for(const profile of saved){
         try{
-          const current=this.read().data.resources;
-          if(current.some(row=>row.id===profile.resourceId||row.kind===profile.role)){alreadyPresent+=1;continue;}
-          await this.configure(profile);restored+=1;
-        }catch(error){failed.push({role:profile.role,resourceId:profile.resourceId,code:error?.code??'RESOURCE_RESTORE_FAILED',message:String(error?.message??error)});}
+          let current=this.read().data.resources,row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;
+          if(row)alreadyPresent+=1;
+          else{await this.configure(profile);restored+=1;current=this.read().data.resources;row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;}
+          const hostManaged=Boolean(row?.credentialManagedByHost||profile.credentialManagedByHost);
+          const credentiallessReconnect=Boolean(profile.wasConnected&&!profile.credentialPreviouslyConfigured);
+          if(row&&!row.callable&&(hostManaged||credentiallessReconnect)){
+            const result=await this.connect(row);
+            const refreshed=this.read().data.resources.find(item=>item.id===row.id||item.kind===profile.role)??null;
+            if(refreshed?.callable)requalified+=1;
+            else failed.push({role:profile.role,resourceId:profile.resourceId,stage:'REQUALIFY',code:refreshed?.reasonCode??'RESOURCE_REQUALIFY_FAILED',message:refreshed?.reason??'Saved resource did not become callable after restore.'});
+          }
+        }catch(error){failed.push({role:profile.role,resourceId:profile.resourceId,stage:'RESTORE',code:error?.code??'RESOURCE_RESTORE_FAILED',message:String(error?.message??error)});}
       }
-      return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored,alreadyPresent,failed});
+      return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored,alreadyPresent,requalified,failed});
     };
     this.restorePromise=work().finally(()=>{this.restorePromise=null;});
     return this.restorePromise;

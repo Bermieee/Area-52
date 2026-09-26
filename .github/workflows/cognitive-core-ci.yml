@@ -1,0 +1,110 @@
+name: Cognitive Core CI
+
+on:
+  push:
+    branches:
+      - Development-Nexus
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Cognitive tests
+        run: npm test
+      - name: Native Brain focused acceptance
+        run: node --test tests/native-brain.mjs
+      - name: Identity and graph retrieval focused acceptance
+        run: node --test tests/native-brain-identity-retrieval.mjs
+      - name: Native Brain ESM load
+        run: node -e "import('./src/native-brain.js').then(()=>console.log('NATIVE BRAIN ESM PASS'))"
+      - name: Syntax checks
+        run: npm run check
+      - name: ESM load
+        run: node -e "import('./src/cognitive-core.js').then(()=>console.log('ESM PASS'))"
+      - name: Wave 3 publication acceptance report
+        run: node scripts/wave3-acceptance-report.mjs
+      - name: Wave 4 adaptive context acceptance report
+        run: node scripts/wave4-acceptance-report.mjs
+      - name: Framework Wave 1 acceptance report
+        run: node scripts/framework-wave1-acceptance-report.mjs
+      - name: Cognitive Audit Wave 2 acceptance report
+        run: node scripts/cognitive-audit-wave2-acceptance-report.mjs
+      - name: Cognitive Audit stress report
+        run: node scripts/cognitive-audit-stress-report.mjs
+      - name: Context Closure Wave 3 acceptance
+        run: node scripts/context-closure-wave3-acceptance-report.mjs
+      - name: Delivery Learning stress
+        run: node scripts/delivery-learning-stress-report.mjs
+      - name: Core browser-host source acceptance
+        run: node scripts/framework-browser-acceptance.mjs
+      - name: Core browser-runtime execution acceptance
+        run: node scripts/core-browser-runtime-acceptance.mjs
+      - name: Phase 1 Core closure evidence
+        run: node scripts/phase1-core-closure-evidence.mjs
+      - name: Phase 1 Integration Wave 4 acceptance
+        run: node scripts/integration-wave4-acceptance-report.mjs
+      - name: Phase 1 Integration Wave 4 stress
+        run: node scripts/integration-wave4-stress-report.mjs
+      - name: Knowledge Integration Wave 5 acceptance
+        run: node scripts/knowledge-wave5-acceptance-report.mjs
+      - name: Knowledge Integration Wave 5 stress
+        run: node scripts/knowledge-wave5-stress-report.mjs
+      - name: Phase 1 Wave 6 shared-contract acceptance
+        run: node scripts/wave6-acceptance-report.mjs
+      - name: Phase 1 Wave 6 integration stress
+        run: node scripts/wave6-stress-report.mjs
+      - name: Hybrid Sensory Net Wave 8 acceptance
+        run: node scripts/candidate-bus-wave8-acceptance-report.mjs
+      - name: Hybrid Sensory Net Wave 8 stress
+        run: node scripts/candidate-bus-wave8-stress-report.mjs
+      - name: Cognitive Choice Wave 9 acceptance
+        run: node scripts/cognitive-choice-wave9-acceptance-report.mjs
+      - name: Cognitive Choice Wave 9 stress
+        run: node scripts/cognitive-choice-wave9-stress-report.mjs
+      - name: Checkout accepted Memory Wave 4 owner reference
+        uses: actions/checkout@v4
+        with:
+          repository: Bermieee/Area-52
+          ref: 51aa0d6e7293ddeaa3899e81f6699794d0c22b2c
+          path: .integration/memory-wave4
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout current Lore owner reference
+        uses: actions/checkout@v4
+        with:
+          repository: Bermieee/Area-52
+          ref: f983d4de9168ce3a6add1ec002a3372b96b873b9
+          path: .integration/lore-current
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Native Brain Memory and Lore owner integration
+        env:
+          AREA52_MEMORY_REF_ROOT: ${{ github.workspace }}/.integration/memory-wave4
+          AREA52_LORE_REF_ROOT: ${{ github.workspace }}/.integration/lore-current
+        run: node scripts/native-brain-owner-integration.mjs
+      - name: Checkout accepted Scene Wave 3 integration reference
+        uses: actions/checkout@v4
+        with:
+          repository: Bermieee/Area-52
+          ref: 3aaf1c1e9e7e8703dc8c66c5542efb03cc9873cf
+          path: .integration/scene-wave3
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Wave 10 native Scene Core FT002 acceptance
+        env:
+          AREA52_SCENE_REF_ROOT: ${{ github.workspace }}/.integration/scene-wave3
+        run: node scripts/ft002-wave10-acceptance-report.mjs
+      - name: Wave 10 native Scene Core focused stress
+        env:
+          AREA52_SCENE_REF_ROOT: ${{ github.workspace }}/.integration/scene-wave3
+        run: node scripts/ft002-wave10-stress-report.mjs
+      - name: Phase 1 Gate V2 evidence
+        run: node scripts/phase1-gate-v2-report.mjs
+      - name: Phase 1 Integration gate evidence
+        run: node scripts/phase1-integration-gate-evidence.mjs

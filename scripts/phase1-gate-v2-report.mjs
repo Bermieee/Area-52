@@ -1,0 +1,17 @@
+import {runWave6Acceptance} from '../tests/wave6-integration-harness.js';
+const r=runWave6Acceptance();
+const g=r.gate;
+console.log('Phase 1 Gate V2: '+g.state);
+console.log('phase2PromotionAllowed: '+g.phase2PromotionAllowed);
+console.log('acceptedCheckpoints: '+JSON.stringify(g.acceptedCheckpoints));
+console.log('movingHeads: '+JSON.stringify(g.movingHeads));
+console.log('contractCounts: '+JSON.stringify(g.contractReconciliation?.counts??{}));
+console.log('driftCounts: '+JSON.stringify(g.contractDrift?.counts??{}));
+console.log('browserReadiness: '+g.browserReadiness);
+console.log('assemblyReadiness: '+g.assemblyReadiness);
+console.log('uiReadiness: '+g.uiReadiness);
+console.log('loreStatus: '+g.loreStatus);
+console.log('memoryStatus: '+g.memoryStatus);
+for(const row of g.functionTests?.rows??[])console.log('functionTest '+row.test+' '+row.state);
+for(const blocker of g.remainingBlockers??[])console.log('BLOCKER '+blocker);
+if(g.state!=='BLOCKED'||g.phase2PromotionAllowed!==false)process.exitCode=1;

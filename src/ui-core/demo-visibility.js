@@ -1,0 +1,417 @@
+import { ResourceScope } from './lifecycle.js';
+import { element } from './primitives.js';
+
+export const DEMO_EVIDENCE_JOURNAL_VERSION='1.3.0';
+const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
+const STAGES=['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'];
+
+class MemoryStorage{
+  #data=new Map();
+  getItem(key){return this.#data.has(key)?this.#data.get(key):null;}
+  setItem(key,value){this.#data.set(key,String(value));}
+  removeItem(key){this.#data.delete(key);}
+}
+
+export class DemoEvidenceJournal{
+  constructor({storage=null,namespace=DEFAULT_NAMESPACE,maxTurns=48,maxEntriesPerTurn=64,maxStoredBytes=262144,now=()=>Date.now()}={}){
+    const local=globalThis.localStorage??null;
+    this.storage=storage??local??new MemoryStorage();
+    this.storageKind=storage?'PROVIDED':local?'LOCAL_STORAGE':'MEMORY_FALLBACK';
+    this.namespace=String(namespace||DEFAULT_NAMESPACE);
+    this.maxTurns=Math.max(1,Number(maxTurns)||48);
+    this.maxEntriesPerTurn=Math.max(4,Number(maxEntriesPerTurn)||64);
+    this.maxStoredBytes=Math.max(16384,Number(maxStoredBytes)||262144);
+    this.now=typeof now==='function'?now:()=>Date.now();
+    this.lastError=null;this.cachedState=null;this.lastSerializedBytes=0;this.writeCount=0;this.skippedWriteCount=0;this.storageLoadCount=0;
+  }
+
+  recordSnapshot({selection={},operations=null,diagnostics=null,cognition=null,promptPlan=null}={}){
+    const identity=normalizeSelection(selection);
+    if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
+    const state=this.#load(),key=selectionKey(identity),at=this.now();
+    let turn=state.turns.find(row=>row.key===key),changed=false;
+    if(!turn){
+      turn={key,selection:identity,firstSeenAt:at,lastUpdatedAt:at,entries:[]};
+      state.turns.push(turn);changed=true;
+    }
+    const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,at});
+    for(const entry of entries){
+      const index=turn.entries.findIndex(row=>row.identityKey===entry.identityKey);
+      if(index>=0){
+        const prior=turn.entries[index];
+        if(!sameEvidence(prior,entry)){turn.entries[index]=entry;changed=true;}
+      }else{turn.entries.push(entry);changed=true;}
+    }
+    turn.entries.sort((a,b)=>Number(a.at??0)-Number(b.at??0));
+    if(turn.entries.length>this.maxEntriesPerTurn){turn.entries.splice(0,turn.entries.length-this.maxEntriesPerTurn);changed=true;}
+    if(!changed){this.skippedWriteCount+=1;return clone(turn);}
+    turn.lastUpdatedAt=at;
+    state.turns.sort((a,b)=>Number(a.lastUpdatedAt??0)-Number(b.lastUpdatedAt??0));
+    if(state.turns.length>this.maxTurns)state.turns.splice(0,state.turns.length-this.maxTurns);
+    state.updatedAt=at;
+    this.#save(state);
+    return clone(turn);
+  }
+
+  readTurn(selection={}){
+    const identity=normalizeSelection(selection);
+    if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
+    const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
+    return turn?clone(turn):null;
+  }
+
+  listEntries(selection={}, {limit=64}={}){
+    const turn=this.readTurn(selection);
+    return turn?[...turn.entries].slice(-Math.max(1,Number(limit)||64)): [];
+  }
+
+  readEntry(selection={},entryId=null){
+    const identity=normalizeSelection(selection);
+    if(!identity.chatId||!identity.turnId||!identity.generationId||entryId==null)return null;
+    const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
+    const row=turn?.entries?.find(item=>item.id===String(entryId));
+    return row?clone(row):null;
+  }
+
+  status(){
+    const state=this.#load(),turnCount=state.turns.length,entryCount=state.turns.reduce((sum,row)=>sum+(row.entries?.length??0),0);
+    return {
+      kind:'Area52DemoEvidenceJournalStatus',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,
+      available:this.lastError==null,persistent:this.storageKind!=='MEMORY_FALLBACK',storageKind:this.storageKind,
+      turnCount,entryCount,maxTurns:this.maxTurns,maxEntriesPerTurn:this.maxEntriesPerTurn,maxStoredBytes:this.maxStoredBytes,
+      serializedBytes:this.lastSerializedBytes,storageLoads:this.storageLoadCount,writes:this.writeCount,skippedRedundantWrites:this.skippedWriteCount,
+      metadataOnly:true,updatedAt:state.updatedAt??null,
+      lastError:this.lastError?String(this.lastError?.message??this.lastError):null,
+    };
+  }
+
+  exportEvidence({selection=null}={}){
+    const state=this.#load();
+    const identity=selection?normalizeSelection(selection):null;
+    const turns=identity?.chatId&&identity?.turnId&&identity?.generationId
+      ? state.turns.filter(row=>row.key===selectionKey(identity))
+      : state.turns;
+    return {
+      kind:'Area52DemoEvidenceExport',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,exportedAt:this.now(),
+      selection:identity,turns:clone(turns),
+      safety:{rawPromptsPersisted:false,storyTextPersisted:false,credentialsPersisted:false,hiddenReasoningPersisted:false,externalDatabaseUsed:false},
+    };
+  }
+
+  download({selection=null,document=globalThis.document??null,filename=null}={}){
+    const payload=this.exportEvidence({selection}),json=JSON.stringify(payload,null,2);
+    const BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
+    if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',payload,json};
+    const blob=new BlobCtor([json],{type:'application/json'}),url=URLApi.createObjectURL(blob),a=document.createElement('a');
+    const id=payload.selection;
+    a.href=url;a.download=filename??['area52-evidence',id?.chatId,id?.turnId,id?.generationId].filter(Boolean).map(filePart).join('-')+'.json';
+    a.style.display='none';document.body?.append?.(a);
+    try{a.click?.();}finally{a.remove?.();URLApi.revokeObjectURL?.(url);}
+    return{ok:true,filename:a.download,payload,json};
+  }
+
+  clear(){try{this.storage.removeItem(this.namespace);this.cachedState=emptyState();this.lastSerializedBytes=0;this.lastError=null;return true;}catch(error){this.lastError=error;return false;}}
+
+  #load(){
+    if(this.cachedState)return this.cachedState;
+    this.storageLoadCount+=1;
+    try{
+      const raw=this.storage.getItem(this.namespace);
+      if(!raw){this.cachedState=emptyState();return this.cachedState;}
+      this.lastSerializedBytes=raw.length;
+      const parsed=JSON.parse(raw);
+      this.cachedState=parsed?.kind==='Area52DemoEvidenceJournal'&&Array.isArray(parsed.turns)?parsed:emptyState();
+      return this.cachedState;
+    }catch(error){this.lastError=error;this.cachedState=emptyState();return this.cachedState;}
+  }
+  #save(state){
+    try{
+      const json=boundedJournalJson(state,this.maxStoredBytes);
+      this.cachedState=state;this.lastSerializedBytes=json.length;this.storage.setItem(this.namespace,json);this.writeCount+=1;this.lastError=null;
+    }catch(error){this.lastError=error;this.cachedState=state;}
+  }
+}
+
+export class DemoActivityFeedController{
+  constructor({
+    host,journal,selectionProvider=()=>({}),inspect=null,maxVisible=5,
+    now=()=>Date.now(),fadeAfterMs=6500,visibleForMs=12000,
+    setTimer=globalThis.setTimeout?.bind(globalThis)??null,clearTimer=globalThis.clearTimeout?.bind(globalThis)??null,scheduleEnabled=null,
+  }={}){
+    this.host=host;this.journal=journal;this.selectionProvider=selectionProvider;this.inspect=typeof inspect==='function'?inspect:null;
+    this.maxVisible=Math.max(2,Number(maxVisible)||5);this.now=typeof now==='function'?now:()=>Date.now();
+    this.fadeAfterMs=Math.max(250,Number(fadeAfterMs)||6500);this.visibleForMs=Math.max(this.fadeAfterMs+250,Number(visibleForMs)||12000);
+    this.setTimer=typeof setTimer==='function'?setTimer:null;this.clearTimer=typeof clearTimer==='function'?clearTimer:null;
+    this.scheduleEnabled=scheduleEnabled==null?typeof host?.isConnected==='boolean':Boolean(scheduleEnabled);
+    this.scope=new ResourceScope();this.renderScope=new ResourceScope();this.held=new Set();this.timer=null;this.lastSignature=null;
+  }
+  mount(){this.host?.classList?.add?.('a52-activity-feed-host');this.render();return this;}
+  render(){
+    if(!this.host||!this.journal)return;
+    this.#cancelTimer();
+    const selection=normalizeSelection(this.selectionProvider?.()??{}),now=Number(this.now()),all=this.journal.listEntries(selection,{limit:Math.max(this.maxVisible*4,32)});
+    const active=all.filter(entry=>this.held.has(entry.id)||Math.max(0,now-Number(entry.at??now))<this.visibleForMs).slice(-this.maxVisible);
+    let nextBoundary=Infinity;
+    const rows=active.map((entry,index)=>{
+      const elapsed=Math.max(0,now-Number(entry.at??now)),held=this.held.has(entry.id),phase=elapsed>=this.fadeAfterMs?'fading':'fresh';
+      if(!held){const boundary=elapsed<this.fadeAfterMs?this.fadeAfterMs-elapsed:this.visibleForMs-elapsed;if(boundary>0)nextBoundary=Math.min(nextBoundary,boundary);}
+      return{entry,held,phase,age:active.length-1-index};
+    });
+    const signature=selectionKey(selection)+'|'+JSON.stringify(rows.map(row=>[row.entry.id,row.entry.status,row.entry.summary,row.entry.detail,row.phase,row.held]));
+    if(!rows.length){
+      if(this.lastSignature!==signature){this.renderScope.cleanup();this.renderScope=new ResourceScope();this.host.replaceChildren();this.lastSignature=signature;}
+      return;
+    }
+    if(this.lastSignature!==signature){
+      this.renderScope.cleanup();this.renderScope=new ResourceScope();
+      const d=this.host.ownerDocument,root=element(d,'div',{className:'a52-activity-feed',attrs:{'aria-label':'Current turn activity',role:'log','aria-live':'polite','aria-relevant':'additions text'}});
+      for(const {entry,held,phase,age} of rows){
+        const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),phase,paused:String(held),entryId:entry.id}});
+        button.append(element(d,'strong',{text:entry.title}),element(d,'span',{className:'a52-activity-feed__summary',text:entry.summary}),element(d,'span',{className:'a52-activity-feed__detail',text:entry.detail??entry.summary}));
+        this.renderScope.listen(button,'click',()=>this.#activate(entry));
+        this.renderScope.listen(button,'mouseenter',()=>this.#hold(entry.id));
+        this.renderScope.listen(button,'mouseleave',()=>this.#release(entry.id));
+        this.renderScope.listen(button,'focusin',()=>this.#hold(entry.id));
+        this.renderScope.listen(button,'focusout',()=>this.#release(entry.id));
+        root.append(button);
+      }
+      this.host.replaceChildren(root);this.lastSignature=signature;
+    }
+    if(this.scheduleEnabled&&Number.isFinite(nextBoundary)&&this.held.size===0)this.#schedule(Math.max(20,nextBoundary+5));
+  }
+  destroy(){this.#cancelTimer();this.renderScope.cleanup();this.scope.cleanup();this.held.clear();this.lastSignature=null;this.host?.replaceChildren?.();}
+  #activate(entry){
+    const current=normalizeSelection(this.selectionProvider?.()??{});
+    if(selectionKey(current)!==selectionKey(entry.selection)){this.render();return false;}
+    this.inspect?.({kind:'wave14-activity-evidence',id:entry.id,title:entry.title,available:true,selection:clone(entry.selection),receiptRef:entry.receiptRef??null,payload:clone(entry)});
+    return true;
+  }
+  #hold(id){this.held.add(id);this.#cancelTimer();const node=this.#entryNode(id);if(node)node.dataset.paused='true';}
+  #release(id){this.held.delete(id);this.render();}
+  #entryNode(id){return [...(this.host?.querySelectorAll?.('.a52-activity-feed__item')??[])].find(node=>node.dataset?.entryId===id)??null;}
+  #schedule(ms){if(!this.setTimer)return;this.timer=this.setTimer(()=>{this.timer=null;this.render();},ms);this.timer?.unref?.();}
+  #cancelTimer(){if(this.timer!=null&&this.clearTimer)this.clearTimer(this.timer);this.timer=null;}
+}
+
+function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at}){
+  const out=[],op=operations??{},diag=diagnostics??{},path=cognition?.data??cognition??{},pipeline=op.pipeline??{};
+  const stages=new Map((op.stages??[]).map(row=>[row.id,row]));
+  const inspections=op.inspections??{},scatter=path.scatter??null,gather=path.gather??null,seal=path.seal??null;
+  const pp=promptPlan?.data??promptPlan??path.promptPlan??null,hostDelivery=inspections.generation?.payload??null;
+  const dedicated=new Set();
+  if(scatter)dedicated.add('runtime');if(gather)dedicated.add('gather');if(seal)dedicated.add('seal');if(pp)dedicated.add('promptPlan');
+  if(hostDelivery?.kind==='SillyTavernHostDeliveryReceipt')dedicated.add('generation');if(pipeline.learningReceipt)dedicated.add('learning');
+  for(const id of STAGES){
+    const row=stages.get(id);if(!row||dedicated.has(id))continue;
+    const inspection=inspections[id]??null;
+    const ref=inspection?.receiptRef??null;
+    if(!inspection?.available&&['runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'].includes(id)&&['UNAVAILABLE','DISCONNECTED','WAITING_FOR_TURN'].includes(String(row.state)))continue;
+    const detail=producerDetail(id,path,pipeline,row);
+    out.push(entry({
+      type:'PRODUCER',subtype:id,status:row.state??'UNKNOWN',title:row.label??label(id),summary:detail.summary,
+      detail:detail.detail,receiptRef:ref,selection,at,identitySuffix:ref??'selected-turn-status',
+      metadata:{producerId:id,errorCode:row.errorCode??null,freshness:row.freshness??null},
+    }));
+  }
+
+  const liveReadError=diag.host?.liveBinding?.lastError??null;
+  if(liveReadError){
+    const stage=String(liveReadError.stage??'owner-read'),code=technicalReason(liveReadError.code)??'LIVE_RECEIPT_READ_FAILED';
+    out.push(entry({
+      type:'READ_ERROR',subtype:stage,status:'READ_FAILED',title:label(stage)+' selected-turn read blocked',
+      summary:'Selected-turn '+label(stage)+' read was blocked: '+code+'.',
+      detail:liveReadError.message??'The owner reader rejected the selected-turn receipt.',
+      selection,at,identitySuffix:[stage,code,selection.worldRevision??'',selection.sceneRevision??'',selection.sourceRevisionRefs.join(',')].join(':'),
+      metadata:{stage,code,worldRevision:selection.worldRevision,sceneRevision:selection.sceneRevision,sourceRevisionRefs:[...selection.sourceRevisionRefs]},
+    }));
+  }
+
+  if(scatter){
+    const jobs=scatter.jobs??[],ids=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];
+    out.push(entry({
+      type:'SCATTER',status:'MAPPED',title:'Runtime fan-out',
+      summary:jobs.length+' logical job'+(jobs.length===1?'':'s')+' mapped to '+ids.length+' resource identit'+(ids.length===1?'y':'ies')+'.',
+      detail:'Scatter proves logical mapping only. It is not evidence that any mapped resource physically executed.',
+      receiptRef:scatter.receiptId??null,selection,at,identitySuffix:scatter.receiptId??String(jobs.length)+':'+ids.join(','),
+      metadata:{logicalJobCount:jobs.length,mappedResourceCount:ids.length,mappedResourceIds:ids,jobs:jobs.map(row=>({jobId:row.jobId??row.taskId??null,capability:row.capability??null,resourceId:row.resourceId??null,state:row.state??null}))},
+    }));
+  }
+
+  const runtimeOwner=inspections.runtime?.payload?.receipt??inspections.runtime?.payload??null;
+  const ownerJobs=Array.isArray(runtimeOwner?.jobs)?runtimeOwner.jobs:[];
+  if(ownerJobs.length){
+    const nativeIds=[...new Set((runtimeOwner?.resourceIds??[]).filter(Boolean).map(String))];
+    const optionalByJob=new Map((scatter?.jobs??[]).map(row=>[String(row.jobId??row.taskId??''),row]));
+    const gatherRows=Array.isArray(path.gather?.results)?path.gather.results:[],sealedIds=new Set(path.seal?.effectiveAdmittedResultIds??path.seal?.admittedResultIds??[]);
+    const auditJobs=ownerJobs.slice(0,32).map(job=>{
+      const jobId=String(job.jobId??job.taskId??''),optional=optionalByJob.get(jobId)??null;
+      const results=gatherRows.filter(row=>String(row.taskId??row.jobId??'')===jobId).slice(0,16);
+      return{
+        jobId:jobId||null,sequence:finite(job.sequence),owner:job.owner??null,reasonCode:technicalReason(job.reasonCode??job.reason??(job.owner?'OWNER_'+String(job.owner):null)),
+        assignedNativeResourceId:job.resourceId??(nativeIds.length===1?nativeIds[0]:null),assignedOptionalResourceId:optional?.resourceId??null,
+        startAt:finite(job.startedAt??job.startAt),endAt:finite(job.completedAt??job.endAt),outcome:job.status??job.state??null,
+        providerAttempted:results.some(row=>Boolean(row.providerAttempted)),resultIds:results.map(row=>row.resultId).filter(Boolean),
+        gatherAdmissions:results.map(row=>({resultId:row.resultId??null,status:row.status??null,accepted:Boolean(row.accepted),resourceId:row.resourceId??null})),
+        contextSealResultIds:results.map(row=>row.resultId).filter(id=>id&&sealedIds.has(id)),
+      };
+    });
+    const optionalIds=[...new Set((scatter?.jobs??[]).map(row=>row.resourceId).filter(Boolean).map(String))];
+    out.push(entry({
+      type:'JOB_AUDIT',status:'RECORDED',title:'Selected-turn job execution audit',
+      summary:auditJobs.length+' logical jobs · '+nativeIds.length+' native resource'+(nativeIds.length===1?'':'s')+' · '+optionalIds.length+' optional execution resource'+(optionalIds.length===1?'':'s')+'.',
+      detail:'Native scheduler execution, optional provider execution, Gather admission, and Context Seal admission are separate evidence states. Zero optional execution resources does not imply a provider call.',
+      receiptRef:runtimeOwner?.receiptId??runtimeOwner?.turnId??null,selection,at,identitySuffix:String(runtimeOwner?.receiptId??runtimeOwner?.turnId??auditJobs.length),
+      metadata:{logicalJobCount:auditJobs.length,nativeResourceIds:nativeIds,optionalExecutionResourceIds:optionalIds,jobs:auditJobs},
+    }));
+  }
+
+  for(const row of diag.resources?.rows??[]){
+    if(!row.physicalExecutionAttempted&&!row.lastExecution)continue;
+    const succeeded=Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
+    out.push(entry({
+      type:'RESOURCE_ATTEMPT',status:succeeded?'SUCCEEDED':'FAILED',title:'Physical resource attempt',
+      summary:String(row.displayName??row.id??'Resource')+' '+(succeeded?'completed a physical execution attempt.':'reported a physical execution failure.'),
+      detail:'This evidence comes from the resource execution read model, not connection or configuration state.',
+      receiptRef:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,selection,at,
+      identitySuffix:String(row.id??'resource')+':'+String(row.lastExecution?.at??row.lastExecution?.completedAt??row.lastExecution?.status??succeeded),
+      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,succeeded,latencyMs:finite(row.lastExecution?.latencyMs)},
+    }));
+  }
+
+
+  const optionalRows=(diag.resources?.rows??[]).filter(row=>['JEV','SIDECAR','VECTORING'].includes(String(row.kind??'').toUpperCase())).slice(0,24);
+  if(optionalRows.length){
+    const jevReason=technicalReason(path.jev?.reasonCode??path.jev?.reason??path.jev?.outcome??path.jev?.state);
+    const lifecycleRows=optionalRows.map(row=>{
+      const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=Boolean(row.physicalExecutionSucceeded||row.lastExecution?.status==='SUCCESS');
+      const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
+      const kind=String(row.kind??'').toUpperCase(),skipReason=kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
+      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
+    });
+    out.push(entry({
+      type:'OPTIONAL_RESOURCE_LIFECYCLE',status:'RECORDED',title:'Optional resource lifecycle',
+      summary:lifecycleRows.filter(row=>row.configured).length+' configured · '+lifecycleRows.filter(row=>row.qualifiedCallable).length+' callable · '+lifecycleRows.filter(row=>row.attempted).length+' attempted.',
+      detail:'Configured, callable, attempted, succeeded or failed, and owner-accepted are independent states. JEV_NOT_REQUIRED is an intentional skip when no provider attempt occurred.',
+      selection,at,identitySuffix:lifecycleRows.map(row=>[row.id,row.state,row.attempted,row.succeeded,row.failed,row.ownerAccepted,row.skipReason].join(':')).join('|'),
+      metadata:{resources:lifecycleRows},
+    }));
+  }
+
+  if(gather){
+    const counts=gather.counts??{},returned=Object.values(counts).reduce((sum,value)=>sum+(Number(value)||0),0);
+    out.push(entry({
+      type:'GATHER',status:gather.state??'COMPLETE',title:'Gather returned',
+      summary:returned+' result'+(returned===1?'':'s')+' recorded; '+Number(counts.ADMITTED??0)+' admitted by Gather.',
+      detail:'Gather disposition is recorded independently from Context Seal admission.',
+      receiptRef:gather.receiptId??null,selection,at,identitySuffix:gather.receiptId??JSON.stringify(counts),
+      metadata:{counts:{ADMITTED:Number(counts.ADMITTED??0),LATE:Number(counts.LATE??0),STALE:Number(counts.STALE??0),REJECTED:Number(counts.REJECTED??0),INVALID:Number(counts.INVALID??0)},results:(gather.results??[]).slice(0,64).map(row=>({resultId:row.resultId??null,taskId:row.taskId??null,jobId:row.jobId??null,status:row.status??null,accepted:row.accepted===true,resourceId:row.resourceId??null,destination:row.destination??null,capability:row.capability??null,providerAttempted:row.providerAttempted===true,at:finite(row.at??row.completedAt),reasonCode:technicalReason(row.reasonCode??row.reason)}))},
+    }));
+  }
+
+  if(seal){
+    const admitted=[...(seal.effectiveAdmittedResultIds??seal.admittedResultIds??[])];
+    out.push(entry({
+      type:'CONTEXT_SEAL',status:seal.sealedState===false?'UNSEALED':'SEALED',title:'Context Seal',
+      summary:admitted.length+' result id'+(admitted.length===1?'':'s')+' admitted by the Context Seal owner.',
+      detail:'Only owner-published admitted result IDs are counted as sealed context contributions.',
+      receiptRef:seal.sealId??seal.receiptId??null,selection,at,identitySuffix:seal.sealId??seal.receiptId??admitted.join(','),
+      metadata:{admittedResultCount:admitted.length,admittedResultIds:admitted,rejectedResultIds:[...(seal.rejectedResultIds??[])],lateResultIds:[...(seal.lateResultIds??[])],staleResultIds:[...(seal.staleResultIds??[])]},
+    }));
+  }
+
+  if(pp){
+    out.push(entry({
+      type:'PROMPT_PLAN',status:pp.status??'PUBLISHED',title:'Prompt delivery plan',
+      summary:'PromptPlan '+String(pp.promptPlanId??'receipt')+' was published for this generation.',
+      detail:'A PromptPlan proves owner context preparation; it does not prove SillyTavern received or used the prompt.',
+      receiptRef:pp.promptPlanId??null,selection,at,identitySuffix:pp.promptPlanId??String(pp.generationId??selection.generationId),
+      metadata:{promptPlanId:pp.promptPlanId??null,totalTokens:finite(pp.totalTokens),budgetTotal:finite(pp.budgetTotal),sealState:pp.seal?.sealedState??null},
+    }));
+  }
+
+  if(hostDelivery?.kind==='SillyTavernHostDeliveryReceipt'){
+    const injected=Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt),completed=Boolean(hostDelivery.responseCompleted??hostDelivery.completedAt),aborted=String(hostDelivery.state??'').toUpperCase()==='ABORTED';
+    out.push(entry({
+      type:'HOST_DELIVERY',status:aborted?'ABORTED':completed?'COMPLETED':injected?'INJECTED':'PREPARED',title:'SillyTavern prompt delivery',
+      summary:aborted?'The exact generation was aborted before completion.':completed?'SillyTavern observed the request payload and the generation completed.':injected?'SillyTavern observed the prepared payload at the model-request hook.':'A PromptPlan was prepared; host injection has not been observed.',
+      detail:'Host delivery is separate from PromptPlan and Context Seal. Only the host receipt can prove request-payload injection.',
+      receiptRef:hostDelivery.receiptId??hostDelivery.generationId??null,selection,at,identitySuffix:hostDelivery.receiptId??String(hostDelivery.state??'host'),
+      metadata:{state:hostDelivery.state??null,promptPlanId:hostDelivery.promptPlanId??null,contextSealId:hostDelivery.contextSealId??null,preparedAt:finite(hostDelivery.preparedAt),requestInjectedAt:finite(hostDelivery.requestInjectedAt),completedAt:finite(hostDelivery.completedAt),requestHook:hostDelivery.requestHook??null,renderedPayloadDigest:hostDelivery.renderedPayloadDigest??null,requestPayloadDigest:hostDelivery.requestPayloadDigest??null,renderedMessageCount:finite(hostDelivery.renderedMessageCount),promptInjected:Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt),hostObserved:Boolean(hostDelivery.hostObserved??hostDelivery.requestInjectedAt),responseCompleted:Boolean(hostDelivery.responseCompleted??hostDelivery.completedAt),abortCode:hostDelivery.abortCode??null},
+    }));
+  }
+
+  if(pipeline.learningReceipt){
+    const learning=inspections.learning?.payload??null;
+    out.push(entry({
+      type:'LEARNING',status:'RECORDED',title:'Post-response learning',
+      summary:'The owner published a learning receipt for this completed generation.',
+      detail:'Only receipt identity and status are persisted; no response text or hidden reasoning is stored.',
+      receiptRef:inspections.learning?.receiptRef??learning?.id??learning?.kind??null,selection,at,identitySuffix:inspections.learning?.receiptRef??learning?.id??learning?.kind??'learning',
+      metadata:{kind:learning?.kind??pipeline.learningKind??null,status:learning?.status??'RECORDED'},
+    }));
+  }
+  return out;
+}
+
+function producerDetail(id,path,pipeline,row){
+  if(id==='runtime')return{summary:pipeline.mappingReceipt?String(pipeline.logicalJobsMapped??0)+' logical jobs mapped.':'Runtime owner status updated.',detail:pipeline.mappingReceipt?'Mapping is visible; physical execution requires separate execution telemetry.':row.reason};
+  if(id==='coprocessor')return{summary:pipeline.executionReceipt?String(pipeline.physicalExecutionAttempts??0)+' physical attempts · '+String(pipeline.physicalExecutionSucceeded??0)+' succeeded.':'No selected-turn physical execution receipt.',detail:'Configured or connected resources are not counted as executed.'};
+  if(id==='choice')return{summary:path.choice?String(path.choice.admitted?.length??0)+' admitted · '+String(path.choice.skipped?.length??0)+' skipped.':row.reason,detail:'Cognitive Choice is shown from the selected-turn owner receipt.'};
+  if(id==='truth')return{summary:path.truth?'Truth owner published '+sumCounts(path.truth.counts)+' classified result(s).':row.reason,detail:'Truth status comes from the selected-turn Truth assessment.'};
+  if(id==='jev')return{summary:path.jev?'Jev '+String(path.jev.outcome??path.jev.state??'receipt')+'.':row.reason,detail:'Jev connection state is not execution evidence; this notice exists only when the selected-turn cognition path publishes Jev state.'};
+  if(id==='gather')return{summary:path.gather?'Gather owner receipt published.':row.reason,detail:'Returned and contained results remain distinct from Context Seal admission.'};
+  if(id==='seal')return{summary:path.seal?'Context Seal owner receipt published.':row.reason,detail:'Only explicit admitted result IDs count as sealed contributions.'};
+  if(id==='promptPlan')return{summary:path.promptPlan?'PromptPlan prepared for generation.':row.reason,detail:'PromptPlan is not proof of SillyTavern prompt receipt.'};
+  if(id==='learning')return{summary:pipeline.learningReceipt?'Post-response learning receipt recorded.':row.reason,detail:'Learning is recorded after response completion.'};
+  return{summary:row.reason||label(id)+' owner status updated.',detail:'Selected-turn owner status; no raw narrative content is retained.'};
+}
+
+function sameEvidence(a,b){
+  if(!a||!b)return false;
+  return a.status===b.status&&a.summary===b.summary&&a.detail===b.detail&&a.receiptRef===b.receiptRef&&JSON.stringify(a.metadata??{})===JSON.stringify(b.metadata??{});
+}
+function entry({type,subtype=null,status,title,summary,detail,receiptRef=null,selection,at,identitySuffix='',metadata={}}){
+  const id=[type,subtype??'',selection.chatId,selection.turnId,selection.generationId,String(identitySuffix)].join(':');
+  return{
+    kind:'Area52DemoEvidenceEntry',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,id,identityKey:id,type,subtype,status:String(status??'UNKNOWN'),title:String(title??type),
+    summary:safeDiagnosticText(summary??''),detail:safeDiagnosticText(detail??summary??''),receiptRef:receiptRef==null?null:safeDiagnosticText(receiptRef,512),selection:clone(selection),at:Number(at??0),metadata:sanitizeMetadata(metadata),
+    rawPromptIncluded:false,storyTextIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+  };
+}
+function normalizeSelection(value={}){return{chatId:text(value.chatId),turnId:text(value.turnId),generationId:text(value.generationId),correlationId:text(value.correlationId),worldRevision:numberOrNull(value.worldRevision),sceneRevision:numberOrNull(value.sceneRevision),sourceRevisionRefs:[...new Set((value.sourceRevisionRefs??[]).map(text).filter(Boolean))].slice(0,32)};}
+function selectionKey(value={}){const x=normalizeSelection(value);return[x.chatId??'',x.turnId??'',x.generationId??''].join('|');}
+function emptyState(){return{kind:'Area52DemoEvidenceJournal',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,updatedAt:null,turns:[]};}
+function sumCounts(value={}){return Object.values(value??{}).reduce((sum,row)=>sum+(Number(row)||0),0);}
+function finite(value){const n=Number(value);return Number.isFinite(n)?n:null;}
+function numberOrNull(value){const n=Number(value);return value==null||!Number.isFinite(n)?null:n;}
+function text(value){const x=value==null?'':String(value).trim();return x||null;}
+function label(value){return String(value??'producer').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
+function filePart(value){return String(value??'').replace(/[^a-z0-9._-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,80)||'unknown';}
+function technicalReason(value){const x=value==null?'':String(value).trim().toUpperCase();return /^[A-Z0-9_:-]{1,128}$/.test(x)?x:null;}
+const BLOCKED_METADATA_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
+function safeDiagnosticText(value,limit=2048){
+  let out=String(value??'');
+  out=out.replace(/(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi,'$1[REDACTED]');
+  out=out.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,'[REDACTED]');
+  out=out.replace(/(\b(?:api[_-]?key|authorization|credential|secret|password|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*)([^\s,;&]+)/gi,'$1[REDACTED]');
+  return out.length>limit?out.slice(0,limit)+'…[clipped]':out;
+}
+function sanitizeMetadata(value,depth=0,key=''){
+  if(depth>7)return'[depth-clipped]';
+  const normalized=String(key??'').toLowerCase();
+  if(BLOCKED_METADATA_KEYS.has(normalized))return'[REDACTED]';
+  if(value==null||typeof value==='number'||typeof value==='boolean')return value;
+  if(typeof value==='string')return safeDiagnosticText(value);
+  if(Array.isArray(value))return value.slice(0,64).map(row=>sanitizeMetadata(row,depth+1,key));
+  if(typeof value==='object'){const out={};for(const [name,row] of Object.entries(value))out[name]=sanitizeMetadata(row,depth+1,name);return out;}
+  return safeDiagnosticText(value);
+}
+function boundedJournalJson(state,maxBytes){
+  let json=JSON.stringify(state);
+  while(json.length>maxBytes&&state.turns.length>1){state.turns.shift();json=JSON.stringify(state);}
+  while(json.length>maxBytes&&state.turns.length===1&&(state.turns[0].entries?.length??0)>4){
+    const entries=state.turns[0].entries,drop=Math.max(1,Math.ceil(entries.length/4));entries.splice(0,drop);json=JSON.stringify(state);
+  }
+  return json;
+}
+function clone(value){if(value==null)return value;if(typeof structuredClone==='function')return structuredClone(value);return JSON.parse(JSON.stringify(value));}

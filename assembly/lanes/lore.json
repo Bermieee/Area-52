@@ -1,0 +1,448 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "lore",
+  "branch": "Development-Lorebook-Editor",
+  "acceptedSha": "fa74d3e792d3d8aa4dc4879271bcfc42f43e7c2c",
+  "acceptedCheckpointStatus": "PREVIOUS_WAVE3_ACCEPTED_CHECKPOINT_RETAINED_UNTIL_ASSEMBLY_EXACT_HEAD_CI_PASSES",
+  "candidateSourceSha": "f983d4de9168ce3a6add1ec002a3372b96b873b9",
+  "sourceLineage": {
+    "wave6Sha": "0adfdf9ae7221905baab2ea9c8f36f3c47b84c37",
+    "wave7Sha": "f983d4de9168ce3a6add1ec002a3372b96b873b9",
+    "wave7ExactHeadCi": {
+      "runId": "36098294767",
+      "status": "QUEUED_AT_ASSEMBLY_START",
+      "url": "https://github.com/Bermieee/Area-52/actions/runs/36098294767"
+    }
+  },
+  "assemblyCandidate": {
+    "branch": "Integration-Lore-Wave7",
+    "baseMainSha": "c671fbf7ff603b04311f9fe7e82ca050049354f2",
+    "status": "EXACT_HEAD_CI_PENDING",
+    "mainMutationAllowed": false,
+    "worker3UiFilesModified": false
+  },
+  "acceptanceRuns": [
+    {
+      "id": "36053732696",
+      "name": "Lore Wave 1 CI"
+    },
+    {
+      "id": "36053732771",
+      "name": "Lore Wave 2 CI"
+    },
+    {
+      "id": "36053732728",
+      "name": "Lore Wave 3 CI"
+    }
+  ],
+  "candidateAcceptanceRuns": [],
+  "copiedPaths": [
+    {
+      "path": "docs/LORE_HIERARCHY_CONTEXTUAL_RETRIEVAL.md",
+      "sourceDigest": "20405e26c9de3e9c49f46976e2cde04c92a7e53c"
+    },
+    {
+      "path": "docs/LORE_MULTI_RESOLUTION_REPRESENTATIONS.md",
+      "sourceDigest": "e3a0a396b7536de46f5968c7e0879d8c8a576d3e"
+    },
+    {
+      "path": "docs/LORE_WAVE1.md",
+      "sourceDigest": "b3879fe073342fbf8ddfbe6e1fdebfc99b05c6da"
+    },
+    {
+      "path": "docs/LORE_WAVE1_CHANGELOG.md",
+      "sourceDigest": "0ee8349073ab2af5a2f5e51687335cdd5cd899c1"
+    },
+    {
+      "path": "docs/LORE_WAVE2_ACCEPTANCE.md",
+      "sourceDigest": "65ce680cf2b8a4aef07a763ca0ababa4fbb07c07"
+    },
+    {
+      "path": "docs/LORE_WAVE2_CHANGELOG.md",
+      "sourceDigest": "4670a88a121b366fdcf592085e20884444fd6ea6"
+    },
+    {
+      "path": "docs/LORE_WAVE3_ACCEPTANCE.md",
+      "sourceDigest": "7d07e7bc0cd7bb972c2a28f6926535e8b60c753f"
+    },
+    {
+      "path": "docs/LORE_WAVE3_CHANGELOG.md",
+      "sourceDigest": "4a490729a89b5846a1bf612ebcb345eb2086d876"
+    },
+    {
+      "path": "docs/LORE_WAVE4_CHANGELOG.md",
+      "sourceDigest": "1c7f4698612a57e3a7e35eba981da105af70145d"
+    },
+    {
+      "path": "docs/LORE_WAVE4_INTELLIGENCE_ACCEPTANCE.md",
+      "sourceDigest": "c59ff06ebdacfe102397fe86c15ad2d7a3fa8497"
+    },
+    {
+      "path": "docs/LORE_WAVE5_ACCEPTANCE.md",
+      "sourceDigest": "e5d8fce40b6fde1bfa3df14fee09844947c11aaf"
+    },
+    {
+      "path": "docs/LORE_WAVE5_CHANGELOG.md",
+      "sourceDigest": "0b2e91db934c42a4e1478383978289998bbc2f2c"
+    },
+    {
+      "path": "src/lore-authoring-contracts.js",
+      "sourceDigest": "cac55fc78fd47779c06c444372e1c422d628ff8b"
+    },
+    {
+      "path": "src/lore-authoring-lifecycle.js",
+      "sourceDigest": "20bf3729bbb81889b6ac3c046a3e5d84390a8576"
+    },
+    {
+      "path": "src/lore-authoring-service.js",
+      "sourceDigest": "af53b3e96c4b552c20299a821bd4565c9c3edd81"
+    },
+    {
+      "path": "src/lore-contextual-retrieval.js",
+      "sourceDigest": "192ab136629a53bca4662470ce2a398f66ef8564"
+    },
+    {
+      "path": "src/lore-contracts.js",
+      "sourceDigest": "8a89f49415c480ba6dc9ecc3deb8b0a400571826"
+    },
+    {
+      "path": "src/lore-hierarchy-retrieval-system.js",
+      "sourceDigest": "677d74c102470570473e9015be5a60611aa5e4e7"
+    },
+    {
+      "path": "src/lore-intelligence-service.js",
+      "sourceDigest": "4d63877833d34dd61bf53bd4894dfc9bae631365"
+    },
+    {
+      "path": "src/lore-merge-preview.js",
+      "sourceDigest": "4debe7f47ffed0bf82f395a3509b2cf980855113"
+    },
+    {
+      "path": "src/lore-multi-resolution.js",
+      "sourceDigest": "507f84802f36b0accd98c90f4b190ab50bcde8fd"
+    },
+    {
+      "path": "src/lore-navigation-contracts.js",
+      "sourceDigest": "ef10873936244941c7a0168d715097e560e660f8"
+    },
+    {
+      "path": "src/lore-navigation-hierarchy.js",
+      "sourceDigest": "d6c0290ebabde672fc365afe17e8f91076d05395"
+    },
+    {
+      "path": "src/lore-navigation-summary-builder.js",
+      "sourceDigest": "360032169b4eadfe0e068eb9eb065fd43d32f7ba"
+    },
+    {
+      "path": "src/lore-navigation-summary-registry.js",
+      "sourceDigest": "0482f52fd0fb711c24544dd670dedfdf7a8cee88"
+    },
+    {
+      "path": "src/lore-representation-compiler.js",
+      "sourceDigest": "18a1a93a8081972aadd2524638e24dc9a57d1c86"
+    },
+    {
+      "path": "src/lore-representation-contracts.js",
+      "sourceDigest": "a2e838f205e65f8d9b9fdae6e6eef900f9daa506"
+    },
+    {
+      "path": "src/lore-representation-registry.js",
+      "sourceDigest": "0149c33e0b2173a5e12de59fecbf48fef565de3c"
+    },
+    {
+      "path": "src/lore-semantic-authoring.js",
+      "sourceDigest": "812857b3d2b14c69443afcc9c28881e1c3f4b8b9"
+    },
+    {
+      "path": "src/lore-source-registry.js",
+      "sourceDigest": "620a1130e23dc280eb44051e8f8d590ac9963f6a"
+    },
+    {
+      "path": "src/lore-structure-planner.js",
+      "sourceDigest": "505637212d1d3c6144d623086937b15e3c336eff"
+    },
+    {
+      "path": "src/lore-study-engine.js",
+      "sourceDigest": "7a8af8042f72ef39e92969cb1a0bb815303ee974"
+    },
+    {
+      "path": "src/lore-study-runtime.js",
+      "sourceDigest": "b5820986c603901a4cbb658fc1a12c4e74a3662f"
+    },
+    {
+      "path": "src/lore-world-ontology.js",
+      "sourceDigest": "a08cefc50349498171babe78d11ea3b1e3292f75"
+    },
+    {
+      "path": "tests/lore-browser-safe.mjs",
+      "sourceDigest": "6224848dec2272a8a119ca916b42b6e4c5b1bcd2"
+    },
+    {
+      "path": "tests/lore-wave1-stress.mjs",
+      "sourceDigest": "2abc4a48928e217b87f2671617e9ffbd8feb558f"
+    },
+    {
+      "path": "tests/lore-wave1.mjs",
+      "sourceDigest": "a949fbbba5fede073bc0e450e0086e14614e6c21"
+    },
+    {
+      "path": "tests/lore-wave2-stress.mjs",
+      "sourceDigest": "66eccf8303265629e67a93a2c17c9a9289215fd6"
+    },
+    {
+      "path": "tests/lore-wave2.mjs",
+      "sourceDigest": "34a86956cfb6e210ff91aee6cec3f81d344f8c6d"
+    },
+    {
+      "path": "tests/lore-wave3-stress.mjs",
+      "sourceDigest": "dc30b40ad8fe637d6f112b5750513750f1528c65"
+    },
+    {
+      "path": "tests/lore-wave3.mjs",
+      "sourceDigest": "fcc33628e035ec15c001cc9d38b851b97128a6e3"
+    },
+    {
+      "path": "tests/lore-wave4.mjs",
+      "sourceDigest": "68818677c461fb8715be501a3e49a08fe7e8f88b"
+    },
+    {
+      "path": "tests/lore-wave5.mjs",
+      "sourceDigest": "7a976e59b2a5217faef25afbb84a1b128495c5b9"
+    },
+    {
+      "path": "tests/lore-wave6.mjs",
+      "sourceDigest": "686fe7855676b535bbc5b4e633ebd01ae83565cd"
+    },
+    {
+      "path": "tests/lore-wave7-stress.mjs",
+      "sourceDigest": "be3aa1fb0ccefb38565ac57378ef4f66abeab710"
+    },
+    {
+      "path": "tests/lore-wave7.mjs",
+      "sourceDigest": "8b255a123bf393b9acfbd292c0370aa44f0a0bc6"
+    }
+  ],
+  "browserRuntimePaths": [
+    "src/lore-contextual-retrieval.js",
+    "src/lore-contracts.js",
+    "src/lore-hierarchy-retrieval-system.js",
+    "src/lore-multi-resolution.js",
+    "src/lore-navigation-contracts.js",
+    "src/lore-navigation-hierarchy.js",
+    "src/lore-navigation-summary-builder.js",
+    "src/lore-navigation-summary-registry.js",
+    "src/lore-representation-compiler.js",
+    "src/lore-representation-contracts.js",
+    "src/lore-representation-registry.js",
+    "src/lore-source-registry.js",
+    "src/lore-study-engine.js",
+    "src/lore-study-runtime.js",
+    "src/lore-world-ontology.js",
+    "src/lore-intelligence-service.js",
+    "src/lore-authoring-contracts.js",
+    "src/lore-semantic-authoring.js",
+    "src/lore-structure-planner.js",
+    "src/lore-merge-preview.js",
+    "src/lore-authoring-lifecycle.js",
+    "src/lore-authoring-service.js"
+  ],
+  "nodeOnlyToolPaths": [],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [
+    "SELECTED_SILLYTAVERN_LOREBOOK_DISCOVERY",
+    "LORE_STUDY_OWNER",
+    "LORE_AUTHORING_REVIEW_OWNER",
+    "LORE_SETTLEMENT_OWNER",
+    "LORE_RESTORATION_OWNER",
+    "LORE_REVISION_INVALIDATION_FORWARDING"
+  ],
+  "artifactContracts": [
+    {
+      "name": "LoreRepresentationProfilePolicy",
+      "version": "lore-repr-policy-v1"
+    },
+    {
+      "name": "LoreRepresentationCompiler",
+      "version": "lore-repr-compiler-v1"
+    },
+    {
+      "name": "LoreBrainRetrievalInterface",
+      "version": "1"
+    },
+    {
+      "name": "LoreAuthoringOperatorContract",
+      "version": "2"
+    },
+    {
+      "name": "LoreAuthoringReviewStateContract",
+      "version": "2"
+    },
+    {
+      "name": "LoreSourceRevisionRetrievalInvalidationContract",
+      "version": "2"
+    }
+  ],
+  "assembledContracts": {
+    "studyOwner": {
+      "service": "LoreIntelligenceService",
+      "host": "DevelopmentDeploymentLoreStudyHost",
+      "reads": [
+        "status",
+        "surface",
+        "loreStudy",
+        "intelligence"
+      ],
+      "actions": [
+        "acceptLorebook",
+        "submitLorebook",
+        "ingestLorebook",
+        "runLoreStudy",
+        "startLoreStudy",
+        "retryLoreStudy"
+      ]
+    },
+    "authoringOwner": {
+      "service": "LoreAuthoringService",
+      "contract": "LoreAuthoringOperatorContract",
+      "safeResultShape": "{ok,value,error}",
+      "reads": [
+        "sourceDiscoveryIdentity",
+        "reviewStates",
+        "worker1InvalidationContract",
+        "worker3AuthoringContract",
+        "progress",
+        "draftReview",
+        "finalPreview",
+        "settlement",
+        "worker1Receipts",
+        "availability"
+      ],
+      "actions": [
+        "previewEditImpact",
+        "semanticChangeReport",
+        "proposeTree",
+        "previewMerge",
+        "startTreeBuild",
+        "startMergeBuild",
+        "resumeAuthoringBuild",
+        "recordDraftDecision",
+        "reclassifyAfterTaxonomyEdit",
+        "computeFinalPreview",
+        "approveFinalPreview",
+        "applySettlement",
+        "restoreSettlement"
+      ]
+    },
+    "worker1": {
+      "revisionEvent": "LoreSourceRevisionChanged",
+      "invalidationReceipt": "LoreInvalidationReceipt",
+      "backlogOwner": "LoreStudyRuntime",
+      "duplicateAuthoringQueue": false
+    },
+    "worker3": {
+      "currentUiState": "PREVIEW_ONLY_UNTIL_WORKER3_CONSUMES_SETTLEMENT_ACTIONS",
+      "ownerContractAvailable": true,
+      "unavailableStatesFailClosed": true,
+      "uiOwner": "Worker 3"
+    }
+  },
+  "requiredAdapters": [
+    "Lore nominations -> Core Candidate Bus",
+    "Lore exact drillback -> authored source revisions",
+    "Selected SillyTavern Lorebook -> LoreIntelligenceService acceptance",
+    "Lore Settlement revision events -> Worker 1 invalidation receipts",
+    "Lore Settlement revision events -> attached native Brain invalidation contract"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js",
+    "src/deployment/sillytavern-live.js"
+  ],
+  "integrationAdapterDigests": [
+    {
+      "path": "src/deployment/brain.js",
+      "expectedDigest": "7d8a676bd3872cd0ca8b62b1668423211547c737"
+    },
+    {
+      "path": "src/deployment/sillytavern-live.js",
+      "expectedDigest": "7f2a717eee96af91daf6b9e1924d2335225db694"
+    },
+    {
+      "path": "tests/lore-assembly-integration.test.mjs",
+      "expectedDigest": "169d4f051a0b99e5bb9f3de885542aa80b52a060"
+    },
+    {
+      "path": "tests/deployment-brain.integration.test.mjs",
+      "expectedDigest": "1dbcdd4234e296288904928aa31cd85411cfc49f"
+    },
+    {
+      "path": "tests/deployment-live-host.test.mjs",
+      "expectedDigest": "d483bfad3b5cccd8182a08614d8253343e40c5bc"
+    }
+  ],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/lore-representation-compiler.js",
+      "sourceDigest": "18a1a93a8081972aadd2524638e24dc9a57d1c86",
+      "expectedDigest": "9158bd090b25feaefa200ec616719370704e0ee0",
+      "reason": "Worker 4 Lore #190 effective-policy reuse-key fence"
+    },
+    {
+      "path": "src/lore-representation-contracts.js",
+      "sourceDigest": "a2e838f205e65f8d9b9fdae6e6eef900f9daa506",
+      "expectedDigest": "092b3a5d48ca50f39ed98e00bd031e5145f19506",
+      "reason": "Worker 4 Lore #190 policy fingerprint contract"
+    },
+    {
+      "path": "src/lore-representation-registry.js",
+      "sourceDigest": "0149c33e0b2173a5e12de59fecbf48fef565de3c",
+      "expectedDigest": "c67bd34cdd873ddabd4870821621e930bbde795f",
+      "reason": "Worker 4 Lore #190 source-local invalidation fence"
+    }
+  ],
+  "knownConflicts": [
+    {
+      "paths": [
+        "src/lore-representation-compiler.js",
+        "src/lore-representation-contracts.js",
+        "src/lore-representation-registry.js"
+      ],
+      "resolution": "KEEP_CURRENT_MAIN_INTEGRATION_PATCHES",
+      "reason": "Main carries #190 effective-policy/reuse-key/source-local invalidation fixes absent from the Lore owner source branch."
+    },
+    {
+      "paths": [
+        "src/ui-core/wave13-operator-adapters.js",
+        "src/ui-core/wave13-operator-surfaces.js",
+        "src/ui-core/wave12-sillytavern-host.js"
+      ],
+      "resolution": "NO_WORKER4_UI_EDIT",
+      "reason": "Worker 3 owns visible review/Settlement controls. Candidate publishes owner contracts only."
+    }
+  ],
+  "liveAcceptance": {
+    "status": "PENDING_REAL_SILLYTAVERN_OPERATOR_RUN",
+    "requiredStep": "In SillyTavern select two real World Info books, load/accept/study them, use Worker 3 review controls once wired to approve one Tree or merge Final Preview, apply Settlement, reload the extension, verify study resumes and restoration works while originals remain recoverable.",
+    "backendOnlySettlementCountsAsUiPass": false
+  },
+  "repairOrigin": {
+    "issue": 190,
+    "sourceBranch": "Development-Repair-Validation",
+    "sourceCommit": "ea7e2e3acd3e53224302c3e55b0540697936148a",
+    "deploymentTransferCommit": "26f38d160a070ebcfca145b4a175a86aff186f3b",
+    "ownerTransferStatus": "PENDING"
+  },
+  "copyRevision": {
+    "copiedAt": "2026-09-25T05:37:50Z",
+    "sourceCopyCommit": "b8fae802d9b54a920503ded4137bdb1807d30197",
+    "hostIntegrationCommits": [
+      "6f659835bb4c2471d161b6da4e78b912d9cafa81",
+      "1129a9a17210568ccde68eed00f50a8ceab5b1df",
+      "fdb7b7e8695884a832b11d8fc7d663dba7eb4f39",
+      "877a27cd3d0726b9fa3c816606afd2584cbe42c5"
+    ],
+    "supersedingIntegrationSha": "877a27cd3d0726b9fa3c816606afd2584cbe42c5",
+    "reconstructedFromManifest": true
+  }
+}

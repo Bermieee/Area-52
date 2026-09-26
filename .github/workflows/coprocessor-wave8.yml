@@ -1,0 +1,55 @@
+name: Cognitive Coprocessor Wave 8
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wave 8 Jev focused suite
+        run: node --test tests/coprocessor-wave8-jev.test.mjs
+      - name: Wave 8 Jev goldens
+        run: node --test tests/coprocessor-wave8-golden.test.mjs
+      - name: Wave 8 authority-negative suite
+        run: node --test tests/coprocessor-wave8-authority.test.mjs
+      - name: Wave 8 focused stress
+        run: node --test tests/coprocessor-wave8-stress.test.mjs
+      - name: Full Coprocessor regression
+        run: npm test
+      - name: Wave 1 regression
+        run: npm run test:coprocessor
+      - name: Wave 2 regression
+        run: npm run test:wave2
+      - name: Wave 3 regression
+        run: npm run test:wave3
+      - name: Wave 4 regression
+        run: npm run test:wave4
+      - name: Wave 5 regression
+        run: npm run test:wave5
+      - name: Wave 6 regression
+        run: npm run test:wave6
+      - name: Wave 7 regression
+        run: npm run test:wave7
+      - name: Historical stress suites
+        run: npm run test:stress
+      - name: Wave 5 pressure regression
+        run: npm run test:wave5:stress
+      - name: Wave 6 cognition stress
+        run: npm run test:wave6:stress
+      - name: Wave 7 retrieval stress
+        run: npm run test:wave7:stress
+      - name: Browser-like Wave 8 production modules
+        run: node --test --test-name-pattern='browser-safe' tests/coprocessor-wave8-jev.test.mjs
+      - name: JavaScript syntax validation
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(() => console.log('Coprocessor index import PASS'))"

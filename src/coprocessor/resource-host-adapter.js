@@ -1,0 +1,52 @@
+import { CoprocessorResourceConnections } from './resource-connections.js';
+import { NativeSidecarSwarm, validateCheckpoint } from './native-sidecar-swarm.js';
+import { createCognitionUiReadModelReader } from './coprocessor-ui-read-model.js';
+
+export const RESOURCE_HOST_ADAPTER_VERSION='1.3.0';
+
+export function createCoprocessorResourceHost({connections=null,swarm=null,planner=null,ownerReceipts=null,queuePressure=null,scheduler=null,...options}={}){
+  const registry=connections??new CoprocessorResourceConnections(options);
+  const coordinator=swarm??new NativeSidecarSwarm({connections:registry,planner,telemetry:options.telemetry??registry.telemetry,now:options.now});
+  const cognition=createCognitionUiReadModelReader({telemetry:options.telemetry??registry.telemetry,resourceConnections:registry,ownerReceipts,queuePressure,scheduler});
+  return Object.freeze({
+    kind:'CoprocessorResourceHostAdapter',
+    contractVersion:RESOURCE_HOST_ADAPTER_VERSION,
+    actions:Object.freeze({
+      addResource:(config)=>registry.addResource(config),
+      discoverModels:(config,opts)=>registry.discoverModels(config,opts),
+      refreshModels:(resourceId,opts)=>registry.refreshResourceModels(resourceId,opts),
+      setCredential:(resourceId,credential)=>registry.setResourceCredential(resourceId,credential),
+      clearCredential:(resourceId,opts)=>registry.clearResourceCredential(resourceId,opts),
+      revokeCredential:(resourceId,opts)=>registry.revokeResourceCredential(resourceId,opts),
+      selectModel:(resourceId,modelId)=>registry.selectResourceModel(resourceId,modelId),
+      connectResource:(resourceId,opts)=>registry.connectResource(resourceId,opts),
+      disconnectResource:(resourceId,opts)=>registry.disconnectResource(resourceId,opts),
+      testResource:(resourceId,opts)=>registry.testResource(resourceId,opts),
+      prepareSwarmTurn:(input)=>coordinator.prepareTurn(input),
+    }),
+    read:Object.freeze({
+      resources:()=>registry.readModel(),
+      resource:(resourceId)=>registry.readResource(resourceId),
+      capabilityProfiles:()=>Object.freeze(registry.profiles.list()),
+      capabilityRoute:(task,opts)=>registry.routeQualifiedProviders(task,opts),
+      cognition:(selection)=>cognition.read(selection),
+      swarm:()=>coordinator.readModel(),
+      swarmTurn:(turnId)=>coordinator.readTurn(turnId),
+    }),
+    execution:Object.freeze({
+      executeTask:(task,opts)=>registry.executeTask(task,opts),
+      executeTaskWithFallback:(task,opts)=>registry.executeTaskWithFallback(task,opts),
+      createEmbeddings:(resourceId,opts)=>registry.executeEmbedding(resourceId,opts),
+      createJevProviderExecutor:(opts)=>registry.createJevProviderExecutor(opts),
+      runSwarmTurn:(input)=>coordinator.runTurn(input),
+      executeSwarmCheckpoint:(checkpoint,opts)=>coordinator.executeCheckpoint(checkpoint,opts),
+    }),
+    durability:Object.freeze({
+      validateCheckpoint:(checkpoint,maxBytes)=>validateCheckpoint(checkpoint,maxBytes),
+    }),
+    subscribe:(listener)=>registry.subscribe(listener),
+    registry,
+    swarm:coordinator,
+    authority:Object.freeze({mutation:false,truth:false,precision:false,settlement:false,contextSeal:false,finalChoice:false}),
+  });
+}

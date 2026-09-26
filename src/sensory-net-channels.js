@@ -33,7 +33,7 @@ export class CoreClaimRetrievalChannel{
     if(this.mode==='SPARSE')rows=this.retrieval.exact(query);
     else if(this.mode==='DENSE')rows=this.retrieval.semantic(query);
     else if(this.mode==='GRAPH')rows=this.retrieval.graphNeighborhood(anchors);
-    else if(this.mode==='TEMPORAL')rows=['HISTORICAL','TEMPORAL'].includes(intent.intentKind)?this.retrieval.temporal(anchors):[];
+    else if(this.mode==='TEMPORAL')rows=['CURRENT','HISTORICAL','TEMPORAL'].includes(intent.intentKind)?this.retrieval.temporal(anchors):[];
     else if(this.mode==='CONFLICT')rows=['CURRENT','TEMPORAL','CONTRADICTION'].includes(intent.intentKind)?this.retrieval.conflicts(anchors):[];
     return rows.slice(0,this.descriptor.maxCandidates).map(({claim,score},index)=>{
       const legacyLabel={SPARSE:'exact',DENSE:'semantic',GRAPH:'graph',TEMPORAL:'temporal',CONFLICT:'conflict'}[this.mode]??this.mode.toLowerCase();

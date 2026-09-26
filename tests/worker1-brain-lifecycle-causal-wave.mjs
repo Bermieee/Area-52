@@ -210,3 +210,12 @@ test('Worker 1 #262 direct physical/result evidence survives reconciler reload w
   const restored=new CognitiveObligationReconciler({director,snapshot:JSON.parse(JSON.stringify(reconciler.snapshot()))}),row=restored.reconcile('lore:direct',{admit:false});
   assert.equal(row.status,'DUE');assert.equal(row.reasonCode,'NO_EVIDENCE');assert.ok(row.missingEvidence.includes('OWNER_ADMISSION'));assert.equal(row.evidenceStages.length,2);
 });
+
+test('Worker 1 #262 Memory cannot infer owner acceptance when adapter returns no owner receipt',async()=>{
+  const memory={contractVersion:'1.0.0',queryHistorian:()=>({nominations:[]}),drillDown:()=>[],admitExternalEvidenceMapping:()=>undefined};
+  const brain=new Area52NativeBrain({memoryInterface:memory});
+  await brain.prepareTurn({chatId:'chat:memory-no-receipt',turnId:'memory-no-receipt:1',generationId:'gen:memory-no-receipt:1',query:'Continue',scene:scene('memory-no-receipt'),executionLabel:'DETERMINISTIC'});
+  await brain.completeTurn({turnId:'memory-no-receipt:1',response:'No owner receipt was emitted.'});
+  const expected=brain.uiBindings().readExpectedWork({chatId:'chat:memory-no-receipt',turnId:'memory-no-receipt:1',generationId:'gen:memory-no-receipt:1'}),row=expected.items.find(item=>item.owner==='MEMORY');
+  assert.ok(row);assert.equal(row.status,'DUE');assert.equal(row.reasonCode,'NO_EVIDENCE');assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED));assert.equal(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.OWNER_ADMISSION),false);
+});

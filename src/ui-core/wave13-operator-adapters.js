@@ -401,6 +401,7 @@ export class Wave13ResourceControlAdapter{
     this.publicHost=Boolean(this.host?.actions&&this.host?.read);
     this.listFn=fn(bindings,['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'])??fn(this.host?.read,['resources']);
     this.configFn=fn(bindings,['listResourceConfigurations','listAvailableResources']);
+    this.connectionProfilesFn=fn(bindings,['listSillyTavernConnectionProfiles']);
     this.addFn=fn(bindings,['addResource','configureResource'])??fn(this.host?.actions,['addResource']);
     this.discoverModelsFn=fn(bindings,['discoverModels','loadModels','listProviderModels'])??fn(this.host?.actions,['discoverModels']);
     this.refreshModelsFn=fn(bindings,['refreshModels','refreshResourceModels'])??fn(this.host?.actions,['refreshModels']);
@@ -413,7 +414,17 @@ export class Wave13ResourceControlAdapter{
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),setCredential:Boolean(this.setCredentialFn),clearCredential:Boolean(this.clearCredentialFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),connectionProfiles:Boolean(this.connectionProfilesFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),setCredential:Boolean(this.setCredentialFn),clearCredential:Boolean(this.clearCredentialFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
+  connectionProfiles(){
+    if(!this.connectionProfilesFn)return[];
+    try{
+      const rows=this.connectionProfilesFn()??[];
+      return Array.isArray(rows)?rows.map((row,index)=>deepFreeze({
+        id:text(row?.id)??('profile:'+index),name:text(row?.name??row?.label)??text(row?.id)??('Connection Profile '+(index+1)),
+        api:text(row?.api),model:text(row?.model),endpoint:text(row?.endpoint??row?.['api-url']),hasSecretReference:Boolean(row?.hasSecretReference),
+      })):[];
+    }catch{return[];}
+  }
   savedProfiles(){
     const map=this.#profileMap();
     return deepFreeze(Object.values(map).map(row=>cloneSafe(row)).sort((a,b)=>String(a.role).localeCompare(String(b.role))));
@@ -934,6 +945,8 @@ function normalizePersistedConnectionProfile(input={},observed=null){
     providerId:text(source.providerId??input.providerId)??('provider:'+resourceIdValue),workerId:text(source.workerId??input.workerId)??('resource:'+resourceIdValue),
     maxConcurrency:Math.max(1,Number(source.concurrencyCapacity??source.maxConcurrency??input.maxConcurrency??input.concurrencyCapacity??1)||1),
     local:Boolean(source.local??input.local??false),credentialPreviouslyConfigured:Boolean(source.credentialConfigured??input.credentialPreviouslyConfigured??input.credentialConfigured??false),
+    credentialManagedByHost:Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false),
+    connectionProfileId:text(source.connectionProfileId??input.connectionProfileId),connectionProfileName:text(source.connectionProfileName??input.connectionProfileName),
     wasConnected:Boolean(source.connected??source.callable??input.wasConnected??false),
   };
 }
@@ -959,6 +972,7 @@ function normalizeResources(raw){
       ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,
       ownerAcceptanceSource:row.ownerAcceptanceSource??null,
       workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
+      credentialManagedByHost:Boolean(row.credentialManagedByHost),hostCredentialSource:text(row.hostCredentialSource),connectionProfileId:text(row.connectionProfileId),connectionProfileName:text(row.connectionProfileName),
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
@@ -998,6 +1012,8 @@ function normalizeWorker2ResourceConfig(input={}){
     const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
     const apiKey=typeof input.apiKey==='string'?input.apiKey.trim():'';if(apiKey)out.apiKey=apiKey;
   }
+  if(input.connectionProfileId)out.connectionProfileId=String(input.connectionProfileId);
+  if(input.connectionProfileName)out.connectionProfileName=String(input.connectionProfileName);
   return out;
 }
 

@@ -228,7 +228,7 @@ export function loreRestudyProgress(read){
 }
 
 export function mutationRestudyProgress(ownerProposal,read){
-  const ids=uniq(ownerProposal?.studyObligationIds,64),data=read?.data??read??{},entries=Array.isArray(data.entries)?data.entries:[];
+  const ids=uniq(ownerProposal?.state==='RESTORED'?(ownerProposal?.restoration?.studyObligationIds??ownerProposal?.studyObligationIds):ownerProposal?.studyObligationIds,64),data=read?.data??read??{},entries=Array.isArray(data.entries)?data.entries:[];
   if(!ids.length)return Object.freeze({kind:'LoreMutationRestudyProgress',state:'NO_EVIDENCE',obligationIds:[],matched:0,missing:0,accepted:0,studying:0,ready:0,failed:0,removed:0,complete:false});
   const wanted=new Set(ids),rows=entries.filter(row=>wanted.has(String(row?.studyObligationId??'')));
   const observedIds=new Set(rows.map(row=>String(row?.studyObligationId??'')));

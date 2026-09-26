@@ -319,11 +319,14 @@ export class Area52NativeBrain{
     if(channelReceipts.some(row=>row.channelId===OWNER_KNOWLEDGE_CHANNELS.MEMORY&&row.status==='SKIPPED_LATENCY_BUDGET'))this.ownerMemoryChannel.finalizeSkipped('LATENCY_BUDGET');
     const loreSync=this.#ownerRetrievalReceipt('LORE');
     const memorySync=this.#ownerRetrievalReceipt('MEMORY');
+    const sceneSourceRevisionRefs=uniq(sceneState.sourceRevisionRefs??[]);
+    const ownerSourceRevisionSet=uniq(this.core.externalCurrentSourceRevisionIds().filter(ref=>!sceneSourceRevisionRefs.includes(ref)));
+    const sourceRevisionSet=uniq([...this.core.currentSourceRevisionIds(),...sceneSourceRevisionRefs,...(published.sealReceipt?.sourceRevisionIds??[])]);
 
     const record={
       kind:'NativeBrainTurnRecord',turnId:turn,sequence,chatId:chat,generationId:generation,correlationId:corr,
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
-      worldRevision:published.worldRevision,sourceRevisionSet:this.core.currentSourceRevisionIds(),sceneSourceRevisionRefs:uniq(sceneState.sourceRevisionRefs??[]),
+      worldRevision:published.worldRevision,sourceRevisionSet,sceneSourceRevisionRefs,ownerSourceRevisionSet,
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal)},
       published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
@@ -640,7 +643,8 @@ export class Area52NativeBrain{
   }
 
   #selection(record){
-    const ownerSourceRevisionRefs=uniq((record.sourceRevisionSet??[]).filter(ref=>!this.core.registry.getRevision(ref)));
+    const sceneRefs=new Set(record.sceneSourceRevisionRefs??[]);
+    const ownerSourceRevisionRefs=uniq(record.ownerSourceRevisionSet??(record.sourceRevisionSet??[]).filter(ref=>!sceneRefs.has(ref)&&!this.core.registry.getRevision(ref)));
     return{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,sceneId:record.sceneId,sceneRevision:record.sceneRevision,worldRevision:record.worldRevision,sourceRevisionRefs:[...record.sourceRevisionSet],ownerSourceRevisionRefs};
   }
 

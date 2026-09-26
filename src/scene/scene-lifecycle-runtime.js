@@ -58,8 +58,8 @@ export class SceneLifecycleRuntime{
     if([HostActivity.CHAT_LOAD,HostActivity.CHAT_SWITCH,HostActivity.NEW_CHAT,HostActivity.IMPORT_OR_RELOAD].includes(evidence.activity)){
       const scene=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});return {...normalized,scene:clone(scene)};
     }
-    const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[];
-    for(const source of evidence.invalidates??[]){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
+    const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[],invalidationRefs=[...new Set([...(evidence.invalidates??[]),evidence.replacesRevisionId].filter(Boolean))];
+    for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
     const extracted=extract(evidence,current)??{};const fields=extracted.fields??extracted;

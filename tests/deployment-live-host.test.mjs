@@ -43,11 +43,18 @@ function makeHost({connectionProfile=null,activeOpenRouter=false}={}) {
     async setExtensionPrompt(...args) { promptCalls.push(args); },
   };
   if(activeOpenRouter){
-    context.ChatCompletionService={
-      async processRequest(data,options,extractData,signal){
-        chatCompletionRequests.push({source:data?.chat_completion_source,model:data?.model,maxTokens:data?.max_tokens,temperature:data?.temperature,roles:Array.isArray(data?.messages)?data.messages.map(row=>row.role):[]});
-        return{content:'OK'};
-      },
+    context.getRequestHeaders=()=>({'Content-Type':'application/json','X-CSRF-Token':'test-csrf'});
+    context.fetch=async(url,init={})=>{
+      const body=JSON.parse(String(init.body??'{}'));
+      chatCompletionRequests.push({
+        url:String(url),method:init.method,headers:init.headers,source:body.chat_completion_source,model:body.model,
+        maxTokens:body.max_tokens,temperature:body.temperature,stream:body.stream,includeReasoning:body.include_reasoning,
+        roles:Array.isArray(body.messages)?body.messages.map(row=>row.role):[],
+      });
+      if(url!=='/api/backends/chat-completions/generate'||init.method!=='POST'||body.chat_completion_source!=='openrouter'||!body.model||!Array.isArray(body.messages)){
+        return{ok:false,status:400,async json(){return{error:{message:'synthetic SillyTavern payload rejection'}};}};
+      }
+      return{ok:true,status:200,async json(){return{choices:[{message:{content:'OK'}}],model:body.model};}};
     };
   }
   if(connectionProfile){
@@ -215,7 +222,12 @@ test('Primary Jev automatically uses SillyTavern active OpenRouter secret when n
   assert.equal(row.credentialManagedByHost,true);assert.equal(row.hostCredentialSource,'SILLYTAVERN_ACTIVE_SECRET');
   assert.equal(row.connectionProfileId,null);assert.equal(row.connectionProfileName,'SillyTavern active OpenRouter secret');
   assert.equal(row.credentialConfigured,false);
-  assert.ok(chatCompletionRequests.length>=1);assert.equal(chatCompletionRequests[0].source,'openrouter');assert.equal(chatCompletionRequests[0].model,'provider/jev-model');
+  assert.ok(chatCompletionRequests.length>=1);
+  assert.equal(chatCompletionRequests[0].url,'/api/backends/chat-completions/generate');
+  assert.equal(chatCompletionRequests[0].method,'POST');
+  assert.equal(chatCompletionRequests[0].source,'openrouter');assert.equal(chatCompletionRequests[0].model,'provider/jev-model');
+  assert.equal(chatCompletionRequests[0].stream,false);assert.equal(chatCompletionRequests[0].includeReasoning,false);
+  assert.equal(chatCompletionRequests[0].headers['X-CSRF-Token'],'test-csrf');
 
   const saved=ui.operator.resources.savedProfiles().find(item=>item.role==='JEV');
   assert.equal(saved.credentialManagedByHost,true);assert.equal(saved.connectionProfileId,null);

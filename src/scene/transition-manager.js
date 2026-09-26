@@ -60,14 +60,14 @@ export class ClapperboardTransitionManager{
 
     this.#publish(SceneEventType.SCENE_BOUNDARY_CONFIRMED,current,sourceRevisionRefs,{candidateId:decision.candidateId,boundaryType:decision.boundaryType,relationship},{dedupeKey:`boundary-confirmed:${decision.candidateId}`,correlationId,causationId,turnId});
 
-    let episode=null,partial=false,nextRecord=null,resumed=null,resumedFromRevision=null;
+    let episode=null,partial=false,nextRecord=null,resumed=null,resumedFromRevision=null,destinationObservation=null;
     if(relationship===SceneRelationship.RESUMES){
       resumedFromRevision=this.registry.current(target)?.revision??null;
       const finalized=this.#finalize(fromSceneId,{evidenceRefs,sourceRevisionRefs,correlationId,causationId,turnId});episode=finalized.episode;partial=Boolean(finalized.error);
       resumed=this.stack.resume(target,{evidenceRefs,sourceRevisionRefs});
       const resumedRecord=this.registry.resumeScene(target,evidenceRefs);
       this.graph.addRelationship({fromSceneId,toSceneId:target,relationship,evidenceRefs,provenance:[decision.candidateId]});
-      this.#applyDestinationObservation(target,{fields:destinationFields,sourceRevisionRefs,evidenceRefs,allowWhenRefreshRequired:allowDestinationRefresh,correlationId,causationId,turnId});
+      destinationObservation=this.#applyDestinationObservation(target,{fields:destinationFields,sourceRevisionRefs,evidenceRefs,allowWhenRefreshRequired:allowDestinationRefresh,correlationId,causationId,turnId});
       const resumedScene=this.registry.current(target);
       this.#publish(SceneEventType.SCENE_OPENED,resumedScene,sourceRevisionRefs,{relationship,resumed:true,fromSceneId},{dedupeKey:`opened:${target}:${resumedScene.revision}`,correlationId,causationId,turnId});
       nextRecord=this.registry.get(target);
@@ -76,7 +76,7 @@ export class ClapperboardTransitionManager{
       this.graph.addRelationship({fromSceneId,toSceneId:target,relationship,evidenceRefs,provenance:[decision.candidateId]});
       nextRecord=this.registry.openScene({sceneId:target,sourceRange,sourceRevisionRefs,parentSceneId:fromSceneId,relatedSceneIds:[fromSceneId],provenance:evidenceRefs});
       this.stack.open({sceneId:target,relationshipToPrior:relationship,parentSceneId:fromSceneId,interruptedSceneId:fromSceneId,sourceRevisionRefs,evidenceRefs});
-      this.#applyDestinationObservation(target,{fields:destinationFields,sourceRevisionRefs,evidenceRefs,allowWhenRefreshRequired:allowDestinationRefresh,correlationId,causationId,turnId});
+      destinationObservation=this.#applyDestinationObservation(target,{fields:destinationFields,sourceRevisionRefs,evidenceRefs,allowWhenRefreshRequired:allowDestinationRefresh,correlationId,causationId,turnId});
       nextRecord=this.registry.get(target);
       const nextScene=nextRecord.snapshots.at(-1);
       this.#publish(SceneEventType.SCENE_OPENED,nextScene,sourceRevisionRefs,{relationship,fromSceneId},{dedupeKey:`opened:${target}:${nextScene.revision}`,correlationId,causationId,turnId});
@@ -85,7 +85,7 @@ export class ClapperboardTransitionManager{
       this.graph.addRelationship({fromSceneId,toSceneId:target,relationship,evidenceRefs,provenance:[decision.candidateId]});
       nextRecord=this.registry.openScene({sceneId:target,sourceRange,sourceRevisionRefs,parentSceneId:null,relatedSceneIds:[fromSceneId],provenance:evidenceRefs});
       this.stack.open({sceneId:target,relationshipToPrior:relationship,sourceRevisionRefs,evidenceRefs});
-      this.#applyDestinationObservation(target,{fields:destinationFields,sourceRevisionRefs,evidenceRefs,allowWhenRefreshRequired:allowDestinationRefresh,correlationId,causationId,turnId});
+      destinationObservation=this.#applyDestinationObservation(target,{fields:destinationFields,sourceRevisionRefs,evidenceRefs,allowWhenRefreshRequired:allowDestinationRefresh,correlationId,causationId,turnId});
       nextRecord=this.registry.get(target);
       const nextScene=nextRecord.snapshots.at(-1);
       this.#publish(SceneEventType.SCENE_OPENED,nextScene,sourceRevisionRefs,{relationship,fromSceneId},{dedupeKey:`opened:${target}:${nextScene.revision}`,correlationId,causationId,turnId});
@@ -105,7 +105,7 @@ export class ClapperboardTransitionManager{
       recentTailRefs,destinationHints,evidenceRefs,sourceRevisionRefs,
     })??null;
     if(handoff)this.handoffs.set(handoff.handoffId,handoff);
-    const result={status,fromSceneId,toSceneId:target,relationship,episodeRef:episode?.artifactRef??null,nextSceneRevision:nextRecord.revision,prefetchRef:prefetch?.recommendationId??null,contextInvalidationId:contextInvalidation?.invalidationId??null,handoff:clone(handoff),handoffRef:handoff?.handoffId??null,resumed:Boolean(resumed)};
+    const result={status,fromSceneId,toSceneId:target,relationship,episodeRef:episode?.artifactRef??null,nextSceneRevision:nextRecord.revision,destinationApplied:Boolean(destinationObservation?.applied),destinationDelta:clone(destinationObservation?.delta??null),prefetchRef:prefetch?.recommendationId??null,contextInvalidationId:contextInvalidation?.invalidationId??null,handoff:clone(handoff),handoffRef:handoff?.handoffId??null,resumed:Boolean(resumed)};
     this.transitions.set(key,result);return clone(result);
   }
 

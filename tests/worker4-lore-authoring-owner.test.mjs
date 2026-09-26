@@ -134,6 +134,12 @@ test('wording-only source revision preserves semantic aggregates while revision-
   const plan = planner.plan({sourceId, fromRevisionId: before.id, toRevisionId: after.id});
 
   assert.notEqual(before.contentHash, after.contentHash);
+  if (plan.classification.meaningChanged) {
+    console.log('WORKER4_WORDING_DEBUG ' + JSON.stringify({
+      classification: plan.classification,
+      counts: plan.counts.byCategory,
+    }));
+  }
   assert.equal(plan.classification.meaningChanged, false);
   assert.equal(plan.classification.wordingOnly, true);
   assert.ok(plan.impact.required.some((row) => row.target === 'STUDY_ARTIFACTS'));

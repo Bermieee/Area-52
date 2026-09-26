@@ -1,5 +1,6 @@
 import { DeepCognitionRuntime } from './deep-cognition.js';
 import { ObligationProducerRegistry } from './obligation-producers.js';
+import { CognitiveObligationReconciler } from './obligation-reconciler.js';
 import { NativeTurnRuntime } from './native-swarm.js';
 import { SleepMaintenanceRuntime } from './sleep-runtime.js';
 
@@ -10,6 +11,7 @@ export class CognitiveRuntimeHost {
     this.deep = new DeepCognitionRuntime({ director });
     this.sleep = new SleepMaintenanceRuntime({ director, ...sleep });
     this.producers = new ObligationProducerRegistry({ director });
+    this.reconciler = new CognitiveObligationReconciler({ director });
     this.native = new NativeTurnRuntime({ director, ...native });
   }
 
@@ -21,4 +23,7 @@ export class CognitiveRuntimeHost {
   registerSleepProfile(profile) { return this.sleep.registerProfile(profile); }
   registerExecutionResource(resource) { return this.native.registerExecutionResource(resource); }
   publishTurn(turn, admittedJobs) { return this.native.publishTurn(turn, admittedJobs); }
+  inspectObligations(expected) { return this.reconciler.inspect(expected); }
+  reconcileObligations(expected) { return this.reconciler.reconcile(expected); }
+  recordOwnerAdmission(taskId, admission) { return this.director.recordOwnerAdmission(taskId, admission); }
 }

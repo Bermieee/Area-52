@@ -127,32 +127,42 @@ export class SensoryNetBackbone{
     if(!graphReceipt||!this.hotCognition?.hasActiveChat)return null;
     const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
     const prior=this.hotCognition?.snapshot?.()?.segments?.GRAPH_NEIGHBORHOOD??null;
-    const mergePrior=Boolean(prior?.freshness==='FRESH'&&prior?.value?.state==='AVAILABLE'&&!(graphReceipt?.staleRejectedCount>0));
+    const staleRefs=new Set((graphReceipt?.staleRejected??[]).map(row=>String(row.providerId??'GRAPH')+'|'+String(row.edgeId??'')));
+    const priorFresh=Boolean(prior?.freshness==='FRESH'&&prior?.value?.state==='AVAILABLE');
+    const priorEntries=priorFresh
+      ? (prior?.value?.entries?.length
+          ? prior.value.entries.filter(row=>row?.ref&&!staleRefs.has(String(row.ref)))
+          : (staleRefs.size?[]:(prior?.value?.refs??[]).map(ref=>({ref:String(ref),sourceRevisionRefs:[],identityRevisionRefs:[],dependencyRevisionRefs:[]}))))
+      : [];
+    const incomingEntries=(graphReceipt?.hotNeighborhoodSummary??[]).map(row=>({
+      ref:String(row.ref),providerId:row.providerId??null,owner:row.owner??null,edgeId:row.edgeId??null,
+      sourceKind:row.sourceKind??null,temporalStatus:row.temporalStatus??null,
+      sourceRevisionRefs:uniq(row.sourceRevisionRefs??[]),identityRevisionRefs:uniq(row.identityRevisionRefs??[]),
+      dependencyRevisionRefs:uniq(row.dependencyRevisionRefs??[]),
+    })).filter(row=>row.ref&&!staleRefs.has(row.ref));
+    const entryMap=new Map(priorEntries.map(row=>[String(row.ref),clone(row)]));
+    for(const row of incomingEntries)entryMap.set(row.ref,row);
+    const entries=[...entryMap.values()].sort((a,b)=>String(a.ref).localeCompare(String(b.ref)));
     const refs=uniq([
-      ...(mergePrior?(prior?.value?.refs??[]):[]),
-      ...rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))),
-      ...(graphReceipt?.hotNeighborhoodRefs??[]),
+      ...entries.map(row=>row.ref),
+      ...rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))).filter(ref=>!staleRefs.has(ref)),
     ]);
     const sourceRevisionRefs=uniq([
-      ...(mergePrior?(prior?.sourceRevisionRefs??[]):[]),
+      ...entries.flatMap(row=>row.sourceRevisionRefs??[]),
       ...rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]),
-      ...(graphReceipt?.hotNeighborhoodSourceRevisionRefs??[]),
     ]);
     const identityRevisionRefs=uniq([
+      ...entries.flatMap(row=>row.identityRevisionRefs??[]),
       ...rows.flatMap(candidate=>candidate.identityRevisionRefs??[]),
-      ...(graphReceipt?.hotNeighborhoodIdentityRevisionRefs??[]),
     ]);
-    const dependencyRevisionRefs=uniq([
-      ...(mergePrior?(prior?.dependencyRevisionRefs??[]):[]),
-      ...(graphReceipt?.hotNeighborhoodDependencyRevisionRefs??[]),
-    ]);
+    const dependencyRevisionRefs=uniq(entries.flatMap(row=>row.dependencyRevisionRefs??[]));
     const provenanceRefs=uniq(rows.flatMap(candidate=>[
       ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
       ...(candidate.evidenceRefs??[]),
     ]));
     const degraded=(graphReceipt.providers??[]).some(row=>row?.status==='DEGRADED');
     return this.hotCognition.setGraphNeighborhood({
-      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,identityRevisionRefs,dependencyRevisionRefs,provenanceRefs,
+      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,entries,sourceRevisionRefs,identityRevisionRefs,dependencyRevisionRefs,provenanceRefs,
       updateId:'graph-warm:'+stableHash({candidateSetId:envelope?.candidateSetId??null,worldRevision:envelope?.worldRevision??null,sceneRevision:envelope?.sceneRevision??null,refs},{length:20}),
     });
   }

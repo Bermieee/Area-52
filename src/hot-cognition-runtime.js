@@ -389,12 +389,14 @@ export class HotCognitionRuntime{
     return this.#commit(state,{updateId:id,eventType:'DEPENDENCY_STATE_CHANGED',changed,reused,invalidated:[],sourceRevisionRefs:[]});
   }
 
-  setGraphNeighborhood({chatNamespace=this.activeChatNamespace,state=HotDependencyState.UNAVAILABLE,refs=[],sourceRevisionRefs=[],identityRevisionRefs=[],dependencyRevisionRefs=[],provenanceRefs=[],updateId=null}={}){
+  setGraphNeighborhood({chatNamespace=this.activeChatNamespace,state=HotDependencyState.UNAVAILABLE,refs=[],entries=[],sourceRevisionRefs=[],identityRevisionRefs=[],dependencyRevisionRefs=[],provenanceRefs=[],updateId=null}={}){
     if(!chatNamespace||!this.states.has(chatNamespace))return null;const hot=this.states.get(chatNamespace),id=String(updateId??('graph:'+state+':'+stableHash(refs,{length:12})));
     const duplicate=this.#duplicateReceipt(hot,id,'GRAPH_NEIGHBORHOOD_CHANGED');if(duplicate)return duplicate;
-    const changed=[],reused=[],normalized=cap(uniq((refs??[]).map(identityOf).filter(Boolean)),this.limits.maxGraphRefs),freshness=state===HotDependencyState.AVAILABLE?HotFreshness.FRESH:state===HotDependencyState.STALE?HotFreshness.STALE:HotFreshness.UNAVAILABLE;
-    const graphDependencyRefs=uniq([...sourceRevisionRefs,...identityRevisionRefs,...dependencyRevisionRefs]);
-    this.#setSegment(hot,HotSegmentKind.GRAPH_NEIGHBORHOOD,{value:{state,refs:normalized},sourceRevisionRefs,dependencyRevisionRefs:graphDependencyRefs,provenanceRefs,authorityClass:AuthorityClass.UNRESOLVED,owner:'GRAPH_OWNER',freshness,updateId:id,changed,reused});
+    const boundedEntries=cap([...(new Map((entries??[]).map(row=>[String(row?.ref??''),clone(row)])).values())].filter(row=>row?.ref).sort((a,b)=>String(a.ref).localeCompare(String(b.ref))),this.limits.maxGraphRefs);
+    const normalized=cap(uniq([...(refs??[]).map(identityOf).filter(Boolean),...boundedEntries.map(row=>row.ref)]),this.limits.maxGraphRefs),freshness=state===HotDependencyState.AVAILABLE?HotFreshness.FRESH:state===HotDependencyState.STALE?HotFreshness.STALE:HotFreshness.UNAVAILABLE;
+    const kept=new Set(normalized),normalizedEntries=boundedEntries.filter(row=>kept.has(String(row.ref)));
+    const graphDependencyRefs=uniq([...sourceRevisionRefs,...identityRevisionRefs,...dependencyRevisionRefs,...normalizedEntries.flatMap(row=>[...(row.sourceRevisionRefs??[]),...(row.identityRevisionRefs??[]),...(row.dependencyRevisionRefs??[])])]);
+    this.#setSegment(hot,HotSegmentKind.GRAPH_NEIGHBORHOOD,{value:{state,refs:normalized,entries:normalizedEntries},sourceRevisionRefs,dependencyRevisionRefs:graphDependencyRefs,provenanceRefs,authorityClass:AuthorityClass.UNRESOLVED,owner:'GRAPH_OWNER',freshness,updateId:id,changed,reused});
     this.#setDependencyInternal(hot,'GRAPH_NEIGHBORHOOD',state,{revisionRefs:graphDependencyRefs,reason:state,updateId:id,changed,reused});
     return this.#commit(hot,{updateId:id,eventType:'GRAPH_NEIGHBORHOOD_CHANGED',changed,reused,invalidated:[],sourceRevisionRefs});
   }

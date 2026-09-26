@@ -63,6 +63,10 @@ export class ObligationProducerRegistry {
       foreground: request.foreground,
       payload: request.payload ?? {},
       producerId,
+      cause: request.cause ?? null,
+      expectedWorkId: request.expectedWorkId ?? null,
+      obligationChainId: request.obligationChainId ?? null,
+      ownerAdmission: request.ownerAdmission ?? null,
     };
     return this.director.submit(obligation, { ...executor, units: request.units ?? executor.units });
   }

@@ -9,6 +9,7 @@ import {
   FOREGROUND_SCATTER_LAYERS, ScatterLayer, estimateRetainedResultBytes, evaluateScatterAdmission,
   groupTasksByScatterLayer, isBoundedJevChoice, scatterTriggerForTask, yieldScatterBoundary,
 } from './layered-scatter.js';
+import { createLayeredScatterOwnerReceipt } from './layered-scatter-owner-contract.js';
 
 export const NATIVE_SIDECAR_SWARM_VERSION='1.0.0';
 
@@ -380,17 +381,27 @@ export class NativeSidecarSwarm{
     }:null);
     const executionTrace=createCoprocessorChoiceExecutionTrace({proposal:sourceCheckpoint.proposal,providerExecutions,swarmTraces:records,resultRoutes,jevObservation:observedJev,telemetry:this.telemetry});
     const choiceContribution=toCoreCognitiveChoiceContribution({proposal:sourceCheckpoint.proposal,executionTrace});
+    const jevPhysicalAttempted=Boolean(jevReceipt?.providerProvenance?.providerProfileId&&observedJev?.ran);
+    const scatterReceipt=createLayeredScatterOwnerReceipt({
+      checkpoint:sourceCheckpoint,records,createdAt:this.now(),
+      jevObservation:observedJev?{
+        requested:sourceCheckpoint.proposal.ownerStageRequests?.jevAdjudication===true,
+        admitted:Boolean(observedJev.ran),physicalAttempted:jevPhysicalAttempted,returned:Boolean(jevReceipt),
+        ownerAdmissible:Boolean(jevReceipt&&!observedJev.late&&!observedJev.stale),status:observedJev.status,
+        providerProfileId:observedJev.providerProfileId??null,decisionRef:observedJev.decisionRef??null,
+      }:null,
+    });
     const readyResults=records.filter(record=>record.state===NativeSwarmResultState.READY_FOR_CORE).map(record=>record.result);
     const contribution=deepFreeze({
       kind:'NativeSidecarSwarmContribution',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,
-      choiceContribution,executionTrace,resultsForOwner:readyResults,jevReceipt:clone(jevReceipt),
+      choiceContribution,executionTrace,scatterReceipt,resultsForOwner:readyResults,jevReceipt:clone(jevReceipt),
       resultSummary:records.map(publicRecord),resumeStatus,
       ownerAdmissionRequired:true,authority:'NONE',truthAuthority:false,precisionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,finalChoiceAuthority:false,contextSealAuthority:false,
     });
     const summary=deepFreeze({
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,at:this.now(),resumeStatus,
-      counts:countStates(records),assignments:records.map(publicRecord),
+      counts:countStates(records),assignments:records.map(publicRecord),scatter:clone(scatterReceipt.counts),
       jev:jevReceipt?{serviceStatus:jevReceipt.serviceStatus,outcome:jevReceipt.outcome,abstained:Boolean(jevReceipt.abstained),providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null}
         :observedJev?{serviceStatus:observedJev.status,outcome:observedJev.unresolved?'UNRESOLVED':null,abstained:Boolean(observedJev.abstained),providerProfileId:observedJev.providerProfileId??null}:null,
       nextCheckpointId:checkpoint?.checkpointId??null,

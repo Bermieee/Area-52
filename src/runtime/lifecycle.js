@@ -1,5 +1,6 @@
 import { COGNITIVE_LAYERS, LIFECYCLE_STATUS, assertLayer, isForegroundLayer } from './constants.js';
 import { compareRevision, deepClone, makeSequenceId, normalizeCapabilities } from './utils.js';
+import { sanitizeObligationCause } from './obligation-cause.js';
 
 const OPEN = new Set([LIFECYCLE_STATUS.PENDING, LIFECYCLE_STATUS.ELIGIBLE]);
 
@@ -96,6 +97,10 @@ export class LifecycleCore {
       eligibleSequence: null,
       payload: deepClone(input.payload ?? {}),
       coalescedCount: 0,
+      cause: sanitizeObligationCause(input.cause),
+      expectedWorkId: input.expectedWorkId ?? null,
+      obligationChainId: input.obligationChainId ?? null,
+      ownerAdmission: deepClone(input.ownerAdmission ?? null),
     };
     this.ledger.createTask(obligation);
     this.#applySupersession(obligation);
@@ -119,6 +124,19 @@ export class LifecycleCore {
 
   supersede(taskId, reason = 'superseded') {
     return this.ledger.setLifecycle(taskId, LIFECYCLE_STATUS.SUPERSEDED, reason);
+  }
+
+  recordOwnerAdmission(taskId, { accepted, receiptId = null, settlementReceiptId = null, reasonCode = null } = {}) {
+    if (typeof accepted !== 'boolean') throw new TypeError('owner admission accepted must be boolean');
+    if (!this.ledger.get(taskId)) throw new Error(`Unknown task: ${taskId}`);
+    this.ledger.updateObligation(taskId, { ownerAdmission: {
+      accepted,
+      receiptId: receiptId == null ? null : String(receiptId),
+      settlementReceiptId: settlementReceiptId == null ? null : String(settlementReceiptId),
+      reasonCode: reasonCode == null ? null : String(reasonCode).slice(0, 160),
+      recordedSequence: this.ledger.sequence + 1,
+    } });
+    return this.ledger.get(taskId);
   }
 
   isFresh(taskId) {

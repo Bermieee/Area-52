@@ -54,7 +54,9 @@ export class CorePresentationRouter{
 
 export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPacket=null}={}){
   if(!plan||!rendered)throw new TypeError('plan and rendered input are required');
-  const roles=uniq((rendered.messages??[]).map(row=>row.role).concat((plan.sections??[]).map(row=>row.role)));
+  const outboundRoles=uniq((rendered.messages??[]).map(row=>row.role));
+  const semanticRoles=uniq((plan.sections??[]).map(row=>row.role));
+  const manifestBySlot=new Map((rendered.messageManifest??[]).map(row=>[String(row.slot),row]));
   const omissionMap=new Map();
   for(const row of [...(plan.dropped??[]),...(plan.deferred??[])])omissionMap.set(String(row.slot),clone(row));
   for(const row of (plan.sections??[]).filter(row=>row.representation==='OMITTED'))if(!omissionMap.has(String(row.slot)))omissionMap.set(String(row.slot),{slot:row.slot,reason:'OMITTED_REPRESENTATION'});
@@ -69,7 +71,9 @@ export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPac
     requestedProfileId:routing?.requestedProfileId??plan.modelProfileId,profileChoice:plan.modelProfileId,
     profileRevision:plan.modelProfileRevision,providerId:routing?.providerId??null,modelId:routing?.modelId??null,routeId:routing?.routeId??null,
     profileReason:routing?.reason??'DIRECT',profileFallbackUsed:Boolean(routing?.fallbackUsed),cacheAssumption:routing?.cacheAssumption??'PROFILE_DECLARED',
-    plannedRoles:roles,plannedSections:(plan.sections??[]).map(row=>({slot:row.slot,role:row.role,representation:row.representation,sourceRevisionIds:uniq(row.sourceRevisionIds??[])})),
+    plannedRoles:outboundRoles,outboundRoles,semanticRoles,
+    plannedSections:(plan.sections??[]).map(row=>{const presented=manifestBySlot.get(String(row.slot));return{slot:row.slot,semanticRole:row.role,outboundRole:presented?.outboundRole??null,representation:row.representation,sectionIdentity:row.sectionIdentity??presented?.sectionIdentity??null,priority:Number(row.priority??0),sourceRevisionIds:uniq(row.sourceRevisionIds??[])};}),
+    messageManifest:clone(rendered.messageManifest??[]),
     sourceRevisionRefs:uniq([...(plan.sourceRevisionDependencies??[]),...(plan.sections??[]).flatMap(row=>row.sourceRevisionIds??[])]),omissions:clone(omissions),
     presentationOnly:true,semanticSelectionAuthority:false,loreSelectionAuthority:false,factCreationAuthority:false,authorityMutation:false,
     providerChatTemplateTokensEmitted:false,observedHostDelivery:null,hostEvidenceRequired:true,
@@ -96,12 +100,12 @@ export function attachObservedHostPromptEvidence(receipt,evidence={}){
 
 export function promptDeliveryIntegrationContract(){
   return Object.freeze({
-    kind:'CorePromptDeliveryIntegrationContract',contractVersion:1,
+    kind:'CorePromptDeliveryIntegrationContract',contractVersion:2,
     worker3Input:'ObservedHostPromptEvidence',
     worker3MustSupply:['generationId','observedRoles','observedSections'],
     identityChecks:['sealedPacketHash','semanticManifestIdentity'],
     corePlanIsNotHostProof:true,
     providerChatTemplateTokens:false,
-    semanticMutationAllowed:false,
+    semanticMutationAllowed:false,unsupportedProviderRolesAllowed:false,semanticRoleMappingMustRemainTraceable:true,
   });
 }

@@ -72,6 +72,22 @@ export function normalizeCausalCause(input={}){
   });
 }
 
+export function causalObligationMatchesSelection(obligation={},selection={}){
+  const cause=obligation?.cause??{},payload=obligation?.payload??{};
+  const actual=(key)=>cause[key]??payload[key]??null;
+  for(const key of ['chatId','turnId','generationId','correlationId']){
+    if(selection?.[key]==null)continue;
+    const value=actual(key);
+    if(value==null||String(value)!==String(selection[key]))return false;
+  }
+  for(const key of ['worldRevision','sceneRevision']){
+    if(selection?.[key]==null)continue;
+    const value=obligation?.[key]??cause[key]??payload[key]??null;
+    if(value==null||Number(value)!==Number(selection[key]))return false;
+  }
+  return true;
+}
+
 export function createCausalReceipt({
   id,kind,lifecycleState,reasonCode,taskId=null,taskType=null,owner=null,producerId=null,consumerId=null,
   parentReceiptId=null,workerId=null,durationMs=null,ownerAccepted=null,cause={},metadata={},

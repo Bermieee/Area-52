@@ -775,7 +775,7 @@ export class Area52NativeBrain{
       compiledDelivery:producer('compiledDelivery',promptReceipt,{producerId:'CORE_DELIVERY',consumerId:'SILLYTAVERN_HOST',parentReceiptId:planId,metadata:{id:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),providerRoles:uniq(promptReceipt?.providerRoles??[])}}),
       delivery:producer('delivery',observed,{producerId:'SILLYTAVERN_HOST',consumerId:'MODEL_PROVIDER',parentReceiptId:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),status:observed?(promptReceipt?.status==='OBSERVED_MATCH'?'OBSERVED':'REJECTED'):null,reasonCode:observed?(promptReceipt?.status==='OBSERVED_MATCH'?'HOST_EVIDENCE_MATCH':'HOST_EVIDENCE_MISMATCH'):'NO_EVIDENCE',metadata:{id:observed?.requestId??null,live:Boolean(observed?.live),matching:Boolean(observed?.matching),identityCompatible:observed?.identityCompatible??null,observedRoles:uniq(observed?.observedRoles??[])}}),
       learning:producer('learning',learning,{producerId:'COGNITIVE_LEARNING',consumerId:'MEMORY_LORE',parentReceiptId:observed?.requestId??sealId,ownerAccepted:learning?true:null,metadata:{id:stageId('learning',learning,learning?.experienceId??null)}}),
-      memory:producer('memory',memoryEvidence,{producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:stageId('learning',learning,learning?.experienceId??null),status:memoryEvidence?.status==='NOT_ATTACHED'?'SKIPPED':null,reasonCode:memoryEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':null,ownerAccepted:memoryEvidence?.status==='ADMITTED'?true:null}),
+      memory:producer('memory',memoryEvidence,{producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:stageId('learning',learning,learning?.experienceId??null),status:memoryEvidence?.status==='NOT_ATTACHED'?'SKIPPED':memoryEvidence?.status==='NO_EVIDENCE'?'NO_EVIDENCE':null,reasonCode:memoryEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':memoryEvidence?.status==='NO_EVIDENCE'?'NO_EVIDENCE':null,ownerAccepted:memoryEvidence?.status==='ADMITTED'&&Boolean(memoryEvidence?.ownerReceipt)?true:null}),
       lore:producer('lore',loreEvidence,{producerId:'LORE',consumerId:'COGNITIVE_STATE',parentReceiptId:candidateId,status:loreEvidence?.status==='NOT_ATTACHED'?'SKIPPED':null,reasonCode:loreEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':null,ownerAccepted:null}),
     };
     const causalOwnerEvents=Object.entries(producers).map(([stage,event])=>({stage,...clone(event)})).slice(0,32);
@@ -957,7 +957,7 @@ export class Area52NativeBrain{
     if(status==='ADMITTED'&&receipt?.ownerReceipt){
       const returned=this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',metadata:{status,ownerReceiptKind:receipt.ownerReceipt.kind??null}});
       this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.OWNER_ADMISSION,producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:returned.id,ownerAccepted:true,metadata:{status,ownerReceiptKind:receipt.ownerReceipt.kind??null}});
-    }else if(status==='ADMITTED')return this.obligationReconciler.reconcile(expectedId,{admit:false});
+    }else if(status==='ADMITTED'||status==='NO_EVIDENCE')return this.obligationReconciler.reconcile(expectedId,{admit:false});
     else this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.WORK_FAILED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',reasonCode:status==='UNSUPPORTED'?CausalReasonCode.EXECUTOR_UNAVAILABLE:CausalReasonCode.TASK_FAILED,metadata:{status,reason:receipt?.reason??null}});
     return this.obligationReconciler.reconcile(expectedId,{admit:false});
   }
@@ -990,7 +990,7 @@ export class Area52NativeBrain{
         provenanceRefs:['native-brain:'+record.turnId],
       });
       if(receipt&&typeof receipt.then==='function')return{kind:'NativeBrainMemoryWritebackReceipt',status:'DEGRADED',reason:'MEMORY_ASYNC_WRITEBACK_UNSUPPORTED_IN_SYNC_COMMIT',authorityGranted:false};
-      return{kind:'NativeBrainMemoryWritebackReceipt',status:receipt?.status??'ADMITTED',ownerReceipt:clone(receipt??null),invalidation:clone(invalidation),sourceRevisionId:experience.sourceRevisionId,authorityGranted:false,canonicalMutationAuthority:false};
+      return{kind:'NativeBrainMemoryWritebackReceipt',status:receipt?.status??'NO_EVIDENCE',ownerReceipt:clone(receipt??null),invalidation:clone(invalidation),sourceRevisionId:experience.sourceRevisionId,authorityGranted:false,canonicalMutationAuthority:false};
     }catch(error){return{kind:'NativeBrainMemoryWritebackReceipt',status:'DEGRADED',reason:error?.message??String(error),sourceRevisionId:experience.sourceRevisionId,authorityGranted:false};}
   }
 

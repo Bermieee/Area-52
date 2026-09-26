@@ -57,6 +57,9 @@ jobs:
           node --test
           --test-name-pattern="small and large delivery budgets"
           tests/native-brain-identity-retrieval.mjs
+      - name: Broad regression comparison baseline
+        continue-on-error: true
+        run: npm test
       - name: Worker 1 causal syntax
         run: >-
           node --check src/causal-owner-receipts.js &&

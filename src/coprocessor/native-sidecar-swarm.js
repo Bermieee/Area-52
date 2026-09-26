@@ -21,6 +21,7 @@ export const NativeSwarmResultState=Object.freeze({
   UNAVAILABLE:'UNAVAILABLE',
   PARKED:'PARKED',
   SKIPPED:'SKIPPED',
+  FALLBACK:'FALLBACK',
 });
 
 const AUTHORITY_SAFE=new Set(['UNRESOLVED','INFERRED']);
@@ -468,7 +469,7 @@ function fallbackRecord(task,reason,at=Date.now()){
     validationReceipt:{syntax:'PASS',type:'DECLARED_FALLBACK',deterministic:'PASS'},authorityClass:'UNRESOLVED',
   });
   return deepFreeze({
-    taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state:NativeSwarmResultState.READY_FOR_CORE,reason,
+    taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state:NativeSwarmResultState.FALLBACK,reason,
     providerProfileId:null,providerId:null,workerId:'native-fallback',resourceId:null,startedAt:at,completedAt:at,latencyMs:0,result,attempt:0,
     failureCode:null,fallbackUsed:true,late:false,stale:false,invalid:false,
   });
@@ -490,7 +491,7 @@ function compactReadyRecord(record){
 function maxConcurrent(records){
   const points=[];
   for(const row of records??[]){if(row.startedAt==null||row.completedAt==null||!(row.providerProfileId||row.providerId))continue;points.push([Number(row.startedAt),1],[Number(row.completedAt),-1]);}
-  points.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);let active=0,peak=0;for(const[,delta]of points){active+=delta;peak=Math.max(peak,active);}return peak;
+  points.sort((a,b)=>a[0]-b[0]||b[1]-a[1]);let active=0,peak=0;for(const[,delta]of points){active+=delta;peak=Math.max(peak,active);}return peak;
 }
 function byteSize(value){if(value==null)return 0;try{return new TextEncoder().encode(JSON.stringify(value)).length;}catch{return 0;}}
 function publicRecord(record){return deepFreeze({taskId:record.taskId,optionId:record.optionId,taskType:record.taskType,resultClass:record.resultClass,state:record.state,reason:record.reason??null,

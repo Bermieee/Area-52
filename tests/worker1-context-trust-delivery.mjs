@@ -102,11 +102,11 @@ test('DETERMINISTIC: native Brain reverses retirement when durable coverage sour
   }));
   const first=await brain.prepareTurn({
     chatId:'chat:brain-retirement',turnId:'brain-retirement:1',generationId:'gen:brain-retirement:1',
-    query:'What is the North Gate state?',activeContext:{messages:rows,coverage:durable,recentWindow:2},
+    query:'What is the North Gate state?',scene:{sceneId:'scene:brain-retirement',sceneRevision:1,location:'Neutral Gate',narrativeTime:'tick 1',activeCast:[],activeThreads:[],objects:[],sourceRevisionRefs:[],provenance:['worker1:retirement-scene']},activeContext:{messages:rows,coverage:durable,recentWindow:2},
     budgetTokens:2048,executionLabel:'DETERMINISTIC',
   });
   assert.ok(first.contextRetirement.retireEligibleMessageIds.length>0);
-  assert.equal(brain.listOptionalResources().resources.length,0);
+  assert.equal(brain.diagnostics().nativeRequirements.remoteModelRequired,false);
 
   brain.correctLore('lore:retirement-proof','Correction: the North Gate is closed.',{
     semantic:{subjectId:'North Gate',predicate:'state',value:'CLOSED'},metadata:{representationText:'The North Gate is closed.'},

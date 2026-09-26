@@ -134,12 +134,6 @@ test('wording-only source revision preserves semantic aggregates while revision-
   const plan = planner.plan({sourceId, fromRevisionId: before.id, toRevisionId: after.id});
 
   assert.notEqual(before.contentHash, after.contentHash);
-  if (plan.classification.meaningChanged) {
-    console.log('WORKER4_WORDING_DEBUG ' + JSON.stringify({
-      classification: plan.classification,
-      counts: plan.counts.byCategory,
-    }));
-  }
   assert.equal(plan.classification.meaningChanged, false);
   assert.equal(plan.classification.wordingOnly, true);
   assert.ok(plan.impact.required.some((row) => row.target === 'STUDY_ARTIFACTS'));
@@ -264,8 +258,18 @@ test('reviewed mutation CREATE UPDATE DELETE TREE_ASSIGN mutate only after expli
     assert.equal(intelligence.runtime.registry.currentRevision(sourceId).state, 'REMOVED');
     assert.equal(intelligence.runtime.registry.getRevision(before.id).exactContent, before.exactContent);
 
-    const restored = mutations.restore({proposalId: proposal.proposalId, restorationId: 'restore-delete'});
+    assert.throws(
+      () => mutations.restore({proposalId: proposal.proposalId, restorationId: 'restore-delete', chatId: CHAT}),
+      /operatorDecisionId|decision/i,
+    );
+    const restored = mutations.restore({
+      proposalId: proposal.proposalId,
+      restorationId: 'restore-delete',
+      operatorDecisionId: 'restore-delete-approval',
+      chatId: CHAT,
+    });
     assert.equal(restored.state, LoreMutationState.RESTORED);
+    assert.equal(restored.restoration.operatorDecisionId, 'restore-delete-approval');
     assert.equal(intelligence.runtime.registry.currentRevision(sourceId).state, 'CURRENT');
     assert.equal(intelligence.runtime.registry.currentRevision(sourceId).exactContent, before.exactContent);
     assert.ok(intelligence.runtime.registry.revisionHistory(sourceId).length >= 3);

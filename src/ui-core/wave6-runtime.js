@@ -144,7 +144,7 @@ export function createWave6ProductInterface({
     const turn=evidenceJournal.recordSnapshot({selection,operations:op,diagnostics:diagnosticsRead,cognition:cognitionRead,promptPlan:promptPlanRead});
     activityFeed?.render();return turn;
   };
-  const scheduleEvidenceCapture=()=>scheduler.invalidate('demo:evidence-capture',captureEvidence,{cost:'CHEAP'});
+  const scheduleEvidenceCapture=()=>evidenceJournal&&operations?scheduler.invalidate('demo:evidence-capture',captureEvidence,{cost:'CHEAP'}):false;
   let liveSelectionKey=null;
   const applyLiveSelection=(update=null,{initial=false}={})=>{
     const selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;

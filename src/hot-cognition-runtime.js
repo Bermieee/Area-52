@@ -63,6 +63,10 @@ function normalizePresenceList(values=[],{excludeMentioned=true}={}){
     const id=identityOf(raw);if(!id)continue;
     rows.push({
       id:String(id),
+      canonicalEntityId:object(raw)&&raw.canonicalEntityId!=null?String(raw.canonicalEntityId):null,
+      sourceEntityId:object(raw)&&raw.sourceEntityId!=null?String(raw.sourceEntityId):null,
+      providerId:object(raw)&&raw.providerId!=null?String(raw.providerId):null,
+      label:object(raw)?raw.label??raw.name??raw.canonicalName??null:null,
       state:state??'PRESENT',
       authorityClass:observationOf(raw),
       confidence:object(raw)?Number(raw.confidence??0):0,

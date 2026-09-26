@@ -124,22 +124,23 @@ export function projectCognitionUiState({
 }
 
 export function createCognitionUiReadModelReader({
-  telemetry=null,resourceConnections=null,ownerReceipts=null,queuePressure=null,scheduler=null,
+  telemetry=null,resourceConnections=null,ownerReceipts=null,queuePressure=null,scheduler=null,eventWindow=512,
 }={}){
   const readOwner=typeof ownerReceipts==='function'?ownerReceipts:()=>ownerReceipts??[];
   const readQueue=typeof queuePressure==='function'?queuePressure:()=>queuePressure??null;
+  const boundedEventWindow=Math.max(64,Math.min(1024,Number(eventWindow)||512));
   return freeze({
-    kind:'CognitionUiReadModelReader',contractVersion:COGNITION_UI_READ_MODEL_VERSION,
+    kind:'CognitionUiReadModelReader',contractVersion:COGNITION_UI_READ_MODEL_VERSION,eventWindow:boundedEventWindow,
     read(selection={}){
       const snapshot=telemetry?.snapshot?.()??{};
       return projectCognitionUiState({
         ...selection,
-        events:telemetry?.list?.()??[],
+        events:telemetry?.list?.({limit:boundedEventWindow})??[],
         providerHealth:snapshot.providerHealth??{},
         queuePressure:readQueue(selection),
         resources:resourceConnections?.listResources?.()??resourceConnections?.readModel?.()?.resources??[],
         ownerReceipts:readOwner(selection)??[],
-        telemetrySnapshot:snapshot,
+        telemetrySnapshot:{...snapshot,uiEventWindow:boundedEventWindow},
         schedulerReadModel:readScheduler(scheduler,selection),
       });
     },

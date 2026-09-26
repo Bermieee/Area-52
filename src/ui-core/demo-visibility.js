@@ -1,7 +1,7 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
 
-export const DEMO_EVIDENCE_JOURNAL_VERSION='1.1.0';
+export const DEMO_EVIDENCE_JOURNAL_VERSION='1.2.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
 const STAGES=['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'];
 
@@ -13,39 +13,39 @@ class MemoryStorage{
 }
 
 export class DemoEvidenceJournal{
-  constructor({storage=null,namespace=DEFAULT_NAMESPACE,maxTurns=48,maxEntriesPerTurn=64,now=()=>Date.now()}={}){
+  constructor({storage=null,namespace=DEFAULT_NAMESPACE,maxTurns=48,maxEntriesPerTurn=64,maxStoredBytes=262144,now=()=>Date.now()}={}){
     const local=globalThis.localStorage??null;
     this.storage=storage??local??new MemoryStorage();
     this.storageKind=storage?'PROVIDED':local?'LOCAL_STORAGE':'MEMORY_FALLBACK';
     this.namespace=String(namespace||DEFAULT_NAMESPACE);
     this.maxTurns=Math.max(1,Number(maxTurns)||48);
     this.maxEntriesPerTurn=Math.max(4,Number(maxEntriesPerTurn)||64);
+    this.maxStoredBytes=Math.max(16384,Number(maxStoredBytes)||262144);
     this.now=typeof now==='function'?now:()=>Date.now();
-    this.lastError=null;
+    this.lastError=null;this.cachedState=null;this.lastSerializedBytes=0;this.writeCount=0;this.skippedWriteCount=0;this.storageLoadCount=0;
   }
 
   recordSnapshot({selection={},operations=null,diagnostics=null,cognition=null,promptPlan=null}={}){
     const identity=normalizeSelection(selection);
     if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
-    const state=this.#load();
-    const key=selectionKey(identity);
-    let turn=state.turns.find(row=>row.key===key);
-    const at=this.now();
+    const state=this.#load(),key=selectionKey(identity),at=this.now();
+    let turn=state.turns.find(row=>row.key===key),changed=false;
     if(!turn){
       turn={key,selection:identity,firstSeenAt:at,lastUpdatedAt:at,entries:[]};
-      state.turns.push(turn);
+      state.turns.push(turn);changed=true;
     }
-    turn.lastUpdatedAt=at;
     const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,at});
     for(const entry of entries){
       const index=turn.entries.findIndex(row=>row.identityKey===entry.identityKey);
       if(index>=0){
         const prior=turn.entries[index];
-        if(!sameEvidence(prior,entry))turn.entries[index]=entry;
-      }else turn.entries.push(entry);
+        if(!sameEvidence(prior,entry)){turn.entries[index]=entry;changed=true;}
+      }else{turn.entries.push(entry);changed=true;}
     }
     turn.entries.sort((a,b)=>Number(a.at??0)-Number(b.at??0));
-    if(turn.entries.length>this.maxEntriesPerTurn)turn.entries.splice(0,turn.entries.length-this.maxEntriesPerTurn);
+    if(turn.entries.length>this.maxEntriesPerTurn){turn.entries.splice(0,turn.entries.length-this.maxEntriesPerTurn);changed=true;}
+    if(!changed){this.skippedWriteCount+=1;return clone(turn);}
+    turn.lastUpdatedAt=at;
     state.turns.sort((a,b)=>Number(a.lastUpdatedAt??0)-Number(b.lastUpdatedAt??0));
     if(state.turns.length>this.maxTurns)state.turns.splice(0,state.turns.length-this.maxTurns);
     state.updatedAt=at;
@@ -70,7 +70,9 @@ export class DemoEvidenceJournal{
     return {
       kind:'Area52DemoEvidenceJournalStatus',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,
       available:this.lastError==null,persistent:this.storageKind!=='MEMORY_FALLBACK',storageKind:this.storageKind,
-      turnCount,entryCount,maxTurns:this.maxTurns,maxEntriesPerTurn:this.maxEntriesPerTurn,updatedAt:state.updatedAt??null,
+      turnCount,entryCount,maxTurns:this.maxTurns,maxEntriesPerTurn:this.maxEntriesPerTurn,maxStoredBytes:this.maxStoredBytes,
+      serializedBytes:this.lastSerializedBytes,storageLoads:this.storageLoadCount,writes:this.writeCount,skippedRedundantWrites:this.skippedWriteCount,
+      metadataOnly:true,updatedAt:state.updatedAt??null,
       lastError:this.lastError?String(this.lastError?.message??this.lastError):null,
     };
   }
@@ -100,18 +102,26 @@ export class DemoEvidenceJournal{
     return{ok:true,filename:a.download,payload,json};
   }
 
-  clear(){try{this.storage.removeItem(this.namespace);this.lastError=null;return true;}catch(error){this.lastError=error;return false;}}
+  clear(){try{this.storage.removeItem(this.namespace);this.cachedState=emptyState();this.lastSerializedBytes=0;this.lastError=null;return true;}catch(error){this.lastError=error;return false;}}
 
   #load(){
+    if(this.cachedState)return this.cachedState;
+    this.storageLoadCount+=1;
     try{
       const raw=this.storage.getItem(this.namespace);
-      if(!raw)return emptyState();
+      if(!raw){this.cachedState=emptyState();return this.cachedState;}
+      this.lastSerializedBytes=raw.length;
       const parsed=JSON.parse(raw);
-      if(parsed?.kind!=='Area52DemoEvidenceJournal'||!Array.isArray(parsed.turns))return emptyState();
-      return parsed;
-    }catch(error){this.lastError=error;return emptyState();}
+      this.cachedState=parsed?.kind==='Area52DemoEvidenceJournal'&&Array.isArray(parsed.turns)?parsed:emptyState();
+      return this.cachedState;
+    }catch(error){this.lastError=error;this.cachedState=emptyState();return this.cachedState;}
   }
-  #save(state){try{this.storage.setItem(this.namespace,JSON.stringify(state));this.lastError=null;}catch(error){this.lastError=error;}}
+  #save(state){
+    try{
+      const json=boundedJournalJson(state,this.maxStoredBytes);
+      this.cachedState=state;this.lastSerializedBytes=json.length;this.storage.setItem(this.namespace,json);this.writeCount+=1;this.lastError=null;
+    }catch(error){this.lastError=error;this.cachedState=state;}
+  }
 }
 
 export class DemoActivityFeedController{
@@ -201,6 +211,34 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
+  const runtimeOwner=inspections.runtime?.payload?.receipt??inspections.runtime?.payload??null;
+  const ownerJobs=Array.isArray(runtimeOwner?.jobs)?runtimeOwner.jobs:[];
+  if(ownerJobs.length){
+    const nativeIds=[...new Set((runtimeOwner?.resourceIds??[]).filter(Boolean).map(String))];
+    const optionalByJob=new Map((scatter?.jobs??[]).map(row=>[String(row.jobId??row.taskId??''),row]));
+    const gatherRows=Array.isArray(path.gather?.results)?path.gather.results:[],sealedIds=new Set(path.seal?.effectiveAdmittedResultIds??path.seal?.admittedResultIds??[]);
+    const auditJobs=ownerJobs.slice(0,32).map(job=>{
+      const jobId=String(job.jobId??job.taskId??''),optional=optionalByJob.get(jobId)??null;
+      const results=gatherRows.filter(row=>String(row.taskId??row.jobId??'')===jobId).slice(0,16);
+      return{
+        jobId:jobId||null,sequence:finite(job.sequence),owner:job.owner??null,reasonCode:technicalReason(job.reasonCode??job.reason??(job.owner?'OWNER_'+String(job.owner):null)),
+        assignedNativeResourceId:job.resourceId??(nativeIds.length===1?nativeIds[0]:null),assignedOptionalResourceId:optional?.resourceId??null,
+        startAt:finite(job.startedAt??job.startAt),endAt:finite(job.completedAt??job.endAt),outcome:job.status??job.state??null,
+        providerAttempted:results.some(row=>Boolean(row.providerAttempted)),resultIds:results.map(row=>row.resultId).filter(Boolean),
+        gatherAdmissions:results.map(row=>({resultId:row.resultId??null,status:row.status??null,accepted:Boolean(row.accepted),resourceId:row.resourceId??null})),
+        contextSealResultIds:results.map(row=>row.resultId).filter(id=>id&&sealedIds.has(id)),
+      };
+    });
+    const optionalIds=[...new Set((scatter?.jobs??[]).map(row=>row.resourceId).filter(Boolean).map(String))];
+    out.push(entry({
+      type:'JOB_AUDIT',status:'RECORDED',title:'Selected-turn job execution audit',
+      summary:auditJobs.length+' logical jobs · '+nativeIds.length+' native resource'+(nativeIds.length===1?'':'s')+' · '+optionalIds.length+' optional execution resource'+(optionalIds.length===1?'':'s')+'.',
+      detail:'Native scheduler execution, optional provider execution, Gather admission, and Context Seal admission are separate evidence states. Zero optional execution resources does not imply a provider call.',
+      receiptRef:runtimeOwner?.receiptId??runtimeOwner?.turnId??null,selection,at,identitySuffix:String(runtimeOwner?.receiptId??runtimeOwner?.turnId??auditJobs.length),
+      metadata:{logicalJobCount:auditJobs.length,nativeResourceIds:nativeIds,optionalExecutionResourceIds:optionalIds,jobs:auditJobs},
+    }));
+  }
+
   for(const row of diag.resources?.rows??[]){
     if(!row.physicalExecutionAttempted&&!row.lastExecution)continue;
     const succeeded=Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
@@ -211,6 +249,25 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
       receiptRef:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,selection,at,
       identitySuffix:String(row.id??'resource')+':'+String(row.lastExecution?.at??row.lastExecution?.completedAt??row.lastExecution?.status??succeeded),
       metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,succeeded,latencyMs:finite(row.lastExecution?.latencyMs)},
+    }));
+  }
+
+
+  const optionalRows=(diag.resources?.rows??[]).filter(row=>['JEV','SIDECAR','VECTORING'].includes(String(row.kind??'').toUpperCase())).slice(0,24);
+  if(optionalRows.length){
+    const jevReason=technicalReason(path.jev?.reasonCode??path.jev?.reason??path.jev?.outcome??path.jev?.state);
+    const lifecycleRows=optionalRows.map(row=>{
+      const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=Boolean(row.physicalExecutionSucceeded||row.lastExecution?.status==='SUCCESS');
+      const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
+      const kind=String(row.kind??'').toUpperCase(),skipReason=kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
+      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
+    });
+    out.push(entry({
+      type:'OPTIONAL_RESOURCE_LIFECYCLE',status:'RECORDED',title:'Optional resource lifecycle',
+      summary:lifecycleRows.filter(row=>row.configured).length+' configured · '+lifecycleRows.filter(row=>row.qualifiedCallable).length+' callable · '+lifecycleRows.filter(row=>row.attempted).length+' attempted.',
+      detail:'Configured, callable, attempted, succeeded or failed, and owner-accepted are independent states. JEV_NOT_REQUIRED is an intentional skip when no provider attempt occurred.',
+      selection,at,identitySuffix:lifecycleRows.map(row=>[row.id,row.state,row.attempted,row.succeeded,row.failed,row.ownerAccepted,row.skipReason].join(':')).join('|'),
+      metadata:{resources:lifecycleRows},
     }));
   }
 
@@ -308,4 +365,13 @@ function numberOrNull(value){const n=Number(value);return value==null||!Number.i
 function text(value){const x=value==null?'':String(value).trim();return x||null;}
 function label(value){return String(value??'producer').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
 function filePart(value){return String(value??'').replace(/[^a-z0-9._-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,80)||'unknown';}
+function technicalReason(value){const x=value==null?'':String(value).trim().toUpperCase();return /^[A-Z0-9_:-]{1,128}$/.test(x)?x:null;}
+function boundedJournalJson(state,maxBytes){
+  let json=JSON.stringify(state);
+  while(json.length>maxBytes&&state.turns.length>1){state.turns.shift();json=JSON.stringify(state);}
+  while(json.length>maxBytes&&state.turns.length===1&&(state.turns[0].entries?.length??0)>4){
+    const entries=state.turns[0].entries,drop=Math.max(1,Math.ceil(entries.length/4));entries.splice(0,drop);json=JSON.stringify(state);
+  }
+  return json;
+}
 function clone(value){if(value==null)return value;if(typeof structuredClone==='function')return structuredClone(value);return JSON.parse(JSON.stringify(value));}

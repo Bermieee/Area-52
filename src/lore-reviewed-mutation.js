@@ -964,11 +964,21 @@ export class LoreReviewedMutationService {
     }).filter(Boolean);
   }
 
-  restore({proposalId, restorationId = null} = {}) {
+  restore({proposalId, restorationId = null, operatorDecisionId, ...scopeRequest} = {}) {
     const proposal = this._proposal(proposalId);
-    if (proposal.state === LoreMutationState.RESTORED) return this._public(proposal, {replayed: true});
+    this._assertRequestScope(proposal, scopeRequest);
+    const decisionId = requiredString(operatorDecisionId, 'LORE_MUTATION_RESTORE_DECISION_REQUIRED', 'operatorDecisionId');
+    if (proposal.state === LoreMutationState.RESTORED) {
+      if (decisionId !== proposal.restoration?.operatorDecisionId) {
+        throw Object.assign(new Error('Restoration approval identity does not match completed restoration'), {code: 'LORE_MUTATION_RESTORE_APPROVAL_MISMATCH'});
+      }
+      return this._public(proposal, {replayed: true});
+    }
     if (proposal.state !== LoreMutationState.COMMITTED || !proposal.commit) {
       throw Object.assign(new Error('Committed mutation proposal is required for restoration'), {code: 'LORE_MUTATION_NOT_RESTORABLE'});
+    }
+    if (this.decisionIds.has(decisionId)) {
+      throw Object.assign(new Error('Restoration requires a fresh operator decision ID'), {code: 'LORE_MUTATION_RESTORE_DECISION_REPLAY'});
     }
     for (const event of proposal.commit.revisionEvents) {
       const current = this.intelligence.runtime.registry.currentRevision(event.sourceId, {allowMissing: true});
@@ -978,20 +988,24 @@ export class LoreReviewedMutationService {
     }
     const writes = this._restorationWrites(proposal);
     const executed = this._executeWrites(proposal, writes, {restoration: true});
+    this.decisionIds.set(decisionId, proposal.proposalId);
     proposal.restoration = {
       kind: 'LoreMutationRestorationReceipt',
       restorationId: restorationId == null
         ? 'lore-mutation-restoration:' + stableHash({proposalId: proposal.proposalId, sequence: ++this.sequence})
         : String(restorationId),
+      operatorDecisionId: decisionId,
       revisionEvents: executed.revisionEvents,
       studyObligationIds: executed.studyObligationIds,
       appendOnlyCompensatingRevisions: true,
+      explicitOperatorApproval: true,
       restoredSequence: ++this.sequence,
     };
     proposal.state = LoreMutationState.RESTORED;
     this._audit(proposal, {
       kind: 'LoreMutationRestoredAudit',
       proposalId: proposal.proposalId,
+      operatorDecisionId: decisionId,
       restoration: deepClone(proposal.restoration),
       sequence: this.sequence,
     });

@@ -18,7 +18,11 @@ function truthStatusForArtifacts(artifacts) {
   if (artifacts.some((row) => row.unresolved || [TemporalClass.UNCERTAIN, TemporalClass.CONFLICTING].includes(row.temporalClass))) return 'UNRESOLVED';
   const temporal = new Set(artifacts.map((row) => row.temporalClass).filter(Boolean));
   if (temporal.size === 1 && temporal.has(TemporalClass.HISTORICAL)) return 'HISTORICAL';
-  return 'UNKNOWN';
+  if (temporal.has(TemporalClass.CURRENT)) return 'CURRENT';
+  // A current authored source revision with no explicit historical/conflict marker
+  // remains eligible as current source evidence. Temporal Truth still belongs
+  // downstream; this hint must never override a stronger semantic classification.
+  return 'CURRENT';
 }
 
 function sourceContext(runtime, sourceId) {
@@ -374,6 +378,8 @@ export class LoreContextualRetrievalIndex {
         sourceRevisionId: record.sourceRevisionRefs[0],
         exactAuthoredText: record.exactAuthoredText,
         representationRef: record.representationRef,
+        truthStatusHint: record.truthStatusHint,
+        temporalHints: deepClone(record.temporalHints || []),
         provenance: deepClone(record.provenance),
       };
     }).filter(Boolean);

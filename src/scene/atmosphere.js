@@ -3,6 +3,7 @@ import { ObservationClass, createFieldState } from './contracts.js';
 const DIMENSIONS = Object.freeze(['tension','danger','intimacy','urgency','uncertainty','humor','grief','hostility']);
 
 export class AtmosphereTracker {
+  constructor({ttlRevisions=2}={}){this.ttlRevisions=Math.max(1,Math.min(16,Number(ttlRevisions)||2));}
   nextScene({ revision, evidenceRefs = [], dimensions = {} } = {}) { return this.update({ revision, evidenceRefs, dimensions }); }
   update({ revision, evidenceRefs = [], dimensions = {} }) {
     const value = {};
@@ -16,7 +17,7 @@ export class AtmosphereTracker {
       value[name] = { score, confidence, evidenceRefs: refs };
       minConfidence = Math.min(minConfidence, confidence);
     }
-    return createFieldState({ value, confidence: Object.keys(value).length ? minConfidence : 0, evidenceRefs: [...new Set([...evidenceRefs, ...Object.values(value).flatMap((x) => x.evidenceRefs)])], observationClass: Object.keys(value).length ? ObservationClass.INFERRED : ObservationClass.UNKNOWN, revision, metadata: { sceneScoped: true, canonical: false, dimensions: DIMENSIONS } });
+    return createFieldState({ value, confidence: Object.keys(value).length ? minConfidence : 0, evidenceRefs: [...new Set([...evidenceRefs, ...Object.values(value).flatMap((x) => x.evidenceRefs)])], observationClass: Object.keys(value).length ? ObservationClass.INFERRED : ObservationClass.UNKNOWN, revision, metadata: { sceneScoped: true, canonical: false, dimensions: DIMENSIONS,expiresAfterRevision:revision+this.ttlRevisions,proseStyleAuthority:false,factCreationAuthority:false,recursiveValidationAllowed:false } });
   }
 }
 

@@ -860,7 +860,7 @@ export class LoreIntelligenceService {
       contractVersion: 1,
       runtime: this.runtime.snapshot(),
       multiResolution: this.multiResolution.snapshot(),
-      hierarchy: this.hierarchy.snapshot(),
+      hierarchy: this.hierarchy.snapshot({compact: true}),
       ontology: this.ontology.current(),
       storyAuthority: this.storyAuthority.snapshot(),
       compileFailures: [...this.compileFailures.entries()].map(([sourceId, failures]) => [sourceId, deepClone(failures)]),

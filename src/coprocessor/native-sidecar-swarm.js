@@ -86,40 +86,118 @@ export class NativeSidecarSwarm{
     });
   }
 
-  async executeCheckpoint(checkpointInput,{
+  async executeCheckpoint(checkpointInput,options={}){
+    const checkpoint=validateCheckpoint(checkpointInput,this.maxCheckpointBytes);
+    const prior=this.checkpointExecutions.get(checkpoint.checkpointId);
+    if(prior){
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_CHECKPOINT_REPLAYED,{
+        ...normalizeSwarmSelection(checkpoint.selection??checkpoint),
+        checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,
+        parentReceiptId:checkpoint.proposalId,reason:'CHECKPOINT_EXECUTION_ALREADY_OBSERVED',
+      });
+      return prior;
+    }
+    const execution=this.#executeCheckpointOnce(checkpoint,options);
+    this.checkpointExecutions.set(checkpoint.checkpointId,execution);
+    this.checkpointExecutionOrder.push(checkpoint.checkpointId);
+    while(this.checkpointExecutionOrder.length>this.maxHistory*4){
+      const evicted=this.checkpointExecutionOrder.shift();
+      if(evicted!==checkpoint.checkpointId)this.checkpointExecutions.delete(evicted);
+    }
+    try{
+      const result=await execution;
+      this.checkpointExecutions.set(checkpoint.checkpointId,Promise.resolve(result));
+      return result;
+    }catch(error){
+      this.checkpointExecutions.delete(checkpoint.checkpointId);
+      this.checkpointExecutionOrder=this.checkpointExecutionOrder.filter(id=>id!==checkpoint.checkpointId);
+      throw error;
+    }
+  }
+
+  async #executeCheckpointOnce(checkpoint,{
     inputResolver=()=>({}),currentRevisionState=null,sealed=false,signal=null,jevRequest=null,ownerSignals={},
     maxProvidersPerTask=this.maxProvidersPerTask,
   }={}){
-    const checkpoint=validateCheckpoint(checkpointInput,this.maxCheckpointBytes);
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
     const current=await resolveValue(currentRevisionState,checkpoint.revisionFence);
     const freshness=classifyFreshness(checkpoint.revisionFence,current??checkpoint.revisionFence);
     if(freshness!==Freshness.FRESH){
       const records=checkpoint.pendingTasks.map(task=>rejectedRecord(task,NativeSwarmResultState.REJECTED_STALE,FailureCode.STALE_RESULT));
-      return this.#finish(checkpoint,{records,jevReceipt:null,checkpoint:null,resumeStatus:'STALE_REJECTED'});
+      return this.#finish(checkpoint,{records,jevReceipt:null,jevObservation:null,checkpoint:null,resumeStatus:'STALE_REJECTED'});
     }
 
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_RESUMED,{
-      checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:checkpoint.pendingTasks.length,
+      ...selection,checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:checkpoint.pendingTasks.length,
     });
 
     const deferred=checkpoint.pendingTasks.filter(task=>task.resultClass===ResultClass.DEFERRED);
     const foreground=checkpoint.pendingTasks.filter(task=>task.resultClass!==ResultClass.DEFERRED);
     const records=await this.#executeForeground(foreground,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint});
-    for(const task of deferred)records.push(parkedRecord(task));
+    for(const task of deferred){
+      records.push(parkedRecord(task));
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+        ...selection,waveId:checkpoint.checkpointId+':'+ScatterLayer.DEEP,turnId:task.turnId,correlationId:task.correlationId,
+        parentReceiptId:checkpoint.proposalId,taskId:task.taskId,layer:ScatterLayer.DEEP,trigger:scatterTriggerForTask(task),
+        decision:'DEFERRED',reason:'OUTSIDE_FOREGROUND_DEADLINE',queueDepth:deferred.length,concurrency:0,
+        fallback:false,costClass:task.metadata?.costEstimate?.class??task.metadata?.costBudget??null,
+      });
+    }
 
-    let jevReceipt=null;
+    let jevReceipt=null,jevObservation=null;
     const jevOption=checkpoint.proposal.options.find(option=>option.optionId==='jev-adjudication');
-    const shouldRunJev=checkpoint.proposal.ownerStageRequests?.jevAdjudication===true&&jevOption?.disposition==='NOMINATED';
-    if(shouldRunJev&&jevRequest){
-      if(jevRequest.turnId!==checkpoint.turnId||jevRequest.correlationId!==checkpoint.correlationId)throw new TypeError('Jev request turn identity does not match swarm checkpoint');
-      jevReceipt=await this.jev.decide(jevRequest,{currentRevisionState,sealed,signal});
+    const ownerRequested=checkpoint.proposal.ownerStageRequests?.jevAdjudication===true;
+    const nominated=jevOption?.disposition==='NOMINATED';
+    const jevTaskId=jevRequest?.taskId??(checkpoint.turnId+':jev-adjudication');
+    const jevWaveId=checkpoint.checkpointId+':JEV';
+    if(jevOption){
+      const costClass=jevOption.estimatedCost?.class??jevOption.estimatedCost?.costClass??'OPTIONAL';
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_STARTED,{
+        ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer:ScatterLayer.PRECISION,trigger:ownerRequested?'OWNER_JEV_REQUEST':'NO_OWNER_JEV_REQUEST',startedAt:this.now(),queueDepth:nominated?1:0,concurrency:nominated?1:0,taskCount:1,costClass,
+      });
+      const jevStarted=this.now();
+      if(!ownerRequested||!nominated){
+        const reason=!ownerRequested?'OWNER_DID_NOT_REQUEST_JEV':'JEV_NOT_NOMINATED';
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+          ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:jevTaskId,layer:ScatterLayer.PRECISION,trigger:'JEV_OWNER_GATE',decision:'SKIPPED',reason,queueDepth:0,concurrency:0,fallback:false,costClass,
+        });
+        jevObservation={ran:false,status:'SKIPPED',abstained:false,unresolved:false,late:false,stale:false,providerProfileId:null,decisionRef:null,latencyMs:0};
+      }else if(!jevRequest){
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+          ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:jevTaskId,layer:ScatterLayer.PRECISION,trigger:'JEV_OWNER_GATE',decision:'SKIPPED',reason:'OWNER_REQUESTED_WITHOUT_BOUNDED_REQUEST',
+          queueDepth:0,concurrency:0,fallback:false,costClass,
+        });
+        jevObservation={ran:false,status:'SKIPPED',abstained:false,unresolved:true,late:false,stale:false,providerProfileId:null,decisionRef:null,latencyMs:0};
+      }else{
+        if(jevRequest.turnId!==checkpoint.turnId||jevRequest.correlationId!==checkpoint.correlationId)throw new TypeError('Jev request turn identity does not match swarm checkpoint');
+        const bounded=isBoundedJevChoice(jevRequest);
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+          ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:jevTaskId,layer:ScatterLayer.PRECISION,trigger:'JEV_OWNER_GATE',decision:bounded.eligible?'ADMITTED':'SKIPPED',reason:bounded.reason,
+          queueDepth:bounded.eligible?1:0,concurrency:bounded.eligible?1:0,fallback:false,costClass,
+        });
+        if(bounded.eligible){
+          jevReceipt=await this.jev.decide(jevRequest,{currentRevisionState,sealed,signal});
+        }else{
+          jevObservation={ran:false,status:'SKIPPED',abstained:false,unresolved:true,late:false,stale:false,providerProfileId:null,decisionRef:null,latencyMs:0};
+        }
+      }
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_COMPLETED,{
+        ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer:ScatterLayer.PRECISION,completedAt:this.now(),durationMs:Math.max(0,this.now()-jevStarted),retainedBytes:0,releasedBytes:0,
+        failed:jevReceipt?.serviceStatus==='JEV_INVALID'||jevReceipt?.serviceStatus==='JEV_UNAVAILABLE'?1:0,fallbacks:0,costClass,
+      });
     }
 
     const nextCheckpoint=deferred.length?createSwarmCheckpoint({
       turnEvent:{turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,...checkpoint.revisionFence},
       proposal:checkpoint.proposal,tasks:deferred,createdAt:this.now(),maxBytes:this.maxCheckpointBytes,parentCheckpointId:checkpoint.checkpointId,
+      selection,
     }):null;
-    return this.#finish(checkpoint,{records,jevReceipt,checkpoint:nextCheckpoint,resumeStatus:'EXECUTED'});
+    return this.#finish(checkpoint,{records,jevReceipt,jevObservation,checkpoint:nextCheckpoint,resumeStatus:'EXECUTED'});
   }
 
   readModel(){

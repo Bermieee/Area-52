@@ -255,10 +255,12 @@ export class NativeSidecarSwarm{
     gatherBundle=gather.bundle();
     const gatherCompilerInput=gather.compilerInput();
     const resources=this.connections.readModel();
+    const jevSkipped=jevAdmission.admission!==ScatterAdmission.ADMIT||jevReceipt?.serviceStatus==='JEV_SKIPPED';
+    const jevProviderReturned=jevPhysicalAttempts>0&&Boolean(jevReceipt?.providerProvenance?.providerId)&&!['JEV_UNAVAILABLE','JEV_INVALID'].includes(jevReceipt?.serviceStatus);
     const jevExecution={
-      physicalAttempts:jevPhysicalAttempts,returned:jevReceipt&&jevReceipt.serviceStatus!=='JEV_UNAVAILABLE'?1:0,
-      ownerAccepted:0,ownerAcceptanceKnown:0,skipped:jevAdmission.admission===ScatterAdmission.ADMIT?0:1,
-      failed:jevAdmission.admission===ScatterAdmission.ADMIT&&(!jevReceipt||jevReceipt.serviceStatus==='JEV_UNAVAILABLE'||jevReceipt.serviceStatus==='JEV_INVALID')?1:0,
+      physicalAttempts:jevPhysicalAttempts,returned:jevProviderReturned?1:0,
+      ownerAccepted:0,ownerAcceptanceKnown:0,skipped:jevSkipped?1:0,
+      failed:jevPhysicalAttempts>0&&(!jevReceipt||jevReceipt.serviceStatus==='JEV_UNAVAILABLE'||jevReceipt.serviceStatus==='JEV_INVALID')?1:0,
     };
     const resourceStates=summarizeOptionalResourceStates({resources:resources.resources,records,jevExecution});
     const peakLayerConcurrency=layerRows.reduce((m,row)=>Math.max(m,Number(row.peakConcurrency??0)),0);

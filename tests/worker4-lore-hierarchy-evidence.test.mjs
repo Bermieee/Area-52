@@ -472,3 +472,28 @@ test('reference-backed retrieval and Lore read surfaces preserve stable evidence
   assert.equal(operatorSummaries.rawEvidenceIncluded, false);
   assert.deepEqual(operatorSummaries.summaries.map((row) => row.summaryRef), surface.summaries.map((row) => row.summaryRef));
 });
+
+
+test('one source edit does not rehydrate unrelated leaf evidence before summary reuse', () => {
+  const {runtime, system, ids} = evidenceWorld();
+  const originalRegister = system.summaryRegistry.registerEvidence.bind(system.summaryRegistry);
+  const registeredSources = new Set();
+  system.summaryRegistry.registerEvidence = (rows = []) => {
+    for (const row of rows) if (row?.sourceId) registeredSources.add(row.sourceId);
+    return originalRegister(rows);
+  };
+
+  const edit = runtime.upsertEntry({
+    lorebookId: 'hierarchy-evidence',
+    uid: 'rule',
+    content: 'Mara formerly owned the Ember Tavern. Mara must never reveal the cellar key. Mara protects the archive.',
+    metadata: {title: 'Mara Rule', treePath: ['Places', 'Ember Tavern']},
+  });
+  runtime.run(edit.obligation.id);
+  system.refreshHierarchy();
+  const rebuild = system.buildAll({maxUnits: 8});
+
+  assert.deepEqual([...registeredSources].sort(), [ids.rule]);
+  assert.ok(rebuild.reusedScopeIds.length > 0);
+  assert.ok(rebuild.builtScopeIds.length > 0);
+});

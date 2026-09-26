@@ -36,7 +36,7 @@ jobs:
           echo "TESTED_HEAD=$(git rev-parse HEAD)"
           echo "BASE_SHA=$BASE_SHA"
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-          test "$(git rev-parse main 2>/dev/null || git rev-parse origin/main)" = "$BASE_SHA"
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
       - name: Focused Worker 2 acceptance
         run: |
           node --test tests/coprocessor-wave22-layered-scatter.test.mjs

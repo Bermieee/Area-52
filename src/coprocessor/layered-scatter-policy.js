@@ -26,7 +26,8 @@ export function createLayeredScatterPlan({fanOutPlan,plannerInput={},choicePropo
   const byLayer=new Map(layers.map(row=>[row.layer,row]));
   for(const task of fanOutPlan.tasks??[]){
     const role=task.metadata?.roleId??roleFor(task.taskType);
-    const layer=task.resultClass===ResultClass.DEFERRED?ScatterLayer.DEEP:(ROLE_LAYER[role]??ScatterLayer.EXPANSION);
+    const signaledPrecision=role==='truth-precision'&&explicitAmbiguity(plannerInput,null);
+    const layer=task.resultClass===ResultClass.DEFERRED?ScatterLayer.DEEP:(signaledPrecision?ScatterLayer.EXPANSION:(ROLE_LAYER[role]??ScatterLayer.EXPANSION));
     byLayer.get(layer).tasks.push(task);
   }
   return freeze({

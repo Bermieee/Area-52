@@ -317,6 +317,13 @@ function applyNativeScene(brain, { chatId, message, sourceRevisionId = null, act
   };
 }
 
+function sceneOwnerReceiptForNative(scene){
+  if(!scene)return null;
+  const safe=clone(scene);
+  delete safe.dispatchTimeline;delete safe.signal;delete safe.parsed;
+  return safe;
+}
+
 async function injectPrompt(context, result) {
   const plan = result?.delivery?.plan ?? null;
   if (!plan) return { supported: false, succeeded: false, reason: 'PROMPT_PLAN_UNAVAILABLE' };
@@ -473,6 +480,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
+    this.sceneHostMessageState = new Map();
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -498,6 +506,16 @@ export class DevelopmentDeploymentSillyTavernSession {
     const context = this.sillyTavern.getContext();
     if (!context || typeof context !== 'object') throw new Error('SillyTavern host context is unavailable');
     return context;
+  }
+
+  #sceneHostVersion(chatId,message,{activity=null}={}){
+    const identity=sourceIdentity(chatId,message),key=chatId+'|'+identity.messageKey,prior=this.sceneHostMessageState.get(key)??null;
+    const changed=Boolean(prior&&prior.digest!==identity.digest);
+    const messageRevision=changed?prior.messageRevision+1:(prior?.messageRevision??1);
+    const resolvedActivity=activity??(changed?HostActivity.EDIT:HostActivity.USER_SEND);
+    const state={messageRevision,digest:identity.digest,activity:resolvedActivity,messageKey:identity.messageKey};
+    this.sceneHostMessageState.set(key,state);
+    return clone(state);
   }
 
   attachNativeBrain(nativeBrain,{remount=true}={}){
@@ -609,22 +627,25 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!message)throw new Error('No current SillyTavern user message is available for native Brain preparation');
     if(!chatId)throw new Error('SillyTavern chatId is unavailable');
     if(this.nativeRuns.has(chatId))throw new Error('A native Brain generation is already pending for this selected chat');
-    const source=registerNarrativeSource(this.brain,{chatId,message}),scene=applyNativeScene(this.brain,{chatId,message,sourceRevisionId:source.sourceRevisionId});
+    const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
+    const sceneVersion=this.#sceneHostVersion(chatId,message);
+    const scene=applyNativeScene(this.brain,{chatId,message,sourceRevisionId:source.sourceRevisionId,activity:sceneVersion.activity,messageRevision:sceneVersion.messageRevision,turnId});
+    const sceneOwnerReceipt=sceneOwnerReceiptForNative(scene);
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
     const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null};
     this.nativeRuns.set(chatId,run);
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
-      chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,executionLabel:'LIVE_SILLYTAVERN',
+      chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,executionLabel:'LIVE_SILLYTAVERN',
     },{
       generate:async(rendered,meta={})=>{
         const seal=meta.contextSealReceipt;
         if(!seal?.sealedState)throw new Error('Native Brain did not publish a sealed Context Seal before the model request');
         if(!rendered)throw new Error('Native Brain runTurn did not publish prepared.rendered for the model request');
         this.nativePayloads.set(chatId,clone(rendered));
-        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
+        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
         this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
         this.#beginOptionalGeneration(pending);
         readySettled=true;readyResolve(clone(pending));this.#notify();

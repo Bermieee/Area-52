@@ -125,7 +125,7 @@ test('Worker 1 #263 exact host observation and delivery evidence complete the se
   assert.equal(delivery.status,'OBSERVED_MATCH');assert.equal(delivery.observedHostDelivery.identityCompatible,true);
   await brain.completeTurn({turnId:'trace:1',response:'The scene continues.'});
   const trace=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:trace',turnId:'trace:1',generationId:'gen:trace:1'});
-  assert.equal(trace.producers.hostObservation.status,'PUBLISHED');assert.equal(trace.producers.delivery.status,'OBSERVED');assert.equal(trace.producers.delivery.metadata.matching,true);assert.equal(trace.producers.learning.status,'PUBLISHED');
+  assert.equal(trace.producers.hostObservation.status,'PUBLISHED');assert.equal(trace.producers.delivery.status,'OBSERVED');assert.equal(trace.producers.delivery.matching,true);assert.equal(trace.producers.learning.status,'PUBLISHED');
   assert.equal(trace.rawPromptIncluded,false);assert.equal(trace.storyTextIncluded,false);assert.equal(trace.credentialsIncluded,false);assert.equal(trace.hiddenReasoningIncluded,false);
 });
 

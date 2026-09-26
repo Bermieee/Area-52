@@ -44,12 +44,12 @@ export class GenerationPublicationPipeline {
   }
 
   publish({
-    turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
+    turnId,turnRevision=0,correlationId,chatId=null,generationId=null,query,intent='CURRENT',anchorEntityIds=[],
     budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,perspectiveConstraint=null,
     candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
   }){
     const fingerprint=stableHash({
-      turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
+      turnId,turnRevision,correlationId,chatId,generationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
       precisionAvailable:Boolean(precisionAvailable),activeThreads,channelIds:channelIds?uniq(channelIds):null,perspectiveConstraint,
       candidateBudget,latencyBudgetMs,graphTraversal,
     },{length:24});
@@ -72,7 +72,7 @@ export class GenerationPublicationPipeline {
     const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot,{perspectiveConstraint}):null;
     const choiceSession=this.choice?.begin?.({
-      turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
+      turnId,turnRevision,correlationId,chatId,generationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
     })??null;
 

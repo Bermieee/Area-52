@@ -21,7 +21,8 @@
   async function runBaseline(){
     globalThis.gc?.();await sleep(20);
     const longStart=longTasks.length,phases={},retained=[];let peak=heap();
-    const started=performance.now();
+    const started=performance.now();let probeAt=null;
+    setTimeout(()=>{probeAt=performance.now();},0);
     phase('scatterPlanning',()=>busy(8),phases);
     phase('nativeJobs',()=>busy(12),phases);
     await tick();
@@ -37,13 +38,14 @@
     phase('journalPublication',()=>busy(8),phases);
     phase('uiHandoff',()=>busy(8),phases);
     const sealedAt=performance.now();
-    await sleep(30);
+    await tick();await sleep(10);
     const runLong=longTasks.slice(longStart);
     const result={
       mode:'baseline-unlayered',logicalJobs:6,physicalAttempts:6,queueDepthPeak:6,concurrencyPeak:6,
       phases,timeToSealMs:sealedAt-started,retainedBytes:6*90000*4,peakHeapBytes:peak,
       longTaskCount:runLong.length,longTaskMaxMs:runLong.length?Math.max(...runLong.map(x=>x.duration)):0,
-      totalWorkAvoided:0,retrievalTruthQuality:1,fallbackCorrect:true,userVisibleResponsive:false,
+      totalWorkAvoided:0,retrievalTruthQuality:1,fallbackCorrect:true,
+      uiProbeDelayMs:probeAt==null?null:probeAt-started,uiProbeBeforeSeal:probeAt!=null&&probeAt<sealedAt,
     };
     retained.length=0;globalThis.gc?.();await sleep(30);return result;
   }
@@ -51,7 +53,8 @@
   async function runLayered(){
     globalThis.gc?.();await sleep(20);
     const longStart=longTasks.length,phases={},retained=[];let peak=heap(),physicalAttempts=0;
-    const started=performance.now();
+    const started=performance.now();let probeAt=null;
+    setTimeout(()=>{probeAt=performance.now();},0);
     phase('scatterPlanning',()=>busy(8),phases);
     phase('nativeJobs',()=>busy(12),phases);
     const layers=[[0,1],[2,3],[4,5]];
@@ -72,13 +75,14 @@
     phase('journalPublication',()=>busy(8),phases);
     phase('uiHandoff',()=>busy(8),phases);
     const sealedAt=performance.now();
-    await sleep(30);
+    await tick();await sleep(10);
     const runLong=longTasks.slice(longStart);
     const result={
       mode:'layered',logicalJobs:6,physicalAttempts,queueDepthPeak:6,concurrencyPeak:2,
       phases,timeToSealMs:sealedAt-started,retainedBytes:4*90000*4,peakHeapBytes:peak,
       longTaskCount:runLong.length,longTaskMaxMs:runLong.length?Math.max(...runLong.map(x=>x.duration)):0,
-      totalWorkAvoided:0,retrievalTruthQuality:1,fallbackCorrect:true,userVisibleResponsive:true,
+      totalWorkAvoided:0,retrievalTruthQuality:1,fallbackCorrect:true,
+      uiProbeDelayMs:probeAt==null?null:probeAt-started,uiProbeBeforeSeal:probeAt!=null&&probeAt<sealedAt,
     };
     retained.length=0;globalThis.gc?.();await sleep(20);return result;
   }
@@ -90,12 +94,15 @@
     && after.physicalAttempts===before.physicalAttempts
     && after.retrievalTruthQuality===before.retrievalTruthQuality
     && after.timeToSealMs<=before.timeToSealMs*1.6+120
+    && after.uiProbeBeforeSeal===true
+    && (before.uiProbeDelayMs==null||after.uiProbeDelayMs<before.uiProbeDelayMs)
     && (before.longTaskMaxMs===0||after.longTaskMaxMs<before.longTaskMaxMs);
   const result={kind:'Worker2LayeredScatterBrowserBenchmark',measurementClass:'CHROMIUM_HARNESS',before,after,delta:{
     retainedBytes:after.retainedBytes-before.retainedBytes,
     concurrencyPeak:after.concurrencyPeak-before.concurrencyPeak,
     longTaskMaxMs:after.longTaskMaxMs-before.longTaskMaxMs,
     timeToSealMs:after.timeToSealMs-before.timeToSealMs,
+    uiProbeDelayMs:(after.uiProbeDelayMs??0)-(before.uiProbeDelayMs??0),
     physicalAttempts:after.physicalAttempts-before.physicalAttempts,
     totalWorkAvoided:after.totalWorkAvoided-before.totalWorkAvoided,
   },notes:{

@@ -114,7 +114,7 @@ test('journal diagnostics seam does not re-read Scatter PromptPlan Runtime Lore 
   const live={selection:()=>selection,diagnostics:()=>({reads:3,rejected:0})};
   const adapter=new Wave13DiagnosticsCenterAdapter({
     operations:{read(){calls.operations++;return{selection};}},
-    resources:{read(){calls.resources++;return{data:{resources:[{id:'jev:1',displayName:'Jev',kind:'JEV',physicalExecutionAttempted:true,physicalExecutionSucceeded:true,ownerAccepted:null}]};}},
+    resources:{read(){calls.resources++;return{data:{resources:[{id:'jev:1',displayName:'Jev',kind:'JEV',physicalExecutionAttempted:true,physicalExecutionSucceeded:true,ownerAccepted:null}]}};}},
     cognition:{read(){calls.cognition++;return null;}},
     loreStudy:{read(){calls.lore++;return null;}},
     memory:{read(){calls.memory++;return null;}},

@@ -506,7 +506,11 @@ export class DevelopmentDeploymentBrain {
 
   ingestSceneHostEvent(input = {}, { extract = null } = {}) {
     const start = this.sceneOwnerTimeline.length;
-    const outcome = this.scene.ingestHostEvent(input, { extract });
+    let extracted = null;
+    const wrappedExtract = typeof extract === 'function'
+      ? (e, scene) => { extracted = extract(e, scene) ?? {}; return extracted; }
+      : null;
+    const outcome = this.scene.ingestHostEvent(input, { extract: wrappedExtract });
     const evidence = outcome?.evidence ?? null;
     const chatId = String(evidence?.chatId ?? input?.chatId ?? '').trim();
     const timeline = this.sceneOwnerTimeline.slice(start).map((row) => clone(row));
@@ -539,8 +543,9 @@ export class DevelopmentDeploymentBrain {
     const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
     const boundaryStatus = outcome?.boundary?.decision?.status ?? null;
     const status = changedFields.length || outcome?.transition ? 'OBSERVED' : 'NO_WORK';
+    const boundaryCueObserved = Boolean(extracted?.boundarySignals && Object.keys(extracted.boundarySignals).length);
     const noWorkReason = status === 'NO_WORK'
-      ? (outcome?.boundary && boundaryStatus !== 'CONFIRMED' ? 'BOUNDARY_NOT_CONFIRMED' : 'NO_EXPLICIT_SCENE_CHANGE')
+      ? (boundaryCueObserved && boundaryStatus !== 'CONFIRMED' ? 'BOUNDARY_NOT_CONFIRMED' : 'NO_EXPLICIT_SCENE_CHANGE')
       : null;
     return clone({
       kind: 'DeploymentSceneOwnerReceipt',
@@ -567,6 +572,7 @@ export class DevelopmentDeploymentBrain {
       invalidatedSourceRevisionRefs,
       changedFields,
       boundary: clone(outcome?.boundary ?? null),
+      boundarySignals: clone(extracted?.boundarySignals ?? null),
       transition: clone(outcome?.transition ?? null),
       eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
       eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],

@@ -13,6 +13,7 @@ on:
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
       - 'tests/scene-ft002-host-e2e.mjs'
+      - 'tests/deployment-live-host.test.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
       - 'docs/SCENE_*'
@@ -58,6 +59,8 @@ jobs:
         run: node --test tests/scene-completion-wave4-gaps.mjs
       - name: FT002 host lifecycle acceptance
         run: node --test tests/scene-ft002-host-e2e.mjs
+      - name: Assembled selected-turn Scene delivery seam
+        run: node --test --test-name-pattern='real native Brain host event publishes Scene and sealed Context Delivery' tests/deployment-live-host.test.mjs
       - name: Scene research evaluation
         run: node scripts/scene-research-evaluation.mjs
       - name: Real browser load qualification
@@ -88,4 +91,5 @@ jobs:
           node --check tests/scene-completion-wave4-stress.mjs
           node --check tests/scene-completion-wave4-gaps.mjs
           node --check tests/scene-ft002-host-e2e.mjs
+          node --check tests/deployment-live-host.test.mjs
           node --check scripts/scene-research-evaluation.mjs

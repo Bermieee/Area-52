@@ -12,6 +12,7 @@ export class ScenePrefetchTrigger{
   active({sceneId,sceneRevision}){this.expire({sceneId,sceneRevision});return [...this.pending.values()].filter((x)=>x.sceneId===sceneId&&x.status==='ACTIVE').map(clone);}
   expire({sceneId,sceneRevision}){for(const r of this.pending.values())if(r.sceneId===sceneId&&r.expiryRevision<sceneRevision)r.status='EXPIRED';}
   cancelSuperseded({sceneId,sceneRevision}){for(const r of this.pending.values())if(r.sceneId===sceneId&&r.sceneRevision<sceneRevision)r.status='CANCELLED';}
+  invalidateBySource({sourceRevisionRefs=[],replacementRef=null}={}){const refs=new Set((sourceRevisionRefs??[]).filter(Boolean).map(String)),changed=[];for(const r of this.pending.values()){if(r.status!=='ACTIVE'||!(r.sourceRevisionRefs??[]).some(ref=>refs.has(String(ref))))continue;r.status='CANCELLED';r.invalidators=[...new Set([...(r.invalidators??[]),replacementRef,...refs].filter(Boolean))];changed.push(clone(r));}return changed;}
   isFresh(recommendation,{sceneId,sceneRevision}={}){return recommendation?.kind==='PrefetchRecommendation'&&recommendation.status==='ACTIVE'&&recommendation.sceneId===sceneId&&Number(recommendation.sceneRevision)===Number(sceneRevision)&&Number(sceneRevision)<=Number(recommendation.expiryRevision);}
   exportState(){return clone({version:1,seq:this.seq,pending:[...this.pending.values()]});}
   static importState(state){const p=new ScenePrefetchTrigger();p.seq=state.seq??0;for(const r of state.pending??[])p.pending.set(r.recommendationId,r);return p;}

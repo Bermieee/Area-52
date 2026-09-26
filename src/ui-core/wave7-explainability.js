@@ -132,9 +132,9 @@ export function diffGenerationContext(previous,current){
   if(!previous||!current)return deepFreeze({kind:'GenerationContextDiff',available:false,reason:'Both adjacent generation read models are required.',fromGenerationId:previous?.generationId??null,toGenerationId:current?.generationId??null,groups:{}});
   const a=new Map(previous.sections.map(x=>[x.slot,x])),b=new Map(current.sections.map(x=>[x.slot,x]));const groups={UNCHANGED:[],UPDATED:[],REBUILT:[],ADDED:[],REMOVED:[],DROPPED:[],DEFERRED:[],UNKNOWN:[]};
   for(const slot of new Set([...a.keys(),...b.keys()])){
-    const before=a.get(slot),after=b.get(slot);
-    if(!before&&after){pushDiff(groups,after.state===ContextSectionState.DEFERRED?'DEFERRED':after.state===ContextSectionState.DROPPED?'DROPPED':'ADDED',slot,before,after);continue;}
-    if(before&&!after){pushDiff(groups,'REMOVED',slot,before,after);continue;}
+    const before=a.get(slot),after=b.get(slot),beforePlanned=before?.plannedState??before?.state??null,afterPlanned=after?.plannedState??after?.state??null;
+    if((!before||beforePlanned===ContextSectionState.NO_EVIDENCE)&&after&&afterPlanned!==ContextSectionState.NO_EVIDENCE){pushDiff(groups,after.state===ContextSectionState.DEFERRED?'DEFERRED':after.state===ContextSectionState.DROPPED?'DROPPED':'ADDED',slot,before,after);continue;}
+    if(before&&(!after||afterPlanned===ContextSectionState.NO_EVIDENCE)&&beforePlanned!==ContextSectionState.NO_EVIDENCE){pushDiff(groups,'REMOVED',slot,before,after);continue;}
     if(after.state===ContextSectionState.REUSED){pushDiff(groups,'UNCHANGED',slot,before,after);continue;}
     if(after.state===ContextSectionState.UPDATED){pushDiff(groups,'UPDATED',slot,before,after);continue;}
     if(after.state===ContextSectionState.REBUILT){pushDiff(groups,'REBUILT',slot,before,after);continue;}

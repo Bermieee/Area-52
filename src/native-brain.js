@@ -716,6 +716,37 @@ export class Area52NativeBrain{
     const producer=(value,{id=null,reasonCodes=[],metadata={}}={})=>({status:value?'PUBLISHED':'UNAVAILABLE',id:value?(id??value.receiptId??value.id??value.promptPlanId??value.kind??null):null,reasonCodes:uniq(reasonCodes).slice(0,16),...clone(metadata)});
     const deferred=(plan?.deferred??[]).slice(0,16).map(row=>({slot:row.slot??null,reason:row.reason??null,requiredTokens:row.requiredTokens??null,remainingTokensAtDecision:row.remainingTokensAtDecision??null,shortfallTokens:row.shortfallTokens??null}));
     const includedSlots=(context?.includedSections??[]).slice(0,32),selectedRefs=selection.sourceRevisionRefs.slice(0,128),sceneRefs=uniq(record.sceneSourceRevisionRefs??scene?.sourceRevisionRefs??[]).slice(0,32),sealRefs=uniq(seal?.sourceRevisionIds??[]).slice(0,128);
+    const sceneOwner=record.sceneOwnerReceipt??null,sceneIngress=record.sceneIngress??null;
+    const sceneTimelineReceipts=(sceneIngress?.timelineReceipts??[]).slice(0,32);
+    const fanOutAdmitted=[...(choice?.admittedJobs??[])],fanOutSkipped=[...(choice?.skippedJobs??[])];
+    const sceneFlow={
+      kind:'NativeBrainSceneFlowReceipt',
+      observation:sceneOwner?{
+        state:sceneOwner.status==='NO_WORK'?'NO_WORK':'OBSERVED',
+        receiptKind:sceneOwner.kind??null,sceneId:sceneOwner.sceneId??null,sceneRevision:sceneOwner.sceneRevision??null,
+        sourceRevisionRefs:uniq(sceneOwner.sourceRevisionRefs??[]).slice(0,32),changedFields:[...(sceneOwner.changedFields??[])].slice(0,16),
+        noWorkReason:sceneOwner.noWorkReason??null,boundaryStatus:sceneOwner.boundary?.decision?.status??null,transitionStatus:sceneOwner.transition?.status??null,
+        eventTypes:[...(sceneOwner.eventTypes??[])].slice(0,16),authorityGranted:false,
+      }:{state:'UNAVAILABLE',reason:'SCENE_OWNER_RECEIPT_NOT_SUPPLIED'},
+      events:sceneTimelineReceipts.length?{state:'ADMITTED',count:sceneTimelineReceipts.length,receipts:clone(sceneTimelineReceipts)}:{state:'NO_WORK',count:0,reason:'NO_SCENE_EVENT_OR_INVALIDATION_FOR_TURN'},
+      signal:sceneIngress?.signalStatus==='ADMITTED'?{state:'ADMITTED',receipt:clone(sceneIngress.signalReceipt??null)}:sceneIngress?.signalStatus==='REJECTED'?{state:'REJECTED',receipt:clone(sceneIngress.signalReceipt??null)}:{state:'UNAVAILABLE',reason:'SCENE_SIGNAL_NOT_ADMITTED'},
+      fanOut:fanOutAdmitted.length?{state:'ADMITTED',admittedJobs:fanOutAdmitted.slice(0,16),skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}:{state:'NO_WORK',admittedJobs:[],skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)},
+      gather:gather?{state:(gather.admittedResultIds??[]).length?'ADMITTED_RESULTS':'PUBLISHED_NO_WORK',receiptId:gather.receiptId??gather.kind??null,admittedResultCount:(gather.admittedResultIds??[]).length,staleResultCount:(gather.staleResultIds??[]).length,rejectedResultCount:(gather.rejectedResultIds??[]).length}:{state:'UNAVAILABLE',reason:'GATHER_RECEIPT_UNAVAILABLE'},
+      contextSeal:seal?{state:'SEALED',contextSealId:seal.id??null,sceneId:seal.sceneId??scene?.sceneId??null,sceneRevision:seal.sceneRevision??null,sourceRevisionRefs:uniq(seal.sourceRevisionIds??[]).slice(0,64)}:{state:'UNAVAILABLE',reason:'CONTEXT_SEAL_UNAVAILABLE'},
+      promptPlan:plan?{state:'PLANNED',promptPlanId:plan.promptPlanId??null,contextSealId:plan.contextSealId??null,turnId:plan.turnId??null,generationId:plan.generationId??null}:{state:'UNAVAILABLE',reason:'PROMPT_PLAN_UNAVAILABLE'},
+      hostDelivery:{state:'UNAVAILABLE',reason:'HOST_OBSERVATION_OWNED_BY_SILLYTAVERN_BOUNDARY'},
+      authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+    const sceneFences={
+      selectedChatId:selection.chatId,selectedTurnId:selection.turnId,selectedGenerationId:selection.generationId,
+      selectedSceneId:selection.sceneId,selectedSceneRevision:selection.sceneRevision,
+      sceneRevisionMatchesSelection:Number(scene?.sceneRevision)===Number(selection.sceneRevision),
+      sceneSourceRefsInSelection:sceneRefs.every(ref=>selection.sourceRevisionRefs.includes(ref)),
+      sceneSourceRefsInSeal:sceneRefs.every(ref=>sealRefs.includes(ref)),
+      promptPlanTurnMatches:plan?.turnId===selection.turnId,
+      promptPlanGenerationMatches:plan?.generationId===selection.generationId,
+      contextSealTurnMatches:seal?.turnId===selection.turnId,
+    };
     return{
       kind:'NativeBrainSelectedTurnReceipt',contractVersion:1,...selection,
       sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length},
@@ -734,6 +765,7 @@ export class Area52NativeBrain{
         admittedResults:(gather?.admittedResultIds??[]).length,staleResults:(gather?.staleResultIds??[]).length,rejectedResults:(gather?.rejectedResultIds??[]).length,
         plannedSections:(plan?.sections??[]).length,includedSections:includedSlots.length,deferredSections:deferred.length,
       },
+      sceneFlow,sceneFences,
       delivery:{
         planned:plan?{state:'PLANNED',promptPlanId:plan.promptPlanId,contextSealId:plan.contextSealId,totalTokens:plan.budget?.allocated??null,budgetTotal:plan.budget?.total??null,budgetRemaining:plan.budget?.remaining??null,includedSlots,deferred}: {state:'UNAVAILABLE',reason:'PROMPT_PLAN_UNAVAILABLE'},
         compiled:context?{state:'COMPILED_AND_SEALED',contextSealId:context.contextSealId,packetId:context.packetId??null,packetHash:context.packetHash??null,includedSlots:[...(context.includedSections??[])].slice(0,32),deferred:[...(context.deferredSections??[])].slice(0,16)}:{state:'UNAVAILABLE',reason:'CONTEXT_RECEIPT_UNAVAILABLE'},

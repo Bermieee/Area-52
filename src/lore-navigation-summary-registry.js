@@ -69,6 +69,8 @@ export class LoreNavigationSummaryRegistry {
     if (!id) return null;
     const row = this.summaries.get(id);
     if (!row || ![NavigationSummaryState.BUILT, NavigationSummaryState.REUSED].includes(row.state) || row.freshness !== 'FRESH') return null;
+    const evidenceResolution = this.resolveEvidenceRefs(row.criticalEvidenceRefs || []);
+    if (evidenceResolution.status !== 'COMPLETE') return null;
     row.state = NavigationSummaryState.REUSED;
     return deepClone(row);
   }

@@ -5,6 +5,10 @@ import { classifyFreshness, validateWorkerOutput } from './validation.js';
 import { createCoprocessorChoiceExecutionTrace, toCoreCognitiveChoiceContribution } from './cognitive-choice-execution.js';
 import { sha256Hex } from './browser-compat.js';
 import { emitTelemetry } from './telemetry.js';
+import {
+  FOREGROUND_SCATTER_LAYERS, ScatterLayer, estimateRetainedResultBytes, evaluateScatterAdmission,
+  groupTasksByScatterLayer, isBoundedJevChoice, scatterTriggerForTask, yieldScatterBoundary,
+} from './layered-scatter.js';
 
 export const NATIVE_SIDECAR_SWARM_VERSION='1.0.0';
 
@@ -15,6 +19,7 @@ export const NativeSwarmResultState=Object.freeze({
   REJECTED_LATE:'REJECTED_LATE',
   FAILED:'FAILED',
   UNAVAILABLE:'UNAVAILABLE',
+  SKIPPED:'SKIPPED',
   PARKED:'PARKED',
 });
 
@@ -23,6 +28,7 @@ const AUTHORITY_SAFE=new Set(['UNRESOLVED','INFERRED']);
 export class NativeSidecarSwarm{
   constructor({
     connections,planner=null,telemetry=null,now=()=>Date.now(),maxHistory=64,maxCheckpointBytes=131072,maxProvidersPerTask=2,
+    minimumPrecisionExpectedValue=0.8,cooperativeYield=yieldScatterBoundary,
   }={}){
     if(!connections||typeof connections.readModel!=='function'||typeof connections.executeTask!=='function')throw new TypeError('NativeSidecarSwarm requires CoprocessorResourceConnections');
     this.connections=connections;
@@ -32,8 +38,12 @@ export class NativeSidecarSwarm{
     this.maxHistory=Math.max(8,Number(maxHistory)||64);
     this.maxCheckpointBytes=Math.max(16384,Number(maxCheckpointBytes)||131072);
     this.maxProvidersPerTask=Math.max(1,Number(maxProvidersPerTask)||2);
+    this.minimumPrecisionExpectedValue=Math.max(0,Math.min(1,Number(minimumPrecisionExpectedValue)||0.8));
+    this.cooperativeYield=typeof cooperativeYield==='function'?cooperativeYield:yieldScatterBoundary;
     this.turns=new Map();
     this.turnOrder=[];
+    this.checkpointExecutions=new Map();
+    this.checkpointExecutionOrder=[];
     this.jev=new JevDecisionCore({providerExecutor:this.connections.createJevProviderExecutor()});
   }
 

@@ -79,7 +79,7 @@ export class Wave13CoprocessorStateUIAdapter{
           queue,physicalExecution:physical,lifecycle,
           ownerAcceptance:cloneSafe(raw.ownerAcceptance??[]),resultDestinations:cloneSafe(raw.resultDestinations??{}),
           providerHealth:cloneSafe(raw.providerHealth??[]),resources:cloneSafe(raw.resources??[]),
-          rawPromptIncluded:false,rawPayloadIncluded:false,credentialIncluded:false,
+          rawPromptIncluded:false,rawPayloadIncluded:false,
         },
       });
     }catch(error){return degraded('Coprocessor','Worker 2 cognition telemetry failed coherence or read.','CognitionUiState',selection,error);}
@@ -792,7 +792,7 @@ export class Wave13DiagnosticsCenterAdapter{
         source:cloneSafe(resourceRead?.source??null),capabilities:cloneSafe(resourceCaps),nativePathAvailable:resourceRead?.data?.nativePathAvailable!==false,
         lanes,rows:rows.map(row=>deepFreeze({
           id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
-          credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
+          providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
           physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted),physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded),ownerAccepted:row.ownerAccepted??null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,
           capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
           lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
@@ -815,7 +815,7 @@ export class Wave13DiagnosticsCenterAdapter{
       },
       telemetry:{resourceEvents,rawPromptTelemetry:false},
       wiring:{
-        controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),discoverModels:Boolean(resourceCaps.discoverModels),refreshModels:Boolean(resourceCaps.refreshModels),setCredential:Boolean(resourceCaps.setCredential),clearCredential:Boolean(resourceCaps.clearCredential),selectModel:Boolean(resourceCaps.selectModel),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
+        controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),discoverModels:Boolean(resourceCaps.discoverModels),refreshModels:Boolean(resourceCaps.refreshModels),selectModel:Boolean(resourceCaps.selectModel),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
         jev:{expectedCapabilities:['SEMANTIC_JUDGMENT'],lane:lanes.find(x=>x.kind==='JEV')},
         sidecar:{expectedCapabilities:['STRUCTURED_EXTRACTION'],lane:lanes.find(x=>x.kind==='SIDECAR')},
         vectoring:{expectedCapabilities:['RETRIEVAL','EMBED','RERANK'],lane:lanes.find(x=>x.kind==='VECTORING')},

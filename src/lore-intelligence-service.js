@@ -280,9 +280,10 @@ export class LoreIntelligenceService {
       }
     }
 
-    const ontology = this.ontology.rebuild();
+    const maintenancePerformed = results.length > 0;
+    const ontology = maintenancePerformed ? this.ontology.rebuild() : this.ontology.current();
     let retrieval = this.hierarchy.diagnostics();
-    if (rebuildRetrieval) {
+    if (rebuildRetrieval && maintenancePerformed) {
       this.hierarchy.rebuild();
       retrieval = this.hierarchy.diagnostics();
     }
@@ -295,6 +296,8 @@ export class LoreIntelligenceService {
       compilations,
       retrieval,
       ontology,
+      maintenancePerformed,
+      maintenanceReason: maintenancePerformed ? 'DUE_STUDY_PROCESSED' : 'NO_DUE_STUDY',
       status: this.status(),
     };
     this.lastStudyRun = deepClone(receipt);

@@ -60,3 +60,6 @@ export * from './wave13-floating-navigation.js';
 export * from './demo-visibility.js';
 export * from './operator-load-trace.js';
 export * from './turn-log-diagnostics.js';
+
+export * from './lore-review-workflow.js';
+export * from './lore-authoring-review-ui.js';

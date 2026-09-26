@@ -1,0 +1,53 @@
+name: Worker 3 Lore Review UI
+
+on:
+  push:
+    branches:
+      - Development-Client-Repair-3-Lore-Review
+  pull_request:
+    branches:
+      - Development-Client-Repair-3-Operator-Truth-Closure
+  workflow_dispatch:
+
+concurrency:
+  group: worker3-lore-review-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  focused-lore-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Worker 3 Lore review behavior
+        run: node --test tests/worker3-lore-review-ui.test.mjs
+      - name: Existing Lore operator regressions
+        run: >
+          node --test
+          --test-name-pattern='Lore owner lifecycle|Lore workspace uses SillyTavern selection|Lore selected-book discovery|Worker 4 v2 lifecycle gates Settlement|Worker 4 Wave 6 authoring contract|Worker 4 Lore intelligence service|Lore UI marks edited source revisions stale'
+          tests/wave13-operator-ui.test.mjs
+      - name: Browser-facing imports and focused syntax
+        run: |
+          node --input-type=module -e "await import('./src/ui-core/lore-review-workflow.js'); await import('./src/ui-core/lore-authoring-review-ui.js'); await import('./src/ui-core/wave13-operator-adapters.js'); await import('./src/ui-core/wave13-operator-surfaces.js');"
+          node --check src/ui-core/lore-review-workflow.js
+          node --check src/ui-core/lore-authoring-review-ui.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check src/ui-core/wave13-operator-surfaces.js
+          node --check tests/worker3-lore-review-ui.test.mjs
+      - name: UI.Core host-style regressions
+        run: |
+          node --test tests/wave11-live-bindings.test.mjs
+          node --test --test-name-pattern='mount, duplicate mount, destroy and remount|chat switch drops stale owner turn identity' tests/wave12-sillytavern-host.test.mjs

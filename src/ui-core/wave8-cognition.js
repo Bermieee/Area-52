@@ -129,8 +129,26 @@ export function normalizeScatterReceipt(receipt,choice=null){
     state:String(row.state??row.status??'UNKNOWN'),resourceId:stringOrNull(row.resourceId??row.workerId??row.executionResourceId),provider:stringOrNull(row.provider??row.providerId),
     model:stringOrNull(row.model??row.modelId),reason:reasonOf(row),correlationId:stringOrNull(row.correlationId),causationId:stringOrNull(row.causationId),
   }));
-  return deepFreeze({kind:'NormalizedScatterReceipt',receiptId:stringOrNull(receipt.receiptId??receipt.id),turnId:stringOrNull(receipt.turnId??choice?.turnId),correlationId:stringOrNull(receipt.correlationId??choice?.correlationId),jobs,resourceCount:new Set(jobs.map(x=>x.resourceId).filter(Boolean)).size,authority:'READ_ONLY',mutationAuthority:false});
+  const layeredTelemetry=normalizeLayeredScatterTelemetry(receipt.layeredTelemetry??receipt.waveTelemetry??receipt.waves??null);
+  return deepFreeze({kind:'NormalizedScatterReceipt',receiptId:stringOrNull(receipt.receiptId??receipt.id),turnId:stringOrNull(receipt.turnId??choice?.turnId),correlationId:stringOrNull(receipt.correlationId??choice?.correlationId),jobs,resourceCount:new Set(jobs.map(x=>x.resourceId).filter(Boolean)).size,layeredTelemetry,authority:'READ_ONLY',mutationAuthority:false});
 }
+
+function normalizeLayeredScatterTelemetry(value){
+  if(value==null)return null;
+  const rows=Array.isArray(value)?value:Array.isArray(value?.waves)?value.waves:Array.isArray(value?.layers)?value.layers:[];
+  if(!rows.length)return null;
+  return deepFreeze(rows.slice(0,16).map((row,index)=>({
+    waveId:stringOrNull(row.waveId??row.layerId??row.id??String(index+1)),
+    trigger:stringOrNull(row.trigger??row.triggerReason??row.reasonCode),
+    startedAt:finiteOrNull(row.startedAt??row.startAt),
+    completedAt:finiteOrNull(row.completedAt??row.endAt),
+    durationMs:finiteOrNull(row.durationMs),
+    concurrency:finiteOrNull(row.concurrency??row.maxConcurrency??row.activeWorkers),
+    deferred:finiteOrNull(row.deferred??row.deferredCount??row.deferredWork),
+    jobs:finiteOrNull(row.jobs??row.jobCount??row.workCount),
+  })));
+}
+function finiteOrNull(value){if(value==null||value==='')return null;const n=Number(value);return Number.isFinite(n)?n:null;}
 
 export function normalizeSensoryReceipt(input){
   if(!input)return null;

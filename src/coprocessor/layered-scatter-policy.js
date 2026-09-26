@@ -102,8 +102,10 @@ function graphResolvedWithoutAmbiguity(records){
   return (payload.conflicts?.length??0)===0&&(payload.unresolvedRefs?.length??0)===0;
 }
 function explicitAmbiguity(input,bundle){
-  return (input.conflictSignals?.length??0)>0||(input.uncertainSceneFields?.length??0)>0||
+  return Number(input.conflictSignalCount??input.conflictSignals?.length??0)>0||
+    Number(input.uncertainSceneFieldCount??input.uncertainSceneFields?.length??0)>0||
     ['MIXED','LOW'].includes(String(input.retrievalQuality??'').toUpperCase())||
+    Boolean(input.textSignals?.ambiguity)||
     /\b(conflict|contradiction|ambiguous|uncertain|truth)\b/i.test(String(input.text??''))||
     Number(bundle?.unresolvedDisagreement?.length??0)>0;
 }
@@ -113,7 +115,7 @@ function triggerFor(layer,input){
   if(layer===ScatterLayer.HOT_SIGNAL)return 'TURN_SIGNAL_AND_CURRENT_STATE';
   if(layer===ScatterLayer.RETRIEVAL)return input.retrievalQuality==='LOW'?'LOW_RETRIEVAL_OR_HISTORIAN_SIGNAL':'HISTORIAN_WAKE_SIGNAL';
   if(layer===ScatterLayer.EXPANSION)return input.sceneTransitionType?'SCENE_TRANSITION_OR_PHYSICAL_STATE':'PHYSICAL_GRAPH_OR_ACTIVE_CAST_SIGNAL';
-  if(layer===ScatterLayer.PRECISION)return (input.conflictSignals?.length??0)>0?'UNRESOLVED_CONFLICT':'POST_EXPANSION_AMBIGUITY';
+  if(layer===ScatterLayer.PRECISION)return Number(input.conflictSignalCount??input.conflictSignals?.length??0)>0?'UNRESOLVED_CONFLICT':'POST_EXPANSION_AMBIGUITY';
   return 'DEEP_BACKGROUND_ONLY';
 }
 function freeze(value){if(!value||typeof value!=='object'||Object.isFrozen(value))return value;Object.freeze(value);for(const child of Object.values(value))freeze(child);return value;}

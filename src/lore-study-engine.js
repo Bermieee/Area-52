@@ -164,9 +164,113 @@ function pushRelationship(workspace, sentence, sentenceIndex, subjectId, predica
   });
 }
 
+function pushConstraintArtifact(workspace, {
+  artifactType,
+  sentence,
+  sentenceIndex,
+  subjectId,
+  predicate,
+  value,
+  ruleKind,
+  modality = null,
+}) {
+  const normalizedValue = String(value || '').trim().replace(/[.!?]+$/g, '').trim();
+  const logicalKey = [
+    subjectId,
+    String(predicate || '').toLowerCase(),
+    String(modality || '').toLowerCase(),
+    normalizedValue.toLowerCase(),
+  ].join('|');
+  addArtifact(workspace, makeArtifact({
+    type: artifactType,
+    sourceId: workspace.source.sourceId,
+    sourceRevisionId: workspace.revision.id,
+    logicalKey,
+    payload: {
+      subjectId,
+      predicate,
+      value: normalizedValue,
+      modality,
+      ruleKind,
+      evidenceBacked: true,
+      sourceMutationAuthority: false,
+      truthAuthority: false,
+    },
+    span: spanFor(sentence, sentenceIndex),
+    derivation: ruleKind === 'SENSORY_ANCHOR' ? 'EXPLICIT_SENSORY_ANCHOR' : 'EXPLICIT_SOURCE_CONSTRAINT',
+    dependencies: [],
+    authorityClass: AuthorityClass.DERIVED,
+    temporalClass: TemporalClass.TIMELESS,
+    confidence: 1,
+    unresolved: false,
+  }));
+}
+
 function analyzeSentence(workspace, sentence, index) {
   let match;
   const s = sentence.replace(/\s+/g, ' ').trim();
+
+  if ((match = s.match(/^(.+?)\s+must\s+(never|not|always)\s+(.+?)[.!?]?$/i))) {
+    const subjectId = ensureEntity(workspace, match[1], 'PERSON', index);
+    const modality = String(match[2]).toUpperCase();
+    pushConstraintArtifact(workspace, {
+      artifactType: modality === 'ALWAYS' ? ArtifactType.RULE : ArtifactType.RESTRICTION,
+      sentence: s,
+      sentenceIndex: index,
+      subjectId,
+      predicate: 'must',
+      value: match[3],
+      ruleKind: 'BEHAVIORAL_CONSTRAINT',
+      modality,
+    });
+    return;
+  }
+
+  if ((match = s.match(/^(.+?)\s+(can|cannot|can't)\s+(.+?)[.!?]?$/i))) {
+    const subjectId = ensureEntity(workspace, match[1], 'PERSON', index);
+    const modality = /^can$/i.test(match[2]) ? 'CAN' : 'CANNOT';
+    pushConstraintArtifact(workspace, {
+      artifactType: modality === 'CAN' ? ArtifactType.CAPABILITY : ArtifactType.RESTRICTION,
+      sentence: s,
+      sentenceIndex: index,
+      subjectId,
+      predicate: 'capability',
+      value: match[3],
+      ruleKind: modality === 'CAN' ? 'CAPABILITY' : 'BEHAVIORAL_CONSTRAINT',
+      modality,
+    });
+    return;
+  }
+
+  if ((match = s.match(/^(.+?)\s+always\s+(.+?)[.!?]?$/i))) {
+    const subjectId = ensureEntity(workspace, match[1], 'PERSON', index);
+    pushConstraintArtifact(workspace, {
+      artifactType: ArtifactType.RULE,
+      sentence: s,
+      sentenceIndex: index,
+      subjectId,
+      predicate: 'always',
+      value: match[2],
+      ruleKind: 'BEHAVIORAL_ANCHOR',
+      modality: 'ALWAYS',
+    });
+    return;
+  }
+
+  if ((match = s.match(/^(.+?)\s+(smells|sounds|looks|feels|tastes)\s+(?:of\s+|like\s+)?(.+?)[.!?]?$/i))) {
+    const subjectId = ensureEntity(workspace, match[1], null, index);
+    pushConstraintArtifact(workspace, {
+      artifactType: ArtifactType.PROPERTY,
+      sentence: s,
+      sentenceIndex: index,
+      subjectId,
+      predicate: 'sensory:' + String(match[2]).toLowerCase(),
+      value: match[3],
+      ruleKind: 'SENSORY_ANCHOR',
+      modality: null,
+    });
+    return;
+  }
 
   if ((match = s.match(/^(.+?),\s+also\s+(?:called|known as)\s+(.+?),\s+owns\s+(?:the\s+)?(.+?)[.!?]?$/i))) {
     const owner = ensureEntity(workspace, match[1], 'PERSON', index);

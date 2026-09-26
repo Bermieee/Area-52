@@ -148,7 +148,7 @@ export function createWave6ProductInterface({
     const cognitionRead=uiLoadTrace.measure('OWNER_SCATTER_GATHER_READ',()=>cognition.read?.(selection)??null,{selection});
     const diagnosticsRead=uiLoadTrace.measure('UI_JOURNAL_DIAGNOSTICS_READ',()=>diagnostics?.readJournalEvidence?.()??diagnostics?.read?.()??null,{selection});
     const promptPlanRead=uiLoadTrace.measure('OWNER_PROMPT_PLAN_READ',()=>promptPlan.read?.(selection)??null,{selection});
-    const turn=uiLoadTrace.measure('UI_JOURNAL_PROCESS',()=>evidenceJournal.recordSnapshot({selection,operations:op,diagnostics:diagnosticsRead,cognition:cognitionRead,promptPlan:promptPlanRead,ownerReceipt}),{selection,details:{writes:evidenceJournal.writeCount,entries:evidenceJournal.status().entryCount}});
+    const turn=uiLoadTrace.measure('UI_JOURNAL_PROCESS',()=>evidenceJournal.recordSnapshot({selection,operations:op,diagnostics:diagnosticsRead,cognition:cognitionRead,promptPlan:promptPlanRead,ownerReceipt}),{selection,details:{writes:evidenceJournal.writeCount}});
     if(evidenceJournal.lastRecordChanged&&activityFeed)uiLoadTrace.measure('UI_ACTIVITY_FEED_RENDER',()=>activityFeed.render(),{selection});
     uiLoadTrace.record('UI_CAPTURE_TOTAL',Math.max(0,uiLoadTrace.now()-outerStart),{selection,details:{coalesced:!evidenceJournal.lastRecordChanged}});
     return turn;

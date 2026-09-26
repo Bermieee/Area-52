@@ -23,7 +23,7 @@ export class SelectedTurnLogModel{
     const normalizedFilters=normalizeFilters(filters,this.now());
     const filtered=allRows.filter(row=>matchesFilters(row,normalizedFilters));
     const truncated=filtered.length>this.maxVisibleRows;
-    const rows=filtered.slice(-this.maxVisibleRows).map(stripPrivate);
+    const rows=boundedVisibleRows(filtered,this.maxVisibleRows).map(stripPrivate);
     const status=this.journal?.status?.()??null;
     return safeClone({
       kind:'Area52SelectedTurnLog',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,selection:selected,
@@ -116,7 +116,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh}={}){
   scope?.listen?.(timeSelect.input,'change',()=>{filters.time=timeSelect.input.value;refresh?.();});
   scope?.listen?.(catSelect.input,'change',()=>{filters.category=catSelect.input.value;refresh?.();});
   scope?.listen?.(sevSelect.input,'change',()=>{filters.severity=sevSelect.input.value;refresh?.();});
-  scope?.listen?.(search,'input',()=>{filters.search=String(search.value??'').trim();refresh?.();});
+  scope?.listen?.(search,'change',()=>{filters.search=String(search.value??'').trim();refresh?.();});
   filterCard.append(controls,element(d,'p',{className:'a52-muted',text:snapshot.truncated?'Visible row cap reached; narrow filters or export the selected-turn metadata for the bounded retained set.':'Showing '+snapshot.visibleRows+' of '+snapshot.matchingRows+' matching rows.'}));root.append(filterCard);
 
   const list=element(d,'section',{className:'a52-card',attrs:{'aria-label':'Correlated turn path'}});list.append(element(d,'h2',{text:'Correlated path'}));
@@ -138,9 +138,9 @@ function renderRow(d,row,{model,selection,scope}={}){
   summary.append(element(d,'span',{className:'a52-muted',text:displayTime(row)}),makeBadge(d,row.severity,severityStatus(row.severity)),element(d,'strong',{text:row.stage}),makeBadge(d,row.status,statusToken(row.status)));
   if(row.receiptId)summary.append(element(d,'code',{text:row.receiptId}));
   details.append(summary,element(d,'p',{text:row.summary}),element(d,'p',{className:'a52-muted',text:[row.reasonCode?'Reason '+row.reasonCode:null,row.jobId?'Job '+row.jobId:null,row.resourceId?'Resource '+row.resourceId:null,row.resultId?'Result '+row.resultId:null].filter(Boolean).join(' · ')||'No additional correlation identity published.'}));
-  let loaded=false,pre=null;
+  let loaded=false;
   scope?.listen?.(details,'toggle',()=>{
-    if(!details.open||loaded)return;loaded=true;const payload=model.detail(row.id,{selection});pre=element(d,'pre',{className:'a52-context-packet',text:payload?JSON.stringify(payload,null,2):'No additional safe detail is retained for this row.'});pre.setAttribute('aria-label','Bounded metadata-only turn-log detail');details.append(pre);
+    if(!details.open||loaded)return;loaded=true;const payload=model.detail(row.id,{selection});details.append(renderDetail(d,row,payload));
   });
   return details;
 }
@@ -189,7 +189,7 @@ function buildTurnRows(turn,selection){
     for(const result of gather.metadata?.results??[]){
       const resultId=result.resultId??null,jobId=result.taskId??result.jobId??(resultId?resultToJob.get(String(resultId))??null:null),state=String(result.status??(result.accepted?'ADMITTED':'RETURNED')).toUpperCase();
       const admitted=state==='ADMITTED'||result.accepted===true,late=state==='LATE',stale=state==='STALE',rejected=['REJECTED','INVALID'].includes(state),sealedResult=Boolean(resultId&&sealed.has(String(resultId)));
-      add({id:'RESULT:'+selectionKey(selection)+':'+String(resultId??rows.length),phase:60,stage:'Result',category:'RESULT',severity:rejected?'ERROR':late||stale?'WARN':admitted?'OK':'INFO',status:state,reasonCode:result.reasonCode??null,time:result.at??result.completedAt??null,observedAt:gather.at??null,receiptId:gather.receiptRef??null,correlationId:selection.correlationId??null,jobId,resourceId:result.resourceId??null,resultId,summary:(resultId??'Returned result')+' · '+(jobId?'job '+jobId:'job attribution unknown')+' · Gather '+state+(sealedResult?' · admitted by Context Seal':' · not evidenced in Context Seal'),sourceEntryIds:[gather.id,...(seal?[seal.id]:[])]});
+      add({id:'RESULT:'+selectionKey(selection)+':'+String(resultId??rows.length),phase:60,stage:'Result',category:'RESULT',severity:rejected?'ERROR':late||stale?'WARN':admitted?'OK':'INFO',status:state,reasonCode:result.reasonCode??null,time:result.at??result.completedAt??null,observedAt:gather.at??null,receiptId:gather.receiptRef??null,correlationId:selection.correlationId??null,jobId,resourceId:result.resourceId??null,resultId,summary:(resultId??'Returned result')+' · '+(jobId?'job '+jobId:'job attribution unknown')+(result.destination?' → '+result.destination:' → destination unknown')+' · Gather '+state+(sealedResult?' · admitted by Context Seal':' · not evidenced in Context Seal'),sourceEntryIds:[gather.id,...(seal?[seal.id]:[])]});
     }
     add(fromEntry(gather,{phase:70,stage:'Gather',category:'GATHER',severity:(gather.metadata?.counts?.REJECTED??0)||(gather.metadata?.counts?.INVALID??0)?'WARN':'OK',status:gather.status,summary:gather.summary}));
   }
@@ -217,6 +217,39 @@ function summarize(turn,rows){
   return{logicalJobs,nativeResources,optionalAttempts,gatherAdmitted,gatherRejected,gatherLate,gatherStale,promptPlanState:prompt?'PLANNED':'NOT OBSERVED',hostDeliveryState:delivery?.status??'NOT OBSERVED',readErrors,explanation};
 }
 
+function renderDetail(d,row,payload){
+  if(!payload)return element(d,'p',{className:'a52-muted',text:'No additional safe detail is retained for this row.'});
+  const wrap=element(d,'div',{className:'a52-stack',attrs:{'aria-label':'Bounded metadata-only turn-log detail'}});
+  wrap.append(createKeyValue(d,[
+    {key:'Category',value:row.category},{key:'Status',value:row.status},{key:'Reason',value:row.reasonCode??'not published'},
+    {key:'Correlation',value:row.correlationId??'unknown'},{key:'Receipt',value:row.receiptId??'unknown'},
+    {key:'Job',value:row.jobId??'not attributed'},{key:'Resource',value:row.resourceId??'not attributed'},{key:'Result',value:row.resultId??'not attributed'},
+  ]));
+  for(const source of payload.sources??[]){
+    const values=detailPairs(source,row);
+    if(values.length)wrap.append(element(d,'strong',{text:label(source.type??'Evidence')}),createKeyValue(d,values));
+  }
+  if(payload.truncated)wrap.append(element(d,'p',{className:'a52-muted',text:'Additional metadata was clipped to the bounded detail limit.'}));
+  return wrap;
+}
+
+function detailPairs(source,row){
+  const value=source.job??source.result??source.resource??source.metadata??null,pairs=[];
+  if(source.summary)pairs.push({key:'Summary',value:source.summary});
+  if(source.detail)pairs.push({key:'Detail',value:source.detail});
+  if(!value||typeof value!=='object')return pairs;
+  const preferred=['owner','sequence','reasonCode','assignedNativeResourceId','assignedOptionalResourceId','startAt','endAt','outcome','providerAttempted','resultId','taskId','jobId','status','accepted','resourceId','destination','capability','at','configured','qualifiedCallable','attempted','succeeded','failed','ownerAccepted','ownerAcceptanceSource','skipReason','measurementClass'];
+  for(const key of preferred){
+    const v=value[key];if(v==null||v===''||(Array.isArray(v)&&!v.length))continue;
+    pairs.push({key:label(key),value:Array.isArray(v)?v.join(', '):String(v)});
+  }
+  if(source.contextSeal)pairs.push({key:'Context Seal',value:Object.entries(source.contextSeal).filter(([,v])=>v).map(([k])=>label(k)).join(', ')||'not admitted'});
+  if(value.resultIds?.length)pairs.push({key:'Attributable results',value:value.resultIds.join(', ')});
+  if(value.gatherAdmissions?.length)pairs.push({key:'Gather admissions',value:value.gatherAdmissions.map(x=>x.resultId??x.status??'receipt').join(', ')});
+  if(value.contextSealResultIds?.length)pairs.push({key:'Context Seal results',value:value.contextSealResultIds.join(', ')});
+  return pairs.slice(0,24);
+}
+
 function detailPayload(journal,selection,row,maxDetailBytes){
   const sources=(row.sourceEntryIds??[]).map(id=>journal?.readEntry?.(selection,id)).filter(Boolean);
   const detail=sources.map(entry=>detailForRow(row,entry));
@@ -235,6 +268,11 @@ function detailForRow(row,entry){
 function fromEntry(entry,overrides={}){return{id:overrides.id??entry.id,phase:overrides.phase??50,stage:overrides.stage??entry.title,category:overrides.category??'COGNITION',severity:overrides.severity??severityFromEntry(entry),status:overrides.status??entry.status,reasonCode:overrides.reasonCode??entry.metadata?.errorCode??null,time:overrides.time??null,observedAt:entry.at??null,receiptId:overrides.receiptId??entry.receiptRef??null,correlationId:entry.selection?.correlationId??null,jobId:overrides.jobId??null,resourceId:overrides.resourceId??null,resultId:overrides.resultId??null,summary:overrides.summary??entry.summary,sourceEntryIds:[entry.id]};}
 function normalizeRow(row,selection){return{...row,correlationId:row.correlationId??selection.correlationId??null,sourceEntryIds:[...(row.sourceEntryIds??[])].filter(Boolean),summary:safeText(row.summary,1024),reasonCode:row.reasonCode?String(row.reasonCode):null,status:String(row.status??'UNKNOWN'),severity:String(row.severity??'INFO'),category:String(row.category??'COGNITION'),stage:String(row.stage??'Stage'),time:finite(row.time),observedAt:finite(row.observedAt),phase:Number(row.phase??50)};}
 function stripPrivate(row){const {phase,...out}=row;return safeClone(out);}
+function boundedVisibleRows(rows,limit){
+  if(rows.length<=limit)return rows;
+  const head=Math.ceil(limit/2),tail=Math.floor(limit/2);
+  return [...rows.slice(0,head),...rows.slice(-tail)];
+}
 function latest(rows){return rows.length?rows.reduce((a,b)=>Number(a?.at??0)>=Number(b?.at??0)?a:b):null;}
 function severityFromEntry(entry){const status=String(entry?.status??'').toUpperCase(),code=String(entry?.metadata?.errorCode??'').toUpperCase();if(/FAIL|ERROR|DEGRADED|ABORT/.test(status)||/ERROR|STALE|FUTURE|MISMATCH/.test(code))return'ERROR';if(/WAIT|LATE|STALE|REJECT|INVALID|UNAVAILABLE/.test(status))return'WARN';if(/COMPLETE|LIVE|READY|SEALED|SUCCEEDED|RECORDED|MAPPED/.test(status))return'OK';return'INFO';}
 function phaseForStage(stage){const x=String(stage??'').toLowerCase();if(x.includes('choice')||x.includes('hot'))return 20;if(x.includes('runtime')||x.includes('scatter'))return 30;if(x.includes('gather'))return 70;if(x.includes('seal'))return 80;if(x.includes('prompt'))return 90;if(x.includes('generation')||x.includes('delivery'))return 100;return 25;}

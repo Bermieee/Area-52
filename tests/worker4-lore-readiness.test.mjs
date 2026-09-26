@@ -232,6 +232,10 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
     ['runtime', 'multiResolution', 'hierarchy', 'ontology', 'storyAuthority']
       .map((key) => [key, JSON.stringify(persisted[key] ?? null).length]),
   );
+  const hierarchyCharactersBySection = Object.fromEntries(
+    ['hierarchy', 'summaryRegistry', 'builder', 'retrievalIndex']
+      .map((key) => [key, JSON.stringify(persisted.hierarchy?.[key] ?? null).length]),
+  );
   assert.equal(persisted.hierarchy.retrievalIndex.recordsIncluded, false);
   assert.equal(persisted.hierarchy.retrievalIndex.records.length, 0);
   assert.equal((persisted.hierarchy.builder.sessions || []).some(([, session]) => session?.state === 'COMPLETED'), false);
@@ -260,6 +264,7 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
     retainedCurrentAfterReload: restoredStatus.counts.READY,
     snapshotCharacters,
     snapshotCharactersBySection,
+    hierarchyCharactersBySection,
     dueAfterStudy: service.runtime.dueObligations().length,
     dueAfterReload: restored.runtime.dueObligations().length,
     noOpStudyMaintenancePerformed: noOpStudy.maintenancePerformed,

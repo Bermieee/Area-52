@@ -871,7 +871,7 @@ export class Wave13DiagnosticsCenterAdapter{
         })),
       },
       cognition:{
-        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,jev:jev?deepFreeze({
+        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,scatterTelemetry:cloneSafe(scatter?.layeredTelemetry??null),jev:jev?deepFreeze({
           state:jev.state??null,outcome:jev.outcome??null,invoked:jev.invoked??null,reason:jev.reason??null,reasonCodes:[...(jev.reasonCodes??[])].slice(0,12),
           resourceId:jev.resourceId??null,provider:jev.provider??jev.providerId??null,model:jev.model??jev.modelId??null,
           serviceStatus:jev.serviceStatus??null,admission:cloneSafe(jev.admission??null),

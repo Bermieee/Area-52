@@ -34,6 +34,23 @@ export function normalizeOpenRouterCredential(value){
   return secret;
 }
 
+export async function readSillyTavernActiveOpenRouterSecretId(context){
+  const hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+  if(typeof hostFetch!=='function'||typeof context?.getRequestHeaders!=='function')return null;
+  try{
+    const response=await hostFetch('/api/secrets/read',{
+      method:'POST',headers:context.getRequestHeaders({omitContentType:true}),cache:'no-cache',
+    });
+    if(!response?.ok)return null;
+    const state=await response.json(),rows=state?.api_key_openrouter;
+    if(Array.isArray(rows)){
+      const active=rows.find(row=>row?.active===true)??rows[0]??null;
+      return clean(active?.id)||null;
+    }
+    return clean(rows?.id)||null;
+  }catch{return null;}
+}
+
 export async function persistSillyTavernOpenRouterSecret(context,value,{label='Area-52 Jev'}={}){
   const secret=normalizeOpenRouterCredential(value),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
   if(!secret)throw Object.assign(new TypeError('OpenRouter key is required'),{code:'RESOURCE_CREDENTIAL_REQUIRED'});
@@ -951,6 +968,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(suppliedSecret){
         const receipt=await persistSillyTavernOpenRouterSecret(context,suppliedSecret,{label:'Area-52 '+clean(config.displayName??'Primary Jev')});
         meta.hostSecretId=receipt.secretId;
+      }else if(!meta.hostSecretId){
+        meta.hostSecretId=await readSillyTavernActiveOpenRouterSecretId(context);
       }
       const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId);
       const adapter=createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps,getSecretId:()=>meta.hostSecretId});

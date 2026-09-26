@@ -6,6 +6,7 @@ import {
   createDevelopmentDeploymentSillyTavernSession,
   extractDevelopmentDeploymentScene,
   persistSillyTavernOpenRouterSecret,
+  readSillyTavernActiveOpenRouterSecretId,
   normalizeOpenRouterCredential,
   createSillyTavernActiveOpenRouterAdapter,
 } from '../src/deployment/sillytavern-live.js';
@@ -116,6 +117,18 @@ test('OpenRouter key handoff writes only to SillyTavern server secret storage',a
   assert.deepEqual(calls[0].body,{key:'api_key_openrouter',value:'sk-or-secret-value',label:'Area-52 Primary Jev'});
   assert.equal(calls[0].headers['X-CSRF-Token'],'test');
   assert.doesNotMatch(JSON.stringify(receipt),/sk-or-secret-value/);
+});
+
+test('saved Jev can recover SillyTavern active OpenRouter secret ID without retyping the key',async()=>{
+  const calls=[],context={
+    getRequestHeaders:()=>({'X-CSRF-Token':'test'}),
+    fetch:async(url,init)=>{calls.push({url,init});return{ok:true,status:200,async json(){return{api_key_openrouter:[
+      {id:'secret:old',active:false,label:'old',value:'*******old'},
+      {id:'secret:active',active:true,label:'Area-52 Primary Jev',value:'*******new'},
+    ]};}};},
+  };
+  assert.equal(await readSillyTavernActiveOpenRouterSecretId(context),'secret:active');
+  assert.equal(calls[0].url,'/api/secrets/read');assert.equal(calls[0].init.method,'POST');
 });
 
 test('OpenRouter credential normalization strips common copy wrappers without retaining them',()=>{

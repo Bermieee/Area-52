@@ -278,12 +278,13 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   const top=element(d,'div',{className:'a52-inline-status'});
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,savedProfile?'SAVED LOCK':'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
+  const hostManaged=Boolean(row.credentialManagedByHost),activeHostSecret=row.hostCredentialSource==='SILLYTAVERN_ACTIVE_SECRET';
   card.append(top,createKeyValue(d,[
     {key:'Configured',value:'Yes'},{key:'Saved across reloads',value:savedProfile?'Yes':'Not yet'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
     {key:'Physical execution',value:row.physicalExecutionAttempted?(row.physicalExecutionSucceeded?'Succeeded':'Attempted / not successful'):'No cognitive execution observed'},
     {key:'Owner accepted',value:row.ownerAccepted===true?'Yes':row.ownerAccepted===false?'No':row.ownerAcceptanceSource==='OWNER_RECEIPT_REQUIRED'?'Requires owner receipt':'Not reported'},
     {key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
-    {key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
+    {key:'Credential',value:hostManaged?(activeHostSecret?'Managed by SillyTavern active OpenRouter secret':'Managed by SillyTavern host'):row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
     {key:'Provider',value:row.actualProvider??row.providerId??'—'},{key:'Model',value:row.actualModelId??row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
@@ -304,7 +305,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
 
   const managementStatus=element(d,'p',{className:'a52-wave13-connection-slot__hint',attrs:{role:'status','aria-live':'polite'},text:'Operational settings remain owner-backed. Saving a model or credential invalidates prior qualification until Worker 2 passes a new authenticated check.'});
   const manageActions=element(d,'div',{className:'a52-wave13-resource-actions'});
-  if(caps.setCredential)manageActions.append(createButton(d,{label:'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+  if(caps.setCredential&&!hostManaged)manageActions.append(createButton(d,{label:'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const secret=String(credential.value||'').trim();
     if(!secret){managementStatus.textContent='Enter a credential before saving it to the Worker 2 session.';return;}
     const result=await actionRouter.route({type:'wave13.resource.setCredential',target:row,payload:{credential:secret}});
@@ -312,7 +313,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     managementStatus.textContent=result.ok?'Session credential updated. Prior model qualification is no longer assumed.':'Credential update failed: '+String(result.error??'unknown error');
     reportAction(notifications,result,'Session credential update');refresh?.();
   }}));
-  if(caps.clearCredential&&row.credentialConfigured)manageActions.append(createButton(d,{label:'Clear session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+  if(caps.clearCredential&&row.credentialConfigured&&!hostManaged)manageActions.append(createButton(d,{label:'Clear session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const result=await actionRouter.route({type:'wave13.resource.clearCredential',target:row});reportAction(notifications,result,'Session credential clear');refresh?.();
   }}));
   if(caps.refreshModels)manageActions.append(createButton(d,{label:'Refresh models',scope,size:'sm',variant:'quiet',onPress:async()=>{
@@ -325,7 +326,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
-    if(caps.setCredential||caps.clearCredential)management.append(labelWrap(d,'Session credential',credential));
+    if((caps.setCredential||caps.clearCredential)&&!hostManaged)management.append(labelWrap(d,'Session credential',credential));
     if(caps.refreshModels||caps.selectModel)management.append(labelWrap(d,'Model',model),modelSuggestions);
     management.append(manageActions,managementStatus);
     if(credentialWasCleared)management.append(message(d,'API key cleared on refresh','For security, the unsubmitted session credential was not retained when this workspace refreshed. Re-enter it before saving or requalifying.','warning'));

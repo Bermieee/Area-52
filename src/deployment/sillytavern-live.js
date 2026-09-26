@@ -8,6 +8,76 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
 
+function normalizeEndpoint(value){
+  const raw=clean(value);if(!raw)return null;
+  try{const url=new URL(raw);return url.origin+url.pathname.replace(/\/+$/,'');}
+  catch{return raw.replace(/\/+$/,'');}
+}
+
+function isSillyTavernOpenRouterRoute(context,config={}){
+  const endpoint=normalizeEndpoint(config.endpoint);
+  if(!endpoint)return false;
+  try{
+    const host=new URL(endpoint).hostname.toLowerCase();
+    const hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+    return (host==='openrouter.ai'||host.endsWith('.openrouter.ai'))&&typeof hostFetch==='function'&&typeof context?.getRequestHeaders==='function';
+  }catch{return false;}
+}
+
+function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities=[]}={}){
+  let selectedModel=clean(modelId);
+  if(!selectedModel)throw new TypeError('OpenRouter model is required');
+  const request=async(messages,{signal=null,maxOutputTokens=null,temperature=null}={})=>{
+    const context=getContext(),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+    if(typeof hostFetch!=='function'||typeof context?.getRequestHeaders!=='function')throw Object.assign(new Error('SillyTavern authenticated host request API is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const body={stream:false,messages,model:selectedModel,chat_completion_source:'openrouter'};
+    if(Number.isFinite(Number(maxOutputTokens))&&Number(maxOutputTokens)>0)body.max_tokens=Math.trunc(Number(maxOutputTokens));
+    if(temperature!=null&&Number.isFinite(Number(temperature)))body.temperature=Number(temperature);
+    const startedAt=Date.now();
+    let response;
+    try{
+      response=await hostFetch('/api/backends/chat-completions/generate',{
+        method:'POST',headers:context.getRequestHeaders(),cache:'no-cache',body:JSON.stringify(body),signal:signal??undefined,
+      });
+    }catch(error){
+      throw Object.assign(new Error('SillyTavern OpenRouter proxy request failed: '+String(error?.message??error)),{code:'PROVIDER_UNAVAILABLE',cause:error});
+    }
+    let json=null,plain='';
+    try{json=await response.json();}catch{try{plain=await response.text();}catch{}}
+    if(!response?.ok||json?.error){
+      const detail=clean(json?.error?.message??json?.message??plain);
+      const status=Number(response?.status??0);
+      const message='SillyTavern OpenRouter proxy rejected the request'+(status&&status!==200?' (HTTP '+status+')':'')+(detail?': '+detail.slice(0,240):'');
+      const code=status===401||status===403?'PROVIDER_UNAUTHORIZED':status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
+      throw Object.assign(new Error(message),{code,status});
+    }
+    const content=typeof json?.choices?.[0]?.message?.content==='string'
+      ?json.choices[0].message.content
+      :typeof json?.choices?.[0]?.text==='string'?json.choices[0].text
+      :typeof json?.content==='string'?json.content:'';
+    if(!content)throw Object.assign(new Error('SillyTavern OpenRouter backend returned no completion text'),{code:'MALFORMED_OUTPUT'});
+    const completedAt=Date.now();return{content,startedAt,completedAt};
+  };
+  return{
+    providerId,modelId:selectedModel,capabilities:[...new Set(capabilities)],measurementClass:'MEASURED_LIVE',
+    structuredOutputSupport:true,streamingSupport:false,abortSupport:true,local:false,
+    contextLimit:Number.MAX_SAFE_INTEGER,outputLimit:Number.MAX_SAFE_INTEGER,
+    setModelId(value){selectedModel=clean(value);this.modelId=selectedModel;return selectedModel;},
+    setCredential(){return false;},clearCredential(){return false;},
+    async discoverModels(){return Object.freeze({ok:true,supported:true,state:'READY',models:Object.freeze([{id:selectedModel,displayName:selectedModel}]),latencyMs:0,transportMode:'CHAT_COMPLETIONS'});},
+    async probe({signal=null}={}){
+      const probe=await request([{role:'user',content:'Area-52 connection qualification. Reply briefly.'}],{signal});
+      return Object.freeze({ok:true,providerId,modelId:selectedModel,latencyMs:probe.completedAt-probe.startedAt,modelAvailable:true,discoveryState:'READY',measurementClass:'MEASURED_LIVE',capabilities:Object.freeze([...new Set(capabilities)]),transportMode:'CHAT_COMPLETIONS',actualProvider:'SILLYTAVERN_ACTIVE_OPENROUTER'});
+    },
+    async invoke(task,input,{signal=null,maxOutputTokens=1200,temperature=0}={}){
+      const messages=Array.isArray(input?.messages)?input.messages:[{role:'user',content:JSON.stringify(input?.data??input??{})}];
+      const result=await request(messages,{signal,maxOutputTokens,temperature});
+      return Object.freeze({providerId,modelId:selectedModel,text:result.content,usage:{},finishReason:'stop',startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.completedAt-result.startedAt,
+        metadata:{measurementClass:'MEASURED_LIVE',requestedModelId:selectedModel,actualProvider:'SILLYTAVERN_ACTIVE_OPENROUTER',hostManagedCredential:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET'}});
+    },
+  };
+}
+
 function shortHash(value) {
   let h = 2166136261;
   for (const ch of String(value)) {
@@ -331,6 +401,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
+    this.hostManagedResourceProfiles = new Map();
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -808,9 +879,46 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
   }
 
+  #decorateSillyTavernResourceHost(host){
+    if(!host?.actions||!host?.read)return host;
+    const getContext=()=>this.getContext(),session=this;
+    const decorateConfig=(config={})=>{
+      const role=clean(config.role??config.resourceRole).toUpperCase(),caps=[...(config.capabilities??[])].map(String);
+      const jev=role==='JEV'||caps.includes('SEMANTIC_JUDGMENT');
+      if(!jev||config.apiKey)return config;
+      const context=getContext();
+      if(!isSillyTavernOpenRouterRoute(context,config))return config;
+      const resourceId=clean(config.resourceId)||('jev:'+clean(config.displayName??'primary-jev').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
+      const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId);
+      const adapter=createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps});
+      session.hostManagedResourceProfiles.set(resourceId,{source:'SILLYTAVERN_ACTIVE_SECRET',name:'SillyTavern active OpenRouter secret'});
+      return{...config,resourceId,providerId,modelId,adapter,credentialRequired:false,credentialManagedByHost:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET',
+        connectionProfileName:'SillyTavern active OpenRouter secret',profileMetadata:{...(config.profileMetadata??{}),credentialOwner:'SILLYTAVERN_ACTIVE_SECRET'}};
+    };
+    const decorateRow=(row)=>{
+      if(!row||typeof row!=='object')return row;
+      const meta=session.hostManagedResourceProfiles.get(clean(row.resourceId));
+      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:meta.source,connectionProfileName:meta.name}:clone(row);
+    };
+    const actions=Object.freeze({...host.actions,addResource:(config)=>decorateRow(host.actions.addResource(decorateConfig(config)))});
+    const read=Object.freeze({
+      ...host.read,
+      resources:()=>{const raw=host.read.resources();return raw&&Array.isArray(raw.resources)?{...clone(raw),resources:raw.resources.map(decorateRow)}:raw;},
+      resource:(resourceId)=>decorateRow(host.read.resource(resourceId)),
+    });
+    return Object.freeze({...host,actions,read});
+  }
+
   #uiHostBindings(){
     const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
     const base={...brainBindings,...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
+    const rawResourceHost=base.resourceHost??base.coprocessorResourceHost??null,hostResourceBridge=this.#decorateSillyTavernResourceHost(rawResourceHost);
+    if(hostResourceBridge){
+      base.resourceHost=hostResourceBridge;base.coprocessorResourceHost=hostResourceBridge;
+      base.addResource=(config)=>hostResourceBridge.actions.addResource(config);
+      base.listResources=()=>hostResourceBridge.read.resources();
+      base.listResourceProfiles=()=>hostResourceBridge.read.resources();
+    }
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();

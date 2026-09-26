@@ -233,9 +233,14 @@ export class LoreSemanticCompiler {
   constructor({intelligence} = {}) {
     if (!intelligence) throw new TypeError('LoreSemanticCompiler requires LoreIntelligenceService');
     this.intelligence = intelligence;
+    this.impactPlanner = new LoreSemanticImpactPlanner({intelligence});
   }
 
-  semanticImpactPlan(request = {}) {\n    return this.impactPlanner.plan(request);\n  }\n\n  sourceIdentity(sourceId, revisionId = null) {
+  semanticImpactPlan(request = {}) {
+    return this.impactPlanner.plan(request);
+  }
+
+  sourceIdentity(sourceId, revisionId = null) {
     return sourceRevisionIdentity(this.intelligence.runtime.registry, sourceId, revisionId);
   }
 

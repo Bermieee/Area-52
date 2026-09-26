@@ -95,7 +95,7 @@ function renderSourceBrowser(d,{state,book,books,sources,selectedSnapshot,scope,
   controls.append(labelWrap(d,'Lorebook',bookSelect),labelWrap(d,'Filter entries',search));root.append(controls);
 
   const page=buildExactLoreEntries({selectedSnapshot:selectedSnapshot?.id===book.lorebookId?selectedSnapshot:null,ownerBook:book,query:state.entryQuery,page:state.entryPage,pageSize:PAGE_SIZE});
-  const tree=buildHumanLoreTree(page.total?buildExactLoreEntries({selectedSnapshot:selectedSnapshot?.id===book.lorebookId?selectedSnapshot:null,ownerBook:book,page:0,pageSize:64}).rows:[]);
+  const tree=buildHumanLoreTree(selectedSnapshot?.id===book.lorebookId?(selectedSnapshot.entries??[]):[],{maxNodes:200});
   const split=element(d,'div',{className:'a52-lore-browser__split'});
   const treePanel=element(d,'section',{className:'a52-lore-browser__tree'});
   treePanel.append(element(d,'strong',{text:'Human tree'}),element(d,'p',{className:'a52-muted',text:'Author-facing organization only. One source may participate in additional semantic/navigation paths without this tree becoming truth.'}));

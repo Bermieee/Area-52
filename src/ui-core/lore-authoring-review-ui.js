@@ -74,7 +74,7 @@ export function renderLoreReviewWorkspace(host,{loreStudy,loreAuthoring,actionRo
   section.append(renderSourceBrowser(d,{state,book,books,sources,selectedSnapshot,scope,refresh,detail}));
   section.append(renderProposalComposer(d,{state,book,sources,source,exact,caps,chatId,actionRouter,scope,refresh}));
   section.append(renderOwnerMutationQueue(d,{state,loreStudy,loreAuthoring,actionRouter,scope,refresh,detail,chatId}));
-  section.append(renderOwnerImpactPreview(d,{state,source,loreAuthoring,scope,refresh,detail}));
+  section.append(renderOwnerImpactPreview(d,{state,source,loreAuthoring,actionRouter,scope,refresh,detail}));
   section.append(renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,refresh,detail}));
   section.append(renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,scope,refresh,detail}));
   section.append(renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRouter,scope,refresh,detail,chatId}));
@@ -334,7 +334,7 @@ function renderRecovery(d,recovery){
     recovery.status==='COMPENSATED'?'observed':'warning');
 }
 
-function renderOwnerImpactPreview(d,{state,source,loreAuthoring,scope,refresh,detail}){
+function renderOwnerImpactPreview(d,{state,source,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-impact'}),caps=loreAuthoring.capabilities();
   root.append(sectionHead(d,'4. Edit-impact preview · semantic impact','OWNER READ · NOT COMMITTED','historical'),
     element(d,'p',{className:'a52-muted',text:'This uses Worker 4 semanticImpactPreview. It is read-only and cannot mutate authored canon.'}));
@@ -358,7 +358,7 @@ function renderOwnerImpactPreview(d,{state,source,loreAuthoring,scope,refresh,de
 
 function renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-tree'});
-  root.append(sectionHead(d,'5. Generated Tree Builder plan','OWNER PLAN · NOT COMMITTED','historical'),
+  root.append(sectionHead(d,'5. Tree Builder proposal','OWNER PLAN · NOT COMMITTED','historical'),
     element(d,'p',{className:'a52-muted',text:'This is Worker 4’s generated-plan lifecycle, separate from generic TREE_ASSIGN mutation proposals. Tree previews remain author-facing navigation, not semantic truth.'}));
   const caps=loreAuthoring.capabilities(),actions=element(d,'div',{className:'a52-wave13-resource-actions'});
   actions.append(createButton(d,{label:'Refresh Tree proposal',scope,disabled:!caps.tree,onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.proposeTree',payload:{lorebookIds:[book.lorebookId]}});state.status=routeMessage(route,'Worker 4 Tree proposal refreshed. No source was committed.');refresh?.();}}));
@@ -371,7 +371,7 @@ function renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,r
 
 function renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-merge'});
-  root.append(sectionHead(d,'6. Generated merge / reconciliation plan','OWNER PREVIEW · NOT COMMITTED','historical'),
+  root.append(sectionHead(d,'6. Merge / reconciliation preview','OWNER PREVIEW · NOT COMMITTED','historical'),
     element(d,'p',{className:'a52-muted',text:'This keeps the existing Worker 4 generated reconciliation workflow. It is separate from an operator-authored MERGE mutation proposal above.'}));
   const others=(books??[]).filter(row=>row.lorebookId!==book.lorebookId),select=field(d,'select','Merge comparison lorebook');
   select.append(option(d,'','Choose second Lorebook'));for(const row of others)select.append(option(d,row.lorebookId,row.title??row.lorebookId));select.value=state.mergeBookId??'';
@@ -384,6 +384,7 @@ function renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,
     {key:'Contradictions kept separate',value:validation.preservedContradictionsSeparately?'Yes':'No'},{key:'Exact duplicates',value:cls.exactDuplicates?.length??0},
     {key:'Likely overlap',value:cls.likelyOverlap?.length??0},{key:'Complementary',value:cls.complementary?.length??0},{key:'Title/key collisions',value:cls.titleKeyCollisions?.length??0},{key:'Unresolved contradictions',value:cls.unresolvedContradictions?.length??0},
   ]));if(detail===ProductDetailLevel.ADVANCED)root.append(createKeyValue(d,[{key:'Preview ID',value:preview.previewId??'—'},{key:'Source revision fence',value:(preview.sourceRevisionFence??[]).slice(0,24).join(', ')||'none'}]));}
+  if(!loreAuthoring.capabilities().lifecycle)root.append(message(d,'No destructive Apply action','This assembly exposes generated Tree/Merge previews only. Worker 3 intentionally offers no direct Apply path without Worker 4 review and Settlement authority.','historical'));
   return root;
 }
 

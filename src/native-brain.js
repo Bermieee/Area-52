@@ -575,7 +575,7 @@ export class Area52NativeBrain{
     this.core.audit.recordSettlement(proposal,settled,{correlationId:turn.correlationId,causationId:tx.transactionId,beforeRevision:before,afterRevision:this.core.graph.revision});
     if(settled.receipt?.outcome===SettlementOutcome.SETTLED)this.core.hotCognition.consumeOwnerWorldChange({
       chatNamespace:turn.chatId,updateId:'native-world:'+settled.receipt.id,worldRevision:this.core.graph.revision,
-      sourceRevisionRefs:[experience.sourceRevisionId],artifactRefs:settled.receipt.settledArtifactIds,
+      sourceRevisionRefs:[experience.sourceRevisionId],artifactRefs:this.core.worldArtifactRefsForHot(settled.receipt.settledArtifactIds),
       provenanceRefs:[experience.sourceRevisionId],eventType:'STATE_SETTLED',
     });
     return clone({...settled,proposal,claimId,sourceRevisionId:experience.sourceRevisionId});

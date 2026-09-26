@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -34,7 +34,7 @@ jobs:
       - name: Record exact tested head
         run: |
           echo "TESTED_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "\${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
       - name: Brain lifecycle and causal acceptance
         run: node --test tests/worker1-brain-lifecycle-causal-wave.mjs
       - name: Provider presentation and context trust

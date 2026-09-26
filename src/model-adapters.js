@@ -21,7 +21,7 @@ class MessagesAdapter{
       });
     }
     return{
-      kind:'RenderedModelInput',adapterId:'messages-v2-provider-roles',format:'messages',
+      kind:'RenderedModelInput',adapterId:'messages-v1',format:'messages',
       contextSealId:plan.contextSealId,sealedPacketHash:plan.sealedPacketHash,messages,messageMap,
       supportedProviderRoles:[...PROVIDER_MESSAGE_ROLES],
       semanticManifest:clone(plan.segments.flatMap(s=>s.semanticManifest??[])),

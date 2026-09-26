@@ -722,6 +722,7 @@ export class Wave13DiagnosticsCenterAdapter{
         lanes,rows:rows.map(row=>deepFreeze({
           id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
           credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
+          physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted),physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded),ownerAccepted:row.ownerAccepted??null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,
           capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
           lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
         })),

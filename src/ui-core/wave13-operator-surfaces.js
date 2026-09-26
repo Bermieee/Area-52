@@ -2,7 +2,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null}={}){
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null}={}){
   const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
   if(registry.has('home')){
     const current=registry.get('home');
@@ -23,7 +23,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   });
   if(!registry.has('settings'))registry.register({
     id:'settings',title:'Settings',icon:'⚙',category:'Product',navigation:{level:'product',order:80},views:['normal','detail','advanced'],supportedActions:['display-preferences','inspect'],
-    render(host,ctx){renderSettingsSurface(host,{...ctx,frontFacePresentation,diagnostics});},
+    render(host,ctx){renderSettingsSurface(host,{...ctx,frontFacePresentation,diagnostics,evidenceJournal});},
   });
   if(registry.has('lore')){
     const current=registry.get('lore');
@@ -462,7 +462,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   host.append(section);
 }
 
-export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,scope,refresh,inspect,navigate}={}){
+export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,evidenceJournal,notifications,scope,refresh,inspect,navigate}={}){
   const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
   root.append(header(d,'Settings','Area-52 display controls. Connection and Brain execution policy remain with their owning subsystems.'));
   const detail=element(d,'section',{className:'a52-wave13-settings__group'});
@@ -482,6 +482,17 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
   }
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
   displayActions.append(inspector);display.append(displayActions);root.append(display);
+  if(evidenceJournal){
+    const selection=diagnostics?.read?.()?.selection??{},turn=evidenceJournal.readTurn(selection),entries=turn?.entries??[];
+    const evidence=element(d,'section',{className:'a52-wave13-settings__group'});
+    evidence.append(element(d,'strong',{text:'Local evidence journal'}),element(d,'p',{className:'a52-muted',text:turn?entries.length+' bounded metadata-only evidence records are stored for the exact selected chat / turn / generation.':'No exact selected-turn journal exists yet.'}));
+    if(turn)evidence.append(createKeyValue(d,[{key:'Chat',value:turn.selection.chatId},{key:'Turn',value:turn.selection.turnId},{key:'Generation',value:turn.selection.generationId},{key:'Records',value:entries.length}]));
+    evidence.append(createButton(d,{label:'Export selected turn evidence',scope,size:'sm',variant:'primary',onPress:()=>{
+      const result=evidenceJournal.download({selection,document:d});
+      notifications?.push?.({status:result.ok?'success':'warning',title:'Evidence export',message:result.ok?'Downloaded '+result.filename:'Browser download API unavailable; evidence remains in the local journal.'});
+    }}));
+    root.append(evidence);
+  }
   if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,detailLevel:productAdapter?.getDetailLevel?.()}));
   host.append(root);
 }
@@ -553,7 +564,8 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
   const jobs=snapshot.cognition?.jobs??[],results=snapshot.cognition?.gather??[],pipeline=snapshot.pipeline??{};
   activity.append(
     flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
-    flowStep(d,'Work executed',pipeline.executionReceipt?jobs.length+' jobs':'No execution receipt'),
+    flowStep(d,'Jobs mapped',pipeline.mappingReceipt?String(pipeline.logicalJobsMapped??jobs.length)+' logical → '+String(pipeline.mappedResourceCount??0)+' resource '+((pipeline.mappedResourceCount??0)===1?'identity':'identities'):'No Scatter receipt'),
+    flowStep(d,'Physical execution',pipeline.executionReceipt?String(pipeline.physicalExecutionAttempts??0)+' attempts · '+String(pipeline.physicalExecutionSucceeded??0)+' succeeded':'No selected-turn execution receipt'),
     flowStep(d,'Results returned',pipeline.resultReceipt?results.length+' returned':'No Gather receipt'),
     flowStep(d,'Context admitted',pipeline.admissionReceipt?String(snapshot.cognition?.seal?.admittedResultIds?.length??0):'No Context Seal receipt'),
     flowStep(d,'Generation delivered',pipeline.deliveryReceipt?(pipeline.generationState?humanLabel(pipeline.generationState):'Owner delivery recorded'):pipeline.generationReader?'No delivery receipt':'Owner generation reader unavailable'),

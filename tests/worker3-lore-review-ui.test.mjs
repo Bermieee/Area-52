@@ -166,7 +166,7 @@ test('rendered workflow labels missing owner source-mutation contract and never 
   };
   renderLoreReviewWorkspace(host,{loreStudy,loreAuthoring,actionRouter:{route:async()=>({ok:true,result:{ok:true,value:{}}})},scope:{listen:(node,type,fn)=>node.addEventListener(type,fn)},refresh:()=>{},productAdapter:{getDetailLevel:()=> 'NORMAL'}});
   const text=allText(host);
-  assert.match(text,/Lore authoring & review/);
+  assert.match(text,/Lore authoring review/);
   assert.match(text,/Selected Lorebook verified/);
   assert.match(text,/Source-mutation integration pending/);
   assert.match(text,/PREVIEW · NOT COMMITTED/);

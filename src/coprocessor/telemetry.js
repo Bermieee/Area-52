@@ -14,6 +14,8 @@ export class CoprocessorTelemetry {
   #subscribers = new Set();
   #events = [];
   #counters = new Map();
+  #revision = 0;
+  #snapshotCache = null;
 
   constructor({ limit = 2000, bounds = {} } = {}) {
     this.limit = Math.max(1, Number(limit) || 2000);
@@ -28,6 +30,8 @@ export class CoprocessorTelemetry {
     const event = Object.freeze({ type, payload: Object.freeze(safePayload) });
     this.#events.push(event);
     this.#counters.set(type, (this.#counters.get(type) ?? 0) + 1);
+    this.#revision += 1;
+    this.#snapshotCache = null;
     if (this.#events.length > this.limit) this.#events.splice(0, this.#events.length - this.limit);
     for (const handler of [...this.#subscribers]) { try { handler(event); } catch {} }
     return event;
@@ -39,8 +43,14 @@ export class CoprocessorTelemetry {
     return () => this.#subscribers.delete(handler);
   }
 
-  list() { return [...this.#events]; }
+  get revision() { return this.#revision; }
+  list({ limit = null } = {}) {
+    const requested = Number(limit);
+    if (!Number.isFinite(requested) || requested <= 0 || requested >= this.#events.length) return [...this.#events];
+    return this.#events.slice(-Math.floor(requested));
+  }
   snapshot() {
+    if (this.#snapshotCache) return this.#snapshotCache;
     const retrieval = { HIGH: 0, MIXED: 0, LOW: 0 };
     const resultDestinations = {};
     const precision = { requests: 0, inputCandidates: 0, outputCandidates: 0, correctivePasses: 0, staleRejected: 0, authorityRejected: 0, deduped: 0, stages: {}, fallbacks: {} };
@@ -90,7 +100,8 @@ export class CoprocessorTelemetry {
       if (event.type === TelemetryEvent.SWARM_CHECKPOINTED) swarm.checkpoints += 1;
       if (event.type === TelemetryEvent.SWARM_RESUMED) swarm.resumes += 1;
     }
-    return Object.freeze({
+    this.#snapshotCache = Object.freeze({
+      revision: this.#revision,
       totalEvents: this.#events.length,
       capacity: this.limit,
       eventCounts: Object.freeze(Object.fromEntries(this.#counters)),
@@ -107,6 +118,7 @@ export class CoprocessorTelemetry {
       providerCalls: Object.freeze({...providerCalls,measurementClasses:Object.freeze(providerCalls.measurementClasses)}),
       swarm: Object.freeze({...swarm,states:Object.freeze(swarm.states),resources:Object.freeze(swarm.resources)}),
     });
+    return this.#snapshotCache;
   }
 }
 

@@ -1,4 +1,5 @@
 import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
+import { renderBrainDecisionExplanation } from './brain-decision-visibility.js';
 
 export const TURN_LOG_DIAGNOSTICS_VERSION='1.0.0';
 const DEFAULT_MAX_VISIBLE=96;
@@ -8,8 +9,8 @@ const SEVERITY_ORDER=['ERROR','WARN','OK','INFO'];
 const BLOCKED_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
 
 export class SelectedTurnLogModel{
-  constructor({journal,selectionProvider=()=>({}),now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
-    this.journal=journal??null;
+  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
+    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;
     this.selectionProvider=typeof selectionProvider==='function'?selectionProvider:()=>({});
     this.now=typeof now==='function'?now:()=>Date.now();
     this.maxVisibleRows=Math.max(16,Math.min(256,Number(maxVisibleRows)||DEFAULT_MAX_VISIBLE));
@@ -31,7 +32,7 @@ export class SelectedTurnLogModel{
       filters:normalizedFilters,rows,totalRows:allRows.length,matchingRows:filtered.length,visibleRows:rows.length,truncated,
       availableCategories:CATEGORY_ORDER.filter(category=>allRows.some(row=>row.category===category)),
       availableSeverities:SEVERITY_ORDER.filter(severity=>allRows.some(row=>row.severity===severity)),
-      summary:summarize(turn,allRows),retention:status,
+      summary:summarize(turn,allRows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),retention:status,
       chronology:'OWNER_STAGE_ORDER_WITH_EXACT_TIMESTAMPS_WHEN_PUBLISHED',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
     });
@@ -54,7 +55,7 @@ export class SelectedTurnLogModel{
     }
     return sanitize({
       kind:'Area52SelectedTurnLogExport',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt:this.now(),
-      selection:selected,summary:summarize(turn,rows),rows,details,retention:this.journal?.status?.()??null,
+      selection:selected,summary:summarize(turn,rows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),rows,details,retention:this.journal?.status?.()??null,
       chronology:'OWNER_STAGE_ORDER_WITH_EXACT_TIMESTAMPS_WHEN_PUBLISHED',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
     });
@@ -71,9 +72,9 @@ export class SelectedTurnLogModel{
   }
 }
 
-export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
+export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
   if(!registry||!journal)return null;
-  const model=new SelectedTurnLogModel({journal,selectionProvider,maxVisibleRows});
+  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,maxVisibleRows});
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
@@ -99,6 +100,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh}={}){
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
   actions.append(createButton(d,{label:'Export selected-turn metadata',scope,size:'sm',variant:'quiet',onPress:()=>model.download({selection:s,document:d})}));
   head.append(actions);root.append(head);
+  if(snapshot.brainDecision)root.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
 
   root.append(element(d,'section',{className:'a52-card'},element(d,'h2',{text:'Execution profile'}),createKeyValue(d,[
     {key:'Logical jobs',value:summary.logicalJobs??0},{key:'Native resources',value:summary.nativeResources??0},{key:'Optional provider attempts',value:summary.optionalAttempts??0},
@@ -295,3 +297,5 @@ function safeText(value,limit=2048){let out=String(value??'');out=out.replace(/(
 function sanitize(value,depth=0,key=''){if(depth>7)return'[depth-clipped]';const k=String(key??'').toLowerCase();if(BLOCKED_KEYS.has(k))return'[REDACTED]';if(value==null||typeof value==='number'||typeof value==='boolean')return value;if(typeof value==='string')return safeText(value);if(Array.isArray(value))return value.slice(0,64).map(v=>sanitize(v,depth+1,key));if(typeof value==='object'){const out={};for(const [name,v] of Object.entries(value)){const clean=sanitize(v,depth+1,name);if(clean!==undefined)out[name]=clean;}return out;}return safeText(value);}
 function boundObject(value,maxBytes){let clean=sanitize(value),json=JSON.stringify(clean);if(json.length<=maxBytes)return clean;return{kind:clean?.kind??'Area52TurnLogDetail',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,row:clean?.row??null,sources:(clean?.sources??[]).slice(0,4).map(source=>({entryId:source.entryId,type:source.type,subtype:source.subtype,status:source.status,receiptRef:source.receiptRef,summary:safeText(source.summary??'Detail clipped to bounded export size.',512)})),truncated:true,maxBytes,safety:{metadataOnly:true}};}
 function safeClone(value){if(value==null)return value;if(typeof structuredClone==='function')return structuredClone(value);return JSON.parse(JSON.stringify(value));}
+
+function safeDecisionRead(adapter,selection){try{return adapter?.read?.(selection)??null;}catch(error){return{kind:'BrainDecisionVisibilityReadModel',contractVersion:1,selection,state:'NO_EVIDENCE',identityState:'READ_FAILED',stages:[],sensoryNominations:[],choiceDecisions:[],lifecycleObligations:[],candidateFlow:[],delivery:{planned:{state:'UNAVAILABLE'},sealed:{state:'UNAVAILABLE'},observed:{state:'UNAVAILABLE'}},missingReceipts:['NativeBrainSelectedTurnReceipt'],errors:[{stage:'BrainDecisionVisibility',code:error?.code??'READ_FAILED'}],safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false}};}}

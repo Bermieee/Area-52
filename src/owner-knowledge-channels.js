@@ -78,7 +78,8 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
       return[];
     }
     try{
-      const packet=syncValue(owner.query({query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO'}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
+      const storyChatId=context?.chatId??context?.selection?.chatId??this.turnContext?.selection?.chatId??this.turnContext?.chatId??null;
+      const packet=syncValue(owner.query({chatId:storyChatId,query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO'}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
       if(!packet||packet.kind!=='LoreBrainRetrievalPacket'||Number(packet.contractVersion)!==1)throw new Error('LORE_BRAIN_PACKET_CONTRACT_MISMATCH');
       const fence=new Set(uniq(packet.sourceRevisionFence??[]));
       const out=[],rejected=[];
@@ -119,7 +120,7 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
             sourceRevisionRefs:[sourceRevisionId],
             dependencyRevisionRefs:[sourceRevisionId],
             provenanceRefs:uniq([sourceRevisionId,...provenanceRefs(source.provenance??[])]),
-            loreRef:{sourceId,sourceRevisionId},
+            loreRef:{sourceId,lorebookId:source.lorebookId??null,uid:source.uid??null,sourceRevisionId},
             extensions:{
               representationText:exact,
               exactSourceDrillback:true,
@@ -149,19 +150,45 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
             representationRef:String(source.representationRef??sourceRevisionId),
             representationRevision:source?.selectedRepresentation?.representationRevision??1,
             representationText:exact,
-            metadata:{knowledgeEvidenceId:evidenceId,owner:'LORE',sourceId,ownerSourceRevisionId:sourceRevisionId,exactSourceDrillback:true},
+            metadata:{
+              knowledgeEvidenceId:evidenceId,owner:'LORE',sourceId,lorebookId:source.lorebookId??null,uid:source.uid??null,
+              ownerSourceRevisionId:sourceRevisionId,exactSourceDrillback:true,
+              authorityScope:packet.storyScope?{
+                chatId:packet.storyScope.chatId??storyChatId??null,
+                lorebookIds:[...(packet.storyScope.readLorebookIds??[])].slice(0,64),
+                state:packet.storyScope.state??null,
+              }:null,
+              authorityDecision:'ELIGIBLE',
+              authorityReason:'AUTHORIZED_CURRENT_RETRIEVAL_MATCH',
+            },
             worldRevision:context.worldRevision??null,
             sceneRevision:context.sceneRevision??null,
           }));
         }
       }
       this.lastReceipt={
-        kind:'OwnerKnowledgeRetrievalReceipt',channelId:this.channelId,status:'SYNCED',queried:true,
+        kind:'OwnerKnowledgeRetrievalReceipt',channelId:this.channelId,
+        status:packet.status==='EXCLUDED'?'EXCLUDED':'SYNCED',reason:packet.reason??null,queried:true,
         nominationCount:out.length,sourceRevisionFence:uniq(out.flatMap((row)=>row.sourceRevisionRefs)),
         rejectedCount:rejected.length,rejectedRevisionRefs:uniq(rejected.map((row)=>row.sourceRevisionId)),
         rejectionReasons:uniq(rejected.map((row)=>row.reason)),
+        authorityScope:packet.storyScope?{
+          chatId:packet.storyScope.chatId??storyChatId??null,
+          state:packet.storyScope.state??null,
+          acceptedLorebookIds:(packet.storyScope.acceptedForStudy??[]).map((row)=>row.lorebookId).filter(Boolean).slice(0,64),
+          readLorebookIds:[...(packet.storyScope.readLorebookIds??[])].slice(0,64),
+        }:{chatId:storyChatId??null,state:'UNBOUND',acceptedLorebookIds:[],readLorebookIds:[]},
+        candidateReceipts:(packet.candidateReceipts??[]).slice(0,64).map((row)=>({
+          candidateId:row.candidateId??null,sourceEntries:clone(row.sourceEntries??[]),sourceRevisionRefs:uniq(row.sourceRevisionRefs??[]),
+          evidenceRefs:uniq(row.evidenceRefs??[]),authorityScope:clone(row.authorityScope??null),authorityClass:row.authorityClass??null,
+          decision:row.decision??null,reason:row.reason??null,normalizedRank:row.normalizedRank??null,rawLoreIncluded:false,
+        })),
+        exclusionReceipts:(packet.exclusionReceipts??[]).slice(0,64).map((row)=>({
+          sourceId:row.sourceId??null,lorebookId:row.lorebookId??null,uid:row.uid??null,sourceRevisionId:row.sourceRevisionId??null,
+          authorityScope:clone(row.authorityScope??null),decision:row.decision??'EXCLUDED',reason:row.reason??null,
+        })),
         ownerIndexRevision:packet.indexRevision??null,ownerOntologyRevision:packet.ontologyRevision??null,
-        authorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
+        rawLoreIncluded:false,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
       };
       return out;
     }catch(error){

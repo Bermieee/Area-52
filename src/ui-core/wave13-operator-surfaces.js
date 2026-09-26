@@ -150,7 +150,7 @@ export function renderResourceSurface(host,{resources,coprocessor=null,actionRou
   const section=element(d,'section',{className:'a52-wave13-resources',attrs:{'aria-label':'Optional execution resource connections'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
   head.append(element(d,'h2',{text:'Connections'}),makeHealthPill(d,{label:source.operationalState??source.health,status:source.statusToken,detail:source.impact}));
-  section.append(head,element(d,'p',{className:'a52-muted',text:'Jev, Sidecar, and Vectoring are configured separately. Locked connection profiles are saved across demo reloads and rehydrated into Worker 2.'}));
+  section.append(head,element(d,'p',{className:'a52-muted',text:'Jev, Sidecar, and Vectoring are configured separately. A locked connection keeps its profile and credential in browser/extension storage and rehydrates them automatically until you release the lock.'}));
   if(source.reason)section.append(message(d,source.operationalState==='UNAVAILABLE'?'Assembly action seam not connected':'Resource status',source.reason,source.statusToken));
 
   const caps=resources.capabilities();
@@ -158,7 +158,7 @@ export function renderResourceSurface(host,{resources,coprocessor=null,actionRou
 
   const slots=element(d,'div',{className:'a52-wave13-connection-slots'});
   const drafts=connectionDrafts??createConnectionDraftStore(),savedProfiles=resources.savedProfiles?.()??[];
-  if(savedProfiles.length)section.append(message(d,'Saved connection locks',savedProfiles.length+' optional connection profile'+(savedProfiles.length===1?' is':'s are')+' stored for reload recovery.','ready'));
+  if(savedProfiles.length)section.append(message(d,'Saved connection locks',savedProfiles.length+' optional connection lock'+(savedProfiles.length===1?' is':'s are')+' stored persistently for automatic reload recovery.','ready'));
   for(const spec of connectionSlotSpecs()){
     const savedProfile=savedProfiles.find(row=>row.role===spec.id)??null;
     slots.append(renderConnectionSlot(d,{spec,savedProfile,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id).map(row=>overlayTurnResourceEvidence(row,turnResources)),resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts:drafts}));
@@ -198,7 +198,7 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
   connectionName.value=draft.connectionName??spec.defaultName;
   const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:spec.remotePlaceholder??'https://provider.example/v1'});
   endpoint.value=draft.endpoint??'';
-  const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:'Required when the provider requires authentication',autocomplete:'off',spellcheck:'false'});
+  const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:savedProfile?.credentialPersisted?'Stored credential will be reused; enter a new key only to replace it':'Required when the provider requires authentication',autocomplete:'off',spellcheck:'false'});
   const capabilities=field(d,'input',spec.title+' capabilities',{type:'text',placeholder:spec.defaultCapabilities.join(', ')});
   capabilities.value=draft.capabilities??spec.defaultCapabilities.join(', ');
   if(spec.fixedCapabilities){
@@ -224,7 +224,7 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
       role:spec.role,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,
     }});
     if(!result.ok){
-      const text='Model discovery failed: '+String(result.error??'unknown error')+'.';
+      const text='Model discovery failed: '+connectionDisplayText(result.error??'unknown error')+'.';
       connectionDrafts.patch(spec.id,{models:[],manualAllowed:true,discoveryState:'FAILED',discoveryMessage:text});
       modelSuggestions.replaceChildren();discoveryState.textContent=text+' You can still enter the exact model ID manually; Test Connection will verify it.';
       reportAction(notifications,result,spec.title+' model discovery');return;
@@ -249,7 +249,7 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
     }});
     apiKey.value='';
     if(!connectResult.ok){
-      discoveryState.textContent='Connection failed: '+String(connectResult.error??'unknown error')+'.';
+      discoveryState.textContent='Connection failed: '+connectionDisplayText(connectResult.error??'unknown error')+'.';
       reportAction(notifications,connectResult,spec.title+' connection');refresh?.();return;
     }
     connectionDrafts.clear(spec.id);
@@ -262,9 +262,15 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
   form.append(
     labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
     loadModels,labelWrap(d,'Model',modelChoice),modelSuggestions,discoveryState,
-    ...(savedProfile?[message(d,'Saved profile loaded','The saved '+spec.title+' endpoint, model, capabilities, and identity are prefilled.','ready')]:[]),
-    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Saving a connection locks its connection profile for future demo reloads.'}),
-    testConnection
+    ...(savedProfile?[message(d,'Saved lock loaded','The saved '+spec.title+' endpoint, model, capabilities, identity'+(savedProfile.credentialPersisted?', and credential':'')+' are retained. Stored credentials are reused without being rendered back into this form.','ready')]:[]),
+    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Save & Lock persists this connection in browser/extension storage. It stays available across reloads until Release saved lock is used.'}),
+    testConnection,
+    ...(savedProfile?[createButton(d,{label:'Release saved lock',scope,size:'sm',variant:'quiet',onPress:async()=>{
+      const result=await actionRouter.route({type:'wave13.resource.forgetSaved',target:savedProfile});
+      if(result.ok){connectionDrafts.clear(spec.id);notifications?.push?.({message:'Released saved '+spec.title+' lock. Stored profile and credential were removed.',status:'info'});}
+      else reportAction(notifications,result,'Saved connection lock release');
+      refresh?.();
+    }})]:[])
   );
   slot.append(form);return slot;
 }
@@ -275,7 +281,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,savedProfile?'SAVED LOCK':'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
   card.append(top,createKeyValue(d,[
-    {key:'Configured',value:'Yes'},{key:'Saved across reloads',value:savedProfile?'Yes':'Not yet'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
+    {key:'Configured',value:'Yes'},{key:'Saved across reloads',value:savedProfile?'Yes':'Not yet'},{key:'Credential saved',value:savedProfile?.credentialPersisted?'Yes':savedProfile?'No':'Not locked'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
     {key:'Physical execution',value:row.physicalExecutionAttempted?(row.physicalExecutionSucceeded?'Succeeded':'Attempted / not successful'):'No cognitive execution observed'},
     {key:'Owner accepted',value:row.ownerAccepted===true?'Yes':row.ownerAccepted===false?'No':row.ownerAcceptanceSource==='OWNER_RECEIPT_REQUIRED'?'Requires owner receipt':'Not reported'},
     {key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
@@ -308,7 +314,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   if(caps.selectModel)manageActions.append(createButton(d,{label:'Select model',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const modelId=String(model.value||'').trim();if(!modelId){managementStatus.textContent='Enter a model ID. Refreshed models are suggestions, not a whitelist.';return;}
     const result=await actionRouter.route({type:'wave13.resource.selectModel',target:row,payload:{modelId}});
-    managementStatus.textContent=result.ok?'Model selected. Requalification is required before this resource is callable.':'Model selection failed: '+String(result.error??'unknown error');
+    managementStatus.textContent=result.ok?'Model selected. Requalification is required before this resource is callable.':'Model selection failed: '+connectionDisplayText(result.error??'unknown error');
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
@@ -320,10 +326,10 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   if(caps.connect&&!row.callable)actions.append(createButton(d,{label:row.connected?'Requalify':'Connect / qualify',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource qualification');refresh?.();}}));
   if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportResourceTest(notifications,result,'Resource test');refresh?.();}}));
   if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
-  if(savedProfile)actions.append(createButton(d,{label:'Forget saved lock',scope,size:'sm',variant:'quiet',onPress:async()=>{
+  if(savedProfile)actions.append(createButton(d,{label:'Release saved lock',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const result=await actionRouter.route({type:'wave13.resource.forgetSaved',target:row});
-    if(result.ok)notifications?.push?.({message:'Saved '+(spec?.title??'resource')+' connection lock removed. The current owner record remains configured until this runtime reloads.',status:'info'});
-    else reportAction(notifications,result,'Saved connection lock removal');
+    if(result.ok)notifications?.push?.({message:'Released saved '+(spec?.title??'resource')+' lock. Stored profile and credential were removed.',status:'info'});
+    else reportAction(notifications,result,'Saved connection lock release');
     refresh?.();
   }}));
   if(actions.children?.length)card.append(actions);
@@ -337,7 +343,7 @@ function testSummary(x){
   return String(x?.status??x?.health??x?.result?.status??(x?.ok===true?'PASS':x?.ok===false?'FAIL':'completed'));
 }
 function resourceTestFailure(actionResult){
-  if(!actionResult?.ok)return String(actionResult?.error??'Owner test action failed.');
+  if(!actionResult?.ok)return connectionDisplayText(actionResult?.error??'Owner test action failed.');
   const owner=actionResult.result??{};
   if(owner.failure)return String(owner.failure.message??owner.failure.code??'Provider check failed.');
   const resource=owner.resource??owner;
@@ -349,7 +355,7 @@ function reportResourceTest(notifications,result,label){
   if(!notifications?.push)return;
   const failure=resourceTestFailure(result);notifications.push({status:failure?'error':'success',message:label+': '+(failure??'passed')});
 }
-function reportAction(notifications,result,label){if(!notifications?.push)return;notifications.push({status:result?.ok?'success':'error',message:label+': '+(result?.ok?'completed':result?.error??'failed')});}
+function reportAction(notifications,result,label){if(!notifications?.push)return;notifications.push({status:result?.ok?'success':'error',message:label+': '+(result?.ok?'completed':connectionDisplayText(result?.error??'failed'))});}
 
 
 function createConnectionDraftStore(){
@@ -376,7 +382,7 @@ function discoveryModels(result){
 }
 
 function discoveryStatusText(state,result,count){
-  const reason=String(result?.reason??'').trim();
+  const reason=connectionDisplayText(result?.reason??'').trim();
   if(state==='READY')return count+' model'+(count===1?'':'s')+' loaded. Type to filter suggestions, or enter an exact model ID manually. Test Connection performs qualification.';
   if(state==='UNAUTHORIZED')return (reason||'Provider authorization was rejected before model discovery.')+' You can still enter a model ID manually; qualification still requires provider access.';
   if(state==='UNSUPPORTED')return (reason||'This provider does not support model discovery.')+' Enter the exact model ID manually.';
@@ -385,6 +391,8 @@ function discoveryStatusText(state,result,count){
   if(state==='LOADING')return'Loading models from the provider…';
   return reason||'Model discovery failed.';
 }
+
+function connectionDisplayText(value){return String(value??'').replace(/\bsession credentials?\b/gi,'credential');}
 
 function safeCoprocessorResourceRows(coprocessor){
   try{

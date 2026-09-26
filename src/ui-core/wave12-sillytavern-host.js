@@ -205,7 +205,7 @@ export class SillyTavernAdjacentLayoutReservation{
     this.width=next;
     if(this.reserveWidthCallback)this.reserveWidthCallback(next);
     else setStyle(this.chatRoot,'right',next?next+'px':this.chatStyle.right);
-    setStyle(this.mountRoot,'width',next?next+'px':'');
+    setStyle(this.mountRoot,'width',next+'px');
     setStyle(this.mountRoot,'maxWidth','calc(100dvw - 16px)');
     if(this.manageMountPosition){
       setStyle(this.mountRoot,'position','fixed');

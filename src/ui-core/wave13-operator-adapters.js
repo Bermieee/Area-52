@@ -396,7 +396,7 @@ export class Wave13LoreAuthoringUIAdapter{
 
 export class Wave13ResourceControlAdapter{
   constructor({bindings={},stateStore=null}={}){
-    this.bindings=bindings;this.stateStore=stateStore;this.connectionProfileKey='wave13ConnectionProfiles';this.persistenceSuppressed=new Set();this.restorePromise=null;
+    this.bindings=bindings;this.stateStore=stateStore;this.connectionProfileKey='wave13ConnectionProfiles';this.connectionCredentialKey='wave13ConnectionCredentials';this.persistenceSuppressed=new Set();this.restorePromise=null;
     this.host=bindings.resourceHost??bindings.coprocessorResourceHost??bindings.resourceConnectionsHost??null;
     this.publicHost=Boolean(this.host?.actions&&this.host?.read);
     this.listFn=fn(bindings,['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'])??fn(this.host?.read,['resources']);
@@ -408,18 +408,25 @@ export class Wave13ResourceControlAdapter{
     this.connectFn=fn(bindings,['connectResource','mountResource'])??fn(this.host?.actions,['connectResource']);
     this.disconnectFn=fn(bindings,['disconnectResource','unmountResource'])??fn(this.host?.actions,['disconnectResource']);
     this.testFn=fn(bindings,['testResource','probeResource','testConnection'])??fn(this.host?.actions,['testResource']);
+    this.setCredentialFn=fn(bindings,['setCredential','setResourceCredential'])??fn(this.host?.actions,['setCredential']);
+    this.clearCredentialFn=fn(bindings,['clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential'])??fn(this.host?.actions,['clearCredential','revokeCredential']);
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save),persistentCredentials:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
   savedProfiles(){
-    const map=this.#profileMap();
-    return deepFreeze(Object.values(map).map(row=>cloneSafe(row)).sort((a,b)=>String(a.role).localeCompare(String(b.role))));
+    const map=this.#profileMap(),credentials=this.#credentialMap();
+    return deepFreeze(Object.values(map).map(row=>({...cloneSafe(row),credentialPersisted:Boolean(credentials[row.role]?.apiKey)})).sort((a,b)=>String(a.role).localeCompare(String(b.role))));
   }
-  forgetSavedProfile(resource){
+  async forgetSavedProfile(resource){
     const role=connectionProfileRole(resource);
     if(!role)return false;
-    const map=this.#profileMap();delete map[role];this.persistenceSuppressed.add(role);this.#writeProfileMap(map);return true;
+    const map=this.#profileMap(),existing=map[role]??null;delete map[role];
+    const credentials=this.#credentialMap();delete credentials[role];
+    this.persistenceSuppressed.add(role);this.#writeProfileMap(map);this.#writeCredentialMap(credentials);
+    const id=resourceId(resource)??existing?.resourceId??null;
+    if(id&&this.clearCredentialFn){try{await this.clearCredentialFn(id,{reason:'Saved connection lock released by operator.'});}catch(error){this.lastError=error;}}
+    return true;
   }
   async configure(config={}){
     this.lastError=null;
@@ -438,15 +445,24 @@ export class Wave13ResourceControlAdapter{
     if(this.restorePromise)return this.restorePromise;
     const work=async()=>{
       const saved=this.savedProfiles();
-      if(!saved.length)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:0,restored:0,alreadyPresent:0,failed:[]});
-      if(!this.addFn)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored:0,alreadyPresent:0,failed:saved.map(row=>({role:row.role,resourceId:row.resourceId,code:'RESOURCE_CONFIGURE_ACTION_UNAVAILABLE'}))});
+      if(!saved.length)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:0,restored:0,alreadyPresent:0,requalified:0,failed:[]});
+      if(!this.addFn)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored:0,alreadyPresent:0,requalified:0,failed:saved.map(row=>({role:row.role,resourceId:row.resourceId,code:'RESOURCE_CONFIGURE_ACTION_UNAVAILABLE'}))});
       let restored=0,alreadyPresent=0,requalified=0;const failed=[];
       for(const profile of saved){
         try{
+          const credential=this.#credentialFor(profile.role),hydrated=credential?{...profile,apiKey:credential}:profile;
           let current=this.read().data.resources,row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;
-          if(row)alreadyPresent+=1;
-          else{await this.configure(profile);restored+=1;current=this.read().data.resources;row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;}
-
+          if(row){
+            alreadyPresent+=1;
+            if(credential&&this.setCredentialFn&&row.credentialConfigured!==true){
+              await this.setCredentialFn(row.id,credential);current=this.read().data.resources;row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??row;
+            }
+          }else{
+            await this.configure(hydrated);restored+=1;current=this.read().data.resources;row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;
+          }
+          if(profile.wasConnected&&row&&this.connectFn&&!row.callable){
+            const result=await this.connectFn(row.id);requalified+=1;this.#saveProfile(hydrated,result??row,{force:true});
+          }
         }catch(error){failed.push({role:profile.role,resourceId:profile.resourceId,stage:'RESTORE',code:error?.code??'RESOURCE_RESTORE_FAILED',message:String(error?.message??error)});}
       }
       return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored,alreadyPresent,requalified,failed});
@@ -481,7 +497,9 @@ export class Wave13ResourceControlAdapter{
     this.lastError=null;
     if(!this.discoverModelsFn){const e=new Error('Provider model discovery is not exported by the Worker 2 resource host.');e.code='RESOURCE_MODEL_DISCOVERY_UNAVAILABLE';this.lastError=e;throw e;}
     try{
-      const payload=this.publicHost?normalizeWorker2DiscoveryConfig(config):cloneSafe(config);
+      const role=connectionProfileRole(config),credential=(typeof config.apiKey==='string'&&config.apiKey.trim())?config.apiKey.trim():this.#credentialFor(role);
+      const hydrated=credential?{...config,apiKey:credential}:config;
+      const payload=this.publicHost?normalizeWorker2DiscoveryConfig(hydrated):cloneSafe(hydrated);
       const result=await this.discoverModelsFn(payload);
       this.lastAction={type:'DISCOVER_MODELS',result:cloneSafe(result)};
       return cloneSafe(result);
@@ -503,20 +521,22 @@ export class Wave13ResourceControlAdapter{
     this.lastError=null;
     if(!this.connectFn){const e=new Error('Resource connect action is not exported by the host assembly.');e.code='RESOURCE_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
     try{
-      let result;
+      let result;const role=connectionProfileRole(config),explicitCredential=typeof config?.apiKey==='string'?config.apiKey.trim():'';
+      const credential=explicitCredential||this.#credentialFor(role),hydrated=credential?{...config,apiKey:credential}:config;
       if(this.publicHost){
-        const requestedId=resourceId(config),role=connectionProfileRole(config);
+        const requestedId=resourceId(hydrated);
         const existing=this.read().data.resources.find(row=>(requestedId&&row.id===requestedId)||(role&&row.kind===role));
         if(existing){
-          result=await this.connectFn(existing.id);this.#saveProfile(config,result??existing,{force:true});
+          if(credential&&this.setCredentialFn&&(Boolean(explicitCredential)||existing.credentialConfigured!==true))await this.setCredentialFn(existing.id,credential);
+          result=await this.connectFn(existing.id);this.#saveProfile(hydrated,result??existing,{force:true});
         }else{
-          const normalized=normalizeWorker2ResourceConfig(config);
+          const normalized=normalizeWorker2ResourceConfig(hydrated);
           if(!this.addFn){const e=new Error('Worker 2 resource host requires addResource() before connectResource().');e.code='RESOURCE_CONFIGURE_ACTION_UNAVAILABLE';throw e;}
-          const configured=await this.addFn(normalized);this.#saveProfile(config,configured??normalized,{force:true});
-          result=await this.connectFn(normalized.resourceId);this.#saveProfile(config,result??configured??normalized,{force:true});
+          const configured=await this.addFn(normalized);this.#saveProfile(hydrated,configured??normalized,{force:true});
+          result=await this.connectFn(normalized.resourceId);this.#saveProfile(hydrated,result??configured??normalized,{force:true});
         }
       }else{
-        result=await this.connectFn(cloneSafe(config));this.#saveProfile(config,result,{force:true});
+        result=await this.connectFn(cloneSafe(hydrated));this.#saveProfile(hydrated,result,{force:true});
       }
       this.lastAction={type:'CONNECT',result:cloneSafe(result)};return cloneSafe(result);
     }catch(error){this.lastError=error;throw error;}
@@ -553,12 +573,34 @@ export class Wave13ResourceControlAdapter{
     }
     return out;
   }
+  #credentialMap(){
+    if(!this.stateStore?.load)return{};
+    const raw=this.stateStore.load()?.[this.connectionCredentialKey];
+    if(!raw||typeof raw!=='object'||Array.isArray(raw))return{};
+    const out={};
+    for(const [role,row] of Object.entries(raw)){
+      const normalizedRole=connectionProfileRole({role});const apiKey=typeof row?.apiKey==='string'?row.apiKey.trim():'';
+      if(normalizedRole&&apiKey)out[normalizedRole]={version:1,apiKey};
+    }
+    return out;
+  }
+  #credentialFor(role){const normalized=connectionProfileRole({role});return normalized?this.#credentialMap()[normalized]?.apiKey??null:null;}
   #writeProfileMap(map){if(this.stateStore?.save)this.stateStore.save({[this.connectionProfileKey]:map});}
+  #writeCredentialMap(map){if(this.stateStore?.save)this.stateStore.save({[this.connectionCredentialKey]:map});}
+  #saveCredential(input,role,{force=false}={}){
+    const normalizedRole=connectionProfileRole({role})??connectionProfileRole(input),apiKey=typeof input?.apiKey==='string'?input.apiKey.trim():'';
+    if(!normalizedRole||!apiKey||!this.stateStore?.save)return null;
+    if(this.persistenceSuppressed.has(normalizedRole)&&!force)return null;
+    const map=this.#credentialMap(),next={version:1,apiKey};
+    if(map[normalizedRole]?.apiKey===apiKey)return true;
+    map[normalizedRole]=next;this.#writeCredentialMap(map);return true;
+  }
   #saveProfile(input,observed=null,{force=false}={}){
     const normalized=normalizePersistedConnectionProfile(input,observed);
     if(!normalized||!this.stateStore?.save)return null;
     if(this.persistenceSuppressed.has(normalized.role)&&!force)return null;
     if(force)this.persistenceSuppressed.delete(normalized.role);
+    this.#saveCredential(input,normalized.role,{force});
     const map=this.#profileMap(),previous=map[normalized.role]??null;
     if(JSON.stringify(previous)===JSON.stringify(normalized))return cloneSafe(normalized);
     map[normalized.role]=normalized;this.#writeProfileMap(map);return cloneSafe(normalized);
@@ -945,7 +987,7 @@ async function runLoreRuntime(runtime,input={}){
   return{kind:'LoreStudyOperatorRun',requested:due.length,results};
 }
 
-const WAVE13_CONNECTION_PROFILE_VERSION=1;
+const WAVE13_CONNECTION_PROFILE_VERSION=2;
 function connectionProfileRole(input={}){
   const explicit=String(input?.role??input?.resourceRole??'').toUpperCase();
   if(['JEV','SIDECAR','VECTORING'].includes(explicit))return explicit;
@@ -1004,7 +1046,7 @@ function normalizeResources(raw){
       capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
       lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
-      diagnostics:cloneSafe(row.diagnostics??[]),callable:Boolean(row.callable),lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
+      diagnostics:cloneSafe(row.diagnostics??[]),callable:Boolean(row.callable),credentialConfigured:Boolean(row.credentialConfigured),credentialRequired:Boolean(row.credentialRequired),lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
     });
   });
 }

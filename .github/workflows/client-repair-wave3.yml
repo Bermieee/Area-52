@@ -45,14 +45,14 @@ jobs:
       - name: Worker 3 selected-turn UI scenarios
         run: >
           node --test
-          --test-name-pattern='floating collapse releases|Home Inspect details|intentional JEV_NOT_REQUIRED|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|Connections maps logical fan-out|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
+          --test-name-pattern='floating collapse releases|locked credentials persist|Home Inspect details|intentional JEV_NOT_REQUIRED|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|Connections maps logical fan-out|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
           tests/wave13-operator-ui.test.mjs
       - name: Bounded UI stress / subscription hygiene
         run: node tests/wave13-operator-ui-stress.mjs
       - name: Live-like host selection and remount scenarios
         run: >
           node --test
-          --test-name-pattern='mount, duplicate mount, destroy and remount|chat switch drops stale|same-turn owner receipt update|wrong-generation Cognitive Choice|Gather late/Seal admission conflict|routine host telemetry'
+          --test-name-pattern='floating UI.Core product beside|mount, duplicate mount, destroy and remount|chat switch drops stale|same-turn owner receipt update|wrong-generation Cognitive Choice|Gather late/Seal admission conflict|routine host telemetry'
           tests/wave12-sillytavern-host.test.mjs
       - name: Browser-facing imports
         run: >
@@ -73,6 +73,7 @@ jobs:
           node --check src/ui-core/wave6-front-face.js &&
           node --check src/ui-core/wave6-presentation.js &&
           node --check src/ui-core/wave6-runtime.js &&
+          node --check src/ui-core/wave12-sillytavern-host.js &&
           node --check src/ui-core/wave8-cognition.js &&
           node --check src/ui-core/wave8-production-adapters.js &&
           node --check src/ui-core/wave13-floating-navigation.js &&

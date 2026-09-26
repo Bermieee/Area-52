@@ -52,7 +52,12 @@ export class OpenRouterJevDecisionAdapter{
     this.contextLimit=Number.MAX_SAFE_INTEGER;this.outputLimit=Number.MAX_SAFE_INTEGER;this.setCredential(apiKey);
   }
   get credentialConfigured(){return Boolean(this.#apiKey);}
-  setCredential(value){const key=normalizeOpenRouterApiKey(value);this.#apiKey=key||null;return Boolean(this.#apiKey);}
+  setCredential(value){
+    const key=normalizeOpenRouterApiKey(value);
+    if(/[^\x21-\x7E]/.test(key))throw new ProviderInvocationError(FailureCode.CREDENTIAL_INVALID_FORMAT,'OpenRouter Decision Core API key contains an unsupported character. Paste the raw ASCII key from OpenRouter.',{providerId:this.providerId});
+    this.#apiKey=key||null;
+    return Boolean(this.#apiKey);
+  }
   clearCredential(){this.#apiKey=null;return true;}
   setModelId(value){this.modelId=normalizeOpenRouterJevModel(value);return this.modelId;}
   async discoverModels(){return Object.freeze({ok:true,supported:true,state:ProviderModelDiscoveryState.READY,models:Object.freeze([{id:this.modelId,displayName:this.modelId,capabilities:Object.freeze([...this.capabilities])}]),latencyMs:0,transportMode:this.transportMode});}

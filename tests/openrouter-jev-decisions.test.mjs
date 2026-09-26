@@ -31,6 +31,17 @@ test('OpenRouter Jev normalization matches the dedicated Decisions connection co
   assert.equal(normalizeOpenRouterDecisionsEndpoint('https://openrouter.ai/api/alpha/decisions/'),OPENROUTER_DECISIONS_ENDPOINT);
 });
 
+test('invalid Unicode in a Jev credential is rejected before any credential probe',async()=>{
+  let requests=0;
+  const adapter=createOpenRouterJevDecisionAdapter({apiKey:'sk-or-valid',fetchImpl:async()=>{requests++;return response(200,{});}});
+  assert.throws(()=>adapter.setCredential('sk-or-pasted-\u2011-key'),error=>
+    error?.code==='CREDENTIAL_INVALID_FORMAT'&&
+    /unsupported character/.test(error.message)&&
+    !error.message.includes('sk-or-pasted')
+  );
+  assert.equal(requests,0);
+});
+
 test('qualification probes the dedicated key then performs a real typed Noul Decisions call',async()=>{
   const calls=[];
   const adapter=createOpenRouterJevDecisionAdapter({

@@ -625,6 +625,10 @@ export class Area52NativeBrain{
     if(selection?.correlationId!=null&&record.correlationId!==String(selection.correlationId))return null;
     if(selection?.sceneRevision!=null&&Number(record.sceneRevision)!==Number(selection.sceneRevision))return null;
     if(selection?.worldRevision!=null&&Number(record.worldRevision)!==Number(selection.worldRevision))return null;
+    if((selection?.sourceRevisionRefs??[]).length){
+      const selectedFence=new Set((record.sourceRevisionSet??[]).map(String));
+      if((selection.sourceRevisionRefs??[]).some(ref=>!selectedFence.has(String(ref))))return null;
+    }
     return record;
   }
 
@@ -658,7 +662,9 @@ export class Area52NativeBrain{
   }
 
   #selectedTurnReceipt(record){
-    const selection=this.#selection(record),scene=this.core.sceneIntegrationSnapshot(record.chatId),hot=this.core.hotCognitionSnapshot(record.chatId);
+    // Selected-turn diagnostics must be assembled from the immutable turn record. Reading the
+    // current Scene/Hot snapshots here can silently fill an older selection from a newer turn.
+    const selection=this.#selection(record),scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
     const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record);
     const producer=(value,{id=null,reasonCodes=[]}={})=>({status:value?'PUBLISHED':'UNAVAILABLE',id:value?(id??value.receiptId??value.id??value.promptPlanId??value.kind??null):null,reasonCodes:uniq(reasonCodes).slice(0,16)});
     const deferred=(plan?.deferred??[]).slice(0,16).map(row=>({slot:row.slot??null,reason:row.reason??null,requiredTokens:row.requiredTokens??null,remainingTokensAtDecision:row.remainingTokensAtDecision??null,shortfallTokens:row.shortfallTokens??null}));

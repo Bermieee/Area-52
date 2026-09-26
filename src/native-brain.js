@@ -16,6 +16,7 @@ import {NativeKnowledgeStore} from './native-knowledge-store.js';
 import {NativeLearningFeedback} from './native-learning-feedback.js';
 import {
   CAPABILITIES,
+  CognitiveObligationReconciler,
   LIFECYCLE_STATUS,
   MemoryPersistenceAdapter,
   WorkerDirector,
@@ -137,6 +138,7 @@ export class Area52NativeBrain{
       concurrencyCapacity:1,latencyScore:1,qualityScore:1,
       foregroundEligible:true,backgroundEligible:true,
     });
+    this.obligationReconciler=new CognitiveObligationReconciler({director:this.runtimeDirector,snapshot:snapshot?.expectedWork??null});
     this.#attachRecoveredExecutors();
   }
 
@@ -317,8 +319,8 @@ export class Area52NativeBrain{
       required:false,priority:8,metadata:{contextRetirementReceiptId:contextRetirement.receiptId,hostHistoryMutation:false},
     }]:[];
     const delivery=this.core.deliverGenerationContext({
-      published,generationId,modelProfileId,budgetTokens,systemPolicy,userInput:q,contributions,
-      providerId,modelId,routeId,observedCacheBehavior,
+      published,chatId:chat,generationId,correlationId:corr,worldRevision:published.worldRevision,sceneRevision:sceneState.sceneRevision,
+      modelProfileId,budgetTokens,systemPolicy,userInput:q,contributions,providerId,modelId,routeId,observedCacheBehavior,
     });
     if(!delivery?.ok)throw new Error('NATIVE_BRAIN_DELIVERY_FAILED:'+String(delivery?.status??delivery?.failure?.code??'UNKNOWN'));
     const retrievalSkipped=(published.cognitiveChoiceReceipt?.skippedJobs??[]).includes('RETRIEVAL');
@@ -483,6 +485,7 @@ export class Area52NativeBrain{
       readLoreStatus:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainLoreStatus',...this.#selection(record),sync:clone(record.loreSync??null),fallbackStore:this.loreInterface?null:this.knowledge.diagnostics(),authorityGranted:false})),
       readMemoryStatus:(selection={})=>this.#readStage(selection,record=>this.#memoryReadModel(record,selection)),
       readRuntimeStatus:()=>clone(this.runtimeDirector.snapshot()),
+      readExpectedWork:(selection={})=>this.#readStage(selection,record=>this.#expectedWorkReadModel(record)),
       readPromptPlan:(selection={})=>this.#readStage(selection,record=>record.delivery?.plan??null),
       readContextRetirement:(selection={})=>this.#readStage(selection,record=>record.contextRetirement??null),
       readPromptDeliveryReceipt:(selection={})=>this.#readStage(selection,record=>record.delivery?.receipt??null),
@@ -500,6 +503,29 @@ export class Area52NativeBrain{
   contextRetirementContract(){return contextRetirementContract();}
   promptDeliveryIntegrationContract(){return this.core.delivery.integrationContract();}
   attachObservedHostPromptEvidence(receipt,evidence={}){return this.core.delivery.attachObservedHostEvidence(receipt,evidence);}
+  declareExpectedCognitiveWork(declaration,executor=null){return this.obligationReconciler.declare(declaration,executor);}
+  reconcileExpectedCognitiveWork(expectedId,options={}){return this.obligationReconciler.reconcile(expectedId,options);}
+  listExpectedCognitiveWork(){return this.obligationReconciler.list();}
+  recordHostObservationEvidence(turnId,evidence={}){
+    const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record)throw new Error('Unknown native Brain turn: '+id);
+    const mismatch=(name,expected,actual)=>actual!=null&&String(actual)!==String(expected)?name:null;
+    const bad=[mismatch('chatId',record.chatId,evidence.chatId),mismatch('turnId',record.turnId,evidence.turnId),mismatch('generationId',record.generationId,evidence.generationId),mismatch('correlationId',record.correlationId,evidence.correlationId),mismatch('worldRevision',record.worldRevision,evidence.worldRevision),mismatch('sceneRevision',record.sceneRevision,evidence.sceneRevision)].filter(Boolean);
+    if(bad.length)throw new Error('HOST_OBSERVATION_IDENTITY_MISMATCH:'+bad.join(','));
+    record.hostObservation={
+      kind:'ObservedHostTurnEvidence',eventId:req(evidence.eventId??('host-observation:'+record.generationId),'host observation eventId'),
+      chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,
+      worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,sourceRevisionRefs:uniq(evidence.sourceRevisionRefs??record.sceneSourceRevisionRefs??[]).slice(0,32),
+      durationMs:Number.isFinite(Number(evidence.durationMs))?Math.max(0,Number(evidence.durationMs)):null,capturedAt:evidence.capturedAt??null,
+      rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+    };
+    this.#notify('HOST_OBSERVATION_RECORDED',record);return clone(record.hostObservation);
+  }
+  recordObservedHostPromptEvidence(turnId,evidence={}){
+    const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record)throw new Error('Unknown native Brain turn: '+id);
+    const bounded={...clone(evidence),chatId:evidence.chatId??record.chatId,turnId:evidence.turnId??record.turnId,generationId:evidence.generationId??record.generationId,correlationId:evidence.correlationId??record.correlationId,contextSealId:evidence.contextSealId??record.delivery?.receipt?.contextSealId};
+    for(const [name,expected] of [['chatId',record.chatId],['turnId',record.turnId],['generationId',record.generationId],['correlationId',record.correlationId]])if(bounded[name]!=null&&String(bounded[name])!==String(expected))throw new Error('HOST_DELIVERY_IDENTITY_MISMATCH:'+name);
+    const receipt=this.core.delivery.attachObservedHostEvidence(record.delivery?.receipt,bounded);record.delivery.receipt=clone(receipt);this.#notify('HOST_DELIVERY_EVIDENCE_RECORDED',record);return clone(receipt);
+  }
   identityReferences(entityIds=[],options={}){return this.core.entityIdentityReferences(entityIds,options);}
   temporalReferences(options={}){return this.core.temporalStateReferences(options);}
 
@@ -522,7 +548,7 @@ export class Area52NativeBrain{
       },
       memoryInterface:{attached:Boolean(this.memoryInterface),kind:this.memoryInterface?.kind??null,contractVersion:this.memoryInterface?.contractVersion??null},
       ownerEvidence:{retained:this.ownerEvidence.size,currentSourceRevisionRefs:this.core.externalCurrentSourceRevisionIds()},
-      runtime:this.runtimeDirector.snapshot(),
+      expectedWork:{count:this.obligationReconciler.list().length},runtime:this.runtimeDirector.snapshot(),
       nativeRequirements:{jevRequired:false,sidecarRequired:false,externalDatabaseRequired:false,sqlRequired:false,remoteModelRequired:false,userOrchestratorRequired:false},
     };
   }
@@ -540,7 +566,7 @@ export class Area52NativeBrain{
       knowledge:this.knowledge.exportState(),feedback:this.feedback.exportState(),
       loreRevisionTrust:[...this.loreRevisionTrust.entries()],rejectedLoreRevisionIds:[...this.rejectedLoreRevisionIds],
       turns:[...this.turns.entries()],turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
-      runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,
+      runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,expectedWork:this.obligationReconciler.snapshot(),
     });
   }
 

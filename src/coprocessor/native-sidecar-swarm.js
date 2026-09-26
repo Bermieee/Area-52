@@ -41,6 +41,8 @@ export class NativeSidecarSwarm{
     this.minimumJevExpectedValue=Math.max(0,Math.min(1,Number(minimumJevExpectedValue)||.65));
     this.turns=new Map();
     this.turnOrder=[];
+    this.completedCheckpoints=new Map();
+    this.checkpointOrder=[];
     this.jev=new JevDecisionCore({providerExecutor:this.connections.createJevProviderExecutor()});
   }
 
@@ -93,6 +95,12 @@ export class NativeSidecarSwarm{
     if(freshness!==Freshness.FRESH){
       const records=checkpoint.pendingTasks.map(task=>rejectedRecord(task,NativeSwarmResultState.REJECTED_STALE,FailureCode.STALE_RESULT));
       return this.#finish(checkpoint,{records,jevReceipt:null,checkpoint:null,resumeStatus:'STALE_REJECTED',gatherBundle:null,gatherCompilerInput:null,layeredScatterReceipt:null});
+    }
+
+    const completedReplay=this.completedCheckpoints.get(checkpoint.checkpointId);
+    if(completedReplay){
+      const replaySealed=Boolean(await resolveValue(sealed,false));
+      return replayCompletedTurn(completedReplay,{sealed:replaySealed});
     }
 
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_RESUMED,{
@@ -256,7 +264,9 @@ export class NativeSidecarSwarm{
       proposal:checkpoint.proposal,tasks:deferred,createdAt:this.now(),maxBytes:this.maxCheckpointBytes,parentCheckpointId:checkpoint.checkpointId,
       plannerSignals:checkpoint.plannerSignals,identity:checkpoint.identity,
     }):null;
-    return this.#finish(checkpoint,{records,jevReceipt,checkpoint:nextCheckpoint,resumeStatus:'EXECUTED',gatherBundle,gatherCompilerInput,layeredScatterReceipt});
+    const finished=this.#finish(checkpoint,{records,jevReceipt,checkpoint:nextCheckpoint,resumeStatus:'EXECUTED',gatherBundle,gatherCompilerInput,layeredScatterReceipt});
+    this.#rememberCheckpointResult(checkpoint.checkpointId,finished);
+    return finished;
   }
 
   readModel(){
@@ -404,6 +414,12 @@ export class NativeSidecarSwarm{
     const id=summary.turnId;if(!this.turns.has(id))this.turnOrder.push(id);this.turns.set(id,summary);
     while(this.turnOrder.length>this.maxHistory)this.turns.delete(this.turnOrder.shift());
   }
+
+  #rememberCheckpointResult(checkpointId,result){
+    if(!this.completedCheckpoints.has(checkpointId))this.checkpointOrder.push(checkpointId);
+    this.completedCheckpoints.set(checkpointId,result);
+    while(this.checkpointOrder.length>this.maxHistory)this.completedCheckpoints.delete(this.checkpointOrder.shift());
+  }
 }
 
 export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Date.now(),maxBytes=131072,parentCheckpointId=null,plannerSignals=null,identity=null}={}){
@@ -415,7 +431,7 @@ export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Dat
     characterStateRevision:Number(turnEvent?.characterStateRevision??proposal.revisionFence?.characterStateRevision??0),
   };
   const base={turnId:String(turnEvent?.turnId??proposal.turnId),correlationId:String(turnEvent?.correlationId??proposal.correlationId),proposalId:proposal.proposalId,
-    revisionFence,taskIds:tasks.map(task=>task.taskId),parentCheckpointId};
+    revisionFence,taskIds:tasks.map(task=>task.taskId),parentCheckpointId,chatId:identity?.chatId??null,generationId:identity?.generationId??null};
   const checkpoint=deepFreeze({
     kind:'CoprocessorSwarmCheckpoint',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
     checkpointId:'cop-swarm:'+sha256Hex(stable(base)).slice(0,24),createdAt:Number(createdAt),parentCheckpointId,
@@ -499,6 +515,17 @@ function publicRecord(record){return deepFreeze({taskId:record.taskId,optionId:r
   resultId:record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
   fallbackUsed:record.fallbackUsed,late:record.late,stale:record.stale,invalid:record.invalid});}
 function countStates(records){const out=Object.fromEntries(Object.values(NativeSwarmResultState).map(state=>[state,0]));for(const record of records)out[record.state]+=1;return deepFreeze(out);}
+function replayCompletedTurn(result,{sealed=false}={}){
+  const replay=clone(result);
+  replay.readModel={...replay.readModel,resumeStatus:sealed?'REPLAY_REJECTED_POST_SEAL':'REPLAY',replayed:true,replayPhysicalAttempts:0};
+  replay.contribution={...replay.contribution,resumeStatus:sealed?'REPLAY_REJECTED_POST_SEAL':'REPLAY',replayed:true,replayPhysicalAttempts:0};
+  if(sealed){
+    replay.contribution.resultsForOwner=[];
+    replay.contribution.jevReceipt=null;
+    replay.contribution.ownerAdmissionRequired=true;
+  }
+  return deepFreeze(replay);
+}
 function retryable(code){return [FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED,FailureCode.PROVIDER_FAILURE,FailureCode.PROVIDER_TIMEOUT,FailureCode.CAPABILITY_UNAVAILABLE].includes(code);}
 function linkAbort(signal,controller){if(!signal)return()=>{};const abort=()=>controller.abort(signal.reason??'caller-abort');if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});return()=>signal.removeEventListener?.('abort',abort);}
 async function resolveValue(value,fallback){if(typeof value==='function')return await value();return value??fallback;}

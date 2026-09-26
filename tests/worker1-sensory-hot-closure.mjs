@@ -133,6 +133,7 @@ test('DETERMINISTIC: #27 identity/source correction invalidates the smallest Hot
   });
   brain.registerEntityIdentity({
     entityId:'entity:neutral:keeper',canonicalLabel:'Neutral Keeper',entityType:'PERSON',worldId:'world:neutral',
+    providerId:'LORE_NEUTRAL',sourceEntityId:'neutral-keeper-owner',
     sourceRevisionRefs:[lore.sourceRevisionId],provenanceRefs:[lore.evidenceId],authorityOrigin:'SOURCE_EXPLICIT',
   });
 

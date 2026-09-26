@@ -413,7 +413,7 @@ export class Wave13ResourceControlAdapter{
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),setCredential:Boolean(this.setCredentialFn),clearCredential:Boolean(this.clearCredentialFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
   savedProfiles(){
     const map=this.#profileMap();
     return deepFreeze(Object.values(map).map(row=>cloneSafe(row)).sort((a,b)=>String(a.role).localeCompare(String(b.role))));
@@ -448,13 +448,7 @@ export class Wave13ResourceControlAdapter{
           let current=this.read().data.resources,row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;
           if(row)alreadyPresent+=1;
           else{await this.configure(profile);restored+=1;current=this.read().data.resources;row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;}
-          const hostManaged=Boolean(row?.credentialManagedByHost||profile.credentialManagedByHost);
-          if(row&&!row.callable&&hostManaged){
-            await this.connect(row);
-            const refreshed=this.read().data.resources.find(item=>item.id===row.id||item.kind===profile.role)??null;
-            if(refreshed?.callable)requalified+=1;
-            else failed.push({role:profile.role,resourceId:profile.resourceId,stage:'REQUALIFY',code:refreshed?.reasonCode??'RESOURCE_REQUALIFY_FAILED',message:refreshed?.reason??'Saved host-managed resource did not become callable after restore.'});
-          }
+
         }catch(error){failed.push({role:profile.role,resourceId:profile.resourceId,stage:'RESTORE',code:error?.code??'RESOURCE_RESTORE_FAILED',message:String(error?.message??error)});}
       }
       return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored,alreadyPresent,requalified,failed});
@@ -972,11 +966,6 @@ function normalizePersistedConnectionProfile(input={},observed=null){
   const transportKind=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(transportRaw)?transportRaw:'OPENAI_COMPATIBLE';
   const endpoint=text(source.endpoint??input.endpoint);
   if(transportKind==='OPENAI_COMPATIBLE'&&!endpoint)return null;
-  // Jev used a short-lived SillyTavern chat-proxy experiment in earlier demo heads.
-  // Migrate those saved locks back to Area-52's actual credential contract:
-  // keep non-secret connection fields, discard host-secret references, and require
-  // a fresh session-only Decision Core credential before qualification.
-  const legacyHostManagedJev=role==='JEV'&&Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false);
   return{
     version:WAVE13_CONNECTION_PROFILE_VERSION,locked:true,role,resourceId:resourceIdValue,displayName,transportKind,endpoint:transportKind==='OPENAI_COMPATIBLE'?endpoint:null,
     modelId:text(source.modelId??input.modelId)??(transportKind==='DETERMINISTIC_LOCAL'?'local-deterministic':'model'),
@@ -984,12 +973,7 @@ function normalizePersistedConnectionProfile(input={},observed=null){
     providerId:text(source.providerId??input.providerId)??('provider:'+resourceIdValue),workerId:text(source.workerId??input.workerId)??('resource:'+resourceIdValue),
     maxConcurrency:Math.max(1,Number(source.concurrencyCapacity??source.maxConcurrency??input.maxConcurrency??input.concurrencyCapacity??1)||1),
     local:Boolean(source.local??input.local??false),
-    credentialPreviouslyConfigured:legacyHostManagedJev?false:Boolean(source.credentialConfigured??input.credentialPreviouslyConfigured??input.credentialConfigured??false),
-    credentialManagedByHost:legacyHostManagedJev?false:Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false),
-    hostCredentialSource:legacyHostManagedJev?null:text(source.hostCredentialSource??input.hostCredentialSource),
-    hostSecretId:legacyHostManagedJev?null:text(source.hostSecretId??input.hostSecretId),
-    connectionProfileName:legacyHostManagedJev?null:text(source.connectionProfileName??input.connectionProfileName),
-    wasConnected:legacyHostManagedJev?false:Boolean(source.connected??source.callable??input.wasConnected??false),
+    wasConnected:Boolean(source.connected??source.callable??input.wasConnected??false)
   };
 }
 
@@ -1013,8 +997,7 @@ function normalizeResources(raw){
       physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS'),
       ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,
       ownerAcceptanceSource:row.ownerAcceptanceSource??null,
-      workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
-      credentialManagedByHost:Boolean(row.credentialManagedByHost),hostCredentialSource:text(row.hostCredentialSource),hostSecretId:text(row.hostSecretId),connectionProfileName:text(row.connectionProfileName),
+      workerId:row.workerId??null,endpoint:text(row.endpoint),connectionProfileName:text(row.connectionProfileName),
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,

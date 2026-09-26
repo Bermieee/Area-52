@@ -645,32 +645,34 @@ test('Worker 2 configured resource reconnect uses resourceId and does not duplic
   assert.deepEqual(host.calls,[['connect','sidecar:configured']]);ui.destroy();
 });
 
-test('configured Worker 2 resources can recover credential model selection and qualification without exposing secrets',async()=>{
+test('configured Jev Sidecar and Vectoring cards expose no credential management layer',async()=>{
   const owner=liveOwner(),host=worker2ResourceHost({configured:true});owner.bindings.resourceHost=host;
   const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
-  const slot=()=>walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');
   const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
   const button=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  const slot=(role)=>walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot===role);
 
-  let sidecar=slot();assert.match(textOf(sidecar),/Resource is not callable/);
-  let key=fieldByLabel(sidecar,'Sidecar session credential');key.value='sk-recovery-secret';key.dispatch('input');
-  button(sidecar,'Save session credential').dispatch('click');await Promise.resolve();ui.scheduler.flush(2);
-  assert.doesNotMatch(JSON.stringify(host.calls),/sk-recovery-secret/);assert.ok(host.calls.some(x=>x[0]==='setCredential'&&x[2].credentialConfigured===true));
+  for(const role of ['JEV','SIDECAR','VECTORING']){
+    const card=slot(role);
+    if(!card)continue;
+    const body=textOf(card);
+    assert.doesNotMatch(body,/session credential|save session credential|clear session credential|credential configured|credential required|stored by sillytavern/i);
+    assert.equal(walk(card).some(x=>/credential/i.test(x.getAttribute?.('aria-label')??'')),false);
+    assert.equal(walk(card).some(x=>x.tagName==='BUTTON'&&/credential/i.test(x.textContent??'')),false);
+  }
 
-  sidecar=slot();button(sidecar,'Refresh models').dispatch('click');await Promise.resolve();ui.scheduler.flush(3);
-  sidecar=slot();const model=fieldByLabel(sidecar,'Sidecar qualified model');assert.equal(model.disabled,false);model.value='owner/model-b';
-  button(sidecar,'Select model').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
+  let sidecar=slot('SIDECAR');assert.match(textOf(sidecar),/Resource is not callable/);
+  button(sidecar,'Refresh models').dispatch('click');await Promise.resolve();ui.scheduler.flush(2);
+  sidecar=slot('SIDECAR');
+  const model=fieldByLabel(sidecar,'Sidecar qualified model');assert.equal(model.disabled,false);model.value='owner/model-b';
+  button(sidecar,'Select model').dispatch('click');await Promise.resolve();ui.scheduler.flush(3);
   assert.ok(host.calls.some(x=>x[0]==='selectModel'&&x[2]==='owner/model-b'));
 
-  sidecar=slot();button(sidecar,'Connect / qualify').dispatch('click');await Promise.resolve();ui.scheduler.flush(5);
-  let read=ui.operator.resources.read(),row=read.data.resources.find(x=>x.id==='sidecar:configured');
+  sidecar=slot('SIDECAR');button(sidecar,'Connect / qualify').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
+  const read=ui.operator.resources.read(),row=read.data.resources.find(x=>x.id==='sidecar:configured');
   assert.equal(row.selectedModelQualified,true);assert.equal(row.callable,true);assert.equal(row.actualModelId,'owner/model-b');
-  sidecar=slot();assert.match(textOf(sidecar),/Qualified callable by owner/);
-
-  key=fieldByLabel(sidecar,'Sidecar session credential');key.value='sk-unsubmitted';key.dispatch('input');
-  ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(6);sidecar=slot();
-  assert.equal(fieldByLabel(sidecar,'Sidecar session credential').value,'');assert.match(textOf(sidecar),/API key cleared on refresh/);
-  assert.doesNotMatch(JSON.stringify({calls:host.calls,read:ui.operator.resources.read(),diagnostics:ui.operator.diagnostics.read()}),/sk-recovery-secret|sk-unsubmitted/);
+  sidecar=slot('SIDECAR');assert.match(textOf(sidecar),/Qualified callable by owner/);
+  assert.equal(host.calls.some(x=>x[0]==='setCredential'||x[0]==='clearCredential'),false);
   ui.destroy();
 });
 

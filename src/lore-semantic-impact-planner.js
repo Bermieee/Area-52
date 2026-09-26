@@ -348,6 +348,10 @@ export class LoreSemanticImpactPlanner {
     const summaries = fromRevision ? listSummaryDependencies(this.intelligence, fromRevision.id) : [];
     const retrievalRecords = fromRevision ? listRetrievalDependencies(this.intelligence, sourceId, fromRevision.id) : [];
     const ontology = fromRevision ? listOntologyDependencies(this.intelligence, sourceId, fromRevision.id) : [];
+    const createdRepresentations = !fromRevision ? listRepresentationDependencies(this.intelligence, sourceId, toRevision.id) : [];
+    const createdSummaries = !fromRevision ? listSummaryDependencies(this.intelligence, toRevision.id) : [];
+    const createdRetrievalRecords = !fromRevision ? listRetrievalDependencies(this.intelligence, sourceId, toRevision.id) : [];
+    const createdOntology = !fromRevision ? listOntologyDependencies(this.intelligence, sourceId, toRevision.id) : [];
     const beforeRetrievalArtifacts = beforeRows
       .filter((row) => [ArtifactType.RETRIEVAL, ArtifactType.COMPACT].includes(row.artifactType))
       .map((row) => ({
@@ -389,9 +393,40 @@ export class LoreSemanticImpactPlanner {
       required.push({
         target: 'STUDY_ARTIFACTS',
         action: 'REGENERATE',
-        reason: 'SOURCE_REVISION_CHANGED',
-        refs: bounded(beforeArtifactRows.map((row) => row.ref), MAX_REFS),
+        reason: fromRevision ? 'SOURCE_REVISION_CHANGED' : 'NEW_SOURCE_REQUIRES_STUDY',
+        refs: bounded(
+          fromRevision ? beforeArtifactRows.map((row) => row.ref) : afterRows.map((row) => row.id),
+          MAX_REFS,
+        ),
       });
+      if (!fromRevision && toRevision.state !== 'REMOVED') {
+        required.push(
+          {
+            target: 'REPRESENTATIONS',
+            action: 'REGENERATE',
+            reason: 'NEW_SOURCE_REQUIRES_REPRESENTATIONS',
+            refs: bounded(dedupeRefs(createdRepresentations), MAX_REFS),
+          },
+          {
+            target: 'RETRIEVAL_INDEX',
+            action: 'REINDEX',
+            reason: 'NEW_SOURCE_REQUIRES_RETRIEVAL',
+            refs: bounded(dedupeRefs(createdRetrievalRecords), MAX_REFS),
+          },
+          {
+            target: 'ONTOLOGY',
+            action: 'REGENERATE',
+            reason: 'NEW_SOURCE_REQUIRES_ONTOLOGY_RECONCILIATION',
+            refs: bounded(dedupeRefs(createdOntology), MAX_REFS),
+          },
+          {
+            target: 'NAVIGATION_SUMMARIES',
+            action: 'REGENERATE',
+            reason: 'NEW_SOURCE_REQUIRES_NAVIGATION_RECONCILIATION',
+            refs: bounded(dedupeRefs(createdSummaries), MAX_REFS),
+          },
+        );
+      }
       if (representations.length) required.push({
         target: 'REPRESENTATIONS',
         action: 'REGENERATE',

@@ -20,6 +20,19 @@ export class SceneGraph{
     const edgeType=map[kind];if(!edgeType)throw new TypeError(`unsupported membership kind ${kind}`);
     this.addScene({sceneId});const id=`${edgeType}:${refId}->${sceneId}`;const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,fromRef:refId,toSceneId:sceneId,evidenceRefs:[...new Set(evidenceRefs)],provenance:[...new Set(provenance)],causal:false};this.edges.set(id,edge);return clone(edge);
   }
+
+  addEvidenceLink({fromRef,toRef,relation='SUPPORTS',evidenceRefs=[],provenance=[],derivedFrom=[]}={}){
+    const from=String(fromRef??'').trim(),to=String(toRef??'').trim(),kind=String(relation??'SUPPORTS').toUpperCase();
+    if(!from||!to)throw new TypeError('evidence link requires fromRef and toRef');
+    if(!['CAUSES','SUPPORTS'].includes(kind))throw new TypeError(`unsupported evidence relation ${kind}`);
+    const refs=[...new Set((evidenceRefs??[]).filter(Boolean).map(String))];
+    if(!refs.length)throw new TypeError('evidence-backed Scene graph link requires evidenceRefs');
+    const edgeType=kind==='CAUSES'?SceneGraphEdgeType.EVIDENCE_CAUSES:SceneGraphEdgeType.EVIDENCE_SUPPORTS;
+    const id=`${edgeType}:${from}->${to}`;
+    const prior=this.edges.get(id);
+    const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,fromRef:from,toRef:to,evidenceRefs:[...new Set([...(prior?.evidenceRefs??[]),...refs])],provenance:[...new Set([...(prior?.provenance??[]),...(provenance??[])])],derivedFrom:[...new Set([...(prior?.derivedFrom??[]),...(derivedFrom??[])])],causal:kind==='CAUSES',evidenceBacked:true};
+    this.edges.set(id,edge);return clone(edge);
+  }
   neighbors(sceneId){return [...this.edges.values()].filter((e)=>e.fromSceneId===sceneId||e.toSceneId===sceneId).map(clone);}
   relation(from,to){return [...this.edges.values()].find((e)=>e.fromSceneId===from&&e.toSceneId===to)??null;}
   exportState(){return clone({version:1,nodes:[...this.nodes.values()],edges:[...this.edges.values()]});}

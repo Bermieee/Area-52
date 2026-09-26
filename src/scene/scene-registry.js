@@ -4,7 +4,13 @@ import { createCurrentScene } from './current-scene.js';
 const clone = (value) => structuredClone(value);
 
 export class SceneRegistry {
-  constructor() { this.records = new Map(); this.sequence = 0; }
+  constructor({maxSnapshots=96,maxDeltas=192}={}) { this.records = new Map(); this.sequence = 0;this.maxSnapshots=Math.max(8,Number(maxSnapshots)||96);this.maxDeltas=Math.max(16,Number(maxDeltas)||192); }
+
+  _trim(record){
+    if(record.snapshots?.length>this.maxSnapshots)record.snapshots.splice(0,record.snapshots.length-this.maxSnapshots);
+    if(record.deltas?.length>this.maxDeltas)record.deltas.splice(0,record.deltas.length-this.maxDeltas);
+    return record;
+  }
 
   openScene({ sceneId = null, sourceRange = { start:null, end:null }, sourceRevisionRefs = [], parentSceneId = null, relatedSceneIds = [], startMarker = null, provenance = [] } = {}) {
     const id = sceneId ?? `scene:${++this.sequence}`;
@@ -21,25 +27,25 @@ export class SceneRegistry {
   commit(scene, delta = null) {
     const record = this.records.get(scene.sceneId); if (!record) throw new Error(`unknown scene ${scene.sceneId}`);
     if (scene.revision <= record.revision) throw new Error('scene revision must advance monotonically');
-    record.revision = scene.revision; record.lifecycle = scene.lifecycle; record.sourceRange = clone(scene.sourceRange); record.snapshots.push(clone(scene)); if (delta) record.deltas.push(clone(delta)); record.updatedAt = Date.now();
+    record.revision = scene.revision; record.lifecycle = scene.lifecycle; record.sourceRange = clone(scene.sourceRange); record.snapshots.push(clone(scene)); if (delta) record.deltas.push(clone(delta)); record.updatedAt = Date.now();this._trim(record);
     return { sceneId: record.sceneId, revision: record.revision, lifecycle: record.lifecycle };
   }
 
   closeScene(sceneId, { endMarker = null, futureSceneEpisodeRef = null, evidenceRefs = [] } = {}) {
     const record = this.records.get(sceneId); if (!record) throw new Error(`unknown scene ${sceneId}`);
-    const current = clone(record.snapshots.at(-1)); current.revision += 1; current.lifecycle = SceneLifecycle.CLOSED; current.updatedAt = Date.now(); current.provenance = [...new Set([...current.provenance, ...evidenceRefs])]; record.revision = current.revision; record.lifecycle = SceneLifecycle.CLOSED; record.endMarker = clone(endMarker); record.futureSceneEpisodeRef = futureSceneEpisodeRef; record.snapshots.push(current); record.updatedAt = Date.now(); return clone(record);
+    const current = clone(record.snapshots.at(-1)); current.revision += 1; current.lifecycle = SceneLifecycle.CLOSED; current.updatedAt = Date.now(); current.provenance = [...new Set([...current.provenance, ...evidenceRefs])]; record.revision = current.revision; record.lifecycle = SceneLifecycle.CLOSED; record.endMarker = clone(endMarker); record.futureSceneEpisodeRef = futureSceneEpisodeRef; record.snapshots.push(current); record.updatedAt = Date.now();this._trim(record); return clone(record);
   }
 
-  suspendScene(sceneId, evidenceRefs = []) { const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.lifecycle=SceneLifecycle.SUSPENDED; current.provenance=[...new Set([...current.provenance,...evidenceRefs])]; record.revision=current.revision; record.lifecycle=SceneLifecycle.SUSPENDED; record.snapshots.push(current); return clone(record); }
+  suspendScene(sceneId, evidenceRefs = []) { const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.lifecycle=SceneLifecycle.SUSPENDED; current.provenance=[...new Set([...current.provenance,...evidenceRefs])]; record.revision=current.revision; record.lifecycle=SceneLifecycle.SUSPENDED; record.snapshots.push(current);this._trim(record); return clone(record); }
 
-  resumeScene(sceneId, evidenceRefs = []) { const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.lifecycle=SceneLifecycle.OPEN; current.provenance=[...new Set([...current.provenance,...evidenceRefs])]; record.revision=current.revision; record.lifecycle=SceneLifecycle.OPEN; record.snapshots.push(current); return clone(record); }
+  resumeScene(sceneId, evidenceRefs = []) { const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.lifecycle=SceneLifecycle.OPEN; current.provenance=[...new Set([...current.provenance,...evidenceRefs])]; record.revision=current.revision; record.lifecycle=SceneLifecycle.OPEN; record.snapshots.push(current);this._trim(record); return clone(record); }
 
-  exportState(){return clone({version:1,sequence:this.sequence,records:[...this.records.entries()]});}
-  static importState(state){const r=new SceneRegistry();r.sequence=state.sequence??0;r.records=new Map((state.records??[]).map(([id,record])=>[id,clone(record)]));return r;}
+  exportState(){return clone({version:2,sequence:this.sequence,maxSnapshots:this.maxSnapshots,maxDeltas:this.maxDeltas,records:[...this.records.entries()]});}
+  static importState(state){const r=new SceneRegistry({maxSnapshots:state.maxSnapshots??96,maxDeltas:state.maxDeltas??192});r.sequence=state.sequence??0;r.records=new Map((state.records??[]).map(([id,record])=>[id,r._trim(clone(record))]));return r;}
 
   reviseSource(sceneId, { sourceRevisionRef, affectedFields = [], evidenceRefs = [] }) {
     const record=this.records.get(sceneId); if(!record)throw new Error(`unknown scene ${sceneId}`); const current=clone(record.snapshots.at(-1)); current.revision+=1; current.sourceRevisionRefs=[...new Set([...current.sourceRevisionRefs,sourceRevisionRef])].slice(-128); current.updatedAt=Date.now(); current.provenance=[...new Set([...current.provenance,...evidenceRefs])].slice(-128);
     for(const field of affectedFields){if(current.fields[field]){current.fields[field]={...current.fields[field],observationClass:'UNRESOLVED',confidence:0,evidenceRefs:[...new Set(evidenceRefs)],revision:current.revision,provenance:[...new Set([...(current.fields[field].provenance??[]),...evidenceRefs])],metadata:{...(current.fields[field].metadata??{}),invalidatedBySourceEdit:true,previousEvidenceRefs:[...(current.fields[field].evidenceRefs??[])]}}; current.fieldEvidence[field]=[...new Set([...(current.fieldEvidence[field]??[]),...evidenceRefs])].slice(-64); if(!current.unresolvedFields.includes(field))current.unresolvedFields.push(field);}}
-    record.revision=current.revision; record.snapshots.push(current); record.updatedAt=Date.now(); return clone(record);
+    record.revision=current.revision; record.snapshots.push(current); record.updatedAt=Date.now();this._trim(record); return clone(record);
   }
 }

@@ -42,5 +42,22 @@ export class SceneRetrievalAdapter{
     results.sort((a,b)=>b.score-a.score||a.sceneId.localeCompare(b.sceneId));return results.slice(0,limit);
   }
 
+  temporalPath({fromSceneId,toSceneId,maxHops=4}={}){
+    if(!this.graph||!fromSceneId||!toSceneId)return{kind:'SceneTemporalPath',status:'UNAVAILABLE',sceneIds:[],edges:[],episodeRefs:[],sourceRevisionRefs:[],provenanceRefs:[],truthAuthority:false,contextSealAuthority:false};
+    const cap=Math.max(1,Math.min(8,Number(maxHops)||4)),queue=[{sceneId:fromSceneId,path:[],sceneIds:[fromSceneId]}],seen=new Set([fromSceneId]);
+    while(queue.length){
+      const row=queue.shift();if(row.sceneId===toSceneId){
+        const byScene=new Map(this.allEpisodes().map(e=>[e.sceneId,e]));
+        return{kind:'SceneTemporalPath',status:'FOUND',fromSceneId,toSceneId,sceneIds:row.sceneIds,edges:clone(row.path),episodeRefs:row.sceneIds.map(id=>byScene.get(id)?.artifactRef).filter(Boolean).map(clone),sourceRevisionRefs:[...new Set(row.path.flatMap(e=>e.evidenceRefs??[]))],provenanceRefs:[...new Set(row.path.flatMap(e=>e.provenance??[]))],truthAuthority:false,contextSealAuthority:false};
+      }
+      if(row.path.length>=cap)continue;
+      for(const edge of this.graph.neighbors(row.sceneId)){
+        const next=edge.fromSceneId===row.sceneId?edge.toSceneId:edge.toSceneId===row.sceneId?edge.fromSceneId:null;if(!next||seen.has(next))continue;
+        seen.add(next);queue.push({sceneId:next,path:[...row.path,edge],sceneIds:[...row.sceneIds,next]});
+      }
+    }
+    return{kind:'SceneTemporalPath',status:'NOT_FOUND',fromSceneId,toSceneId,sceneIds:[],edges:[],episodeRefs:[],sourceRevisionRefs:[],provenanceRefs:[],truthAuthority:false,contextSealAuthority:false};
+  }
+
   quality(results,{minHigh=.55,minMixed=.2}={}){const top=results[0]?.score??0;return top>=minHigh?RetrievalQuality.HIGH:top>=minMixed?RetrievalQuality.MIXED:RetrievalQuality.LOW;}
 }

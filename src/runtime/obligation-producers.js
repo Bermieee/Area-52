@@ -78,8 +78,14 @@ export class ObligationProducerRegistry {
     const unsubscribe = this.director.events.subscribe(eventType, (event) => {
       const request = mapEvent(event);
       if (!request) return;
-      const executor = executorFactory(event, request);
-      this.produce(producerId, request, executor);
+      const mapped = { ...request, cause: request.cause ?? {
+        eventType: event.eventType, eventId: event.eventId, correlationId: event.correlationId,
+        chatId: event.chatId, turnId: event.turnId, generationId: event.generationId,
+        producerId, consumerId: 'RUNTIME', worldRevision: event.worldRevision, sceneRevision: event.sceneRevision,
+        sourceRevisionRefs: event.revisionFences?.sourceRevisionIds ?? [],
+      } };
+      const executor = executorFactory(event, mapped);
+      this.produce(producerId, mapped, executor);
     });
     const binding = { eventType, producerId, unsubscribe };
     this.bindings.push(binding);

@@ -16,9 +16,12 @@ function turn(id,{worldRevision=3,sceneRevision=4}={}){
     worldRevision,sceneRevision,characterStateRevision:2,createdAt:now,deadline:now+5000,cognitiveLayer:'L1',
   });
 }
-function graphInput(id='site'){return{nodes:[{ref:id+':location',type:'LOCATION'}],edges:[],states:[{ref:id+':state',entityRef:id+':sensor',temporalStatus:'CURRENT',summary:'bounded-state'}],conflicts:[]};}
+function graphInput(id='site',{conflict=false}={}){return{nodes:[{ref:id+':location',type:'LOCATION'}],edges:[],states:[
+  {ref:id+':state',entityRef:id+':sensor',temporalStatus:'CURRENT',summary:'bounded-state'},
+  ...(conflict?[{ref:id+':unresolved',entityRef:id+':sensor',temporalStatus:'UNRESOLVED',summary:'bounded-conflict'}]:[]),
+],conflicts:conflict?[{ref:id+':conflict'}]:[]};}
 function truthInput(id='site'){return{intent:'CURRENT_STATE',evidence:[{ref:id+':e1',statement:'bounded-evidence',semanticKey:id+':loop',temporalStatus:'CURRENT',authority:'OBSERVED'}],conflictSets:[],requiredRefs:[id+':e1']};}
-function graphOutput(id='site',{conflict=false}={}){return{nodes:[id+':location'],edges:[],currentStateRefs:[id+':state'],historicalRefs:[],unresolvedRefs:conflict?[id+':unresolved']:[],conflicts:conflict?[{refs:[id+':a',id+':b']}]:[],reasoningSummary:'bounded'};}
+function graphOutput(id='site',{conflict=false}={}){return{nodes:[id+':location'],edges:[],currentStateRefs:[id+':state'],historicalRefs:[],unresolvedRefs:conflict?[id+':unresolved']:[],conflicts:conflict?[id+':conflict']:[],reasoningSummary:'bounded'};}
 function truthOutput(id='site'){return{assessments:[{refs:[id+':e1'],classification:'SUPPORTED',confidence:.9,reasoningSummary:'bounded'}],ranking:[{ref:id+':e1',score:.9}],rejectedRefs:[],uncertaintyPreserved:true};}
 function resolver(task,id='site'){if(task.taskType==='GRAPH_WALK')return graphInput(id);if(task.taskType==='TRUTH_PRECISION')return truthInput(id);return{};}
 function addResource(registry,{id='one',profileId='a-one',capabilities=[Capability.GRAPH,Capability.TRUTH_JUDGMENT,Capability.RERANK],handlers={},maxConcurrency=1}={}){
@@ -69,7 +72,7 @@ test('explicit ambiguity keeps independent graph and precision jobs concurrent w
   await registry.connectResource('alpha');await registry.connectResource('beta');
   const swarm=new NativeSidecarSwarm({connections:registry});
   const t=turn('amb');
-  const result=await swarm.runTurn({turnEvent:t,plannerInput:planner({conflict:true}),inputResolver:task=>resolver(task,'amb'),currentRevisionState:t});
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:planner({conflict:true}),inputResolver:task=>task.taskType==='GRAPH_WALK'?graphInput('amb',{conflict:true}):resolver(task,'amb'),currentRevisionState:t});
   assert.equal(result.contribution.layeredScatterReceipt.metrics.physicalAttemptCount,2);
   assert.ok(maxActive>=2);
   assert.ok(result.contribution.layeredScatterReceipt.metrics.peakLayerConcurrency>=2);

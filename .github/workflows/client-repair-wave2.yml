@@ -58,8 +58,23 @@ jobs:
           echo "Current repair-head Worker 3 UI outcome: ${{ steps.current_visible_ui.outcome }}"
           echo "Exact base Worker 3 UI outcome: ${{ steps.baseline_visible_ui.outcome }}"
           echo "These UI assertions are reported, not promoted to Worker 2 runtime acceptance."
-      - name: Installed-host scripted lifecycle checks
+      - name: Current-head installed-host scripted lifecycle checks
+        id: current_installed_host
+        continue-on-error: true
         run: node --test tests/deployment-live-host.test.mjs
+      - name: Compare installed-host scripted lifecycle checks on exact published base
+        id: baseline_installed_host
+        continue-on-error: true
+        run: |
+          git checkout --detach 1bc78102eeafa8624be3726731e3f0038983d4a2
+          node --test tests/deployment-live-host.test.mjs
+      - name: Restore exact repair head after installed-host comparison
+        run: git checkout --detach "$GITHUB_SHA"
+      - name: Record installed-host comparison
+        run: |
+          echo "Current repair-head installed-host outcome: ${{ steps.current_installed_host.outcome }}"
+          echo "Exact base installed-host outcome: ${{ steps.baseline_installed_host.outcome }}"
+          echo "Neither scripted outcome is real SillyTavern browser acceptance."
       - name: Host and operator stress checks
         run: node --test tests/wave12-sillytavern-host-stress.mjs tests/wave13-operator-ui-stress.mjs
       - name: Browser-facing imports

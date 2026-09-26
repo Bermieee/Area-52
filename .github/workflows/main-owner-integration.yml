@@ -2,7 +2,7 @@ name: Main Owner Integration
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, Development-Lore-Completion]
   push:
     branches: [main]
   workflow_dispatch:
@@ -70,7 +70,7 @@ jobs:
           tests/lore-wave1.mjs tests/lore-wave2.mjs tests/lore-wave3.mjs
           tests/lore-wave4.mjs tests/lore-wave5.mjs tests/lore-wave6.mjs tests/lore-wave7.mjs
           tests/lore-browser-safe.mjs tests/lore-assembly-integration.test.mjs
-          tests/worker4-lore-readiness.test.mjs
+          tests/worker4-lore-readiness.test.mjs tests/worker4-lore-hierarchy-evidence.test.mjs
       - name: Host Lore integration
         run: node --test tests/worker4-lore190-repro.test.mjs tests/deployment-brain.integration.test.mjs tests/deployment-live-host.test.mjs
 

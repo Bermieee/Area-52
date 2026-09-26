@@ -79,9 +79,11 @@ test('explicit ambiguity keeps independent graph and precision jobs concurrent w
   assert.equal(result.contribution.resultSummary.filter(x=>x.state===NativeSwarmResultState.READY_FOR_CORE).length,2);
 });
 
-test('retrieval-heavy turn stages Historian before later expansion without changing the fan-out contract',async()=>{
+test('retrieval-heavy turn stages and executes Historian before later expansion without changing the fan-out contract',async()=>{
   const registry=new CoprocessorResourceConnections();
-  addResource(registry,{capabilities:[Capability.RETRIEVAL,Capability.LONG_CONTEXT,Capability.GRAPH,Capability.TRUTH_JUDGMENT,Capability.RERANK],handlers:{}});
+  addResource(registry,{capabilities:[Capability.RETRIEVAL,Capability.LONG_CONTEXT,Capability.GRAPH,Capability.TRUTH_JUDGMENT,Capability.RERANK],handlers:{
+    HISTORIAN_RETRIEVAL:()=>({refs:['hist:1'],relevance:[{ref:'hist:1',score:.9}],uncertainty:'LOW',reasoningSummary:'bounded-history'}),
+  }});
   await registry.connectResource('one');
   const swarm=new NativeSidecarSwarm({connections:registry});
   const t=turn('history');
@@ -92,6 +94,13 @@ test('retrieval-heavy turn stages Historian before later expansion without chang
   const historianIndex=layered.layers.findIndex(x=>x.layer===ScatterLayer.RETRIEVAL);
   const expansionIndex=layered.layers.findIndex(x=>x.layer===ScatterLayer.EXPANSION);
   assert.ok(historianIndex>=0&&expansionIndex>historianIndex);
+  const result=await swarm.executeCheckpoint(prepared.checkpoint,{currentRevisionState:t,inputResolver:()=>({candidates:[{
+    ref:'hist:1',summary:'The gate closed after the prior warning.',temporalStatus:'HISTORICAL',authority:'OBSERVED',sourceRevisionRefs:[...t.sourceRevisionSet],
+  }]})});
+  assert.equal(result.contribution.layeredScatterReceipt.metrics.physicalAttemptCount,1);
+  assert.equal(result.contribution.resultsForOwner.length,1);
+  assert.equal(result.contribution.gatherBundle.missingRequired.length,0);
+  assert.ok(result.contribution.layeredScatterReceipt.layers.some(row=>row.layer===ScatterLayer.RETRIEVAL&&row.returnedCount===1));
 });
 
 test('Scene transition keeps graph expansion in foreground and deep consolidation outside the Seal deadline',async()=>{

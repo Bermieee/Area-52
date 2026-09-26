@@ -29,6 +29,8 @@ function normalizeTurnEnvelope(input = {}) {
     eventVersion: String(input.eventVersion ?? input.schemaVersion ?? '1.0'),
     causationId: input.causationId == null ? null : requiredString(input.causationId, 'causationId'),
     correlationId: requiredString(input.correlationId ?? `corr:${turnId}`, 'correlationId'),
+    chatId: input.chatId == null ? null : requiredString(input.chatId, 'chatId'),
+    generationId: input.generationId == null ? null : requiredString(input.generationId, 'generationId'),
     taskId: input.taskId == null ? null : requiredString(input.taskId, 'taskId'),
     sourceRevisionSet,
     worldRevision: finite(input.worldRevision, 0),
@@ -57,6 +59,9 @@ function normalizeJob(job, turn) {
   if (turnId !== turn.turnId) throw new TypeError(`Cognitive job ${taskId} turnId does not match TURN_EVENT`);
   const correlationId = requiredString(job.correlationId ?? turn.correlationId, 'job.correlationId');
   if (correlationId !== turn.correlationId) throw new TypeError(`Cognitive job ${taskId} correlationId does not match TURN_EVENT`);
+  const chatId=job.chatId??turn.chatId??null,generationId=job.generationId??turn.generationId??null;
+  if(turn.chatId!=null&&chatId!=null&&String(chatId)!==String(turn.chatId))throw new TypeError(`Cognitive job ${taskId} chatId does not match TURN_EVENT`);
+  if(turn.generationId!=null&&generationId!=null&&String(generationId)!==String(turn.generationId))throw new TypeError(`Cognitive job ${taskId} generationId does not match TURN_EVENT`);
   const sourceRevisionSet = [...new Set(job.sourceRevisionSet ?? job.inputRevisionSet?.sourceRevisionSet ?? turn.sourceRevisionSet ?? [])].sort();
   const hardDeadline = finite(job.hardDeadline, finite(turn.deadline, 0));
   const softDeadline = finite(job.softDeadline, hardDeadline);
@@ -68,6 +73,8 @@ function normalizeJob(job, turn) {
     taskType: requiredString(job.taskType, 'job.taskType'),
     turnId,
     correlationId,
+    chatId:chatId==null?null:String(chatId),
+    generationId:generationId==null?null:String(generationId),
     causationId: job.causationId ?? turn.eventId,
     cognitiveLayer: requiredString(job.cognitiveLayer ?? turn.cognitiveLayer ?? 'L1', 'job.cognitiveLayer'),
     resultClass,
@@ -170,7 +177,9 @@ export class NativeTurnRuntime {
       producer: 'COGNITIVE_COPROCESSOR',
       causationId: turn.causationId,
       correlationId: turn.correlationId,
+      chatId: turn.chatId,
       turnId: turn.turnId,
+      generationId: turn.generationId,
       taskId: turn.taskId,
       revisionFences: {
         sourceRevisionIds: turn.sourceRevisionSet,
@@ -309,8 +318,11 @@ export class NativeTurnRuntime {
         outputSchema: structuredClone(job.outputSchema),
         authorityGranted: false,
       },
+      cause:{eventType:turn.eventType,eventId:turn.eventId,correlationId:job.correlationId,producerId:job.producerId??job.metadata?.producerId??'COGNITIVE_COPROCESSOR',consumerId:'RUNTIME_CORE',ownerId:job.owner??job.metadata?.owner??job.taskType,chatId:job.chatId,turnId:job.turnId,generationId:job.generationId,sourceRevisionRefs:job.sourceRevisionSet,worldRevision:job.worldRevision,sceneRevision:job.sceneRevision},
       payload: {
+        chatId:job.chatId,
         turnId: job.turnId,
+        generationId:job.generationId,
         correlationId: job.correlationId,
         causationId: job.causationId,
         freshnessToken,

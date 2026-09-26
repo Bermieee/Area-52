@@ -8,6 +8,7 @@ import {
   WORKER4_SELECTED_CHAT,
   WORKER4_UNBOUND_CHAT,
   worker4SelectedLorebook,
+  worker4LargeCurrentLorebook,
   worker4UnacceptedLorebook,
 } from './fixtures/worker4-lore-readiness-fixtures.mjs';
 
@@ -158,6 +159,44 @@ test('Worker 4: identical accepted snapshot reuses current study/index instead o
   assert.equal(service.runtime.dueObligations().length, dueBefore);
   const after = service.status({chatId: WORKER4_SELECTED_CHAT});
   assert.equal(after.entries.every((row) => row.operatorState === 'READY'), true);
+});
+
+test('Worker 4: 105 current entries stay current without repeated study or retrieval-index rebuild', () => {
+  const service = new LoreIntelligenceService();
+  const snapshot = worker4LargeCurrentLorebook({count: 105});
+  const started = performance.now();
+  const accepted = service.acceptLorebook(snapshot);
+  const acceptedAt = performance.now();
+  const study = service.runStudy({scope: 'DUE'});
+  const studiedAt = performance.now();
+  const status = service.status({chatId: WORKER4_SELECTED_CHAT});
+  assert.equal(accepted.sourceRevisionChanged, true);
+  assert.equal(study.results.length, 105);
+  assert.equal(status.entries.length, 105);
+  assert.equal(status.operatorCounts.READY, 105);
+  assert.equal(status.retrievalReady, 105);
+  assert.equal(status.storyAuthorizedReady, 105);
+  assert.equal(status.entries.every((row) => row.freshness === 'CURRENT'), true);
+  assert.equal(status.entries.every((row) => row.eligibleForStoryRetrieval === true), true);
+  assert.equal(service.runtime.dueObligations().length, 0);
+
+  const repeatStarted = performance.now();
+  const repeat = service.acceptLorebook(snapshot);
+  const repeatFinished = performance.now();
+  assert.equal(repeat.sourceRevisionChanged, false);
+  assert.equal(repeat.maintenancePerformed, false);
+  assert.equal(repeat.maintenanceReason, 'NO_SOURCE_REVISION_CHANGE');
+  assert.equal(repeat.dueStudyObligations, 0);
+  assert.equal(service.runtime.dueObligations().length, 0);
+
+  console.log('WORKER4_LORE_105_METRIC ' + JSON.stringify({
+    entries: 105,
+    initialAcceptMs: Number((acceptedAt - started).toFixed(2)),
+    studyAndIndexMs: Number((studiedAt - acceptedAt).toFixed(2)),
+    identicalReacceptMs: Number((repeatFinished - repeatStarted).toFixed(2)),
+    dueAfterStudy: service.runtime.dueObligations().length,
+    repeatMaintenancePerformed: repeat.maintenancePerformed,
+  }));
 });
 
 test('Worker 4: exact-chat eligible Lore survives Native Brain retrieval through Gather while unbound chat stays excluded', async () => {

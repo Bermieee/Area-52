@@ -24,7 +24,7 @@ test('selected-turn operator trace exposes six jobs, optional lifecycle, and pla
   const journal=new DemoEvidenceJournal({storage:new Storage(),namespace:'worker3',now:()=>1000}),sel=selection(),f=fixture(sel);journal.recordSnapshot({selection:sel,...f});
   const model=new SelectedTurnLogModel({journal,selectionProvider:()=>sel,now:()=>1000}),read=model.read();
   assert.equal(read.summary.logicalJobs,6);assert.equal(read.rows.filter(row=>row.stage==='Fan-out job').length,6);
-  assert.deepEqual(read.rows.filter(row=>row.stage==='Optional resource').map(row=>row.status).sort(),['CONFIGURED','QUALIFIED','QUALIFIED']);
+  assert.deepEqual(read.rows.filter(row=>row.stage==='Optional resource').map(row=>row.status).sort(),['CONFIGURED','QUALIFIED','SKIPPED']);
   const edges=read.rows.filter(row=>row.category==='EDGE');assert.equal(edges.length,18);
   assert.ok(edges.some(row=>row.stage==='Causal edge · Sensory / Retrieval'&&row.status!=='NO_EVIDENCE'));
   assert.ok(edges.some(row=>row.stage==='Causal edge · Memory owner'&&row.status==='NO_EVIDENCE'));

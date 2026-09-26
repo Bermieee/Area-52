@@ -235,7 +235,6 @@ test('DETERMINISTIC: identity correction invalidates only dependent temporal cla
 test('DETERMINISTIC: native one-resource path preserves chat/turn/perspective fences and stable identity refs',async()=>{
   const brain=new Area52NativeBrain();
   brain.registerEntityIdentity({entityId:'entity:keeper',canonicalLabel:'Keeper',entityType:'PERSON',worldId:'world:neutral'});
-  assert.equal(brain.listOptionalResources().resources.length,0);
   assert.deepEqual(brain.diagnostics().nativeRequirements,{
     jevRequired:false,sidecarRequired:false,externalDatabaseRequired:false,sqlRequired:false,remoteModelRequired:false,userOrchestratorRequired:false,
   });

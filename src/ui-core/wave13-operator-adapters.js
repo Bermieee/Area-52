@@ -785,8 +785,22 @@ export class Wave13OperationalStatusAdapter{
 
 
 export class Wave13DiagnosticsCenterAdapter{
-  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={}}={}){
-    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;
+  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={},uiLoadTrace=null}={}){
+    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;this.uiLoadTrace=uiLoadTrace;
+  }
+  readJournalEvidence(){
+    const selection=cloneSafe(this.live?.selection?.()??{});
+    const resourceRead=safeRead(()=>this.resources?.read?.(),null),rows=resourceRead?.data?.resources??[];
+    const liveDiagnostics=safeRead(()=>this.live?.diagnostics?.(),null);
+    return deepFreeze({
+      kind:'Wave13JournalEvidence',selection,
+      host:{liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
+      resources:{rows:rows.slice(0,32).map(row=>deepFreeze({
+        id:row.id,displayName:row.displayName,kind:row.kind,physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted),
+        physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded),ownerAccepted:row.ownerAccepted??null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,
+        reasonCode:row.reasonCode,reason:row.reason,lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+      }))},
+    });
   }
   read(){
     const operations=safeRead(()=>this.operations?.read?.(),null);
@@ -857,7 +871,7 @@ export class Wave13DiagnosticsCenterAdapter{
         })),
       },
       cognition:{
-        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,jev:jev?deepFreeze({
+        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,scatterTelemetry:cloneSafe(scatter?.layeredTelemetry??null),jev:jev?deepFreeze({
           state:jev.state??null,outcome:jev.outcome??null,invoked:jev.invoked??null,reason:jev.reason??null,reasonCodes:[...(jev.reasonCodes??[])].slice(0,12),
           resourceId:jev.resourceId??null,provider:jev.provider??jev.providerId??null,model:jev.model??jev.modelId??null,
           serviceStatus:jev.serviceStatus??null,admission:cloneSafe(jev.admission??null),
@@ -872,7 +886,7 @@ export class Wave13DiagnosticsCenterAdapter{
         counts:cloneSafe(memoryRead?.data?.counts??null),freshness:cloneSafe(memoryRead?.data?.freshness??null),
         retrievalStatus:memoryRead?.data?.retrieval?.status??null,revision:memoryRead?.data?.revision??null,
       },
-      telemetry:{resourceEvents,rawPromptTelemetry:false},
+      telemetry:{resourceEvents,uiLoad:this.uiLoadTrace?.snapshot?.()??null,rawPromptTelemetry:false},
       wiring:{
         controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),discoverModels:Boolean(resourceCaps.discoverModels),refreshModels:Boolean(resourceCaps.refreshModels),selectModel:Boolean(resourceCaps.selectModel),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
         jev:{expectedCapabilities:['SEMANTIC_JUDGMENT'],lane:lanes.find(x=>x.kind==='JEV')},

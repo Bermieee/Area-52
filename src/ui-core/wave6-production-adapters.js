@@ -82,10 +82,10 @@ export class CoprocessorProductionUIAdapter{
 export class PromptPlanProductionUIAdapter{
   constructor({
     readPlan=null,readPromptPlanReadModel=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
-    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
+    readIntegrityReceipt=null,readHostDeliveryReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
   }={}){
     this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readSealReceipt=optional(readSealReceipt);
-    this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);
+    this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);this.readHostDeliveryReceipt=optional(readHostDeliveryReceipt);
     this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.selectionProvider=optional(selectionProvider);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');this.kind='PromptPlanProductionUIAdapter';
   }
   #plan(selection){
@@ -102,6 +102,11 @@ export class PromptPlanProductionUIAdapter{
     if(this.readGenerationFn&&selection?.generationId)return this.readGenerationFn(selection.generationId)?.sealReceipt??null;
     return this.readSealReceipt?.(selection??{});
   }
+  #hostDelivery(selection){
+    if(this.readHostDeliveryReceipt)return this.readHostDeliveryReceipt(selection??{});
+    if(this.readGenerationFn&&selection?.generationId)return this.readGenerationFn(selection.generationId)?.hostDeliveryReceipt??null;
+    return null;
+  }
   read(selection={}){
     selection=Object.keys(selection??{}).length?selection:(this.selectionProvider?.()??{});
     if(!this.readPlan&&!this.readPromptPlanReadModel&&!this.readGenerationFn)return unavailable('PromptPlan','Adaptive Context / PromptPlan read producer is not connected.');
@@ -109,9 +114,9 @@ export class PromptPlanProductionUIAdapter{
     try{
       const raw=this.#plan(selection);if(!raw)return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label:'Context Delivery',operationalState:'IDLE',impact:'No completed PromptPlan exists for the selected turn.',reason:'The producer is connected but has not published context delivery for this turn.',producer:'PromptPlan/ContextSeal',connected:true,selection}),data:null});
       const plan=normalizePromptPlanReadModel(raw);if(!plan)return degraded('PromptPlan','PromptPlan producer returned an unsupported contract.',{kind:raw.kind??null});
-      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null;
-      const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal});
-      const allocated=Number(plan.estimatedTokens??plan.budget?.allocated??plan.budget?.usedTokens??0),total=Number(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow??allocated);
+      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null,hostDelivery=this.#hostDelivery(selection);
+      const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal,hostDeliveryReceipt:hostDelivery});
+      const allocated=finiteNumber(plan.budget?.allocated??plan.budget?.usedTokens??plan.estimatedTokens),total=finiteNumber(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow);
       const reused=plan.sections.filter(x=>x.state==='REUSED').length,updated=plan.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).length;
       const health=normalizeWave6Health(raw.health?.state??plan.health?.state??(raw.status==='READY'?'READY':raw.integrityStatus==='ERROR'?'BLOCKED':'READY'),{fallback:Wave6Health.READY});
       const degradedHealth=[Wave6Health.DEGRADED,Wave6Health.STALE,Wave6Health.BLOCKED].includes(health)||Boolean(receipt?.fallbackState&&receipt.fallbackState!=='NONE');
@@ -122,7 +127,7 @@ export class PromptPlanProductionUIAdapter{
         source:createProductSourceStatus({mode,health:displayHealth,label:'Context Delivery',impact:this.fixture?`${this.fixtureLabel}. ${baseImpact}`:baseImpact,producer:raw.kind==='PromptPlanReadModel'?'PromptPlanReadModel':'PromptPlan/ContextSeal',revision:plan.promptPlanId}),
         data:{
           promptPlanId:plan.promptPlanId,generationId:plan.generationId??receipt?.generationId??null,turnId:plan.turnId??seal?.turnId??receipt?.turnId??null,
-          totalTokens:allocated,budgetTotal:total,budgetUsage:total?allocated/total:0,reusedSegments:reused,updatedSegments:updated,
+          totalTokens:allocated,budgetTotal:total,budgetUsage:total!=null&&allocated!=null&&total>0?allocated/total:null,reusedSegments:reused,updatedSegments:updated,
           dropped:clone(plan.dropped),deferred:clone(plan.deferred),segments:clone(raw.segments??[]),sections:clone(plan.sections),
           modelProfileId:plan.modelProfileId??null,ordering:[...(plan.sectionOrder??[])],cacheDecisions:clone(raw.cacheDecisions??[]),
           reuseDecisions:clone(raw.reuseDecisions??[]),fallbackDecisions:clone(plan.fallbackDecisions??[]),integrityReceipt:clone(integrity),
@@ -144,6 +149,8 @@ export class PromptPlanProductionUIAdapter{
     const rows=this.listGenerations({limit:100});const id=typeof current==='string'?current:current?.generationId;const i=rows.findIndex(x=>x.generationId===id);if(i<=0)return null;return this.explain({generationId:rows[i-1].generationId});
   }
 }
+
+function finiteNumber(value){if(value==null||value==='')return null;const n=Number(value);return Number.isFinite(n)?n:null;}
 
 export class ForensicsProductionUIAdapter{
   constructor({

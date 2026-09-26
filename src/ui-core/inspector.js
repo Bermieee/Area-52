@@ -11,6 +11,7 @@ export class InspectorController {
     this.scope = new ResourceScope();
     this.renderScope = new ResourceScope();
     this.selection = null;
+    this.focusPending = false;
   }
 
   mount() {
@@ -24,6 +25,7 @@ export class InspectorController {
 
   select(object) {
     this.selection = object;
+    this.focusPending = Boolean(object);
     this.scheduler.invalidate('inspector', () => this.render(), { cost: 'NORMAL' });
   }
 
@@ -38,6 +40,7 @@ export class InspectorController {
       empty.className = 'a52-inspector-empty';
       empty.innerHTML = '<h2>Inspector</h2><p>Select an object to inspect provenance, history, dependencies, or runtime details.</p>';
       this.host.replaceChildren(empty);
+      this.focusPending = false;
       return;
     }
     const renderer = this.registry.resolve(this.selection.kind);
@@ -47,6 +50,11 @@ export class InspectorController {
     }
     const rendered = renderer(this.selection, { document: doc, services: this.services, scope: this.renderScope });
     this.host.replaceChildren(rendered);
+    if (this.focusPending) {
+      if (!rendered.hasAttribute?.('tabindex')) rendered.setAttribute?.('tabindex', '-1');
+      rendered.focus?.({ preventScroll: false });
+      this.focusPending = false;
+    }
   }
 
   destroy() { this.renderScope.cleanup(); this.scope.cleanup(); this.host.replaceChildren(); }

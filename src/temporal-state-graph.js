@@ -103,6 +103,15 @@ export class TemporalStateGraph {
     for(const key of affectedSlots)this.#recomputeSlot(key);this.#journal.push({revision:this.#revision,type:'SOURCE_INVALIDATED',sourceRevisionId:revisionId,claimIds:[...invalidated]});return invalidated.sort();
   }
 
+  invalidateClaimsByIdentityRevision(identityRevisionRef){
+    const ref=String(identityRevisionRef??'').trim();if(!ref)return[];
+    const affectedSlots=new Set(),invalidated=[];
+    for(const[id,claim]of this.#claims){if((claim.identityRevisionRefs??[]).includes(ref)){this.#invalidClaims.add(id);invalidated.push(id);affectedSlots.add(slotKey(claim.subjectId,claim.predicate));}}
+    for(const key of affectedSlots)this.#recomputeSlot(key);
+    if(invalidated.length)this.#journal.push({revision:this.#revision,type:'IDENTITY_REVISION_INVALIDATED',identityRevisionRef:ref,claimIds:[...invalidated].sort()});
+    return invalidated.sort();
+  }
+
   #receipt(proposal,outcome,settledArtifactIds,supersededArtifactIds,reason){const receipt=createSettlementReceipt({id:`receipt:${this.#revision}:${proposal.id}`,proposalId:proposal.id,owner:'WORLD_STATE',outcome,settledArtifactIds,supersededArtifactIds,revision:this.#revision,reason});this.#receipts.push(receipt);return clone(receipt);}
   getClaim(claimId){if(this.#invalidClaims.has(claimId))return null;const c=this.#claims.get(claimId);return c?clone(c):null;}
   allClaims({includeInvalid=false}={}){return[...this.#claims.entries()].filter(([id])=>includeInvalid||!this.#invalidClaims.has(id)).map(([,c])=>clone(c));}
@@ -120,7 +129,13 @@ export class TemporalStateGraph {
   }
 
   currentProjection(){
-    const groups=new Map();for(const claim of this.currentClaims()){const key=`${claim.subjectId}|${claim.predicate}|${JSON.stringify(claim.value)}`;const row=groups.get(key)??{subjectId:claim.subjectId,predicate:claim.predicate,value:claim.value,status:KnowledgeStatus.CURRENT,claimIds:[],sourceRevisionIds:[]};row.claimIds.push(claim.id);row.sourceRevisionIds.push(...(claim.provenance?.sourceRevisionIds??[]));groups.set(key,row);}return[...groups.values()].map(r=>({...r,claimIds:[...new Set(r.claimIds)].sort(),sourceRevisionIds:[...new Set(r.sourceRevisionIds)].sort()}));
+    const groups=new Map();for(const claim of this.currentClaims()){const key=`${claim.subjectId}|${claim.predicate}|${JSON.stringify(claim.value)}`;const row=groups.get(key)??{subjectId:claim.subjectId,predicate:claim.predicate,value:claim.value,status:KnowledgeStatus.CURRENT,claimIds:[],sourceRevisionIds:[],identityRevisionRefs:[]};row.claimIds.push(claim.id);row.sourceRevisionIds.push(...(claim.provenance?.sourceRevisionIds??[]));row.identityRevisionRefs.push(...(claim.identityRevisionRefs??[]));groups.set(key,row);}return[...groups.values()].map(r=>({...r,claimIds:[...new Set(r.claimIds)].sort(),sourceRevisionIds:[...new Set(r.sourceRevisionIds)].sort(),identityRevisionRefs:[...new Set(r.identityRevisionRefs)].sort()}));
+  }
+
+  readReferences({entityIds=[],limit=128}={}){
+    const wanted=new Set((entityIds??[]).filter(Boolean).map(String)),max=Math.max(1,Math.min(512,Number(limit)||128));
+    const rows=this.allClaims().filter(c=>!wanted.size||wanted.has(c.subjectId)||wanted.has(String(c.value))).slice(0,max).map(c=>({claimId:c.id,subjectId:c.subjectId,predicate:c.predicate,value:clone(c.value),status:c.status,temporal:clone(c.temporal),authorityClass:c.authorityClass,sourceRevisionIds:[...(c.provenance?.sourceRevisionIds??[])],identityRevisionRefs:[...(c.identityRevisionRefs??[])],readOnly:true}));
+    return{kind:'TemporalStateReferenceSet',contractVersion:'1.0.0',worldRevision:this.#revision,references:rows,authorityGranted:false,mutationAuthority:false,settlementAuthority:false};
   }
 
   timeline(subjectId,predicate){return this.slotClaims(subjectId,predicate).sort((a,b)=>claimTime(a)-claimTime(b)||a.id.localeCompare(b.id));}
@@ -156,6 +171,7 @@ export class TemporalStateGraph {
     this.#receipts=clone(snapshot.receipts??[]);
     this.#revision=Number(snapshot.revision??0);
     this.#journal=clone(snapshot.journal??[]);
+    const slots=new Set([...this.#slotClaims.keys(),...this.#closures.keys()]);for(const key of slots)this.#recomputeSlot(key);
     return this.exportState();
   }
 }

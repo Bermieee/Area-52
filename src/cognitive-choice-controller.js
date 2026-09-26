@@ -37,10 +37,10 @@ function hotSufficient({snapshot,query,intent,anchorEntityIds=[],worldRevision=0
   if(!snapshot||intent!=='CURRENT'||anchorEntityIds.length)return false;
   if(sceneContext?.retrievalRequired)return false;
   if(sceneContext?.sceneId&&snapshot.sceneId&&String(sceneContext.sceneId)!==String(snapshot.sceneId))return false;
-  if((snapshot.invalidationState??[]).length)return false;
   if(Number(snapshot.worldRevision)!==Number(worldRevision))return false;
   if(Number(snapshot.sceneRevision)!==Number(sceneRevision))return false;
   const need=inferHotNeed(query);if(!need)return false;
+  if((snapshot.invalidationState??[]).some(row=>String(row?.segment??'')===need))return false;
   return Boolean(freshSegment(snapshot,need));
 }
 function truthCounts(results=[]){

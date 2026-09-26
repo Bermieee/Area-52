@@ -268,3 +268,15 @@ test('Worker 1 #262 direct causal evidence stays bounded with monotonic unique r
   const next=restored.recordEvidence('memory:bounded',{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'MEMORY',consumerId:'RUNTIME_CORE'});assert.match(next.id,/:e71:RESULT_RETURNED$/);
   const after=restored.snapshot().entries.find(row=>row.declaration.expectedId==='memory:bounded');assert.equal(after.evidence.length,64);assert.equal(new Set(after.evidence.map(row=>row.id)).size,64);assert.equal(after.evidenceSequence,71);
 });
+
+test('Worker 1 #263 NativeTurn Runtime propagates exact chat generation and revision identity into causal receipts',async()=>{
+  const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:0}}),host=new CognitiveRuntimeHost({director});
+  host.registerExecutionResource({worker:{workerId:'native-identity',capabilities:[CAPABILITIES.CPU_ANALYSIS],supportedLayers:['L1'],resourceProfile:{CPU:1},concurrencyCapacity:1,latencyScore:1,provider:'AREA52_NATIVE',implementationId:'native-identity',foregroundEligible:true,backgroundEligible:true},adapter:{async invoke(){return{ok:true};}}});
+  const turn={chatId:'chat:native',turnId:'turn:native',generationId:'gen:native',eventId:'event:native',correlationId:'corr:native',sourceRevisionSet:['scene:native:r5'],worldRevision:8,sceneRevision:5,characterStateRevision:2,createdAt:1,deadline:9999999999999,cognitiveLayer:'L1',dedupeKey:'turn:native'};
+  host.publishTurn(turn,[{taskId:'native:retrieval',taskType:'RETRIEVAL',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],resultClass:'REQUIRED',cognitiveLayer:'L1',dedupeKey:'native:retrieval'}]);
+  await director.drain({maxCycles:32});
+  const record=director.ledger.get('native:retrieval');assert.ok(record);assert.equal(record.obligation.cause.chatId,'chat:native');assert.equal(record.obligation.cause.generationId,'gen:native');
+  assert.equal(record.obligation.cause.turnId,'turn:native');assert.equal(record.obligation.cause.correlationId,'corr:native');assert.deepEqual(record.obligation.cause.sourceRevisionRefs,['scene:native:r5']);assert.equal(record.obligation.cause.worldRevision,8);assert.equal(record.obligation.cause.sceneRevision,5);
+  assert.ok(record.causalReceipts.length>0);assert.ok(record.causalReceipts.every(row=>row.chatId==='chat:native'&&row.turnId==='turn:native'&&row.generationId==='gen:native'&&row.correlationId==='corr:native'));
+  host.native.close();
+});

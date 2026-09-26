@@ -571,6 +571,8 @@ export class DevelopmentDeploymentBrain {
       sourceRevisionRefs,
       invalidatedSourceRevisionRefs,
       changedFields,
+      delta: clone(outcome?.delta ?? null),
+      dispatchTimeline: clone(timeline),
       boundary: clone(outcome?.boundary ?? null),
       boundarySignals: clone(extracted?.boundarySignals ?? null),
       transition: clone(outcome?.transition ?? null),

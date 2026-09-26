@@ -102,10 +102,13 @@ test('attached rail/panel keyboard movement, resize, collapse, restore and close
   c.open();assert.equal(ui.shell.currentWorkspace,'story');ui.destroy();
 });
 
-test('floating collapse releases host reservation instead of leaving a stray collapsed bar',()=>{
+test('floating collapse releases host reservation and minimized panel stays compact instead of spanning chat',()=>{
   const widths=[],owner=liveOwner(),{ui}=mount(owner,{hostMountAdapter:{reserveWidth:value=>widths.push(value),releaseWidth:()=>{}}});
-  ui.floatingController.open('brain');ui.scheduler.flush(1);assert.ok(widths.at(-1)>0);
-  ui.floatingController.close();ui.scheduler.flush(2);assert.equal(widths.at(-1),0);assert.equal(ui.floatingController.nodes.card.style.display,'none');
+  ui.floatingController.open('brain');ui.scheduler.flush(1);const expanded=ui.floatingController.diagnostics().card.width;assert.ok(widths.at(-1)>0);
+  ui.floatingController.toggleMinimized();ui.scheduler.flush(2);const minimized=ui.floatingController.diagnostics().card.width;
+  assert.ok(minimized<=260);assert.ok(minimized<expanded);assert.equal(ui.floatingController.nodes.minimize.textContent,'Expand');
+  ui.floatingController.toggleMinimized();ui.scheduler.flush(3);assert.equal(ui.floatingController.diagnostics().card.minimized,false);
+  ui.floatingController.close();ui.scheduler.flush(4);assert.equal(widths.at(-1),0);assert.equal(ui.floatingController.nodes.card.style.display,'none');
   ui.destroy();
 });
 
@@ -497,10 +500,39 @@ test('Connections preserves independent non-secret drafts when another slot beco
   assert.equal(fieldByLabel(sidecar,'Sidecar connection name').value,'Draft Sidecar');assert.equal(fieldByLabel(sidecar,'Sidecar endpoint').value,'https://openrouter.ai/api/v1');
   assert.equal(fieldByLabel(vector,'Vectoring connection name').value,'Draft Vector');assert.equal(fieldByLabel(vector,'Vectoring endpoint').value,'https://vector.example/v1');
   assert.equal(fieldByLabel(sidecar,'Sidecar API key').value,'');assert.equal(fieldByLabel(vector,'Vectoring API key').value,'');
-  assert.match(textOf(sidecar),/API key cleared on refresh/);assert.match(textOf(vector),/API key cleared on refresh/);
   const serialized=JSON.stringify({read:ui.operator.resources.read(),diagnostics:ui.operator.diagnostics.read(),calls:host.calls});
   assert.doesNotMatch(serialized,/sk-side-secret|sk-vector-secret/);
   ui.destroy();
+});
+
+test('locked credentials persist across remount and are removed only when the saved lock is released',async()=>{
+  const storage=memory(),secret='sk-persisted-connection-secret';
+  const firstOwner=liveOwner(),firstHost=worker2ResourceHost();firstOwner.bindings.resourceHost=firstHost;
+  const first=mount(firstOwner,{storage});
+  const connected=await first.ui.actionRouter.route({type:'wave13.resource.connect',payload:{
+    role:'SIDECAR',displayName:'Persistent Sidecar',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',apiKey:secret,capabilities:['STRUCTURED_EXTRACTION'],local:false,
+  }});
+  assert.equal(connected.ok,true);
+  const saved=first.ui.operator.resources.savedProfiles();assert.equal(saved.length,1);assert.equal(saved[0].credentialPersisted,true);assert.equal('apiKey' in saved[0],false);
+  assert.doesNotMatch(JSON.stringify({saved,read:first.ui.operator.resources.read(),diagnostics:first.ui.operator.diagnostics.read()}),new RegExp(secret));
+  assert.match(storage.getItem('wave13-test'),new RegExp(secret));first.ui.destroy();
+
+  const secondOwner=liveOwner(),secondHost=worker2ResourceHost();secondOwner.bindings.resourceHost=secondHost;
+  const second=mount(secondOwner,{storage});const restored=await second.ui.operator.resources.restoreSavedProfiles();second.ui.scheduler.flush(3);
+  assert.equal(restored.failed.length,0);assert.equal(restored.restored,1);assert.equal(restored.requalified,1);
+  assert.ok(secondHost.calls.some(x=>x[0]==='add'&&x[1].credentialConfigured===true));assert.ok(secondHost.calls.some(x=>x[0]==='connect'));
+  second.ui.shell.selectWorkspace('connections');second.ui.shell.refreshCurrentWorkspace();second.ui.scheduler.flush(4);
+  const sidecar=walk(second.ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');assert.match(textOf(sidecar),/Credential saved Yes/);assert.match(textOf(sidecar),/Release saved lock/);
+  assert.doesNotMatch(textOf(sidecar),/session credential/i);
+
+  const row=second.ui.operator.resources.read().data.resources.find(x=>x.kind==='SIDECAR');
+  const released=await second.ui.actionRouter.route({type:'wave13.resource.forgetSaved',target:row});assert.equal(released.ok,true);
+  assert.equal(second.ui.operator.resources.savedProfiles().length,0);assert.doesNotMatch(storage.getItem('wave13-test')??'',new RegExp(secret));
+  assert.ok(secondHost.calls.some(x=>x[0]==='clearCredential'));second.ui.destroy();
+
+  const thirdOwner=liveOwner(),thirdHost=worker2ResourceHost();thirdOwner.bindings.resourceHost=thirdHost;
+  const third=mount(thirdOwner,{storage});const empty=await third.ui.operator.resources.restoreSavedProfiles();
+  assert.equal(empty.saved,0);assert.equal(thirdHost.calls.some(x=>x[0]==='add'||x[0]==='connect'),false);third.ui.destroy();
 });
 
 test('Connections maps logical fan-out to resource identities and shows owner Gather disposition',()=>{

@@ -4,7 +4,7 @@ import { FrontFaceMode } from './wave6-presentation.js';
 import { createButton, element } from './primitives.js';
 
 export const WAVE13_FLOATING_NAV_VERSION='1.1.0';
-const RAIL_WIDTH=136,NARROW_RAIL_WIDTH=112,EDGE=8,MIN_CARD=180,MAX_CARD=960;
+const RAIL_WIDTH=136,NARROW_RAIL_WIDTH=112,EDGE=8,MIN_CARD=180,MINIMIZED_CARD_WIDTH=260,MAX_CARD=960;
 
 export class VerticalRailPopoutController{
   constructor({frontFaceController,shell,presentation,signals,scheduler,stateStore,workspaceRegistry,productName='Area-52',viewportProvider=null}={}){
@@ -173,7 +173,8 @@ export class VerticalRailPopoutController{
     const vp=this.#viewport(),rail=this.#railSize(),p=this.presentation.get();
     this.#chooseSide();
     const room=Math.max(80,this.state.side==='RIGHT'?vp.width-(this.state.railX+rail.width)-EDGE:this.state.railX-EDGE);
-    const width=Math.max(80,Math.min(Number(p.frontFaceWidth)||560,MAX_CARD,room));
+    const requestedWidth=this.state.minimized?MINIMIZED_CARD_WIDTH:(Number(p.frontFaceWidth)||560);
+    const width=Math.max(80,Math.min(requestedWidth,MAX_CARD,room));
     const height=this.state.minimized?48:Math.max(220,Math.min(vp.height-EDGE*2,Math.round(vp.height*.82)));
     const x=this.state.side==='RIGHT'?this.state.railX+rail.width:this.state.railX-width;
     const y=clamp(this.state.railY,EDGE,Math.max(EDGE,vp.height-height-EDGE));

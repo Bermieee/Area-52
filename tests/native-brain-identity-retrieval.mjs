@@ -346,6 +346,11 @@ test('DETERMINISTIC: graph walker preserves owner semantics, temporal possession
   assert.equal(providerContract.lifecycle.nativeForegroundPathRequiresNoCoprocessor,true);
 
   const hotGraph=brain.core.hotCognitionSnapshot('chat:aster-graph').segments.GRAPH_NEIGHBORHOOD;
+  console.log('GRAPH_OWNER_HOT_METRIC',JSON.stringify({
+    traversalRefs:chosen.graphTraversalReceipt?.hotNeighborhoodRefs??[],
+    hotRefs:hotGraph.value.refs,
+    providers:(chosen.graphTraversalReceipt?.providers??[]).map(row=>({providerId:row.providerId,status:row.status,edgeCount:row.edgeCount,rejectedStale:row.rejectedStale??0})),
+  }));
   assert.equal(hotGraph.value.state,'AVAILABLE');
   assert.ok(hotGraph.value.refs.length>0);
   assert.ok(hotGraph.value.refs.some(ref=>ref.includes('MEMORY_GRAPH_ASTER|memory-ally')||ref.includes('LORE_GRAPH_ASTER|lore-route-current')));

@@ -133,6 +133,7 @@ test('DETERMINISTIC: #27 identity/source correction invalidates the smallest Hot
   });
   brain.registerEntityIdentity({
     entityId:'entity:neutral:keeper',canonicalLabel:'Neutral Keeper',entityType:'PERSON',worldId:'world:neutral',
+    providerId:'LORE_NEUTRAL',sourceEntityId:'neutral-keeper-owner',
     sourceRevisionRefs:[lore.sourceRevisionId],provenanceRefs:[lore.evidenceId],authorityOrigin:'SOURCE_EXPLICIT',
   });
 
@@ -196,3 +197,53 @@ test('DETERMINISTIC: #27 stale Hot snapshot is rejected before a new Context Sea
     jevRequired:false,sidecarRequired:false,externalDatabaseRequired:false,sqlRequired:false,remoteModelRequired:false,userOrchestratorRequired:false,
   });
 });
+
+test('DETERMINISTIC: long-session Hot, retrieval and prompt work remain bounded with an unavailable optional provider',async()=>{
+  const brain=new Area52NativeBrain();
+  brain.registerEntityIdentity({entityId:'entity:long:anchor',canonicalLabel:'Long Session Anchor',entityType:'OBJECT',worldId:'world:neutral'});
+  await brain.prepareTurn({
+    chatId:'chat:long',turnId:'long:0',generationId:'gen:long:0',query:'Begin the neutral long-session fixture.',
+    scene:scene('long-session-room',1,{objects:[{entityId:'entity:long:anchor',canonicalEntityId:'entity:long:anchor',name:'Long Session Anchor'}]}),
+    executionLabel:'DETERMINISTIC',
+  });
+  await brain.completeTurn({
+    turnId:'long:0',response:'The long session anchor is present.',
+    observations:[{subjectId:'entity:long:anchor',predicate:'state',value:'PRESENT',at:1}],
+  });
+
+  for(let index=1;index<=96;index++){
+    brain.core.consumeNarrativeEvidence({
+      kind:'NarrativeEvidence',activity:'APPEND',chatId:'chat:long',messageId:'long:'+index,messageRevision:1,
+      turnId:'synthetic:'+index,sourceRevisionId:'long-session:message:'+index+'@1',sequence:index,current:true,historical:false,
+      content:'Neutral long-session episode '+index+' concerning the anchor.',role:index%2?'user':'assistant',
+      invalidates:[],knownBy:['observer:long'],publicToAll:false,
+    });
+  }
+  for(let index=0;index<48;index++)brain.acceptLore({
+    sourceId:'lore:long:'+index,sourceType:'LORE_ENTRY',
+    exactContent:'Long Session Anchor archival detail '+index+' '+('bounded context detail '.repeat(8)),
+    semantic:{subjectId:'entity:long:anchor',predicate:'archiveDetail'+index,value:'DETAIL_'+index},
+    metadata:{representationText:'Long Session Anchor archival detail '+index},
+  });
+
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:long',turnId:'long:1',generationId:'gen:long:1',
+    query:'Long Session Anchor archival detail and current state?',intent:'CURRENT',anchorEntityIds:['entity:long:anchor'],
+    channelIds:['CORE_SPARSE','NATIVE_LORE','NATIVE_MEMORY','DENSE_EMBEDDINGS'],
+    candidateBudget:12,latencyBudgetMs:1000,budgetTokens:4096,executionLabel:'DETERMINISTIC',
+  });
+
+  const hot=brain.core.hotCognitionSnapshot('chat:long');
+  assert.ok(hot.segments.RECENT_EPISODE_TAIL.value.length<=32);
+  assert.ok(prepared.candidateEnvelope.candidateCount<=12);
+  assert.equal(prepared.candidateEnvelope.unavailableChannels.includes('DENSE_EMBEDDINGS'),true);
+  const unavailable=prepared.candidateEnvelope.metadata.channelReceipts.find(row=>row.channelId==='DENSE_EMBEDDINGS');
+  assert.equal(unavailable.status,'UNAVAILABLE');
+  assert.ok(unavailable.reason);
+  assert.ok((unavailable.fallbackChannelIds??[]).length>0);
+  assert.ok(Number.isFinite(prepared.retrievalBudgetReceipt.elapsedMs));
+  assert.equal(prepared.retrievalBudgetReceipt.latencyBudgetMs,1000);
+  assert.ok(prepared.promptPlan.budget.allocated<=prepared.promptPlan.budget.available);
+  assert.ok(prepared.candidateEnvelope.fusionReceipt.diagnostics.candidatePayloadBytes>=0);
+});
+

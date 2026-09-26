@@ -126,16 +126,43 @@ export class SensoryNetBackbone{
   #warmGraphNeighborhood(envelope,graphReceipt){
     if(!graphReceipt||!this.hotCognition?.hasActiveChat)return null;
     const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
-    const refs=uniq(rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))));
-    const sourceRevisionRefs=uniq(rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]));
-    const identityRevisionRefs=uniq(rows.flatMap(candidate=>candidate.identityRevisionRefs??[]));
+    const prior=this.hotCognition?.snapshot?.()?.segments?.GRAPH_NEIGHBORHOOD??null;
+    const staleRefs=new Set((graphReceipt?.staleRejected??[]).map(row=>String(row.providerId??'GRAPH')+'|'+String(row.edgeId??'')));
+    const priorFresh=Boolean(prior?.freshness==='FRESH'&&prior?.value?.state==='AVAILABLE');
+    const priorEntries=priorFresh
+      ? (prior?.value?.entries?.length
+          ? prior.value.entries.filter(row=>row?.ref&&!staleRefs.has(String(row.ref)))
+          : (staleRefs.size?[]:(prior?.value?.refs??[]).map(ref=>({ref:String(ref),sourceRevisionRefs:[],identityRevisionRefs:[],dependencyRevisionRefs:[]}))))
+      : [];
+    const incomingEntries=(graphReceipt?.hotNeighborhoodSummary??[]).map(row=>({
+      ref:String(row.ref),providerId:row.providerId??null,owner:row.owner??null,edgeId:row.edgeId??null,
+      sourceKind:row.sourceKind??null,temporalStatus:row.temporalStatus??null,
+      sourceRevisionRefs:uniq(row.sourceRevisionRefs??[]),identityRevisionRefs:uniq(row.identityRevisionRefs??[]),
+      dependencyRevisionRefs:uniq(row.dependencyRevisionRefs??[]),
+    })).filter(row=>row.ref&&!staleRefs.has(row.ref));
+    const entryMap=new Map(priorEntries.map(row=>[String(row.ref),clone(row)]));
+    for(const row of incomingEntries)entryMap.set(row.ref,row);
+    const entries=[...entryMap.values()].sort((a,b)=>String(a.ref).localeCompare(String(b.ref)));
+    const refs=uniq([
+      ...entries.map(row=>row.ref),
+      ...rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))).filter(ref=>!staleRefs.has(ref)),
+    ]);
+    const sourceRevisionRefs=uniq([
+      ...entries.flatMap(row=>row.sourceRevisionRefs??[]),
+      ...rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]),
+    ]);
+    const identityRevisionRefs=uniq([
+      ...entries.flatMap(row=>row.identityRevisionRefs??[]),
+      ...rows.flatMap(candidate=>candidate.identityRevisionRefs??[]),
+    ]);
+    const dependencyRevisionRefs=uniq(entries.flatMap(row=>row.dependencyRevisionRefs??[]));
     const provenanceRefs=uniq(rows.flatMap(candidate=>[
       ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
       ...(candidate.evidenceRefs??[]),
     ]));
     const degraded=(graphReceipt.providers??[]).some(row=>row?.status==='DEGRADED');
     return this.hotCognition.setGraphNeighborhood({
-      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,identityRevisionRefs,provenanceRefs,
+      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,entries,sourceRevisionRefs,identityRevisionRefs,dependencyRevisionRefs,provenanceRefs,
       updateId:'graph-warm:'+stableHash({candidateSetId:envelope?.candidateSetId??null,worldRevision:envelope?.worldRevision??null,sceneRevision:envelope?.sceneRevision??null,refs},{length:20}),
     });
   }

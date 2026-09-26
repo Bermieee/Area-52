@@ -55,6 +55,24 @@ function edgeText(edge){
 }
 function edgeIdentity(edge){return edge.evidenceIdentity??(edge.claimRefs?.length?('claim:'+edge.claimRefs[0]):('graph-edge:'+edge.providerId+':'+edge.edgeId));}
 function artifactRef(edge){return clone(edge.artifactRef??{artifactId:edge.edgeId,artifactType:edge.artifactType??'GraphEdge',revision:edge.artifactRevision??1});}
+function providerBalancedEdges(rows=[]){
+  const groups=new Map();
+  for(const edge of rows){
+    const provider=String(edge?.providerId??'UNKNOWN');
+    const list=groups.get(provider)??[];list.push(edge);groups.set(provider,list);
+  }
+  for(const list of groups.values())list.sort((a,b)=>String(a.edgeId).localeCompare(String(b.edgeId)));
+  const providers=[...groups.keys()].sort(),out=[];
+  let remaining=true;
+  while(remaining){
+    remaining=false;
+    for(const provider of providers){
+      const list=groups.get(provider);
+      if(list?.length){out.push(list.shift());remaining=true;}
+    }
+  }
+  return out;
+}
 
 export class NativeGraphNeighborhoodRetriever{
   constructor({temporalGraph,entityRegistry,sceneSnapshot=null,isSourceRevisionCurrent=null,evidenceSink=null,limits={}}={}){
@@ -169,12 +187,24 @@ export class NativeGraphNeighborhoodRetriever{
       }));
     }
     trustedSourceRevisionRefs.push(...traversed.rows.filter(row=>!['CORE_TEMPORAL_STATE','SCENE_OWNER'].includes(row.edge.providerId)).flatMap(row=>row.edge.sourceRevisionRefs));
+    const hotNeighborhood=traversed.rows.slice(0,request.maxCandidates).map(row=>({
+      ref:String(row.edge.providerId)+'|'+String(row.edge.edgeId),
+      providerId:String(row.edge.providerId),owner:String(row.edge.owner),edgeId:String(row.edge.edgeId),
+      sourceKind:String(row.edge.sourceKind),temporalStatus:status(row.edge.temporalStatus),
+      sourceRevisionRefs:uniq(row.edge.sourceRevisionRefs??[]),identityRevisionRefs:uniq(row.edge.identityRevisionRefs??[]),
+      dependencyRevisionRefs:uniq(row.edge.dependencyRevisionRefs??[]),
+    }));
     const elapsedMs=Math.max(0,now()-started);
     this.lastReceipt={
       kind:'GraphTraversalReceipt',contractVersion:'1.0.0',intentId:intent.intentId,query:request.query,anchorEntityIds:[...request.anchorEntityIds],
       providers:providerDiagnostics,providerCount:providerDiagnostics.length+2,examinedEdgeCount:traversed.examinedEdgeCount,
       traversedEdgeCount:traversed.rows.length,visitedNodeCount:traversed.visitedNodeCount,nominationCount:nominations.length,
       staleRejectedCount:staleEdges.length,staleRejected:staleEdges.slice(0,32),trustedSourceRevisionRefs:uniq(trustedSourceRevisionRefs),
+      hotNeighborhoodRefs:hotNeighborhood.map(row=>row.ref),
+      hotNeighborhoodSourceRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.sourceRevisionRefs)),
+      hotNeighborhoodIdentityRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.identityRevisionRefs)),
+      hotNeighborhoodDependencyRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.dependencyRevisionRefs)),
+      hotNeighborhoodSummary:hotNeighborhood,
       boundedOut:{edges:traversed.boundedEdges,nodes:traversed.boundedNodes,candidates:traversed.boundedCandidates},
       limits:{maxDepth:request.maxDepth,maxNodes:request.maxNodes,maxEdges:request.maxEdges,maxCandidates:request.maxCandidates,latencyBudgetMs:request.latencyBudgetMs},
       elapsedMs,latencyBudgetExceeded:elapsedMs>=request.latencyBudgetMs&&request.latencyBudgetMs>=0,
@@ -291,7 +321,7 @@ export class NativeGraphNeighborhoodRetriever{
       // native evidence because wall-clock time was consumed by optional providers
       // or runner scheduling before the walk began.
       const node=queue.shift();if(node.depth>=request.maxDepth)continue;
-      for(const edge of adjacency.get(node.entityId)??[]){
+      for(const edge of providerBalancedEdges(adjacency.get(node.entityId)??[])){
         if(examinedEdgeCount>=request.maxEdges){boundedEdges++;queue.length=0;break;}
         examinedEdgeCount++;
         if(seenEdges.has(edge.providerId+'|'+edge.edgeId))continue;seenEdges.add(edge.providerId+'|'+edge.edgeId);

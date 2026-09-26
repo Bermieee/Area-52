@@ -7,8 +7,8 @@ export class SettlementBoundary {
   #audits=new Map();
   #sequence=0;
 
-  constructor({registry,graph,worldStateSettlement}){
-    this.registry=registry;this.graph=graph;this.worldStateSettlement=worldStateSettlement;
+  constructor({registry,graph,worldStateSettlement,entityRegistry=null}){
+    this.registry=registry;this.graph=graph;this.worldStateSettlement=worldStateSettlement;this.entityRegistry=entityRegistry;
     this.registerOwner('WORLD_STATE',{
       approval:'OPTIONAL',
       validate:(proposal)=>({ok:true,reason:'world-state owner policy accepted proposal shape'}),
@@ -63,7 +63,9 @@ export class SettlementBoundary {
     if(!Array.isArray(proposal.evidenceIds)||!Array.isArray(proposal.sourceRevisionIds)||!Array.isArray(proposal.freshnessRevisionIds))return{ok:false,stage:'schema',reason:'proposal revision/evidence arrays are invalid'};
     if(proposal.evidenceIds.some(id=>!this.registry.isArtifactValid(id)))return{ok:false,stage:'evidence',reason:'proposal evidence is missing or invalid'};
     if(proposal.freshnessRevisionIds.some(id=>!this.registry.isActiveRevision(id)))return{ok:false,stage:'freshness',reason:'proposal source revision is stale'};
-    return{ok:true,stage:'common-validation',reason:'schema, evidence, and freshness validation passed'};
+    const identityRevisionRefs=proposal.payload?.claim?.identityRevisionRefs??[];
+    if(this.entityRegistry&&identityRevisionRefs.some(ref=>!this.entityRegistry.isCurrentRevisionRef(ref)))return{ok:false,stage:'identity-freshness',reason:'proposal identity revision is stale'};
+    return{ok:true,stage:'common-validation',reason:'schema, evidence, source freshness, and identity freshness validation passed'};
   }
 
   #reject(proposal,validation,judgmentMetadata){
@@ -79,18 +81,19 @@ export class SettlementBoundary {
 
   #record(proposal,settled,validation,ownerValidation,judgmentMetadata,approvalState){
     this.#sequence+=1;
+    const claim=proposal.payload?.claim??null,identityRevisionRefs=[...(claim?.identityRevisionRefs??[])];
     const decision={...clone(settled.decision),diagnostics:{
       ...(settled.decision?.diagnostics??{}),
       validation:[validation,...(ownerValidation?[ownerValidation]:[])],
       approvalState,
       judgmentMetadata,
+      identityRevisionRefs,
     }};
     const base=settled.receipt;
-    const claim=proposal.payload?.claim??null;
     const audit={
       kind:'SettlementAuditReceipt',id:`settlement-audit:${this.#sequence}:${proposal.id}`,
       sequence:this.#sequence,proposalId:proposal.id,destinationOwner:proposal.owner,decision:decision.decision,
-      evidenceIds:[...(proposal.evidenceIds??[])],sourceRevisionIds:[...(proposal.sourceRevisionIds??[])],
+      evidenceIds:[...(proposal.evidenceIds??[])],sourceRevisionIds:[...(proposal.sourceRevisionIds??[])],identityRevisionRefs,
       worldRevision:this.graph.revision,authorityInformation:claim?{authorityClass:claim.authorityClass,confidence:claim.confidence}:null,
       temporalInformation:claim?.temporal?clone(claim.temporal):null,
       consideredConflicts:[...(decision.consideredClaimIds??[])],

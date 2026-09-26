@@ -56,7 +56,7 @@ jobs:
           tests/wave12-sillytavern-host.test.mjs
       - name: Assembled Scene reader and Inspector coalescing regressions
         run: |
-          node --test --test-name-pattern='real native Brain host event publishes Scene' tests/deployment-live-host.test.mjs
+          node --test --test-name-pattern='real native Brain host event publishes Scene|live host listener topology stays bounded' tests/deployment-live-host.test.mjs
           node --test --test-name-pattern='500 Inspector select/clear cycles' tests/wave6.test.mjs
       - name: Browser-facing imports
         run: >

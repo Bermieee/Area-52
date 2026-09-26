@@ -283,7 +283,7 @@ export class Area52NativeBrain{
 
   async prepareTurn({
     chatId,turnId,generationId,correlationId=null,query,intent='CURRENT',
-    scene=null,sceneSignal=null,anchorEntityIds=[],perspectiveConstraint=null,
+    scene=null,sceneSignal=null,sceneTimeline=[],sceneOwnerReceipt=null,anchorEntityIds=[],perspectiveConstraint=null,
     budgetBytes=5000,budgetTokens=null,deadline=null,modelProfileId=null,
     providerId=null,modelId=null,routeId=null,observedCacheBehavior=null,
     systemPolicy=null,activeThreads=[],activeContext=null,precisionAvailable=true,channelIds=null,
@@ -293,7 +293,24 @@ export class Area52NativeBrain{
     const chat=req(chatId,'chatId'),turn=req(turnId,'turnId'),generation=req(generationId,'generationId'),q=req(query,'query');
     const corr=correlationId??('corr:'+turn);
     this.core.activateHotCognitionChat(chat,{reason:'TURN_RECEIVED'});
-    if(sceneSignal||scene)this.observeScene(chat,sceneSignal??scene);
+    const sceneIngressReceipts=[];
+    for(const row of sceneTimeline??[]){
+      if(!row?.value)continue;
+      const receipt=row.type==='INVALIDATION'
+        ? this.core.consumeSceneContextInvalidation(row.value,{chatNamespace:chat})
+        : row.type==='EVENT'
+          ? this.core.consumeCognitiveEvent(row.value,{chatNamespace:chat})
+          : null;
+      if(receipt)sceneIngressReceipts.push({
+        type:row.type,
+        ref:row.value?.eventId??row.value?.invalidationId??null,
+        eventType:row.value?.eventType??null,
+        status:receipt.status??null,
+        coreHandling:receipt.coreHandling??null,
+        reason:receipt.reason??receipt.reasonCode??null,
+      });
+    }
+    const sceneSignalAdmission=(sceneSignal||scene)?this.observeScene(chat,sceneSignal??scene):null;
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
     this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
@@ -338,6 +355,14 @@ export class Area52NativeBrain{
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet,sceneSourceRevisionRefs,ownerSourceRevisionSet,
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
+      sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:{
+        kind:'NativeBrainSceneIngressReceipt',
+        timelineCount:sceneIngressReceipts.length,
+        timelineReceipts:clone(sceneIngressReceipts),
+        signalStatus:sceneSignalAdmission?.accepted===true?'ADMITTED':sceneSignalAdmission?.receipt?'REJECTED':'UNAVAILABLE',
+        signalReceipt:clone(sceneSignalAdmission?.receipt??null),
+        authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+      },
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal)},
       published:clone(published),delivery:clone(delivery),contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       state:'SEALED_FOR_GENERATION',
@@ -346,7 +371,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,loreSync,memorySync,cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,

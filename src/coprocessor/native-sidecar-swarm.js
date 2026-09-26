@@ -26,7 +26,7 @@ const AUTHORITY_SAFE=new Set(['UNRESOLVED','INFERRED']);
 export class NativeSidecarSwarm{
   constructor({
     connections,planner=null,telemetry=null,now=()=>Date.now(),maxHistory=64,maxCheckpointBytes=131072,maxProvidersPerTask=2,
-    maxLayerConcurrency=2,minFreshWindowMs=12,hostYield=yieldScatterHost,
+    maxLayerConcurrency=2,minFreshWindowMs=12,hostYield=yieldScatterHost,executionLedger=null,maxReplayEntries=16,
   }={}){
     if(!connections||typeof connections.readModel!=='function'||typeof connections.executeTask!=='function')throw new TypeError('NativeSidecarSwarm requires CoprocessorResourceConnections');
     this.connections=connections;
@@ -39,6 +39,8 @@ export class NativeSidecarSwarm{
     this.maxLayerConcurrency=boundedLayerConcurrency(maxLayerConcurrency);
     this.minFreshWindowMs=Math.max(0,Number(minFreshWindowMs)||0);
     this.hostYield=typeof hostYield==='function'?hostYield:yieldScatterHost;
+    this.executionLedger=executionLedger&&typeof executionLedger.get==='function'&&typeof executionLedger.set==='function'?executionLedger:new Map();
+    this.maxReplayEntries=Math.max(1,Number(maxReplayEntries)||16);this.replayOrder=[];
     this.turns=new Map();
     this.turnOrder=[];
     this.jev=new JevDecisionCore({providerExecutor:this.connections.createJevProviderExecutor()});
@@ -82,14 +84,21 @@ export class NativeSidecarSwarm{
       ownerSignals:input.ownerSignals??{},
       maxProvidersPerTask:input.maxProvidersPerTask??this.maxProvidersPerTask,
       gather:input.gather??null,
+      selection:input.selection??input.plannerInput?.selection??prepared.checkpoint.selection,
     });
   }
 
   async executeCheckpoint(checkpointInput,{
     inputResolver=()=>({}),currentRevisionState=null,sealed=false,signal=null,jevRequest=null,ownerSignals={},
-    maxProvidersPerTask=this.maxProvidersPerTask,gather=null,
+    maxProvidersPerTask=this.maxProvidersPerTask,gather=null,selection=null,
   }={}){
     const checkpoint=validateCheckpoint(checkpointInput,this.maxCheckpointBytes);
+    const replay=this.executionLedger.get(checkpoint.checkpointId);
+    if(replay){emitTelemetry(this.telemetry,TelemetryEvent.SWARM_RESUMED,{...checkpoint.selection,checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:0,replaySuppressed:true});return replay;}
+    if(selection&&!selectionMatches(checkpoint.selection,selection)){
+      const records=checkpoint.pendingTasks.map(task=>rejectedRecord(task,NativeSwarmResultState.REJECTED_STALE,FailureCode.STALE_RESULT));
+      return this.#finish(checkpoint,{records,jevReceipt:null,checkpoint:null,resumeStatus:'SELECTION_REJECTED',cache:false});
+    }
     const current=await resolveValue(currentRevisionState,checkpoint.revisionFence);
     const freshness=classifyFreshness(checkpoint.revisionFence,current??checkpoint.revisionFence);
     if(freshness!==Freshness.FRESH){
@@ -138,6 +147,7 @@ export class NativeSidecarSwarm{
   }
 
   readTurn(turnId){return clone(this.turns.get(String(turnId))??null);}
+  releaseCheckpointReplay(checkpointId){const id=String(checkpointId);this.replayOrder=this.replayOrder.filter(value=>value!==id);return Boolean(this.executionLedger.delete?.(id));}
 
   async #executeForeground(tasks,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint,gather=null}){
     const records=[];const turnUsage=new Map();
@@ -296,7 +306,7 @@ export class NativeSidecarSwarm{
     }finally{clearTimeout(timer);detach();}
   }
 
-  #finish(sourceCheckpoint,{records,jevReceipt,checkpoint,resumeStatus}){
+  #finish(sourceCheckpoint,{records,jevReceipt,checkpoint,resumeStatus,cache=true}){
     const providerExecutions=records.map(record=>({
       taskId:record.taskId,choiceOptionId:record.optionId,executionResourceId:record.resourceId,providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,
       startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,resultId:record.resultId??record.result?.resultId??null,
@@ -328,12 +338,18 @@ export class NativeSidecarSwarm{
     });
     this.#remember(summary);
     if(checkpoint)emitTelemetry(this.telemetry,TelemetryEvent.SWARM_CHECKPOINTED,{checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,pendingTaskCount:checkpoint.pendingTasks.length});
-    return Object.freeze({kind:'NativeSidecarSwarmTurnResult',contribution,checkpoint,readModel:summary});
+    const output=Object.freeze({kind:'NativeSidecarSwarmTurnResult',contribution,checkpoint,readModel:summary});
+    if(cache)this.#rememberReplay(sourceCheckpoint.checkpointId,output);
+    return output;
   }
 
   #remember(summary){
     const id=summary.turnId;if(!this.turns.has(id))this.turnOrder.push(id);this.turns.set(id,summary);
     while(this.turnOrder.length>this.maxHistory)this.turns.delete(this.turnOrder.shift());
+  }
+  #rememberReplay(checkpointId,result){
+    const id=String(checkpointId);if(!this.executionLedger.has(id))this.replayOrder.push(id);this.executionLedger.set(id,result);
+    while(this.replayOrder.length>this.maxReplayEntries){const evicted=this.replayOrder.shift();this.executionLedger.delete?.(evicted);}
   }
 }
 
@@ -426,3 +442,5 @@ function deepFreeze(v){if(!v||typeof v!=='object'||Object.isFrozen(v))return v;O
 function publicSelection(primary={},secondary={}){return deepFreeze({chatId:secondary?.chatId??secondary?.selection?.chatId??primary?.chatId??null,turnId:primary?.turnId??secondary?.turnId??secondary?.selection?.turnId??null,generationId:secondary?.generationId??secondary?.selection?.generationId??primary?.generationId??null,correlationId:primary?.correlationId??secondary?.correlationId??secondary?.selection?.correlationId??null});}
 
 function equivalentPlacementProfiles(a,b){return a?.latencyClass===b?.latencyClass&&a?.costClass===b?.costClass&&Number(a?.reliability??0)===Number(b?.reliability??0)&&Number(a?.qualityScore??0)===Number(b?.qualityScore??0)&&Boolean(a?.local)===Boolean(b?.local);}
+
+function selectionMatches(expected={},actual={}){for(const key of ['chatId','turnId','generationId','correlationId']){if(expected?.[key]!=null&&actual?.[key]!=null&&String(expected[key])!==String(actual[key]))return false;}return true;}

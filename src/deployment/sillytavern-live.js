@@ -8,6 +8,157 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
 
+function normalizeEndpoint(value){
+  const text=clean(value);if(!text)return null;
+  try{return new URL(text).origin+new URL(text).pathname.replace(/\/+$/,'');}catch{return text.replace(/\/+$/,'');}
+}
+
+function sillyTavernConnectionProfiles(context){
+  const service=context?.ConnectionManagerRequestService;
+  if(typeof service?.getSupportedProfiles!=='function')return[];
+  try{
+    return (service.getSupportedProfiles()??[]).map(profile=>({
+      id:clean(profile?.id),name:clean(profile?.name)||clean(profile?.id),api:clean(profile?.api),model:clean(profile?.model),
+      endpoint:clean(profile?.['api-url'])||null,hasSecretReference:Boolean(profile?.['secret-id']),
+    })).filter(row=>row.id);
+  }catch{return[];}
+}
+
+function resolveSillyTavernConnectionProfile(context,config={}){
+  const service=context?.ConnectionManagerRequestService,profiles=sillyTavernConnectionProfiles(context);
+  if(!service||!profiles.length)return null;
+  const requested=clean(config.connectionProfileId);
+  if(requested){const exact=profiles.find(row=>row.id===requested);if(exact)return exact;return null;}
+  const model=clean(config.modelId),endpoint=normalizeEndpoint(config.endpoint);
+  const modelMatches=model?profiles.filter(row=>row.model===model):[];
+  if(endpoint){
+    const exact=modelMatches.find(row=>normalizeEndpoint(row.endpoint)===endpoint);
+    if(exact)return exact;
+  }
+  if(modelMatches.length===1)return modelMatches[0];
+  const selected=clean(context?.extensionSettings?.connectionManager?.selectedProfile);
+  if(selected){
+    const selectedProfile=profiles.find(row=>row.id===selected);
+    if(selectedProfile&&(!model||selectedProfile.model===model))return selectedProfile;
+  }
+  return profiles.length===1?profiles[0]:null;
+}
+
+function isSillyTavernOpenRouterRoute(context,config={}){
+  const endpoint=normalizeEndpoint(config.endpoint);
+  if(!endpoint)return false;
+  try{
+    const host=new URL(endpoint).hostname.toLowerCase();
+    const hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+    return (host==='openrouter.ai'||host.endsWith('.openrouter.ai'))&&typeof hostFetch==='function';
+  }catch{return false;}
+}
+
+function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities=[]}={}){
+  let selectedModel=clean(modelId);
+  if(!selectedModel)throw new TypeError('OpenRouter model is required');
+  const request=async(messages,{signal=null,maxOutputTokens=128,temperature=0}={})=>{
+    const context=getContext(),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+    if(typeof hostFetch!=='function')throw Object.assign(new Error('SillyTavern host fetch is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const headers=typeof context?.getRequestHeaders==='function'?context.getRequestHeaders():{'Content-Type':'application/json'};
+    const body={
+      stream:false,
+      messages,
+      model:selectedModel,
+      chat_completion_source:'openrouter',
+      max_tokens:Math.max(1,Math.trunc(Number(maxOutputTokens)||128)),
+      temperature:Number.isFinite(Number(temperature))?Number(temperature):0,
+      include_reasoning:false,
+    };
+    const startedAt=Date.now();
+    let response;
+    try{
+      response=await hostFetch('/api/backends/chat-completions/generate',{
+        method:'POST',headers,cache:'no-cache',body:JSON.stringify(body),signal:signal??undefined,
+      });
+    }catch(error){
+      throw Object.assign(new Error('SillyTavern OpenRouter proxy request failed: '+String(error?.message??error)),{code:'PROVIDER_UNAVAILABLE',cause:error});
+    }
+    let json=null,text='';
+    try{json=await response.json();}
+    catch{
+      try{text=await response.text();}catch{}
+    }
+    if(!response?.ok||json?.error){
+      const detail=clean(json?.error?.message??json?.message??text);
+      const message='SillyTavern OpenRouter proxy returned HTTP '+String(response?.status??0)+(detail?': '+detail.slice(0,240):'');
+      const code=response?.status===401||response?.status===403?'PROVIDER_UNAUTHORIZED':response?.status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
+      throw Object.assign(new Error(message),{code,status:Number(response?.status??0)});
+    }
+    const content=typeof json?.choices?.[0]?.message?.content==='string'
+      ?json.choices[0].message.content
+      :typeof json?.choices?.[0]?.text==='string'?json.choices[0].text
+      :typeof json?.content==='string'?json.content:'';
+    if(!content)throw Object.assign(new Error('SillyTavern OpenRouter backend returned no completion text'),{code:'MALFORMED_OUTPUT'});
+    const completedAt=Date.now();return{content,startedAt,completedAt};
+  };
+  return{
+    providerId,modelId:selectedModel,capabilities:[...new Set(capabilities)],measurementClass:'MEASURED_LIVE',
+    structuredOutputSupport:true,streamingSupport:false,abortSupport:true,local:false,
+    contextLimit:Number.MAX_SAFE_INTEGER,outputLimit:Number.MAX_SAFE_INTEGER,
+    setModelId(value){selectedModel=clean(value);this.modelId=selectedModel;return selectedModel;},
+    setCredential(){return false;},clearCredential(){return false;},
+    async discoverModels(){return Object.freeze({ok:true,supported:true,state:'READY',models:Object.freeze([{id:selectedModel,displayName:selectedModel}]),latencyMs:0,transportMode:'CHAT_COMPLETIONS'});},
+    async probe({signal=null}={}){
+      const probe=await request([{role:'user',content:'Reply with exactly OK.'}],{signal,maxOutputTokens:8,temperature:0});
+      return Object.freeze({ok:true,providerId,modelId:selectedModel,latencyMs:probe.completedAt-probe.startedAt,modelAvailable:true,discoveryState:'READY',measurementClass:'MEASURED_LIVE',capabilities:Object.freeze([...new Set(capabilities)]),transportMode:'CHAT_COMPLETIONS',actualProvider:'SILLYTAVERN_ACTIVE_OPENROUTER'});
+    },
+    async invoke(task,input,{signal=null,maxOutputTokens=1200,temperature=0}={}){
+      const messages=Array.isArray(input?.messages)?input.messages:[{role:'user',content:JSON.stringify(input?.data??input??{})}];
+      const result=await request(messages,{signal,maxOutputTokens,temperature});
+      return Object.freeze({providerId,modelId:selectedModel,text:result.content,usage:{},finishReason:'stop',startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.completedAt-result.startedAt,
+        metadata:{measurementClass:'MEASURED_LIVE',requestedModelId:selectedModel,actualProvider:'SILLYTAVERN_ACTIVE_OPENROUTER',hostManagedCredential:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET'}});
+    },
+  };
+}
+
+function createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities=[]}={}){
+  let selectedModel=clean(modelId)||profile?.model;
+  const profileId=clean(profile?.id),profileName=clean(profile?.name)||profileId;
+  if(!profileId||!selectedModel)throw new TypeError('SillyTavern Connection Profile and model are required');
+  const request=async(messages,{signal=null,maxOutputTokens=128,temperature=0}={})=>{
+    const context=getContext(),service=context?.ConnectionManagerRequestService;
+    if(typeof service?.sendRequest!=='function')throw Object.assign(new Error('SillyTavern ConnectionManagerRequestService is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const current=service.getProfile?.(profileId);
+    if(!current)throw Object.assign(new Error('SillyTavern Connection Profile is no longer available: '+profileName),{code:'PROVIDER_UNAVAILABLE'});
+    const startedAt=Date.now();
+    const response=await service.sendRequest(profileId,messages,Math.max(1,Math.trunc(Number(maxOutputTokens)||128)),{
+      stream:false,signal,extractData:true,includePreset:false,includeInstruct:false,
+    },{model:selectedModel,temperature});
+    const content=typeof response?.content==='string'?response.content:response?.content==null?'':JSON.stringify(response.content);
+    if(!content)throw Object.assign(new Error('SillyTavern Connection Profile returned no completion text'),{code:'MALFORMED_OUTPUT'});
+    const completedAt=Date.now();
+    return{content,startedAt,completedAt,profile:current};
+  };
+  return{
+    providerId,modelId:selectedModel,capabilities:[...new Set(capabilities)],measurementClass:'MEASURED_LIVE',
+    structuredOutputSupport:true,streamingSupport:false,abortSupport:true,local:false,
+    contextLimit:Number.MAX_SAFE_INTEGER,outputLimit:Number.MAX_SAFE_INTEGER,
+    setModelId(value){selectedModel=clean(value);this.modelId=selectedModel;return selectedModel;},
+    setCredential(){return false;},clearCredential(){return false;},
+    async discoverModels(){
+      const current=getContext()?.ConnectionManagerRequestService?.getProfile?.(profileId);
+      const model=clean(current?.model)||selectedModel;
+      return Object.freeze({ok:true,supported:true,state:'READY',models:Object.freeze([{id:model,displayName:model}]),latencyMs:0,transportMode:'CHAT_COMPLETIONS'});
+    },
+    async probe({signal=null}={}){
+      const probe=await request([{role:'user',content:'Reply with exactly OK.'}],{signal,maxOutputTokens:8,temperature:0});
+      return Object.freeze({ok:true,providerId,modelId:selectedModel,latencyMs:probe.completedAt-probe.startedAt,modelAvailable:true,discoveryState:'READY',measurementClass:'MEASURED_LIVE',capabilities:Object.freeze([...new Set(capabilities)]),transportMode:'CHAT_COMPLETIONS',actualProvider:'SILLYTAVERN_CONNECTION_PROFILE'});
+    },
+    async invoke(task,input,{signal=null,maxOutputTokens=1200,temperature=0}={}){
+      const messages=Array.isArray(input?.messages)?input.messages:[{role:'user',content:JSON.stringify(input?.data??input??{})}];
+      const result=await request(messages,{signal,maxOutputTokens,temperature});
+      return Object.freeze({providerId,modelId:selectedModel,text:result.content,usage:{},finishReason:'stop',startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.completedAt-result.startedAt,
+        metadata:{measurementClass:'MEASURED_LIVE',requestedModelId:selectedModel,actualProvider:'SILLYTAVERN_CONNECTION_PROFILE',connectionProfileId:profileId,connectionProfileName:profileName,hostManagedCredential:true}});
+    },
+  };
+}
+
 function shortHash(value) {
   let h = 2166136261;
   for (const ch of String(value)) {
@@ -331,6 +482,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
+    this.hostManagedResourceProfiles = new Map();
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -431,8 +583,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(!before||!requestReady||!received)throw new Error('Native Brain live integration requires GENERATION_AFTER_COMMANDS, CHAT_COMPLETION_PROMPT_READY, and MESSAGE_RECEIVED events');
       const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_PREPARE'});this.#notify();}};
       const requestHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeModelRequest(eventData);}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_MODEL_REQUEST'});this.#notify();}};
-      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_COMPLETE'});this.#notify();}};
-      const stoppedHandler=()=>{this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
+      const receivedHandler=async(index)=>{this.#recordHostNarrativeEvent('MESSAGE_RECEIVED',[index]);try{await this.completeNativeGeneration({messageIndex:index});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_COMPLETE'});this.#notify();}};
+      const stoppedHandler=(...args)=>{this.#recordHostNarrativeEvent('GENERATION_STOPPED',args);this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
       context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
@@ -440,11 +592,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     }else{
       const eventName=context.eventTypes?.MESSAGE_SENT??context.event_types?.MESSAGE_SENT;
       if(!eventName)throw new Error('No supported SillyTavern pre-generation event is available');
-      const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
+      const handler=async(...args)=>{this.#recordHostNarrativeEvent('MESSAGE_SENT',args);try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
       context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
     }
     const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'];
+    const functionalObservedEvents=this.nativeBrain?new Set(['MESSAGE_RECEIVED','GENERATION_STOPPED']):new Set(['MESSAGE_SENT']);
     for(const key of observedHostEvents){
+      if(functionalObservedEvents.has(key))continue;
       const eventName=context.eventTypes?.[key]??context.event_types?.[key];
       if(!eventName)continue;
       const observer=(...args)=>this.#recordHostNarrativeEvent(key,args);
@@ -808,9 +962,70 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
   }
 
+  #decorateSillyTavernResourceHost(host){
+    if(!host?.actions||!host?.read)return host;
+    const getContext=()=>this.getContext(),session=this;
+    const decorateConfig=(config={})=>{
+      const role=clean(config.role??config.resourceRole).toUpperCase(),caps=[...(config.capabilities??[])].map(String);
+      const jev=role==='JEV'||caps.includes('SEMANTIC_JUDGMENT');
+      if(!jev||config.apiKey)return config;
+      const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config);
+      const activeOpenRouter=!profile&&isSillyTavernOpenRouterRoute(context,config);
+      if(!profile&&!activeOpenRouter)return config;
+      const resourceId=clean(config.resourceId)||('jev:'+clean(config.displayName??'primary-jev').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
+      const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId)||profile?.model;
+      const adapter=profile
+        ?createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities:caps})
+        :createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps});
+      const source=profile?'SILLYTAVERN_CONNECTION_MANAGER':'SILLYTAVERN_ACTIVE_SECRET';
+      session.hostManagedResourceProfiles.set(resourceId,{connectionProfileId:profile?.id??null,connectionProfileName:profile?.name??'SillyTavern active OpenRouter secret',modelId,api:profile?.api??'openrouter',source});
+      return{...config,resourceId,providerId,modelId,adapter,credentialRequired:false,credentialManagedByHost:true,hostCredentialSource:source,
+        connectionProfileId:profile?.id??config.connectionProfileId??null,connectionProfileName:profile?.name??config.connectionProfileName??'SillyTavern active OpenRouter secret',
+        profileMetadata:{...(config.profileMetadata??{}),credentialOwner:source,connectionProfileId:profile?.id??null}};
+    };
+    const decorateRow=(row)=>{
+      if(!row||typeof row!=='object')return row;
+      const meta=session.hostManagedResourceProfiles.get(clean(row.resourceId));
+      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:meta.source??'SILLYTAVERN_CONNECTION_MANAGER',connectionProfileId:meta.connectionProfileId,connectionProfileName:meta.connectionProfileName}:clone(row);
+    };
+    const actions=Object.freeze({
+      ...host.actions,
+      addResource:(config)=>host.actions.addResource(decorateConfig(config)),
+      discoverModels:async(config,opts)=>{
+        const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config),activeOpenRouter=!profile&&isSillyTavernOpenRouterRoute(context,config);
+        if((profile||activeOpenRouter)&&!config?.apiKey){
+          const model=clean(config?.modelId)||profile?.model;
+          return Object.freeze({kind:'ResourceModelDiscoveryResult',state:'READY',models:Object.freeze(model?[{id:model,displayName:model}]:[]),manualModelEntryAllowed:true,
+            reasonCode:profile?'SILLYTAVERN_PROFILE_READY':'SILLYTAVERN_ACTIVE_SECRET_READY',
+            reason:profile?'Using SillyTavern Connection Profile '+profile.name+'.':'Using SillyTavern active OpenRouter credential; Test Connection will verify the selected model.',
+            credentialConfigured:true,credentialStorage:profile?'SILLYTAVERN_CONNECTION_MANAGER':'SILLYTAVERN_ACTIVE_SECRET'});
+        }
+        return host.actions.discoverModels(config,opts);
+      },
+    });
+    const read=Object.freeze({
+      ...host.read,
+      resources:()=>{const raw=host.read.resources();return raw&&Array.isArray(raw.resources)?{...clone(raw),resources:raw.resources.map(decorateRow)}:raw;},
+      resource:(resourceId)=>decorateRow(host.read.resource(resourceId)),
+    });
+    return Object.freeze({...host,actions,read});
+  }
+
+  #listSillyTavernConnectionProfiles(){
+    return sillyTavernConnectionProfiles(this.getContext()).map(row=>({id:row.id,name:row.name,api:row.api,model:row.model,endpoint:row.endpoint,hasSecretReference:row.hasSecretReference}));
+  }
+
   #uiHostBindings(){
     const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
     const base={...brainBindings,...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
+    const rawResourceHost=base.resourceHost??base.coprocessorResourceHost??null,hostResourceBridge=this.#decorateSillyTavernResourceHost(rawResourceHost);
+    if(hostResourceBridge){
+      base.resourceHost=hostResourceBridge;base.coprocessorResourceHost=hostResourceBridge;
+      base.addResource=(config)=>hostResourceBridge.actions.addResource(config);
+      base.listResources=()=>hostResourceBridge.read.resources();
+      base.listResourceProfiles=()=>hostResourceBridge.read.resources();
+    }
+    base.listSillyTavernConnectionProfiles=()=>this.#listSillyTavernConnectionProfiles();
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();

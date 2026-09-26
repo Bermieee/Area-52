@@ -55,9 +55,9 @@ function liveOwner({withResources=false,withLore=false}={}){
   return{bindings,calls,listenerCount:()=>listeners.size,switchStory({chatId,turnId,generationId,location:nextLocation}){selection={chatId,turnId,generationId,correlationId:'corr:'+turnId,worldRevision:selection.worldRevision+1,sceneRevision:selection.sceneRevision+1,sourceRevisionRefs:['scene:'+chatId+'@'+(selection.sceneRevision+1)]};location=nextLocation;emit();},clearTurn(){selection={...selection,turnId:null,generationId:null,correlationId:null,worldRevision:null,sceneRevision:null,sourceRevisionRefs:[]};emit();}};
 }
 
-function mount(owner,{width=1280,height=800,floating=true}={}){
+function mount(owner,{width=1280,height=800,floating=true,storage=null,namespace='wave13-test'}={}){
   const document=new Doc(width,height),root=new Node('aside',document);document.body.append(root);
-  const stateStore=new UIStateStore({storage:memory(),namespace:'wave13-test'});
+  const stateStore=new UIStateStore({storage:storage??memory(),namespace});
   const ui=createWave6ProductInterface({root,stateStore,hostBindings:owner.bindings,floatingNavigation:floating,viewportProvider:()=>({width,height})});
   ui.scheduler.flush(0);return{document,root,ui,stateStore};
 }
@@ -144,7 +144,7 @@ test('selected chat with no active turn reports WAITING rather than fabricated l
   const status=ui.operator.operations.read();
   assert.equal(status.waitingForTurn,true);
   for(const id of ['scene','runtime','choice'])assert.equal(status.stages.find(x=>x.id===id).state,'WAITING_FOR_TURN');
-  for(const id of ['truth','gather','seal','promptPlan'])assert.equal(status.stages.find(x=>x.id===id).state,'UNAVAILABLE');
+  for(const id of ['sensory','truth','gather','seal','promptPlan'])assert.equal(status.stages.find(x=>x.id===id).state,'UNAVAILABLE');
   assert.equal(ui.productAdapter.getSnapshot().wave6.sources.scene.operationalState,'WAITING_FOR_TURN');
   assert.equal(ui.productAdapter.getSnapshot().wave6.sources.promptPlan.mode,'UNAVAILABLE');
   ui.destroy();
@@ -354,7 +354,7 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Model/);assert.doesNotMatch(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
+  assert.match(textOf(jev),/SAVED LOCK/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/SAVED LOCK/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Model/);assert.doesNotMatch(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
   const passwordFields=walk(sidecar).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,1);
   ui.destroy();
 });
@@ -368,12 +368,34 @@ test('Connections model input stays editable and discovered models are suggestio
   const endpoint=fieldByLabel(sidecar,'Sidecar endpoint'),model=fieldByLabel(sidecar,'Sidecar model');
   assert.equal(model.tagName,'INPUT');assert.equal(model.disabled,false);assert.ok(model.getAttribute('list'));
   endpoint.value='https://openrouter.ai/api/v1';endpoint.dispatch('input');
-  buttonByLabel(sidecar,'Load / Refresh Models').dispatch('click');await Promise.resolve();await Promise.resolve();
+  buttonByLabel(sidecar,'Load / Refresh Models').dispatch('click');await new Promise(resolve=>setImmediate(resolve));
   const suggestions=walk(sidecar).find(x=>x.tagName==='DATALIST');
   assert.ok(suggestions);assert.ok(walk(suggestions).some(x=>x.tagName==='OPTION'&&x.value==='owner/model-a'));
   model.value='owner/manual-not-in-list';model.dispatch('input');
-  buttonByLabel(sidecar,'Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  buttonByLabel(sidecar,'Save, Lock & Test Connection').dispatch('click');await new Promise(resolve=>setImmediate(resolve));
   assert.ok(host.calls.some(x=>x[0]==='add'&&x[1]?.modelId==='owner/manual-not-in-list'));
+  ui.destroy();
+});
+
+test('Jev Connection Manager profile selection disables API-key entry and forwards only the profile reference',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  owner.bindings.listSillyTavernConnectionProfiles=()=>[
+    {id:'cm:jev',name:'OpenRouter Jev',api:'openrouter',model:'owner/model-a',endpoint:'https://openrouter.ai/api/v1',hasSecretReference:true},
+  ];
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const jev=walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='JEV');
+  const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
+  const buttonByLabel=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  const profile=fieldByLabel(jev,'Jev SillyTavern Connection Profile'),key=fieldByLabel(jev,'Jev API key');
+  const endpoint=fieldByLabel(jev,'Jev endpoint'),model=fieldByLabel(jev,'Jev model');
+  assert.ok(profile);profile.value='cm:jev';profile.dispatch('change');
+  assert.equal(key.disabled,true);assert.equal(key.value,'');assert.equal(key.placeholder,'Managed by SillyTavern Connection Manager');
+  assert.equal(endpoint.value,'https://openrouter.ai/api/v1');assert.equal(model.value,'owner/model-a');
+  buttonByLabel(jev,'Save, Lock & Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  const add=host.calls.find(x=>x[0]==='add');assert.ok(add);
+  assert.equal(add[1].connectionProfileId,'cm:jev');assert.equal(add[1].connectionProfileName,'OpenRouter Jev');
+  assert.equal(Object.hasOwn(add[1],'apiKey'),false);
+  assert.doesNotMatch(JSON.stringify({saved:ui.operator.resources.savedProfiles(),calls:host.calls}),/secret-id|server-secret|apiKey/i);
   ui.destroy();
 });
 
@@ -826,7 +848,7 @@ function worker2ResourceHost({configured=false,discoveryState='READY',testFailur
         if(discoveryState==='EMPTY')return{kind:'ResourceModelDiscoveryResult',state:'EMPTY',models:[],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_EMPTY',reason:'Provider returned no models.',credentialConfigured:Boolean(config.apiKey)};
         if(discoveryState==='UNREACHABLE')return{kind:'ResourceModelDiscoveryResult',state:'UNREACHABLE',models:[],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_UNREACHABLE',reason:'Provider endpoint is unreachable.',credentialConfigured:Boolean(config.apiKey)};
         return{kind:'ResourceModelDiscoveryResult',state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'}],manualModelEntryAllowed:true,reasonCode:'MODEL_DISCOVERY_READY',reason:'Provider model discovery completed.',credentialConfigured:Boolean(config.apiKey)};},
-      addResource(config){const safe={...config,capabilities:[...config.capabilities]};delete safe.apiKey;safe.credentialConfigured=Boolean(config.apiKey);calls.push(['add',safe]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:Boolean(config.apiKey),local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
+      addResource(config){const safe={...config,capabilities:[...config.capabilities]};delete safe.apiKey;safe.credentialConfigured=Boolean(config.apiKey);calls.push(['add',safe]);const row={kind:'CoprocessorResourceReadModel',resourceId:config.resourceId,displayName:config.displayName,state:'CONFIGURED',reasonCode:'CONFIGURED',reason:'Resource configured but not connected.',providerProfileId:config.providerProfileId,providerId:config.providerId,modelId:config.modelId,workerId:config.workerId,endpoint:config.endpoint??null,declaredCapabilities:[...config.capabilities],activeCapabilities:[],measurementClass:'MEASURED_LIVE',health:'UNAVAILABLE',availability:'UNAVAILABLE',credentialConfigured:Boolean(config.apiKey),local:Boolean(config.local),maxConcurrency:config.maxConcurrency,activeExecutions:0,callable:false,diagnostics:[]};diagnostic(row,'CONFIGURED','Resource configuration accepted.');rows.push(row);emit('RESOURCE_CONFIGURED',row);return{...row};},
       async refreshModels(id){calls.push(['refreshModels',id]);const row=rows.find(x=>x.resourceId===id);row.modelDiscovery={state:'READY',models:[{id:'owner/model-a',displayName:'Owner Model A'},{id:'owner/model-b',displayName:'Owner Model B'}],manualModelEntryAllowed:true};diagnostic(row,'MODEL_DISCOVERY_READY','Model discovery completed.',{modelCount:2});emit('RESOURCE_MODELS_REFRESHED',row);return structuredClone(row.modelDiscovery);},
       setCredential(id,credential){calls.push(['setCredential',id,{credentialConfigured:Boolean(credential)}]);const row=rows.find(x=>x.resourceId===id);row.credentialConfigured=true;row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='CONFIGURED';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'CREDENTIAL_UPDATED','Session credential replaced.');emit('RESOURCE_CREDENTIAL',row);return{...row};},
       clearCredential(id){calls.push(['clearCredential',id]);const row=rows.find(x=>x.resourceId===id);row.credentialConfigured=false;row.selectedModelQualified=false;row.qualifiedAt=null;row.callable=false;row.state='UNAVAILABLE';row.health='UNAVAILABLE';row.availability='UNAVAILABLE';diagnostic(row,'CREDENTIAL_REVOKED','Session credential revoked.');emit('RESOURCE_CREDENTIAL',row);return{...row};},
@@ -850,6 +872,63 @@ async function uiConnectConfigured(host){
   const row=host.read.resources().resources.find(x=>x.resourceId==='sidecar:configured');
   if(row?.state!=='READY')await host.actions.connectResource('sidecar:configured');
 }
+
+
+test('Jev Sidecar and Vectoring saved locks survive reload without serializing provider credentials',async()=>{
+  const shared=memory(),namespace='wave13-connection-persist',host1=worker2ResourceHost();
+  const store1=new UIStateStore({storage:shared,namespace}),adapter1=new Wave13ResourceControlAdapter({bindings:{resourceHost:host1},stateStore:store1});
+  const profiles=[
+    {role:'JEV',displayName:'Demo Jev',endpoint:'https://jev.example/v1',modelId:'jev/model',capabilities:['SEMANTIC_JUDGMENT'],local:false,apiKey:'jev-secret-value'},
+    {role:'SIDECAR',displayName:'Demo Sidecar',endpoint:'https://sidecar.example/v1',modelId:'sidecar/model',capabilities:['STRUCTURED_EXTRACTION'],local:false,apiKey:'sidecar-secret-value'},
+    {role:'VECTORING',displayName:'Demo Vectoring',endpoint:'https://vector.example/v1',modelId:'vector/model',capabilities:['RETRIEVAL','EMBED'],local:false,apiKey:'vector-secret-value'},
+  ];
+  for(const profile of profiles)await adapter1.connect(profile);
+  assert.deepEqual(adapter1.savedProfiles().map(x=>x.role),['JEV','SIDECAR','VECTORING']);
+  const serialized=shared.getItem(namespace);
+  for(const secret of ['jev-secret-value','sidecar-secret-value','vector-secret-value'])assert.doesNotMatch(serialized,new RegExp(secret));
+  assert.doesNotMatch(serialized,/"apiKey"\\s*:/i);
+  for(const endpoint of profiles.map(x=>x.endpoint))assert.equal(serialized.includes(endpoint),true);
+
+  const host2=worker2ResourceHost(),store2=new UIStateStore({storage:shared,namespace}),adapter2=new Wave13ResourceControlAdapter({bindings:{resourceHost:host2},stateStore:store2});
+  const restored=await adapter2.restoreSavedProfiles();
+  assert.equal(restored.saved,3);assert.equal(restored.restored,3);assert.equal(restored.failed.length,0);
+  const rows=adapter2.read().data.resources;
+  assert.deepEqual(rows.map(x=>x.kind).sort(),['JEV','SIDECAR','VECTORING']);
+  assert.ok(rows.every(x=>x.state==='CONFIGURED'));assert.ok(rows.every(x=>x.credentialConfigured===false));
+  for(const profile of profiles){
+    const row=rows.find(x=>x.kind===profile.role);assert.equal(row.endpoint,profile.endpoint);assert.equal(row.modelId,profile.modelId);
+  }
+
+  const owner=liveOwner();owner.bindings.resourceHost=host2;
+  const{ui}=mount(owner,{storage:shared,namespace});await ui.operator.resources.restoreSavedProfiles();
+  ui.shell.selectWorkspace('connections');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
+  const body=textOf(ui.shell.nodes.workspace);
+  for(const label of ['Jev','Sidecar','Vectoring'])assert.match(body,new RegExp(label));
+  assert.match(body,/SAVED LOCK/);assert.match(body,/Saved across reloads Yes/);assert.match(body,/API keys are intentionally not serialized/);assert.match(body,/Forget saved lock/);
+  assert.doesNotMatch(body,/secret-value/);
+  ui.destroy();
+
+  const jev=rows.find(x=>x.kind==='JEV');assert.equal(adapter2.forgetSavedProfile(jev),true);
+  adapter2.read();
+  assert.equal(adapter2.savedProfiles().some(x=>x.role==='JEV'),false);
+});
+
+test('saved host-managed Jev auto-requalifies on restore while direct credential locks stay configured only',async()=>{
+  const shared=memory(),namespace='wave13-host-managed-restore';
+  const stateStore=new UIStateStore({storage:shared,namespace});
+  stateStore.save({wave13ConnectionProfiles:{
+    JEV:{version:1,locked:true,role:'JEV',resourceId:'jev:host-managed',displayName:'Primary Jev',transportKind:'OPENAI_COMPATIBLE',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['SEMANTIC_JUDGMENT'],providerProfileId:'profile:jev:host-managed',providerId:'provider:jev:host-managed',workerId:'resource:jev:host-managed',maxConcurrency:1,local:false,credentialPreviouslyConfigured:false,credentialManagedByHost:true,connectionProfileId:'cm:jev',connectionProfileName:'OpenRouter Jev',wasConnected:true},
+    SIDECAR:{version:1,locked:true,role:'SIDECAR',resourceId:'sidecar:direct',displayName:'Primary Sidecar',transportKind:'OPENAI_COMPATIBLE',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['STRUCTURED_EXTRACTION'],providerProfileId:'profile:sidecar:direct',providerId:'provider:sidecar:direct',workerId:'resource:sidecar:direct',maxConcurrency:1,local:false,credentialPreviouslyConfigured:true,credentialManagedByHost:false,connectionProfileId:null,connectionProfileName:null,wasConnected:true},
+  }});
+  const host=worker2ResourceHost(),adapter=new Wave13ResourceControlAdapter({bindings:{resourceHost:host},stateStore});
+  const result=await adapter.restoreSavedProfiles();
+  assert.equal(result.restored,2);assert.equal(result.requalified,1);assert.equal(result.failed.length,0);
+  const rows=adapter.read().data.resources,jev=rows.find(row=>row.kind==='JEV'),sidecar=rows.find(row=>row.kind==='SIDECAR');
+  assert.equal(jev.callable,true);assert.equal(jev.selectedModelQualified,true);
+  assert.equal(sidecar.callable,false);assert.equal(sidecar.state,'CONFIGURED');
+  assert.ok(host.calls.some(call=>call[0]==='connect'&&call[1]==='jev:host-managed'));
+  assert.equal(host.calls.some(call=>call[0]==='connect'&&call[1]==='sidecar:direct'),false);
+});
 
 function directLoreRuntime(){
   const entries=[],revisions=new Map(),learned=new Map(),artifacts=new Map(),obligations=[];

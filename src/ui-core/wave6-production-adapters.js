@@ -81,10 +81,10 @@ export class CoprocessorProductionUIAdapter{
 
 export class PromptPlanProductionUIAdapter{
   constructor({
-    readPlan=null,readPromptPlanReadModel=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
+    readPlan=null,readPromptPlanReadModel=null,readPromptDeliveryReceipt=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
     readIntegrityReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
   }={}){
-    this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readSealReceipt=optional(readSealReceipt);
+    this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readPromptDeliveryReceipt=optional(readPromptDeliveryReceipt);this.readSealReceipt=optional(readSealReceipt);
     this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);
     this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.selectionProvider=optional(selectionProvider);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');this.kind='PromptPlanProductionUIAdapter';
   }
@@ -99,9 +99,13 @@ export class PromptPlanProductionUIAdapter{
     return this.readContextReceipt?.(selection??{});
   }
   #seal(selection){
-    if(this.readGenerationFn&&selection?.generationId)return this.readGenerationFn(selection.generationId)?.sealReceipt??null;
+    if(this.readGenerationFn&&selection?.generationId){
+      const generation=this.readGenerationFn(selection.generationId);
+      return generation?.sealReceipt??generation?.contextSeal??null;
+    }
     return this.readSealReceipt?.(selection??{});
   }
+  #delivery(selection){return this.readPromptDeliveryReceipt?.(selection??{})??null;}
   read(selection={}){
     selection=Object.keys(selection??{}).length?selection:(this.selectionProvider?.()??{});
     if(!this.readPlan&&!this.readPromptPlanReadModel&&!this.readGenerationFn)return unavailable('PromptPlan','Adaptive Context / PromptPlan read producer is not connected.');
@@ -109,7 +113,7 @@ export class PromptPlanProductionUIAdapter{
     try{
       const raw=this.#plan(selection);if(!raw)return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label:'Context Delivery',operationalState:'IDLE',impact:'No completed PromptPlan exists for the selected turn.',reason:'The producer is connected but has not published context delivery for this turn.',producer:'PromptPlan/ContextSeal',connected:true,selection}),data:null});
       const plan=normalizePromptPlanReadModel(raw);if(!plan)return degraded('PromptPlan','PromptPlan producer returned an unsupported contract.',{kind:raw.kind??null});
-      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null;
+      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),delivery=this.#delivery(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null;
       const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal});
       const allocated=Number(plan.estimatedTokens??plan.budget?.allocated??plan.budget?.usedTokens??0),total=Number(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow??allocated);
       const reused=plan.sections.filter(x=>x.state==='REUSED').length,updated=plan.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).length;
@@ -126,7 +130,8 @@ export class PromptPlanProductionUIAdapter{
           dropped:clone(plan.dropped),deferred:clone(plan.deferred),segments:clone(raw.segments??[]),sections:clone(plan.sections),
           modelProfileId:plan.modelProfileId??null,ordering:[...(plan.sectionOrder??[])],cacheDecisions:clone(raw.cacheDecisions??[]),
           reuseDecisions:clone(raw.reuseDecisions??[]),fallbackDecisions:clone(plan.fallbackDecisions??[]),integrityReceipt:clone(integrity),
-          seal:clone(seal),contextReceipt:clone(receipt),sourceRevisionDependencies:[...(plan.sourceRevisionRefs??[])],
+          seal:clone(seal),contextReceipt:clone(receipt),promptDeliveryReceipt:safePromptDeliveryReceipt(delivery),sourceRevisionDependencies:[...(plan.sourceRevisionRefs??[])],
+          deliveryEvidence:buildPromptDeliveryEvidence({plan,receipt,delivery}),
           worldRevision:plan.worldRevision??null,sceneRevision:plan.sceneRevision??null,status:raw.status??raw.integrityStatus??null,explainability:explain,
           readModelKind:raw.kind??null,
         },
@@ -148,11 +153,11 @@ export class PromptPlanProductionUIAdapter{
 export class ForensicsProductionUIAdapter{
   constructor({
     listTransactions=null,listBundles=null,listForensicReadModels=null,readForensicReadModel=null,readTransaction=null,
-    reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyPayload=null,search=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',
+    reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyPayload=null,search=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
   }={}){
     this.listTransactions=optional(listTransactions);this.listBundles=optional(listBundles);this.listForensicReadModels=optional(listForensicReadModels);this.readForensicReadModel=optional(readForensicReadModel);
     this.readTransaction=optional(readTransaction);this.reconstructGeneration=optional(reconstructGeneration);this.reconstructTransaction=optional(reconstructTransaction);
-    this.readRuntimeWork=optional(readRuntimeWork);this.readKnowledgeTrace=optional(readKnowledgeTrace);this.searchFn=optional(search);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');
+    this.readRuntimeWork=optional(readRuntimeWork);this.readKnowledgeTrace=optional(readKnowledgeTrace);this.searchFn=optional(search);this.selectionProvider=optional(selectionProvider);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');
     this.detailCache=new LazyForensicDetailCache({loader:optional(readLazyPayload),maxEntries:32});this.indexCache=new Map();this.kind='ForensicsProductionUIAdapter';
   }
   read({limit=100}={}){
@@ -167,18 +172,29 @@ export class ForensicsProductionUIAdapter{
       return deepFreeze({source:createProductSourceStatus({mode,health,label:'Forensics',impact:this.fixture?`${this.fixtureLabel}. ${impact}`:impact,producer:'ForensicReadModel/CognitiveTransactionLedger'}),data:{transactions:clone(transactions),bundles:clone(bundles)}});
     }catch(error){return degraded('Forensics','Forensic read failed.',{error:String(error?.message??error)});}
   }
-  readGeneration(generationId,{limit=10000}={}){
+  readGeneration(generationId,{limit=512,selection=null}={}){
     if(!generationId)return unavailable('Forensics','Select a generation to reconstruct.');
+    const selected=selection??this.selectionProvider?.()??{};
+    const bounded=Math.max(1,Math.min(512,Number(limit)||512));
+    const request={...selected,generationId,limit:bounded};
     try{
-      let forensic=this.readForensicReadModel?.({generationId})??this.readForensicReadModel?.(generationId)??null;
+      let forensic=this.readForensicReadModel?.(request)??this.readForensicReadModel?.(generationId)??null;
       if(!forensic){
-        const rows=this.listForensicReadModels?.({generationId,limit})??this.listBundles?.({generationId})??this.listBundles?.()??[];
-        forensic=rows.find(x=>x.generationId===generationId)??null;
+        const rows=this.listForensicReadModels?.(request)??this.listBundles?.(request)??this.listBundles?.()??[];
+        forensic=rows.find(x=>String(x.generationId??'')===String(generationId))??null;
       }
       if(!forensic)return unavailable('Forensics',`No forensic read model is available for ${generationId}.`);
       const model=normalizeForensicReadModel(forensic);
-      let transactions=this.listTransactions?.({generationId,limit})??this.listTransactions?.()??[];
-      transactions=transactions.filter(x=>!x.generationId||x.generationId===generationId).slice(-Math.max(1,limit));
+      if(!model)return degraded('Forensics','Forensic producer returned an unsupported contract.',{kind:forensic?.kind??null});
+      if(selected?.chatId&&model.chatId&&String(selected.chatId)!==String(model.chatId))return unavailable('Forensics','The available forensic receipt belongs to another chat and was excluded.');
+      if(selected?.turnId&&model.turnId&&String(selected.turnId)!==String(model.turnId))return unavailable('Forensics','The available forensic receipt belongs to another turn and was excluded.');
+      if(model.generationId&&String(model.generationId)!==String(generationId))return unavailable('Forensics','The available forensic receipt belongs to another generation and was excluded.');
+      let transactions=this.listTransactions?.(request)??this.listTransactions?.()??[];
+      transactions=transactions.filter(x=>{
+        if(selected?.chatId&&x?.chatId!=null&&String(x.chatId)!==String(selected.chatId))return false;
+        if(x?.generationId!=null)return String(x.generationId)===String(generationId);
+        return model.turnId!=null&&x?.turnId!=null&&String(x.turnId)===String(model.turnId);
+      }).slice(-bounded);
       const timeline=buildForensicTimeline({forensic:model,transactions});
       const health=model.complete?Wave6Health.READY:Wave6Health.DEGRADED;const mode=this.fixture?ProductDataMode.FIXTURE:model.complete?ProductDataMode.LIVE:ProductDataMode.DEGRADED;const impact=model.complete?'Generation reconstruction references are available.':'Reconstruction is partial; missing references remain explicit.';
       return deepFreeze({source:createProductSourceStatus({mode,health,label:'Forensics',impact:this.fixture?`${this.fixtureLabel}. ${impact}`:impact,producer:'ForensicReadModel',revision:model.bundleId}),data:{forensic:model,transactions:clone(transactions),timeline}});
@@ -186,7 +202,7 @@ export class ForensicsProductionUIAdapter{
   }
   queryTimeline(filters={},options={}){
     if(this.searchFn)return clone(this.searchFn(filters,options)??[]);
-    const generationId=options.generationId??filters.generationId??null,r=this.readGeneration(generationId,{limit:options.limit??10000});
+    const generationId=options.generationId??filters.generationId??null,r=this.readGeneration(generationId,{limit:options.limit??512,selection:options.selection??null});
     if(!r.data)return[];
     const key=generationId??r.data.forensic.bundleId;let index=this.indexCache.get(key);
     if(!index){index=new ForensicMetadataIndex(r.data.timeline.rows);this.indexCache.set(key,index);while(this.indexCache.size>8)this.indexCache.delete(this.indexCache.keys().next().value);}
@@ -236,6 +252,36 @@ export class Wave6ProductAdapter{
       brain:{overall,components:Object.entries(sources).filter(([n])=>['scene','runtime','coprocessor','promptPlan'].includes(n)).map(([id,s])=>({id,label:s.label,status:s.health,detail:s.impact||s.reason,mode:s.mode}))},
     });
   }
+}
+
+function safePromptDeliveryReceipt(receipt){
+  if(!receipt||typeof receipt!=='object')return null;
+  const observed=receipt.observedHostDelivery&&typeof receipt.observedHostDelivery==='object'?receipt.observedHostDelivery:null;
+  return clone({
+    kind:receipt.kind??'PromptDeliveryReceipt',contractVersion:receipt.contractVersion??null,status:receipt.status??null,
+    generationId:receipt.generationId??null,turnId:receipt.turnId??null,contextSealId:receipt.contextSealId??null,sealedPacketHash:receipt.sealedPacketHash??null,
+    semanticManifestIdentity:receipt.semanticManifestIdentity??null,semanticManifestHash:receipt.semanticManifestHash??null,
+    requestedProfileId:receipt.requestedProfileId??null,profileChoice:receipt.profileChoice??null,profileRevision:receipt.profileRevision??null,
+    providerId:receipt.providerId??null,modelId:receipt.modelId??null,routeId:receipt.routeId??null,cacheAssumption:receipt.cacheAssumption??null,
+    plannedRoles:[...(receipt.plannedRoles??[])],plannedSections:clone(receipt.plannedSections??[]),omissions:clone(receipt.omissions??[]),
+    hostEvidenceRequired:Boolean(receipt.hostEvidenceRequired),observedHostDelivery:observed?{
+      kind:observed.kind??'ObservedHostPromptEvidence',host:observed.host??null,generationId:observed.generationId??null,requestId:observed.requestId??null,
+      observedRoles:[...(observed.observedRoles??[])],observedSections:[...(observed.observedSections??[])],sealedPacketHash:observed.sealedPacketHash??null,
+      semanticManifestIdentity:observed.semanticManifestIdentity??null,promptFingerprint:observed.promptFingerprint??null,matching:observed.matching??null,
+      live:Boolean(observed.live),capturedAt:observed.capturedAt??null,
+    }:null,
+  });
+}
+function buildPromptDeliveryEvidence({plan,receipt,delivery}={}){
+  const safe=safePromptDeliveryReceipt(delivery),observed=safe?.observedHostDelivery??null;
+  return deepFreeze({
+    kind:'PromptDeliveryEvidence',
+    planned:{available:Boolean(plan),sections:clone(plan?.sections??[]),omitted:clone([...(plan?.dropped??[]),...(plan?.deferred??[])]),source:'PromptPlan'},
+    injected:{available:Boolean(receipt),sections:clone(receipt?.includedSections??[]),omitted:clone(receipt?.omittedSections??[]),deferred:clone(receipt?.deferredSections??[]),source:receipt?.sourceKind??'ContextReceipt'},
+    observed:{available:Boolean(observed),status:safe?.status??(safe?'PLANNED_NOT_OBSERVED':'UNAVAILABLE'),host:observed?.host??null,generationId:observed?.generationId??null,
+      roles:[...(observed?.observedRoles??[])],sections:[...(observed?.observedSections??[])],matching:observed?.matching??null,live:Boolean(observed?.live),capturedAt:observed?.capturedAt??null},
+    rawPromptIncluded:false,secretsIncluded:false,
+  });
 }
 
 function fixtureLabel(name){return({story:'Story',scene:'Scene',characters:'Characters',lore:'Lore',memory:'Memory',world:'World',runtime:'Runtime',coprocessor:'Coprocessor',promptPlan:'Context Delivery',forensics:'Forensics'})[name]??name;}

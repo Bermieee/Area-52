@@ -19,7 +19,7 @@ const text=(v)=>String(v??'').trim();
 export function normalizeForensicReadModel(model){
   if(!model?.bundleId)return null;
   return deepFreeze({
-    kind:'NormalizedForensicReadModel',sourceKind:model.kind??'ForensicReadModel',bundleId:model.bundleId,turnId:model.turnId??null,generationId:model.generationId??null,
+    kind:'NormalizedForensicReadModel',sourceKind:model.kind??'ForensicReadModel',bundleId:model.bundleId,chatId:model.chatId??model.chatNamespace??model.conversationId??null,turnId:model.turnId??null,generationId:model.generationId??null,
     worldRevision:model.worldRevision??null,sceneRevision:model.sceneRevision??null,sourceRevisionRefs:[...(model.sourceRevisionRefs??[])],turnEventRef:model.turnEventRef??null,
     runtimeWorkRefs:[...(model.runtimeWorkRefs??[])],workerResultRefs:[...(model.workerResultRefs??[])],truthDecisionRefs:[...(model.truthDecisionRefs??[])],
     precisionRefs:[...(model.precisionRefs??[])],gatherRef:model.gatherRef??null,transactionRefs:[...(model.transactionRefs??[])],settlementRefs:[...(model.settlementRefs??[])],
@@ -33,7 +33,7 @@ export function normalizeCognitiveTransaction(row){
   if(!row)return null;const type=row.transactionType??row.type??'UNKNOWN',authority=authorityFrom(row.authorityContext);
   return deepFreeze({
     kind:'ForensicTimelineItem',id:row.transactionId??row.id??`tx:${row.sequence??'unknown'}`,sequence:Number(row.sequence??0),timestamp:row.timestamp??null,
-    eventType:type,stage:TYPE_STAGE[type]??ForensicStage.UNKNOWN,subsystem:row.subsystem??null,owner:row.owner??null,turnId:row.turnId??null,generationId:row.generationId??null,
+    eventType:type,stage:TYPE_STAGE[type]??ForensicStage.UNKNOWN,subsystem:row.subsystem??null,owner:row.owner??null,chatId:row.chatId??row.chatNamespace??row.conversationId??null,turnId:row.turnId??null,generationId:row.generationId??null,
     taskId:row.taskId??null,correlationId:row.correlationId??null,causationId:row.causationId??null,beforeRevision:row.beforeRevision??null,afterRevision:row.afterRevision??null,
     sourceRevisionRefs:[...(row.sourceRevisionIds??[])],affectedArtifactIds:[...(row.affectedArtifactIds??[])],authority,decision:clone(row.decision??null),outcome:clone(row.outcome??null),
     receiptRefs:[...(row.receiptRefs??[])],reasonCode:row.reasonCode??null,provenance:clone(row.provenance??{}),retentionClass:row.retentionClass??null,
@@ -57,7 +57,7 @@ export function buildForensicTimeline({forensic,transactions=[]}={}){
   for(const ref of f.lateResultRefs)addReference(rows,ref,ForensicStage.COGNITION,'RESULT_LATE','Late result completed after the relevant publication boundary.',knownReceipts,'LATE');
   rows.sort((a,b)=>Number(a.sequence??Number.MAX_SAFE_INTEGER)-Number(b.sequence??Number.MAX_SAFE_INTEGER)||String(a.id).localeCompare(String(b.id)));
   return deepFreeze({
-    kind:'ForensicTimeline',available:true,bundleId:f.bundleId,turnId:f.turnId,generationId:f.generationId,worldRevision:f.worldRevision,sceneRevision:f.sceneRevision,
+    kind:'ForensicTimeline',available:true,bundleId:f.bundleId,chatId:f.chatId,turnId:f.turnId,generationId:f.generationId,worldRevision:f.worldRevision,sceneRevision:f.sceneRevision,
     rows,runtimeWorkRefs:[...f.runtimeWorkRefs],sourceRevisionRefs:[...f.sourceRevisionRefs],complete:f.complete,health:f.health?.state??(f.complete?'READY':'DEGRADED'),
     diagnosticReasons:clone(f.diagnosticReasons),missingStages:missingStageNames(rows),authority:'READ_ONLY',mutationAuthority:false,
   });

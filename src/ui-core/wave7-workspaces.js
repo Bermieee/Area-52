@@ -78,8 +78,9 @@ function renderGenerationWorkspace(host,ctx){
   host.append(generationSelector(d,ctx,read.data?.generationId??generationId));
   if(!read.data?.explainability){host.append(sourceStateMessage(d,source));return;}
   const explain=read.data.explainability;
-  const forensic=explain.generationId?ctx.forensics.readGeneration(explain.generationId,{limit:5000}):null;
+  const forensic=explain.generationId?ctx.forensics.readGeneration(explain.generationId,{limit:512}):null;
   host.append(generationHero(d,explain,source));
+  host.append(section(d,'Delivery evidence'),deliveryEvidenceCard(d,read.data.deliveryEvidence));
   host.append(section(d,'Why?'),whySummary(d,explain,ctx));
   host.append(section(d,'Context plan'),contextSections(d,explain,detail,ctx));
   host.append(section(d,'Context Seal'),sealCard(d,explain,forensic,detail,ctx));
@@ -93,7 +94,7 @@ function renderForensicsWorkspace(host,ctx){
   const d=host.ownerDocument,detail=ctx.productAdapter.getDetailLevel();header(host,ctx,'Cognitive Forensics','Reconstruct meaningful cognitive decisions without flattening Runtime execution into the same timeline.');
   const selection=selectedGeneration(ctx),generationId=selection.generationId??ctx.promptPlan.read().data?.generationId??null;
   host.append(generationSelector(d,ctx,generationId,{compact:true}));
-  const read=generationId?ctx.forensics.readGeneration(generationId,{limit:10000}):ctx.forensics.read();
+  const read=generationId?ctx.forensics.readGeneration(generationId,{limit:512}):ctx.forensics.read();
   if(!read.data?.timeline){host.append(sourceStateMessage(d,read.source));return;}
   const timeline=read.data.timeline;host.append(createProductHealthSurface(d,{source:read.source,label:'Forensic reconstruction',compact:true}));
   if(!timeline.complete)host.append(state(d,'Partial reconstruction','Missing stages/references remain explicit; Area-52 did not invent replacements.','warning'));
@@ -131,11 +132,25 @@ function generationSelector(d,ctx,currentId,{compact=false}={}){
 
 function generationHero(d,x,source){
   const card=element(d,'section',{className:'a52-card a52-generation-hero'}),head=element(d,'div',{className:'a52-inline-status'}),budget=contextBudget(x);
-  head.append(sourceModeBadge(d,source),makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','observed'));
+  head.append(sourceModeBadge(d,source),makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','working'));
   card.append(head,element(d,'h2',{text:x.generationId??'Generation'}),createKeyValue(d,[
     {key:'Available budget',value:`${number(budget.total)} tokens`},{key:'Allocated',value:`${number(budget.allocated)} tokens`},{key:'Remaining',value:`${number(budget.remaining)} tokens`},
     {key:'Final packet estimate',value:`${number(x.usedOrEstimatedTokens)} tokens`},{key:'Model profile',value:x.modelProfileId??'unavailable'},{key:'Fallback',value:x.fallbackState??'NONE'},
     {key:'Integrity',value:x.integrityState??'unavailable'},{key:'Turn',value:x.turnId??'unavailable'},
+  ]));
+  return card;
+}
+
+function deliveryEvidenceCard(d,evidence={}){
+  const planned=evidence?.planned??{},injected=evidence?.injected??{},observed=evidence?.observed??{};
+  const planCount=planned.sections?.length??0,injectCount=injected.sections?.length??0,observedCount=observed.sections?.length??0;
+  const card=element(d,'section',{className:'a52-card a52-delivery-evidence'});
+  card.append(element(d,'p',{className:'a52-muted',text:'Plan, Core injection receipt, and host observation are separate evidence classes. Missing evidence stays unavailable rather than being inferred from connectivity.'}));
+  card.append(createKeyValue(d,[
+    {key:'Planned',value:planned.available?`${planCount} section records · ${planned.omitted?.length??0} omitted/deferred`:'UNAVAILABLE'},
+    {key:'Injected / compiled',value:injected.available?`${injectCount} included · ${injected.omitted?.length??0} omitted · ${injected.deferred?.length??0} deferred`:'UNAVAILABLE — no ContextReceipt for this selected turn'},
+    {key:'Observed in host prompt',value:observed.available?`${observed.status??'OBSERVED'} · ${observedCount} sections · ${observed.matching===true?'identity MATCH':observed.matching===false?'identity MISMATCH':'identity unavailable'}`:'UNAVAILABLE — no ObservedHostPromptEvidence for this selected turn'},
+    {key:'Raw prompt / secrets',value:'NOT RETAINED'},
   ]));
   return card;
 }

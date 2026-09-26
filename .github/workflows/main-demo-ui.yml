@@ -15,6 +15,7 @@ on:
       - 'tests/wave11-*.mjs'
       - 'tests/wave12-*.mjs'
       - 'tests/wave13-*.mjs'
+      - 'tests/worker3-ui-producer-inspector-wave.test.mjs'
       - 'assembly/lanes/ui.json'
       - '.github/workflows/main-demo-ui.yml'
   workflow_dispatch:
@@ -33,7 +34,7 @@ jobs:
         with:
           node-version: 22
       - name: PromptPlan forensics and workspace conformance
-        run: node --test tests/wave6.test.mjs tests/wave7.test.mjs tests/wave9.test.mjs
+        run: node --test tests/wave6.test.mjs tests/wave7.test.mjs tests/wave9.test.mjs tests/worker3-ui-producer-inspector-wave.test.mjs
       - name: Wave 12 + 13 demo acceptance
         run: node --test tests/wave12-sillytavern-host.test.mjs tests/wave13-operator-ui.test.mjs
       - name: Wave 12 + 13 lifecycle stress

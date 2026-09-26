@@ -7,10 +7,31 @@ import {
   extractDevelopmentDeploymentScene,
 } from '../src/deployment/sillytavern-live.js';
 import { Area52NativeBrain } from '../src/native-brain.js';
+import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
-function makeHost() {
+class DeploymentHostNode extends FakeNode{
+  constructor(tag,doc){super(tag,doc);this.id='';this.value='';}
+  setAttribute(name,value){super.setAttribute(name,value);if(name==='id')this.id=String(value);if(name==='value')this.value=String(value);}
+  getAttribute(name){return this.attributes?.[name]??null;}
+  get nextSibling(){const rows=this.parentNode?.children??[],i=rows.indexOf(this);return i>=0?rows[i+1]??null:null;}
+  insertBefore(node,before){const i=this.children.indexOf(before);if(i<0){this.append(node);return node;}this.children.splice(i,0,node);node.parentNode=this;return node;}
+  remove(){const p=this.parentNode;if(!p)return;const i=p.children.indexOf(this);if(i>=0)p.children.splice(i,1);this.parentNode=null;}
+}
+class DeploymentHostDocument extends FakeDocument{
+  constructor(){super();this.body=new DeploymentHostNode('body',this);this.documentElement=new DeploymentHostNode('html',this);this.documentElement.append(this.body);}
+  createElement(tag){return new DeploymentHostNode(tag,this);}
+  createDocumentFragment(){return new DeploymentHostNode('fragment',this);}
+  querySelector(selector){if(selector?.startsWith('#'))return this.getElementById(selector.slice(1));if(selector==='[data-area52-ui-host]')return walkDeployment(this.body).find(x=>x.attributes?.['data-area52-ui-host']!=null)??null;return null;}
+  getElementById(id){return walkDeployment(this.body).find(x=>x.id===id||x.attributes?.id===id)??null;}
+}
+const walkDeployment=node=>[node,...(node?.children??[]).flatMap(walkDeployment)];
+const deploymentText=node=>walkDeployment(node).map(row=>row.textContent??'').filter(Boolean).join(' ');
+function deploymentDocument(){const document=new DeploymentHostDocument(),sheld=document.createElement('div'),chat=document.createElement('div'),form=document.createElement('div');sheld.id='sheld';chat.id='chat';form.id='form_sheld';sheld.append(chat,form);document.body.append(sheld);return document;}
+
+function makeHost({connectionProfile=null,activeOpenRouter=false}={}) {
   const listeners = new Map();
   const promptCalls = [];
+  const connectionRequests=[],chatCompletionRequests=[];
   const context = {
     chatId: 'chat:observatory',
     chat: [],
@@ -21,7 +42,33 @@ function makeHost() {
     },
     async setExtensionPrompt(...args) { promptCalls.push(args); },
   };
-  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners };
+  if(activeOpenRouter){
+    context.getRequestHeaders=()=>({'Content-Type':'application/json','X-CSRF-Token':'test-csrf'});
+    context.fetch=async(url,init={})=>{
+      const body=JSON.parse(String(init.body??'{}'));
+      chatCompletionRequests.push({
+        url:String(url),method:init.method,headers:init.headers,source:body.chat_completion_source,model:body.model,
+        maxTokens:body.max_tokens,temperature:body.temperature,stream:body.stream,includeReasoning:body.include_reasoning,
+        roles:Array.isArray(body.messages)?body.messages.map(row=>row.role):[],
+      });
+      if(url!=='/api/backends/chat-completions/generate'||init.method!=='POST'||body.chat_completion_source!=='openrouter'||!body.model||!Array.isArray(body.messages)){
+        return{ok:false,status:400,async json(){return{error:{message:'synthetic SillyTavern payload rejection'}};}};
+      }
+      return{ok:true,status:200,async json(){return{choices:[{message:{content:'OK'}}],model:body.model};}};
+    };
+  }
+  if(connectionProfile){
+    context.extensionSettings={disabledExtensions:[],connectionManager:{profiles:[connectionProfile],selectedProfile:connectionProfile.id}};
+    context.ConnectionManagerRequestService={
+      getSupportedProfiles:()=>[connectionProfile],
+      getProfile:(id)=>id===connectionProfile.id?connectionProfile:null,
+      async sendRequest(profileId,prompt,maxTokens,custom,overridePayload){
+        connectionRequests.push({profileId,maxTokens,stream:custom?.stream,extractData:custom?.extractData,model:overridePayload?.model,temperature:overridePayload?.temperature,promptRoles:Array.isArray(prompt)?prompt.map(row=>row.role):[]});
+        return{content:'OK'};
+      },
+    };
+  }
+  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners, connectionRequests, chatCompletionRequests };
 }
 
 function operatorLore() {
@@ -158,6 +205,67 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
   session.destroy();
 });
 
+test('Primary Jev automatically uses SillyTavern active OpenRouter secret when no Connection Manager profile is configured',async()=>{
+  const{sillyTavern,chatCompletionRequests}=makeHost({activeOpenRouter:true}),document=deploymentDocument();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document,mountUi:true});
+  const ui=session.uiHost.ui;
+  assert.deepEqual(ui.operator.resources.connectionProfiles(),[]);
+
+  const connected=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{
+    role:'JEV',displayName:'Primary Jev',endpoint:'https://openrouter.ai/api/v1',modelId:'provider/jev-model',
+    capabilities:['SEMANTIC_JUDGMENT'],local:false,
+  }});
+  assert.equal(connected.ok,true);
+  const row=ui.operator.resources.read().data.resources.find(item=>item.kind==='JEV');
+  assert.ok(row);assert.equal(row.callable,true);assert.equal(row.selectedModelQualified,true);
+  assert.equal(row.reasonCode,'HEALTH_CHECK_PASSED');assert.notEqual(row.reasonCode,'CREDENTIAL_REQUIRED');
+  assert.equal(row.credentialManagedByHost,true);assert.equal(row.hostCredentialSource,'SILLYTAVERN_ACTIVE_SECRET');
+  assert.equal(row.connectionProfileId,null);assert.equal(row.connectionProfileName,'SillyTavern active OpenRouter secret');
+  assert.equal(row.credentialConfigured,false);
+  assert.ok(chatCompletionRequests.length>=1);
+  assert.equal(chatCompletionRequests[0].url,'/api/backends/chat-completions/generate');
+  assert.equal(chatCompletionRequests[0].method,'POST');
+  assert.equal(chatCompletionRequests[0].source,'openrouter');assert.equal(chatCompletionRequests[0].model,'provider/jev-model');
+  assert.equal(chatCompletionRequests[0].stream,false);assert.equal(chatCompletionRequests[0].includeReasoning,false);
+  assert.equal(chatCompletionRequests[0].headers['X-CSRF-Token'],'test-csrf');
+
+  const saved=ui.operator.resources.savedProfiles().find(item=>item.role==='JEV');
+  assert.equal(saved.credentialManagedByHost,true);assert.equal(saved.connectionProfileId,null);
+  ui.shell.selectWorkspace('connections');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
+  const connectionsText=deploymentText(ui.shell.nodes.workspace);
+  assert.match(connectionsText,/Managed by SillyTavern active OpenRouter secret/);
+  assert.doesNotMatch(connectionsText,/Credential Required|A session credential is required/i);
+  assert.doesNotMatch(JSON.stringify({row,saved,requests:chatCompletionRequests}),/apiKey|secret[_-]?id|credential.*value/i);
+  session.destroy();
+});
+
+test('live Jev can qualify through a SillyTavern Connection Manager profile without exposing its secret',async()=>{
+  const profile={id:'st-openrouter-jev',name:'OpenRouter Jev',api:'openrouter',model:'provider/jev-model','api-url':'https://openrouter.ai/api/v1','secret-id':'server-secret-reference'};
+  const{sillyTavern,connectionRequests}=makeHost({connectionProfile:profile}),document=deploymentDocument();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document,mountUi:true});
+  const ui=session.uiHost.ui;
+  assert.deepEqual(ui.operator.resources.connectionProfiles().map(row=>({id:row.id,name:row.name,model:row.model})),[{id:'st-openrouter-jev',name:'OpenRouter Jev',model:'provider/jev-model'}]);
+
+  const connected=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{
+    role:'JEV',displayName:'Primary Jev',endpoint:'https://openrouter.ai/api/v1',modelId:'provider/jev-model',
+    capabilities:['SEMANTIC_JUDGMENT'],connectionProfileId:'st-openrouter-jev',connectionProfileName:'OpenRouter Jev',local:false,
+  }});
+  assert.equal(connected.ok,true);
+  const row=ui.operator.resources.read().data.resources.find(item=>item.kind==='JEV');
+  assert.ok(row);assert.equal(row.callable,true);assert.equal(row.selectedModelQualified,true);
+  assert.equal(row.reasonCode,'HEALTH_CHECK_PASSED');assert.notEqual(row.reasonCode,'CREDENTIAL_REQUIRED');
+  assert.equal(row.credentialManagedByHost,true);assert.equal(row.hostCredentialSource,'SILLYTAVERN_CONNECTION_MANAGER');
+  assert.equal(row.connectionProfileId,'st-openrouter-jev');assert.equal(row.connectionProfileName,'OpenRouter Jev');
+  assert.equal(row.credentialConfigured,false,'Area-52 must not pretend the host-owned secret is stored in Worker 2');
+  assert.ok(connectionRequests.length>=1);assert.equal(connectionRequests[0].profileId,'st-openrouter-jev');assert.equal(connectionRequests[0].model,'provider/jev-model');
+
+  const saved=ui.operator.resources.savedProfiles().find(item=>item.role==='JEV');
+  assert.equal(saved.connectionProfileId,'st-openrouter-jev');assert.equal(saved.credentialManagedByHost,true);
+  const publicEvidence=JSON.stringify({row,saved,profiles:ui.operator.resources.connectionProfiles(),requests:connectionRequests});
+  assert.doesNotMatch(publicEvidence,/server-secret-reference/);assert.doesNotMatch(publicEvidence,/"secret-id"|"apiKey"/i);
+  session.destroy();
+});
+
 test('real native Brain host event publishes Scene and sealed Context Delivery for the same chat and turn with zero optional resources',async()=>{
   const {sillyTavern,context,listeners}=makeHost();
   const nativeBrain=new Area52NativeBrain();
@@ -224,9 +332,11 @@ test('native Brain host lifecycle seals before model request and learns complete
   const {sillyTavern,context,promptCalls,listeners}=makeHost(),nativeBrain=fakeNativeBrain(),persisted=[];
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,persistNativeBrain:async row=>persisted.push({chatId:row.chatId,kind:row.snapshot.kind})});
   session.start();
-  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('chat_completion_prompt_ready')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size??0,0);
+  assert.equal(listeners.get('generation_after_commands')?.size,1);assert.equal(listeners.get('chat_completion_prompt_ready')?.size,1);assert.equal(listeners.get('message_received')?.size,1);assert.equal(listeners.get('message_sent')?.size,1);
   pushUser(context,'At Moonlit Observatory, tell me what the lantern shows.');
+  await Promise.all([...listeners.get('message_sent')].map(fn=>fn()));
   await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  assert.equal(session.exportEvidence().hostNarrativeFeed.events.some(row=>row.type==='MESSAGE_SENT'&&row.chatId==='chat:observatory'),true);
   assert.equal(nativeBrain.calls.prepare.length,1);assert.equal(promptCalls.length,0);
   const actualRequest={chat:[{role:'system',content:'SillyTavern host policy'},{role:'user',content:'At Moonlit Observatory, tell me what the lantern shows.'}],dryRun:false};
   await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));

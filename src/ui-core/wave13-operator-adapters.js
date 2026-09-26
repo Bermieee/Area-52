@@ -395,12 +395,13 @@ export class Wave13LoreAuthoringUIAdapter{
 }
 
 export class Wave13ResourceControlAdapter{
-  constructor({bindings={}}={}){
-    this.bindings=bindings;
+  constructor({bindings={},stateStore=null}={}){
+    this.bindings=bindings;this.stateStore=stateStore;this.connectionProfileKey='wave13ConnectionProfiles';this.persistenceSuppressed=new Set();this.restorePromise=null;
     this.host=bindings.resourceHost??bindings.coprocessorResourceHost??bindings.resourceConnectionsHost??null;
     this.publicHost=Boolean(this.host?.actions&&this.host?.read);
     this.listFn=fn(bindings,['listResources','listResourceProfiles','listCapabilityProfiles','readResourceStatus'])??fn(this.host?.read,['resources']);
     this.configFn=fn(bindings,['listResourceConfigurations','listAvailableResources']);
+    this.connectionProfilesFn=fn(bindings,['listSillyTavernConnectionProfiles']);
     this.addFn=fn(bindings,['addResource','configureResource'])??fn(this.host?.actions,['addResource']);
     this.discoverModelsFn=fn(bindings,['discoverModels','loadModels','listProviderModels'])??fn(this.host?.actions,['discoverModels']);
     this.refreshModelsFn=fn(bindings,['refreshModels','refreshResourceModels'])??fn(this.host?.actions,['refreshModels']);
@@ -413,7 +414,66 @@ export class Wave13ResourceControlAdapter{
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
   }
-  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),setCredential:Boolean(this.setCredentialFn),clearCredential:Boolean(this.clearCredentialFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn)});}
+  capabilities(){return deepFreeze({read:Boolean(this.listFn),configurations:Boolean(this.configFn),connectionProfiles:Boolean(this.connectionProfilesFn),configure:Boolean(this.addFn),discoverModels:Boolean(this.discoverModelsFn),refreshModels:Boolean(this.refreshModelsFn),setCredential:Boolean(this.setCredentialFn),clearCredential:Boolean(this.clearCredentialFn),selectModel:Boolean(this.selectModelFn),connect:Boolean(this.connectFn),disconnect:Boolean(this.disconnectFn),test:Boolean(this.testFn),subscribe:Boolean(this.subscribeFn),persistentProfiles:Boolean(this.stateStore?.load&&this.stateStore?.save)});}
+  connectionProfiles(){
+    if(!this.connectionProfilesFn)return[];
+    try{
+      const rows=this.connectionProfilesFn()??[];
+      return Array.isArray(rows)?rows.map((row,index)=>deepFreeze({
+        id:text(row?.id)??('profile:'+index),name:text(row?.name??row?.label)??text(row?.id)??('Connection Profile '+(index+1)),
+        api:text(row?.api),model:text(row?.model),endpoint:text(row?.endpoint??row?.['api-url']),hasSecretReference:Boolean(row?.hasSecretReference),
+      })):[];
+    }catch{return[];}
+  }
+  savedProfiles(){
+    const map=this.#profileMap();
+    return deepFreeze(Object.values(map).map(row=>cloneSafe(row)).sort((a,b)=>String(a.role).localeCompare(String(b.role))));
+  }
+  forgetSavedProfile(resource){
+    const role=connectionProfileRole(resource);
+    if(!role)return false;
+    const map=this.#profileMap();delete map[role];this.persistenceSuppressed.add(role);this.#writeProfileMap(map);return true;
+  }
+  async configure(config={}){
+    this.lastError=null;
+    if(!this.addFn){const e=new Error('Resource configure action is not exported by the host assembly.');e.code='RESOURCE_CONFIGURE_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
+    try{
+      if(this.publicHost){
+        const normalized=normalizeWorker2ResourceConfig(config),role=connectionProfileRole(config)??connectionProfileRole(normalized);
+        const existing=this.read().data.resources.find(row=>row.id===normalized.resourceId||(role&&row.kind===role));
+        if(existing){this.#saveProfile(config,existing,{force:true});return cloneSafe(existing);}
+        const result=await this.addFn(normalized);this.#saveProfile(config,result,{force:true});this.lastAction={type:'CONFIGURE',result:cloneSafe(result)};return cloneSafe(result);
+      }
+      const result=await this.addFn(cloneSafe(config));this.#saveProfile(config,result,{force:true});this.lastAction={type:'CONFIGURE',result:cloneSafe(result)};return cloneSafe(result);
+    }catch(error){this.lastError=error;throw error;}
+  }
+  async restoreSavedProfiles(){
+    if(this.restorePromise)return this.restorePromise;
+    const work=async()=>{
+      const saved=this.savedProfiles();
+      if(!saved.length)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:0,restored:0,alreadyPresent:0,failed:[]});
+      if(!this.addFn)return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored:0,alreadyPresent:0,failed:saved.map(row=>({role:row.role,resourceId:row.resourceId,code:'RESOURCE_CONFIGURE_ACTION_UNAVAILABLE'}))});
+      let restored=0,alreadyPresent=0,requalified=0;const failed=[];
+      for(const profile of saved){
+        try{
+          let current=this.read().data.resources,row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;
+          if(row)alreadyPresent+=1;
+          else{await this.configure(profile);restored+=1;current=this.read().data.resources;row=current.find(item=>item.id===profile.resourceId||item.kind===profile.role)??null;}
+          const hostManaged=Boolean(row?.credentialManagedByHost||profile.credentialManagedByHost);
+          const credentiallessReconnect=Boolean(profile.wasConnected&&!profile.credentialPreviouslyConfigured);
+          if(row&&!row.callable&&(hostManaged||credentiallessReconnect)){
+            const result=await this.connect(row);
+            const refreshed=this.read().data.resources.find(item=>item.id===row.id||item.kind===profile.role)??null;
+            if(refreshed?.callable)requalified+=1;
+            else failed.push({role:profile.role,resourceId:profile.resourceId,stage:'REQUALIFY',code:refreshed?.reasonCode??'RESOURCE_REQUALIFY_FAILED',message:refreshed?.reason??'Saved resource did not become callable after restore.'});
+          }
+        }catch(error){failed.push({role:profile.role,resourceId:profile.resourceId,stage:'RESTORE',code:error?.code??'RESOURCE_RESTORE_FAILED',message:String(error?.message??error)});}
+      }
+      return deepFreeze({kind:'Wave13ConnectionProfileRestore',saved:saved.length,restored,alreadyPresent,requalified,failed});
+    };
+    this.restorePromise=work().finally(()=>{this.restorePromise=null;});
+    return this.restorePromise;
+  }
   read(){
     if(!this.listFn)return deepFreeze({
       source:createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label:'Optional resources',operationalState:OperatorProducerState.UNAVAILABLE,impact:'Native Brain remains available. Optional resource control is not exported by this assembly.',reason:'Worker 2 resource host/read contract is not exported by this assembly.',producer:'OptionalResourceControl',connected:false}),
@@ -422,6 +482,7 @@ export class Wave13ResourceControlAdapter{
     try{
       const raw=this.listFn();
       const resources=normalizeResources(raw);
+      this.#captureProfiles(resources);
       const connected=resources.filter(x=>x.connected).length;
       const degradedRows=resources.filter(x=>['DEGRADED','SATURATED','COOLDOWN','UNAVAILABLE'].includes(x.health)||x.state==='UNAVAILABLE');
       const health=degradedRows.length?Wave6Health.DEGRADED:Wave6Health.READY;
@@ -476,16 +537,19 @@ export class Wave13ResourceControlAdapter{
     try{
       let result;
       if(this.publicHost){
-        const requestedId=resourceId(config);
-        const existing=requestedId?this.read().data.resources.find(row=>row.id===requestedId):null;
-        if(existing)result=await this.connectFn(existing.id);
-        else{
+        const requestedId=resourceId(config),role=connectionProfileRole(config);
+        const existing=this.read().data.resources.find(row=>(requestedId&&row.id===requestedId)||(role&&row.kind===role));
+        if(existing){
+          result=await this.connectFn(existing.id);this.#saveProfile(config,result??existing,{force:true});
+        }else{
           const normalized=normalizeWorker2ResourceConfig(config);
           if(!this.addFn){const e=new Error('Worker 2 resource host requires addResource() before connectResource().');e.code='RESOURCE_CONFIGURE_ACTION_UNAVAILABLE';throw e;}
-          await this.addFn(normalized);
-          result=await this.connectFn(normalized.resourceId);
+          const configured=await this.addFn(normalized);this.#saveProfile(config,configured??normalized,{force:true});
+          result=await this.connectFn(normalized.resourceId);this.#saveProfile(config,result??configured??normalized,{force:true});
         }
-      }else result=await this.connectFn(cloneSafe(config));
+      }else{
+        result=await this.connectFn(cloneSafe(config));this.#saveProfile(config,result,{force:true});
+      }
       this.lastAction={type:'CONNECT',result:cloneSafe(result)};return cloneSafe(result);
     }catch(error){this.lastError=error;throw error;}
   }
@@ -510,6 +574,29 @@ export class Wave13ResourceControlAdapter{
       const result=await action(arg);this.lastAction={type,result:cloneSafe(result)};return cloneSafe(result);
     }catch(error){this.lastError=error;throw error;}
   }
+  #profileMap(){
+    if(!this.stateStore?.load)return{};
+    const raw=this.stateStore.load()?.[this.connectionProfileKey];
+    if(!raw||typeof raw!=='object'||Array.isArray(raw))return{};
+    const out={};
+    for(const row of Object.values(raw)){
+      const normalized=normalizePersistedConnectionProfile(row);
+      if(normalized)out[normalized.role]=normalized;
+    }
+    return out;
+  }
+  #writeProfileMap(map){if(this.stateStore?.save)this.stateStore.save({[this.connectionProfileKey]:map});}
+  #saveProfile(input,observed=null,{force=false}={}){
+    const normalized=normalizePersistedConnectionProfile(input,observed);
+    if(!normalized||!this.stateStore?.save)return null;
+    if(this.persistenceSuppressed.has(normalized.role)&&!force)return null;
+    if(force)this.persistenceSuppressed.delete(normalized.role);
+    const map=this.#profileMap(),previous=map[normalized.role]??null;
+    if(previous?.credentialPreviouslyConfigured&&!normalized.credentialPreviouslyConfigured)normalized.credentialPreviouslyConfigured=true;
+    if(JSON.stringify(previous)===JSON.stringify(normalized))return cloneSafe(normalized);
+    map[normalized.role]=normalized;this.#writeProfileMap(map);return cloneSafe(normalized);
+  }
+  #captureProfiles(resources=[]){for(const row of resources)this.#saveProfile(row,row);}
 }
 
 export class Wave13OperationalStatusAdapter{
@@ -524,6 +611,7 @@ export class Wave13OperationalStatusAdapter{
       this.#runtimeStage(selection,cognition),
       this.#coprocessorStage(selection),
       this.#cognitionStage('choice','Cognitive Choice',cognition,selection),
+      this.#cognitionStage('sensory','Sensory',cognition,selection),
       this.#cognitionStage('truth','Truth',cognition,selection),
       this.#cognitionStage('jev','Jev',cognition,selection,{optional:true}),
       this.#cognitionStage('gather','Gather',cognition,selection),
@@ -538,7 +626,7 @@ export class Wave13OperationalStatusAdapter{
     const active=stages.filter(x=>[OperatorProducerState.LIVE,OperatorProducerState.WORKING,OperatorProducerState.IDLE].includes(x.state)).length;
     const failures=stages.filter(x=>x.state===OperatorProducerState.DEGRADED).length;
     const scatter=cognition?.data?.scatter??null,gather=cognition?.data?.gather??null,seal=cognition?.data?.seal??null;
-    const registeredIds=new Set(['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning']);
+    const registeredIds=new Set(['scene','runtime','coprocessor','choice','sensory','truth','jev','gather','seal','promptPlan','generation','learning']);
     const registered=stages.filter(x=>registeredIds.has(x.id)&&![OperatorProducerState.UNAVAILABLE,OperatorProducerState.DISCONNECTED].includes(x.state)).length;
     const jobs=scatter?.jobs??[],results=gather?.results??[],admitted=seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[];
     const learning=generation?.learningReceipt??null,delivery=Boolean(generation?.promptPlan||generation?.contextSeal);
@@ -665,10 +753,11 @@ export class Wave13DiagnosticsCenterAdapter{
     const lanes=['JEV','SIDECAR','VECTORING'].map(kind=>{
       const members=rows.filter(row=>String(row.kind??'SIDECAR').toUpperCase()===kind);
       return deepFreeze({
-        kind,configured:members.length,connected:members.filter(row=>row.connected).length,callable:members.filter(row=>row.callable).length,
+        kind,configured:members.length,connected:members.filter(row=>row.connected).length,qualified:members.filter(row=>row.selectedModelQualified).length,callable:members.filter(row=>row.callable).length,
+        physicallyExecuted:members.filter(row=>row.physicalExecutionAttempted).length,physicalSuccesses:members.filter(row=>row.physicalExecutionSucceeded).length,ownerAccepted:members.filter(row=>row.ownerAccepted===true).length,
         activeExecutions:members.reduce((sum,row)=>sum+Number(row.currentLoad??0),0),
         resourceIds:members.map(row=>row.id),
-        states:members.map(row=>({id:row.id,displayName:row.displayName,state:row.state,health:row.health,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
+        states:members.map(row=>({id:row.id,displayName:row.displayName,state:row.state,health:row.health,configured:true,connected:row.connected,qualified:row.selectedModelQualified,callable:row.callable,physicalExecutionAttempted:row.physicalExecutionAttempted,physicalExecutionSucceeded:row.physicalExecutionSucceeded,ownerAccepted:row.ownerAccepted,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
       });
     });
     const cognitionData=cognitionRead?.data??{};
@@ -697,8 +786,9 @@ export class Wave13DiagnosticsCenterAdapter{
       resources:{
         source:cloneSafe(resourceRead?.source??null),capabilities:cloneSafe(resourceCaps),nativePathAvailable:resourceRead?.data?.nativePathAvailable!==false,
         lanes,rows:rows.map(row=>deepFreeze({
-          id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,connected:row.connected,callable:row.callable,
-          credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
+          id:row.id,displayName:row.displayName,kind:row.kind,state:row.state,health:row.health,availability:row.availability,configured:true,connected:row.connected,selectedModelQualified:row.selectedModelQualified,callable:row.callable,
+          physicalExecutionAttempted:row.physicalExecutionAttempted,physicalExecutionSucceeded:row.physicalExecutionSucceeded,ownerAccepted:row.ownerAccepted,ownerAcceptanceSource:row.ownerAcceptanceSource,
+          credentialConfigured:row.credentialConfigured,providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,workerId:row.workerId,measurementClass:row.measurementClass,
           capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
           lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
         })),
@@ -833,6 +923,42 @@ async function runLoreRuntime(runtime,input={}){
   return{kind:'LoreStudyOperatorRun',requested:due.length,results};
 }
 
+const WAVE13_CONNECTION_PROFILE_VERSION=1;
+function connectionProfileRole(input={}){
+  const explicit=String(input?.role??input?.resourceRole??'').toUpperCase();
+  if(['JEV','SIDECAR','VECTORING'].includes(explicit))return explicit;
+  const kind=String(input?.kind??'').toUpperCase();
+  if(['JEV','SIDECAR','VECTORING'].includes(kind))return kind;
+  const capabilities=[...(input?.capabilities??input?.declaredCapabilities??input?.activeCapabilities??[])].map(x=>String(x).toUpperCase());
+  if(capabilities.includes('SEMANTIC_JUDGMENT'))return'JEV';
+  if(capabilities.some(isVectorCapability))return'VECTORING';
+  return capabilities.length?'SIDECAR':null;
+}
+function normalizePersistedConnectionProfile(input={},observed=null){
+  const source=observed&&typeof observed==='object'?observed:{},role=connectionProfileRole(input)??connectionProfileRole(source);
+  if(!role)return null;
+  const displayName=text(source.displayName??input.displayName??input.connectionName)??('Primary '+(role==='JEV'?'Jev':role==='VECTORING'?'Vectoring':'Sidecar'));
+  const resourceIdValue=resourceId(source)??resourceId(input)??generatedResourceId(role,displayName);
+  const supplied=[...(source.declaredCapabilities??source.capabilities??input.capabilities??[])].map(String).filter(Boolean);
+  const defaults=role==='JEV'?['SEMANTIC_JUDGMENT']:role==='VECTORING'?['RETRIEVAL','EMBED']:['STRUCTURED_EXTRACTION'];
+  const capabilities=[...new Set(supplied.length?supplied:defaults)];
+  const transportRaw=String(source.transportKind??input.transportKind??input.transport??(String(input.kind??'').toUpperCase()==='DETERMINISTIC_LOCAL'?'DETERMINISTIC_LOCAL':'OPENAI_COMPATIBLE')).toUpperCase();
+  const transportKind=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(transportRaw)?transportRaw:'OPENAI_COMPATIBLE';
+  const endpoint=text(source.endpoint??input.endpoint);
+  if(transportKind==='OPENAI_COMPATIBLE'&&!endpoint)return null;
+  return{
+    version:WAVE13_CONNECTION_PROFILE_VERSION,locked:true,role,resourceId:resourceIdValue,displayName,transportKind,endpoint:transportKind==='OPENAI_COMPATIBLE'?endpoint:null,
+    modelId:text(source.modelId??input.modelId)??(transportKind==='DETERMINISTIC_LOCAL'?'local-deterministic':'model'),
+    capabilities,providerProfileId:text(source.providerProfileId??input.providerProfileId)??('profile:'+resourceIdValue),
+    providerId:text(source.providerId??input.providerId)??('provider:'+resourceIdValue),workerId:text(source.workerId??input.workerId)??('resource:'+resourceIdValue),
+    maxConcurrency:Math.max(1,Number(source.concurrencyCapacity??source.maxConcurrency??input.maxConcurrency??input.concurrencyCapacity??1)||1),
+    local:Boolean(source.local??input.local??false),credentialPreviouslyConfigured:Boolean(source.credentialConfigured??input.credentialPreviouslyConfigured??input.credentialConfigured??false),
+    credentialManagedByHost:Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false),
+    connectionProfileId:text(source.connectionProfileId??input.connectionProfileId),connectionProfileName:text(source.connectionProfileName??input.connectionProfileName),
+    wasConnected:Boolean(source.connected??source.callable??input.wasConnected??false),
+  };
+}
+
 function normalizeResources(raw){
   const rows=Array.isArray(raw)?raw:Array.isArray(raw?.resources)?raw.resources:Array.isArray(raw?.profiles)?raw.profiles:raw&&typeof raw==='object'&&raw.resourceId?[raw]:[];
   return rows.map((row,index)=>{
@@ -854,6 +980,7 @@ function normalizeResources(raw){
       ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,
       ownerAcceptanceSource:row.ownerAcceptanceSource??null,
       workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
+      credentialManagedByHost:Boolean(row.credentialManagedByHost),hostCredentialSource:text(row.hostCredentialSource),connectionProfileId:text(row.connectionProfileId),connectionProfileName:text(row.connectionProfileName),
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
@@ -893,6 +1020,8 @@ function normalizeWorker2ResourceConfig(input={}){
     const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
     const apiKey=typeof input.apiKey==='string'?input.apiKey.trim():'';if(apiKey)out.apiKey=apiKey;
   }
+  if(input.connectionProfileId)out.connectionProfileId=String(input.connectionProfileId);
+  if(input.connectionProfileName)out.connectionProfileName=String(input.connectionProfileName);
   return out;
 }
 

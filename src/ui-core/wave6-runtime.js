@@ -70,12 +70,12 @@ export function createWave6ProductInterface({
   const coprocessor=(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter)?new CoprocessorProductionUIAdapter(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter):
     resourceCognitionReader?new Wave13CoprocessorStateUIAdapter({readState:resourceCognitionReader,selectionProvider}):new CoprocessorProductionUIAdapter(null);
   const promptPlan=new PromptPlanProductionUIAdapter({...effectiveBridges.promptPlan,selectionProvider});
-  const forensics=new ForensicsProductionUIAdapter(effectiveBridges.forensics??{});
+  const forensics=new ForensicsProductionUIAdapter({...effectiveBridges.forensics,selectionProvider});
   const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(effectiveBridges.cognition??{})});
   const loreStudy=hostBindings?new Wave13LoreStudyUIAdapter({bindings:hostBindings,selectionProvider}):null;
   const loreAuthoring=hostBindings?new Wave13LoreAuthoringUIAdapter({bindings:hostBindings}):null;
   const memoryOwner=hostBindings?new Wave13MemoryUIAdapter({bindings:hostBindings,selectionProvider}):null;
-  const resources=hostBindings?new Wave13ResourceControlAdapter({bindings:hostBindings}):null;
+  const resources=hostBindings?new Wave13ResourceControlAdapter({bindings:hostBindings,stateStore}):null;
   const productAdapter=new Wave6ProductAdapter({
     scene,runtime,coprocessor,promptPlan,forensics,
     story:effectiveBridges.story??null,characters:effectiveBridges.characters??null,lore:loreStudy??effectiveBridges.lore??null,memory:memoryOwner??effectiveBridges.memory??null,world:effectiveBridges.world??null,
@@ -147,6 +147,8 @@ export function createWave6ProductInterface({
     controller?.scheduleQuickDash?.();
   },{cost:'NORMAL'});
   const resourceRelease=resources?.subscribe?.(()=>operatorRefresh('resources'));if(typeof resourceRelease==='function')cognitionScope.add(resourceRelease);
+  const resourceRestore=resources?.restoreSavedProfiles?.();
+  if(resourceRestore&&typeof resourceRestore.then==='function')resourceRestore.then(()=>operatorRefresh('resources')).catch(()=>operatorRefresh('resources'));
   const loreRelease=loreStudy?.subscribe?.(()=>operatorRefresh('lore'));if(typeof loreRelease==='function')cognitionScope.add(loreRelease);
   const memoryRelease=memoryOwner?.subscribe?.(()=>operatorRefresh('memory'));if(typeof memoryRelease==='function')cognitionScope.add(memoryRelease);
 
@@ -165,7 +167,43 @@ export function createWave6ProductInterface({
 function registerProductionEngineeringWorkspaces(registry,{runtime,coprocessor,promptPlan,forensics}){
   if(!registry.has('runtime-live'))registry.register({id:'runtime-live',title:'Runtime',icon:'≋',category:'Engineering',navigation:{level:'advanced',order:130},views:['advanced'],supportedActions:['inspect'],render(host){const d=host.ownerDocument,r=runtime.read();host.append(element(d,'h1',{text:'Runtime Detail'}));if(!r.data){host.append(state(d,'Runtime unavailable',r.source.reason||r.source.impact));return;}const x=r.data,counts=x.lifecycleCounts??{};host.append(makeCard(d,{title:'Runtime summary',body:createKeyValue(d,[{key:'Mode',value:x.mode},{key:'HOT active',value:x.hotActivity},{key:'DEEP active',value:x.deepActivity},{key:'Queued obligations',value:x.queuedObligations},{key:'Blocked / recovering',value:x.blockedRecoveringWork},{key:'Active / yielding',value:x.activeBatches}])}));host.append(makeCard(d,{title:'Lifecycle signals',body:createKeyValue(d,[{key:'Queued',value:counts.QUEUED??0},{key:'Active',value:counts.ACTIVE??0},{key:'Yielding',value:counts.YIELDING??0},{key:'Parked',value:counts.PARKED??0},{key:'Recovering',value:counts.RECOVERING??0},{key:'Complete',value:counts.COMPLETE??0},{key:'Failed',value:counts.FAILED??0}])}));host.append(makeCard(d,{title:'Scheduler / capacity',body:createKeyValue(d,[{key:'Queue by layer',value:Object.entries(x.queueDepth??{}).map(([k,v])=>k+': '+v).join(' · ')||'none'},{key:'Borrowed background leases',value:x.resources?.borrowedBackgroundLeases??'not published'},{key:'Retained telemetry signals',value:x.telemetry?.retainedSignals??'not published'},{key:'Telemetry sink failures',value:x.telemetry?.sinkFailures??'not published'},{key:'Batch progress history',value:x.batchProgressAvailable?'Published':'Owner snapshot does not publish batch history'},{key:'Late-result history',value:x.lateResultHistoryAvailable?'Published':'Owner snapshot does not publish late-result history'}])}));}});
   if(!registry.has('coprocessor-live'))registry.register({id:'coprocessor-live',title:'Coprocessor',icon:'✣',category:'Engineering',navigation:{level:'advanced',order:140},views:['advanced'],supportedActions:['inspect'],render(host){const d=host.ownerDocument,r=coprocessor.read();host.append(element(d,'h1',{text:'Coprocessor Detail'}));if(!r.data){host.append(state(d,'Coprocessor unavailable',r.source.reason||r.source.impact));return;}const q=r.data.queue??{},physical=r.data.physicalExecution??{},life=r.data.lifecycle??{};host.append(makeCard(d,{title:'Telemetry summary',body:createKeyValue(d,[{key:'Events',value:r.data.totalEvents??'—'},{key:'Warm hit / miss',value:`${r.data.warm?.hit??0} / ${r.data.warm?.miss??0}`},{key:'Fallback / retry',value:`${r.data.fallback??0} / ${r.data.retry??0}`},{key:'Validation failures',value:r.data.validationFailures??0},{key:'Stale / late',value:`${r.data.staleDrop??0} / ${r.data.lateResults??0}`}])}));host.append(makeCard(d,{title:'Worker lifecycle signals',body:createKeyValue(d,[{key:'Queued',value:q.queued??0},{key:'Yielding',value:q.yields??0},{key:'Parked',value:q.parks??0},{key:'Resumed',value:q.resumes??0},{key:'HOT / DEEP active',value:`${r.data.hotActivity??0} / ${r.data.deepActivity??0}`},{key:'Queue pressure',value:q.pressure?JSON.stringify(q.pressure):'not published'}])}));host.append(makeCard(d,{title:'Execution / owner admission',body:createKeyValue(d,[{key:'Configured resources',value:life.configured??0},{key:'Connected resources',value:life.connected??0},{key:'Physically executed resources',value:life.physicallyExecuted??0},{key:'Owner-accepted resources',value:life.ownerAccepted??0},{key:'Physical attempts',value:physical.attempts??0},{key:'Physical success / fail',value:`${physical.succeeded??0} / ${physical.failed??0}`},{key:'Result destinations',value:Object.entries(r.data.resultDestinations??{}).map(([k,v])=>k+': '+v).join(' · ')||'none published'}])}));}});
-  if(!registry.has('context-delivery'))registry.register({id:'context-delivery',title:'Context Delivery',icon:'▥',category:'Engineering',navigation:{level:'advanced',order:150},views:['advanced'],supportedActions:['inspect'],render(host){const d=host.ownerDocument,r=promptPlan.read();host.append(element(d,'h1',{text:'PromptPlan / Context Delivery'}));if(!r.data){host.append(state(d,'Context delivery unavailable',r.source.reason||r.source.impact));return;}host.append(makeCard(d,{title:r.data.promptPlanId,body:createKeyValue(d,[{key:'Tokens',value:`${r.data.totalTokens} / ${r.data.budgetTotal}`},{key:'Segments',value:r.data.segments.length},{key:'Reused',value:r.data.reusedSegments},{key:'Updated',value:r.data.updatedSegments},{key:'Dropped / deferred',value:`${r.data.dropped.length} / ${r.data.deferred.length}`},{key:'Seal',value:r.data.seal?.sealedState===true?'SEALED':'UNAVAILABLE'}])}));}});
+  if(!registry.has('context-delivery'))registry.register({
+    id:'context-delivery',title:'Context Delivery',icon:'▥',category:'Engineering',navigation:{level:'advanced',order:150},views:['advanced'],supportedActions:['inspect'],
+    render(host){
+      const d=host.ownerDocument,r=promptPlan.read();host.append(element(d,'h1',{text:'PromptPlan / Adaptive Context'}));
+      if(!r.data){host.append(state(d,'Context delivery unavailable',r.source.reason||r.source.impact));return;}
+      const x=r.data,e=x.deliveryEvidence??{},planned=e.planned??{},injected=e.injected??{},observed=e.observed??{};
+      const plannedSections=(planned.sections??[]).map(row=>`${row.slot??row.segmentKey??'section'} · ${row.state??row.representation??'planned'}`).join(' · ')||'none published';
+      const injectedSections=(injected.sections??[]).map(row=>typeof row==='string'?row:(row.slot??row.segmentKey??row.id??'section')).join(' · ')||'not published';
+      const observedSections=(observed.sections??[]).join(' · ')||'not observed';
+      host.append(makeCard(d,{title:x.promptPlanId,body:createKeyValue(d,[
+        {key:'Selected turn / generation',value:`${x.turnId??'unavailable'} / ${x.generationId??'unavailable'}`},
+        {key:'Budget',value:`${x.totalTokens} / ${x.budgetTotal} tokens`},
+        {key:'Model profile',value:x.modelProfileId??'unavailable'},
+        {key:'Context Seal',value:x.seal?.id??x.seal?.contextSealId??x.explainability?.contextSealId??'unavailable'},
+        {key:'World / Scene revision',value:`${x.worldRevision??'—'} / ${x.sceneRevision??'—'}`},
+        {key:'Source revisions',value:(x.sourceRevisionDependencies??[]).join(', ')||'none published'},
+      ])}));
+      host.append(makeCard(d,{title:'1 · Planned by PromptPlan',body:createKeyValue(d,[
+        {key:'Available',value:planned.available?'YES':'NO'},
+        {key:'Sections',value:plannedSections},
+        {key:'Omitted / deferred',value:String((planned.omitted??[]).length)},
+      ])}));
+      host.append(makeCard(d,{title:'2 · Injected / compiled receipt',body:createKeyValue(d,[
+        {key:'Available',value:injected.available?'YES':'NO — checked-out owner does not publish a ContextReceipt for this turn'},
+        {key:'Sections',value:injectedSections},
+        {key:'Omitted / deferred',value:`${(injected.omitted??[]).length} / ${(injected.deferred??[]).length}`},
+      ])}));
+      host.append(makeCard(d,{title:'3 · Observed in real host prompt',body:createKeyValue(d,[
+        {key:'Available',value:observed.available?'YES':'NO — no ObservedHostPromptEvidence receipt exists on this code'},
+        {key:'Status',value:observed.status??'UNAVAILABLE'},
+        {key:'Host / live',value:observed.available?`${observed.host??'unknown'} / ${observed.live?'LIVE':'NOT LIVE'}`:'not observed'},
+        {key:'Observed roles',value:(observed.roles??[]).join(', ')||'not observed'},
+        {key:'Observed sections',value:observedSections},
+        {key:'Seal/manifest match',value:observed.available?(observed.matching===true?'MATCH':observed.matching===false?'MISMATCH':'UNAVAILABLE'):'UNAVAILABLE'},
+      ])}));
+    },
+  });
 }
 
 function renderReadOnlyInspector(doc,object={}){

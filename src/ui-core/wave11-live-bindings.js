@@ -100,7 +100,7 @@ export class Wave11LiveReceiptBinding{
   #buildBridges(){
     const x=this.input,read=(name,...aliases)=>optional(x[name]??aliases.map(k=>x[k]).find(v=>typeof v==='function'));
     const scene=read('readScene','readSceneModel','readSceneUiReadModel');
-    const prompt=read('readPromptPlan','readPromptPlanReadModel'),context=read('readContextReceipt','readContextReceiptReadModel'),seal=read('readContextSeal','readContextSealReceipt','readSealReceipt');
+    const prompt=read('readPromptPlan','readPromptPlanReadModel'),delivery=read('readPromptDeliveryReceipt'),context=read('readContextReceipt','readContextReceiptReadModel'),seal=read('readContextSeal','readContextSealReceipt','readSealReceipt');
     const forensic=read('readForensic','readForensicReadModel'),forensicList=read('listForensics','listForensicReadModels','listBundles'),transactions=read('listTransactions','listCognitiveTransactions');
     const txRead=read('readTransaction','readCognitiveTransaction'),integrity=read('readIntegrityReceipt'),generationRead=read('readGeneration'),generations=read('listGenerations');
     const binding=this;
@@ -109,6 +109,7 @@ export class Wave11LiveReceiptBinding{
       runtimeAdapter:x.runtimeAdapter??null,coprocessorTelemetry:x.coprocessorTelemetry??x.coprocessorAdapter??null,
       promptPlan:{
         readPromptPlanReadModel:prompt?(selection)=>binding.#read('PromptPlan',prompt,selection):null,
+        readPromptDeliveryReceipt:delivery?(selection)=>binding.#read('PromptDelivery',delivery,selection):null,
         readContextReceiptReadModel:context?(selection)=>binding.#read('ContextReceipt',context,selection):null,
         readSealReceipt:seal?(selection)=>binding.#read('ContextSeal',seal,selection):null,
         readIntegrityReceipt:integrity?(selection)=>binding.#read('ContextIntegrity',integrity,selection):null,

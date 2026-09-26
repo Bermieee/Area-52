@@ -14,6 +14,8 @@ import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
+import { SceneEventPublisher } from '../scene/event-publisher.js';
+import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
@@ -282,7 +284,15 @@ export class DevelopmentDeploymentBrain {
       this.loreAuthoring = new LoreAuthoringService({ intelligence: this.loreIntelligence });
     }
     this.loreSettlementEvents = clone(loreOwnerSnapshot?.settlementEvents ?? []);
-    this.scene = new SceneLifecycleRuntime();
+    this.sceneOwnerTimeline = [];
+    const sceneTimelineSink=(type)=>(value)=>{
+      this.sceneOwnerTimeline.push({type,value:clone(value)});
+      if(this.sceneOwnerTimeline.length>256)this.sceneOwnerTimeline.splice(0,this.sceneOwnerTimeline.length-256);
+    };
+    this.scene = new SceneLifecycleRuntime({
+      publisher:new SceneEventPublisher({sink:sceneTimelineSink('EVENT')}),
+      contextInvalidationPublisher:new SceneContextInvalidationPublisher({sink:sceneTimelineSink('INVALIDATION')}),
+    });
     this.memory = new MemoryTemporalProducer();
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
@@ -492,6 +502,91 @@ export class DevelopmentDeploymentBrain {
       observationApplied: Boolean(observed.applied),
       delta: clone(observed.delta ?? null),
     };
+  }
+
+  ingestSceneHostEvent(input = {}, { extract = null } = {}) {
+    const start = this.sceneOwnerTimeline.length;
+    const outcome = this.scene.ingestHostEvent(input, { extract });
+    const evidence = outcome?.evidence ?? null;
+    const chatId = String(evidence?.chatId ?? input?.chatId ?? '').trim();
+    const timeline = this.sceneOwnerTimeline.slice(start).map((row) => clone(row));
+    const coreReceipts = [];
+    if (chatId) {
+      if (this.core.hotCognition.activeChatNamespace !== chatId) this.core.activateHotCognitionChat(chatId);
+      for (const row of timeline) {
+        const receipt = row.type === 'INVALIDATION'
+          ? this.core.consumeSceneContextInvalidation(row.value, { chatNamespace: chatId })
+          : this.core.consumeCognitiveEvent(row.value, { chatNamespace: chatId });
+        coreReceipts.push({
+          type: row.type,
+          ref: row.value?.eventId ?? row.value?.invalidationId ?? null,
+          eventType: row.value?.eventType ?? null,
+          status: receipt?.status ?? null,
+          coreHandling: receipt?.coreHandling ?? null,
+          reason: receipt?.reason ?? receipt?.reasonCode ?? null,
+        });
+      }
+    }
+    const signal = chatId ? this.scene.integrationSignal(chatId) : null;
+    const signalReceipt = signal ? this.core.consumeSceneSignal(signal, { chatNamespace: chatId }) : null;
+    const changedFields = Object.keys(outcome?.delta?.changedFields ?? {}).sort();
+    const eventRows = timeline.filter((row) => row.type === 'EVENT');
+    const invalidationRows = timeline.filter((row) => row.type === 'INVALIDATION');
+    const invalidatedSourceRevisionRefs = [...new Set([
+      ...(evidence?.invalidates ?? []),
+      evidence?.replacesRevisionId,
+    ].filter(Boolean).map(String))].sort();
+    const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
+    const boundaryStatus = outcome?.boundary?.decision?.status ?? null;
+    const status = changedFields.length || outcome?.transition ? 'OBSERVED' : 'NO_WORK';
+    const noWorkReason = status === 'NO_WORK'
+      ? (outcome?.boundary && boundaryStatus !== 'CONFIRMED' ? 'BOUNDARY_NOT_CONFIRMED' : 'NO_EXPLICIT_SCENE_CHANGE')
+      : null;
+    return clone({
+      kind: 'DeploymentSceneOwnerReceipt',
+      contractVersion: 1,
+      status,
+      noWorkReason,
+      evidence: evidence ? {
+        activity: evidence.activity ?? null,
+        chatId: evidence.chatId ?? null,
+        messageId: evidence.messageId ?? null,
+        messageRevision: evidence.messageRevision ?? null,
+        turnId: evidence.turnId ?? null,
+        correlationId: evidence.correlationId ?? null,
+        causationId: evidence.causationId ?? null,
+        sourceRevisionId: evidence.sourceRevisionId ?? null,
+        replacesRevisionId: evidence.replacesRevisionId ?? null,
+        invalidates: [...(evidence.invalidates ?? [])],
+        current: Boolean(evidence.current),
+      } : null,
+      chatId,
+      sceneId: signal?.sceneId ?? outcome?.scene?.sceneId ?? null,
+      sceneRevision: signal?.sceneRevision ?? outcome?.scene?.revision ?? null,
+      sourceRevisionRefs,
+      invalidatedSourceRevisionRefs,
+      changedFields,
+      boundary: clone(outcome?.boundary ?? null),
+      transition: clone(outcome?.transition ?? null),
+      eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
+      eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
+      invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),
+      coreReceipts,
+      signalReceipt: signalReceipt ? {
+        status: signalReceipt.status ?? null,
+        coreHandling: signalReceipt.coreHandling ?? null,
+        reason: signalReceipt.reason ?? signalReceipt.reasonCode ?? null,
+      } : null,
+      signal,
+      prefetchRecommendations: clone(signal?.prefetchRecommendations ?? []),
+      authority: 'DESCRIPTIVE',
+      authorityGranted: false,
+      canonicalMutationAuthority: false,
+      settlementAuthority: false,
+      contextSealAuthority: false,
+      contextSealBypass: false,
+      rawNarrativeIncluded: false,
+    });
   }
 
   admitMemoryEvidenceMapping(input = {}) {

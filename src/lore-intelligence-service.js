@@ -5,6 +5,7 @@ import {LoreRepresentationRegistry} from './lore-representation-registry.js';
 import {LoreWorldOntology} from './lore-world-ontology.js';
 import {LoreHierarchyRetrievalSystem} from './lore-hierarchy-retrieval-system.js';
 import {QualityStatus, RepresentationProfile} from './lore-representation-contracts.js';
+import {LoreStoryAuthorityRegistry} from './lore-story-authority.js';
 
 const REQUIRED_PROFILES = Object.freeze([
   RepresentationProfile.LEAN,
@@ -101,18 +102,104 @@ export class LoreIntelligenceService {
     multiResolution = null,
     hierarchy = null,
     ontology = null,
+    storyAuthority = new LoreStoryAuthorityRegistry(),
   } = {}) {
     this.runtime = runtime;
     this.multiResolution = multiResolution || new LoreMultiResolutionSystem({runtime});
     this.hierarchy = hierarchy || new LoreHierarchyRetrievalSystem({runtime});
     this.ontology = ontology || new LoreWorldOntology({runtime});
+    this.storyAuthority = storyAuthority;
     this.compileFailures = new Map();
     this.lastAcceptance = null;
     this.lastStudyRun = null;
   }
 
+  _storyChatId(input = {}) {
+    const value = input?.storyScope?.chatId ?? input?.chatId ?? input?.discovery?.chatId ?? null;
+    return value == null || String(value).trim() === '' ? null : String(value);
+  }
+
+  _sourceRevisionFenceForLorebooks(lorebookIds = []) {
+    const allowed = new Set((lorebookIds || []).map(String));
+    return this.runtime.registry.listEntries({includeRemoved: true})
+      .filter((source) => allowed.has(source.lorebookId))
+      .map((source) => {
+        const revision = this.runtime.registry.currentRevision(source.sourceId, {allowMissing: true});
+        return revision ? {
+          sourceId: source.sourceId,
+          lorebookId: source.lorebookId,
+          uid: source.uid,
+          sourceRevisionId: revision.id,
+          sourceState: revision.state,
+          contentHash: revision.contentHash,
+        } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+  }
+
+  recordHostDiscovery({chatId, lorebookId, title = null, discovery = null, hostSelectionRevision = null} = {}) {
+    return this.storyAuthority.recordDiscovery({chatId, lorebookId, title, discovery, hostSelectionRevision});
+  }
+
+  setStoryReadScope({chatId, lorebookIds = []} = {}) {
+    return this.storyAuthority.setReadScope({chatId, lorebookIds});
+  }
+
+  grantStoryWriteAuthority({chatId, lorebookIds = [], operatorAuthorityId = null} = {}) {
+    const sourceRevisionFence = this._sourceRevisionFenceForLorebooks(lorebookIds);
+    return this.storyAuthority.grantWriteAuthority({
+      chatId,
+      lorebookIds,
+      sourceRevisionFence,
+      operatorAuthorityId,
+    });
+  }
+
+  revokeStoryWriteAuthority(request = {}) {
+    return this.storyAuthority.revokeWriteAuthority(request);
+  }
+
+  storyScopeReceipt({chatId} = {}) {
+    return this.storyAuthority.scopeReceipt(chatId);
+  }
+
+  recordRevisionChanges(events = [], {origin = 'SOURCE_REVISION_CHANGED'} = {}) {
+    const receipts = [];
+    for (const event of events || []) {
+      if (!event?.lorebookId || !event?.sourceRevisionId) continue;
+      receipts.push(...this.storyAuthority.recordRevisionChange({
+        sourceId: event.sourceId,
+        lorebookId: event.lorebookId,
+        previousSourceRevisionId: event.previousSourceRevisionId,
+        sourceRevisionId: event.sourceRevisionId,
+        sourceState: event.sourceState,
+        origin: event.operationKind || origin,
+      }));
+    }
+    return receipts;
+  }
+
+  storyRevisionReceipts({chatId = null, limit = 128} = {}) {
+    const max = Math.max(1, Math.min(512, Number(limit) || 128));
+    return this.storyAuthority.revisionReceipts
+      .filter((row) => chatId == null || row.chatId === String(chatId))
+      .slice(-max)
+      .map(deepClone);
+  }
+
   acceptLorebook(input) {
     const book = assertDiscoveredLorebook(input);
+    const chatId = this._storyChatId(input);
+    if (chatId) {
+      this.storyAuthority.recordDiscovery({
+        chatId,
+        lorebookId: book.id,
+        title: book.title,
+        discovery: book.discovery,
+        hostSelectionRevision: input?.hostSelectionRevision ?? input?.discovery?.hostSelectionRevision ?? null,
+      });
+    }
     const before = new Map();
     for (const source of this.runtime.registry.listEntries({includeRemoved: true})) {
       if (source.lorebookId !== book.id) continue;
@@ -160,7 +247,7 @@ export class LoreIntelligenceService {
 
     const receipt = {
       kind: 'LoreSourceAcceptanceReceipt',
-      contractVersion: 1,
+      contractVersion: 2,
       lorebookId: book.id,
       title: book.title,
       discovery: deepClone(book.discovery),
@@ -169,8 +256,34 @@ export class LoreIntelligenceService {
       exactSourcePreserved: true,
       sourceMutationByStudy: false,
       changes,
-      status: this.status(),
+      storyScope: null,
+      status: null,
     };
+    if (chatId) {
+      receipt.storyScope = this.storyAuthority.acceptForStudy({
+        chatId,
+        lorebookId: book.id,
+        sourceRevisionFence: changes.map((row) => ({
+          sourceId: row.sourceId,
+          lorebookId: book.id,
+          sourceRevisionId: row.sourceRevisionId,
+        })),
+        acceptanceReceiptId: 'lore-source-acceptance:' + book.id + ':' + chatId,
+        enableRead: true,
+      });
+      const revisionEvents = changes
+        .filter((row) => row.changed && row.sourceRevisionId)
+        .map((row) => ({
+          sourceId: row.sourceId,
+          lorebookId: book.id,
+          previousSourceRevisionId: row.previousSourceRevisionId,
+          sourceRevisionId: row.sourceRevisionId,
+          sourceState: row.sourceState,
+          operationKind: 'HOST_ACCEPTANCE',
+        }));
+      receipt.storyRevisionReceipts = this.recordRevisionChanges(revisionEvents, {origin: 'HOST_ACCEPTANCE'});
+    }
+    receipt.status = this.status(chatId ? {chatId} : {});
     this.lastAcceptance = deepClone(receipt);
     return receipt;
   }
@@ -226,18 +339,28 @@ export class LoreIntelligenceService {
 
     const ontology = this.ontology.rebuild();
     let retrieval = this.hierarchy.diagnostics();
+    let navigationRebuild = null;
     if (rebuildRetrieval) {
-      this.hierarchy.rebuild();
+      const changedSourceIds = [...new Set(results
+        .map((row) => row.learnedRevision?.sourceId)
+        .filter(Boolean))]
+        .sort();
+      if (changedSourceIds.length) {
+        navigationRebuild = this.hierarchy.rebuildAffected({sourceIds: changedSourceIds});
+      } else {
+        this.hierarchy.rebuild();
+      }
       retrieval = this.hierarchy.diagnostics();
     }
 
     const receipt = {
       kind: 'LoreStudyRunReceipt',
-      contractVersion: 1,
+      contractVersion: 2,
       requested: results.length,
       results: deepClone(results),
       compilations,
       retrieval,
+      navigationRebuild: deepClone(navigationRebuild),
       ontology,
       status: this.status(),
     };
@@ -264,7 +387,7 @@ export class LoreIntelligenceService {
     return receipt;
   }
 
-  status() {
+  status({chatId = null} = {}) {
     const surface = this.runtime.publicSurface();
     const retrievalStatus = this.hierarchy.retrievalIndex.status();
     const entries = surface.entries.map((entry) => {
@@ -316,6 +439,9 @@ export class LoreIntelligenceService {
       externalProviderRequired: false,
       externalDatabaseRequired: false,
       orchestrationServiceRequired: false,
+      storyScopeRequiredForScopedRetrieval: true,
+      storyScope: chatId == null ? null : this.storyAuthority.scopeReceipt(chatId),
+      selectedLorebookAutoAccepted: false,
     };
   }
 
@@ -357,6 +483,110 @@ export class LoreIntelligenceService {
       exactSourceDrillbackAvailable: true,
       sourceAuthority: false,
       temporalStateAuthority: false,
+    };
+  }
+
+  queryForStory({chatId, query, intent = 'AUTO', intentId = null, profile = null} = {}) {
+    const scope = this.storyAuthority.scopeReceipt(chatId);
+    if (!chatId || scope.state !== 'BOUND' || !scope.readLorebookIds.length) {
+      return {
+        kind: 'LoreBrainRetrievalPacket',
+        contractVersion: 2,
+        query: String(query || ''),
+        intent: String(intent || 'AUTO').toUpperCase(),
+        retrievalIntentId: intentId || null,
+        chatId: chatId == null ? null : String(chatId),
+        storyScope: scope,
+        blocked: true,
+        reasonCode: !chatId ? 'LORE_STORY_SCOPE_REQUIRED' : 'LORE_STORY_READ_SCOPE_EMPTY',
+        sourceRevisionFence: [],
+        nominations: [],
+        thematicCommunities: [],
+        summaries: [],
+        conflicts: [],
+        provenanceRequired: true,
+        exactSourceDrillbackAvailable: true,
+        storyScopeEnforced: true,
+        candidateBusAdmissionAuthority: false,
+        truthGateAuthority: false,
+        settlementAuthority: false,
+        contextSealAuthority: false,
+      };
+    }
+    const allowedBooks = new Set(scope.readLorebookIds);
+    const allowedSourceIds = this.runtime.registry.listEntries({includeRemoved: false})
+      .filter((source) => allowedBooks.has(source.lorebookId))
+      .map((source) => source.sourceId)
+      .sort();
+    const result = this.hierarchy.query({query, intent, intentId, allowedSourceIds});
+    const desiredProfile = profile
+      || (result.intent === 'BROAD' ? RepresentationProfile.LEAN : RepresentationProfile.HEAVY);
+    const nominations = result.nominations.map((nomination) => {
+      const drillback = this.hierarchy.drillDown(nomination)
+        .filter((source) => allowedSourceIds.includes(source.sourceId))
+        .map((source) => {
+          const selection = this.multiResolution.selection({
+            sourceId: source.sourceId,
+            desiredProfile,
+          });
+          return {
+            ...source,
+            selectedRepresentation: deepClone(selection.requestedMatch),
+            availableRepresentations: profileSummary(selection),
+          };
+        });
+      return {
+        nomination: deepClone(nomination),
+        drillback,
+      };
+    }).filter((row) => row.drillback.length > 0);
+    const sourceRevisionFence = [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceRevisionId)))].sort();
+    return {
+      kind: 'LoreBrainRetrievalPacket',
+      contractVersion: 2,
+      query: result.query,
+      intent: result.intent,
+      retrievalIntentId: result.retrievalIntentId,
+      indexRevision: result.indexRevision,
+      ontologyRevision: this.ontology.current().ontologyRevision,
+      desiredProfile,
+      chatId: String(chatId),
+      storyScope: scope,
+      blocked: false,
+      sourceRevisionFence,
+      nominations,
+      thematicCommunities: this.ontology.communitiesForSources(
+        [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceId)))],
+      ),
+      summaries: this.summarySurface().summaries.filter((summary) => (
+        summary.sourceRevisionRefs.some((revisionId) => sourceRevisionFence.includes(revisionId))
+        && summary.sourceRevisionRefs.every((revisionId) => {
+          const revision = this.runtime.registry.getRevision(revisionId);
+          const source = revision ? this.runtime.registry.getEntry(revision.sourceId) : null;
+          return Boolean(source && allowedBooks.has(source.lorebookId));
+        })
+      )),
+      conflicts: (() => {
+        const allowed = new Set(allowedSourceIds);
+        const artifactSource = new Map(
+          this.runtime.store.currentArtifacts(this.runtime.registry)
+            .map((artifact) => [artifact.id, artifact.sourceId]),
+        );
+        return this.runtime.store.conflicts(this.runtime.registry).filter((conflict) => {
+          const refs = [...new Set((conflict.artifactIds || [])
+            .map((artifactId) => artifactSource.get(artifactId))
+            .filter(Boolean))];
+          return refs.length > 0 && refs.every((sourceId) => allowed.has(sourceId));
+        });
+      })(),
+      retrievalDiagnostics: deepClone(result.diagnostics),
+      provenanceRequired: true,
+      exactSourceDrillbackAvailable: true,
+      storyScopeEnforced: true,
+      candidateBusAdmissionAuthority: false,
+      truthGateAuthority: false,
+      settlementAuthority: false,
+      contextSealAuthority: false,
     };
   }
 
@@ -406,6 +636,8 @@ export class LoreIntelligenceService {
       truthGateAuthority: false,
       settlementAuthority: false,
       contextSealAuthority: false,
+      storyScopeEnforced: false,
+      legacyGlobalQuery: true,
     };
   }
 
@@ -414,7 +646,10 @@ export class LoreIntelligenceService {
       kind: 'LoreBrainRetrievalInterface',
       contractVersion: 1,
       query: (request) => this.queryForBrain(request),
-      status: () => this.status(),
+      queryScoped: (request) => this.queryForStory(request),
+      status: (request = {}) => this.status(request),
+      storyScope: (request = {}) => this.storyScopeReceipt(request),
+      revisionReceipts: (request = {}) => this.storyRevisionReceipts(request),
       summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
     });
@@ -424,9 +659,15 @@ export class LoreIntelligenceService {
     const read = Object.freeze({
       surface: () => this.status(),
       status: () => this.status(),
-      loreStudy: () => this.status(),
+      loreStudy: (request = {}) => this.status(request),
+      storyScope: (request = {}) => this.storyScopeReceipt(request),
+      storyRevisionReceipts: (request = {}) => this.storyRevisionReceipts(request),
     });
     const actions = Object.freeze({
+      recordHostDiscovery: (input) => this.recordHostDiscovery(input),
+      setStoryReadScope: (input) => this.setStoryReadScope(input),
+      grantStoryWriteAuthority: (input) => this.grantStoryWriteAuthority(input),
+      revokeStoryWriteAuthority: (input) => this.revokeStoryWriteAuthority(input),
       acceptLorebook: (input) => this.acceptLorebook(input),
       submitLorebook: (input) => this.acceptLorebook(input),
       ingestLorebook: (input) => this.acceptLorebook(input),
@@ -450,6 +691,7 @@ export class LoreIntelligenceService {
       multiResolution: this.multiResolution.snapshot(),
       hierarchy: this.hierarchy.snapshot(),
       ontology: this.ontology.current(),
+      storyAuthority: this.storyAuthority.snapshot(),
       compileFailures: [...this.compileFailures.entries()].map(([sourceId, failures]) => [sourceId, deepClone(failures)]),
       lastAcceptance: deepClone(this.lastAcceptance),
       lastStudyRun: deepClone(this.lastStudyRun),
@@ -472,7 +714,8 @@ export class LoreIntelligenceService {
     });
     const ontology = new LoreWorldOntology({runtime});
     ontology.snapshotValue = deepClone(snapshot.ontology || null);
-    const service = new LoreIntelligenceService({runtime, multiResolution, hierarchy, ontology});
+    const storyAuthority = new LoreStoryAuthorityRegistry(snapshot.storyAuthority || null);
+    const service = new LoreIntelligenceService({runtime, multiResolution, hierarchy, ontology, storyAuthority});
     service.compileFailures = new Map((snapshot.compileFailures || []).map(([sourceId, failures]) => [sourceId, deepClone(failures)]));
     service.lastAcceptance = deepClone(snapshot.lastAcceptance || null);
     service.lastStudyRun = deepClone(snapshot.lastStudyRun || null);

@@ -5,6 +5,7 @@ import {
   LoreReviewState,
   LoreSettlementState,
   LoreTreeAction,
+  LoreSourceAction,
   normalizeLoreAuthoringError,
   sourceRevisionIdentity,
 } from './lore-authoring-contracts.js';
@@ -181,6 +182,26 @@ function decisionChange(proposed, change, type) {
   if (!change || typeof change !== 'object') {
     throw Object.assign(new TypeError('CHANGE decision requires change fields'), {code: 'LORE_AUTHORING_CHANGE_REQUIRED'});
   }
+  if (type === 'SOURCE') {
+    const next = deepClone(proposed);
+    const action = String(next.action || '').toUpperCase();
+    const allowed = action === LoreSourceAction.DELETE_ENTRY ? ['reason'] : ['content', 'metadata', 'reason'];
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(change, key)) next[key] = deepClone(change[key]);
+    }
+    for (const protectedKey of ['action', 'sourceId', 'lorebookId', 'uid', 'expectedSourceRevisionId', 'evidenceSourceIds']) {
+      if (Object.prototype.hasOwnProperty.call(change, protectedKey)) {
+        throw Object.assign(new Error('Source review cannot change fenced identity or operation authority'), {
+          code: 'LORE_SOURCE_CHANGE_FENCE_PROTECTED',
+        });
+      }
+    }
+    if ([LoreSourceAction.CREATE_ENTRY, LoreSourceAction.UPDATE_ENTRY].includes(action) && typeof next.content !== 'string') {
+      throw Object.assign(new TypeError('Source create/update requires string content'), {code: 'LORE_SOURCE_CONTENT_REQUIRED'});
+    }
+    return next;
+  }
+
   if (type === 'MERGE') {
     const next = deepClone(proposed);
     for (const key of ['uid', 'title', 'metadata']) {
@@ -210,6 +231,63 @@ function decisionChange(proposed, change, type) {
     }
   }
   return next;
+}
+
+function proposalEvidenceReceipt(intelligence, identities, proposedOutput, affectedTreeNodes, extra = {}) {
+  const registry = intelligence.runtime.registry;
+  const store = intelligence.runtime.store;
+  const sourceIds = unique((identities || []).map((row) => row.sourceId));
+  const artifacts = sourceIds.flatMap((sourceId) => {
+    const learned = store.currentLearnedRevision(sourceId);
+    if (!learned || learned.state !== 'CURRENT') return [];
+    return store.artifactsForLearnedRevision(learned.id)
+      .filter((artifact) => artifact.sourceRevisionId === registry.currentRevision(sourceId, {allowMissing: true})?.id);
+  });
+  const artifactIds = new Set(artifacts.map((row) => row.id));
+  const contradictions = store.conflicts(registry)
+    .filter((conflict) => (conflict.artifactIds || []).some((id) => artifactIds.has(id)))
+    .map(deepClone);
+  const impact = sourceIds.map((sourceId) => store.impactPreview(sourceId));
+  return {
+    kind: 'LoreProposalEvidenceReceipt',
+    contractVersion: 1,
+    exactSourceRevisions: sourceFenceFromIdentities(identities),
+    learnedEvidenceRefs: artifacts.map((row) => ({
+      artifactId: row.id,
+      semanticId: row.semanticId,
+      artifactType: row.artifactType,
+      sourceId: row.sourceId,
+      sourceRevisionId: row.sourceRevisionId,
+      authorityClass: row.authorityClass,
+      temporalClass: row.temporalClass,
+      unresolved: Boolean(row.unresolved),
+    })).sort((a, b) => a.artifactId.localeCompare(b.artifactId)),
+    contradictionAnalysis: {
+      unresolvedConflictSets: contradictions,
+      additional: deepClone(extra.contradictionAnalysis || null),
+      modelMayNotResolveWithoutReview: true,
+    },
+    impactAnalysis: {
+      affectedTreeNodes: deepClone(affectedTreeNodes || []),
+      sourceImpacts: impact,
+      additional: deepClone(extra.impactAnalysis || null),
+      advisoryOnly: true,
+    },
+    before: identities.map((identity) => ({
+      sourceId: identity.sourceId,
+      lorebookId: identity.lorebookId,
+      uid: identity.uid,
+      sourceRevisionId: identity.sourceRevisionId,
+      sourceState: identity.state,
+      treePath: pathArray(identity.metadata?.treePath),
+      contentHash: identity.contentHash,
+    })),
+    afterProposal: deepClone(proposedOutput),
+    exactSourceTextCopiedIntoReceipt: false,
+    proposalMutationAuthority: false,
+    explicitApprovalRequired: true,
+    settlementRequired: true,
+  };
 }
 
 function stableActionId(type, sessionSeed, key) {
@@ -244,6 +322,14 @@ function treeActionRows(plan, intelligence, sessionSeed) {
       })),
     };
     const key = proposal.id || stableHash({index, proposal});
+    const affectedTreeNodes = actionTreeNodes(proposal);
+    const evidenceReceipt = proposalEvidenceReceipt(
+      intelligence,
+      identities,
+      proposal,
+      affectedTreeNodes,
+      {impactAnalysis: {semanticMembershipRefs: semanticDependencies.semanticMembershipRefs}},
+    );
     return {
       kind: 'LoreAuthoringReviewAction',
       id: stableActionId('TREE', sessionSeed, key),
@@ -256,8 +342,9 @@ function treeActionRows(plan, intelligence, sessionSeed) {
       inputSourceIds: sourceIds,
       inputUids: unique(identities.map((row) => row.uid)),
       inputSourceRevisions: sourceFenceFromIdentities(identities),
-      affectedTreeNodes: actionTreeNodes(proposal),
+      affectedTreeNodes,
       semanticDependencies,
+      evidenceReceipt,
       originalProposal: deepClone(proposal),
       proposedOutput: deepClone(proposal),
       decision: null,
@@ -306,6 +393,22 @@ function mergeActionRows(preview, intelligence, sessionSeed) {
     const proposed = deepClone(output);
     proposed.uid = uidPlan.get(output.outputId);
     const treeNodes = identities.map((identity) => pathArray(identity.metadata?.treePath));
+    const evidenceReceipt = proposalEvidenceReceipt(
+      intelligence,
+      identities,
+      proposed,
+      treeNodes,
+      {
+        contradictionAnalysis: {
+          previewClassifications: deepClone(preview.classifications || {}),
+          sourceRefs: unique(output.sourceRefs || []),
+        },
+        impactAnalysis: {
+          reconstructionManifestAvailable: Boolean(preview.reconstructionManifest),
+          proposedOutputId: output.outputId,
+        },
+      },
+    );
     return {
       kind: 'LoreAuthoringReviewAction',
       id: stableActionId('MERGE', sessionSeed, output.outputId),
@@ -323,8 +426,155 @@ function mergeActionRows(preview, intelligence, sessionSeed) {
         semanticFactRefs: unique(output.semanticFactRefs || []),
         uniqueFactRefs: unique(output.uniqueFactRefs || []),
       },
+      evidenceReceipt,
       originalProposal: deepClone(output),
       proposedOutput: proposed,
+      decision: null,
+      decisionRecord: null,
+      reviewState: LoreReviewState.NEEDS_REVIEW,
+      materialized: false,
+    };
+  });
+}
+
+function sourceMutationActionRows(proposals, intelligence, sessionSeed) {
+  const registry = intelligence.runtime.registry;
+  const books = new Set((registry.snapshot().books || []).map((row) => row.id));
+  return (proposals || []).map((raw, index) => {
+    const proposal = deepClone(raw || {});
+    const action = String(proposal.action || '').toUpperCase();
+    if (!Object.values(LoreSourceAction).includes(action)) {
+      throw Object.assign(new TypeError('Unsupported source mutation action: ' + proposal.action), {
+        code: 'LORE_SOURCE_ACTION_INVALID',
+      });
+    }
+
+    let targetSourceId = null;
+    let targetIdentity = null;
+    let lorebookId = null;
+    let uid = null;
+    let proposedOutput = null;
+    let evidenceSourceIds = unique(proposal.evidenceSourceIds || []);
+    const absenceFences = [];
+
+    if (action === LoreSourceAction.CREATE_ENTRY) {
+      lorebookId = proposal.lorebookId == null ? null : String(proposal.lorebookId);
+      uid = proposal.uid == null ? null : String(proposal.uid);
+      if (!lorebookId || !uid || typeof proposal.content !== 'string') {
+        throw Object.assign(new TypeError('CREATE_ENTRY requires lorebookId, uid, and string content'), {
+          code: 'LORE_SOURCE_CREATE_FIELDS_REQUIRED',
+        });
+      }
+      if (!books.has(lorebookId)) {
+        throw Object.assign(new Error('CREATE_ENTRY target Lorebook does not exist: ' + lorebookId), {
+          code: 'LORE_SOURCE_CREATE_BOOK_UNKNOWN',
+        });
+      }
+      targetSourceId = 'lore:' + lorebookId + ':' + uid;
+      if (registry.getEntry(targetSourceId)) {
+        throw Object.assign(new Error('CREATE_ENTRY target already exists: ' + targetSourceId), {
+          code: 'LORE_SOURCE_CREATE_TARGET_EXISTS',
+        });
+      }
+      if (!evidenceSourceIds.length) {
+        throw Object.assign(new Error('CREATE_ENTRY requires at least one learned evidence source'), {
+          code: 'LORE_SOURCE_CREATE_EVIDENCE_REQUIRED',
+        });
+      }
+      absenceFences.push({sourceId: targetSourceId, lorebookId, uid, expected: 'ABSENT'});
+      proposedOutput = {
+        action,
+        sourceId: targetSourceId,
+        lorebookId,
+        uid,
+        content: proposal.content,
+        metadata: deepClone(proposal.metadata || {}),
+        evidenceSourceIds,
+        reason: proposal.reason == null ? null : String(proposal.reason),
+      };
+    } else {
+      targetSourceId = proposal.sourceId == null ? null : String(proposal.sourceId);
+      if (!targetSourceId) {
+        throw Object.assign(new TypeError(action + ' requires sourceId'), {code: 'LORE_SOURCE_ID_REQUIRED'});
+      }
+      targetIdentity = sourceRevisionIdentity(registry, targetSourceId);
+      if (targetIdentity.state === 'REMOVED') {
+        throw Object.assign(new Error(action + ' cannot target a removed source'), {code: 'LORE_SOURCE_TARGET_REMOVED'});
+      }
+      if (proposal.expectedSourceRevisionId && String(proposal.expectedSourceRevisionId) !== targetIdentity.sourceRevisionId) {
+        throw Object.assign(new Error('Source proposal expected revision is already stale'), {
+          code: 'LORE_SOURCE_PROPOSAL_STALE',
+        });
+      }
+      lorebookId = targetIdentity.lorebookId;
+      uid = targetIdentity.uid;
+      evidenceSourceIds = unique([targetSourceId, ...evidenceSourceIds]);
+      if (action === LoreSourceAction.UPDATE_ENTRY) {
+        const current = registry.currentRevision(targetSourceId);
+        proposedOutput = {
+          action,
+          sourceId: targetSourceId,
+          lorebookId,
+          uid,
+          expectedSourceRevisionId: targetIdentity.sourceRevisionId,
+          content: proposal.content == null ? current.exactContent : proposal.content,
+          metadata: proposal.metadata == null ? deepClone(current.metadata || {}) : deepClone(proposal.metadata),
+          evidenceSourceIds,
+          reason: proposal.reason == null ? null : String(proposal.reason),
+        };
+        if (typeof proposedOutput.content !== 'string') {
+          throw Object.assign(new TypeError('UPDATE_ENTRY requires string content'), {code: 'LORE_SOURCE_CONTENT_REQUIRED'});
+        }
+      } else {
+        proposedOutput = {
+          action,
+          sourceId: targetSourceId,
+          lorebookId,
+          uid,
+          expectedSourceRevisionId: targetIdentity.sourceRevisionId,
+          evidenceSourceIds,
+          reason: proposal.reason == null ? 'operator-reviewed-delete' : String(proposal.reason),
+        };
+      }
+    }
+
+    const identities = unique(evidenceSourceIds).map((sourceId) => sourceRevisionIdentity(registry, sourceId));
+    const treeNodes = targetIdentity ? [pathArray(targetIdentity.metadata?.treePath)] : [pathArray(proposedOutput.metadata?.treePath)];
+    const evidenceReceipt = proposalEvidenceReceipt(
+      intelligence,
+      identities,
+      proposedOutput,
+      treeNodes,
+      {
+        impactAnalysis: {
+          targetSourceId,
+          targetAction: action,
+          targetAbsenceFence: absenceFences[0] || null,
+        },
+      },
+    );
+    return {
+      kind: 'LoreAuthoringReviewAction',
+      id: stableActionId('SOURCE', sessionSeed, proposal.proposalId || stableHash({index, proposedOutput})),
+      type: 'SOURCE',
+      sequence: index + 1,
+      origin: proposal.origin || 'SYSTEM_PROPOSAL',
+      proposalId: proposal.proposalId || 'source-proposal:' + stableHash({index, proposedOutput}),
+      action,
+      mutationLorebookIds: [lorebookId],
+      inputLorebookIds: unique(identities.map((row) => row.lorebookId)),
+      inputSourceIds: identities.map((row) => row.sourceId),
+      inputUids: unique(identities.map((row) => row.uid)),
+      inputSourceRevisions: sourceFenceFromIdentities(identities),
+      absenceFences,
+      affectedTreeNodes: treeNodes,
+      semanticDependencies: {
+        evidenceSourceIds: identities.map((row) => row.sourceId),
+        evidenceSourceRevisionIds: identities.map((row) => row.sourceRevisionId),
+      },
+      evidenceReceipt,
+      originalProposal: deepClone(proposedOutput),
+      proposedOutput,
       decision: null,
       decisionRecord: null,
       reviewState: LoreReviewState.NEEDS_REVIEW,
@@ -341,6 +591,7 @@ function readSession(session, settlement = null) {
     type: session.type,
     stage: session.stage,
     draftRevision: session.draftRevision,
+    inputLorebookIds: [...(session.inputLorebookIds || [])],
     build: deepClone(session.build),
     decisions: decisionCounts(session.actions),
     totalActions: session.actions.length,
@@ -350,6 +601,7 @@ function readSession(session, settlement = null) {
     finalPreviewId: session.finalPreview?.finalPreviewId || null,
     finalPreviewReady: Boolean(session.finalPreview?.validation?.ok),
     approval: deepClone(session.approval || null),
+    storyScope: deepClone(session.storyScope || null),
     settlement: settlement ? {
       settlementId: settlement.id,
       state: settlement.state,
@@ -440,6 +692,35 @@ function newSourceInvalidationReceipt({sourceId, sourceRevisionId, settlementId}
   };
 }
 
+function sourceMutationInvalidationReceipt({
+  sourceId,
+  fromRevisionId = null,
+  toRevisionId,
+  settlementId,
+  restoration = false,
+  reason = 'SOURCE_MUTATION',
+} = {}) {
+  return {
+    kind: 'LoreInvalidationReceipt',
+    contractVersion: 1,
+    settlementId,
+    restoration,
+    sourceId,
+    fromRevisionId,
+    toRevisionId,
+    reason,
+    targets: [
+      {target: 'STUDY_ARTIFACTS', reason},
+      {target: 'REPRESENTATIONS', reason},
+      {target: 'ONTOLOGY', reason},
+      {target: 'NAVIGATION_SUMMARIES', reason},
+      {target: 'RETRIEVAL_INDEX', reason},
+    ],
+    unrelatedSourcesInvalidated: false,
+    authoritativePreflight: true,
+  };
+}
+
 function revisionEvent({result, settlementId, operationKind, restoration = false}) {
   return {
     kind: 'LoreSourceRevisionChanged',
@@ -512,7 +793,7 @@ export class LoreAuthoringLifecycle {
     return [...this.settlements.values()].find((row) => row.sessionId === String(sessionId)) || null;
   }
 
-  startTreeBuild({lorebookIds = null} = {}) {
+  startTreeBuild({lorebookIds = null, storyScope = null} = {}) {
     const plan = this.structure.plan({lorebookIds});
     const sessionId = this._nextSessionId('TREE', {
       lorebookIds: lorebookIds || [],
@@ -531,6 +812,7 @@ export class LoreAuthoringLifecycle {
       inputLorebookIds: unique(plan.sourceIdentities.map((row) => row.lorebookId)),
       inputSourceFence: sourceFenceFromIdentities(inputIdentities),
       dependencyFence: dependencyFenceFor(this.intelligence, 'TREE'),
+      storyScope: deepClone(storyScope),
       baseProposal: deepClone(plan),
       actions,
       reviewItems: deepClone(plan.reviewItems || []),
@@ -553,7 +835,7 @@ export class LoreAuthoringLifecycle {
     return this.progress(session.id);
   }
 
-  startMergeBuild({lorebookIds, outputLorebookId, outputTitle = null} = {}) {
+  startMergeBuild({lorebookIds, outputLorebookId, outputTitle = null, storyScope = null} = {}) {
     if (!outputLorebookId || String(outputLorebookId).trim() === '') {
       throw Object.assign(new TypeError('outputLorebookId is required'), {code: 'LORE_MERGE_OUTPUT_BOOK_REQUIRED'});
     }
@@ -584,6 +866,7 @@ export class LoreAuthoringLifecycle {
       inputLorebookIds: unique(lorebookIds),
       inputSourceFence: sourceFenceFromIdentities(inputIdentities),
       dependencyFence: dependencyFenceFor(this.intelligence, 'MERGE'),
+      storyScope: deepClone(storyScope),
       outputLorebookId: outputId,
       outputTitle: outputTitle == null ? outputId : String(outputTitle),
       baseProposal: deepClone(preview),
@@ -608,7 +891,64 @@ export class LoreAuthoringLifecycle {
     return this.progress(session.id);
   }
 
-  resumeBuild({sessionId, maxActions = MAX_BUILD_BATCH} = {}) {
+  startSourceMutationBuild({proposals = [], storyScope = null} = {}) {
+    if (!Array.isArray(proposals) || !proposals.length) {
+      throw Object.assign(new TypeError('Source mutation build requires proposals'), {
+        code: 'LORE_SOURCE_PROPOSALS_REQUIRED',
+      });
+    }
+    const sessionId = this._nextSessionId('SOURCE', {
+      proposalDigest: stableHash(proposals),
+      proposalCount: proposals.length,
+    });
+    const actions = sourceMutationActionRows(proposals, this.intelligence, sessionId);
+    const fenceBySource = new Map();
+    for (const action of actions) {
+      for (const row of action.inputSourceRevisions || []) fenceBySource.set(row.sourceId, row);
+    }
+    const inputSourceFence = [...fenceBySource.values()].sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+    const inputAbsenceFence = actions.flatMap((row) => row.absenceFences || [])
+      .sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+    const session = {
+      kind: 'LoreAuthoringSession',
+      contractVersion: 1,
+      id: sessionId,
+      type: 'SOURCE',
+      stage: LoreAuthoringStage.BUILDING,
+      draftRevision: 1,
+      inputLorebookIds: unique(actions.flatMap((row) => row.mutationLorebookIds || [])),
+      inputSourceFence,
+      inputAbsenceFence,
+      dependencyFence: dependencyFenceFor(this.intelligence, 'SOURCE'),
+      storyScope: deepClone(storyScope),
+      baseProposal: {
+        kind: 'LoreSourceMutationProposalSet',
+        proposalIds: actions.map((row) => row.proposalId),
+        sourceRevisionFence: deepClone(inputSourceFence),
+        absenceFence: deepClone(inputAbsenceFence),
+      },
+      actions,
+      reviewItems: [],
+      taxonomyEdits: [],
+      build: {
+        cursor: 0,
+        total: actions.length,
+        batchLimit: MAX_BUILD_BATCH,
+        checkpointSequence: 0,
+        complete: actions.length === 0,
+      },
+      checkpoints: [],
+      finalPreview: null,
+      approval: null,
+      stale: null,
+      lastError: null,
+    };
+    if (session.build.complete) session.stage = LoreAuthoringStage.DRAFT_REVIEW;
+    this.sessions.set(session.id, session);
+    return this.progress(session.id);
+  }
+
+    resumeBuild({sessionId, maxActions = MAX_BUILD_BATCH} = {}) {
     const session = this._session(sessionId);
     if (![LoreAuthoringStage.BUILDING, LoreAuthoringStage.CHECKPOINTED].includes(session.stage)) {
       return this.progress(session.id);
@@ -653,6 +993,7 @@ export class LoreAuthoringLifecycle {
       inputLorebookIds: [...session.inputLorebookIds],
       inputSourceFence: deepClone(session.inputSourceFence),
       dependencyFence: deepClone(session.dependencyFence),
+      storyScope: deepClone(session.storyScope || null),
       actions: session.actions.filter((row) => row.materialized || session.build.complete).map(deepClone),
       reviewItems: deepClone(session.reviewItems),
       taxonomyEdits: deepClone(session.taxonomyEdits),
@@ -872,6 +1213,22 @@ export class LoreAuthoringLifecycle {
   _assertCurrentFences(session, {checkDependencies = true} = {}) {
     const sourceCheck = checkSourceFence(this.intelligence, session.inputSourceFence);
     if (!sourceCheck.ok) return {ok: false, reason: 'SOURCE_REVISION_FENCE_CHANGED', details: sourceCheck};
+    const absenceChanged = (session.inputAbsenceFence || []).filter((row) => this.intelligence.runtime.registry.getEntry(row.sourceId));
+    if (absenceChanged.length) {
+      return {
+        ok: false,
+        reason: 'SOURCE_ABSENCE_FENCE_CHANGED',
+        details: {
+          kind: 'LoreSourceAbsenceFenceCheck',
+          conflicts: absenceChanged.map((row) => ({
+            sourceId: row.sourceId,
+            lorebookId: row.lorebookId,
+            uid: row.uid,
+            currentSourceRevisionId: this.intelligence.runtime.registry.currentRevision(row.sourceId, {allowMissing: true})?.id || null,
+          })),
+        },
+      };
+    }
     if (checkDependencies) {
       const dependencyCheck = checkDependencyFence(this.intelligence, session.dependencyFence, session.type);
       if (!dependencyCheck.ok) return {ok: false, reason: 'DEPENDENCY_FENCE_CHANGED', details: dependencyCheck};
@@ -1075,7 +1432,227 @@ export class LoreAuthoringLifecycle {
     };
   }
 
-  computeFinalPreview({sessionId} = {}) {
+  _sourceFinalPreview(session) {
+    const registry = this.intelligence.runtime.registry;
+    const operations = [];
+    const sourcePreflights = [];
+    const previewRows = [];
+    const validationFailures = [];
+    const seenTargets = new Set();
+
+    for (const action of selectedActions(session)) {
+      const proposed = action.proposedOutput || {};
+      const sourceId = String(proposed.sourceId || '');
+      if (!sourceId || seenTargets.has(sourceId)) {
+        validationFailures.push({
+          actionId: action.id,
+          code: seenTargets.has(sourceId) ? 'DUPLICATE_SOURCE_MUTATION_TARGET' : 'SOURCE_MUTATION_TARGET_REQUIRED',
+          sourceId: sourceId || null,
+        });
+        continue;
+      }
+      seenTargets.add(sourceId);
+      const evidenceReceipt = deepClone(action.evidenceReceipt || null);
+      if (!evidenceReceipt?.learnedEvidenceRefs?.length) {
+        validationFailures.push({
+          actionId: action.id,
+          code: 'LEARNED_EVIDENCE_REQUIRED',
+          sourceId,
+        });
+      }
+
+      if (proposed.action === LoreSourceAction.CREATE_ENTRY) {
+        if (registry.getEntry(sourceId)) {
+          validationFailures.push({actionId: action.id, code: 'CREATE_TARGET_EXISTS', sourceId});
+          continue;
+        }
+        const preflight = {
+          kind: 'LoreSourceCreateImpactPreview',
+          contractVersion: 1,
+          sourceId,
+          lorebookId: proposed.lorebookId,
+          uid: proposed.uid,
+          evidenceSourceRevisionIds: (evidenceReceipt?.exactSourceRevisions || []).map((row) => row.sourceRevisionId),
+          targets: [
+            'STUDY_ARTIFACTS',
+            'REPRESENTATIONS',
+            'ONTOLOGY',
+            'NAVIGATION_SUMMARIES',
+            'RETRIEVAL_INDEX',
+          ],
+          authoritativePreflight: true,
+          unrelatedSourcesInvalidated: false,
+          sourceMustRemainAbsentUntilSettlement: true,
+        };
+        sourcePreflights.push(preflight);
+        const operation = {
+          kind: 'SOURCE_CREATE',
+          actionId: action.id,
+          sourceId,
+          lorebookId: proposed.lorebookId,
+          uid: proposed.uid,
+          expectedSourceRevisionId: null,
+          expectedAbsent: true,
+          beforeContent: null,
+          beforeMetadata: null,
+          afterContent: proposed.content,
+          afterMetadata: deepClone(proposed.metadata || {}),
+          reason: proposed.reason || null,
+          semanticPreflight: preflight,
+          evidenceReceipt,
+        };
+        operations.push(operation);
+        previewRows.push({
+          actionId: action.id,
+          action: proposed.action,
+          sourceId,
+          lorebookId: proposed.lorebookId,
+          uid: proposed.uid,
+          expectedSourceRevisionId: null,
+          before: null,
+          after: {content: proposed.content, metadata: deepClone(proposed.metadata || {})},
+          evidenceReceipt,
+        });
+        continue;
+      }
+
+      const current = registry.currentRevision(sourceId, {allowMissing: true});
+      if (!current || current.state === 'REMOVED' || current.id !== proposed.expectedSourceRevisionId) {
+        validationFailures.push({
+          actionId: action.id,
+          code: 'SOURCE_REVISION_STALE',
+          sourceId,
+          expectedSourceRevisionId: proposed.expectedSourceRevisionId || null,
+          currentSourceRevisionId: current?.id || null,
+          currentState: current?.state || 'MISSING',
+        });
+        continue;
+      }
+
+      if (proposed.action === LoreSourceAction.UPDATE_ENTRY) {
+        const preflight = this.semantic.previewEdit({
+          sourceId,
+          content: proposed.content,
+          metadata: proposed.metadata,
+        });
+        sourcePreflights.push(preflight);
+        const authoritative = Boolean(
+          preflight.previewOnly
+          && preflight.semanticChange?.invalidationPlan?.authoritativePreflight === true
+          && preflight.allPreviouslyReadyUnrelatedSourcesRemainReady,
+        );
+        if (!authoritative) validationFailures.push({actionId: action.id, code: 'UPDATE_PREFLIGHT_INVALID', sourceId});
+        const operation = {
+          kind: 'SOURCE_UPDATE',
+          actionId: action.id,
+          sourceId,
+          lorebookId: proposed.lorebookId,
+          uid: proposed.uid,
+          expectedSourceRevisionId: current.id,
+          beforeContent: current.exactContent,
+          beforeMetadata: deepClone(current.metadata || {}),
+          afterContent: proposed.content,
+          afterMetadata: deepClone(proposed.metadata || {}),
+          reason: proposed.reason || null,
+          semanticPreflight: preflight,
+          evidenceReceipt,
+        };
+        operations.push(operation);
+        previewRows.push({
+          actionId: action.id,
+          action: proposed.action,
+          sourceId,
+          lorebookId: proposed.lorebookId,
+          uid: proposed.uid,
+          expectedSourceRevisionId: current.id,
+          before: {content: current.exactContent, metadata: deepClone(current.metadata || {})},
+          after: {content: proposed.content, metadata: deepClone(proposed.metadata || {})},
+          evidenceReceipt,
+        });
+        continue;
+      }
+
+      const impact = this.intelligence.runtime.store.impactPreview(sourceId);
+      const preflight = {
+        kind: 'LoreSourceDeleteImpactPreview',
+        contractVersion: 1,
+        sourceId,
+        lorebookId: proposed.lorebookId,
+        uid: proposed.uid,
+        baseSourceRevisionId: current.id,
+        affectedDerivedArtifacts: deepClone(impact),
+        targets: [
+          'STUDY_ARTIFACTS',
+          'REPRESENTATIONS',
+          'ONTOLOGY',
+          'NAVIGATION_SUMMARIES',
+          'RETRIEVAL_INDEX',
+        ],
+        authoritativePreflight: true,
+        unrelatedSourcesInvalidated: false,
+        reconstructionRequired: true,
+      };
+      sourcePreflights.push(preflight);
+      operations.push({
+        kind: 'SOURCE_DELETE',
+        actionId: action.id,
+        sourceId,
+        lorebookId: proposed.lorebookId,
+        uid: proposed.uid,
+        expectedSourceRevisionId: current.id,
+        beforeContent: current.exactContent,
+        beforeMetadata: deepClone(current.metadata || {}),
+        afterContent: null,
+        afterMetadata: null,
+        reason: proposed.reason || 'operator-reviewed-delete',
+        semanticPreflight: preflight,
+        evidenceReceipt,
+      });
+      previewRows.push({
+        actionId: action.id,
+        action: proposed.action,
+        sourceId,
+        lorebookId: proposed.lorebookId,
+        uid: proposed.uid,
+        expectedSourceRevisionId: current.id,
+        before: {content: current.exactContent, metadata: deepClone(current.metadata || {})},
+        after: null,
+        evidenceReceipt,
+      });
+    }
+
+    const validation = {
+      kind: 'LoreSourceMutationFinalPreviewValidation',
+      ok: validationFailures.length === 0,
+      operationCount: operations.length,
+      evidenceLed: operations.every((row) => Boolean(row.evidenceReceipt?.learnedEvidenceRefs?.length)),
+      exactRevisionFenced: operations.every((row) => row.kind === 'SOURCE_CREATE' ? row.expectedAbsent : Boolean(row.expectedSourceRevisionId)),
+      authoritativePreflight: sourcePreflights.every((row) => row.authoritativePreflight === true
+        || row.semanticChange?.invalidationPlan?.authoritativePreflight === true),
+      reconstructionAvailable: operations.every((row) => row.kind === 'SOURCE_CREATE' || typeof row.beforeContent === 'string'),
+      failures: validationFailures,
+      explicitOperatorDecisions: true,
+    };
+    validation.ok = validation.ok
+      && validation.evidenceLed
+      && validation.exactRevisionFenced
+      && validation.authoritativePreflight
+      && validation.reconstructionAvailable;
+
+    return {
+      output: {
+        kind: 'LoreSourceMutationFinalOutputPreview',
+        proposals: previewRows,
+        originalAuthoredSourcePreservedUntilSettlement: true,
+        reconstructable: true,
+      },
+      operations,
+      sourcePreflights,
+      validation,
+    };
+  }
+
+    computeFinalPreview({sessionId} = {}) {
     const session = this._session(sessionId);
     if (!session.build.complete) {
       throw Object.assign(new Error('Authoring build is not complete'), {code: 'LORE_AUTHORING_BUILD_INCOMPLETE'});
@@ -1092,7 +1669,9 @@ export class LoreAuthoringLifecycle {
 
     const body = session.type === 'TREE'
       ? this._treeFinalPreview(session)
-      : this._mergeFinalPreview(session);
+      : session.type === 'MERGE'
+        ? this._mergeFinalPreview(session)
+        : this._sourceFinalPreview(session);
     const core = {
       sessionId: session.id,
       type: session.type,
@@ -1100,6 +1679,12 @@ export class LoreAuthoringLifecycle {
       inputSourceFence: session.inputSourceFence,
       dependencyFence: session.dependencyFence,
       decisions: session.actions.map((row) => [row.id, row.decision, row.decisionRecord?.operatorDecisionId || null]),
+      storyScope: deepClone(session.storyScope || null),
+      proposalEvidenceReceipts: session.actions.map((row) => ({
+        actionId: row.id,
+        decision: row.decision,
+        evidenceReceipt: deepClone(row.evidenceReceipt || null),
+      })),
       output: body.output,
       validation: body.validation,
     };
@@ -1179,18 +1764,36 @@ export class LoreAuthoringLifecycle {
         afterMetadata: deepClone(row.afterMetadata),
         semanticPreflight: deepClone(row.semanticPreflight),
       }))
-      : session.finalPreview.operations.map((row, index) => ({
-        kind: 'MERGE_OUTPUT_ENTRY',
-        operationId: settlementId + ':op:' + (index + 1),
-        lorebookId: session.outputLorebookId,
-        outputId: row.outputId,
-        uid: row.uid,
-        content: row.content,
-        metadata: deepClone(row.metadata),
-        sourceRefs: [...row.sourceRefs],
-        sourceRevisionRefs: [...row.sourceRevisionRefs],
-        semanticFactRefs: [...row.semanticFactRefs],
-      }));
+      : session.type === 'MERGE'
+        ? session.finalPreview.operations.map((row, index) => ({
+          kind: 'MERGE_OUTPUT_ENTRY',
+          operationId: settlementId + ':op:' + (index + 1),
+          lorebookId: session.outputLorebookId,
+          outputId: row.outputId,
+          uid: row.uid,
+          content: row.content,
+          metadata: deepClone(row.metadata),
+          sourceRefs: [...row.sourceRefs],
+          sourceRevisionRefs: [...row.sourceRevisionRefs],
+          semanticFactRefs: [...row.semanticFactRefs],
+        }))
+        : session.finalPreview.operations.map((row, index) => ({
+          kind: row.kind,
+          operationId: settlementId + ':op:' + (index + 1),
+          actionId: row.actionId,
+          sourceId: row.sourceId,
+          lorebookId: row.lorebookId,
+          uid: row.uid,
+          expectedSourceRevisionId: row.expectedSourceRevisionId || null,
+          expectedAbsent: Boolean(row.expectedAbsent),
+          beforeContent: row.beforeContent,
+          beforeMetadata: deepClone(row.beforeMetadata),
+          afterContent: row.afterContent,
+          afterMetadata: deepClone(row.afterMetadata),
+          reason: row.reason || null,
+          semanticPreflight: deepClone(row.semanticPreflight),
+          evidenceReceipt: deepClone(row.evidenceReceipt),
+        }));
     const settlement = {
       kind: 'LoreAuthoringSettlement',
       contractVersion: 1,
@@ -1202,6 +1805,7 @@ export class LoreAuthoringLifecycle {
       operatorApprovalId: session.approval.operatorApprovalId,
       inputSourceFence: deepClone(session.inputSourceFence),
       dependencyFence: deepClone(session.dependencyFence),
+      storyScope: deepClone(session.storyScope || null),
       operations,
       cursor: 0,
       receipts: [],
@@ -1224,7 +1828,26 @@ export class LoreAuthoringLifecycle {
           restoresByNewRevision: true,
           reconstructable: true,
         }
-        : deepClone(session.finalPreview.output?.reconstructionManifest || null),
+        : session.type === 'SOURCE'
+          ? {
+            kind: 'LoreSourceMutationReconstructionManifest',
+            operations: operations.map((operation) => ({
+              operationId: operation.operationId,
+              kind: operation.kind,
+              sourceId: operation.sourceId,
+              lorebookId: operation.lorebookId,
+              uid: operation.uid,
+              expectedSourceRevisionId: operation.expectedSourceRevisionId,
+              beforeContent: operation.beforeContent,
+              beforeMetadata: deepClone(operation.beforeMetadata),
+              afterContent: operation.afterContent,
+              afterMetadata: deepClone(operation.afterMetadata),
+            })),
+            originalAuthoredSourcePreservedUntilSettlement: true,
+            restorationCreatesNewSourceRevision: true,
+            reconstructable: true,
+          }
+          : deepClone(session.finalPreview.output?.reconstructionManifest || null),
       restoration: null,
       lastError: null,
     };
@@ -1371,6 +1994,123 @@ export class LoreAuthoringLifecycle {
     };
   }
 
+  _applySourceOperation(settlement, operation) {
+    const registry = this.intelligence.runtime.registry;
+    const current = registry.currentRevision(operation.sourceId, {allowMissing: true});
+    let result;
+    let resumed = false;
+
+    if (operation.kind === 'SOURCE_CREATE') {
+      if (exactRevisionMatches(current, operation.afterContent, operation.afterMetadata)) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || null,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (registry.getEntry(operation.sourceId)) {
+          throw Object.assign(new Error('Source create target changed before Settlement: ' + operation.sourceId), {
+            code: 'LORE_SETTLEMENT_CREATE_TARGET_STALE',
+          });
+        }
+        result = this.intelligence.runtime.upsertEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          content: operation.afterContent,
+          metadata: operation.afterMetadata,
+        });
+      }
+    } else if (operation.kind === 'SOURCE_UPDATE') {
+      if (exactRevisionMatches(current, operation.afterContent, operation.afterMetadata)) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== operation.expectedSourceRevisionId || current.state === 'REMOVED') {
+          throw Object.assign(new Error('Source update revision fence changed during Settlement: ' + operation.sourceId), {
+            code: 'LORE_SETTLEMENT_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.upsertEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          content: operation.afterContent,
+          metadata: operation.afterMetadata,
+        });
+      }
+    } else if (operation.kind === 'SOURCE_DELETE') {
+      if (current?.state === 'REMOVED' && current.replacesRevisionId === operation.expectedSourceRevisionId) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== operation.expectedSourceRevisionId || current.state === 'REMOVED') {
+          throw Object.assign(new Error('Source delete revision fence changed during Settlement: ' + operation.sourceId), {
+            code: 'LORE_SETTLEMENT_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.removeEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          reason: operation.reason || 'operator-reviewed-delete',
+        });
+      }
+    } else {
+      throw Object.assign(new Error('Unknown source Settlement operation: ' + operation.kind), {
+        code: 'LORE_SETTLEMENT_SOURCE_OPERATION_UNKNOWN',
+      });
+    }
+
+    const event = revisionEvent({
+      result,
+      settlementId: settlement.id,
+      operationKind: operation.kind,
+    });
+    const invalidation = operation.kind === 'SOURCE_UPDATE'
+      ? treeInvalidationReceipt(operation.semanticPreflight, result.revision.id, settlement.id)
+      : sourceMutationInvalidationReceipt({
+        sourceId: result.source.sourceId,
+        fromRevisionId: operation.expectedSourceRevisionId || null,
+        toRevisionId: result.revision.id,
+        settlementId: settlement.id,
+        reason: operation.kind,
+      });
+    return {
+      receipt: {
+        kind: 'LoreSettlementOperationReceipt',
+        operationId: operation.operationId,
+        mutationKind: operation.kind,
+        actionId: operation.actionId,
+        sourceId: result.source.sourceId,
+        sourceRevisionId: result.revision.id,
+        previousSourceRevisionId: result.previousRevision?.id || null,
+        sourceState: result.revision.state,
+        changed: Boolean(result.changed),
+        resumedIdempotently: resumed,
+        studyObligationId: result.obligation?.id || null,
+        studyTrigger: result.obligation?.trigger || null,
+        beforeContentHash: operation.beforeContent == null ? null : stableHash(operation.beforeContent),
+        afterContentHash: operation.afterContent == null ? null : stableHash(operation.afterContent),
+        evidenceSourceRevisionIds: (operation.evidenceReceipt?.exactSourceRevisions || []).map((row) => row.sourceRevisionId),
+      },
+      event,
+      invalidation,
+    };
+  }
+
   _assertAppliedSettlementReceiptsCurrent(settlement) {
     const registry = this.intelligence.runtime.registry;
     const stale = [];
@@ -1430,7 +2170,9 @@ export class LoreAuthoringLifecycle {
         const operation = settlement.operations[settlement.cursor];
         const result = session.type === 'TREE'
           ? this._applyTreeOperation(settlement, operation)
-          : this._applyMergeOperation(session, settlement, operation);
+          : session.type === 'MERGE'
+            ? this._applyMergeOperation(session, settlement, operation)
+            : this._applySourceOperation(settlement, operation);
         settlement.receipts.push(result.receipt);
         settlement.revisionEvents.push(result.event);
         settlement.invalidationReceipts.push(result.invalidation);
@@ -1609,6 +2351,90 @@ export class LoreAuthoringLifecycle {
     };
   }
 
+  _restoreSourceOperation(settlement, operation, appliedReceipt) {
+    const registry = this.intelligence.runtime.registry;
+    const current = registry.currentRevision(operation.sourceId, {allowMissing: true});
+    let result;
+    let resumed = false;
+
+    if (operation.kind === 'SOURCE_CREATE') {
+      if (current?.state === 'REMOVED' && current.replacesRevisionId === appliedReceipt.sourceRevisionId) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== appliedReceipt.sourceRevisionId) {
+          throw Object.assign(new Error('Created source changed after Settlement: ' + operation.sourceId), {
+            code: 'LORE_RESTORE_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.removeEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          reason: 'authoring-source-create-restoration:' + settlement.id,
+        });
+      }
+    } else {
+      if (exactRevisionMatches(current, operation.beforeContent, operation.beforeMetadata)) {
+        result = {
+          changed: false,
+          source: registry.getEntry(operation.sourceId),
+          revision: current,
+          previousRevision: registry.getRevision(current.replacesRevisionId) || current,
+          obligation: this.intelligence.runtime.findObligation(current.id),
+        };
+        resumed = true;
+      } else {
+        if (!current || current.id !== appliedReceipt.sourceRevisionId) {
+          throw Object.assign(new Error('Source changed after Settlement before restoration: ' + operation.sourceId), {
+            code: 'LORE_RESTORE_SOURCE_STALE',
+          });
+        }
+        result = this.intelligence.runtime.upsertEntry({
+          lorebookId: operation.lorebookId,
+          uid: operation.uid,
+          content: operation.beforeContent,
+          metadata: operation.beforeMetadata,
+        });
+      }
+    }
+
+    const event = revisionEvent({
+      result,
+      settlementId: settlement.id,
+      operationKind: operation.kind + '_RESTORATION',
+      restoration: true,
+    });
+    return {
+      receipt: {
+        kind: 'LoreRestorationOperationReceipt',
+        operationId: operation.operationId,
+        mutationKind: operation.kind,
+        sourceId: result.source.sourceId,
+        sourceRevisionId: result.revision.id,
+        sourceState: result.revision.state,
+        changed: Boolean(result.changed),
+        resumedIdempotently: resumed,
+        studyObligationId: result.obligation?.id || null,
+        restoredContentHash: operation.beforeContent == null ? null : stableHash(operation.beforeContent),
+      },
+      event,
+      invalidation: sourceMutationInvalidationReceipt({
+        sourceId: result.source.sourceId,
+        fromRevisionId: appliedReceipt.sourceRevisionId,
+        toRevisionId: result.revision.id,
+        settlementId: settlement.id,
+        restoration: true,
+        reason: operation.kind + '_RESTORATION',
+      }),
+    };
+  }
+
   restoreSettlement({settlementId, restorationId = null, maxOperations = MAX_SETTLEMENT_BATCH} = {}) {
     const settlement = this.settlements.get(String(settlementId));
     if (!settlement) throw Object.assign(new Error('Unknown Lore Settlement: ' + settlementId), {code: 'LORE_SETTLEMENT_UNKNOWN'});
@@ -1630,7 +2456,9 @@ export class LoreAuthoringLifecycle {
         const operation = settlement.operations.find((row) => row.operationId === appliedReceipt.operationId);
         const result = settlement.type === 'TREE'
           ? this._restoreTreeOperation(settlement, operation, appliedReceipt)
-          : this._restoreMergeOperation(settlement, operation, appliedReceipt);
+          : settlement.type === 'MERGE'
+            ? this._restoreMergeOperation(settlement, operation, appliedReceipt)
+            : this._restoreSourceOperation(settlement, operation, appliedReceipt);
         restoration.receipts.push(result.receipt);
         restoration.revisionEvents.push(result.event);
         restoration.invalidationReceipts.push(result.invalidation);
@@ -1686,6 +2514,7 @@ export class LoreAuthoringLifecycle {
       state: settlement.state,
       finalPreviewId: settlement.finalPreviewId,
       operatorApprovalId: settlement.operatorApprovalId,
+      storyScope: deepClone(settlement.storyScope || null),
       cursor: settlement.cursor,
       operationCount: settlement.operations.length,
       receipts: deepClone(settlement.receipts),
@@ -1707,6 +2536,7 @@ export class LoreAuthoringLifecycle {
       kind: 'LoreWorker1SettlementReceipts',
       contractVersion: 1,
       settlementId: read.settlementId,
+      storyScope: deepClone(read.storyScope || null),
       revisionEvents: [
         ...read.revisionEvents,
         ...(restoration?.revisionEvents || []),

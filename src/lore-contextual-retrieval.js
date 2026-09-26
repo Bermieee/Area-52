@@ -255,7 +255,7 @@ export class LoreContextualRetrievalIndex {
     }
   }
 
-  query({query, intent = 'AUTO', intentId = null} = {}) {
+  query({query, intent = 'AUTO', intentId = null, allowedSourceIds = null} = {}) {
     const text = String(query || '').trim();
     if (!text) return {kind: 'LoreRetrievalResult', query: text, intent: 'EMPTY', nominations: [], diagnostics: {reason: 'EMPTY_QUERY'}};
     if (text.length > LORE_WAVE3_LIMITS.maxQueryCharacters) throw new Error('LORE_QUERY_LENGTH_LIMIT_EXCEEDED');
@@ -265,9 +265,15 @@ export class LoreContextualRetrievalIndex {
       : String(intent).toUpperCase();
     const resolvedIntentId = intentId || 'lore-intent:' + stableHash(resolvedIntent + '|' + text.toLowerCase());
 
+    const scopeFilter = allowedSourceIds == null
+      ? null
+      : new Set((Array.isArray(allowedSourceIds) ? allowedSourceIds : [...allowedSourceIds]).map(String));
     const candidateIds = new Set();
     for (const token of queryTokens) {
       for (const id of this.inverted.get(token) || []) {
+        const record = this.records.get(id);
+        if (!record) continue;
+        if (scopeFilter && !(record.sourceIds || []).every((sourceId) => scopeFilter.has(String(sourceId)))) continue;
         candidateIds.add(id);
         if (candidateIds.size >= LORE_WAVE3_LIMITS.maxExaminedEntries) break;
       }
@@ -278,6 +284,7 @@ export class LoreContextualRetrievalIndex {
     for (const id of candidateIds) {
       const record = this.records.get(id);
       if (!record) continue;
+      if (scopeFilter && !(record.sourceIds || []).every((sourceId) => scopeFilter.has(String(sourceId)))) continue;
       const recordSet = new Set(record.tokens);
       const matched = queryTokens.filter((token) => recordSet.has(token));
       if (!matched.length) continue;
@@ -325,6 +332,8 @@ export class LoreContextualRetrievalIndex {
         deterministic: true,
         retrievalRankAuthority: false,
         candidateBusAdmissionAuthority: false,
+        storyScopeFiltered: Boolean(scopeFilter),
+        allowedSourceCount: scopeFilter ? scopeFilter.size : null,
       },
       authorityGranted: false,
       settlementAuthority: false,

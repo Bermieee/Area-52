@@ -47,6 +47,12 @@ export const LoreTreeAction = Object.freeze({
   SPLIT_NODE: 'SPLIT_NODE',
 });
 
+export const LoreSourceAction = Object.freeze({
+  CREATE_ENTRY: 'CREATE_ENTRY',
+  UPDATE_ENTRY: 'UPDATE_ENTRY',
+  DELETE_ENTRY: 'DELETE_ENTRY',
+});
+
 export const LoreMergeClassification = Object.freeze({
   EXACT_DUPLICATE: 'EXACT_DUPLICATE',
   LIKELY_OVERLAP: 'LIKELY_OVERLAP',

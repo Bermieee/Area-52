@@ -42,6 +42,7 @@ export function projectWorker2WaveTelemetry({
     if(event.type===TelemetryEvent.SCATTER_LAYER){
       waves.push(freeze({
         phase:nullable(p.phase),trigger:nullable(p.trigger),layer:nullable(p.layer),taskId:nullable(p.taskId),
+        chatId:nullable(p.chatId),turnId:nullable(p.turnId),generationId:nullable(p.generationId),
         correlationId:nullable(p.correlationId),parentReceiptId:nullable(p.parentReceiptId),
         admitted:Number(p.admitted??0),skipped:Number(p.skipped??0),deferred:Number(p.deferred??0),
         reason:nullable(p.reason),queueDepth:finite(p.queueDepth),concurrency:finite(p.concurrency),

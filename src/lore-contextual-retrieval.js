@@ -108,6 +108,7 @@ function candidateNomination({record, intentId, score, reason}) {
       loreResolution: record.resolution,
       reason,
       sourceDrillbackRefs: record.sourceIds.slice(0, LORE_WAVE3_LIMITS.maxCandidateSourceRefs),
+      sourceEntries: deepClone(record.sourceEntries || []).slice(0, LORE_WAVE3_LIMITS.maxCandidateSourceRefs),
       sourceRefTotal: record.sourceIds.length,
       sourceRefsTruncated: record.sourceIds.length > LORE_WAVE3_LIMITS.maxCandidateSourceRefs,
       retrievalRecordRef: record.id,
@@ -163,6 +164,12 @@ export class LoreContextualRetrievalIndex {
         representationRevision: ctx.revision.revision,
         resolution: 'EXACT_SOURCE',
         sourceIds: [sourceId],
+        sourceEntries: [{
+          sourceId,
+          lorebookId: ctx.source.lorebookId,
+          uid: String(ctx.source.uid),
+          sourceRevisionId: ctx.revision.id,
+        }],
         sourceRevisionRefs: [ctx.revision.id],
         text: ctx.contextualText,
         exactAuthoredText: ctx.revision.exactContent,
@@ -198,6 +205,16 @@ export class LoreContextualRetrievalIndex {
         continue;
       }
       const id = 'retrieval-summary:' + stableHash(summary.id);
+      const sourceEntries = scope.sourceIds.map((sourceId) => {
+        const source = runtime.registry.getEntry(sourceId);
+        const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
+        return source && revision ? {
+          sourceId,
+          lorebookId: source.lorebookId,
+          uid: String(source.uid),
+          sourceRevisionId: revision.id,
+        } : null;
+      }).filter(Boolean);
       const record = {
         kind: 'LoreRetrievalRecord',
         id,
@@ -208,6 +225,7 @@ export class LoreContextualRetrievalIndex {
         representationRevision: summary.summaryRevision,
         resolution: scope.type === NavigationScopeType.COMMUNITY ? 'COMMUNITY_SUMMARY' : 'NAVIGATION_SUMMARY',
         sourceIds: [...scope.sourceIds],
+        sourceEntries,
         sourceRevisionRefs: [...summary.sourceRevisionSet],
         text: [scope.label, scope.treePath?.join(' > '), summary.content].filter(Boolean).join('\n'),
         exactAuthoredText: null,
@@ -255,8 +273,9 @@ export class LoreContextualRetrievalIndex {
     }
   }
 
-  query({query, intent = 'AUTO', intentId = null} = {}) {
+  query({query, intent = 'AUTO', intentId = null, allowedSourceIds = null} = {}) {
     const text = String(query || '').trim();
+    const allowed = allowedSourceIds == null ? null : new Set((allowedSourceIds || []).map(String));
     if (!text) return {kind: 'LoreRetrievalResult', query: text, intent: 'EMPTY', nominations: [], diagnostics: {reason: 'EMPTY_QUERY'}};
     if (text.length > LORE_WAVE3_LIMITS.maxQueryCharacters) throw new Error('LORE_QUERY_LENGTH_LIMIT_EXCEEDED');
     const queryTokens = tokenize(text);
@@ -275,9 +294,14 @@ export class LoreContextualRetrievalIndex {
     }
 
     const scored = [];
+    let scopeFiltered = 0;
     for (const id of candidateIds) {
       const record = this.records.get(id);
       if (!record) continue;
+      if (allowed && (record.sourceIds || []).some((sourceId) => !allowed.has(String(sourceId)))) {
+        scopeFiltered += 1;
+        continue;
+      }
       const recordSet = new Set(record.tokens);
       const matched = queryTokens.filter((token) => recordSet.has(token));
       if (!matched.length) continue;
@@ -322,6 +346,8 @@ export class LoreContextualRetrievalIndex {
         matched: scored.length,
         returned: nominations.length,
         boundedOut: Math.max(0, scored.length - nominations.length),
+        scopeFiltered,
+        scoped: Boolean(allowed),
         deterministic: true,
         retrievalRankAuthority: false,
         candidateBusAdmissionAuthority: false,
@@ -343,6 +369,8 @@ export class LoreContextualRetrievalIndex {
       if (!record) return null;
       return {
         sourceId,
+        lorebookId: record.sourceEntries?.[0]?.lorebookId ?? null,
+        uid: record.sourceEntries?.[0]?.uid ?? null,
         sourceRevisionId: record.sourceRevisionRefs[0],
         exactAuthoredText: record.exactAuthoredText,
         representationRef: record.representationRef,

@@ -25,9 +25,9 @@ export function registerWave6FrontFaceWorkspaces(registry,{adapter,brainPulse=nu
 }
 
 export class HostAdjacentFrontFaceController{
-  constructor({host,shell,adapter,presentation,scheduler,signals,brainPulse=null,hostMountAdapter=null,productName='Area-52'}={}){
+  constructor({host,shell,adapter,presentation,scheduler,signals,brainPulse=null,hostMountAdapter=null,productName='Area-52',collapsedReservationWidth=76}={}){
     if(!host||!shell||!adapter||!presentation||!scheduler||!signals)throw new TypeError('HostAdjacentFrontFaceController missing required UI.Core service');
-    this.host=host;this.shell=shell;this.adapter=adapter;this.presentation=presentation;this.scheduler=scheduler;this.signals=signals;this.brainPulse=brainPulse;this.hostMountAdapter=hostMountAdapter;this.productName=productName;
+    this.host=host;this.shell=shell;this.adapter=adapter;this.presentation=presentation;this.scheduler=scheduler;this.signals=signals;this.brainPulse=brainPulse;this.hostMountAdapter=hostMountAdapter;this.productName=productName;this.collapsedReservationWidth=Math.max(0,Number(collapsedReservationWidth)||0);
     this.scope=new ResourceScope();this.quickScope=new ResourceScope();this.nodes={};this.mounted=false;
   }
   mount(){
@@ -65,7 +65,7 @@ export class HostAdjacentFrontFaceController{
     this.nodes.quick.style.display='';this.nodes.expanded.style.display=expanded?'':'none';
     this.nodes.shellRoot.classList.toggle('a52-density-compact',p.frontFaceDensity===FrontFaceDensity.COMPACT);this.nodes.shellRoot.dataset.inspectorVisible=String(p.inspectorVisible);
     if(this.shell.nodes?.inspectorHost){this.shell.nodes.inspectorHost.style.display=p.inspectorVisible?'':'none';this.shell.nodes.inspectorHost.style.width=`${p.inspectorWidth}px`;}
-    this.hostMountAdapter?.apply?.({mode:p.frontFaceMode,width:p.frontFaceWidth,collapsedWidth:76});
+    this.hostMountAdapter?.apply?.({mode:p.frontFaceMode,width:p.frontFaceWidth,collapsedWidth:this.collapsedReservationWidth});
   }
   destroy(){
     if(!this.mounted)return;this.mounted=false;this.brainPulse?.destroy?.();this.quickScope.cleanup();this.scope.cleanup();this.shell.destroy();this.hostMountAdapter?.destroy?.();this.host.replaceChildren();this.nodes={};

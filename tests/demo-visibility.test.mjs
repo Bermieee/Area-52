@@ -68,6 +68,16 @@ test('unchanged owner evidence is de-duplicated instead of becoming repetitive a
 });
 
 
+test('expired or empty activity evidence removes the feed instead of rendering a duplicate no-activity panel',()=>{
+  class Doc extends FakeDocument{createElement(tag){return new FakeNode(tag,this);}}
+  let now=0;const journal=new DemoEvidenceJournal({storage:memory(),namespace:'empty-feed',now:()=>now}),d=new Doc(),host=new FakeNode('div',d);
+  const controller=new DemoActivityFeedController({host,journal,selectionProvider:()=>selection,now:()=>now,fadeAfterMs:250,visibleForMs:500,scheduleEnabled:false}).mount();
+  assert.equal(host.children.length,0);
+  journal.recordSnapshot({selection,...snapshot()});controller.render();assert.ok(host.children.length>0);
+  now=1000;controller.render();assert.equal(host.children.length,0);assert.doesNotMatch(host.textContent??'',/No new selected-turn activity|Waiting for a selected turn/);
+  controller.destroy();
+});
+
 test('journal fails safely on storage failure and reports status without blocking capture',()=>{
   const storage={getItem(){return null;},setItem(){throw new Error('quota denied');},removeItem(){throw new Error('clear denied');}};
   const journal=new DemoEvidenceJournal({storage,namespace:'failure-test',now:()=>4000});

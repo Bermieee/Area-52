@@ -30,7 +30,8 @@ export class FrontFacePresentationState{
 export class HostAdjacentMountAdapter{
   constructor({reserveWidth=null,releaseWidth=null,onModeChange=null,fixedReservationWidth=null}={}){this.reserveWidth=typeof reserveWidth==='function'?reserveWidth:null;this.releaseWidth=typeof releaseWidth==='function'?releaseWidth:null;this.onModeChange=typeof onModeChange==='function'?onModeChange:null;this.fixedReservationWidth=fixedReservationWidth!=null&&Number.isFinite(Number(fixedReservationWidth))?Math.max(0,Number(fixedReservationWidth)):null;this.reserved=0;}
   apply({mode,width,collapsedWidth=76}={}){
-    const requested=mode===FrontFaceMode.EXPANDED?Number(width)||560:Number(collapsedWidth)||76;const next=this.fixedReservationWidth??requested;
+    const collapsed=Number.isFinite(Number(collapsedWidth))?Math.max(0,Number(collapsedWidth)):76;
+    const requested=mode===FrontFaceMode.EXPANDED?Number(width)||560:collapsed;const next=this.fixedReservationWidth??requested;
     this.reserveWidth?.(next);this.reserved=next;this.onModeChange?.({mode,width:next});return next;
   }
   destroy(){this.releaseWidth?.(this.reserved);this.reserved=0;}

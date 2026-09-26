@@ -16,7 +16,7 @@ import { ProductPresentationState } from './wave5-product-model.js';
 import { registerKnowledgeInspectionActions } from './provenance-ui.js';
 import { BrainPulseModel } from './wave6-brain-pulse.js';
 import { CoprocessorProductionUIAdapter, ForensicsProductionUIAdapter, PromptPlanProductionUIAdapter, RuntimeProductionUIAdapter, SceneProductionUIAdapter, Wave6ProductAdapter } from './wave6-production-adapters.js';
-import { FrontFacePresentationState, HostAdjacentMountAdapter } from './wave6-presentation.js';
+import { FrontFaceMode, FrontFacePresentationState, HostAdjacentMountAdapter } from './wave6-presentation.js';
 import { HostAdjacentFrontFaceController, registerWave6FrontFaceWorkspaces } from './wave6-front-face.js';
 import { ExplainabilityPresentationState } from './wave7-explainability.js';
 import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces } from './wave7-workspaces.js';
@@ -103,7 +103,8 @@ export function createWave6ProductInterface({
   const inspectionScope=new ResourceScope();
   inspectionScope.subscribe(signals,'UI_INSPECT_SELECTION_CHANGED',({payload})=>{
     if(!payload?.object)return;
-    frontFacePresentation.setInspector(true);
+    frontFacePresentation.patch({inspectorVisible:true,frontFaceMode:FrontFaceMode.EXPANDED});
+    floatingController?.open?.();
     controller?.scheduleQuickDash?.();
   });
   const renderWorkspace=(entry,host)=>{
@@ -130,12 +131,12 @@ export function createWave6ProductInterface({
 
   shell=new ApplicationShell({root,workspaceRegistry,inspector,signals,stateStore,renderWorkspace,productName,productTagline});
   const mountAdapter=hostMountAdapter instanceof HostAdjacentMountAdapter?hostMountAdapter:new HostAdjacentMountAdapter(hostMountAdapter??{});
-  controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName});
+  controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName,collapsedReservationWidth:floatingNavigation?0:76});
   controller.mount();
   floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
   const cognitionScope=new ResourceScope();
   const inspectEvidence=(object)=>signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'demo-activity-feed'});
-  const activityFeed=evidenceJournal?new DemoActivityFeedController({host:shell.nodes.strip,journal:evidenceJournal,selectionProvider,inspect:inspectEvidence,maxVisible:5}).mount():null;
+  let activityFeed=null,activityFeedHost=null;
   const captureEvidence=()=>{
     if(!evidenceJournal||!operations)return null;
     const op=operations.read(),selection=op.selection??selectionProvider();
@@ -174,6 +175,11 @@ export function createWave6ProductInterface({
   const memoryRelease=memoryOwner?.subscribe?.(()=>operatorRefresh('memory'));if(typeof memoryRelease==='function')cognitionScope.add(memoryRelease);
 
   const toastScope=new ResourceScope(),toastViewport=new ToastViewport({host:shell.nodes.toastHost,signals,scope:toastScope});toastViewport.mount();
+  if(evidenceJournal){
+    activityFeedHost=element(root.ownerDocument,'div',{className:'a52-floating-activity-feed-host',attrs:{'aria-label':'Selected-turn activity feed'}});
+    shell.nodes.toastHost.append(activityFeedHost);
+    activityFeed=new DemoActivityFeedController({host:activityFeedHost,journal:evidenceJournal,selectionProvider,inspect:inspectEvidence,maxVisible:5}).mount();
+  }
   scheduleEvidenceCapture();
 
   return{
@@ -182,7 +188,7 @@ export function createWave6ProductInterface({
     floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,turnLog:turnLogWorkspace?.model??null},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();turnLogWorkspace?.release?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();activityFeedHost?.remove?.();turnLogWorkspace?.release?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
   };
 }
 
@@ -194,9 +200,27 @@ function registerProductionEngineeringWorkspaces(registry,{runtime,coprocessor,p
 
 function renderReadOnlyInspector(doc,object={}){
   const root=element(doc,'div',{className:'a52-stack'});root.append(element(doc,'h2',{text:object.title??object.name??object.id??object.kind??'Inspector'}));
-  const summary=[];for(const [key,value] of Object.entries(object).slice(0,20)){if(key==='payload'||key==='scene'||key==='source'||key==='diagnosticRefs'||key==='provenanceRefs')continue;if(value==null||typeof value==='function')continue;summary.push({key,value:typeof value==='object'?Array.isArray(value)?`${value.length} items`:value.status??value.state??value.kind??'available':String(value)});}
+  const summary=[];for(const [key,value] of Object.entries(object).slice(0,20)){if(key==='payload'||key==='scene'||key==='source'||key==='diagnosticRefs'||key==='provenanceRefs'||key==='error')continue;if(value==null||typeof value==='function')continue;summary.push({key,value:typeof value==='object'?Array.isArray(value)?`${value.length} items`:value.status??value.state??value.kind??'available':String(value)});}
   if(summary.length)root.append(createKeyValue(doc,summary));
-  const deep=object.payload??object.scene??object.source??object.diagnosticRefs??null;if(deep){const pre=element(doc,'pre',{className:'a52-context-packet',text:JSON.stringify(deep,null,2)});pre.setAttribute('aria-label','Advanced read-only payload');root.append(pre);}
+  const deep=object.payload??object.scene??object.source??object.diagnosticRefs??object.error??null;
+  if(deep){const safe=safeInspectorPayload(deep),pre=element(doc,'pre',{className:'a52-context-packet',text:JSON.stringify(safe,null,2)});pre.setAttribute('aria-label','Bounded metadata-only read-only payload');root.append(pre);}
+  root.append(element(doc,'p',{className:'a52-muted',text:'Inspector output is bounded metadata. Raw prompts, story/lore bodies, credentials, and hidden reasoning are omitted.'}));
   return root;
+}
+function safeInspectorPayload(value,depth=0){
+  if(value==null||typeof value==='number'||typeof value==='boolean')return value;
+  if(typeof value==='string')return value.length>600?value.slice(0,600)+'…':value;
+  if(depth>=6)return'[nested metadata omitted]';
+  if(Array.isArray(value))return value.slice(0,24).map(row=>safeInspectorPayload(row,depth+1));
+  if(typeof value!=='object')return String(value);
+  const out={},entries=Object.entries(value).slice(0,64);
+  for(const [key,row] of entries){
+    const normalized=String(key).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const sensitive=['text','content','body','prompt','rawprompt','rawpayload','messages','story','storytext','lorebody','hiddenreasoning','reasoning','chainofthought','contexttext'].includes(normalized)
+      ||/apikey|credential|authorization|secret|bearertoken/.test(normalized);
+    out[key]=sensitive?'[omitted from UI evidence]':safeInspectorPayload(row,depth+1);
+  }
+  if(Object.keys(value).length>entries.length)out.__truncated=Object.keys(value).length-entries.length;
+  return out;
 }
 function state(d,title,message){const r=element(d,'section',{className:'a52-state-message',attrs:{role:'status'}});r.append(element(d,'strong',{text:title}),element(d,'span',{text:message||'Not connected.'}));return r;}

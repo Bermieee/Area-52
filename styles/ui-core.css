@@ -102,7 +102,8 @@ button.a52-card:hover{border-color:var(--a52-border-strong);transform:translateY
 .a52-overlay--drawer{place-items:stretch end}
 .a52-overlay--drawer .a52-overlay__surface{height:100%;max-height:none;width:min(480px,92vw);border-radius:var(--a52-radius-lg) 0 0 var(--a52-radius-lg)}
 .a52-overlay__surface header{display:flex;justify-content:space-between;align-items:center}
-.a52-toast-viewport{position:fixed;right:1rem;bottom:3rem;display:grid;gap:.5rem;z-index:1200}
+.a52-toast-viewport{position:fixed;right:1rem;bottom:3rem;display:grid;justify-items:end;gap:.5rem;z-index:3200;pointer-events:none}
+.a52-toast-stack{display:grid;gap:.5rem;pointer-events:auto}
 .a52-toast,.a52-state-message{display:grid;gap:.2rem;padding:.72rem .8rem;border:1px solid var(--a52-border);border-left:3px solid var(--status,var(--a52-accent));border-radius:var(--a52-radius-sm);background:var(--a52-surface-elevated);box-shadow:var(--a52-shadow-sm)}
 .a52-state-message{box-shadow:none}
 .a52-lifecycle-lane{display:flex;gap:.35rem;flex-wrap:wrap}

@@ -258,3 +258,13 @@ test('Worker 1 #263 Runtime result envelope preserves causal chat/generation/rev
   await director.drain({maxCycles:32});
   const result=captured.at(-1);assert.ok(result);assert.equal(result.chatId,'chat:fence');assert.equal(result.turnId,'turn:fence');assert.equal(result.generationId,'gen:fence');assert.equal(result.correlationId,'corr:fence');assert.equal(result.causationId,'event:fence');assert.deepEqual(result.sourceRevisionIds,['scene:fence:r4']);assert.equal(result.worldRevision,7);assert.equal(result.sceneRevision,4);
 });
+
+test('Worker 1 #262 direct causal evidence stays bounded with monotonic unique receipt IDs across reload',()=>{
+  const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1}}),reconciler=new CognitiveObligationReconciler({director});
+  reconciler.declare({expectedId:'memory:bounded',owner:'MEMORY',ownerSignalId:'memory:bounded:signal',cause:{chatId:'chat:bounded',turnId:'turn:bounded',generationId:'gen:bounded',correlationId:'corr:bounded'},obligation:{taskType:'MEMORY_BOUNDED',layer:'L2',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'memory:bounded'}});
+  for(let i=0;i<70;i++)reconciler.recordEvidence('memory:bounded',{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'MEMORY',consumerId:'RUNTIME_CORE',metadata:{index:i}});
+  const snap=reconciler.snapshot(),entry=snap.entries.find(row=>row.declaration.expectedId==='memory:bounded');assert.equal(entry.evidence.length,64);assert.equal(new Set(entry.evidence.map(row=>row.id)).size,64);assert.equal(entry.evidenceSequence,70);
+  const restored=new CognitiveObligationReconciler({director,snapshot:JSON.parse(JSON.stringify(snap))});
+  const next=restored.recordEvidence('memory:bounded',{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'MEMORY',consumerId:'RUNTIME_CORE'});assert.match(next.id,/:e71:RESULT_RETURNED$/);
+  const after=restored.snapshot().entries.find(row=>row.declaration.expectedId==='memory:bounded');assert.equal(after.evidence.length,64);assert.equal(new Set(after.evidence.map(row=>row.id)).size,64);assert.equal(after.evidenceSequence,71);
+});

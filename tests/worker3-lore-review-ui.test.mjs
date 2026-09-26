@@ -81,7 +81,7 @@ function ownerHost(){
       read:{
         sourceDiscoveryIdentity:()=>({kind:'LoreSourceDiscoverySurface',books:[]}),
         reviewStates:()=>({}),worker1InvalidationContract:()=>({}),worker3AuthoringContract:()=>({kind:'LoreAuthoringOperatorContract',contractVersion:2,mutationExtensionVersion:1}),
-        mutationProposal:({proposalId})=>read(proposalId),mutationQueue:()=>({kind:'LoreMutationQueueReadModel',items:[...proposals.values()].map(structuredClone),itemCount:proposals.size,bounds:{limit:32},rawReconstructionIncluded:false}),
+        mutationProposal:({proposalId})=>read(proposalId),mutationQueue:()=>({kind:'LoreMutationQueueReadModel',items:[...proposals.values()].map(row=>structuredClone(row)),itemCount:proposals.size,bounds:{limit:32},rawReconstructionIncluded:false}),
         semanticImpactPreview:(request)=>({kind:'LoreEditImpactPreview',baseSourceRevisionId:'rev-alpha',request}),
         mutationAudit:({proposalId})=>structuredClone(audits.get(proposalId)),
         progress:()=>({stage:'DRAFT_REVIEW'}),draftReview:()=>({actions:[]}),finalPreview:()=>null,settlement:()=>null,

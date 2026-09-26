@@ -6,6 +6,8 @@ on:
     paths:
       - 'src/coprocessor/**'
       - 'tests/worker2-layered-scatter-*'
+      - 'tests/fixtures/worker2-main-*'
+      - 'scripts/worker2-*.mjs'
       - 'docs/WORKER2_LAYERED_SCATTER_JEV_WAVE.md'
       - '.github/workflows/worker2-layered-scatter-jev.yml'
   pull_request:
@@ -13,6 +15,8 @@ on:
     paths:
       - 'src/coprocessor/**'
       - 'tests/worker2-layered-scatter-*'
+      - 'tests/fixtures/worker2-main-*'
+      - 'scripts/worker2-*.mjs'
       - 'docs/WORKER2_LAYERED_SCATTER_JEV_WAVE.md'
       - '.github/workflows/worker2-layered-scatter-jev.yml'
   workflow_dispatch:
@@ -82,12 +86,10 @@ jobs:
           npm test 2>&1 | tee worker2-full-regression.log
           STATUS=${PIPESTATUS[0]}
           set -e
-          python3 - <<'PY'
-          import pathlib,re,sys
-          log=pathlib.Path('worker2-full-regression.log').read_text(encoding='utf-8',errors='replace')
-          current=set()
-          for line in log.splitlines():
-              match=re.match(r'^not ok \d+ - (.*)
+          node scripts/worker2-regression-fence.mjs worker2-full-regression.log tests/fixtures/worker2-main-ea66ddce-baseline-failures.txt
+          if [ "$STATUS" -eq 0 ]; then
+            echo "FULL_REGRESSION_GREEN: branch resolved all exact-main baseline failures."
+          fi
       - name: Syntax sweep
         run: npm run check
       - name: Coprocessor browser-facing import
@@ -105,43 +107,5 @@ jobs:
             worker2-full-failures.txt
             worker2-new-failures.txt
             worker2-baseline-resolved.txt
-            artifacts/jev-wave10/**
-          if-no-files-found: ignore
-,line)
-              if match:
-                  current.add(match.group(1).replace('\\#','#'))
-          baseline=set(filter(None,pathlib.Path('tests/fixtures/worker2-main-ea66ddce-baseline-failures.txt').read_text(encoding='utf-8').splitlines()))
-          new=sorted(current-baseline)
-          resolved=sorted(baseline-current)
-          pathlib.Path('worker2-full-failures.txt').write_text('\n'.join(sorted(current))+('\n' if current else ''),encoding='utf-8')
-          pathlib.Path('worker2-new-failures.txt').write_text('\n'.join(new)+('\n' if new else ''),encoding='utf-8')
-          pathlib.Path('worker2-baseline-resolved.txt').write_text('\n'.join(resolved)+('\n' if resolved else ''),encoding='utf-8')
-          print(f'EXACT_MAIN_BASELINE_FAILURES={len(baseline)}')
-          print(f'CURRENT_FAILURES={len(current)}')
-          print(f'BASELINE_RESOLVED={len(resolved)}')
-          print(f'NEW_FAILURES={len(new)}')
-          if new:
-              print('New failures introduced by Worker2 branch:')
-              print('\n'.join(new))
-              sys.exit(1)
-          PY
-          if [ "$STATUS" -eq 0 ]; then
-            echo "FULL_REGRESSION_GREEN: branch resolved all exact-main baseline failures."
-          else
-            echo "BASELINE_DEBT_ONLY: no failures outside exact main ea66ddce461803d5279b4497f6604e3d75d6def6."
-          fi
-      - name: Syntax sweep
-        run: npm run check
-      - name: Coprocessor browser-facing import
-        run: node -e "globalThis.Buffer=undefined; import('./src/coprocessor/index.js').then(()=>console.log('WORKER2 COPROCESSOR IMPORT PASS'))"
-      - name: Upload browser benchmark evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: worker2-layered-scatter-browser-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            worker2-browser-dump.html
-            worker2-browser-results.json
-            worker2-jev-wave10.log
             artifacts/jev-wave10/**
           if-no-files-found: ignore

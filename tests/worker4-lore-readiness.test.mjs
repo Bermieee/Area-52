@@ -236,6 +236,19 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
     ['hierarchy', 'summaryRegistry', 'builder', 'retrievalIndex']
       .map((key) => [key, JSON.stringify(persisted.hierarchy?.[key] ?? null).length]),
   );
+  const summarySnapshot = persisted.hierarchy?.summaryRegistry ?? {};
+  const currentSummaryIds = new Set((summarySnapshot.currentByScope || []).map(([, id]) => id));
+  const currentSummaries = (summarySnapshot.summaries || []).filter((row) => currentSummaryIds.has(row.id));
+  const historicalSummaries = (summarySnapshot.summaries || []).filter((row) => !currentSummaryIds.has(row.id));
+  const summaryRetention = {
+    totalCount: (summarySnapshot.summaries || []).length,
+    currentCount: currentSummaries.length,
+    historicalCount: historicalSummaries.length,
+    currentCharacters: JSON.stringify(currentSummaries).length,
+    historicalCharacters: JSON.stringify(historicalSummaries).length,
+    maxCurrentSummaryCharacters: currentSummaries.reduce((max, row) => Math.max(max, JSON.stringify(row).length), 0),
+    maxHistoricalSummaryCharacters: historicalSummaries.reduce((max, row) => Math.max(max, JSON.stringify(row).length), 0),
+  };
   assert.equal(persisted.hierarchy.retrievalIndex.recordsIncluded, false);
   assert.equal(persisted.hierarchy.retrievalIndex.records.length, 0);
   assert.equal((persisted.hierarchy.builder.sessions || []).some(([, session]) => session?.state === 'COMPLETED'), false);
@@ -265,6 +278,7 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
     snapshotCharacters,
     snapshotCharactersBySection,
     hierarchyCharactersBySection,
+    summaryRetention,
     dueAfterStudy: service.runtime.dueObligations().length,
     dueAfterReload: restored.runtime.dueObligations().length,
     noOpStudyMaintenancePerformed: noOpStudy.maintenancePerformed,

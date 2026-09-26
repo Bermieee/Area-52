@@ -42,6 +42,8 @@ export const NavigationFailure = Object.freeze({
   CHILD_LIMIT: 'CHILD_LIMIT',
   DEPTH_LIMIT: 'DEPTH_LIMIT',
   MALFORMED_OUTPUT: 'MALFORMED_OUTPUT',
+  EVIDENCE_REF_MISSING: 'EVIDENCE_REF_MISSING',
+  EVIDENCE_REF_LIMIT: 'EVIDENCE_REF_LIMIT',
 });
 
 export const LORE_WAVE3_LIMITS = Object.freeze({
@@ -62,6 +64,7 @@ export const LORE_WAVE3_LIMITS = Object.freeze({
   maxCandidateSourceRefs: 64,
   maxCandidateEvidenceRefs: 64,
   maxCandidateDependencyRefs: 64,
+  maxEvidenceRefsPerSummary: 4096,
 });
 
 export function makeScopeId(type, logicalKey) {
@@ -119,7 +122,7 @@ export function createNavigationSummaryArtifact({
   content,
   provenance,
   qualityReceipt,
-  criticalEvidence = [],
+  criticalEvidenceRefs = [],
   generatorRevision = 'lore-nav-summary-v1',
 }) {
   const dependencyFingerprint = stableHash(stableStringify({
@@ -142,7 +145,8 @@ export function createNavigationSummaryArtifact({
     content: String(content),
     provenance: deepClone(provenance),
     qualityReceipt: deepClone(qualityReceipt),
-    criticalEvidence: deepClone(criticalEvidence),
+    criticalEvidenceRefs: [...new Set((criticalEvidenceRefs || []).filter(Boolean).map(String))],
+    criticalEvidenceCount: [...new Set((criticalEvidenceRefs || []).filter(Boolean).map(String))].length,
     generatorRevision,
     dependencyFingerprint,
     state: NavigationSummaryState.BUILT,

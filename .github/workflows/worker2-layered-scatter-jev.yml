@@ -38,6 +38,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Worker2 layered Scatter and Jev evidence
         run: node --test tests/worker2-layered-scatter-jev.test.mjs
+      - name: Jev golden usefulness and latency report
+        run: npm run report:wave10 | tee worker2-jev-wave10.log
       - name: Preserve native Sidecar swarm contracts
         run: npm run test:wave15
       - name: Preserve resource Jev Vectoring contracts
@@ -75,7 +77,7 @@ jobs:
           python3 -m http.server 8765 >/tmp/area52-worker2-http.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-          "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-background-timer-throttling --enable-precise-memory-info --js-flags=--expose-gc --virtual-time-budget=30000 --dump-dom http://127.0.0.1:8765/tests/worker2-layered-scatter-browser.html > worker2-browser-dump.html
+          timeout 120s "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-background-timer-throttling --enable-precise-memory-info --js-flags=--expose-gc --virtual-time-budget=15000 --dump-dom http://127.0.0.1:8765/tests/worker2-layered-scatter-browser.html > worker2-browser-dump.html
           grep -q 'data-status="PASS"' worker2-browser-dump.html
           python3 - <<'PY'
           import html, json, re
@@ -113,4 +115,6 @@ jobs:
           path: |
             worker2-browser-dump.html
             worker2-browser-results.json
+            worker2-jev-wave10.log
+            artifacts/jev-wave10/**
           if-no-files-found: ignore

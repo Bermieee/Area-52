@@ -89,7 +89,7 @@ export class Wave8CognitionProductionAdapter{
   #safe(name,fn,selection,errors){
     if(!fn)return null;
     try{return fn(selection??{});}
-    catch(error){errors[name]={message:String(error?.message??error),code:error?.code??null};return null;}
+    catch(error){errors[name]=safeCognitionReadError(error,name,selection);return null;}
   }
 
   #sensoryInput(selection,errors){
@@ -153,6 +153,24 @@ function status(label,value,error,mode){
   return createProductSourceStatus({mode:ProductDataMode.UNAVAILABLE,health:Wave6Health.UNAVAILABLE,label,impact:`${label} producer is unavailable.`,connected:false});
 }
 function modeFor(value,error){return error?ProductDataMode.DEGRADED:value?ProductDataMode.LIVE:ProductDataMode.UNAVAILABLE;}
+function safeCognitionReadError(error,stage,selection={}){
+  const identity=(value)=>{
+    if(!value||typeof value!=='object')return null;
+    const refs=value.sourceRevisionRefs??value.sourceRevisionIds??value.sourceRevisionSet??value.revisionFence?.sourceRevisionSet??[];
+    return{
+      chatId:value.chatId??null,turnId:value.turnId??null,generationId:value.generationId??null,correlationId:value.correlationId??null,
+      worldRevision:value.worldRevision??value.revisionFence?.worldRevision??null,sceneRevision:value.sceneRevision??value.revisionFence?.sceneRevision??null,
+      sourceRevisionRefs:[...new Set((Array.isArray(refs)?refs:[]).map(String))].slice(0,16),
+    };
+  };
+  const expected=identity(error?.expected??selection),actual=identity(error?.actual);
+  const expectedRefs=new Set(expected?.sourceRevisionRefs??[]);
+  const foreignSourceRevisionRefs=(actual?.sourceRevisionRefs??[]).filter(ref=>!expectedRefs.has(ref)).slice(0,16);
+  return{
+    message:String(error?.message??error),code:error?.code??null,stage:error?.stage??stage,
+    expected,actual,foreignSourceRevisionRefs,
+  };
+}
 
 function strictPrecisionChoice(choice){
   const decision=choice?.precisionDecision;

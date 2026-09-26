@@ -599,7 +599,9 @@ export class Wave13OperationalStatusAdapter{
     const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
     const physical=coprocessorRead?.data?.physicalExecution??{};
     const physicalAttempts=Math.max(0,Number(physical.attempts??0)),physicalSucceeded=Math.max(0,Number(physical.succeeded??0)),physicalFailed=Math.max(0,Number(physical.failed??0));
-    const learning=generation?.learningReceipt??null,hostInjected=Boolean(hostDelivery?.promptInjected??hostDelivery?.requestInjectedAt);
+    const learning=generation?.learningReceipt??null;
+    const hostPrepared=Boolean(hostDelivery&&(hostDelivery.preparedAt!=null||hostDelivery.renderedPayloadDigest||hostDelivery.renderedMessageCount!=null));
+    const hostInjected=Boolean(hostDelivery?.promptInjected??hostDelivery?.requestInjectedAt);
     const pipeline=deepFreeze({
       registeredProducers:registered,mappingReceipt:Boolean(scatter),logicalJobsMapped:Array.isArray(jobs)?jobs.length:0,mappedResourceCount:mappedResourceIds.length,mappedResourceIds,
       executionReceipt:physicalAttempts>0,physicalExecutionAttempts:physicalAttempts,physicalExecutionSucceeded:physicalSucceeded,physicalExecutionFailed:physicalFailed,executedJobs:physicalSucceeded,
@@ -607,7 +609,7 @@ export class Wave13OperationalStatusAdapter{
       admissionReceipt:Boolean(seal),contextAdmitted:Array.isArray(admitted)?admitted.length:0,
       generationReader:Boolean(fn(this.hostBindings,['readGeneration'])),generationReceipt:Boolean(generation),generationState:generation?.state??null,
       promptPlanReceipt:Boolean(generation?.promptPlan),hostDeliveryReader:Boolean(fn(this.hostBindings,['readHostDeliveryReceipt'])),
-      deliveryReceipt:hostInjected,hostDeliveryReceipt:Boolean(hostDelivery),hostDeliveryState:hostDelivery?.state??null,completionReceipt:Boolean(hostDelivery?.responseCompleted??hostDelivery?.completedAt),
+      hostPrepared,hostInjected,deliveryReceipt:hostInjected,hostDeliveryReceipt:Boolean(hostDelivery),hostDeliveryState:hostDelivery?.state??null,completionReceipt:Boolean(hostDelivery?.responseCompleted??hostDelivery?.completedAt),
       learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
       hostLifecycle:cloneSafe(hostLifecycle),
     });
@@ -617,7 +619,7 @@ export class Wave13OperationalStatusAdapter{
   #inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead}={}){
     const stageById=new Map((stages??[]).map(row=>[row.id,row]));
     const adapterData=(adapter)=>safeRead(()=>adapter?.read?.(selection)??adapter?.read?.(),null)?.data??null;
-    const data=cognition?.data??{};
+    const data=cognition?.data??{},errors=cognition?.errors??{};
     const values={
       scene:adapterData(this.adapters.scene),runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
       choice:data.choice??null,truth:data.truth??null,jev:data.jev??null,gather:data.gather??null,seal:data.seal??null,
@@ -627,7 +629,7 @@ export class Wave13OperationalStatusAdapter{
     const out={};
     for(const [id,payload] of Object.entries(values)){
       const row=stageById.get(id)??(id==='scatter'?stageById.get('runtime'):null);
-      out[id]=producerInspection(id,row?.label??humanInspectionLabel(id),payload,selection,row?.reason??'No owner receipt was published for the selected turn.');
+      out[id]=producerInspection(id,row?.label??humanInspectionLabel(id),payload,selection,{stage:row,error:errors[id]??null,reason:row?.reason??'No owner receipt was published for the selected turn.'});
     }
     return deepFreeze(out);
   }
@@ -760,6 +762,8 @@ export class Wave13DiagnosticsCenterAdapter{
       const members=rows.filter(row=>String(row.kind??'SIDECAR').toUpperCase()===kind);
       return deepFreeze({
         kind,configured:members.length,connected:members.filter(row=>row.connected).length,callable:members.filter(row=>row.callable).length,
+        attempted:members.filter(row=>row.physicalExecutionAttempted).length,succeeded:members.filter(row=>row.physicalExecutionSucceeded).length,
+        ownerAccepted:members.filter(row=>row.ownerAccepted===true).length,
         activeExecutions:members.reduce((sum,row)=>sum+Number(row.currentLoad??0),0),
         resourceIds:members.map(row=>row.id),
         states:members.map(row=>({id:row.id,displayName:row.displayName,state:row.state,health:row.health,reasonCode:row.reasonCode,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution)})),
@@ -768,12 +772,12 @@ export class Wave13DiagnosticsCenterAdapter{
     const cognitionData=cognitionRead?.data??{};
     const scatter=cognitionData.scatter??null,gather=cognitionData.gather??null,seal=cognitionData.seal??null,jev=cognitionData.jev??null;
     const sealedIds=new Set(seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[]);
-    const jobs=(scatter?.jobs??[]).map(job=>deepFreeze({
-      taskId:job.taskId??job.jobId??null,taskType:job.taskType??null,capability:job.capability??job.requiredCapabilities?.[0]??null,
-      state:job.state??job.status??null,resourceId:job.resourceId??null,providerId:job.providerId??null,workerId:job.workerId??null,
+    const jobs=(scatter?.jobs??[]).slice(0,40).map(job=>deepFreeze({
+      jobId:job.jobId??job.taskId??null,taskId:job.taskId??job.jobId??null,taskType:job.taskType??null,capability:job.capability??job.requiredCapabilities?.[0]??null,
+      state:job.state??job.status??null,resourceId:job.resourceId??null,providerId:job.providerId??job.provider??null,workerId:job.workerId??null,modelId:job.modelId??job.model??null,
     }));
-    const results=(gather?.results??[]).map(result=>deepFreeze({
-      resultId:result.resultId??null,status:result.status??null,capability:result.capability??null,resourceId:result.resourceId??null,
+    const results=(gather?.results??[]).slice(0,64).map(result=>deepFreeze({
+      resultId:result.resultId??null,taskId:result.taskId??result.jobId??null,status:result.status??null,capability:result.capability??null,resourceId:result.resourceId??null,
       destination:result.destination??null,contextAdmitted:Boolean(result.resultId&&sealedIds.has(result.resultId)),
     }));
     const resourceEvents=rows.flatMap(row=>(row.diagnostics??[]).slice(-16).map(event=>deepFreeze({
@@ -781,13 +785,24 @@ export class Wave13DiagnosticsCenterAdapter{
     }))).sort((a,b)=>Number(b.sequence??0)-Number(a.sequence??0)).slice(0,80);
     const loreData=loreRead?.data??null;
     const learned=(loreData?.entries??[]).filter(row=>row.learnedRevisionId&&row.freshness==='CURRENT').length;
+    const runtimeData=runtimeRead?.data??{},runtimeReceipt=runtimeData.receipt??{};
+    const runtimeTurn=deepFreeze({
+      resourceCount:Number(runtimeData.resourceCount??runtimeReceipt.resourceCount??0),
+      resourceIds:[...new Set((runtimeData.resourceIds??runtimeReceipt.resourceIds??[]).map(String))].slice(0,16),
+      admittedJobCount:Number(runtimeData.admittedJobCount??runtimeReceipt.admittedJobCount??0),
+      executionComplete:runtimeReceipt.executionComplete==null?null:Boolean(runtimeReceipt.executionComplete),
+      jobs:(runtimeData.jobs??runtimeReceipt.jobs??[]).slice(0,24).map(row=>deepFreeze({
+        jobId:row.jobId??row.taskId??null,capability:row.capability??row.taskType??null,state:row.state??row.status??null,
+        owner:row.owner??null,resourceId:row.resourceId??row.workerId??null,providerId:row.providerId??row.provider??null,modelId:row.modelId??row.model??null,
+      })),
+    });
     return deepFreeze({
       kind:'Wave13DiagnosticsCenter',selection,
       host:{connected:Boolean(operations?.hostConnected),waitingForTurn:Boolean(operations?.waitingForTurn),liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
       pipeline:cloneSafe(operations?.pipeline??{}),
       generationInspection:cloneSafe(operations?.inspection??null),
-      producers:{active:Number(operations?.active??0),failures:Number(operations?.failures??0),stages:cloneSafe(operations?.stages??[])},
-      runtime:diagnosticSource(runtimeRead),coprocessor:diagnosticSource(coprocessorRead),promptPlan:diagnosticSource(promptPlanRead),
+      producers:{active:Number(operations?.active??0),failures:Number(operations?.failures??0),stages:cloneSafe(operations?.stages??[]),inspections:cloneSafe(operations?.inspections??{})},
+      runtime:{...diagnosticSource(runtimeRead),turn:runtimeTurn},coprocessor:diagnosticSource(coprocessorRead),promptPlan:diagnosticSource(promptPlanRead),
       resources:{
         source:cloneSafe(resourceRead?.source??null),capabilities:cloneSafe(resourceCaps),nativePathAvailable:resourceRead?.data?.nativePathAvailable!==false,
         lanes,rows:rows.map(row=>deepFreeze({
@@ -800,7 +815,8 @@ export class Wave13DiagnosticsCenterAdapter{
       },
       cognition:{
         source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,jev:jev?deepFreeze({
-          state:jev.state??null,outcome:jev.outcome??null,resourceId:jev.resourceId??null,provider:jev.provider??jev.providerId??null,model:jev.model??jev.modelId??null,
+          state:jev.state??null,outcome:jev.outcome??null,invoked:jev.invoked??null,reason:jev.reason??null,reasonCodes:[...(jev.reasonCodes??[])].slice(0,12),
+          resourceId:jev.resourceId??null,provider:jev.provider??jev.providerId??null,model:jev.model??jev.modelId??null,
           serviceStatus:jev.serviceStatus??null,admission:cloneSafe(jev.admission??null),
         }):null,gather:results,seal:{sealed:Boolean(seal),admittedResultIds:[...sealedIds]},
       },
@@ -1088,15 +1104,48 @@ function generationInspectionSummary(generation,selection={}){
 }
 
 function humanInspectionLabel(value){return String(value??'Producer').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
-function producerInspection(id,label,payload,selection,reason){
+function producerInspection(id,label,payload,selection,{stage=null,error=null,reason=null}={}){
   const available=payload!=null;
   const unavailableReason=String(reason??'No owner receipt was published for the selected turn.');
   const receiptRef=available?(payload.receiptId??payload.sealId??payload.promptPlanId??payload.id??payload.kind??null):null;
+  const availabilityState=inspectionAvailability(stage,error,available);
+  const safeError=error?safeInspectionPayload(error):null;
   return deepFreeze({
     kind:'wave13-producer-inspection',id:'producer:'+id+':'+String(selection?.turnId??'no-turn'),producerId:id,title:label+' detail',
-    available,receiptRef,selection:cloneSafe(selection),reason:available?'Published owner read model / receipt for the selected turn.':unavailableReason,
-    payload:available?cloneSafe(payload):{kind:'UnavailableProducerReceipt',status:'UNAVAILABLE',reason:unavailableReason,chatId:selection?.chatId??null,turnId:selection?.turnId??null,generationId:selection?.generationId??null},
+    available,availabilityState,receiptRef,selection:cloneSafe(selection),error:safeError,
+    reason:available?'Published owner read model / receipt for the selected turn.':unavailableReason,
+    payload:available?safeInspectionPayload(payload):{
+      kind:'ProducerInspectionState',status:availabilityState,reason:unavailableReason,code:error?.code??stage?.errorCode??null,
+      chatId:selection?.chatId??null,turnId:selection?.turnId??null,generationId:selection?.generationId??null,
+      error:safeError,
+    },
   });
+}
+function inspectionAvailability(stage,error,available){
+  if(available)return'RECEIPT_AVAILABLE';
+  const code=String(error?.code??stage?.errorCode??'').toUpperCase();
+  if(['LIVE_RECEIPT_STALE','LIVE_RECEIPT_FUTURE','LIVE_RECEIPT_IDENTITY_MISMATCH'].includes(code))return'STALE_OR_FOREIGN_RECEIPT';
+  if([OperatorProducerState.WORKING,OperatorProducerState.WAITING_FOR_TURN].includes(stage?.state))return'PENDING';
+  if(stage?.state===OperatorProducerState.DEGRADED)return'PRODUCER_ERROR';
+  if(stage?.state===OperatorProducerState.IDLE)return'NO_SELECTED_TURN_EVIDENCE';
+  if(stage?.state===OperatorProducerState.DISCONNECTED)return'NOT_CONFIGURED';
+  return'UNAVAILABLE';
+}
+function safeInspectionPayload(value,depth=0){
+  if(value==null||typeof value==='number'||typeof value==='boolean')return value;
+  if(typeof value==='string')return value.length>600?value.slice(0,600)+'…':value;
+  if(depth>=6)return'[nested metadata omitted]';
+  if(Array.isArray(value))return value.slice(0,24).map(row=>safeInspectionPayload(row,depth+1));
+  if(typeof value!=='object')return String(value);
+  const out={},entries=Object.entries(value).slice(0,64);
+  for(const [key,row] of entries){
+    const normalized=String(key).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const sensitive=['text','content','body','prompt','rawprompt','rawpayload','messages','story','storytext','lorebody','hiddenreasoning','reasoning','chainofthought','contexttext'].includes(normalized)
+      ||/apikey|credential|authorization|secret|bearertoken/.test(normalized);
+    out[key]=sensitive?'[omitted from UI evidence]':safeInspectionPayload(row,depth+1);
+  }
+  if(Object.keys(value).length>entries.length)out.__truncated=Object.keys(value).length-entries.length;
+  return out;
 }
 function stageFromSource(id,label,source,selection,{readerPresent=false,reason=null}={}){
   if(!source)return stage(id,label,readerPresent?OperatorProducerState.IDLE:OperatorProducerState.UNAVAILABLE,reason??(readerPresent?'No current owner data.':'Producer not connected.'),selection,null,readerPresent?'NO_DATA':'ASSEMBLY_CONTRACT_MISSING');

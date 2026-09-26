@@ -537,6 +537,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,status,lane.connected>0?'ready':lane.configured>0?'warning':'historical')));
     card.append(createKeyValue(d,[
       {key:'Configured',value:lane.configured??0},{key:'Connected',value:lane.connected??0},{key:'Callable',value:lane.callable??0},
+      {key:'Attempted',value:lane.attempted??0},{key:'Succeeded',value:lane.succeeded??0},{key:'Owner-accepted',value:lane.ownerAccepted??0},
       {key:'Active executions',value:lane.activeExecutions??0},{key:'Expected capabilities',value:(spec[1]?.expectedCapabilities??[]).join(', ')},
     ]));
     if((lane.states??[]).length){
@@ -554,7 +555,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
   center.append(element(d,'h3',{text:'Jev / Sidecar / Vectoring wiring'}),wiring);
 
   const stages=element(d,'div',{className:'a52-wave13-status-grid'});
-  for(const row of snapshot.producers?.stages??[])stages.append(stageCard(d,row,scope,inspect,{showIds:advanced}));
+  for(const row of snapshot.producers?.stages??[])stages.append(stageCard(d,row,scope,inspect,{showIds:advanced,inspection:snapshot.producers?.inspections?.[row.id]}));
   center.append(element(d,'h3',{text:'Producer telemetry'}),stages);
 
   const activity=element(d,'div',{className:'a52-wave13-diagnostics__activity'});
@@ -627,7 +628,13 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
   const errors=Object.entries(snapshot.cognition?.errors??{});
   if(errors.length){
     const list=element(d,'div',{className:'a52-wave13-diagnostic-events'});
-    for(const [name,error] of errors)list.append(message(d,name+' read issue',error?.message??error?.code??'Unknown cognition read failure','warning'));
+    for(const [name,error] of errors){
+      const issue=message(d,name+' read issue',error?.message??error?.code??'Unknown cognition read failure','warning');
+      if(error?.code)issue.append(element(d,'code',{text:String(error.code)}));
+      if(error?.foreignSourceRevisionRefs?.length)issue.append(element(d,'code',{className:'a52-wave13-fence-ref',text:'Outside selected source fence: '+error.foreignSourceRevisionRefs.slice(0,8).join(' · ')}));
+      if(advanced&&error?.actual)issue.append(element(d,'span',{className:'a52-muted',text:'Observed identity: '+[error.actual.chatId,error.actual.turnId,error.actual.generationId].filter(Boolean).join(' · ')}));
+      list.append(issue);
+    }
     center.append(element(d,'h3',{text:'Read / coherence issues'}),list);
   }
   const events=snapshot.telemetry?.resourceEvents??[];
@@ -1045,12 +1052,15 @@ function renderLoreEntries(d,entries,scope,{showIds=false}={}){
 
 function loreStateStatus(state){if(state==='READY')return'ready';if(state==='STUDYING')return'loading';if(state==='FAILED')return'warning';if(state==='REMOVED')return'offline';return'historical';}
 
-function stageCard(d,row,scope,inspect,{showIds=false}={}){
-  const card=element(d,'article',{className:'a52-wave13-stage',dataset:{state:row.state}});
+function stageCard(d,row,scope,inspect,{showIds=false,inspection=null}={}){
+  const card=element(d,'article',{className:'a52-wave13-stage',dataset:{state:row.state,producerId:row.id}});
   card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:row.label}),makeBadge(d,row.state,stageStatus(row.state))));
   card.append(element(d,'p',{text:row.reason||'No additional detail.'}));
   if(showIds&&row.turnId)card.append(element(d,'span',{className:'a52-muted',text:'turn '+row.turnId+(row.freshness?' · '+row.freshness:'')+(row.errorCode?' · '+row.errorCode:'')}));
-  if(inspect)card.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-producer-status',id:row.id,title:row.label,payload:row})}));
+  if(inspect){
+    const target=inspection??{kind:'wave13-producer-inspection',id:'producer:'+row.id+':'+String(row.turnId??'no-turn'),producerId:row.id,title:row.label+' detail',available:false,availabilityState:row.state===OperatorProducerState.WORKING?'PENDING':'NO_SELECTED_TURN_EVIDENCE',selection:{chatId:row.chatId??null,turnId:row.turnId??null,generationId:row.generationId??null},reason:row.reason||'No selected-turn owner receipt is available.',payload:{kind:'ProducerInspectionState',status:'UNAVAILABLE',reason:row.reason||'No selected-turn owner receipt is available.'}};
+    card.append(createButton(d,{label:'Inspect details',ariaLabel:'Inspect '+row.label+' for the selected turn',scope,size:'sm',variant:'inspect',onPress:()=>inspect(target)}));
+  }
   return card;
 }
 

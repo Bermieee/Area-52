@@ -192,9 +192,27 @@ function registerProductionEngineeringWorkspaces(registry,{runtime,coprocessor,p
 
 function renderReadOnlyInspector(doc,object={}){
   const root=element(doc,'div',{className:'a52-stack'});root.append(element(doc,'h2',{text:object.title??object.name??object.id??object.kind??'Inspector'}));
-  const summary=[];for(const [key,value] of Object.entries(object).slice(0,20)){if(key==='payload'||key==='scene'||key==='source'||key==='diagnosticRefs'||key==='provenanceRefs')continue;if(value==null||typeof value==='function')continue;summary.push({key,value:typeof value==='object'?Array.isArray(value)?`${value.length} items`:value.status??value.state??value.kind??'available':String(value)});}
+  const summary=[];for(const [key,value] of Object.entries(object).slice(0,20)){if(key==='payload'||key==='scene'||key==='source'||key==='diagnosticRefs'||key==='provenanceRefs'||key==='error')continue;if(value==null||typeof value==='function')continue;summary.push({key,value:typeof value==='object'?Array.isArray(value)?`${value.length} items`:value.status??value.state??value.kind??'available':String(value)});}
   if(summary.length)root.append(createKeyValue(doc,summary));
-  const deep=object.payload??object.scene??object.source??object.diagnosticRefs??null;if(deep){const pre=element(doc,'pre',{className:'a52-context-packet',text:JSON.stringify(deep,null,2)});pre.setAttribute('aria-label','Advanced read-only payload');root.append(pre);}
+  const deep=object.payload??object.scene??object.source??object.diagnosticRefs??object.error??null;
+  if(deep){const safe=safeInspectorPayload(deep),pre=element(doc,'pre',{className:'a52-context-packet',text:JSON.stringify(safe,null,2)});pre.setAttribute('aria-label','Bounded metadata-only read-only payload');root.append(pre);}
+  root.append(element(doc,'p',{className:'a52-muted',text:'Inspector output is bounded metadata. Raw prompts, story/lore bodies, credentials, and hidden reasoning are omitted.'}));
   return root;
+}
+function safeInspectorPayload(value,depth=0){
+  if(value==null||typeof value==='number'||typeof value==='boolean')return value;
+  if(typeof value==='string')return value.length>600?value.slice(0,600)+'…':value;
+  if(depth>=6)return'[nested metadata omitted]';
+  if(Array.isArray(value))return value.slice(0,24).map(row=>safeInspectorPayload(row,depth+1));
+  if(typeof value!=='object')return String(value);
+  const out={},entries=Object.entries(value).slice(0,64);
+  for(const [key,row] of entries){
+    const normalized=String(key).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const sensitive=['text','content','body','prompt','rawprompt','rawpayload','messages','story','storytext','lorebody','hiddenreasoning','reasoning','chainofthought','contexttext'].includes(normalized)
+      ||/apikey|credential|authorization|secret|bearertoken/.test(normalized);
+    out[key]=sensitive?'[omitted from UI evidence]':safeInspectorPayload(row,depth+1);
+  }
+  if(Object.keys(value).length>entries.length)out.__truncated=Object.keys(value).length-entries.length;
+  return out;
 }
 function state(d,title,message){const r=element(d,'section',{className:'a52-state-message',attrs:{role:'status'}});r.append(element(d,'strong',{text:title}),element(d,'span',{text:message||'Not connected.'}));return r;}

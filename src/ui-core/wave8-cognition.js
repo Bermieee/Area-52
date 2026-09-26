@@ -228,22 +228,24 @@ export function normalizeJevDecisionReceipt(receipt,choice=null){
     if(action==='INVOKE_JEV'||action==='INVOKED'||decision.invoked===true)return null;
     return null;
   }
-  const rawOutcome=String(receipt.outcome??receipt.status??receipt.decisionStatus??'INVALID').toUpperCase();
-  const outcome=JEV.has(rawOutcome)?rawOutcome:JevOutcome.INVALID;
+  const reasonCodes=safeArray(receipt.reasonCodes);
   const serviceStatus=String(receipt.serviceStatus??'').toUpperCase();
+  const recordedReason=String(receipt.reasonCode??receipt.reason??receipt.decisionCode??'').toUpperCase();
+  const intentionalSkip=serviceStatus==='JEV_SKIPPED'||recordedReason==='JEV_NOT_REQUIRED'||reasonCodes.some(code=>String(code).toUpperCase()==='JEV_NOT_REQUIRED');
+  const rawOutcome=String(receipt.outcome??receipt.status??receipt.decisionStatus??'INVALID').toUpperCase();
+  const outcome=intentionalSkip?'SKIPPED':JEV.has(rawOutcome)?rawOutcome:JevOutcome.INVALID;
   const admission=clone(receipt.admission??null);
-  const state=serviceStatus==='JEV_SKIPPED'?CognitionStageState.SKIPPED:
+  const state=intentionalSkip?CognitionStageState.SKIPPED:
     serviceStatus==='JEV_UNAVAILABLE'?CognitionStageState.UNAVAILABLE:
     outcome==='STALE'||serviceStatus==='JEV_STALE'?CognitionStageState.STALE:
     outcome==='INVALID'||serviceStatus==='JEV_INVALID'?CognitionStageState.INVALID:
     admission?.late===true?CognitionStageState.DEFERRED:CognitionStageState.COMPLETE;
   const selected=safeArray(receipt.selectedOptionIds??receipt.selectedOptions??(receipt.selectedOptionId?[receipt.selectedOptionId]:[])).map(x=>typeof x==='string'?x:x.optionId??x.id).filter(Boolean);
   const rejected=safeArray(receipt.rejectedOptionIds??receipt.rejectedOptions).map(x=>typeof x==='string'?x:x.optionId??x.id).filter(Boolean);
-  const reasonCodes=safeArray(receipt.reasonCodes);
   const provenance=receipt.providerProvenance??{};
   return deepFreeze({
     kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(receipt.receiptId??receipt.id??receipt.decisionId),state,outcome,
-    invoked:serviceStatus!=='JEV_SKIPPED',reason:receipt.explanation||reasonCodes.join(', ')||reasonOf(receipt),reasonCodes,
+    invoked:!intentionalSkip,reason:receipt.explanation||reasonCodes.join(', ')||reasonOf(receipt),reasonCodes,
     decisionType:stringOrNull(receipt.decisionType??receipt.requestType),decisionShape:stringOrNull(receipt.decisionShape),decisionCode:stringOrNull(receipt.decisionCode),
     classification:stringOrNull(receipt.classification),serviceStatus:receipt.serviceStatus??null,options:safeArray(receipt.options??receipt.optionsConsidered),
     selectedOptionIds:selected,rejectedOptionIds:rejected,evidenceRefs:safeArray(receipt.evidenceUsed??receipt.evidenceRefs??receipt.evidenceIds),

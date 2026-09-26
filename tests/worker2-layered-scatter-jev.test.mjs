@@ -36,19 +36,21 @@ function fakeConnections({delayMs=8}={}){
     createJevProviderExecutor:()=>({hasEligibleProvider:()=>false,execute:async()=>{throw new Error('not used');}}),
     async executeTask(task,{signal=null,attempt=1}={}){
       physical+=1;active+=1;maxActive=Math.max(maxActive,active);starts.push({taskId:task.taskId,taskType:task.taskType,layer:classifyScatterLayer(task),attempt});
-      await new Promise((resolve,reject)=>{
-        const timer=setTimeout(resolve,delayMs);
-        const abort=()=>{clearTimeout(timer);const e=new Error('aborted');e.code='PROVIDER_ABORTED';reject(e);};
-        if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
-      });
-      active-=1;finishes.push(task.taskId);
-      return createWorkerResult({
-        resultId:`result:${task.taskId}:${attempt}`,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,
-        workerId:'worker:worker2',providerId:'provider:worker2',modelId:'fixture',capabilities:[...task.requiredCapabilities],
-        payload:{evidence:[],currentStateRefs:[],historicalRefs:[],unresolvedRefs:[],reasoningSummary:'bounded fixture'},
-        freshnessIdentity:task.inputRevisionSet,inputRevisionSet:task.inputRevisionSet,intentFingerprint:task.intentFingerprint,
-        startedAt:Date.now()-delayMs,completedAt:Date.now(),latency:delayMs,authorityClass:task.taskType==='GREEN_ROOM'?'INFERRED':'UNRESOLVED',
-      });
+      try{
+        await new Promise((resolve,reject)=>{
+          const timer=setTimeout(resolve,delayMs);
+          const abort=()=>{clearTimeout(timer);const e=new Error('aborted');e.code='PROVIDER_ABORTED';reject(e);};
+          if(signal?.aborted)abort();else signal?.addEventListener?.('abort',abort,{once:true});
+        });
+        finishes.push(task.taskId);
+        return createWorkerResult({
+          resultId:`result:${task.taskId}:${attempt}`,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,
+          workerId:'worker:worker2',providerId:'provider:worker2',modelId:'fixture',capabilities:[...task.requiredCapabilities],
+          payload:{evidence:[],currentStateRefs:[],historicalRefs:[],unresolvedRefs:[],reasoningSummary:'bounded fixture'},
+          freshnessIdentity:task.inputRevisionSet,inputRevisionSet:task.inputRevisionSet,intentFingerprint:task.intentFingerprint,
+          startedAt:Date.now()-delayMs,completedAt:Date.now(),latency:delayMs,authorityClass:task.taskType==='GREEN_ROOM'?'INFERRED':'UNRESOLVED',
+        });
+      }finally{active=Math.max(0,active-1);}
     },
     stats:()=>({starts:[...starts],finishes:[...finishes],maxActive,physical}),
   };
@@ -199,4 +201,81 @@ test('Jev usefulness benchmark reports correctness/abstention/false-certainty de
   assert.ok(summary.delta.falseCertainty<0);
   assert.equal(summary.physicalProviderExecutions,1);
   assert.equal(summary.fixtureExecutions,2);
+});
+
+
+test('quiet turn preserves zero-optional-provider execution path with zero physical attempts',async()=>{
+  const connections=fakeConnections(),swarm=new NativeSidecarSwarm({connections,planner:planner(),hostYield:async()=>{}});
+  const t=turn('quiet');
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:{text:'ok',hotStateSufficient:true,selection:{chatId:'chat:quiet',generationId:'gen:quiet'}},currentRevisionState:t});
+  assert.equal(result.contribution.resultSummary.length,0);
+  assert.equal(connections.stats().physical,0);
+  assert.equal(result.contribution.finalChoiceAuthority,false);
+});
+
+test('scene transition signal warrants expansion while Deep work remains outside foreground execution',async()=>{
+  const connections=fakeConnections(),swarm=new NativeSidecarSwarm({connections,planner:planner(),hostYield:async()=>{}});
+  const t=turn('transition');
+  const prepared=swarm.prepareTurn({turnEvent:t,plannerInput:{text:'The scene changes.',sceneTransitionType:'LOCATION_CHANGE',activeThreads:['thread:transition'],backgroundSignals:{consolidationPending:true}}});
+  assert.ok(prepared.fanOutPlan.tasks.some(row=>row.taskType==='GRAPH_WALK'&&classifyScatterLayer(row)===ScatterLayer.EXPANSION));
+  assert.ok(prepared.fanOutPlan.tasks.some(row=>row.taskType==='CONSOLIDATION'&&classifyScatterLayer(row)===ScatterLayer.BACKGROUND));
+  await swarm.executeCheckpoint(prepared.checkpoint,{currentRevisionState:t,inputResolver:()=>({})});
+  assert.equal(connections.stats().starts.some(row=>row.taskType==='CONSOLIDATION'),false);
+});
+
+test('provider timeout takes bounded required fallback and does not admit the late provider result',async()=>{
+  const connections=fakeConnections({delayMs:120});
+  const shortPlanner=new DynamicFanOutPlanner({defaultSoftBudgetMs:20,defaultHardBudgetMs:35,maxWorkers:4,maxForegroundWorkers:4,maxCostUnits:10,maxDeadlineExposureMs:200});
+  const swarm=new NativeSidecarSwarm({connections,planner:shortPlanner,maxLayerConcurrency:2,minFreshWindowMs:0,hostYield:async()=>{}});
+  const t=turn('timeout');
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:{text:'Where is the current instrument?',queryIntent:'LOCATION',latencyBudgetMs:35},currentRevisionState:t,inputResolver:()=>({})});
+  const required=result.contribution.resultSummary.filter(row=>row.resultClass==='REQUIRED');
+  assert.ok(required.length>=1);
+  assert.ok(required.every(row=>row.state===NativeSwarmResultState.READY_FOR_CORE&&row.fallbackUsed));
+  assert.ok(connections.stats().physical>=1);
+  assert.ok(required.every(row=>row.providerId==='area52:deterministic-fallback'));
+});
+
+test('sealed foreground rejects returned provider work without fallback or late owner admission',async()=>{
+  const connections=fakeConnections(),swarm=new NativeSidecarSwarm({connections,planner:planner(),hostYield:async()=>{}});
+  const t=turn('sealed-worker2');
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:{text:'Where is the current instrument?',queryIntent:'LOCATION'},currentRevisionState:t,sealed:true,inputResolver:()=>({})});
+  assert.ok(connections.stats().physical>=1);
+  assert.ok(result.contribution.resultSummary.filter(row=>row.resultClass==='REQUIRED').every(row=>row.state===NativeSwarmResultState.REJECTED_LATE));
+  assert.equal(result.contribution.resultsForOwner.length,0);
+});
+
+test('chat switch and regeneration selection fences reject old checkpoints before execution',async()=>{
+  const connections=fakeConnections(),swarm=new NativeSidecarSwarm({connections,planner:planner(),hostYield:async()=>{}});
+  const t=turn('selection');
+  const prepared=swarm.prepareTurn({turnEvent:t,plannerInput:{...workloadInput(),selection:{chatId:'chat:a',generationId:'gen:1'}}});
+  const switched=await swarm.executeCheckpoint(prepared.checkpoint,{currentRevisionState:t,selection:{chatId:'chat:b',generationId:'gen:1'}});
+  assert.equal(connections.stats().physical,0);
+  assert.ok(switched.contribution.resultSummary.every(row=>row.state===NativeSwarmResultState.REJECTED_STALE));
+  const regenerated=await swarm.executeCheckpoint(prepared.checkpoint,{currentRevisionState:t,selection:{chatId:'chat:a',generationId:'gen:2'}});
+  assert.equal(connections.stats().physical,0);
+  assert.ok(regenerated.contribution.resultSummary.every(row=>row.state===NativeSwarmResultState.REJECTED_STALE));
+});
+
+test('checkpoint execution ledger suppresses duplicate physical work across replay and rehydrated reload',async()=>{
+  const ledger=new Map(),firstConnections=fakeConnections();
+  const firstSwarm=new NativeSidecarSwarm({connections:firstConnections,planner:planner(),executionLedger:ledger,hostYield:async()=>{}});
+  const t=turn('replay');
+  const prepared=firstSwarm.prepareTurn({turnEvent:t,plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION',selection:{chatId:'chat:replay',generationId:'gen:1'}}});
+  const first=await firstSwarm.executeCheckpoint(prepared.checkpoint,{currentRevisionState:t,selection:prepared.checkpoint.selection,inputResolver:()=>({})});
+  const firstAttempts=firstConnections.stats().physical;
+  assert.ok(firstAttempts>=1);
+  const repeated=await firstSwarm.executeCheckpoint(prepared.checkpoint,{currentRevisionState:t,selection:prepared.checkpoint.selection,inputResolver:()=>({})});
+  assert.equal(firstConnections.stats().physical,firstAttempts);
+  assert.equal(repeated.contribution.proposalId,first.contribution.proposalId);
+
+  const reloadConnections=fakeConnections();
+  const reloaded=new NativeSidecarSwarm({connections:reloadConnections,planner:planner(),executionLedger:ledger,hostYield:async()=>{}});
+  const replayed=await reloaded.executeCheckpoint(JSON.parse(JSON.stringify(prepared.checkpoint)),{currentRevisionState:t,selection:prepared.checkpoint.selection,inputResolver:()=>({})});
+  assert.equal(reloadConnections.stats().physical,0);
+  assert.equal(replayed.contribution.proposalId,first.contribution.proposalId);
+
+  const nextTurn=turn('replay-next');
+  await reloaded.runTurn({turnEvent:nextTurn,plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION',selection:{chatId:'chat:replay',generationId:'gen:2'}},currentRevisionState:nextTurn,inputResolver:()=>({})});
+  assert.ok(reloadConnections.stats().physical>=1);
 });

@@ -962,7 +962,7 @@ export class Area52NativeBrain{
     if(status==='ADMITTED'&&receipt?.ownerReceipt){
       const returned=this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',metadata:{status,ownerReceiptKind:receipt.ownerReceipt.kind??null}});
       this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.OWNER_ADMISSION,producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:returned.id,ownerAccepted:true,metadata:{status,ownerReceiptKind:receipt.ownerReceipt.kind??null}});
-    }else if(status==='ADMITTED')this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.WORK_FAILED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',reasonCode:CausalReasonCode.NO_EVIDENCE,metadata:{status,reason:'MEMORY_OWNER_RECEIPT_MISSING'}});
+    }else if(status==='ADMITTED')return this.obligationReconciler.reconcile(expectedId,{admit:false});
     else this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.WORK_FAILED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',reasonCode:status==='UNSUPPORTED'?CausalReasonCode.EXECUTOR_UNAVAILABLE:CausalReasonCode.TASK_FAILED,metadata:{status,reason:receipt?.reason??null}});
     return this.obligationReconciler.reconcile(expectedId,{admit:false});
   }

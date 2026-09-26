@@ -976,7 +976,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       const key=[event.settlementId??value.settlementId??'',event.sourceId,event.previousSourceRevisionId??'',event.sourceRevisionId,event.restoration?'RESTORE':'APPLY'].join('|');
       if(this.routedLoreRevisionKeys.has(key))continue;
       try{this.acceptLoreRevisionChange(event);this.routedLoreRevisionKeys.add(key);}
-      catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'LORE_REVISION_INVALIDATION_ROUTE',sourceId:event.sourceId,sourceRevisionId:event.sourceRevisionId});}
+      catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'LORE_REVISION_INVALIDATION_ROUTE',sourceId:event.sourceId,sourceRevisionId:event.sourceRevisionId},SESSION_BOUNDS.errors);}
     }
   }
 

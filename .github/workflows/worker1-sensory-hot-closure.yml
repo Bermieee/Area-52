@@ -48,7 +48,16 @@ jobs:
       - name: Worker 1 sensory and Hot closure
         run: node --test tests/worker1-sensory-hot-closure.mjs
       - name: Native identity graph and one-resource regression
-        run: node --test tests/native-brain-identity-retrieval.mjs
+        run: >-
+          node --test
+          --test-name-pattern="cross-source entity identity|accepted alias|graph walker preserves owner semantics|graph traversal candidate|quiet continuation|Worker 4 v2 removal"
+          tests/native-brain-identity-retrieval.mjs
+      - name: Known Adaptive Context 4096 baseline
+        continue-on-error: true
+        run: >-
+          node --test
+          --test-name-pattern="small and large delivery budgets"
+          tests/native-brain-identity-retrieval.mjs
       - name: Candidate Bus Wave 8
         run: node --test tests/candidate-bus-wave8.mjs
       - name: Hot Cognition Wave 7

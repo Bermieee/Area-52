@@ -114,6 +114,7 @@ export class LoreIntelligenceService {
     this.compileFailures = new Map();
     this.lastAcceptance = null;
     this.lastStudyRun = null;
+    this.lastStoryQuery = null;
   }
 
   recordHostDiscovery({chatId, lorebookId, title = null, discovery = null, hostSelectionRevision = null} = {}) {
@@ -122,6 +123,52 @@ export class LoreIntelligenceService {
 
   setStoryReadScope({chatId, lorebookIds = []} = {}) {
     return this.storyAuthority.setReadScope({chatId, lorebookIds});
+  }
+
+  _rememberStoryQuery(packet) {
+    const receipt = {
+      kind: 'LoreProducerQueryReceipt',
+      contractVersion: 1,
+      chatId: packet?.storyScope?.chatId ?? null,
+      status: packet?.status ?? null,
+      reason: packet?.reason ?? null,
+      retrievalIntentId: packet?.retrievalIntentId ?? null,
+      indexRevision: packet?.indexRevision ?? null,
+      ontologyRevision: packet?.ontologyRevision ?? null,
+      sourceRevisionFence: [...(packet?.sourceRevisionFence || [])].slice(0, MAX_SCOPE_RECEIPTS),
+      candidateReceipts: (packet?.candidateReceipts || []).slice(0, MAX_SCOPE_RECEIPTS).map((row) => ({
+        candidateId: row.candidateId ?? null,
+        retrievalRecordRef: row.retrievalRecordRef ?? null,
+        sourceEntries: deepClone(row.sourceEntries || []).slice(0, 16),
+        sourceRevisionRefs: [...(row.sourceRevisionRefs || [])].slice(0, 32),
+        evidenceRefs: [...(row.evidenceRefs || [])].slice(0, 32),
+        authorityScope: deepClone(row.authorityScope || null),
+        authorityClass: row.authorityClass ?? null,
+        truthStatusHint: row.truthStatusHint ?? null,
+        temporalHints: deepClone(row.temporalHints || []).slice(0, 16),
+        decision: row.decision ?? null,
+        reason: row.reason ?? null,
+        normalizedRank: row.normalizedRank ?? null,
+        rawLoreIncluded: false,
+      })),
+      exclusionReceipts: (packet?.exclusionReceipts || []).slice(0, MAX_SCOPE_RECEIPTS).map((row) => ({
+        sourceId: row.sourceId ?? null,
+        lorebookId: row.lorebookId ?? null,
+        uid: row.uid ?? null,
+        sourceRevisionId: row.sourceRevisionId ?? null,
+        authorityScope: deepClone(row.authorityScope || null),
+        decision: row.decision ?? 'EXCLUDED',
+        reason: row.reason ?? null,
+      })),
+      rawLoreIncluded: false,
+      truthGateAuthority: false,
+      gatherAuthority: false,
+      contextSealAuthority: false,
+      promptPlanAuthority: false,
+      hostDeliveryAuthority: false,
+    };
+    this.lastStoryQuery = deepClone(receipt);
+    return packet;
   }
 
   acceptLorebook(input) {
@@ -391,6 +438,137 @@ export class LoreIntelligenceService {
     };
   }
 
+  operatorReadModel({chatId = null, maxEntries = 64, maxReceipts = 32} = {}) {
+    const entryLimit = Math.max(1, Math.min(128, Math.trunc(Number(maxEntries) || 64)));
+    const receiptLimit = Math.max(1, Math.min(64, Math.trunc(Number(maxReceipts) || 32)));
+    const status = this.status({chatId});
+    const scope = status.storyScope;
+    const discovered = new Set((scope?.discoveredLorebooks || []).map((row) => row.lorebookId));
+    const lastQuery = this.lastStoryQuery && (
+      chatId == null || String(this.lastStoryQuery.chatId ?? '') === String(chatId)
+    ) ? this.lastStoryQuery : null;
+
+    const candidatesBySource = new Map();
+    for (const receipt of lastQuery?.candidateReceipts || []) {
+      for (const source of receipt.sourceEntries || []) {
+        if (!source?.sourceId || candidatesBySource.has(source.sourceId)) continue;
+        candidatesBySource.set(source.sourceId, receipt);
+      }
+    }
+    const exclusionsBySource = new Map();
+    for (const receipt of lastQuery?.exclusionReceipts || []) {
+      if (receipt?.sourceId && !exclusionsBySource.has(receipt.sourceId)) exclusionsBySource.set(receipt.sourceId, receipt);
+    }
+
+    const entries = status.entries.slice(0, entryLimit).map((row) => {
+      const revision = this.runtime.registry.currentRevision(row.sourceId, {allowMissing: true});
+      const candidate = candidatesBySource.get(row.sourceId) || null;
+      const exclusion = exclusionsBySource.get(row.sourceId) || null;
+      const learnedCurrent = row.sourceState !== 'REMOVED'
+        && row.freshness === 'CURRENT'
+        && Boolean(row.learnedRevisionId);
+      return {
+        sourceId: row.sourceId,
+        lorebookId: row.lorebookId,
+        uid: row.uid,
+        title: revision?.metadata?.title ?? null,
+        treePath: Array.isArray(revision?.metadata?.treePath) ? [...revision.metadata.treePath].slice(0, 24) : [],
+        sourceRevisionId: row.sourceRevisionId,
+        sourceState: row.sourceState,
+        exactSourceHash: row.exactSourceHash,
+        exactSourceRecoverable: row.exactSourceRecoverable,
+        lifecycle: {
+          discoveredForStory: scope == null ? null : discovered.has(row.lorebookId),
+          acceptedForStudy: row.acceptedForStudy,
+          studiedCurrent: learnedCurrent,
+          representationReady: row.representationReady,
+          retrievalReady: row.retrievalReady,
+          selectedChatAuthorized: row.authorizedForStory,
+          eligibleForNomination: row.eligibleForStoryRetrieval,
+          producerNomination: candidate ? 'NOMINATED' : exclusion ? 'EXCLUDED' : lastQuery ? 'NOT_NOMINATED' : 'NOT_OBSERVED',
+          producerReason: candidate?.reason ?? exclusion?.reason ?? null,
+          truthPrecision: 'DOWNSTREAM_NOT_OBSERVED_BY_LORE',
+          gather: 'DOWNSTREAM_NOT_OBSERVED_BY_LORE',
+          contextSeal: 'DOWNSTREAM_NOT_OBSERVED_BY_LORE',
+          promptPlan: 'DOWNSTREAM_NOT_OBSERVED_BY_LORE',
+          hostDelivery: 'DOWNSTREAM_NOT_OBSERVED_BY_LORE',
+        },
+        truthStatusHint: candidate?.truthStatusHint ?? null,
+        temporalHints: deepClone(candidate?.temporalHints || []).slice(0, 16),
+        studyState: row.studyState,
+        compileFailure: deepClone(row.compileFailure),
+        operatorState: row.operatorState,
+        rawLoreIncluded: false,
+      };
+    });
+
+    const counts = {
+      totalEntries: status.entries.length,
+      discoveredLorebooks: scope?.discoveredLorebooks?.length ?? null,
+      acceptedLorebooks: scope?.acceptedForStudy?.length ?? null,
+      studiedCurrentEntries: status.entries.filter((row) => row.sourceState !== 'REMOVED' && row.freshness === 'CURRENT' && row.learnedRevisionId).length,
+      representationReadyEntries: status.entries.filter((row) => row.representationReady).length,
+      retrievalReadyEntries: status.entries.filter((row) => row.retrievalReady).length,
+      storyAuthorizedEntries: scope == null ? null : status.entries.filter((row) => row.authorizedForStory).length,
+      eligibleForNominationEntries: scope == null ? null : status.entries.filter((row) => row.eligibleForStoryRetrieval).length,
+      nominatedLastQueryEntries: lastQuery == null ? null : candidatesBySource.size,
+      removedEntries: status.entries.filter((row) => row.sourceState === 'REMOVED').length,
+      failedEntries: status.entries.filter((row) => row.operatorState === 'FAILED').length,
+    };
+
+    return {
+      kind: 'LoreOperatorReadModel',
+      contractVersion: 1,
+      chatId: scope?.chatId ?? (chatId == null ? null : String(chatId)),
+      storyScopeState: scope?.state ?? (chatId == null ? null : 'UNBOUND'),
+      counts,
+      entries,
+      entryCountTotal: status.entries.length,
+      entriesTruncated: status.entries.length > entries.length,
+      recentRevisionChanges: deepClone(scope?.recentRevisionChanges || []).slice(-receiptLimit).map((row) => ({
+        receiptId: row.receiptId ?? null,
+        lorebookId: row.lorebookId ?? null,
+        sourceId: row.sourceId ?? null,
+        previousSourceRevisionId: row.previousSourceRevisionId ?? null,
+        sourceRevisionId: row.sourceRevisionId ?? null,
+        sourceState: row.sourceState ?? null,
+        origin: row.origin ?? null,
+      })),
+      lastAcceptance: this.lastAcceptance ? {
+        lorebookId: this.lastAcceptance.lorebookId ?? null,
+        acceptedEntryCount: this.lastAcceptance.acceptedEntryCount ?? 0,
+        sourceRevisionChanged: Boolean(this.lastAcceptance.sourceRevisionChanged),
+        dueStudyObligations: Number(this.lastAcceptance.dueStudyObligations || 0),
+        maintenancePerformed: Boolean(this.lastAcceptance.maintenancePerformed),
+        maintenanceReason: this.lastAcceptance.maintenanceReason ?? null,
+      } : null,
+      lastStudyRun: this.lastStudyRun ? {
+        requested: Number(this.lastStudyRun.requested || 0),
+        compilationCount: (this.lastStudyRun.compilations || []).length,
+        maintenancePerformed: Boolean(this.lastStudyRun.maintenancePerformed),
+        maintenanceReason: this.lastStudyRun.maintenanceReason ?? null,
+        sourceRevisionRefs: [...new Set((this.lastStudyRun.compilations || []).map((row) => row.sourceRevisionId).filter(Boolean))].slice(0, receiptLimit),
+      } : null,
+      lastProducerQuery: lastQuery ? deepClone({
+        status: lastQuery.status,
+        reason: lastQuery.reason,
+        retrievalIntentId: lastQuery.retrievalIntentId,
+        indexRevision: lastQuery.indexRevision,
+        sourceRevisionFence: lastQuery.sourceRevisionFence.slice(0, receiptLimit),
+        candidateCount: lastQuery.candidateReceipts.length,
+        exclusionCount: lastQuery.exclusionReceipts.length,
+      }) : null,
+      bounds: {maxEntries: entryLimit, maxReceipts: receiptLimit},
+      rawLoreIncluded: false,
+      sourceMutationAuthority: false,
+      truthGateAuthority: false,
+      gatherAuthority: false,
+      contextSealAuthority: false,
+      promptPlanAuthority: false,
+      hostDeliveryAuthority: false,
+    };
+  }
+
   summarySurface() {
     const scopes = new Map((this.hierarchy.hierarchy?.scopes || []).map((scope) => [scope.id, scope]));
     const summaries = this.hierarchy.summaryRegistry.activeSummaries().map((summary) => {
@@ -462,9 +640,9 @@ export class LoreIntelligenceService {
       settlementAuthority: false,
       contextSealAuthority: false,
     });
-    if (scope.state !== 'BOUND') return blocked('LORE_STORY_SCOPE_REQUIRED');
+    if (scope.state !== 'BOUND') return this._rememberStoryQuery(blocked('LORE_STORY_SCOPE_REQUIRED'));
     const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(scope.chatId));
-    if (!allowedBooks.size) return blocked('LORE_STORY_READ_SCOPE_EMPTY');
+    if (!allowedBooks.size) return this._rememberStoryQuery(blocked('LORE_STORY_READ_SCOPE_EMPTY'));
 
     const allowedSourceIds = [];
     const exclusionReceipts = [];
@@ -527,12 +705,15 @@ export class LoreIntelligenceService {
             lorebookId: source.lorebookId,
             uid: source.uid,
             sourceRevisionId: source.sourceRevisionId,
+            truthStatusHint: source.truthStatusHint ?? null,
           })),
           sourceRevisionRefs: [...new Set(drillback.map((source) => source.sourceRevisionId).filter(Boolean))].sort(),
           evidenceRefs: [...(nomination.evidenceRefs || [])].slice(0, 32),
           provenanceRefs: (nomination.provenance || []).slice(0, 16).map((row) => row?.sourceRevisionId ?? row?.ref ?? row?.sourceId ?? null).filter(Boolean),
           authorityScope: {chatId: scope.chatId, lorebookIds: [...allowedBooks].sort()},
           authorityClass: nomination.authorityClass,
+          truthStatusHint: nomination.truthStatusHint ?? null,
+          temporalHints: deepClone(nomination.temporalHints || []).slice(0, 16),
           decision: 'ELIGIBLE',
           reason: 'AUTHORIZED_CURRENT_RETRIEVAL_MATCH',
           normalizedRank: nomination.normalizedRank ?? null,
@@ -545,7 +726,7 @@ export class LoreIntelligenceService {
       return {nomination: deepClone(nomination), drillback};
     }).filter((row) => row.drillback.length > 0);
     const sourceRevisionFence = [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceRevisionId)))].sort();
-    return {
+    const packet = {
       kind: 'LoreBrainRetrievalPacket',
       contractVersion: 1,
       status: 'ELIGIBLE',
@@ -583,6 +764,7 @@ export class LoreIntelligenceService {
       settlementAuthority: false,
       contextSealAuthority: false,
     };
+    return this._rememberStoryQuery(packet);
   }
 
   queryForBrain({query, intent = 'AUTO', intentId = null, profile = null} = {}) {
@@ -651,7 +833,8 @@ export class LoreIntelligenceService {
     const read = Object.freeze({
       surface: () => this.status(),
       status: () => this.status(),
-      loreStudy: () => this.status(),
+      loreStudy: (request = {}) => this.status({chatId: request?.chatId ?? null}),
+      loreReadModel: (request = {}) => this.operatorReadModel(request),
     });
     const actions = Object.freeze({
       acceptLorebook: (input) => this.acceptLorebook(input),
@@ -677,12 +860,13 @@ export class LoreIntelligenceService {
       contractVersion: 1,
       runtime: this.runtime.snapshot(),
       multiResolution: this.multiResolution.snapshot(),
-      hierarchy: this.hierarchy.snapshot(),
+      hierarchy: this.hierarchy.snapshot({compact: true}),
       ontology: this.ontology.current(),
       storyAuthority: this.storyAuthority.snapshot(),
       compileFailures: [...this.compileFailures.entries()].map(([sourceId, failures]) => [sourceId, deepClone(failures)]),
       lastAcceptance: deepClone(this.lastAcceptance),
       lastStudyRun: deepClone(this.lastStudyRun),
+      lastStoryQuery: deepClone(this.lastStoryQuery),
     };
   }
 
@@ -707,6 +891,7 @@ export class LoreIntelligenceService {
     service.compileFailures = new Map((snapshot.compileFailures || []).map(([sourceId, failures]) => [sourceId, deepClone(failures)]));
     service.lastAcceptance = deepClone(snapshot.lastAcceptance || null);
     service.lastStudyRun = deepClone(snapshot.lastStudyRun || null);
+    service.lastStoryQuery = deepClone(snapshot.lastStoryQuery || null);
     return service;
   }
 }

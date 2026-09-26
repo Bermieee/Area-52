@@ -119,6 +119,11 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
             if(guard===false||guard?.admit===false){rejected.push({sourceId,sourceRevisionId,reason:guard?.reason??'BRAIN_REVISION_GUARD_REJECTED'});continue;}
           }
           const artifactRef=source.representationRef??('lore-source:'+sourceRevisionId);
+          const sourceTruthStatus=truthStatus(source.truthStatusHint??group?.nomination?.truthStatusHint??CandidateTruthStatus.CURRENT);
+          const sourceTemporalStatus=temporalStatus(sourceTruthStatus);
+          const sourceTemporalHints=(source.temporalHints??group?.nomination?.temporalHints??[]).length
+            ? clone(source.temporalHints??group.nomination.temporalHints)
+            : [{status:sourceTruthStatus}];
           const evidenceId='owner-lore:'+stableHash({sourceId,sourceRevisionId},{length:24});
           const evidence=this.publishEvidence(createKnowledgeEvidence({
             evidenceId,
@@ -127,7 +132,7 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
             sourceClass:KnowledgeSourceClass.SOURCE_LORE,
             authorityClass:'SOURCE_CANON',
             authorityOrigin:KnowledgeAuthorityOrigin.SOURCE,
-            temporalStatus:KnowledgeTemporalStatus.CURRENT,
+            temporalStatus:sourceTemporalStatus,
             sourceRevisionRefs:[sourceRevisionId],
             dependencyRevisionRefs:[sourceRevisionId],
             provenanceRefs:uniq([sourceRevisionId,...provenanceRefs(source.provenance??[])]),
@@ -157,9 +162,9 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
             normalizedRank:Number.isFinite(Number(group?.nomination?.normalizedRank))
               ? Math.max(0,Math.min(1,Number(group.nomination.normalizedRank)))
               : null,
-            temporalHints:[{status:CandidateTruthStatus.CURRENT}],
+            temporalHints:sourceTemporalHints,
             authorityClass:'SOURCE_CANON',
-            truthStatusHint:CandidateTruthStatus.CURRENT,
+            truthStatusHint:sourceTruthStatus,
             provenance:(source.provenance??[]).length?clone(source.provenance):[{ref:sourceRevisionId}],
             evidenceRefs:[evidenceId],
             dependencyRevisions:[sourceRevisionId],
@@ -177,6 +182,8 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
               }:null,
               authorityDecision:'ELIGIBLE',
               authorityReason:'AUTHORIZED_CURRENT_RETRIEVAL_MATCH',
+              truthStatusHint:sourceTruthStatus,
+              temporalHints:sourceTemporalHints,
               retrievalRankAuthority:false,
               producerNormalizedRank:Number.isFinite(Number(group?.nomination?.normalizedRank))
                 ? Math.max(0,Math.min(1,Number(group.nomination.normalizedRank)))
@@ -202,6 +209,7 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
         candidateReceipts:(packet.candidateReceipts??[]).slice(0,64).map((row)=>({
           candidateId:row.candidateId??null,sourceEntries:clone(row.sourceEntries??[]),sourceRevisionRefs:uniq(row.sourceRevisionRefs??[]),
           evidenceRefs:uniq(row.evidenceRefs??[]),authorityScope:clone(row.authorityScope??null),authorityClass:row.authorityClass??null,
+          truthStatusHint:row.truthStatusHint??null,temporalHints:clone(row.temporalHints??[]),
           decision:row.decision??null,reason:row.reason??null,normalizedRank:row.normalizedRank??null,rawLoreIncluded:false,
         })),
         exclusionReceipts:(packet.exclusionReceipts??[]).slice(0,64).map((row)=>({

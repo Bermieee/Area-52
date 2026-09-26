@@ -159,6 +159,13 @@ test('Worker 4: live Lore owner channel forwards exact chat scope and retains bo
       correlationId: 'corr:worker4',
     },
   });
+  const producerPacket = service.queryForStory({
+    chatId: WORKER4_SELECTED_CHAT,
+    query: 'Harbor Gate',
+    intent: 'NARROW',
+    intentId: 'intent:worker4',
+  });
+  const producerRanks = new Set(producerPacket.nominations.map((row) => row.nomination.normalizedRank));
   const rows = channel.retrieve({
     intentId: 'intent:worker4',
     intentKind: 'NARROW',
@@ -166,6 +173,9 @@ test('Worker 4: live Lore owner channel forwards exact chat scope and retains bo
   }, {worldRevision: 1, sceneRevision: 2});
   assert.ok(rows.length > 0);
   assert.ok(evidence.length > 0);
+  assert.equal(rows.every((row) => producerRanks.has(row.normalizedRank)), true);
+  assert.equal(rows.every((row) => row.metadata.retrievalRankAuthority === false), true);
+  assert.equal(rows.every((row) => row.metadata.producerNormalizedRank === row.normalizedRank), true);
   assert.equal(rows.every((row) => row.sourceRevisionRefs.length > 0), true);
   assert.equal(rows.every((row) => row.evidenceRefs.length > 0), true);
   assert.equal(rows.every((row) => row.metadata.authorityScope.chatId === WORKER4_SELECTED_CHAT), true);

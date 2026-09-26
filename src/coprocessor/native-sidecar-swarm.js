@@ -121,7 +121,7 @@ export class NativeSidecarSwarm{
     const records=[],layerRows=[];
     let gatherBundle=gather.bundle();
     let retainedBytes=0,peakRetainedBytes=0,legacyRetainedBytes=0,workAvoidedCount=0,fallbackCount=0;
-    let physicalAttemptCount=0,physicalReturnedCount=0;
+    let physicalAttemptCount=0,physicalReturnedCount=0,turnBecameStale=false;
 
     const hotAt=this.now();
     const hotReceipt=createScatterLayerReceipt({
@@ -136,6 +136,12 @@ export class NativeSidecarSwarm{
       const tasks=layer.tasks.filter(task=>task.resultClass!==ResultClass.DEFERRED);
       if(!tasks.length)continue;
       const layerStarted=this.now();
+      const layerCurrent=await resolveValue(currentRevisionState,checkpoint.revisionFence);
+      if(classifyFreshness(checkpoint.revisionFence,layerCurrent??checkpoint.revisionFence)!==Freshness.FRESH){
+        for(const task of tasks)records.push(rejectedRecord(task,NativeSwarmResultState.REJECTED_STALE,FailureCode.STALE_RESULT,{reason:'LAYER_REVISION_CHANGED'}));
+        turnBecameStale=true;
+        break;
+      }
       const decisions=tasks.map(task=>({task,decision:evaluateScatterAdmission(task,{
         plannerInput:checkpoint.plannerSignals??{},completedRecords:records,gatherBundle,now:this.now(),hardDeadline:task.hardDeadline,
       })}));
@@ -175,7 +181,9 @@ export class NativeSidecarSwarm{
         records.push(original);layerFailed++;
         const task=admitted.find(x=>x.taskId===original.taskId);
         const isSealed=Boolean(await resolveValue(sealed,false));
-        if(task?.resultClass===ResultClass.REQUIRED&&!isSealed){
+        const fallbackCurrent=await resolveValue(currentRevisionState,checkpoint.revisionFence);
+        const fallbackFresh=classifyFreshness(checkpoint.revisionFence,fallbackCurrent??checkpoint.revisionFence)===Freshness.FRESH;
+        if(task?.resultClass===ResultClass.REQUIRED&&!isSealed&&fallbackFresh){
           const fallback=fallbackRecord(task,original.failureCode??'PHYSICAL_EXECUTION_FAILED',this.now());
           records.push(fallback);gather.addFallback(task.taskId,fallback.result);layerFallbacks++;fallbackCount++;retainedBytes+=byteSize(fallback.result);
         }
@@ -202,7 +210,9 @@ export class NativeSidecarSwarm{
     }
 
     const isSealedBeforeFallback=Boolean(await resolveValue(sealed,false));
-    if(!isSealedBeforeFallback){
+    const currentBeforeFallback=await resolveValue(currentRevisionState,checkpoint.revisionFence);
+    const fallbackFenceFresh=classifyFreshness(checkpoint.revisionFence,currentBeforeFallback??checkpoint.revisionFence)===Freshness.FRESH;
+    if(!isSealedBeforeFallback&&!turnBecameStale&&fallbackFenceFresh){
       for(const task of gather.missingRequired()){
         const fallback=fallbackRecord(task,'REQUIRED_FALLBACK_BEFORE_GATHER_CLOSE',this.now());
         records.push(fallback);gather.addFallback(task.taskId,fallback.result);fallbackCount++;workAvoidedCount++;retainedBytes+=byteSize(fallback.result);

@@ -40,14 +40,14 @@ export function createAuthorityPill(doc,authority,{title=null}={}){
   const d=authorityDescriptor(authority);return element(doc,'span',{className:'a52-authority-pill',text:`${d.glyph} ${title??d.label}`,attrs:{role:'status','aria-label':`${d.label}: ${d.description}`},dataset:{authority:d.authority,status:d.status}});
 }
 
-export function createProductHealthSurface(doc,{source=null,label=null,impact=null,actionLabel='Inspect',onInspect=null,scope=null,compact=false}={}){
+export function createProductHealthSurface(doc,{source=null,label=null,impact=null,actionLabel='Inspect details',onInspect=null,scope=null,compact=false}={}){
   const s=source??createProductSourceStatus();const root=element(doc,'section',{className:`a52-health-surface${compact?' a52-health-surface--compact':''}`,attrs:{role:'status'},dataset:{mode:s.mode,health:s.health,status:s.statusToken}});
   const head=element(doc,'div',{className:'a52-health-surface__head'});
   head.append(makeHealthPill(doc,{label:label??s.label??s.health,status:s.statusToken,detail:s.operationalState??s.mode}),makeBadge(doc,s.operationalState??s.mode,modeStatus(s.mode)));
   root.append(head);
   const message=impact??s.impact??s.reason;if(message)root.append(element(doc,'p',{className:'a52-health-surface__impact',text:message}));
   if(s.reason&&!compact)root.append(element(doc,'p',{className:'a52-muted',text:s.reason}));
-  if(onInspect)root.append(createButton(doc,{label:actionLabel,scope,size:'sm',variant:'quiet',onPress:onInspect}));
+  if(onInspect)root.append(createButton(doc,{label:actionLabel,scope,size:'sm',variant:'inspect',onPress:onInspect}));
   return root;
 }
 

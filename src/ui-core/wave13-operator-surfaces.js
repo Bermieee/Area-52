@@ -106,14 +106,15 @@ export function renderOperationalSummary(host,{operations,scope,inspect}={}){
   else if(pipeline.hostLifecycle?.ownerAvailable===true)section.append(message(d,'Native Brain host loop attached','The host reports Worker 1’s owner interface is attached. Delivery and learning still require their own receipts below.','ready'));
   section.append(element(d,'h3',{text:'Brain activity'}),element(d,'div',{className:'a52-wave13-diagnostics__activity'},
     flowStep(d,'Producers available',String(pipeline.registeredProducers??0)),
-    flowStep(d,'Work executed',pipeline.executionReceipt?String(pipeline.executedJobs??0)+' jobs':'No execution receipt'),
+    flowStep(d,'Jobs mapped',pipeline.mappingReceipt?String(pipeline.logicalJobsMapped??0)+' logical → '+String(pipeline.mappedResourceCount??0)+' resource '+((pipeline.mappedResourceCount??0)===1?'identity':'identities'):'No Scatter receipt'),
+    flowStep(d,'Physical execution',pipeline.executionReceipt?String(pipeline.physicalExecutionAttempts??0)+' attempts · '+String(pipeline.physicalExecutionSucceeded??0)+' succeeded':'No selected-turn execution receipt'),
     flowStep(d,'Results returned',pipeline.resultReceipt?String(pipeline.returnedResults??0):'No Gather receipt'),
     flowStep(d,'Context admitted',pipeline.admissionReceipt?String(pipeline.contextAdmitted??0):'No Context Seal receipt'),
     flowStep(d,'Generation delivery',pipeline.deliveryReceipt?(pipeline.generationState?humanLabel(pipeline.generationState):'Sealed context delivered'):pipeline.generationReader?'No delivery receipt':'Owner generation reader unavailable'),
     flowStep(d,'Learning write-back',pipeline.learningReceipt?'Learning receipt recorded':pipeline.generationReceipt?'No learning receipt yet':'No generation receipt')
   ));
   const grid=element(d,'div',{className:'a52-wave13-status-grid'});
-  for(const row of status.stages.slice(0,8))grid.append(stageCard(d,row,scope,inspect));
+  for(const row of status.stages.slice(0,8))grid.append(stageCard(d,row,scope,inspect,{inspection:status.inspections?.[row.id]}));
   section.append(grid);host.append(section);
 }
 
@@ -130,8 +131,10 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
   ]));
   const pipeline=status.pipeline??{};
   section.append(element(d,'h3',{text:'Execution / admission'}),createKeyValue(d,[
-    {key:'Registered producers',value:pipeline.registeredProducers??0},{key:'Execution receipt',value:pipeline.executionReceipt?'Published':'None'},
-    {key:'Executed jobs',value:pipeline.executedJobs??0},{key:'Gather receipt',value:pipeline.resultReceipt?'Published':'None'},
+    {key:'Registered producers',value:pipeline.registeredProducers??0},{key:'Scatter mapping receipt',value:pipeline.mappingReceipt?'Published':'None'},
+    {key:'Logical jobs mapped',value:pipeline.logicalJobsMapped??0},{key:'Mapped resource identities',value:pipeline.mappedResourceCount??0},
+    {key:'Physical execution receipt',value:pipeline.executionReceipt?'Published':'None'},{key:'Physical attempts / success / fail',value:[pipeline.physicalExecutionAttempts??0,pipeline.physicalExecutionSucceeded??0,pipeline.physicalExecutionFailed??0].join(' / ')},
+    {key:'Gather receipt',value:pipeline.resultReceipt?'Published':'None'},
     {key:'Returned results',value:pipeline.returnedResults??0},{key:'Context Seal receipt',value:pipeline.admissionReceipt?'Published':'None'},
     {key:'Context-admitted results',value:pipeline.contextAdmitted??0},
     {key:'Generation receipt',value:pipeline.generationReceipt?'Published':'None'},{key:'Generation state',value:pipeline.generationState??'—'},
@@ -139,7 +142,7 @@ export function renderOperationalDetail(host,{operations,scope,inspect}={}){
     {key:'Host lifecycle',value:pipeline.hostLifecycle?String(pipeline.hostLifecycle.learned??0)+' learned · '+String(pipeline.hostLifecycle.pending??0)+' pending':'Not exported'},
   ]));
   const grid=element(d,'div',{className:'a52-wave13-status-grid'});
-  for(const row of status.stages)grid.append(stageCard(d,row,scope,inspect,{showIds:true}));
+  for(const row of status.stages)grid.append(stageCard(d,row,scope,inspect,{showIds:true,inspection:status.inspections?.[row.id]}));
   section.append(grid);host.append(section);
 }
 
@@ -415,7 +418,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   const jobs=scatter?.jobs??[],resourceIds=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))],gatherRows=gather?.results??[];
   const summary=element(d,'div',{className:'a52-wave13-flow-summary'});
   summary.append(flowStep(d,'Choice',choice?String(choice.admitted?.length??0)+' admitted · '+String(choice.skipped?.length??0)+' skipped':'No Choice receipt'),
-    flowStep(d,'Fan-out',scatter?jobs.length+' logical jobs → '+resourceIds.length+' physical resources':'No Scatter receipt'),
+    flowStep(d,'Fan-out',scatter?jobs.length+' logical jobs → '+resourceIds.length+' mapped resource '+(resourceIds.length===1?'identity':'identities'):'No Scatter receipt'),
     flowStep(d,'Gather',gather?String(gather.counts?.ADMITTED??0)+' admitted · '+String((gather.counts?.LATE??0)+(gather.counts?.STALE??0)+(gather.counts?.REJECTED??0)+(gather.counts?.INVALID??0))+' contained':'No Gather receipt'));
   section.append(summary);
 
@@ -427,7 +430,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   }
 
   if(jobs.length){
-    section.append(element(d,'h3',{text:'Logical jobs / physical mapping'}));
+    section.append(element(d,'h3',{text:'Logical jobs / resource mapping'}),element(d,'p',{className:'a52-muted',text:'Scatter proves where logical jobs were mapped. Physical execution requires a separate selected-turn execution receipt.'}));
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const job of jobs){
       const row=element(d,'div',{className:'a52-wave13-flow-row'});
@@ -454,8 +457,8 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
     const safe=seal.effectiveAdmittedResultIds??seal.admittedResultIds??[];
     section.append(element(d,'p',{className:'a52-muted',text:'Context Seal owner reports '+safe.length+' result id'+(safe.length===1?'':'s')+' safely admitted. Late/stale/invalid/rejected Gather results remain visible but are not relabeled as prompt contributions.'}));
   }
-  if(inspect&&scatter)section.append(createButton(d,{label:'Inspect Scatter receipt',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-scatter-trace',id:scatter.receiptId??selection.turnId,title:'Scatter / fan-out',payload:scatter})}));
-  if(inspect&&gather)section.append(createButton(d,{label:'Inspect Gather receipt',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-gather-trace',id:gather.receiptId??selection.turnId,title:'Gather',payload:gather})}));
+  if(inspect&&scatter)section.append(createButton(d,{label:'Inspect Scatter receipt',scope,size:'sm',variant:'inspect',onPress:()=>inspect({kind:'wave13-scatter-trace',id:scatter.receiptId??selection.turnId,title:'Scatter / fan-out',selection:{...selection},available:true,payload:scatter})}));
+  if(inspect&&gather)section.append(createButton(d,{label:'Inspect Gather receipt',scope,size:'sm',variant:'inspect',onPress:()=>inspect({kind:'wave13-gather-trace',id:gather.receiptId??selection.turnId,title:'Gather',selection:{...selection},available:true,payload:gather})}));
   host.append(section);
 }
 
@@ -1026,12 +1029,18 @@ function renderLoreEntries(d,entries,scope,{showIds=false}={}){
 }
 
 function loreStateStatus(state){if(state==='READY')return'ready';if(state==='STUDYING')return'loading';if(state==='FAILED')return'warning';if(state==='REMOVED')return'offline';return'historical';}
-function stageCard(d,row,scope,inspect,{showIds=false}={}){
-  const card=element(d,'article',{className:'a52-wave13-stage',dataset:{state:row.state}});
+function stageCard(d,row,scope,inspect,{showIds=false,inspection=null}={}){
+  const card=element(d,'article',{className:'a52-wave13-stage',dataset:{state:row.state,producerId:row.id}});
   card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:row.label}),makeBadge(d,row.state,stageStatus(row.state))));
   card.append(element(d,'p',{text:row.reason||'No additional detail.'}));
   if(showIds&&row.turnId)card.append(element(d,'span',{className:'a52-muted',text:'turn '+row.turnId+(row.freshness?' · '+row.freshness:'')+(row.errorCode?' · '+row.errorCode:'')}));
-  if(inspect)card.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-producer-status',id:row.id,title:row.label,payload:row})}));
+  if(inspect){
+    const reason=row.reason||'No selected-turn owner receipt is available.';
+    const target=inspection??{kind:'wave13-producer-inspection',id:'producer:'+row.id+':'+String(row.turnId??'no-turn'),producerId:row.id,title:row.label+' detail',available:false,
+      selection:{chatId:row.chatId??null,turnId:row.turnId??null,generationId:row.generationId??null},reason,
+      payload:{kind:'UnavailableProducerReceipt',status:'UNAVAILABLE',reason,chatId:row.chatId??null,turnId:row.turnId??null,generationId:row.generationId??null}};
+    card.append(createButton(d,{label:'Inspect details',scope,size:'sm',variant:'inspect',onPress:()=>inspect(target)}));
+  }
   return card;
 }
 function header(d,title,subtitle){const h=element(d,'div',{className:'a52-workspace-header'});h.append(element(d,'h1',{text:title}),element(d,'p',{className:'a52-muted',text:subtitle}));return h;}

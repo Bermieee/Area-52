@@ -76,7 +76,11 @@ function renderHome(host,ctx){
   const d=host.ownerDocument,s=ctx.adapter.getSnapshot(),level=ctx.adapter.getDetailLevel();header(host,ctx,'Area-52','Cognitive state beside the host chat — impact first, machinery on demand.');
   const primary=element(d,'section',{className:'a52-card a52-wave6-home-primary'});
   primary.append(element(d,'span',{className:'a52-eyebrow',text:'Current story / scene'}),element(d,'h2',{text:s.story?.title??s.scene?.title??'Host conversation'}),element(d,'p',{className:'a52-muted',text:s.scene?s.scene.title:'Scene Intelligence is not connected.'}),makeHealthPill(d,{label:`Brain · ${human(s.brain.overall)}`,status:healthToken(s.brain.overall),detail:ctx.brainPulse?.getSnapshot?.().currentFocus??''}));
-  const secondary=['scene','runtime','coprocessor','promptPlan'].map(key=>sourceCard(d,s.wave6.sources[key],()=>inspect(ctx,{kind:'wave6-source-health',id:key,title:s.wave6.sources[key].label,source:s.wave6.sources[key]})));
+  const operatorStatus=ctx.operations?.read?.()??null;
+  const secondary=['scene','runtime','coprocessor','promptPlan'].map(key=>{
+    const source=s.wave6.sources[key],target=operatorStatus?.inspections?.[key]??sourceInspection(key,source,ctx.liveReceiptBinding?.selection?.()??{});
+    return sourceCard(d,source,()=>inspect(ctx,target));
+  });
   const attention=renderAttention(d,s.wave6.attention,ctx);
   const activity=renderActivity(d,ctx.brainPulse?.getSnapshot?.().activity??[]);
   host.append(createComposition(d,{type:WorkspaceComposition.COMPACT,primary,secondary,attention,activity}));
@@ -152,7 +156,11 @@ function forensicsSummary(d,data,source,ctx){
 }
 
 function header(host,ctx,title,subtitle){const d=host.ownerDocument,h=element(d,'div',{className:'a52-product-header'}),t=element(d,'div');t.append(element(d,'h1',{text:title}),element(d,'p',{className:'a52-muted',text:subtitle}));const controls=element(d,'div',{className:'a52-detail-control',attrs:{role:'group','aria-label':'Detail level'}});for(const level of Object.values(ProductDetailLevel)){const b=createButton(d,{label:human(level),scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>{ctx.adapter.setDetailLevel(level);ctx.refresh?.();}});b.setAttribute('aria-pressed',String(ctx.adapter.getDetailLevel()===level));if(ctx.adapter.getDetailLevel()===level)b.classList.add('is-selected');controls.append(b);}h.append(t,controls);host.append(h);}
-function sourceCard(d,source,onInspect){return createProductHealthSurface(d,{source,label:source.label,onInspect,compact:true});}
+function sourceCard(d,source,onInspect){return createProductHealthSurface(d,{source,label:source.label,onInspect,actionLabel:'Inspect details',compact:true});}
+function sourceInspection(id,source,selection={}){
+  const reason=source?.reason??source?.impact??'No selected-turn owner receipt is available.';
+  return{kind:'wave13-producer-inspection',id:'source:'+id,title:(source?.label??id)+' detail',producerId:id,available:false,selection:{...selection},reason,payload:{kind:'UnavailableProducerReceipt',status:'UNAVAILABLE',reason,chatId:selection?.chatId??null,turnId:selection?.turnId??null,generationId:selection?.generationId??null}};
+}
 function renderAttention(d,items,ctx){if(!items.length)return state(d,'No attention required','Connected cognitive surfaces report no operator-impacting issue.');const r=element(d,'div',{className:'a52-stack'});for(const x of items.slice(0,5)){const n=element(d,'article',{className:'a52-notification-summary',dataset:{status:x.status}});n.append(element(d,'strong',{text:x.title}),element(d,'span',{text:x.message}));n.append(createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspect(ctx,{kind:'wave6-attention',id:x.id,title:x.title,payload:x})}));r.append(n);}return r;}
 function renderActivity(d,items){if(!items.length)return state(d,'Quiet','No meaningful cognitive activity to surface.');return list(d,items.slice(0,10).map(x=>`${symbol(x.status)} ${x.meaning??x.message??'Activity updated'}`),'a52-product-activity');}
 function renderAvailability(d,sources){const g=element(d,'div',{className:'a52-product-grid'});for(const [id,source] of Object.entries(sources))g.append(createProductHealthSurface(d,{source,label:source.label??id,compact:true}));return g;}

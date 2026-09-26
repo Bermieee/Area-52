@@ -98,6 +98,12 @@ export function createWave6ProductInterface({
   const releaseWave8Inspectors=registerWave8Inspectors(inspectorRegistry,{cognition,forensics});
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});
+  const inspectionScope=new ResourceScope();
+  inspectionScope.subscribe(signals,'UI_INSPECT_SELECTION_CHANGED',({payload})=>{
+    if(!payload?.object)return;
+    frontFacePresentation.setInspector(true);
+    controller?.scheduleQuickDash?.();
+  });
   const renderWorkspace=(entry,host)=>{
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
@@ -158,7 +164,7 @@ export function createWave6ProductInterface({
     floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
   };
 }
 

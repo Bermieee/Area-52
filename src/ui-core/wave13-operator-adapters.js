@@ -117,7 +117,7 @@ export class Wave13RuntimeReceiptUIAdapter{
           mode:degradedState?ProductDataMode.DEGRADED:ProductDataMode.LIVE,
           health:degradedState?Wave6Health.DEGRADED:working?Wave6Health.WORKING:Wave6Health.READY,
           label:'Runtime',operationalState:degradedState?OperatorProducerState.DEGRADED:working?OperatorProducerState.WORKING:OperatorProducerState.LIVE,
-          impact:raw?(Array.isArray(jobs)?jobs.length:Number(raw?.admittedJobCount??0))+' logical jobs · '+resourceCount+' physical execution resources for the selected turn.':'Runtime lifecycle telemetry is current; no turn-scoped scatter receipt is published.',
+          impact:raw?(Array.isArray(jobs)?jobs.length:Number(raw?.admittedJobCount??0))+' logical jobs · '+resourceCount+' mapped resource identit'+(resourceCount===1?'y':'ies')+' for the selected turn. Scatter mapping alone does not prove physical execution.':'Runtime lifecycle telemetry is current; no turn-scoped scatter receipt is published.',
           reason:degradedState?'Runtime reports fallback, blocked, or recovering work.':'',producer:raw?.kind??'WorkerDirectorSnapshot',revision:raw?.receiptRevision??scheduler?.telemetry?.latestSequence??null,connected:true,selection,freshness:raw?.freshness??'CURRENT',
         }),
         data:{
@@ -541,16 +541,39 @@ export class Wave13OperationalStatusAdapter{
     const registeredIds=new Set(['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning']);
     const registered=stages.filter(x=>registeredIds.has(x.id)&&![OperatorProducerState.UNAVAILABLE,OperatorProducerState.DISCONNECTED].includes(x.state)).length;
     const jobs=scatter?.jobs??[],results=gather?.results??[],admitted=seal?.effectiveAdmittedResultIds??seal?.admittedResultIds??[];
+    const mappedResourceIds=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];
+    const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
+    const physical=coprocessorRead?.data?.physicalExecution??{};
+    const physicalAttempts=Math.max(0,Number(physical.attempts??0)),physicalSucceeded=Math.max(0,Number(physical.succeeded??0)),physicalFailed=Math.max(0,Number(physical.failed??0));
     const learning=generation?.learningReceipt??null,delivery=Boolean(generation?.promptPlan||generation?.contextSeal);
     const pipeline=deepFreeze({
-      registeredProducers:registered,executionReceipt:Boolean(scatter),executedJobs:Array.isArray(jobs)?jobs.length:0,
+      registeredProducers:registered,mappingReceipt:Boolean(scatter),logicalJobsMapped:Array.isArray(jobs)?jobs.length:0,mappedResourceCount:mappedResourceIds.length,mappedResourceIds,
+      executionReceipt:physicalAttempts>0,physicalExecutionAttempts:physicalAttempts,physicalExecutionSucceeded:physicalSucceeded,physicalExecutionFailed:physicalFailed,executedJobs:physicalSucceeded,
       resultReceipt:Boolean(gather),returnedResults:Array.isArray(results)?results.length:0,
       admissionReceipt:Boolean(seal),contextAdmitted:Array.isArray(admitted)?admitted.length:0,
       generationReader:Boolean(fn(this.hostBindings,['readGeneration'])),generationReceipt:Boolean(generation),generationState:generation?.state??null,
       deliveryReceipt:delivery,learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
       hostLifecycle:cloneSafe(hostLifecycle),
     });
-    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,inspection:generationInspectionSummary(generation,selection),waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
+    const inspections=this.#inspections({selection,cognition,generation,stages,coprocessorRead});
+    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,inspections,inspection:generationInspectionSummary(generation,selection),waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
+  }
+  #inspections({selection,cognition,generation,stages,coprocessorRead}={}){
+    const stageById=new Map((stages??[]).map(row=>[row.id,row]));
+    const adapterData=(adapter)=>safeRead(()=>adapter?.read?.(selection)??adapter?.read?.(),null)?.data??null;
+    const data=cognition?.data??{};
+    const values={
+      scene:adapterData(this.adapters.scene),runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
+      choice:data.choice??null,truth:data.truth??null,jev:data.jev??null,gather:data.gather??null,seal:data.seal??null,
+      promptPlan:adapterData(this.adapters.promptPlan),generation:generation??null,learning:generation?.learningReceipt??null,
+      scatter:data.scatter??null,
+    };
+    const out={};
+    for(const [id,payload] of Object.entries(values)){
+      const row=stageById.get(id)??(id==='scatter'?stageById.get('runtime'):null);
+      out[id]=producerInspection(id,row?.label??humanInspectionLabel(id),payload,selection,row?.reason??'No owner receipt was published for the selected turn.');
+    }
+    return deepFreeze(out);
   }
   #cognition(selection){try{return this.adapters.cognition?.read?.(selection)??null;}catch{return null;}}
   #generation(selection){
@@ -958,6 +981,17 @@ function generationInspectionSummary(generation,selection={}){
   });
 }
 
+function humanInspectionLabel(value){return String(value??'Producer').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
+function producerInspection(id,label,payload,selection,reason){
+  const available=payload!=null;
+  const unavailableReason=String(reason??'No owner receipt was published for the selected turn.');
+  const receiptRef=available?(payload.receiptId??payload.sealId??payload.promptPlanId??payload.id??payload.kind??null):null;
+  return deepFreeze({
+    kind:'wave13-producer-inspection',id:'producer:'+id+':'+String(selection?.turnId??'no-turn'),producerId:id,title:label+' detail',
+    available,receiptRef,selection:cloneSafe(selection),reason:available?'Published owner read model / receipt for the selected turn.':unavailableReason,
+    payload:available?cloneSafe(payload):{kind:'UnavailableProducerReceipt',status:'UNAVAILABLE',reason:unavailableReason,chatId:selection?.chatId??null,turnId:selection?.turnId??null,generationId:selection?.generationId??null},
+  });
+}
 function stageFromSource(id,label,source,selection,{readerPresent=false,reason=null}={}){
   if(!source)return stage(id,label,readerPresent?OperatorProducerState.IDLE:OperatorProducerState.UNAVAILABLE,reason??(readerPresent?'No current owner data.':'Producer not connected.'),selection,null,readerPresent?'NO_DATA':'ASSEMBLY_CONTRACT_MISSING');
   const explicit=source.operationalState;if(explicit&&Object.values(OperatorProducerState).includes(explicit))return stage(id,label,explicit,reason??source.impact??source.reason,selection,source.freshness,source.errorCode??null,source);

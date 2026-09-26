@@ -64,6 +64,8 @@ button.a52-card:hover{border-color:var(--a52-border-strong);transform:translateY
 .a52-button:disabled,.a52-icon-button:disabled{cursor:not-allowed;opacity:.48}
 .a52-button[data-variant=primary],.a52-icon-button[data-variant=primary]{border-color:rgba(74,200,255,.58);background:linear-gradient(180deg,rgba(32,155,204,.92),rgba(17,116,158,.92));color:#fff}
 .a52-button[data-variant=quiet],.a52-icon-button[data-variant=quiet]{border-color:transparent;background:transparent;color:var(--a52-muted);box-shadow:none}
+.a52-button[data-variant=inspect],.a52-icon-button[data-variant=inspect]{border-color:rgba(74,200,255,.48);background:rgba(74,200,255,.085);color:var(--a52-text-strong);box-shadow:inset 0 0 0 1px rgba(74,200,255,.04)}
+.a52-button[data-variant=inspect]:hover,.a52-icon-button[data-variant=inspect]:hover{border-color:var(--a52-accent);background:rgba(74,200,255,.16);box-shadow:0 0 0 2px rgba(74,200,255,.08)}
 .a52-button[data-variant=danger],.a52-icon-button[data-variant=danger]{border-color:rgba(255,111,130,.55);background:rgba(255,111,130,.10);color:#ffdce2}
 .a52-button[data-size=sm],.a52-icon-button[data-size=sm]{min-height:28px;padding:.28rem .55rem;font-size:.76rem}
 

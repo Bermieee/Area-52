@@ -700,11 +700,13 @@ function renderSelectedTurnEvidence(d,{snapshot,evidenceJournal,scope,inspect,ad
 
   const planPublished=Boolean(snapshot.promptPlan?.summary?.promptPlanId||pipeline.promptPlanReceipt);
   const prepared=Boolean(pipeline.hostPrepared),observed=Boolean(pipeline.hostInjected||pipeline.deliveryReceipt);
-  section.append(element(d,'h4',{text:'Prompt delivery proof levels'}),element(d,'div',{className:'a52-wave13-delivery-proof'},
+  const deliveryProof=element(d,'div',{className:'a52-wave13-delivery-proof'});
+  deliveryProof.append(
     flowStep(d,'Planned',planPublished?'PromptPlan receipt published':'No PromptPlan receipt'),
     flowStep(d,'Compiled / injected',pipeline.hostDeliveryReceipt?(observed?'Host receipt reports request injection':prepared?'Host receipt reports prepared payload only':'Host receipt exists; compilation/injection state not published'):'No exact host-delivery receipt'),
     flowStep(d,'Host-observed',observed?'Observed at SillyTavern model-request hook':'No host-observed injection evidence')
-  ));
+  );
+  section.append(element(d,'h4',{text:'Prompt delivery proof levels'}),deliveryProof);
 
   const journalStatus=evidenceJournal?.status?.()??null,journalEntries=evidenceJournal?.listEntries?.(selection,{limit:12})??[];
   section.append(element(d,'h4',{text:'Local evidence journal'}),createKeyValue(d,[

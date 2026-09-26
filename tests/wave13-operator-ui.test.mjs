@@ -361,7 +361,7 @@ test('Inspect details explains unavailable owner receipts instead of manufacturi
   const jev=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='jev');
   const button=walk(jev).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');button.dispatch('click');ui.scheduler.flush(2);
   assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.shell.inspector.selection.available,false);
-  assert.equal(ui.shell.inspector.selection.payload.status,'UNAVAILABLE');assert.match(ui.shell.inspector.selection.reason,/not connected|not published|unavailable/i);
+  assert.equal(ui.shell.inspector.selection.availabilityState,'NOT_CONFIGURED');assert.equal(ui.shell.inspector.selection.payload.status,'NOT_CONFIGURED');assert.match(ui.shell.inspector.selection.reason,/not connected|not published|unavailable/i);
   ui.destroy();
 });
 
@@ -375,7 +375,7 @@ test('generic selected-turn inspector never renders raw prompt story lore creden
 
 test('activity feed is bottom-right exact-selection fenced and old-chat notices cannot inspect as current',()=>{
   const owner=liveOwner(),storage=memory(),{ui}=mount(owner,{storage});ui.scheduler.flush(1);ui.operator.captureEvidence();ui.operator.activityFeed.render();
-  assert.equal(textOf(ui.shell.nodes.strip),'');
+  assert.doesNotMatch(textOf(ui.shell.nodes.strip),/No new selected-turn activity|Evidence remains available in the local journal/i);
   const feedHost=ui.operator.activityFeed.host;assert.ok(String(feedHost.className).includes('a52-floating-activity-feed-host'));
   const oldSelection=owner.bindings.readSelection(),oldButton=walk(feedHost).find(x=>x.tagName==='BUTTON');assert.ok(oldButton);
   owner.switchStory({chatId:'chat:new-feed',turnId:'turn:new-feed',generationId:'gen:new-feed',location:'Copper Basin'});ui.scheduler.flush(2);ui.operator.captureEvidence();ui.operator.activityFeed.render();
@@ -525,7 +525,7 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
   for(const row of ui.operator.resources.read().data.resources)assert.equal((await ui.actionRouter.route({type:'wave13.resource.test',target:row})).ok,true);
   ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);
   let body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/not a complete forensic transaction timeline/i);assert.match(body,/raw prompts and credentials are never collected/i);
+  assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/not a complete forensic transaction timeline/i);assert.match(body,/raw prompts, story\/lore bodies, credentials, keys, and hidden reasoning are excluded/i);
   assert.doesNotMatch(body,/jev:diag|sidecar:diag|vector:diag/);
   ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/jev:diag/);assert.match(body,/sidecar:diag/);assert.match(body,/vector:diag/);

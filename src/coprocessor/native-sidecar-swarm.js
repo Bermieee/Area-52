@@ -365,20 +365,20 @@ export class NativeSidecarSwarm{
     }finally{clearTimeout(timer);detach();}
   }
 
-  #finish(sourceCheckpoint,{records,jevReceipt,checkpoint,resumeStatus}){
+  #finish(sourceCheckpoint,{records,jevReceipt,jevObservation=null,checkpoint,resumeStatus}){
     const providerExecutions=records.map(record=>({
       taskId:record.taskId,choiceOptionId:record.optionId,executionResourceId:record.resourceId,providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,
-      startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,resultId:record.result?.resultId??null,
+      startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,resultId:record.resultId??record.result?.resultId??null,
       failureCode:record.failureCode,fallbackUsed:record.fallbackUsed,
     }));
     const resultRoutes=records.map(record=>({taskId:record.taskId,late:record.late,freshness:record.stale?'STALE':record.invalid?'INVALID':'FRESH'}));
-    const jevObservation=jevReceipt?{
+    const observedJev=jevObservation??(jevReceipt?{
       ran:!['JEV_SKIPPED','JEV_UNAVAILABLE'].includes(jevReceipt.serviceStatus),status:jevReceipt.serviceStatus,
       abstained:jevReceipt.abstained,unresolved:jevReceipt.outcome==='UNRESOLVED',late:Boolean(jevReceipt.admission?.late),stale:jevReceipt.outcome==='STALE',
       providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null,decisionRef:jevReceipt.receiptId??jevReceipt.decisionId??null,
       latencyMs:jevReceipt.latencyMetadata?.totalLatencyMs??null,
-    }:null;
-    const executionTrace=createCoprocessorChoiceExecutionTrace({proposal:sourceCheckpoint.proposal,providerExecutions,resultRoutes,jevObservation,telemetry:this.telemetry});
+    }:null);
+    const executionTrace=createCoprocessorChoiceExecutionTrace({proposal:sourceCheckpoint.proposal,providerExecutions,swarmTraces:records,resultRoutes,jevObservation:observedJev,telemetry:this.telemetry});
     const choiceContribution=toCoreCognitiveChoiceContribution({proposal:sourceCheckpoint.proposal,executionTrace});
     const readyResults=records.filter(record=>record.state===NativeSwarmResultState.READY_FOR_CORE).map(record=>record.result);
     const contribution=deepFreeze({
@@ -391,11 +391,12 @@ export class NativeSidecarSwarm{
     const summary=deepFreeze({
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,at:this.now(),resumeStatus,
       counts:countStates(records),assignments:records.map(publicRecord),
-      jev:jevReceipt?{serviceStatus:jevReceipt.serviceStatus,outcome:jevReceipt.outcome,abstained:Boolean(jevReceipt.abstained),providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null}:null,
+      jev:jevReceipt?{serviceStatus:jevReceipt.serviceStatus,outcome:jevReceipt.outcome,abstained:Boolean(jevReceipt.abstained),providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null}
+        :observedJev?{serviceStatus:observedJev.status,outcome:observedJev.unresolved?'UNRESOLVED':null,abstained:Boolean(observedJev.abstained),providerProfileId:observedJev.providerProfileId??null}:null,
       nextCheckpointId:checkpoint?.checkpointId??null,
     });
     this.#remember(summary);
-    if(checkpoint)emitTelemetry(this.telemetry,TelemetryEvent.SWARM_CHECKPOINTED,{checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,pendingTaskCount:checkpoint.pendingTasks.length});
+    if(checkpoint)emitTelemetry(this.telemetry,TelemetryEvent.SWARM_CHECKPOINTED,{...normalizeSwarmSelection(checkpoint.selection??checkpoint),checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:checkpoint.pendingTasks.length});
     return Object.freeze({kind:'NativeSidecarSwarmTurnResult',contribution,checkpoint,readModel:summary});
   }
 

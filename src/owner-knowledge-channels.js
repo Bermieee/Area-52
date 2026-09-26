@@ -138,8 +138,14 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
             artifactRevision:source?.selectedRepresentation?.representationRevision??1,
             sourceRevisionRefs:[sourceRevisionId],
             retrievalIntentIds:[intent.intentId],
-            rankSignals:{ownerLore:1},
-            normalizedRank:1,
+            rankSignals:{
+              ...(clone(group?.nomination?.rankSignals??{})),
+              ownerLore:1,
+              ownerLoreRankAuthority:false,
+            },
+            normalizedRank:Number.isFinite(Number(group?.nomination?.normalizedRank))
+              ? Math.max(0,Math.min(1,Number(group.nomination.normalizedRank)))
+              : null,
             temporalHints:[{status:CandidateTruthStatus.CURRENT}],
             authorityClass:'SOURCE_CANON',
             truthStatusHint:CandidateTruthStatus.CURRENT,
@@ -160,6 +166,10 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
               }:null,
               authorityDecision:'ELIGIBLE',
               authorityReason:'AUTHORIZED_CURRENT_RETRIEVAL_MATCH',
+              retrievalRankAuthority:false,
+              producerNormalizedRank:Number.isFinite(Number(group?.nomination?.normalizedRank))
+                ? Math.max(0,Math.min(1,Number(group.nomination.normalizedRank)))
+                : null,
             },
             worldRevision:context.worldRevision??null,
             sceneRevision:context.sceneRevision??null,

@@ -1,0 +1,59 @@
+name: Worker 4 Scene Lore Handoff
+
+on:
+  push:
+    branches: [Development-Scene-Lore-Handoff]
+    paths:
+      - 'src/scene-lore-handoff.js'
+      - 'src/deployment/brain.js'
+      - 'tests/worker4-scene-lore-handoff.test.mjs'
+      - '.github/workflows/scene-lore-handoff.yml'
+      - 'docs/WORKER4_SCENE_LORE_HANDOFF.md'
+  pull_request:
+    branches: [Development-Scene-Scanner]
+    paths:
+      - 'src/scene-lore-handoff.js'
+      - 'src/deployment/brain.js'
+      - 'tests/worker4-scene-lore-handoff.test.mjs'
+      - '.github/workflows/scene-lore-handoff.yml'
+      - 'docs/WORKER4_SCENE_LORE_HANDOFF.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Scene to Lore focused handoff
+        run: node --test tests/worker4-scene-lore-handoff.test.mjs
+      - name: Preserve Scene owner receipt and Core integration
+        run: >
+          node --test
+          tests/scene-ft002-host-e2e.mjs
+          tests/scene-core-integration-wave10.mjs
+      - name: Preserve Lore scoped retrieval
+        run: >
+          node --test
+          tests/worker4-lore-readiness.test.mjs
+          tests/lore-wave5.mjs
+      - name: Browser-facing imports
+        run: node -e "globalThis.Buffer=undefined; Promise.all([import('./src/scene-lore-handoff.js'),import('./src/deployment/brain.js')]).then(()=>console.log('SCENE LORE HANDOFF IMPORT PASS'))"
+      - name: Changed-surface syntax
+        run: |
+          node --check src/scene-lore-handoff.js
+          node --check src/deployment/brain.js
+          node --check tests/worker4-scene-lore-handoff.test.mjs

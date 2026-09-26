@@ -61,6 +61,16 @@ Missing stages remain explicit. Rejection, stale, and late reasons are represent
 
 The installed session remains auto-started. Functional SillyTavern listeners now record their own narrative-event metadata for overlapping events, so the session does not register a second observer for the same event. This preserves the #182 narrative feed while avoiding duplicate host listener counts and duplicate lifecycle handling.
 
+## Demo connection lock persistence
+
+The Connections workspace now persists one non-secret saved lock per optional role: **Jev**, **Sidecar**, and **Vectoring**. Once Worker 2 accepts/configures a resource, UI.Core stores only a whitelisted profile: role/resource identity, display name, transport kind, safe endpoint, selected model, capabilities, provider/profile/worker IDs, concurrency, locality, and lock/connection metadata.
+
+On a fresh UI mount, saved profiles are rehydrated into Worker 2 as `CONFIGURED` resources when the owner inventory is empty. The UI then shows **SAVED LOCK** and preserves the endpoint/model/capability information instead of requiring the operator to re-enter it after every demo reload.
+
+Provider credentials are deliberately excluded. Worker 2 publishes `ResourceCredentialStorage.SESSION_MEMORY_ONLY`, so API keys/tokens are never serialized into UI state. An authenticated provider may therefore require only its session credential to be re-entered/requalified after a full reload; the rest of the connection profile remains saved.
+
+The operator can remove a saved lock without pretending the current owner record was mutated: **Forget saved lock** stops future persistence for that role during the current runtime, while the existing Worker 2 resource remains configured until the runtime reloads.
+
 ## Validation status
 
 Code/host-event tests can establish identity fencing, bounded reads, unavailable-producer behavior, regeneration containment, stale/late containment, and listener topology. They cannot establish a real SillyTavern operator pass.

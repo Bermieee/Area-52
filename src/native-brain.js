@@ -495,6 +495,8 @@ export class Area52NativeBrain{
   contextRetirementContract(){return contextRetirementContract();}
   promptDeliveryIntegrationContract(){return this.core.delivery.integrationContract();}
   attachObservedHostPromptEvidence(receipt,evidence={}){return this.core.delivery.attachObservedHostEvidence(receipt,evidence);}
+  identityReferences(entityIds=[],options={}){return this.core.entityIdentityReferences(entityIds,options);}
+  temporalReferences(options={}){return this.core.temporalStateReferences(options);}
 
   readTurn(turnId){const row=this.turns.get(String(turnId));return row?clone(row):null;}
   currentWorldModel(){return this.core.currentWorldModel();}
@@ -546,6 +548,8 @@ export class Area52NativeBrain{
       return{kind:'NativeObservationReceipt',status:'REJECTED',reason:'NARRATIVE_OBSERVATION_AUTHORITY_UNSUPPORTED',authorityClass:authority,canonicalMutation:false};
     }
     const subjectId=req(input.subjectId,'observation.subjectId'),predicate=req(input.predicate,'observation.predicate');
+    const explicitIdentityIds=[subjectId,...(typeof input.value==='string'?[input.value]:[])].filter(id=>Boolean(this.core.entities.get(id)));
+    const identityRevisionRefs=this.core.entityIdentityReferences(explicitIdentityIds).references.map(row=>row.revisionRef);
     const temporalKind=observationTemporalKind(input.temporalKind),at=finite(input.at,turn.sequence);
     const claimId='native-claim:'+stableHash({sourceRevisionId:experience.sourceRevisionId,index,subjectId,predicate,value:input.value,at,temporalKind},{length:24});
     const provenance=createProvenance({
@@ -557,7 +561,7 @@ export class Area52NativeBrain{
       id:claimId,subjectId,predicate,value:clone(input.value),
       temporal:{kind:temporalKind,validFrom:at,validUntil:null},
       authorityClass:authority,confidence:Number(input.confidence??1),status:statusForTemporal(temporalKind),
-      provenance,owner:'WORLD_STATE',claimType:input.claimType??'FACT',slotPolicy:input.slotPolicy??'SINGLE',
+      provenance,owner:'WORLD_STATE',stableIdentity:this.core.entities.get(subjectId)?subjectId:null,identityRevisionRefs,claimType:input.claimType??'FACT',slotPolicy:input.slotPolicy??'SINGLE',
       explicitness:'OBSERVED_POST_TURN',evidenceTime:at,
     });
     const proposal=createMutationProposal({

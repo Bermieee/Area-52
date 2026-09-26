@@ -99,7 +99,7 @@ test('Worker 1 #263 chat switch and regeneration fences do not cross-fill select
 });
 
 test('Worker 1 #264 provider chat rendering maps semantic context to supported roles and preserves Seal identity',()=>{
-  const seal=new GenerationContextSeal(),sealed=seal.seal({turnId:'turn:role',correlationId:'corr:role',worldRevision:1,sourceRevisionIds:['src:r1'],packet:{current:[{id:'fact:1',text:'Fact',sourceRevisionIds:['src:r1']}],historical:[],unresolved:[],activeThreads:[],relevantLore:[],episodicMemory:[],dependencies:['src:r1']}});
+  const seal=new GenerationContextSeal(),sealed=seal.seal({turnId:'turn:role',correlationId:'corr:role',worldRevision:1,sourceRevisionIds:['src:r1'],packet:{id:'packet:role',current:[{id:'fact:1',text:'Fact',sourceRevisionIds:['src:r1']}],historical:[],unresolved:[],activeThreads:[],relevantLore:[],episodicMemory:[],dependencies:['src:r1']}});
   const delivery=new ContextDeliveryEngine().deliver({sealedPacket:sealed.packet,sealReceipt:sealed.receipt,generationId:'gen:role',turnId:'turn:role',budgetTokens:1024,userInput:'Continue',providerId:'OpenRouter'});
   assert.equal(delivery.ok,true);
   assert.ok(delivery.rendered.messages.every(message=>['system','user','assistant'].includes(message.role)));

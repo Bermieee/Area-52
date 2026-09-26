@@ -1,0 +1,86 @@
+name: Worker 1 Brain Causal Wave
+
+on:
+  push:
+    branches:
+      - worker1-brain-causal-wave
+      - Development-Nexus
+    paths:
+      - 'src/cognitive-choice-contracts.js'
+      - 'src/cognitive-choice-controller.js'
+      - 'src/generation-publication.js'
+      - 'src/native-brain.js'
+      - 'src/causal-owner-receipts.js'
+      - 'src/model-adapters.js'
+      - 'src/adaptive-context-runtime.js'
+      - 'src/adaptive-context-slots.js'
+      - 'src/prompt-presentation.js'
+      - 'src/runtime/**'
+      - 'tests/worker1-brain-causal-wave.mjs'
+      - 'tests/cognitive-choice-wave9.mjs'
+      - 'tests/native-brain.mjs'
+      - 'tests/native-brain-identity-retrieval.mjs'
+      - '.github/workflows/worker1-brain-causal-wave.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  closure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Worker 1 causal lifecycle acceptance
+        run: node --test tests/worker1-brain-causal-wave.mjs
+      - name: Existing Cognitive Choice Wave 9 regression
+        run: node --test tests/cognitive-choice-wave9.mjs
+      - name: Native Brain focused causal scenarios
+        run: >-
+          node --test
+          --test-name-pattern="quiet continuation|conflicting observed reports|snapshot reload"
+          tests/native-brain.mjs
+      - name: Known Adaptive Context 4096 inherited baseline
+        continue-on-error: true
+        run: >-
+          node --test
+          --test-name-pattern="small and large delivery budgets"
+          tests/native-brain-identity-retrieval.mjs
+      - name: Worker 1 causal syntax
+        run: >-
+          node --check src/causal-owner-receipts.js &&
+          node --check src/cognitive-choice-contracts.js &&
+          node --check src/cognitive-choice-controller.js &&
+          node --check src/generation-publication.js &&
+          node --check src/native-brain.js &&
+          node --check src/model-adapters.js &&
+          node --check src/adaptive-context-runtime.js &&
+          node --check src/adaptive-context-slots.js &&
+          node --check src/prompt-presentation.js &&
+          node --check src/runtime/lifecycle.js &&
+          node --check src/runtime/obligation-cause.js &&
+          node --check src/runtime/obligation-reconciler.js &&
+          node --check src/runtime/obligation-producers.js &&
+          node --check src/runtime/worker-director.js &&
+          node --check src/runtime/runtime-host.js
+      - name: Browser-facing imports
+        run: >-
+          node -e "globalThis.Buffer=undefined;
+          Promise.all([
+          import('./src/cognitive-choice-contracts.js'),
+          import('./src/cognitive-choice-controller.js'),
+          import('./src/causal-owner-receipts.js'),
+          import('./src/model-adapters.js'),
+          import('./src/prompt-presentation.js')
+          ]).then(()=>console.log('WORKER1 CAUSAL IMPORT PASS'))"

@@ -154,7 +154,7 @@ export class NativeGraphNeighborhoodRetriever{
         authorityClass:authority,truthStatusHint:temporal,provenance:uniq(edge.provenanceRefs).map(ref=>({ref})),
         evidenceRefs:uniq([...(edge.evidenceRefs??[]),knowledgeEvidenceId]),dependencyRevisions:edge.dependencyRevisionRefs,
         freshness:CandidateFreshness.FRESH,representationRef:edge.representationRef??edge.edgeId,representationRevision:edge.representationRevision??edge.artifactRevision??1,
-        representationText:edgeText(edge),metadata:{knowledgeEvidenceId,graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,identityResolution:clone(edge.identityResolution)},
+        representationText:edgeText(edge),metadata:{knowledgeEvidenceId,graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,identityResolution:clone(edge.identityResolution),legacyRetrievalIntent:'graph'},
         worldRevision:null,sceneRevision:null,
       }));
     }
@@ -192,10 +192,17 @@ export class NativeGraphNeighborhoodRetriever{
   #temporalEdges(request){
     return this.temporalGraph.allClaims().map(claim=>{
       const from=this.#normalizeRef(claim.subjectId,{providerId:'CORE_TEMPORAL_STATE'});
-      const to=this.#normalizeRef(typeof claim.value==='string'?claim.value:{providerId:'CORE_TEMPORAL_STATE',sourceEntityId:'value:'+stableHash(claim.value,{length:12}),label:JSON.stringify(claim.value)},{providerId:'CORE_TEMPORAL_STATE'});
+      const rawTo=typeof claim.value==='string'?claim.value:null;
+      const to=this.#normalizeRef(rawTo??{providerId:'CORE_TEMPORAL_STATE',sourceEntityId:'value:'+stableHash(claim.value,{length:12}),label:JSON.stringify(claim.value)},{providerId:'CORE_TEMPORAL_STATE'});
+      // Temporal State Graph subject/value IDs are already Core-owned semantic identities.
+      // The registry may canonicalize them when an explicit mapping exists, but an
+      // unresolved registry lookup must not rewrite a native Core ID into a provider-local
+      // namespace or it becomes unreachable from the original query anchor.
+      const fromEntityId=from.resolved?from.entityId:String(claim.subjectId);
+      const toEntityId=to.resolved?to.entityId:(rawTo!=null?String(rawTo):to.entityId);
       return{
         edgeId:'temporal:'+claim.id,providerId:'CORE_TEMPORAL_STATE',owner:'TEMPORAL_STATE_GRAPH',sourceKind:'TEMPORAL_STATE',
-        fromEntityId:from.entityId,toEntityId:to.entityId,edgeMeaning:claim.predicate,temporalStatus:claim.status??KnowledgeStatus.UNRESOLVED,
+        fromEntityId,toEntityId,edgeMeaning:claim.predicate,temporalStatus:claim.status??KnowledgeStatus.UNRESOLVED,
         temporal:clone(claim.temporal),authorityClass:claim.authorityClass,sourceRevisionRefs:uniq(claim.provenance?.sourceRevisionIds??[]),
         dependencyRevisionRefs:uniq(claim.provenance?.invalidators??[]),provenanceRefs:uniq([claim.provenance?.id,...(claim.provenance?.sourceRevisionIds??[])]),
         evidenceRefs:uniq([claim.id,...(claim.provenance?.evidenceIds??[])]),claimRefs:[claim.id],eventRefs:[],relationshipRefs:[],
@@ -254,7 +261,12 @@ export class NativeGraphNeighborhoodRetriever{
   #normalizeRef(ref,options){return this.entityRegistry?.normalizeRef?.(ref,options)??{entityId:typeof ref==='string'?ref:String(ref?.entityId??ref?.id??ref?.ref??''),resolved:false,state:'IDENTITY_REGISTRY_UNAVAILABLE'};}
 
   #walk(edges,request,started){
-    const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>!allowed.size||allowed.has(edge.edgeMeaning)).filter(edge=>request.intentKind==='HISTORICAL'||request.intentKind==='TEMPORAL'||currentish.has(status(edge.temporalStatus)));
+    // Retrieval may surface historical neighbors as support even for a CURRENT
+    // question; Truth Gate owns whether they are usable as current truth. To keep
+    // stale topology from widening a current traversal, historical edges can be
+    // selected when adjacent but only CURRENT/TEMPORAL traversals may expand
+    // through them.
+    const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>!allowed.size||allowed.has(edge.edgeMeaning));
     const adjacency=new Map();
     for(const edge of edgeRows){
       for(const id of [edge.fromEntityId,edge.toEntityId]){const rows=adjacency.get(id)??[];rows.push(edge);adjacency.set(id,rows);}
@@ -263,7 +275,10 @@ export class NativeGraphNeighborhoodRetriever{
     const queue=admittedAnchors.map(id=>({entityId:id,depth:0,path:[]})),visited=new Set(admittedAnchors),selected=[],seenEdges=new Set();
     let examinedEdgeCount=0,boundedEdges=0,boundedNodes=Math.max(0,request.anchorEntityIds.length-admittedAnchors.length),boundedCandidates=0;
     while(queue.length){
-      if(now()-started>=request.latencyBudgetMs)break;
+      // Once edges have been admitted, traversal is bounded deterministically by
+      // maxDepth/maxNodes/maxEdges/maxCandidates. Do not discard already-admitted
+      // native evidence because wall-clock time was consumed by optional providers
+      // or runner scheduling before the walk began.
       const node=queue.shift();if(node.depth>=request.maxDepth)continue;
       for(const edge of adjacency.get(node.entityId)??[]){
         if(examinedEdgeCount>=request.maxEdges){boundedEdges++;queue.length=0;break;}
@@ -273,7 +288,9 @@ export class NativeGraphNeighborhoodRetriever{
         const step={providerId:edge.providerId,owner:edge.owner,edgeId:edge.edgeId,edgeMeaning:edge.edgeMeaning,fromEntityId:node.entityId,toEntityId:next,temporalStatus:status(edge.temporalStatus)};
         const path=[...node.path,step],distance=node.depth+1;
         if(selected.length<request.maxCandidates)selected.push({edge,distance,path});else boundedCandidates++;
-        if(distance<request.maxDepth&&!visited.has(next)){
+        const edgeStatus=status(edge.temporalStatus);
+        const mayExpand=request.intentKind==='HISTORICAL'||request.intentKind==='TEMPORAL'||currentish.has(edgeStatus);
+        if(mayExpand&&distance<request.maxDepth&&!visited.has(next)){
           if(visited.size>=request.maxNodes){boundedNodes++;continue;}
           visited.add(next);queue.push({entityId:next,depth:distance,path});
         }

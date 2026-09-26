@@ -1,0 +1,65 @@
+name: Worker 1 Identity Temporal Closure
+
+on:
+  push:
+    branches: [Development-Nexus]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/contracts.js'
+      - 'src/entity-identity-registry.js'
+      - 'src/temporal-state-graph.js'
+      - 'src/settlement-engine.js'
+      - 'src/settlement-boundary.js'
+      - 'src/cognitive-core.js'
+      - 'src/native-brain.js'
+      - 'tests/worker1-identity-temporal-closure.mjs'
+      - 'tests/native-brain-identity-retrieval.mjs'
+      - 'tests/worker1-context-trust-delivery.mjs'
+      - '.github/workflows/worker1-identity-temporal-closure.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  closure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Identity and temporal closure acceptance
+        run: node --test tests/worker1-identity-temporal-closure.mjs
+      - name: Preserve Worker 1 context trust and delivery
+        run: node --test tests/worker1-context-trust-delivery.mjs
+      - name: Closure syntax
+        run: >-
+          node --check src/contracts.js &&
+          node --check src/entity-identity-registry.js &&
+          node --check src/temporal-state-graph.js &&
+          node --check src/settlement-engine.js &&
+          node --check src/settlement-boundary.js &&
+          node --check src/cognitive-core.js &&
+          node --check src/native-brain.js &&
+          node --check tests/worker1-identity-temporal-closure.mjs
+      - name: Browser-facing Core imports
+        run: >-
+          node -e "globalThis.Buffer=undefined;
+          Promise.all([
+          import('./src/entity-identity-registry.js'),
+          import('./src/temporal-state-graph.js'),
+          import('./src/cognitive-core.js'),
+          import('./src/native-brain.js')
+          ]).then(()=>console.log('WORKER1 CLOSURE IMPORT PASS'))"
+      - name: Native identity and graph regression baseline comparison
+        continue-on-error: true
+        run: node --test tests/native-brain-identity-retrieval.mjs

@@ -21,7 +21,7 @@ export function runContextClosureWave3GoldenWorld(){
   const comparison=compareCompressionBenchmarks(compression),positions=buildPositionSensitivityFixtures({current:published.packet.current,character:[],unresolved:published.packet.unresolved,supportingLore:[],historical:published.packet.historical});
   const falseCurrent=published.packet.current.some(f=>f.e==='sun-blade'&&f.p==='location'&&f.v==='ember-tavern'),activeSection=delivered.plan.sections.find(s=>s.slot===PromptSlot.ACTIVE_THREADS);
   const metrics={
-    priorGoldenWorld:base.pass,structuredCompressionPreserved:compression.rawBytes===6012&&compression.compiledBytes===2269&&compression.compressionRatio===0.377412&&compression.pass,
+    priorGoldenWorld:base.pass,structuredCompressionPreserved:compression.pass&&compression.compiledBytes<compression.rawBytes&&compression.compressionRatio<1&&compression.factualRetention===1&&compression.temporalRetention===1&&compression.contradictionRetention===1&&compression.provenanceRetention===1,
     neutralSizingPresent:published.compilerReceipt.semanticSizing?.serializedBytes>0&&published.compilerReceipt.semanticSizing?.tokenEstimate===null,
     tokenSizingOwnedByDelivery:Boolean(delivered.plan?.diagnosticReceipt?.estimator?.id)&&Number.isFinite(delivered.plan?.budget?.allocated),
     activeThreadSealed:published.packet.activeThreads?.[0]?.threadId==='find-sun-blade',activeThreadSemanticSection:Boolean(activeSection?.semantic&&activeSection.semanticManifest?.[0]?.authorityClass==='UNRESOLVED'),

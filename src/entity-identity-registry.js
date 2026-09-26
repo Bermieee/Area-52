@@ -20,6 +20,15 @@ export const IdentityResolutionState=Object.freeze({
 
 function normalizedType(value){const x=clean(value||'UNKNOWN').toUpperCase();return x||'UNKNOWN';}
 function compatibleDimension(a,b){return !a||!b||a==='UNKNOWN'||b==='UNKNOWN'||String(a)===String(b);}
+const identityRevisionRef=(entityId,revision)=>String(entityId)+'@'+Math.max(1,Number(revision)||1);
+function aliasTemporalMatch(row,{temporalMode='CURRENT',at=null}={}){
+  const mode=String(temporalMode??'CURRENT').toUpperCase();
+  if(mode!=='HISTORICAL')return currentAlias(row);
+  const applicability=row?.temporalApplicability??null;
+  if(at==null||!applicability)return true;
+  const point=Number(at),from=applicability.validFrom==null?-Infinity:Number(applicability.validFrom),until=applicability.validUntil==null?Infinity:Number(applicability.validUntil);
+  return Number.isFinite(point)&&point>=from&&point<=until;
+}
 
 export class NativeEntityIdentityRegistry{
   constructor({snapshot=null,maxProposals=2048,maxHistory=4096}={}){
@@ -143,13 +152,13 @@ export class NativeEntityIdentityRegistry{
     return clone(receipt);
   }
 
-  candidateEntities({label,worldId=null,entityType='UNKNOWN',includeRetiredAliases=false}={}){
+  candidateEntities({label,worldId=null,entityType='UNKNOWN',includeRetiredAliases=false,temporalMode='CURRENT',at=null}={}){
     const key=labelKey(label);if(!key)return[];
-    const type=normalizedType(entityType),out=[];
+    const type=normalizedType(entityType),out=[],historical=String(temporalMode??'CURRENT').toUpperCase()==='HISTORICAL';
     for(const entity of this.entities.values()){
       if(!compatibleDimension(entity.worldId,worldId)||!compatibleDimension(entity.entityType,type))continue;
-      const canonical=labelKey(entity.canonicalLabel)===key;
-      const aliases=(entity.aliases??[]).filter(row=>includeRetiredAliases||currentAlias(row)).filter(row=>labelKey(row.alias)===key);
+      const canonical=!historical&&labelKey(entity.canonicalLabel)===key;
+      const aliases=(entity.aliases??[]).filter(row=>historical?aliasTemporalMatch(row,{temporalMode:'HISTORICAL',at}):(includeRetiredAliases||currentAlias(row))).filter(row=>labelKey(row.alias)===key);
       if(canonical||aliases.length)out.push({entityId:entity.entityId,canonicalLabel:entity.canonicalLabel,entityType:entity.entityType,worldId:entity.worldId,canonicalLabelMatch:canonical,aliasMatches:clone(aliases)});
     }
     return out.sort((a,b)=>a.entityId.localeCompare(b.entityId));
@@ -161,11 +170,12 @@ export class NativeEntityIdentityRegistry{
     const entity=this.entities.get(link.entityId);return entity?{kind:'EntityResolution',state:'RESOLVED_SOURCE_LINK',entity:clone(entity),link:clone(link)}:null;
   }
 
-  resolveMention({providerId=null,sourceEntityId=null,label=null,worldId=null,entityType='UNKNOWN'}={}){
-    if(providerId&&sourceEntityId){const direct=this.resolveSource({providerId,sourceEntityId});if(direct)return direct;}
-    const candidates=this.candidateEntities({label,worldId,entityType});
+  resolveMention({providerId=null,sourceEntityId=null,label=null,worldId=null,entityType='UNKNOWN',temporalMode='CURRENT',at=null}={}){
+    const historical=String(temporalMode??'CURRENT').toUpperCase()==='HISTORICAL';
+    if(!historical&&providerId&&sourceEntityId){const direct=this.resolveSource({providerId,sourceEntityId});if(direct)return direct;}
+    const candidates=this.candidateEntities({label,worldId,entityType,temporalMode,at});
     const aliasBacked=candidates.filter(row=>row.aliasMatches.length);
-    if(candidates.length===1&&aliasBacked.length===1)return{kind:'EntityResolution',state:'RESOLVED_ACCEPTED_ALIAS',entity:clone(this.entities.get(aliasBacked[0].entityId)),candidateEntityIds:[aliasBacked[0].entityId]};
+    if(candidates.length===1&&aliasBacked.length===1)return{kind:'EntityResolution',state:historical?'RESOLVED_HISTORICAL_ALIAS':'RESOLVED_ACCEPTED_ALIAS',entity:clone(this.entities.get(aliasBacked[0].entityId)),candidateEntityIds:[aliasBacked[0].entityId],aliasMatches:clone(aliasBacked[0].aliasMatches)};
     return{kind:'EntityResolution',state:candidates.length?'UNRESOLVED':'NOT_FOUND',entity:null,candidateEntityIds:candidates.map(x=>x.entityId)};
   }
 
@@ -191,23 +201,27 @@ export class NativeEntityIdentityRegistry{
   }
 
   invalidateSourceRevision(sourceRevisionId,{reason='SOURCE_REVISION_INVALIDATED'}={}){
-    const ref=req(sourceRevisionId,'sourceRevisionId'),affectedEntityIds=[],retiredAliases=[],retiredLinks=[];
+    const ref=req(sourceRevisionId,'sourceRevisionId'),affectedEntityIds=[],retiredAliases=[],retiredLinks=[],invalidatedIdentityRevisionRefs=[];
     for(const entity of this.entities.values()){
-      let changed=false;
+      let changed=false;const priorIdentityRevisionRef=identityRevisionRef(entity.entityId,entity.revision);
       for(const alias of entity.aliases??[]){
         if(currentAlias(alias)&&(alias.sourceRevisionRefs??[]).includes(ref)){alias.current=false;alias.status='INVALIDATED';alias.invalidatedBy=ref;alias.invalidationReason=reason;retiredAliases.push(alias.alias);changed=true;}
       }
       for(const link of entity.sourceLinks??[]){
         if(link.current!==false&&(link.sourceRevisionRefs??[]).includes(ref)){link.current=false;link.status='INVALIDATED';link.invalidatedBy=ref;link.invalidationReason=reason;this.sourceLinks.delete(sourceKey(link.providerId,link.sourceEntityId));retiredLinks.push(link.providerId+'|'+link.sourceEntityId);changed=true;}
       }
-      if(changed){entity.revision+=1;entity.updatedSequence=++this.sequence;affectedEntityIds.push(entity.entityId);}
+      if(changed){invalidatedIdentityRevisionRefs.push(priorIdentityRevisionRef);entity.revision+=1;entity.updatedSequence=++this.sequence;affectedEntityIds.push(entity.entityId);}
     }
     const invalidatableProposalStates=new Set([IdentityResolutionState.PROPOSED,IdentityResolutionState.DEFERRED,IdentityResolutionState.UNRESOLVED]);
     for(const proposal of this.proposals.values()){
       if(invalidatableProposalStates.has(proposal.state)&&(proposal.sourceRevisionRefs??[]).includes(ref))this.proposals.set(proposal.proposalId,{...proposal,state:IdentityResolutionState.INVALIDATED,invalidationReason:reason});
     }
-    return{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:ref,affectedEntityIds:uniq(affectedEntityIds),retiredAliases:uniq(retiredAliases),retiredLinks:uniq(retiredLinks),historyPreserved:true,unrelatedIdentityMutation:false};
+    return{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:ref,affectedEntityIds:uniq(affectedEntityIds),retiredAliases:uniq(retiredAliases),retiredLinks:uniq(retiredLinks),invalidatedIdentityRevisionRefs:uniq(invalidatedIdentityRevisionRefs),currentIdentityRevisionRefs:uniq(affectedEntityIds.map(id=>{const row=this.entities.get(id);return row?identityRevisionRef(id,row.revision):null;})),historyPreserved:true,unrelatedIdentityMutation:false};
   }
+
+  identityReference(entityId){const entity=this.entities.get(String(entityId));return entity?{kind:'EntityIdentityReference',entityId:entity.entityId,revision:entity.revision,revisionRef:identityRevisionRef(entity.entityId,entity.revision),status:entity.status,entityType:entity.entityType,worldId:entity.worldId,authorityOrigin:entity.authorityOrigin,readOnly:true}:null;}
+  isCurrentRevisionRef(ref){const value=String(ref??'');for(const entity of this.entities.values())if(identityRevisionRef(entity.entityId,entity.revision)===value)return true;return false;}
+  readReferences(entityIds=[],{limit=128}={}){const max=Math.max(1,Math.min(512,Number(limit)||128)),wanted=new Set((entityIds??[]).filter(Boolean).map(String));const rows=[];for(const entity of this.entities.values()){if(wanted.size&&!wanted.has(entity.entityId))continue;rows.push(this.identityReference(entity.entityId));if(rows.length>=max)break;}return{kind:'EntityIdentityReferenceSet',contractVersion:'1.0.0',references:rows.filter(Boolean),authorityGranted:false,mutationAuthority:false,settlementAuthority:false};}
 
   contract(){
     return{
@@ -218,7 +232,8 @@ export class NativeEntityIdentityRegistry{
       rules:{
         proposalMutation:false,modelMergeAuthority:false,retrievalMergeAuthority:false,graphMergeAuthority:false,
         graphProximityMaySettleIdentity:false,confidenceMaySettleIdentity:false,canonicalMergeSplitRequiresOwnerSettlement:true,
-        sourceRevisionInvalidatesOnlyDependentAssertions:true,historicalAliasPreserved:true,aliasResolutionRequiresUniqueCandidate:true,
+        sourceRevisionInvalidatesOnlyDependentAssertions:true,historicalAliasPreserved:true,historicalAliasResolutionExplicit:true,aliasResolutionRequiresUniqueCandidate:true,
+        stableRevisionReferences:true,revisionReferencesReadOnly:true,
       },
     };
   }
@@ -266,13 +281,13 @@ export class NativeEntityIdentityRegistry{
     const alias=req(input.alias,'alias'),sourceRevisionRefs=uniq(input.sourceRevisionRefs),provenanceRefs=uniq(input.provenanceRefs);
     const duplicate=(entity.aliases??[]).find(row=>currentAlias(row)&&labelKey(row.alias)===labelKey(alias)&&String(row.providerId??'')===String(input.providerId??''));
     if(duplicate)return duplicate;
-    const row={kind:'AliasCandidate',alias,entityId:entity.entityId,current:true,status:'CURRENT',authorityOrigin:String(input.authorityOrigin??'OWNER_EXPLICIT'),providerId:input.providerId??null,sourceEntityId:input.sourceEntityId??null,sourceRevisionRefs,provenanceRefs,createdSequence:++this.sequence};
+    const row={kind:'AliasCandidate',alias,entityId:entity.entityId,current:true,status:'CURRENT',authorityOrigin:String(input.authorityOrigin??'OWNER_EXPLICIT'),providerId:input.providerId??null,sourceEntityId:input.sourceEntityId??null,sourceRevisionRefs,provenanceRefs,temporalApplicability:clone(input.temporalApplicability??null),createdSequence:++this.sequence};
     entity.aliases.push(row);entity.sourceRevisionRefs=uniq([...entity.sourceRevisionRefs,...sourceRevisionRefs]);entity.provenanceRefs=uniq([...entity.provenanceRefs,...provenanceRefs]);entity.revision+=1;entity.updatedSequence=this.sequence;return row;
   }
 
   #retireAlias(entity,alias,input){
     const key=labelKey(alias);if(!key)return false;let changed=false;
-    for(const row of entity.aliases??[])if(currentAlias(row)&&labelKey(row.alias)===key){row.current=false;row.status='RETIRED';row.retiredSequence=++this.sequence;row.retireProvenanceRefs=uniq(input.provenanceRefs);changed=true;}
+    for(const row of entity.aliases??[])if(currentAlias(row)&&labelKey(row.alias)===key){row.current=false;row.status='RETIRED';row.retiredSequence=++this.sequence;row.retireSourceRevisionRefs=uniq(input.sourceRevisionRefs);row.retireProvenanceRefs=uniq(input.provenanceRefs);changed=true;}
     if(changed){entity.revision+=1;entity.updatedSequence=this.sequence;}return changed;
   }
 

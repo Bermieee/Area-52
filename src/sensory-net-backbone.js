@@ -126,9 +126,18 @@ export class SensoryNetBackbone{
   #warmGraphNeighborhood(envelope,graphReceipt){
     if(!graphReceipt||!this.hotCognition?.hasActiveChat)return null;
     const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
-    const refs=uniq(rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))));
-    const sourceRevisionRefs=uniq(rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]));
-    const identityRevisionRefs=uniq(rows.flatMap(candidate=>candidate.identityRevisionRefs??[]));
+    const refs=uniq([
+      ...rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))),
+      ...(graphReceipt?.hotNeighborhoodRefs??[]),
+    ]);
+    const sourceRevisionRefs=uniq([
+      ...rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]),
+      ...(graphReceipt?.hotNeighborhoodSourceRevisionRefs??[]),
+    ]);
+    const identityRevisionRefs=uniq([
+      ...rows.flatMap(candidate=>candidate.identityRevisionRefs??[]),
+      ...(graphReceipt?.hotNeighborhoodIdentityRevisionRefs??[]),
+    ]);
     const provenanceRefs=uniq(rows.flatMap(candidate=>[
       ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
       ...(candidate.evidenceRefs??[]),

@@ -169,12 +169,24 @@ export class NativeGraphNeighborhoodRetriever{
       }));
     }
     trustedSourceRevisionRefs.push(...traversed.rows.filter(row=>!['CORE_TEMPORAL_STATE','SCENE_OWNER'].includes(row.edge.providerId)).flatMap(row=>row.edge.sourceRevisionRefs));
+    const hotNeighborhood=traversed.rows.slice(0,request.maxCandidates).map(row=>({
+      ref:String(row.edge.providerId)+'|'+String(row.edge.edgeId),
+      providerId:String(row.edge.providerId),owner:String(row.edge.owner),edgeId:String(row.edge.edgeId),
+      sourceKind:String(row.edge.sourceKind),temporalStatus:status(row.edge.temporalStatus),
+      sourceRevisionRefs:uniq(row.edge.sourceRevisionRefs??[]),identityRevisionRefs:uniq(row.edge.identityRevisionRefs??[]),
+      dependencyRevisionRefs:uniq(row.edge.dependencyRevisionRefs??[]),
+    }));
     const elapsedMs=Math.max(0,now()-started);
     this.lastReceipt={
       kind:'GraphTraversalReceipt',contractVersion:'1.0.0',intentId:intent.intentId,query:request.query,anchorEntityIds:[...request.anchorEntityIds],
       providers:providerDiagnostics,providerCount:providerDiagnostics.length+2,examinedEdgeCount:traversed.examinedEdgeCount,
       traversedEdgeCount:traversed.rows.length,visitedNodeCount:traversed.visitedNodeCount,nominationCount:nominations.length,
       staleRejectedCount:staleEdges.length,staleRejected:staleEdges.slice(0,32),trustedSourceRevisionRefs:uniq(trustedSourceRevisionRefs),
+      hotNeighborhoodRefs:hotNeighborhood.map(row=>row.ref),
+      hotNeighborhoodSourceRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.sourceRevisionRefs)),
+      hotNeighborhoodIdentityRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.identityRevisionRefs)),
+      hotNeighborhoodDependencyRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.dependencyRevisionRefs)),
+      hotNeighborhoodSummary:hotNeighborhood,
       boundedOut:{edges:traversed.boundedEdges,nodes:traversed.boundedNodes,candidates:traversed.boundedCandidates},
       limits:{maxDepth:request.maxDepth,maxNodes:request.maxNodes,maxEdges:request.maxEdges,maxCandidates:request.maxCandidates,latencyBudgetMs:request.latencyBudgetMs},
       elapsedMs,latencyBudgetExceeded:elapsedMs>=request.latencyBudgetMs&&request.latencyBudgetMs>=0,

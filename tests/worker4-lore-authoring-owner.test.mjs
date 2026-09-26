@@ -456,6 +456,10 @@ test('reviewed mutation replay, collision, reload and audit stay deterministic a
   const revisionId = intelligence.runtime.registry.currentRevision('lore:authoring-owner:audit-entry').id;
   const historyLength = intelligence.runtime.registry.revisionHistory('lore:authoring-owner:audit-entry').length;
 
+  assert.throws(
+    () => mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'audit-approval', chatId: 'chat:wrong'}),
+    /scope|chat/i,
+  );
   const replay = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'audit-approval', chatId: CHAT});
   assert.equal(replay.replayed, true);
   assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:audit-entry').id, revisionId);
@@ -500,4 +504,35 @@ test('reviewed mutation replay, collision, reload and audit stay deterministic a
   assert.equal(committed.authority.sourceMutationAuthority, true);
   assert.equal(committed.authority.modelMutationAuthority, false);
   assert.equal(committed.authority.jevMutationAuthority, false);
+});
+
+
+test('commit-time operation fingerprint revalidation rejects a tampered restored proposal without mutation', () => {
+  let {intelligence, mutations} = mutationService();
+  const sourceId = 'lore:authoring-owner:mara';
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+  const proposal = mutations.createProposal({
+    operation: LoreMutationOperation.UPDATE,
+    chatId: CHAT,
+    sourceId,
+    after: {
+      content: before.exactContent + ' Approved exact addition.',
+      metadata: before.metadata,
+    },
+  });
+  approve(mutations, proposal.proposalId, 'fingerprint-approval');
+
+  const snapshot = mutations.snapshot();
+  const stored = snapshot.proposals.find((row) => row.proposalId === proposal.proposalId);
+  stored.intent.after.content = 'Tampered content that was never approved.';
+  mutations = LoreReviewedMutationService.fromSnapshot(snapshot, {intelligence});
+
+  const result = mutations.commit({
+    proposalId: proposal.proposalId,
+    operatorDecisionId: 'fingerprint-approval',
+    chatId: CHAT,
+  });
+  assert.equal(result.state, LoreMutationState.STALE);
+  assert.equal(result.lastError.code, 'LORE_MUTATION_FINGERPRINT_CHANGED');
+  assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, before.id);
 });

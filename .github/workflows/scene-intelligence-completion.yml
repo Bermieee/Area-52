@@ -1,0 +1,58 @@
+name: Scene Intelligence Completion
+
+on:
+  push:
+    branches: [Development-Scene-Scanner]
+    paths:
+      - 'src/scene/**'
+      - 'src/native-brain.js'
+      - 'src/deployment/owner-graph-adapters.js'
+      - 'tests/scene-completion-wave4.mjs'
+      - 'tests/scene-completion-wave4-stress.mjs'
+      - 'docs/SCENE_*'
+      - '.github/workflows/scene-intelligence-completion.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/scene/**'
+      - 'src/native-brain.js'
+      - 'src/deployment/owner-graph-adapters.js'
+      - 'tests/scene-completion-wave4.mjs'
+      - 'tests/scene-completion-wave4-stress.mjs'
+      - 'docs/SCENE_*'
+      - '.github/workflows/scene-intelligence-completion.yml'
+  workflow_dispatch:
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Scene completion contracts
+        run: node --test tests/scene-completion-wave4.mjs
+      - name: Scene completion stress
+        run: node --test tests/scene-completion-wave4-stress.mjs
+      - name: Preserve accepted Scene suites
+        run: node --test tests/scene-*.mjs tests/scene-core-integration-wave10.mjs
+      - name: Preserve shared Scene Jev seam
+        run: node --test tests/coprocessor-wave9-scene.test.mjs
+      - name: Browser-facing imports
+        run: node -e "globalThis.Buffer=undefined; Promise.all([import('./src/scene/index.js'),import('./src/native-brain.js'),import('./src/ui-core/wave6-production-adapters.js')]).then(()=>console.log('SCENE COMPLETION IMPORT PASS'))"
+      - name: Changed-surface syntax
+        run: |
+          find src/scene -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check src/native-brain.js
+          node --check src/deployment/owner-graph-adapters.js
+          node --check tests/scene-completion-wave4.mjs
+          node --check tests/scene-completion-wave4-stress.mjs

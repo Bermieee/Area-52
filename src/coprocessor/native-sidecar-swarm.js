@@ -406,7 +406,7 @@ export class NativeSidecarSwarm{
   }
 }
 
-export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Date.now(),maxBytes=131072,parentCheckpointId=null}={}){
+export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Date.now(),maxBytes=131072,parentCheckpointId=null,selection=null}={}){
   if(proposal?.kind!=='CoprocessorChoiceProposal')throw new TypeError('CoprocessorChoiceProposal required');
   const revisionFence={
     sourceRevisionSet:[...(turnEvent?.sourceRevisionSet??proposal.revisionFence?.sourceRevisionSet??[])],
@@ -414,12 +414,13 @@ export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Dat
     sceneRevision:Number(turnEvent?.sceneRevision??proposal.revisionFence?.sceneRevision??0),
     characterStateRevision:Number(turnEvent?.characterStateRevision??proposal.revisionFence?.characterStateRevision??0),
   };
+  const safeSelection=normalizeSwarmSelection(selection??turnEvent??proposal);
   const base={turnId:String(turnEvent?.turnId??proposal.turnId),correlationId:String(turnEvent?.correlationId??proposal.correlationId),proposalId:proposal.proposalId,
-    revisionFence,taskIds:tasks.map(task=>task.taskId),parentCheckpointId};
+    revisionFence,taskIds:tasks.map(task=>task.taskId),parentCheckpointId,selection:safeSelection};
   const checkpoint=deepFreeze({
     kind:'CoprocessorSwarmCheckpoint',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
     checkpointId:'cop-swarm:'+sha256Hex(stable(base)).slice(0,24),createdAt:Number(createdAt),parentCheckpointId,
-    turnId:base.turnId,correlationId:base.correlationId,proposalId:base.proposalId,revisionFence:deepFreeze(revisionFence),proposal:clone(proposal),
+    turnId:base.turnId,correlationId:base.correlationId,proposalId:base.proposalId,selection:safeSelection,revisionFence:deepFreeze(revisionFence),proposal:clone(proposal),
     pendingTasks:tasks.map(clone),authority:'NONE',
   });
   assertBytes(checkpoint,maxBytes,'swarm checkpoint');
@@ -440,10 +441,12 @@ export function validateCheckpoint(value,maxBytes=131072){
 }
 
 function resultRecord(task,result,profile,state,extra={}){
+  const retain=state===NativeSwarmResultState.READY_FOR_CORE;
+  const compactedBytes=retain?0:byteLength(result);
   return deepFreeze({
     taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state,
     providerProfileId:profile.profileId,providerId:result.providerId,workerId:result.workerId,resourceId:profile.profileMetadata?.resourceId??null,
-    startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.latency,result,attempt:Number(extra.attempt??1),
+    startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.latency,resultId:result.resultId??null,result:retain?result:null,compactedBytes,attempt:Number(extra.attempt??1),
     failureCode:extra.failureCode??null,fallbackUsed:Boolean(extra.fallbackUsed),late:Boolean(extra.late),stale:Boolean(extra.stale),invalid:Boolean(extra.invalid),
   });
 }
@@ -457,11 +460,30 @@ function rejectedRecord(task,state,failureCode,extra={}){
   });
 }
 function parkedRecord(task){return rejectedRecord(task,NativeSwarmResultState.PARKED,null);}
+function skippedRecord(task,reason){return deepFreeze({...rejectedRecord(task,NativeSwarmResultState.SKIPPED,null),skipReason:String(reason??'POLICY_SKIPPED')});}
 function publicRecord(record){return deepFreeze({taskId:record.taskId,optionId:record.optionId,taskType:record.taskType,resultClass:record.resultClass,state:record.state,
   providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,attempt:record.attempt,
-  resultId:record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
+  resultId:record.resultId??record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
   fallbackUsed:record.fallbackUsed,late:record.late,stale:record.stale,invalid:record.invalid});}
 function countStates(records){const out=Object.fromEntries(Object.values(NativeSwarmResultState).map(state=>[state,0]));for(const record of records)out[record.state]+=1;return deepFreeze(out);}
+function normalizeSwarmSelection(value={}){
+  return deepFreeze({
+    chatId:value?.chatId==null?null:String(value.chatId),
+    turnId:value?.turnId==null?null:String(value.turnId),
+    generationId:value?.generationId==null?null:String(value.generationId),
+    correlationId:value?.correlationId==null?null:String(value.correlationId),
+  });
+}
+function readyResourceConcurrency(model){
+  const resources=Array.isArray(model?.resources)?model.resources:[];
+  return resources.filter(row=>row?.callable!==false&&row?.selectedModelQualified!==false)
+    .reduce((sum,row)=>sum+Math.max(0,Number(row?.maxConcurrency??row?.concurrencyCapacity??1)||0),0);
+}
+function layerCostClass(tasks){
+  const values=[...new Set((tasks??[]).map(task=>task?.metadata?.costEstimate?.class??task?.metadata?.costBudget).filter(Boolean).map(String))];
+  return values.length===1?values[0]:values.length?'MIXED':null;
+}
+function byteLength(value){try{return new TextEncoder().encode(JSON.stringify(value)).length;}catch{return 0;}}
 function retryable(code){return [FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED,FailureCode.PROVIDER_FAILURE,FailureCode.PROVIDER_TIMEOUT,FailureCode.CAPABILITY_UNAVAILABLE].includes(code);}
 function linkAbort(signal,controller){if(!signal)return()=>{};const abort=()=>controller.abort(signal.reason??'caller-abort');if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});return()=>signal.removeEventListener?.('abort',abort);}
 async function resolveValue(value,fallback){if(typeof value==='function')return await value();return value??fallback;}

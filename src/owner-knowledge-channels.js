@@ -79,7 +79,18 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
     }
     try{
       const storyChatId=context?.chatId??context?.selection?.chatId??this.turnContext?.selection?.chatId??this.turnContext?.chatId??null;
-      const packet=syncValue(owner.query({chatId:storyChatId,query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO'}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
+      if(storyChatId==null||String(storyChatId).trim()===''){
+        this.lastReceipt={
+          kind:'OwnerKnowledgeRetrievalReceipt',channelId:this.channelId,status:'EXCLUDED',
+          reason:'LORE_STORY_SCOPE_REQUIRED',queried:false,nominationCount:0,sourceRevisionFence:[],
+          authorityScope:{chatId:null,state:'UNBOUND',acceptedLorebookIds:[],readLorebookIds:[]},
+          candidateReceipts:[],exclusionReceipts:[],rawLoreIncluded:false,
+          authorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
+        };
+        return[];
+      }
+      const scopedQuery=typeof owner.queryScoped==='function'?owner.queryScoped:owner.query;
+      const packet=syncValue(scopedQuery({chatId:String(storyChatId),query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO'}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
       if(!packet||packet.kind!=='LoreBrainRetrievalPacket'||Number(packet.contractVersion)!==1)throw new Error('LORE_BRAIN_PACKET_CONTRACT_MISMATCH');
       const fence=new Set(uniq(packet.sourceRevisionFence??[]));
       const out=[],rejected=[];

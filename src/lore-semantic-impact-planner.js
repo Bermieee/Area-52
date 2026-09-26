@@ -39,6 +39,8 @@ const REQUIRED_BUCKETS = Object.freeze([
   'RETRIEVAL',
   'COMPACT',
   'STRUCTURE',
+  'BEHAVIORAL_ANCHOR',
+  'SENSORY_ANCHOR',
 ]);
 
 function splitSentences(content) {
@@ -309,6 +311,18 @@ export class LoreSemanticImpactPlanner {
     }
     changes.TEMPORAL = bucketFor(beforeRows, afterRows, registry, temporalPredicate);
     changes.CONTRADICTION = bucketFor(beforeRows, afterRows, registry, contradictionPredicate);
+    changes.BEHAVIORAL_ANCHOR = bucketFor(
+      beforeRows,
+      afterRows,
+      registry,
+      (row) => [ArtifactType.RULE, ArtifactType.RESTRICTION, ArtifactType.CAPABILITY].includes(row.artifactType),
+    );
+    changes.SENSORY_ANCHOR = bucketFor(
+      beforeRows,
+      afterRows,
+      registry,
+      (row) => row.artifactType === ArtifactType.PROPERTY && row.payload?.ruleKind === 'SENSORY_ANCHOR',
+    );
     for (const key of REQUIRED_BUCKETS) {
       changes[key].added = bounded(changes[key].added);
       changes[key].removed = bounded(changes[key].removed);

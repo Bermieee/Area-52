@@ -7,7 +7,6 @@
 import { ObservationClass, SceneIntelligenceRuntime, createFieldState } from '../src/scene/index.js';
 const out=document.getElementById('scene-result');
 const field=(value,revision,evidence)=>createFieldState({value,revision,evidenceRefs:[evidence],observationClass:ObservationClass.OBSERVED,confidence:1});
-const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>resolve()));
 const longTasks=[];
 let observer=null;
 try{observer=new PerformanceObserver(list=>{for(const entry of list.getEntries())longTasks.push(entry.duration);});observer.observe({entryTypes:['longtask']});}catch{}
@@ -20,7 +19,6 @@ try{
   let maxBatchMs=0,totalBatchMs=0;
   const batchCount=25,updatesPerBatch=100;
   for(let batch=0;batch<batchCount;batch++){
-    await frame();
     const started=performance.now();
     for(let j=0;j<updatesPerBatch;j++){
       const i=batch*updatesPerBatch+j+1,current=runtime.registry.current('browser:stress'),evidence='browser:'+i;
@@ -29,7 +27,8 @@ try{
     }
     const elapsed=performance.now()-started;maxBatchMs=Math.max(maxBatchMs,elapsed);totalBatchMs+=elapsed;
   }
-  await frame();await frame();globalThis.gc?.();await frame();
+  const observerRecords=observer?.takeRecords?.()??[];for(const entry of observerRecords)longTasks.push(entry.duration);
+  globalThis.gc?.();
   const heapAfter=heapSupported?Number(performance.memory.usedJSHeapSize):null,record=runtime.registry.get('browser:stress');
   const heapGrowthBytes=heapSupported?heapAfter-heapBefore:null;
   const report={

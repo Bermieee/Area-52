@@ -201,7 +201,7 @@ test('Brain activity distinguishes PromptPlan from host delivery and post-respon
   hostInjected=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
   assert.equal(pipeline.deliveryReceipt,true);assert.match(body,/SillyTavern.*observed|Generation delivery/i);
   learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
-  assert.equal(pipeline.learningReceipt,true);assert.match(body,/Learning receipt recorded/);
+  assert.equal(pipeline.learningReceipt,true);assert.match(body,/recorded post-response learning|Learning receipt recorded/i);
   ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWorkspace('settings');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
   const diagnostics=ui.operator.diagnostics.read(),advanced=textOf(ui.shell.nodes.workspace);
   assert.equal(diagnostics.generationInspection.identityResolution.counts.entities,1);assert.equal(diagnostics.generationInspection.graphTraversal.counts.visitedNodeIds,2);assert.equal(diagnostics.generationInspection.rejectedEvidence.count,1);

@@ -14,6 +14,14 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
+const SESSION_BOUNDS=Object.freeze({turnEvidence:32,processed:32,loreIngestion:32,errors:64});
+const pushBounded=(list,value,limit)=>{list.push(value);if(list.length>limit)list.splice(0,list.length-limit);return value;};
+const safeDiagnosticMessage=(error)=>{
+  let value=String(error?.code??error?.message??error??'UNKNOWN_ERROR');
+  value=value.replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi,'Bearer [redacted]').replace(/sk-[A-Za-z0-9_-]{8,}/gi,'[redacted-key]').replace(/(api[_-]?key|authorization|credential|secret|token)\s*[:=]\s*[^\s,;]+/gi,'$1=[redacted]');
+  return value.slice(0,512);
+};
+const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
 
 export function createJevDecisionResourceHostBridge(host,{fetchImpl=globalThis.fetch}={}){
   if(!host?.actions||!host?.read)return host;
@@ -380,6 +388,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
+    this.destroyed=false;this.hostListenerCount=0;this.notifyScheduled=false;this.notifyHandle=null;this.longTaskObserver=null;
+    this.loadMetrics={notifyRequested:0,notifyDelivered:0,notifyCoalesced:0,notifyTotalMs:0,notifyMaxMs:0,lastNotifyMs:0,longTaskCount:0,longTaskTotalMs:0,longTaskMaxMs:0,heapMinBytes:null,heapMaxBytes:null,heapLastBytes:null};
     this.release = null;
     this.processing = null;
     this.processed = new Map();
@@ -448,7 +458,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       retrievable: result.mappingCount > 0,
       hierarchyRevision: result.retrieval?.hierarchyRevision ?? null,
     };
-    this.loreIngestion.push(receipt);
+    pushBounded(this.loreIngestion,receipt,SESSION_BOUNDS.loreIngestion);
     if (notify) this.#notify();
     return clone(receipt);
   }
@@ -475,9 +485,9 @@ export class DevelopmentDeploymentSillyTavernSession {
       const received=context.eventTypes?.MESSAGE_RECEIVED??context.event_types?.MESSAGE_RECEIVED;
       const stopped=context.eventTypes?.GENERATION_STOPPED??context.event_types?.GENERATION_STOPPED;
       if(!before||!requestReady||!received)throw new Error('Native Brain live integration requires GENERATION_AFTER_COMMANDS, CHAT_COMPLETION_PROMPT_READY, and MESSAGE_RECEIVED events');
-      const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_PREPARE'});this.#notify();}};
-      const requestHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeModelRequest(eventData);}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_MODEL_REQUEST'});this.#notify();}};
-      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'NATIVE_COMPLETE'});this.#notify();}};
+      const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_PREPARE'},SESSION_BOUNDS.errors);this.#notify();}};
+      const requestHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeModelRequest(eventData);}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_MODEL_REQUEST'},SESSION_BOUNDS.errors);this.#notify();}};
+      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_COMPLETE'},SESSION_BOUNDS.errors);this.#notify();}};
       const stoppedHandler=()=>{this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
@@ -497,11 +507,12 @@ export class DevelopmentDeploymentSillyTavernSession {
       context.eventSource.on(eventName,observer);releases.push(()=>context.eventSource.removeListener?.(eventName,observer));
     }
     this.release=()=>{for(const release of releases.splice(0))try{release();}catch{}};
+    this.hostListenerCount=releases.length;this.#startLoadObserver();
     this.running=true;this.#notify();return this;
   }
 
   stop() {
-    this.release?.();this.release=null;this.running=false;this.#completeAllOptionalGenerations('SESSION_STOPPED');this.#notify();return this;
+    this.release?.();this.release=null;this.hostListenerCount=0;this.running=false;this.#stopLoadObserver();this.#completeAllOptionalGenerations('SESSION_STOPPED');this.#notify();return this;
   }
 
   async prepareNativeGeneration({generationType='normal'}={}){
@@ -577,7 +588,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if (this.processing) return this.processing;
     this.processing = this.#processCurrentTurn({ mode })
       .catch((error) => {
-        this.errors.push({ at: Date.now(), message: String(error?.message ?? error) });
+        pushBounded(this.errors,{ at: Date.now(), message: safeDiagnosticMessage(error) },SESSION_BOUNDS.errors);
         this.#notify();
         throw error;
       })
@@ -594,8 +605,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     if (this.processed.has(key)) return clone(this.processed.get(key));
 
     const evidence = await executeHostTurn(this.brain, context, message, { mode: chosenMode, inject: true });
-    this.processed.set(key, evidence);
-    this.turnEvidence.push(evidence);
+    this.processed.set(key, evidence);while(this.processed.size>SESSION_BOUNDS.processed)this.processed.delete(this.processed.keys().next().value);
+    pushBounded(this.turnEvidence,evidence,SESSION_BOUNDS.turnEvidence);
     this.scenarios[chosenMode] = evidence;
 
     if (chosenMode === 'ambiguous') {
@@ -775,13 +786,17 @@ export class DevelopmentDeploymentSillyTavernSession {
       navigationEvidence,
       functionTestObservations,
 
-      errors: this.errors,
+      errors: clone(this.errors),
+      runtimeLoad:this.loadDiagnostics(),
       liveEvidenceComplete: false,
       liveEvidenceCompleteReason: 'DIRECTOR_APPROVAL_AND_REQUIRED_LIVE_GATES_REMAIN_EXTERNAL_TO_THIS_RECORD',
     });
   }
 
   destroy() {
+    this.destroyed=true;
+    if(this.notifyHandle!=null&&typeof globalThis.cancelAnimationFrame==='function')try{globalThis.cancelAnimationFrame(this.notifyHandle);}catch{}
+    this.notifyHandle=null;this.notifyScheduled=false;
     this.stop();
     if(this.nativePending.size)this.#expireNativePending('SESSION_DESTROYED');
     this.uiHost?.destroy?.();
@@ -799,7 +814,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       await this.persistNativeBrain({chatId,turnId,generationId,snapshot});
       const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
-      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:String(error?.code??error?.message??error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }
   }
 
@@ -961,7 +976,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       const key=[event.settlementId??value.settlementId??'',event.sourceId,event.previousSourceRevisionId??'',event.sourceRevisionId,event.restoration?'RESTORE':'APPLY'].join('|');
       if(this.routedLoreRevisionKeys.has(key))continue;
       try{this.acceptLoreRevisionChange(event);this.routedLoreRevisionKeys.add(key);}
-      catch(error){this.errors.push({at:Date.now(),message:String(error?.message??error),stage:'LORE_REVISION_INVALIDATION_ROUTE',sourceId:event.sourceId,sourceRevisionId:event.sourceRevisionId});}
+      catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'LORE_REVISION_INVALIDATION_ROUTE',sourceId:event.sourceId,sourceRevisionId:event.sourceRevisionId},SESSION_BOUNDS.errors);}
     }
   }
 
@@ -1000,7 +1015,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       this.optionalGenerationActive.set(key,{pending:clone(pending),startedAt:Date.now(),result:clone(result??null)});
       return result;
     }catch(error){
-      this.errors.push({at:Date.now(),message:String(error?.code??error?.message??error),stage:'OPTIONAL_RESOURCE_GENERATION_BEGIN',turnId:pending?.turnId??null,generationId:pending?.generationId??null});
+      pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'OPTIONAL_RESOURCE_GENERATION_BEGIN',turnId:pending?.turnId??null,generationId:pending?.generationId??null},SESSION_BOUNDS.errors);
       return null;
     }
   }
@@ -1015,7 +1030,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     try{
       return merged.completeOptionalResourceGeneration({chatId:pending?.chatId??null,turnId:pending?.turnId??null,generationId:pending?.generationId??null,reason});
     }catch(error){
-      this.errors.push({at:Date.now(),message:String(error?.code??error?.message??error),stage:'OPTIONAL_RESOURCE_GENERATION_COMPLETE',turnId:pending?.turnId??null,generationId:pending?.generationId??null});
+      pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'OPTIONAL_RESOURCE_GENERATION_COMPLETE',turnId:pending?.turnId??null,generationId:pending?.generationId??null},SESSION_BOUNDS.errors);
       return null;
     }
   }
@@ -1034,8 +1049,50 @@ export class DevelopmentDeploymentSillyTavernSession {
     while(this.nativeRejections.length>100)this.nativeRejections.shift();this.#notify();
   }
 
+  loadDiagnostics(){
+    return clone({
+      kind:'DevelopmentDeploymentLoadDiagnostics',contractVersion:1,running:this.running,hostListenerCount:this.hostListenerCount,
+      notification:{requested:this.loadMetrics.notifyRequested,delivered:this.loadMetrics.notifyDelivered,coalesced:this.loadMetrics.notifyCoalesced,lastMs:this.loadMetrics.lastNotifyMs,maxMs:this.loadMetrics.notifyMaxMs,totalMs:this.loadMetrics.notifyTotalMs},
+      longTasks:{supported:Boolean(globalThis.PerformanceObserver?.supportedEntryTypes?.includes?.('longtask')),count:this.loadMetrics.longTaskCount,totalMs:this.loadMetrics.longTaskTotalMs,maxMs:this.loadMetrics.longTaskMaxMs},
+      heap:{supported:Number.isFinite(Number(globalThis.performance?.memory?.usedJSHeapSize)),minBytes:this.loadMetrics.heapMinBytes,maxBytes:this.loadMetrics.heapMaxBytes,lastBytes:this.loadMetrics.heapLastBytes},
+      retained:{turnEvidence:this.turnEvidence.length,processed:this.processed.size,hostNarrativeEvents:this.hostNarrativeEvents.length,nativeHistory:this.nativeHistory.length,nativeRejections:this.nativeRejections.length,loreIngestion:this.loreIngestion.length,errors:this.errors.length,optionalGenerations:this.optionalGenerationActive.size},
+      bounds:clone(SESSION_BOUNDS),rawPromptCaptured:false,storyTextCaptured:false,credentialsCaptured:false,hiddenReasoningCaptured:false,
+    });
+  }
+
+  #startLoadObserver(){
+    if(this.longTaskObserver||typeof globalThis.PerformanceObserver!=='function'||!globalThis.PerformanceObserver.supportedEntryTypes?.includes?.('longtask'))return;
+    try{
+      this.longTaskObserver=new globalThis.PerformanceObserver((list)=>{
+        for(const row of list.getEntries?.()??[]){const duration=Number(row.duration)||0;this.loadMetrics.longTaskCount+=1;this.loadMetrics.longTaskTotalMs+=duration;this.loadMetrics.longTaskMaxMs=Math.max(this.loadMetrics.longTaskMaxMs,duration);}
+      });
+      this.longTaskObserver.observe({type:'longtask',buffered:true});
+    }catch{this.longTaskObserver=null;}
+  }
+
+  #stopLoadObserver(){try{this.longTaskObserver?.disconnect?.();}catch{}this.longTaskObserver=null;}
+
+  #sampleHeap(){
+    const bytes=Number(globalThis.performance?.memory?.usedJSHeapSize);
+    if(!Number.isFinite(bytes))return;
+    this.loadMetrics.heapLastBytes=bytes;this.loadMetrics.heapMinBytes=this.loadMetrics.heapMinBytes==null?bytes:Math.min(this.loadMetrics.heapMinBytes,bytes);this.loadMetrics.heapMaxBytes=this.loadMetrics.heapMaxBytes==null?bytes:Math.max(this.loadMetrics.heapMaxBytes,bytes);
+  }
+
   #notify() {
-    this.onEvidence?.(this.exportEvidence());
+    this.loadMetrics.notifyRequested+=1;
+    if(!this.onEvidence||this.destroyed)return;
+    if(this.notifyScheduled){this.loadMetrics.notifyCoalesced+=1;return;}
+    this.notifyScheduled=true;
+    const deliver=()=>{
+      if(!this.notifyScheduled||this.destroyed)return;
+      this.notifyScheduled=false;this.notifyHandle=null;
+      const started=perfNow();this.#sampleHeap();
+      try{this.onEvidence(this.exportEvidence());}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'EVIDENCE_CALLBACK'},SESSION_BOUNDS.errors);}
+      const elapsed=Math.max(0,perfNow()-started);this.loadMetrics.notifyDelivered+=1;this.loadMetrics.lastNotifyMs=elapsed;this.loadMetrics.notifyTotalMs+=elapsed;this.loadMetrics.notifyMaxMs=Math.max(this.loadMetrics.notifyMaxMs,elapsed);this.#sampleHeap();
+    };
+    if(typeof globalThis.requestAnimationFrame==='function')this.notifyHandle=globalThis.requestAnimationFrame(deliver);
+    else if(typeof globalThis.queueMicrotask==='function')globalThis.queueMicrotask(deliver);
+    else Promise.resolve().then(deliver);
   }
 }
 

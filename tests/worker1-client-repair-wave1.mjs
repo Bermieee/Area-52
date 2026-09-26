@@ -87,8 +87,9 @@ test('current scene revision replaces stale external source evidence while chat/
   );
   const historicalFirst=bindings.readSelectedTurnReceipt(first.selection);
   assert.ok(historicalFirst,'the exact prior turn remains inspectable by its own immutable identity');
-  assert.equal(historicalFirst.producers.scene.id,first.scene.lastReceiptId??first.scene.sceneId,'historical selected-turn diagnostics must use that turn Scene producer, not the newer live Scene');
-  assert.notEqual(historicalFirst.producers.scene.id,second.scene.lastReceiptId??second.scene.sceneId,'a later Scene must not fill an older selected turn');
+  assert.equal(historicalFirst.producers.scene.sceneRevision,1,'historical selected-turn diagnostics must retain that turn Scene revision');
+  assert.deepEqual(historicalFirst.producers.scene.sourceRevisionRefs,[r1],'historical selected-turn diagnostics must retain that turn Scene fence');
+  assert.equal(historicalFirst.producers.scene.sourceRevisionRefs.includes(r2),false,'a later Scene revision must not fill an older selected turn');
 
   const late=createCognitiveResult({
     id:'late:worker1-wave1',taskId:'late-task',turnId:second.selection.turnId,correlationId:second.selection.correlationId,

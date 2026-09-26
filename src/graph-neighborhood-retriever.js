@@ -15,11 +15,12 @@ const clampInt=(value,fallback,min,max)=>Math.max(min,Math.min(max,Number.isInte
 const statusSet=new Set(Object.values(CandidateTruthStatus));
 const currentish=new Set([KnowledgeStatus.CURRENT,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN,KnowledgeStatus.CONTRADICTED]);
 const historicalish=new Set([KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED]);
+const currentSupport=new Set([KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN,KnowledgeStatus.CONTRADICTED]);
 const contradictionish=new Set([KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN]);
 function status(value){const x=String(value??KnowledgeStatus.UNRESOLVED).toUpperCase();return statusSet.has(x)?x:KnowledgeStatus.UNRESOLVED;}
 function eligibleForIntent(edgeStatus,intentKind){
   const kind=String(intentKind??'CURRENT').toUpperCase(),value=status(edgeStatus);
-  if(kind==='CURRENT')return currentish.has(value);
+  if(kind==='CURRENT')return currentSupport.has(value);
   if(kind==='HISTORICAL')return historicalish.has(value);
   if(kind==='CONTRADICTION')return contradictionish.has(value);
   return true;
@@ -273,8 +274,9 @@ export class NativeGraphNeighborhoodRetriever{
 
   #walk(edges,request,started){
     // Preserve owner temporal semantics at the graph-admission boundary. CURRENT
-    // traversal may carry unresolved/contradictory evidence for Truth, but must not
-    // surface superseded/historical state as if it were a current graph fact.
+    // retrieval may carry HISTORICAL evidence as support for Truth/Compiler, but a
+    // SUPERSEDED edge must not be surfaced as current topology. Historical support
+    // also does not widen CURRENT traversal through the mayExpand rule below.
     const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>(!allowed.size||allowed.has(edge.edgeMeaning))&&eligibleForIntent(edge.temporalStatus,request.intentKind));
     const adjacency=new Map();
     for(const edge of edgeRows){

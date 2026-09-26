@@ -51,8 +51,41 @@ jobs:
         run: |
           node --input-type=module -e "await import('./src/ui-core/index.js'); await import('./src/ui-core/demo-visibility.js'); await import('./src/ui-core/wave7-explainability.js'); await import('./src/ui-core/wave7-workspaces.js'); await import('./src/ui-core/wave13-operator-adapters.js');"
           node --check src/ui-core/demo-visibility.js
+          node --check src/ui-core/operator-load-trace.js
+          node --check src/ui-core/inspector.js
           node --check src/ui-core/wave6-runtime.js
           node --check src/ui-core/wave7-explainability.js
           node --check src/ui-core/wave7-workspaces.js
+          node --check src/ui-core/wave8-cognition.js
           node --check src/ui-core/wave13-operator-adapters.js
+          node --check src/ui-core/wave13-operator-surfaces.js
           node --check tests/worker3-operator-truth-closure.test.mjs
+          node --check tests/worker3-browser-load-benchmark.mjs
+
+  browser-before-after:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || '142b78e4bc6d69d3e39e571951389c135c18a38e' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head and base
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          echo "STACK_BASE=$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$BASE_SHA" = "142b78e4bc6d69d3e39e571951389c135c18a38e"
+      - name: Install headless Chromium driver
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install chromium
+      - name: Same Chromium long-turn workload before and after
+        run: |
+          git worktree add /tmp/area52-worker3-base "$BASE_SHA"
+          node tests/worker3-browser-load-benchmark.mjs --baseline /tmp/area52-worker3-base --current "$GITHUB_WORKSPACE"

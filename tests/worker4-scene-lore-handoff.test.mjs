@@ -276,7 +276,32 @@ test('need builder covers relationship, unresolved-thread and correction reasons
 });
 
 test('Lore historical and UNRESOLVED temporal semantics survive the adapter unchanged', async () => {
-  const receipt = syntheticReceipt();
+  const receipt = syntheticReceipt({
+    changedFields: ['location', 'activeThreads'],
+    delta: {
+      changedFields: {
+        location: {
+          before: {value: {location: 'Old Hall'}},
+          after: {value: {location: 'North Gallery'}},
+        },
+        activeThreads: {
+          before: {value: []},
+          after: {value: [{threadId: 'missing-map', objective: 'Who moved the map?'}]},
+        },
+      },
+    },
+    signal: {
+      sceneId: 'scene:1',
+      sceneRevision: 4,
+      location: {location: 'North Gallery'},
+      narrativeTime: null,
+      activeCast: [],
+      activeThreads: [{threadId: 'missing-map', objective: 'Who moved the map?'}],
+      uncertainFields: ['activeThreads'],
+      conflictSignals: ['activeThreads'],
+      provenance: ['scene-src:4'],
+    },
+  });
   const packets = [
     packet({
       truthStatusHint: 'HISTORICAL',

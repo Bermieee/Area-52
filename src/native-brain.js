@@ -18,6 +18,7 @@ import {
   CAPABILITIES,
   CausalReasonCode,
   CausalReceiptKind,
+  causalObligationMatchesSelection,
   CognitiveObligationReconciler,
   LIFECYCLE_STATUS,
   MemoryPersistenceAdapter,
@@ -745,14 +746,7 @@ export class Area52NativeBrain{
     };
     const sceneId=stageId('scene',scene,scene?.lastReceiptId??scene?.sceneId??null),hotId=stageId('hotCognition',hot,hot?.snapshotId??null),choiceId=stageId('cognitiveChoice',choice,choice?.id??null);
     const candidateId=stageId('sensory',candidate,candidate?.envelopeId??candidate?.id??null),truthId=stageId('truth',truth,null),gatherId=stageId('gather',gather,gather?.receiptId??null),sealId=stageId('contextSeal',seal,seal?.id??null),planId=stageId('promptPlan',plan,plan?.promptPlanId??null);
-    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>{
-      const cause=row.obligation?.cause??{},payload=row.obligation?.payload??{};
-      if(String(cause.turnId??payload.turnId??'')!==record.turnId)return false;
-      if((cause.chatId??payload.chatId)!=null&&String(cause.chatId??payload.chatId)!==record.chatId)return false;
-      if((cause.generationId??payload.generationId)!=null&&String(cause.generationId??payload.generationId)!==record.generationId)return false;
-      if((cause.correlationId??payload.correlationId)!=null&&String(cause.correlationId??payload.correlationId)!==record.correlationId)return false;
-      return true;
-    });
+    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>causalObligationMatchesSelection(row.obligation,selection));
     const runtimeEvents=runtimeRecords.flatMap(row=>(row.causalReceipts??[]).map(event=>({...clone(event),taskId:row.taskId}))).slice(-32);
     const runtimeValue=runtimeEvents.length?{kind:'NativeBrainRuntimeCausalEvidence',id:'native:runtime:'+stableHash({turnId:record.turnId,ids:runtimeEvents.map(x=>x.id)},{length:20})}:null;
     const jevDecision=choice?.jev?.considered?{kind:'CognitiveJevDecision',id:(choiceId??'choice')+':jev'}:null;
@@ -845,13 +839,7 @@ export class Area52NativeBrain{
 
   #uiScatterReceipt(record){
     const choice=record.published?.cognitiveChoiceReceipt??{};
-    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>{
-      const cause=row.obligation?.cause??{},payload=row.obligation?.payload??{};
-      if(String(cause.turnId??payload.turnId??'')!==record.turnId)return false;
-      if((cause.generationId??payload.generationId)!=null&&String(cause.generationId??payload.generationId)!==record.generationId)return false;
-      if((cause.correlationId??payload.correlationId)!=null&&String(cause.correlationId??payload.correlationId)!==record.correlationId)return false;
-      return true;
-    });
+    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>causalObligationMatchesSelection(row.obligation,this.#selection(record)));
     const eventsFor=(row)=>row.causalReceipts??[];
     const physicalEvents=runtimeRecords.flatMap(row=>eventsFor(row).filter(event=>event.eventKind==='PHYSICAL_EXECUTION_STARTED').map(event=>({taskId:row.taskId,...clone(event)})));
     const matchesJob=(row,jobId)=>[row.obligation?.taskType,row.obligation?.payload?.cognitiveTask?.taskType,row.obligation?.payload?.cognitiveTask?.jobId].filter(Boolean).map(String).includes(String(jobId));

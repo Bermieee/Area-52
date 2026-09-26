@@ -38,12 +38,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Focused evidence journal and Inspect acceptance
         run: npm run test:demo-visibility
+      - name: Worker 2 retained journal/load contract
+        run: node --test tests/client-repair-wave2.test.mjs
       - name: Intentional Jev skip acceptance
         run: node --test --test-name-pattern='JEV_NOT_REQUIRED' tests/wave8.test.mjs
       - name: Worker 3 selected-turn UI scenarios
         run: >
           node --test
-          --test-name-pattern='floating collapse releases|Home Inspect details|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|Connections maps logical fan-out|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
+          --test-name-pattern='floating collapse releases|Home Inspect details|intentional JEV_NOT_REQUIRED|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|Connections maps logical fan-out|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
           tests/wave13-operator-ui.test.mjs
       - name: Bounded UI stress / subscription hygiene
         run: node tests/wave13-operator-ui-stress.mjs

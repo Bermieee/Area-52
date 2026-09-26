@@ -224,7 +224,7 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
       role:spec.role,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,
     }});
     if(!result.ok){
-      const text='Model discovery failed: '+String(result.error??'unknown error')+'.';
+      const text='Model discovery failed: '+connectionDisplayText(result.error??'unknown error')+'.';
       connectionDrafts.patch(spec.id,{models:[],manualAllowed:true,discoveryState:'FAILED',discoveryMessage:text});
       modelSuggestions.replaceChildren();discoveryState.textContent=text+' You can still enter the exact model ID manually; Test Connection will verify it.';
       reportAction(notifications,result,spec.title+' model discovery');return;
@@ -249,7 +249,7 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
     }});
     apiKey.value='';
     if(!connectResult.ok){
-      discoveryState.textContent='Connection failed: '+String(connectResult.error??'unknown error')+'.';
+      discoveryState.textContent='Connection failed: '+connectionDisplayText(connectResult.error??'unknown error')+'.';
       reportAction(notifications,connectResult,spec.title+' connection');refresh?.();return;
     }
     connectionDrafts.clear(spec.id);
@@ -314,7 +314,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   if(caps.selectModel)manageActions.append(createButton(d,{label:'Select model',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const modelId=String(model.value||'').trim();if(!modelId){managementStatus.textContent='Enter a model ID. Refreshed models are suggestions, not a whitelist.';return;}
     const result=await actionRouter.route({type:'wave13.resource.selectModel',target:row,payload:{modelId}});
-    managementStatus.textContent=result.ok?'Model selected. Requalification is required before this resource is callable.':'Model selection failed: '+String(result.error??'unknown error');
+    managementStatus.textContent=result.ok?'Model selected. Requalification is required before this resource is callable.':'Model selection failed: '+connectionDisplayText(result.error??'unknown error');
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
@@ -343,7 +343,7 @@ function testSummary(x){
   return String(x?.status??x?.health??x?.result?.status??(x?.ok===true?'PASS':x?.ok===false?'FAIL':'completed'));
 }
 function resourceTestFailure(actionResult){
-  if(!actionResult?.ok)return String(actionResult?.error??'Owner test action failed.');
+  if(!actionResult?.ok)return connectionDisplayText(actionResult?.error??'Owner test action failed.');
   const owner=actionResult.result??{};
   if(owner.failure)return String(owner.failure.message??owner.failure.code??'Provider check failed.');
   const resource=owner.resource??owner;
@@ -355,7 +355,7 @@ function reportResourceTest(notifications,result,label){
   if(!notifications?.push)return;
   const failure=resourceTestFailure(result);notifications.push({status:failure?'error':'success',message:label+': '+(failure??'passed')});
 }
-function reportAction(notifications,result,label){if(!notifications?.push)return;notifications.push({status:result?.ok?'success':'error',message:label+': '+(result?.ok?'completed':result?.error??'failed')});}
+function reportAction(notifications,result,label){if(!notifications?.push)return;notifications.push({status:result?.ok?'success':'error',message:label+': '+(result?.ok?'completed':connectionDisplayText(result?.error??'failed'))});}
 
 
 function createConnectionDraftStore(){
@@ -382,7 +382,7 @@ function discoveryModels(result){
 }
 
 function discoveryStatusText(state,result,count){
-  const reason=String(result?.reason??'').trim();
+  const reason=connectionDisplayText(result?.reason??'').trim();
   if(state==='READY')return count+' model'+(count===1?'':'s')+' loaded. Type to filter suggestions, or enter an exact model ID manually. Test Connection performs qualification.';
   if(state==='UNAUTHORIZED')return (reason||'Provider authorization was rejected before model discovery.')+' You can still enter a model ID manually; qualification still requires provider access.';
   if(state==='UNSUPPORTED')return (reason||'This provider does not support model discovery.')+' Enter the exact model ID manually.';
@@ -391,6 +391,8 @@ function discoveryStatusText(state,result,count){
   if(state==='LOADING')return'Loading models from the provider…';
   return reason||'Model discovery failed.';
 }
+
+function connectionDisplayText(value){return String(value??'').replace(/\bsession credentials?\b/gi,'credential');}
 
 function safeCoprocessorResourceRows(coprocessor){
   try{

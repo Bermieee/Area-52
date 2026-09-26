@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   Capability,CoprocessorResourceConnections,DynamicFanOutPlanner,JevDecisionShape,NativeSidecarSwarm,NativeSwarmResultState,
-  ResourceKind,createJevDecisionRequest,createJevTurnCognitiveReceipt,createTurnEnvelope,
+  ResourceKind,ScatterLayer,createJevDecisionRequest,createJevTurnCognitiveReceipt,createLayeredScatterPlan,createTurnEnvelope,
   summarizeJevUsefulnessCorpus,summarizeOptionalResourceStates,
 } from '../src/coprocessor/index.js';
 
@@ -79,6 +79,35 @@ test('explicit ambiguity keeps independent graph and precision jobs concurrent w
   assert.equal(result.contribution.resultSummary.filter(x=>x.state===NativeSwarmResultState.READY_FOR_CORE).length,2);
 });
 
+test('retrieval-heavy turn stages Historian before later expansion without changing the fan-out contract',async()=>{
+  const registry=new CoprocessorResourceConnections();
+  addResource(registry,{capabilities:[Capability.RETRIEVAL,Capability.LONG_CONTEXT,Capability.GRAPH,Capability.TRUTH_JUDGMENT,Capability.RERANK],handlers:{}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry});
+  const t=turn('history');
+  const prepared=swarm.prepareTurn({turnEvent:t,plannerInput:{text:'What happened last time before the gate closed?',queryIntent:'HISTORY',activeThreads:['gate-thread']}});
+  const layered=createLayeredScatterPlan({fanOutPlan:prepared.fanOutPlan,plannerInput:prepared.checkpoint.plannerSignals,choiceProposal:prepared.choiceProposal});
+  assert.ok(prepared.fanOutPlan.tasks.some(x=>x.taskType==='HISTORIAN_RETRIEVAL'));
+  assert.ok(layered.layers.find(x=>x.layer===ScatterLayer.RETRIEVAL).tasks.some(x=>x.taskType==='HISTORIAN_RETRIEVAL'));
+  const historianIndex=layered.layers.findIndex(x=>x.layer===ScatterLayer.RETRIEVAL);
+  const expansionIndex=layered.layers.findIndex(x=>x.layer===ScatterLayer.EXPANSION);
+  assert.ok(historianIndex>=0&&expansionIndex>historianIndex);
+});
+
+test('Scene transition keeps graph expansion in foreground and deep consolidation outside the Seal deadline',async()=>{
+  const registry=new CoprocessorResourceConnections();
+  addResource(registry,{capabilities:[Capability.GRAPH,Capability.TRUTH_JUDGMENT,Capability.RERANK,Capability.CONSOLIDATION,Capability.COMPRESSION],handlers:{}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry});
+  const t=turn('transition');
+  const prepared=swarm.prepareTurn({turnEvent:t,plannerInput:{text:'They arrive at the vault.',queryIntent:'CURRENT_STATE',sceneTransitionType:'ENTER',
+    backgroundSignals:{consolidationPending:true,pendingUnits:2,expectedValue:.9}}});
+  const layered=createLayeredScatterPlan({fanOutPlan:prepared.fanOutPlan,plannerInput:prepared.checkpoint.plannerSignals,choiceProposal:prepared.choiceProposal});
+  assert.ok(layered.layers.find(x=>x.layer===ScatterLayer.EXPANSION).tasks.some(x=>x.taskType==='GRAPH_WALK'));
+  assert.ok(layered.layers.find(x=>x.layer===ScatterLayer.DEEP).tasks.every(x=>x.resultClass==='DEFERRED'));
+  assert.ok(layered.layers.find(x=>x.layer===ScatterLayer.DEEP).tasks.some(x=>x.taskType==='CONSOLIDATION'));
+});
+
 test('provider unavailable and timeout preserve declared fallback without manufacturing owner-side provider success',async()=>{
   for(const [name,code] of [['unavailable','PROVIDER_UNAVAILABLE'],['timeout','PROVIDER_TIMEOUT']]){
     const registry=new CoprocessorResourceConnections();
@@ -125,6 +154,23 @@ test('completed checkpoint replays without duplicate physical execution and post
   assert.equal(sealedReplay.contribution.resumeStatus,'REPLAY_REJECTED_POST_SEAL');
   assert.equal(sealedReplay.contribution.resultsForOwner.length,0);
   assert.equal(sealedReplay.contribution.jevReceipt,null);
+});
+
+test('serialized checkpoint survives runtime reload and repeated resume does not duplicate its physical execution',async()=>{
+  const registry=new CoprocessorResourceConnections();let calls=0;
+  addResource(registry,{capabilities:[Capability.GRAPH],handlers:{GRAPH_WALK:()=>{calls++;return graphOutput('reload');}}});
+  await registry.connectResource('one');
+  const original=new NativeSidecarSwarm({connections:registry});
+  const t=turn('reload');
+  const prepared=original.prepareTurn({turnEvent:t,chatId:'chat:reload',generationId:'gen:reload',plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION'}});
+  const persisted=JSON.parse(JSON.stringify(prepared.checkpoint));
+  const reloaded=new NativeSidecarSwarm({connections:registry});
+  const first=await reloaded.executeCheckpoint(persisted,{inputResolver:()=>graphInput('reload'),currentRevisionState:t});
+  const repeated=await reloaded.executeCheckpoint(JSON.parse(JSON.stringify(persisted)),{inputResolver:()=>graphInput('reload'),currentRevisionState:t});
+  assert.equal(calls,1);
+  assert.equal(first.contribution.resumeStatus,'EXECUTED');
+  assert.equal(repeated.contribution.resumeStatus,'REPLAY');
+  assert.equal(repeated.contribution.replayPhysicalAttempts,0);
 });
 
 test('chat/generation identity participates in checkpoint identity for regeneration isolation',()=>{

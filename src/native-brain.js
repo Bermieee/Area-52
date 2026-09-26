@@ -638,10 +638,11 @@ export class Area52NativeBrain{
   #recordForSelection(selection={}){
     const turnId=selection?.turnId==null?null:String(selection.turnId),generationId=selection?.generationId==null?null:String(selection.generationId),chatId=selection?.chatId==null?null:String(selection.chatId);
     let record=turnId?this.turns.get(turnId):null;
+    if(turnId&&!record)return null;
     if(!record&&generationId)record=[...this.turns.values()].find(row=>row.generationId===generationId&&(!chatId||row.chatId===chatId))??null;
     if(!record&&chatId){for(let index=this.turnOrder.length-1;index>=0;index--){const row=this.turns.get(this.turnOrder[index]);if(row?.chatId===chatId){record=row;break;}}}
     if(!record)return null;
-    if(chatId&&record.chatId!==chatId)return null;if(generationId&&record.generationId!==generationId)return null;
+    if(turnId&&record.turnId!==turnId)return null;if(chatId&&record.chatId!==chatId)return null;if(generationId&&record.generationId!==generationId)return null;
     if(selection?.correlationId!=null&&record.correlationId!==String(selection.correlationId))return null;
     if(selection?.sceneRevision!=null&&Number(record.sceneRevision)!==Number(selection.sceneRevision))return null;
     if(selection?.worldRevision!=null&&Number(record.worldRevision)!==Number(selection.worldRevision))return null;

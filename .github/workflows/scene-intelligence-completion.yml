@@ -7,6 +7,8 @@ on:
       - 'src/scene/**'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
+      - 'src/deployment/brain.js'
+      - 'src/deployment/sillytavern-live.js'
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
@@ -21,6 +23,8 @@ on:
       - 'src/scene/**'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
+      - 'src/deployment/brain.js'
+      - 'src/deployment/sillytavern-live.js'
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
@@ -78,6 +82,8 @@ jobs:
           find src/scene -type f -name '*.js' -print0 | xargs -0 -n1 node --check
           node --check src/native-brain.js
           node --check src/deployment/owner-graph-adapters.js
+          node --check src/deployment/brain.js
+          node --check src/deployment/sillytavern-live.js
           node --check tests/scene-completion-wave4.mjs
           node --check tests/scene-completion-wave4-stress.mjs
           node --check tests/scene-completion-wave4-gaps.mjs

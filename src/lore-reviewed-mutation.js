@@ -495,6 +495,7 @@ export class LoreReviewedMutationService {
       rejection: deepClone(proposal.rejection || null),
       commit: deepClone(proposal.commit || null),
       restoration: deepClone(proposal.restoration || null),
+      recovery: deepClone(proposal.recovery || null),
       revisionEvents: deepClone(proposal.commit?.revisionEvents || []),
       invalidationReceipts: deepClone(proposal.commit?.invalidationReceipts || []),
       studyObligationIds: [...(proposal.commit?.studyObligationIds || [])],
@@ -559,6 +560,7 @@ export class LoreReviewedMutationService {
       rejection: null,
       commit: null,
       restoration: null,
+      recovery: null,
       lastError: null,
       createdSequence: ++this.sequence,
       auditId: 'lore-mutation-audit:' + operationFingerprint,
@@ -735,24 +737,30 @@ export class LoreReviewedMutationService {
     for (const write of writes) {
       const before = registry.currentRevision(write.sourceId, {allowMissing: true});
       let result;
-      if (write.kind === 'UPSERT') {
-        if (!(registry.snapshot().books || []).some((row) => row.id === write.lorebookId)) {
-          this.intelligence.runtime.registerLorebook({id: write.lorebookId, title: write.lorebookId});
+      try {
+        if (write.kind === 'UPSERT') {
+          if (!(registry.snapshot().books || []).some((row) => row.id === write.lorebookId)) {
+            this.intelligence.runtime.registerLorebook({id: write.lorebookId, title: write.lorebookId});
+          }
+          result = this.intelligence.runtime.upsertEntry({
+            lorebookId: write.lorebookId,
+            uid: write.uid,
+            content: write.content,
+            metadata: write.metadata,
+          });
+        } else {
+          result = this.intelligence.runtime.removeEntry({
+            lorebookId: write.lorebookId,
+            uid: write.uid,
+            reason: restoration
+              ? 'reviewed-mutation-restoration:' + proposal.proposalId
+              : 'reviewed-mutation-commit:' + proposal.proposalId,
+          });
         }
-        result = this.intelligence.runtime.upsertEntry({
-          lorebookId: write.lorebookId,
-          uid: write.uid,
-          content: write.content,
-          metadata: write.metadata,
-        });
-      } else {
-        result = this.intelligence.runtime.removeEntry({
-          lorebookId: write.lorebookId,
-          uid: write.uid,
-          reason: restoration
-            ? 'reviewed-mutation-restoration:' + proposal.proposalId
-            : 'reviewed-mutation-commit:' + proposal.proposalId,
-        });
+      } catch (error) {
+        error.partialRevisionEvents = deepClone(revisionEvents);
+        error.partialStudyObligationIds = unique(studyObligationIds);
+        throw error;
       }
       if (!result.changed) continue;
       this._recordStoryRevision(
@@ -782,6 +790,36 @@ export class LoreReviewedMutationService {
     return {revisionEvents, studyObligationIds: unique(studyObligationIds)};
   }
 
+  _compensationWrites(proposal, partialRevisionEvents = []) {
+    const beforeBySource = new Map((proposal.reconstruction?.sources || []).map((row) => [row.sourceId, row]));
+    const changedIds = unique((partialRevisionEvents || []).map((row) => row.sourceId)).reverse();
+    return changedIds.map((sourceId) => {
+      const before = beforeBySource.get(sourceId);
+      const current = this.intelligence.runtime.registry.currentRevision(sourceId, {allowMissing: true});
+      if (!current) return null;
+      if (!before || !before.existed) {
+        const source = this.intelligence.runtime.registry.getEntry(sourceId);
+        if (!source || current.state === 'REMOVED') return null;
+        return {
+          kind: 'REMOVE',
+          sourceId,
+          lorebookId: source.lorebookId,
+          uid: source.uid,
+          expectedSourceRevisionId: current.id,
+        };
+      }
+      return {
+        kind: 'UPSERT',
+        sourceId,
+        lorebookId: before.lorebookId,
+        uid: before.uid,
+        content: before.exactContent,
+        metadata: deepClone(before.metadata || {}),
+        expectedSourceRevisionId: current.id,
+      };
+    }).filter(Boolean);
+  }
+
   commit({proposalId, operatorDecisionId, ...scopeRequest} = {}) {
     const proposal = this._proposal(proposalId);
     this._assertRequestScope(proposal, scopeRequest);
@@ -804,7 +842,42 @@ export class LoreReviewedMutationService {
     try {
       executed = this._executeWrites(proposal, proposal.writes);
     } catch (error) {
+      const partialRevisionEvents = deepClone(error?.partialRevisionEvents || []);
+      let recovery = {
+        kind: 'LoreMutationRecoveryReceipt',
+        status: partialRevisionEvents.length ? 'REQUIRED' : 'NOT_REQUIRED',
+        partialRevisionEvents,
+        compensationRevisionEvents: [],
+        studyObligationIds: [],
+        error: null,
+      };
+      if (partialRevisionEvents.length) {
+        try {
+          const writes = this._compensationWrites(proposal, partialRevisionEvents);
+          const compensated = this._executeWrites(proposal, writes, {restoration: true});
+          recovery = {
+            ...recovery,
+            status: 'COMPENSATED',
+            compensationRevisionEvents: deepClone(compensated.revisionEvents),
+            studyObligationIds: [...compensated.studyObligationIds],
+          };
+        } catch (recoveryError) {
+          recovery = {
+            ...recovery,
+            status: 'RECOVERY_FAILED',
+            error: {
+              code: String(recoveryError?.code || 'LORE_MUTATION_RECOVERY_FAILED'),
+              message: String(recoveryError?.message || recoveryError),
+              safe: true,
+            },
+          };
+          try {
+            this._refreshDerivedFreshness();
+          } catch {}
+        }
+      }
       proposal.state = LoreMutationState.FAILED;
+      proposal.recovery = recovery;
       proposal.lastError = {
         kind: 'LoreMutationError',
         code: String(error?.code || 'LORE_MUTATION_COMMIT_FAILED'),
@@ -815,6 +888,9 @@ export class LoreReviewedMutationService {
         kind: 'LoreMutationFailedAudit',
         proposalId: proposal.proposalId,
         error: deepClone(proposal.lastError),
+        recovery: deepClone(recovery),
+        partialRevisionEvents,
+        compensationRevisionEvents: deepClone(recovery.compensationRevisionEvents),
         sequence: ++this.sequence,
       });
       return this._public(proposal);

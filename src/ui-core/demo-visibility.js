@@ -144,11 +144,12 @@ export class DemoActivityFeedController{
     this.setTimer=typeof setTimer==='function'?setTimer:null;this.clearTimer=typeof clearTimer==='function'?clearTimer:null;
     this.scheduleEnabled=scheduleEnabled==null?typeof host?.isConnected==='boolean':Boolean(scheduleEnabled);
     this.scope=new ResourceScope();this.renderScope=new ResourceScope();this.held=new Set();this.timer=null;this.lastSignature=null;
+    this.metrics={renderCalls:0,domRebuilds:0,activations:0,keyboardActivations:0,staleBlocks:0,timersScheduled:0};
   }
   mount(){this.host?.classList?.add?.('a52-activity-feed-host');this.render();return this;}
   render(){
     if(!this.host||!this.journal)return;
-    this.#cancelTimer();
+    this.metrics.renderCalls+=1;this.#cancelTimer();
     const selection=normalizeSelection(this.selectionProvider?.()??{}),now=Number(this.now()),all=this.journal.listEntries(selection,{limit:Math.max(this.maxVisible*4,32)});
     const active=all.filter(entry=>this.held.has(entry.id)||Math.max(0,now-Number(entry.at??now))<this.visibleForMs).slice(-this.maxVisible);
     let nextBoundary=Infinity;
@@ -163,12 +164,13 @@ export class DemoActivityFeedController{
       return;
     }
     if(this.lastSignature!==signature){
-      this.renderScope.cleanup();this.renderScope=new ResourceScope();
+      this.metrics.domRebuilds+=1;this.renderScope.cleanup();this.renderScope=new ResourceScope();
       const d=this.host.ownerDocument,root=element(d,'div',{className:'a52-activity-feed',attrs:{'aria-label':'Current turn activity',role:'log','aria-live':'polite','aria-relevant':'additions text'}});
       for(const {entry,held,phase,age} of rows){
         const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),phase,paused:String(held),entryId:entry.id}});
         button.append(element(d,'strong',{text:entry.title}),element(d,'span',{className:'a52-activity-feed__summary',text:entry.summary}),element(d,'span',{className:'a52-activity-feed__detail',text:entry.detail??entry.summary}));
         this.renderScope.listen(button,'click',()=>this.#activate(entry));
+        this.renderScope.listen(button,'keydown',(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault?.();this.metrics.keyboardActivations+=1;this.#activate(entry);}});
         this.renderScope.listen(button,'mouseenter',()=>this.#hold(entry.id));
         this.renderScope.listen(button,'mouseleave',()=>this.#release(entry.id));
         this.renderScope.listen(button,'focusin',()=>this.#hold(entry.id));
@@ -179,17 +181,22 @@ export class DemoActivityFeedController{
     }
     if(this.scheduleEnabled&&Number.isFinite(nextBoundary)&&this.held.size===0)this.#schedule(Math.max(20,nextBoundary+5));
   }
+  diagnostics(){return{kind:'Area52ActivityFeedDiagnostics',maxVisible:this.maxVisible,held:this.held.size,timerActive:this.timer!=null,lastSignature:this.lastSignature,metrics:{...this.metrics},bounded:true,keyboardNativeButtons:true,rawPromptIncluded:false,credentialsIncluded:false};}
   destroy(){this.#cancelTimer();this.renderScope.cleanup();this.scope.cleanup();this.held.clear();this.lastSignature=null;this.host?.replaceChildren?.();}
   #activate(entry){
-    const current=normalizeSelection(this.selectionProvider?.()??{});
-    if(selectionKey(current)!==selectionKey(entry.selection)){this.render();return false;}
+    this.metrics.activations+=1;const current=normalizeSelection(this.selectionProvider?.()??{});
+    if(selectionKey(current)!==selectionKey(entry.selection)){
+      this.metrics.staleBlocks+=1;
+      this.inspect?.({kind:'wave14-activity-evidence',id:entry.id,title:entry.title,available:false,availabilityState:'STALE_SELECTED_TURN_EVIDENCE',selection:clone(current),staleSelection:clone(entry.selection),receiptRef:null,reason:'The activity item belongs to a previous chat / turn / generation and cannot be opened as current evidence.',payload:{kind:'ActivityEvidenceUnavailable',status:'NO_EVIDENCE',reason:'SELECTION_CHANGED_BEFORE_INSPECT'}});
+      return false;
+    }
     this.inspect?.({kind:'wave14-activity-evidence',id:entry.id,title:entry.title,available:true,selection:clone(entry.selection),receiptRef:entry.receiptRef??null,payload:clone(entry)});
     return true;
   }
   #hold(id){this.held.add(id);this.#cancelTimer();const node=this.#entryNode(id);if(node)node.dataset.paused='true';}
   #release(id){this.held.delete(id);this.render();}
   #entryNode(id){return [...(this.host?.querySelectorAll?.('.a52-activity-feed__item')??[])].find(node=>node.dataset?.entryId===id)??null;}
-  #schedule(ms){if(!this.setTimer)return;this.timer=this.setTimer(()=>{this.timer=null;this.render();},ms);this.timer?.unref?.();}
+  #schedule(ms){if(!this.setTimer)return;this.metrics.timersScheduled+=1;this.timer=this.setTimer(()=>{this.timer=null;this.render();},ms);this.timer?.unref?.();}
   #cancelTimer(){if(this.timer!=null&&this.clearTimer)this.clearTimer(this.timer);this.timer=null;}
 }
 

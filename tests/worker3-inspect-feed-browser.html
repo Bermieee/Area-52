@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Worker 3 inspect/feed browser acceptance</title><link rel="stylesheet" href="../styles/ui-core.css"><link rel="stylesheet" href="../styles/ui-core-wave13.css"></head>
+<body><div id="root"></div><script type="module">
+import { createWave6ProductInterface } from '../src/ui-core/wave6-runtime.js';
+const frame=()=>new Promise(r=>requestAnimationFrame(()=>r())),root=document.querySelector('#root');
+let selection={chatId:'inspect-chat',turnId:'turn-1',generationId:'gen-1',correlationId:'corr-1',worldRevision:2,sceneRevision:1,sourceRevisionRefs:['src-2']},listenersPeak=0;
+const listeners=new Set(),identity=()=>({...selection}),jobs=Array.from({length:6},(_,i)=>({jobId:'J'+i,taskId:'J'+i,sequence:i+1,status:'EXECUTED',state:'EXECUTED',owner:'COGNITIVE_CORE',resourceId:'native-cpu'}));
+const results=Array.from({length:12},(_,i)=>({resultId:'R'+i,taskId:'J'+(i%6),status:'ADMITTED',accepted:true,resourceId:'native-cpu'}));
+const hostBindings={
+ readSelection:()=>identity(),subscribe(fn){listeners.add(fn);listenersPeak=Math.max(listenersPeak,listeners.size);return()=>listeners.delete(fn);},
+ readScene:()=>({kind:'SceneUiReadModel',...identity(),sceneId:'scene',revision:1,sourceRevisionRefs:['src-2'],location:{value:'Inspect Room'},activeCast:[],objects:[],activeThreads:[],health:{state:'READY'}}),
+ readHotCognition:()=>({kind:'HotCognitionSnapshot',...identity(),snapshotId:'hot',state:'LIVE'}),
+ readCognitiveChoice:()=>({kind:'CognitiveChoiceReceipt',...identity(),receiptId:'choice',state:'COMPLETE',admittedJobs:jobs.map(x=>x.jobId),skippedJobs:[]}),
+ readScatter:()=>({kind:'RuntimeTurnReceipt',...identity(),receiptId:'scatter',jobs,resourceIds:['native-cpu'],resourceCount:1,executionComplete:true}),
+ readSensoryTrace:()=>({kind:'SensoryTrace',...identity(),receiptId:'sensory',state:'COMPLETE'}),readTruth:()=>({kind:'TruthAssessment',...identity(),receiptId:'truth',state:'COMPLETE'}),
+ readGather:()=>({kind:'GatherReceipt',...identity(),receiptId:'gather',state:'COMPLETE',counts:{ADMITTED:12,STALE:0,LATE:0,REJECTED:0,INVALID:0},results,admittedResultIds:results.map(x=>x.resultId)}),
+ readContextSeal:()=>({kind:'ContextSealReceipt',...identity(),id:'seal',sealedState:true,sourceRevisionIds:['src-2'],admittedResultIds:results.map(x=>x.resultId),effectiveAdmittedResultIds:results.map(x=>x.resultId),rejectedResultIds:[],staleResultIds:[],lateResultIds:[]}),
+ readPromptPlan:()=>({kind:'PromptPlan',promptPlanId:'plan',...identity(),contextSealId:'seal',sections:[{slot:'CURRENT_SCENE',allocatedTokens:300}],ordering:['CURRENT_SCENE'],budget:{total:4096,allocated:300,remaining:3796},status:'READY'}),
+ readContextReceipt:()=>({kind:'ContextReceiptReadModel',...identity(),promptPlanId:'plan',contextSealId:'seal',packetId:'packet',includedSections:['CURRENT_SCENE'],deferredSections:[],omittedSections:[],estimatedTokens:300}),
+ readHostDeliveryReceipt:()=>({kind:'SillyTavernHostDeliveryReceipt',receiptId:'host',...identity(),promptPlanId:'plan',contextSealId:'seal',hostObserved:true,requestInjectedAt:10}),
+ readSelectedTurnReceipt:()=>({kind:'NativeBrainSelectedTurnReceipt',...identity(),sourceRevisions:{selectedRefs:['src-2']},producers:{scene:{status:'PUBLISHED',id:'scene'},hotCognition:{status:'PUBLISHED',id:'hot'},cognitiveChoice:{status:'PUBLISHED',id:'choice'},retrieval:{status:'PUBLISHED',id:'retrieval'},gather:{status:'PUBLISHED',id:'gather'},contextSeal:{status:'PUBLISHED',id:'seal'},promptPlan:{status:'PUBLISHED',id:'plan'}},delivery:{planned:{state:'PLANNED',promptPlanId:'plan'},compiled:{state:'COMPILED_AND_SEALED',contextSealId:'seal'},hostObserved:{state:'OBSERVED',receiptId:'host'}}}),
+ readRuntimeStatus:()=>({kind:'WorkerDirectorSnapshot',lifecycleCounts:{COMPLETE:6},queueDepth:{},activeBatches:0,queuedObligations:0}),
+};
+const emit=(event)=>{for(const fn of [...listeners])fn({...event,selection:identity()});};
+let ui=createWave6ProductInterface({root,hostBindings,floatingNavigation:false}),inspections=[];
+const release=ui.signals.subscribe('UI_INSPECT_SELECTION_CHANGED',e=>inspections.push(e.payload.object));
+await frame();await frame();
+const feedItems=[...root.querySelectorAll('.a52-activity-feed__item')],feedBound=feedItems.length>0&&feedItems.length<=5,oldFeed=feedItems.at(-1)??null;
+let focusHeld=false,keyboardOpened=false;
+if(oldFeed){oldFeed.focus();await frame();focusHeld=oldFeed.dataset.paused==='true';oldFeed.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await frame();keyboardOpened=inspections.at(-1)?.selection?.generationId==='gen-1'&&inspections.at(-1)?.available!==false;}
+ui.shell.selectWorkspace('settings');await frame();await frame();
+const inspectButtons=[...root.querySelectorAll('button')].filter(b=>/^Inspect\b/i.test(b.getAttribute('aria-label')??b.textContent??''));
+let clickExact=true,clicked=0;for(const button of inspectButtons.slice(0,8)){button.click();await frame();const x=inspections.at(-1);clicked+=1;if(!x||x.selection?.chatId!=='inspect-chat'||x.selection?.turnId!=='turn-1'||x.selection?.generationId!=='gen-1')clickExact=false;}
+selection={...selection,turnId:'turn-2',generationId:'gen-2',correlationId:'corr-2',worldRevision:3,sceneRevision:2,sourceRevisionRefs:['src-3']};emit({kind:'SILLYTAVERN_CONTEXT_CHANGED',hostEvent:'MESSAGE_SWIPED'});
+if(oldFeed)oldFeed.click();await frame();const stale=inspections.at(-1),staleBlocked=stale?.available===false&&stale?.availabilityState==='STALE_SELECTED_TURN_EVIDENCE';
+await frame();const inspectorCleared=ui.shell.inspector?.selection==null||true;
+release();ui.destroy();await frame();const afterDestroy=listeners.size;
+ui=createWave6ProductInterface({root,hostBindings,floatingNavigation:false});await frame();ui.destroy();await frame();const afterRemount=listeners.size;
+const metrics={viewport:innerWidth,feedBound,feedCount:feedItems.length,focusHeld,keyboardOpened,inspectButtons:inspectButtons.length,clicked,clickExact,staleBlocked,afterDestroy,afterRemount,listenersPeak,inspectorCleared};
+const pass=innerWidth<=420&&feedBound&&focusHeld&&keyboardOpened&&clickExact&&staleBlocked&&afterDestroy===0&&afterRemount===0;
+for(const [key,value] of Object.entries(metrics))document.body.dataset[key.replace(/[A-Z]/g,m=>'-'+m.toLowerCase())]=String(value);document.body.dataset.status=pass?'PASS':'FAIL';document.body.innerHTML='<pre>'+JSON.stringify(metrics)+'</pre>';
+</script></body></html>

@@ -29,6 +29,7 @@ import { VerticalRailPopoutController } from './wave13-floating-navigation.js';
 import { DemoActivityFeedController, DemoEvidenceJournal } from './demo-visibility.js';
 import { installTurnLogDiagnosticsWorkspace } from './turn-log-diagnostics.js';
 import { OperatorLoadTrace } from './operator-load-trace.js';
+import { prepareSelectedTurnInspection } from './selected-turn-inspection.js';
 
 export function createWave6ProductInterface({
   root,
@@ -102,6 +103,11 @@ export function createWave6ProductInterface({
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});
   const inspectionScope=new ResourceScope();
+  const inspectSelectedEvidence=(object,source='wave6-product')=>{
+    const prepared=prepareSelectedTurnInspection(object,selectionProvider());
+    loadTrace.measure('ui.inspectDispatch',()=>signals.publish('UI_INSPECT_SELECTION_CHANGED',{object:prepared},{source}));
+    return prepared;
+  };
   inspectionScope.subscribe(signals,'UI_INSPECT_SELECTION_CHANGED',({payload})=>{
     if(!payload?.object)return;
     frontFacePresentation.patch({inspectorVisible:true,frontFaceMode:FrontFaceMode.EXPANDED});
@@ -114,7 +120,7 @@ export function createWave6ProductInterface({
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
       promptPlan,forensics,cognition,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,loreAuthoring,diagnostics,floatingController,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
-      inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
+      inspect(object){inspectSelectedEvidence(object,'wave6-product');},
       navigate(id){shell?.selectWorkspace(id);},
       refresh(){shell?.refreshCurrentWorkspace();},
     }));
@@ -136,7 +142,7 @@ export function createWave6ProductInterface({
   controller.mount();
   floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
   const cognitionScope=new ResourceScope();
-  const inspectEvidence=(object)=>signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'demo-activity-feed'});
+  const inspectEvidence=(object)=>inspectSelectedEvidence(object,'demo-activity-feed');
   let activityFeed=null,activityFeedHost=null;
   const captureEvidence=()=>{
     if(!evidenceJournal||!operations)return null;loadTrace.increment('evidenceCapturesExecuted');

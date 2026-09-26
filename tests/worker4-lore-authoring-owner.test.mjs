@@ -545,7 +545,8 @@ test('LoreAuthoringService publishes bounded Worker 3 mutation read/action contr
   const contract = authoring.operatorContract();
 
   assert.equal(contract.kind, 'LoreAuthoringOperatorContract');
-  assert.equal(contract.contractVersion, 3);
+  assert.equal(contract.contractVersion, 2);
+  assert.equal(contract.mutationExtensionVersion, 1);
   for (const name of [
     'mutationProposal', 'mutationQueue', 'semanticImpactPreview', 'mutationAudit',
   ]) assert.equal(typeof contract.read[name], 'function', 'missing read ' + name);
@@ -622,7 +623,8 @@ test('LoreAuthoringService publishes bounded Worker 3 mutation read/action contr
   assert.equal(authoring.mutationProposal({proposalId: created.value.proposalId}).state, LoreMutationState.COMMITTED);
 
   const worker3 = authoring.worker3AuthoringContract();
-  assert.equal(worker3.contractVersion, 3);
+  assert.equal(worker3.contractVersion, 2);
+  assert.equal(worker3.mutationExtensionVersion, 1);
   assert.deepEqual(worker3.mutationOperations.sort(), Object.values(LoreMutationOperation).sort());
   assert.equal(worker3.uiImplementationOwner, 'Worker 3');
   assert.equal(worker3.backendOwnsRendering, false);

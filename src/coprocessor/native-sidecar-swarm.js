@@ -5,6 +5,11 @@ import { classifyFreshness, validateWorkerOutput } from './validation.js';
 import { createCoprocessorChoiceExecutionTrace, toCoreCognitiveChoiceContribution } from './cognitive-choice-execution.js';
 import { sha256Hex } from './browser-compat.js';
 import { emitTelemetry } from './telemetry.js';
+import {
+  FOREGROUND_SCATTER_LAYERS, ScatterLayer, estimateRetainedResultBytes, evaluateScatterAdmission,
+  groupTasksByScatterLayer, isBoundedJevChoice, scatterTriggerForTask, yieldScatterBoundary,
+} from './layered-scatter.js';
+import { createLayeredScatterOwnerReceipt } from './layered-scatter-owner-contract.js';
 
 export const NATIVE_SIDECAR_SWARM_VERSION='1.0.0';
 
@@ -15,6 +20,7 @@ export const NativeSwarmResultState=Object.freeze({
   REJECTED_LATE:'REJECTED_LATE',
   FAILED:'FAILED',
   UNAVAILABLE:'UNAVAILABLE',
+  SKIPPED:'SKIPPED',
   PARKED:'PARKED',
 });
 
@@ -23,6 +29,7 @@ const AUTHORITY_SAFE=new Set(['UNRESOLVED','INFERRED']);
 export class NativeSidecarSwarm{
   constructor({
     connections,planner=null,telemetry=null,now=()=>Date.now(),maxHistory=64,maxCheckpointBytes=131072,maxProvidersPerTask=2,
+    minimumPrecisionExpectedValue=0.8,cooperativeYield=yieldScatterBoundary,
   }={}){
     if(!connections||typeof connections.readModel!=='function'||typeof connections.executeTask!=='function')throw new TypeError('NativeSidecarSwarm requires CoprocessorResourceConnections');
     this.connections=connections;
@@ -32,12 +39,16 @@ export class NativeSidecarSwarm{
     this.maxHistory=Math.max(8,Number(maxHistory)||64);
     this.maxCheckpointBytes=Math.max(16384,Number(maxCheckpointBytes)||131072);
     this.maxProvidersPerTask=Math.max(1,Number(maxProvidersPerTask)||2);
+    this.minimumPrecisionExpectedValue=Math.max(0,Math.min(1,Number(minimumPrecisionExpectedValue)||0.8));
+    this.cooperativeYield=typeof cooperativeYield==='function'?cooperativeYield:yieldScatterBoundary;
     this.turns=new Map();
     this.turnOrder=[];
+    this.checkpointExecutions=new Map();
+    this.checkpointExecutionOrder=[];
     this.jev=new JevDecisionCore({providerExecutor:this.connections.createJevProviderExecutor()});
   }
 
-  prepareTurn({turnEvent,plannerInput={},ownerSignals={},choicePolicyVersion='sidecar-choice-v1'}={}){
+  prepareTurn({turnEvent,plannerInput={},ownerSignals={},choicePolicyVersion='sidecar-choice-v1',selection=null}={}){
     if(!turnEvent?.turnId||!turnEvent?.correlationId)throw new TypeError('turnEvent with turnId and correlationId is required');
     const resources=this.connections.readModel();
     const profiles=this.connections.profiles.list();
@@ -54,9 +65,10 @@ export class NativeSidecarSwarm{
     });
     const checkpoint=createSwarmCheckpoint({
       turnEvent,proposal:plan.choiceProposal,tasks:plan.fanOutPlan.tasks,createdAt:this.now(),maxBytes:this.maxCheckpointBytes,
+      selection:normalizeSwarmSelection(selection??turnEvent),
     });
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TURN_PLANNED,{
-      turnId:turnEvent.turnId,correlationId:turnEvent.correlationId,proposalId:plan.choiceProposal.proposalId,
+      ...checkpoint.selection,turnId:turnEvent.turnId,correlationId:turnEvent.correlationId,proposalId:plan.choiceProposal.proposalId,
       plannedWorkerCount:plan.fanOutPlan.plannedWorkerCount,readyResourceCount:resources.readyResourceCount,
     });
     return Object.freeze({kind:'NativeSidecarSwarmPreparedTurn',fanOutPlan:plan.fanOutPlan,choiceProposal:plan.choiceProposal,checkpoint,resourceSnapshot:resources});
@@ -75,40 +87,118 @@ export class NativeSidecarSwarm{
     });
   }
 
-  async executeCheckpoint(checkpointInput,{
+  async executeCheckpoint(checkpointInput,options={}){
+    const checkpoint=validateCheckpoint(checkpointInput,this.maxCheckpointBytes);
+    const prior=this.checkpointExecutions.get(checkpoint.checkpointId);
+    if(prior){
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_CHECKPOINT_REPLAYED,{
+        ...normalizeSwarmSelection(checkpoint.selection??checkpoint),
+        checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,
+        parentReceiptId:checkpoint.proposalId,reason:'CHECKPOINT_EXECUTION_ALREADY_OBSERVED',
+      });
+      return prior;
+    }
+    const execution=this.#executeCheckpointOnce(checkpoint,options);
+    this.checkpointExecutions.set(checkpoint.checkpointId,execution);
+    this.checkpointExecutionOrder.push(checkpoint.checkpointId);
+    while(this.checkpointExecutionOrder.length>this.maxHistory*4){
+      const evicted=this.checkpointExecutionOrder.shift();
+      if(evicted!==checkpoint.checkpointId)this.checkpointExecutions.delete(evicted);
+    }
+    try{
+      const result=await execution;
+      this.checkpointExecutions.set(checkpoint.checkpointId,Promise.resolve(result));
+      return result;
+    }catch(error){
+      this.checkpointExecutions.delete(checkpoint.checkpointId);
+      this.checkpointExecutionOrder=this.checkpointExecutionOrder.filter(id=>id!==checkpoint.checkpointId);
+      throw error;
+    }
+  }
+
+  async #executeCheckpointOnce(checkpoint,{
     inputResolver=()=>({}),currentRevisionState=null,sealed=false,signal=null,jevRequest=null,ownerSignals={},
     maxProvidersPerTask=this.maxProvidersPerTask,
   }={}){
-    const checkpoint=validateCheckpoint(checkpointInput,this.maxCheckpointBytes);
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
     const current=await resolveValue(currentRevisionState,checkpoint.revisionFence);
     const freshness=classifyFreshness(checkpoint.revisionFence,current??checkpoint.revisionFence);
     if(freshness!==Freshness.FRESH){
       const records=checkpoint.pendingTasks.map(task=>rejectedRecord(task,NativeSwarmResultState.REJECTED_STALE,FailureCode.STALE_RESULT));
-      return this.#finish(checkpoint,{records,jevReceipt:null,checkpoint:null,resumeStatus:'STALE_REJECTED'});
+      return this.#finish(checkpoint,{records,jevReceipt:null,jevObservation:null,checkpoint:null,resumeStatus:'STALE_REJECTED'});
     }
 
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_RESUMED,{
-      checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:checkpoint.pendingTasks.length,
+      ...selection,checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:checkpoint.pendingTasks.length,
     });
 
     const deferred=checkpoint.pendingTasks.filter(task=>task.resultClass===ResultClass.DEFERRED);
     const foreground=checkpoint.pendingTasks.filter(task=>task.resultClass!==ResultClass.DEFERRED);
     const records=await this.#executeForeground(foreground,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint});
-    for(const task of deferred)records.push(parkedRecord(task));
+    for(const task of deferred){
+      records.push(parkedRecord(task));
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+        ...selection,waveId:checkpoint.checkpointId+':'+ScatterLayer.DEEP,turnId:task.turnId,correlationId:task.correlationId,
+        parentReceiptId:checkpoint.proposalId,taskId:task.taskId,layer:ScatterLayer.DEEP,trigger:scatterTriggerForTask(task),
+        decision:'DEFERRED',reason:'OUTSIDE_FOREGROUND_DEADLINE',queueDepth:deferred.length,concurrency:0,
+        fallback:false,costClass:task.metadata?.costEstimate?.class??task.metadata?.costBudget??null,
+      });
+    }
 
-    let jevReceipt=null;
+    let jevReceipt=null,jevObservation=null;
     const jevOption=checkpoint.proposal.options.find(option=>option.optionId==='jev-adjudication');
-    const shouldRunJev=checkpoint.proposal.ownerStageRequests?.jevAdjudication===true&&jevOption?.disposition==='NOMINATED';
-    if(shouldRunJev&&jevRequest){
-      if(jevRequest.turnId!==checkpoint.turnId||jevRequest.correlationId!==checkpoint.correlationId)throw new TypeError('Jev request turn identity does not match swarm checkpoint');
-      jevReceipt=await this.jev.decide(jevRequest,{currentRevisionState,sealed,signal});
+    const ownerRequested=checkpoint.proposal.ownerStageRequests?.jevAdjudication===true;
+    const nominated=jevOption?.disposition==='NOMINATED';
+    const jevTaskId=jevRequest?.taskId??(checkpoint.turnId+':jev-adjudication');
+    const jevWaveId=checkpoint.checkpointId+':JEV';
+    if(jevOption){
+      const costClass=jevOption.estimatedCost?.class??jevOption.estimatedCost?.costClass??'OPTIONAL';
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_STARTED,{
+        ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer:ScatterLayer.PRECISION,trigger:ownerRequested?'OWNER_JEV_REQUEST':'NO_OWNER_JEV_REQUEST',startedAt:this.now(),queueDepth:nominated?1:0,concurrency:nominated?1:0,taskCount:1,costClass,
+      });
+      const jevStarted=this.now();
+      if(!ownerRequested||!nominated){
+        const reason=!ownerRequested?'OWNER_DID_NOT_REQUEST_JEV':'JEV_NOT_NOMINATED';
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+          ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:jevTaskId,layer:ScatterLayer.PRECISION,trigger:'JEV_OWNER_GATE',decision:'SKIPPED',reason,queueDepth:0,concurrency:0,fallback:false,costClass,
+        });
+        jevObservation={ran:false,status:'SKIPPED',abstained:false,unresolved:false,late:false,stale:false,providerProfileId:null,decisionRef:null,latencyMs:0};
+      }else if(!jevRequest){
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+          ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:jevTaskId,layer:ScatterLayer.PRECISION,trigger:'JEV_OWNER_GATE',decision:'SKIPPED',reason:'OWNER_REQUESTED_WITHOUT_BOUNDED_REQUEST',
+          queueDepth:0,concurrency:0,fallback:false,costClass,
+        });
+        jevObservation={ran:false,status:'SKIPPED',abstained:false,unresolved:true,late:false,stale:false,providerProfileId:null,decisionRef:null,latencyMs:0};
+      }else{
+        if(jevRequest.turnId!==checkpoint.turnId||jevRequest.correlationId!==checkpoint.correlationId)throw new TypeError('Jev request turn identity does not match swarm checkpoint');
+        const bounded=isBoundedJevChoice(jevRequest);
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,{
+          ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:jevTaskId,layer:ScatterLayer.PRECISION,trigger:'JEV_OWNER_GATE',decision:bounded.eligible?'ADMITTED':'SKIPPED',reason:bounded.reason,
+          queueDepth:bounded.eligible?1:0,concurrency:bounded.eligible?1:0,fallback:false,costClass,
+        });
+        if(bounded.eligible){
+          jevReceipt=await this.jev.decide(jevRequest,{currentRevisionState,sealed,signal});
+        }else{
+          jevObservation={ran:false,status:'SKIPPED',abstained:false,unresolved:true,late:false,stale:false,providerProfileId:null,decisionRef:null,latencyMs:0};
+        }
+      }
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_COMPLETED,{
+        ...selection,waveId:jevWaveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer:ScatterLayer.PRECISION,completedAt:this.now(),durationMs:Math.max(0,this.now()-jevStarted),retainedBytes:0,releasedBytes:0,
+        failed:jevReceipt?.serviceStatus==='JEV_INVALID'||jevReceipt?.serviceStatus==='JEV_UNAVAILABLE'?1:0,fallbacks:0,costClass,
+      });
     }
 
     const nextCheckpoint=deferred.length?createSwarmCheckpoint({
       turnEvent:{turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,...checkpoint.revisionFence},
       proposal:checkpoint.proposal,tasks:deferred,createdAt:this.now(),maxBytes:this.maxCheckpointBytes,parentCheckpointId:checkpoint.checkpointId,
+      selection,
     }):null;
-    return this.#finish(checkpoint,{records,jevReceipt,checkpoint:nextCheckpoint,resumeStatus:'EXECUTED'});
+    return this.#finish(checkpoint,{records,jevReceipt,jevObservation,checkpoint:nextCheckpoint,resumeStatus:'EXECUTED'});
   }
 
   readModel(){
@@ -125,8 +215,68 @@ export class NativeSidecarSwarm{
   readTurn(turnId){return clone(this.turns.get(String(turnId))??null);}
 
   async #executeForeground(tasks,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint}){
+    const grouped=groupTasksByScatterLayer(tasks);
+    const records=[];
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
+    for(let layerIndex=0;layerIndex<FOREGROUND_SCATTER_LAYERS.length;layerIndex+=1){
+      const layer=FOREGROUND_SCATTER_LAYERS[layerIndex];
+      const layerTasks=grouped[layer]??[];
+      if(!layerTasks.length)continue;
+      const waveId=checkpoint.checkpointId+':'+layer;
+      const startedAt=this.now();
+      const concurrency=readyResourceConcurrency(this.connections.readModel());
+      const costClass=layerCostClass(layerTasks);
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_STARTED,{
+        ...selection,waveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer,trigger:layerTasks.map(scatterTriggerForTask).join('|'),startedAt,queueDepth:layerTasks.length,concurrency,taskCount:layerTasks.length,costClass,
+      });
+
+      const admitted=[];
+      const alreadySealed=Boolean(await resolveValue(sealed,false));
+      for(const task of layerTasks){
+        let decision=alreadySealed
+          ?{admitted:false,decision:'SKIPPED',reason:'SEALED_BEFORE_LAYER',layer}
+          :evaluateScatterAdmission(task,{priorRecords:records,minimumPrecisionExpectedValue:this.minimumPrecisionExpectedValue});
+        const event={
+          ...selection,waveId,turnId:task.turnId,correlationId:task.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:task.taskId,layer,trigger:scatterTriggerForTask(task),decision:decision.decision,reason:decision.reason,
+          queueDepth:layerTasks.length,concurrency,fallback:false,costClass:task.metadata?.costEstimate?.class??task.metadata?.costBudget??costClass,
+        };
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,event);
+        if(decision.admitted)admitted.push(task);
+        else{
+          const record=alreadySealed
+            ?rejectedRecord(task,NativeSwarmResultState.REJECTED_LATE,FailureCode.DEADLINE_MISS,{late:true})
+            :skippedRecord(task,decision.reason);
+          records.push(record);
+          emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{
+            ...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,
+            failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:false,resourceId:null,layer,
+          });
+        }
+      }
+
+      const layerRecords=await this.#executeTaskBatch(admitted,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint,layer,waveId});
+      records.push(...layerRecords);
+      const retainedBytes=estimateRetainedResultBytes(records);
+      const releasedBytes=layerRecords.reduce((sum,record)=>sum+Number(record.compactedBytes??0),0);
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_COMPLETED,{
+        ...selection,waveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer,completedAt:this.now(),durationMs:Math.max(0,this.now()-startedAt),retainedBytes,releasedBytes,
+        failed:layerRecords.filter(record=>['FAILED','UNAVAILABLE','REJECTED_INVALID','REJECTED_STALE','REJECTED_LATE'].includes(record.state)).length,
+        fallbacks:layerRecords.filter(record=>record.fallbackUsed).length,costClass,
+      });
+
+      const hasLater=FOREGROUND_SCATTER_LAYERS.slice(layerIndex+1).some(next=>(grouped[next]??[]).length>0);
+      if(hasLater&&!signal?.aborted)await this.cooperativeYield();
+    }
+    return records;
+  }
+
+  async #executeTaskBatch(tasks,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint,layer=null,waveId=null}){
     const pending=tasks.map(task=>({task,attempt:1,excluded:new Set()}));
     const records=[];
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
     while(pending.length){
       if(signal?.aborted){
         for(const item of pending.splice(0))records.push(rejectedRecord(item.task,NativeSwarmResultState.FAILED,FailureCode.PROVIDER_ABORTED));
@@ -143,7 +293,7 @@ export class NativeSidecarSwarm{
         if(!candidates.length){index+=1;continue;}
         const profile=candidates[0];reserved.set(profile.profileId,(reserved.get(profile.profileId)??0)+1);
         pending.splice(index,1);
-        round.push(this.#executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}));
+        round.push(this.#executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint,layer,waveId}));
       }
       if(!round.length){
         for(const item of pending.splice(0))records.push(rejectedRecord(item.task,NativeSwarmResultState.UNAVAILABLE,FailureCode.CAPABILITY_UNAVAILABLE,{attempt:item.attempt}));
@@ -154,9 +304,9 @@ export class NativeSidecarSwarm{
         if(outcome.retry&&outcome.item.attempt<Math.max(1,Number(maxProvidersPerTask)||1)&&this.now()<outcome.item.task.hardDeadline){
           const nextAttempt=outcome.item.attempt+1;
           emitTelemetry(this.telemetry,TelemetryEvent.RETRY,{
-            taskId:outcome.item.task.taskId,turnId:outcome.item.task.turnId,correlationId:outcome.item.task.correlationId,
+            ...selection,taskId:outcome.item.task.taskId,turnId:outcome.item.task.turnId,correlationId:outcome.item.task.correlationId,
             attempt:nextAttempt,failedProviderProfileId:outcome.profile.profileId,failedProviderId:outcome.profile.providerId,
-            resourceId:outcome.record.resourceId,failureCode:outcome.record.failureCode,
+            resourceId:outcome.record.resourceId,failureCode:outcome.record.failureCode,layer,waveId,
           });
           outcome.item.attempt=nextAttempt;outcome.item.excluded.add(outcome.profile.profileId);pending.push(outcome.item);
         }else records.push(outcome.record);
@@ -172,11 +322,12 @@ export class NativeSidecarSwarm{
       && Number(profile.currentLoad??0)+Number(reserved.get(profile.profileId)??0)<Number(profile.concurrencyCapacity??profile.maxConcurrency??1));
   }
 
-  async #executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}){
+  async #executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint,layer=null,waveId=null}){
     const task=item.task,resourceId=profile.profileMetadata?.resourceId??null;
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_ASSIGNED,{
-      turnId:task.turnId,correlationId:task.correlationId,taskId:task.taskId,taskType:task.taskType,
-      providerProfileId:profile.profileId,providerId:profile.providerId,workerId:profile.workerId,resourceId,attempt:item.attempt,
+      ...selection,turnId:task.turnId,correlationId:task.correlationId,taskId:task.taskId,taskType:task.taskType,
+      providerProfileId:profile.profileId,providerId:profile.providerId,workerId:profile.workerId,resourceId,attempt:item.attempt,layer,waveId,
     });
     const started=this.now();
     const deadlineController=new AbortController();
@@ -196,10 +347,10 @@ export class NativeSidecarSwarm{
       else if(validation.freshness!==Freshness.FRESH||validation.failure?.code===FailureCode.STALE_RESULT)record=resultRecord(task,result,profile,NativeSwarmResultState.REJECTED_STALE,{failureCode:FailureCode.STALE_RESULT,attempt:item.attempt,stale:true});
       else if(!AUTHORITY_SAFE.has(String(result.authorityClass??'').toUpperCase()))record=resultRecord(task,result,profile,NativeSwarmResultState.REJECTED_INVALID,{failureCode:FailureCode.AUTHORITY_VIOLATION,attempt:item.attempt,invalid:true});
       else record=resultRecord(task,result,profile,NativeSwarmResultState.READY_FOR_CORE,{attempt:item.attempt,fallbackUsed:item.attempt>1});
-      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:record.fallbackUsed,resourceId:record.resourceId});
+      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:record.fallbackUsed,resourceId:record.resourceId,layer,waveId});
       if(record.fallbackUsed&&record.state===NativeSwarmResultState.READY_FOR_CORE)emitTelemetry(this.telemetry,TelemetryEvent.FALLBACK_USED,{
-        taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:item.attempt,
-        providerProfileId:profile.profileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,
+        ...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:item.attempt,
+        providerProfileId:profile.profileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,layer,waveId,
       });
       return{item,profile,record,retry:false};
     }catch(error){
@@ -210,42 +361,53 @@ export class NativeSidecarSwarm{
         startedAt:started,completedAt:this.now(),late:deadlineMiss,fallbackUsed:item.attempt>1,
       });
       const retry=!deadlineMiss&&retryable(code);
-      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs});
+      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,resourceId:record.resourceId,layer,waveId});
       return{item,profile,record,retry};
     }finally{clearTimeout(timer);detach();}
   }
 
-  #finish(sourceCheckpoint,{records,jevReceipt,checkpoint,resumeStatus}){
+  #finish(sourceCheckpoint,{records,jevReceipt,jevObservation=null,checkpoint,resumeStatus}){
     const providerExecutions=records.map(record=>({
       taskId:record.taskId,choiceOptionId:record.optionId,executionResourceId:record.resourceId,providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,
-      startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,resultId:record.result?.resultId??null,
+      startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,resultId:record.resultId??record.result?.resultId??null,
       failureCode:record.failureCode,fallbackUsed:record.fallbackUsed,
     }));
     const resultRoutes=records.map(record=>({taskId:record.taskId,late:record.late,freshness:record.stale?'STALE':record.invalid?'INVALID':'FRESH'}));
-    const jevObservation=jevReceipt?{
+    const observedJev=jevObservation??(jevReceipt?{
       ran:!['JEV_SKIPPED','JEV_UNAVAILABLE'].includes(jevReceipt.serviceStatus),status:jevReceipt.serviceStatus,
       abstained:jevReceipt.abstained,unresolved:jevReceipt.outcome==='UNRESOLVED',late:Boolean(jevReceipt.admission?.late),stale:jevReceipt.outcome==='STALE',
       providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null,decisionRef:jevReceipt.receiptId??jevReceipt.decisionId??null,
       latencyMs:jevReceipt.latencyMetadata?.totalLatencyMs??null,
-    }:null;
-    const executionTrace=createCoprocessorChoiceExecutionTrace({proposal:sourceCheckpoint.proposal,providerExecutions,resultRoutes,jevObservation,telemetry:this.telemetry});
+    }:null);
+    const executionTrace=createCoprocessorChoiceExecutionTrace({proposal:sourceCheckpoint.proposal,providerExecutions,swarmTraces:records,resultRoutes,jevObservation:observedJev,telemetry:this.telemetry});
     const choiceContribution=toCoreCognitiveChoiceContribution({proposal:sourceCheckpoint.proposal,executionTrace});
+    const jevPhysicalAttempted=Boolean(jevReceipt?.providerProvenance?.providerProfileId&&observedJev?.ran);
+    const scatterReceipt=createLayeredScatterOwnerReceipt({
+      checkpoint:sourceCheckpoint,records,createdAt:this.now(),
+      jevObservation:observedJev?{
+        requested:sourceCheckpoint.proposal.ownerStageRequests?.jevAdjudication===true,
+        admitted:Boolean(observedJev.ran),physicalAttempted:jevPhysicalAttempted,returned:Boolean(jevReceipt),
+        ownerAdmissible:Boolean(jevReceipt&&!observedJev.late&&!observedJev.stale),status:observedJev.status,
+        providerProfileId:observedJev.providerProfileId??null,decisionRef:observedJev.decisionRef??null,
+      }:null,
+    });
     const readyResults=records.filter(record=>record.state===NativeSwarmResultState.READY_FOR_CORE).map(record=>record.result);
     const contribution=deepFreeze({
       kind:'NativeSidecarSwarmContribution',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,
-      choiceContribution,executionTrace,resultsForOwner:readyResults,jevReceipt:clone(jevReceipt),
+      choiceContribution,executionTrace,scatterReceipt,resultsForOwner:readyResults,jevReceipt:clone(jevReceipt),
       resultSummary:records.map(publicRecord),resumeStatus,
       ownerAdmissionRequired:true,authority:'NONE',truthAuthority:false,precisionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,finalChoiceAuthority:false,contextSealAuthority:false,
     });
     const summary=deepFreeze({
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,at:this.now(),resumeStatus,
-      counts:countStates(records),assignments:records.map(publicRecord),
-      jev:jevReceipt?{serviceStatus:jevReceipt.serviceStatus,outcome:jevReceipt.outcome,abstained:Boolean(jevReceipt.abstained),providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null}:null,
+      counts:countStates(records),assignments:records.map(publicRecord),scatter:clone(scatterReceipt.counts),
+      jev:jevReceipt?{serviceStatus:jevReceipt.serviceStatus,outcome:jevReceipt.outcome,abstained:Boolean(jevReceipt.abstained),providerProfileId:jevReceipt.providerProvenance?.providerProfileId??null}
+        :observedJev?{serviceStatus:observedJev.status,outcome:observedJev.unresolved?'UNRESOLVED':null,abstained:Boolean(observedJev.abstained),providerProfileId:observedJev.providerProfileId??null}:null,
       nextCheckpointId:checkpoint?.checkpointId??null,
     });
     this.#remember(summary);
-    if(checkpoint)emitTelemetry(this.telemetry,TelemetryEvent.SWARM_CHECKPOINTED,{checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,pendingTaskCount:checkpoint.pendingTasks.length});
+    if(checkpoint)emitTelemetry(this.telemetry,TelemetryEvent.SWARM_CHECKPOINTED,{...normalizeSwarmSelection(checkpoint.selection??checkpoint),checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:checkpoint.pendingTasks.length});
     return Object.freeze({kind:'NativeSidecarSwarmTurnResult',contribution,checkpoint,readModel:summary});
   }
 
@@ -255,7 +417,7 @@ export class NativeSidecarSwarm{
   }
 }
 
-export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Date.now(),maxBytes=131072,parentCheckpointId=null}={}){
+export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Date.now(),maxBytes=131072,parentCheckpointId=null,selection=null}={}){
   if(proposal?.kind!=='CoprocessorChoiceProposal')throw new TypeError('CoprocessorChoiceProposal required');
   const revisionFence={
     sourceRevisionSet:[...(turnEvent?.sourceRevisionSet??proposal.revisionFence?.sourceRevisionSet??[])],
@@ -263,12 +425,13 @@ export function createSwarmCheckpoint({turnEvent,proposal,tasks=[],createdAt=Dat
     sceneRevision:Number(turnEvent?.sceneRevision??proposal.revisionFence?.sceneRevision??0),
     characterStateRevision:Number(turnEvent?.characterStateRevision??proposal.revisionFence?.characterStateRevision??0),
   };
+  const safeSelection=normalizeSwarmSelection(selection??turnEvent??proposal);
   const base={turnId:String(turnEvent?.turnId??proposal.turnId),correlationId:String(turnEvent?.correlationId??proposal.correlationId),proposalId:proposal.proposalId,
-    revisionFence,taskIds:tasks.map(task=>task.taskId),parentCheckpointId};
+    revisionFence,taskIds:tasks.map(task=>task.taskId),parentCheckpointId,selection:safeSelection};
   const checkpoint=deepFreeze({
     kind:'CoprocessorSwarmCheckpoint',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
     checkpointId:'cop-swarm:'+sha256Hex(stable(base)).slice(0,24),createdAt:Number(createdAt),parentCheckpointId,
-    turnId:base.turnId,correlationId:base.correlationId,proposalId:base.proposalId,revisionFence:deepFreeze(revisionFence),proposal:clone(proposal),
+    turnId:base.turnId,correlationId:base.correlationId,proposalId:base.proposalId,selection:safeSelection,revisionFence:deepFreeze(revisionFence),proposal:clone(proposal),
     pendingTasks:tasks.map(clone),authority:'NONE',
   });
   assertBytes(checkpoint,maxBytes,'swarm checkpoint');
@@ -289,10 +452,12 @@ export function validateCheckpoint(value,maxBytes=131072){
 }
 
 function resultRecord(task,result,profile,state,extra={}){
+  const retain=state===NativeSwarmResultState.READY_FOR_CORE;
+  const compactedBytes=retain?0:byteLength(result);
   return deepFreeze({
     taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state,
-    providerProfileId:profile.profileId,providerId:result.providerId,workerId:result.workerId,resourceId:profile.profileMetadata?.resourceId??null,
-    startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.latency,result,attempt:Number(extra.attempt??1),
+    layer:task.metadata?.scatterLayer??null,trigger:scatterTriggerForTask(task),providerProfileId:profile.profileId,providerId:result.providerId,workerId:result.workerId,resourceId:profile.profileMetadata?.resourceId??null,
+    startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.latency,resultId:result.resultId??null,result:retain?result:null,compactedBytes,attempt:Number(extra.attempt??1),
     failureCode:extra.failureCode??null,fallbackUsed:Boolean(extra.fallbackUsed),late:Boolean(extra.late),stale:Boolean(extra.stale),invalid:Boolean(extra.invalid),
   });
 }
@@ -300,17 +465,37 @@ function rejectedRecord(task,state,failureCode,extra={}){
   const startedAt=extra.startedAt??null,completedAt=extra.completedAt??null;
   return deepFreeze({
     taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state,
-    providerProfileId:extra.providerProfileId??null,providerId:extra.providerId??null,workerId:extra.workerId??null,resourceId:extra.resourceId??null,
+    layer:task.metadata?.scatterLayer??null,trigger:scatterTriggerForTask(task),providerProfileId:extra.providerProfileId??null,providerId:extra.providerId??null,workerId:extra.workerId??null,resourceId:extra.resourceId??null,
     startedAt,completedAt,latencyMs:startedAt!=null&&completedAt!=null?Math.max(0,completedAt-startedAt):null,result:null,attempt:Number(extra.attempt??1),
     failureCode,fallbackUsed:Boolean(extra.fallbackUsed),late:Boolean(extra.late),stale:state===NativeSwarmResultState.REJECTED_STALE,invalid:state===NativeSwarmResultState.REJECTED_INVALID,
   });
 }
 function parkedRecord(task){return rejectedRecord(task,NativeSwarmResultState.PARKED,null);}
+function skippedRecord(task,reason){return deepFreeze({...rejectedRecord(task,NativeSwarmResultState.SKIPPED,null),skipReason:String(reason??'POLICY_SKIPPED')});}
 function publicRecord(record){return deepFreeze({taskId:record.taskId,optionId:record.optionId,taskType:record.taskType,resultClass:record.resultClass,state:record.state,
+  layer:record.layer??null,trigger:record.trigger??null,skipReason:record.skipReason??null,compactedBytes:Number(record.compactedBytes??0),
   providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,attempt:record.attempt,
-  resultId:record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
+  resultId:record.resultId??record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
   fallbackUsed:record.fallbackUsed,late:record.late,stale:record.stale,invalid:record.invalid});}
 function countStates(records){const out=Object.fromEntries(Object.values(NativeSwarmResultState).map(state=>[state,0]));for(const record of records)out[record.state]+=1;return deepFreeze(out);}
+function normalizeSwarmSelection(value={}){
+  return deepFreeze({
+    chatId:value?.chatId==null?null:String(value.chatId),
+    turnId:value?.turnId==null?null:String(value.turnId),
+    generationId:value?.generationId==null?null:String(value.generationId),
+    correlationId:value?.correlationId==null?null:String(value.correlationId),
+  });
+}
+function readyResourceConcurrency(model){
+  const resources=Array.isArray(model?.resources)?model.resources:[];
+  return resources.filter(row=>row?.callable!==false&&row?.selectedModelQualified!==false)
+    .reduce((sum,row)=>sum+Math.max(0,Number(row?.maxConcurrency??row?.concurrencyCapacity??1)||0),0);
+}
+function layerCostClass(tasks){
+  const values=[...new Set((tasks??[]).map(task=>task?.metadata?.costEstimate?.class??task?.metadata?.costBudget).filter(Boolean).map(String))];
+  return values.length===1?values[0]:values.length?'MIXED':null;
+}
+function byteLength(value){try{return new TextEncoder().encode(JSON.stringify(value)).length;}catch{return 0;}}
 function retryable(code){return [FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED,FailureCode.PROVIDER_FAILURE,FailureCode.PROVIDER_TIMEOUT,FailureCode.CAPABILITY_UNAVAILABLE].includes(code);}
 function linkAbort(signal,controller){if(!signal)return()=>{};const abort=()=>controller.abort(signal.reason??'caller-abort');if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});return()=>signal.removeEventListener?.('abort',abort);}
 async function resolveValue(value,fallback){if(typeof value==='function')return await value();return value??fallback;}

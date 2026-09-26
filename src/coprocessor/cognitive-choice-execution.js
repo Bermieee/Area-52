@@ -52,9 +52,11 @@ function fact(option,{runtime,swarm,provider,routes}){
   let state,failureCode=swarm?.failureCode??provider?.failureCode??runtime?.failureCode??null;
   const late=routes.some(x=>x?.route?.late===true||x?.late===true),stale=routes.some(x=>String(x?.route?.freshness??x?.freshness??'').toUpperCase()==='STALE'),
     invalid=routes.some(x=>String(x?.route?.freshness??x?.freshness??'').toUpperCase()==='INVALID');
-  const es=String(runtime?.executionStatus??'').toUpperCase(),ls=String(runtime?.lifecycleStatus??'').toUpperCase(),reason=String(runtime?.executionReason??swarm?.reason??'').toUpperCase();
+  const es=String(runtime?.executionStatus??'').toUpperCase(),ls=String(runtime?.lifecycleStatus??'').toUpperCase(),ss=String(swarm?.state??'').toUpperCase(),reason=String(runtime?.executionReason??swarm?.skipReason??swarm?.reason??'').toUpperCase();
   const degraded=[];
-  if(late){state=CoprocessorChoiceExecutionState.LATE;degraded.push('LATE_RESULT');}
+  if(ss==='SKIPPED')state=CoprocessorChoiceExecutionState.SKIPPED;
+  else if(ss==='UNAVAILABLE')state=CoprocessorChoiceExecutionState.UNAVAILABLE;
+  else if(late){state=CoprocessorChoiceExecutionState.LATE;degraded.push('LATE_RESULT');}
   else if(invalid){state=CoprocessorChoiceExecutionState.INVALID;degraded.push('INVALID_RESULT');}
   else if(stale||ls==='SUPERSEDED'){state=CoprocessorChoiceExecutionState.STALE;degraded.push('STALE_RESULT');}
   else if(['PROVIDER_TIMEOUT','DEADLINE_MISS','DEADLINE_EXPIRED'].includes(failureCode)||/TIMEOUT|DEADLINE/.test(reason)){state=CoprocessorChoiceExecutionState.TIMED_OUT;degraded.push('PROVIDER_TIMEOUT');}

@@ -1,0 +1,109 @@
+name: Worker 2 Layered Scatter and Jev Evidence
+
+on:
+  push:
+    branches:
+      - Development-Sidecar-Jev-Layered-Scatter-W2
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: worker2-layered-scatter-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: ea66ddce461803d5279b4497f6604e3d75d6def6
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          echo "BASE_SHA=$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse origin/main)" = "$BASE_SHA"
+      - name: Focused Worker 2 acceptance
+        run: |
+          node --test tests/coprocessor-wave22-layered-scatter.test.mjs
+          node --test tests/jev-wave22-value.test.mjs
+          node scripts/jev-wave22-value-report.mjs
+      - name: Worker 2 syntax and import closure
+        run: |
+          node --check src/coprocessor/layered-scatter.js
+          node --check src/coprocessor/layered-scatter-owner-contract.js
+          node --check src/coprocessor/native-sidecar-swarm.js
+          node --check src/coprocessor/fanout-planner.js
+          node --check src/coprocessor/cognitive-choice-execution.js
+          node --check tests/coprocessor-wave22-layered-scatter.test.mjs
+          node --check evaluation/jev-wave22-value-evaluator.mjs
+          node --input-type=module -e "await import('./src/coprocessor/index.js')"
+      - name: Exact-base versus exact-head full Node regression delta
+        run: |
+          git worktree add /tmp/area52-worker2-base "$BASE_SHA"
+          set +e
+          (cd /tmp/area52-worker2-base && npm test) > /tmp/worker2-base.tap 2>&1
+          BASE_EXIT=$?
+          (cd "$GITHUB_WORKSPACE" && npm test) > /tmp/worker2-head.tap 2>&1
+          HEAD_EXIT=$?
+          set -e
+          grep -E '^not ok [0-9]+ - ' /tmp/worker2-base.tap | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/worker2-base.fail || true
+          grep -E '^not ok [0-9]+ - ' /tmp/worker2-head.tap | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/worker2-head.fail || true
+          echo "BASE_EXIT=$BASE_EXIT"
+          echo "HEAD_EXIT=$HEAD_EXIT"
+          echo "BASELINE_FAILURES"
+          cat /tmp/worker2-base.fail
+          echo "HEAD_FAILURES"
+          cat /tmp/worker2-head.fail
+          comm -13 /tmp/worker2-base.fail /tmp/worker2-head.fail > /tmp/worker2-new.fail
+          if test -s /tmp/worker2-new.fail; then
+            echo "New failures introduced by Worker 2:"
+            cat /tmp/worker2-new.fail
+            echo "--- focused tail ---"
+            tail -n 160 /tmp/worker2-head.tap
+            exit 1
+          fi
+          if test "$HEAD_EXIT" -ne 0 && test ! -s /tmp/worker2-head.fail; then
+            echo "Head suite exited nonzero without parseable TAP failures"
+            tail -n 160 /tmp/worker2-head.tap
+            exit 1
+          fi
+
+  chromium-before-after:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact browser-tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          echo "BASE_SHA=$BASE_SHA"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Install Chromium benchmark dependency
+        run: |
+          npm install --no-save --package-lock=false playwright@1.55.0
+          npx playwright install chromium
+      - name: Same six-job workload on exact main and exact head
+        run: |
+          git worktree add /tmp/area52-worker2-browser-base "$BASE_SHA"
+          node scripts/worker2-layered-scatter-browser-benchmark.mjs --baseline /tmp/area52-worker2-browser-base --current "$GITHUB_WORKSPACE"

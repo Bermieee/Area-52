@@ -52,7 +52,7 @@ function liveOwner({withResources=false,withLore=false}={}){
       runLoreStudy:async()=>{calls.push(['run']);lore={...lore,entries:lore.entries.map(e=>({...e,learnedRevisionId:'learned:'+e.sourceId,freshness:'CURRENT',artifactIds:['retrieval:'+e.uid],retrievalRepresentations:[{artifactId:'retrieval:'+e.uid,sourceRevisionId:e.sourceRevisionId,authorityClass:'DERIVED',temporalClass:'CURRENT',unresolved:false,provenance:{sourceRevisionId:e.sourceRevisionId}}]})),lifecycle:{...lore.lifecycle,counts:{...lore.lifecycle.counts,DUE:0,COMPLETED:lore.entries.length},due:0,active:0}};emit();return{completed:true};},
     }:{}),
   };
-  return{bindings,calls,listenerCount:()=>listeners.size,switchStory({chatId,turnId,generationId,location:nextLocation}){selection={chatId,turnId,generationId,correlationId:'corr:'+turnId,worldRevision:selection.worldRevision+1,sceneRevision:selection.sceneRevision+1,sourceRevisionRefs:['scene:'+chatId+'@'+(selection.sceneRevision+1)]};location=nextLocation;emit();},clearTurn(){selection={...selection,turnId:null,generationId:null,correlationId:null,worldRevision:null,sceneRevision:null,sourceRevisionRefs:[]};emit();}};
+  return{bindings,calls,listenerCount:()=>listeners.size,switchStory({chatId,turnId,generationId,location:nextLocation}){selection={chatId,turnId,generationId,correlationId:'corr:'+turnId,worldRevision:selection.worldRevision+1,sceneRevision:selection.sceneRevision+1,sourceRevisionRefs:['scene:'+chatId+'@'+(selection.sceneRevision+1)]};location=nextLocation;emit();},regenerate({generationId}){selection={...selection,generationId,correlationId:'corr:'+generationId};emit();},clearTurn(){selection={...selection,turnId:null,generationId:null,correlationId:null,worldRevision:null,sceneRevision:null,sourceRevisionRefs:[]};emit();}};
 }
 
 function mount(owner,{width=1280,height=800,floating=true,storage=null,hostMountAdapter=null}={}){
@@ -386,6 +386,21 @@ test('activity feed is bottom-right exact-selection fenced and old-chat notices 
   ui.destroy();
 });
 
+
+test('regeneration rebases Inspect and activity evidence to the exact new generation',()=>{
+  const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
+  const sceneCard=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='scene');
+  const inspectButton=walk(sceneCard).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');inspectButton.dispatch('click');ui.scheduler.flush(2);
+  assert.equal(ui.shell.inspector.selection.selection.generationId,'gen:1');
+  ui.operator.captureEvidence();ui.operator.activityFeed.render();
+  const oldButton=walk(ui.operator.activityFeed.host).find(x=>x.tagName==='BUTTON');assert.ok(oldButton);
+  owner.regenerate({generationId:'gen:2'});ui.scheduler.flush(3);
+  assert.equal(ui.shell.inspector.selection,null);assert.equal(ui.operator.operations.read().selection.generationId,'gen:2');
+  oldButton.dispatch('click');ui.scheduler.flush(4);assert.equal(ui.shell.inspector.selection,null);
+  ui.operator.captureEvidence();ui.operator.activityFeed.render();
+  const currentButton=walk(ui.operator.activityFeed.host).find(x=>x.tagName==='BUTTON');assert.ok(currentButton);currentButton.dispatch('click');ui.scheduler.flush(5);
+  assert.equal(ui.shell.inspector.selection.selection.generationId,'gen:2');ui.destroy();
+});
 
 test('local evidence journal survives UI reload with the same browser storage and remains exportable',()=>{
   const owner=liveOwner(),storage=memory(),selection=owner.bindings.readSelection();

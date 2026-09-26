@@ -289,6 +289,16 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     const detail=failed?String(row.lastFailure?.message??row.reason??row.lastTest?.failureCode??'Provider check failed.'):row.lastTest?.latencyMs!=null?'Owner test passed in '+String(row.lastTest.latencyMs)+' ms.':'Owner test passed.';
     card.append(message(d,'Latest connection test: '+latestTest,detail,failed?'error':'ready'));
   }
+  const latestTest=String(row.lastTest?.status??'').toUpperCase();
+  if(latestTest){
+    const failed=['FAIL','FAILED','ERROR'].includes(latestTest);
+    const detail=failed
+      ? String(row.lastFailure?.message??row.reason??row.lastTest?.failureCode??'Provider check failed.')
+      : row.lastTest?.latencyMs!=null
+        ? 'Owner test passed in '+String(row.lastTest.latencyMs)+' ms.'
+        : 'Owner test passed.';
+    card.append(message(d,'Latest connection test: '+latestTest,detail,failed?'error':'ready'));
+  }
   if(!row.selectedModelQualified&&row.connected)card.append(message(d,'Connected is not qualified','Worker 2 reports a connection, but the selected model is not currently qualified. Requalify before treating this resource as callable.','warning'));
   else if(!row.callable)card.append(message(d,'Resource is not callable','Worker 2 does not currently consider this resource callable. Refresh models, select a valid model if needed, then requalify and Test.','warning'));
 
@@ -471,8 +481,8 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
     const safe=seal.effectiveAdmittedResultIds??seal.admittedResultIds??[];
     section.append(element(d,'p',{className:'a52-muted',text:'Context Seal owner reports '+safe.length+' result id'+(safe.length===1?'':'s')+' safely admitted. Late/stale/invalid/rejected Gather results remain visible but are not relabeled as prompt contributions.'}));
   }
-  if(inspect&&scatter)section.append(createButton(d,{label:'Inspect Scatter receipt',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-scatter-trace',id:scatter.receiptId??selection.turnId,title:'Scatter / fan-out',payload:scatter})}));
-  if(inspect&&gather)section.append(createButton(d,{label:'Inspect Gather receipt',scope,size:'sm',variant:'quiet',onPress:()=>inspect({kind:'wave13-gather-trace',id:gather.receiptId??selection.turnId,title:'Gather',payload:gather})}));
+  if(inspect&&scatter)section.append(createButton(d,{label:'Inspect Scatter receipt',scope,size:'sm',variant:'inspect',onPress:()=>inspect({kind:'wave13-scatter-trace',id:scatter.receiptId??selection.turnId,title:'Scatter / fan-out',available:true,receiptRef:scatter.receiptId??null,selection:{...selection},payload:scatter})}));
+  if(inspect&&gather)section.append(createButton(d,{label:'Inspect Gather receipt',scope,size:'sm',variant:'inspect',onPress:()=>inspect({kind:'wave13-gather-trace',id:gather.receiptId??selection.turnId,title:'Gather',available:true,receiptRef:gather.receiptId??null,selection:{...selection},payload:gather})}));
   host.append(section);
 }
 

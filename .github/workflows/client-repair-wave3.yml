@@ -43,8 +43,10 @@ jobs:
       - name: Worker 3 selected-turn UI scenarios
         run: >
           node --test
-          --test-name-pattern='floating collapse releases|Home Inspect details|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|local evidence journal survives|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
+          --test-name-pattern='floating collapse releases|Home Inspect details|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|Connections maps logical fan-out|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
           tests/wave13-operator-ui.test.mjs
+      - name: Bounded UI stress / subscription hygiene
+        run: node tests/wave13-operator-ui-stress.mjs
       - name: Live-like host selection and remount scenarios
         run: >
           node --test

@@ -55,6 +55,14 @@ export function createWave6ProductInterface({
   const explainabilityPresentation=new ExplainabilityPresentationState({stateStore});
   const selectionProvider=()=>liveReceiptBinding?.selection?.()??{};
   const uiLoadTrace=new OperatorLoadTrace({maxSamples:96});
+  const hostDeliveryReader=typeof hostBindings?.readHostDeliveryReceipt==='function'?hostBindings.readHostDeliveryReceipt.bind(hostBindings):null;
+  const hostDeliveryCache={key:null,value:null,valid:false};
+  const readHostDeliveryReceipt=hostDeliveryReader?(selection={})=>{
+    const key=JSON.stringify([selection?.chatId??null,selection?.turnId??null,selection?.generationId??null,selection?.correlationId??null,selection?.worldRevision??null,selection?.sceneRevision??null,selection?.sourceRevisionRefs??[]]);
+    if(hostDeliveryCache.valid&&hostDeliveryCache.key===key)return hostDeliveryCache.value;
+    const value=hostDeliveryReader(selection);hostDeliveryCache.key=key;hostDeliveryCache.value=value??null;hostDeliveryCache.valid=true;return hostDeliveryCache.value;
+  }:null;
+  const invalidateHostDeliveryCache=()=>{hostDeliveryCache.valid=false;hostDeliveryCache.key=null;hostDeliveryCache.value=null;};
   const scene=effectiveBridges.scene?.readModel?new SceneProductionUIAdapter({...effectiveBridges.scene,selectionProvider}):null;
   const runtime=effectiveBridges.runtimeAdapter?new RuntimeProductionUIAdapter(effectiveBridges.runtimeAdapter):
     (effectiveBridges.cognition?.readScatterReceipt||typeof hostBindings?.readRuntimeStatus==='function')?new Wave13RuntimeReceiptUIAdapter({
@@ -73,7 +81,7 @@ export function createWave6ProductInterface({
           :null;
   const coprocessor=(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter)?new CoprocessorProductionUIAdapter(effectiveBridges.coprocessorTelemetry??effectiveBridges.coprocessorAdapter):
     resourceCognitionReader?new Wave13CoprocessorStateUIAdapter({readState:resourceCognitionReader,selectionProvider}):new CoprocessorProductionUIAdapter(null);
-  const promptPlan=new PromptPlanProductionUIAdapter({...effectiveBridges.promptPlan,readHostDeliveryReceipt:typeof hostBindings?.readHostDeliveryReceipt==='function'?hostBindings.readHostDeliveryReceipt.bind(hostBindings):null,selectionProvider});
+  const promptPlan=new PromptPlanProductionUIAdapter({...effectiveBridges.promptPlan,readHostDeliveryReceipt,selectionProvider});
   const forensics=new ForensicsProductionUIAdapter(effectiveBridges.forensics??{});
   const cognition=new Wave8CognitionProductionAdapter({scene,promptPlan,...(effectiveBridges.cognition??{})});
   const loreStudy=hostBindings?new Wave13LoreStudyUIAdapter({bindings:hostBindings,selectionProvider}):null;
@@ -161,6 +169,7 @@ export function createWave6ProductInterface({
   };
   let liveSelectionKey=null;
   const applyLiveSelection=(update=null,{initial=false}={})=>{
+    invalidateHostDeliveryCache();
     const selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;
     if(!selection)return;
     const key=JSON.stringify([selection.chatId,selection.turnId,selection.generationId,selection.correlationId,selection.worldRevision,selection.sceneRevision,selection.sourceRevisionRefs]);

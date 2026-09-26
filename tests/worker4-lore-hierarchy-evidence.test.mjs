@@ -390,3 +390,81 @@ test('larger synthetic hierarchy remains reference-backed and reloadable without
     heapDelta: heapBefore == null || heapAfter == null ? null : heapAfter - heapBefore,
   }));
 });
+
+
+test('reference-backed retrieval and Lore read surfaces preserve stable evidence refs after legacy migration rebuild', () => {
+  let {runtime, system} = evidenceWorld();
+  const targetScopes = system.hierarchy.scopes.filter((row) => [
+    NavigationScopeType.LEAF,
+    NavigationScopeType.TREE,
+    NavigationScopeType.COMMUNITY,
+    NavigationScopeType.CORPUS,
+  ].includes(row.type));
+  const targetIds = new Set(targetScopes.map((row) => system.currentSummary(row.id)?.id).filter(Boolean));
+  const beforeRecords = new Map(
+    [...system.retrievalIndex.records.values()]
+      .filter((row) => targetIds.has(row.artifactId))
+      .map((row) => [row.artifactId, structuredClone(row)]),
+  );
+
+  const legacy = asLegacyEmbeddedHierarchySnapshot(system.snapshot({compact: true}));
+  legacy.compactDerivedState = true;
+  legacy.retrievalIndex.recordsIncluded = false;
+  legacy.retrievalIndex.records = [];
+  runtime = LoreStudyRuntime.fromSnapshot(runtime.snapshot());
+  system = LoreHierarchyRetrievalSystem.fromSnapshot({runtime, snapshot: legacy});
+
+  for (const summaryId of targetIds) {
+    const before = beforeRecords.get(summaryId);
+    const recordId = system.retrievalIndex.summaryRecordIds.get(summaryId);
+    const after = recordId ? system.retrievalIndex.records.get(recordId) : null;
+    assert.ok(after, 'missing rebuilt retrieval record for ' + summaryId);
+    assert.deepEqual(after.sourceRevisionRefs, before.sourceRevisionRefs);
+    assert.deepEqual(after.evidenceRefs, before.evidenceRefs);
+    assert.deepEqual(after.claimRefs, before.claimRefs);
+    assert.deepEqual(after.relationshipRefs, before.relationshipRefs);
+    assert.deepEqual(after.entityRefs, before.entityRefs);
+    assert.deepEqual(after.temporalHints, before.temporalHints);
+    assert.equal(after.truthStatusHint, before.truthStatusHint);
+    assert.deepEqual(after.provenance, before.provenance);
+    assert.ok(Array.isArray(after.navigationEvidenceRefs));
+    assert.equal(after.navigationEvidenceRefs.length, system.summaryRegistry.get(summaryId).criticalEvidenceRefs.length);
+    assert.equal(after.navigationEvidenceRefs.every((ref) => ref.startsWith('lore-nav-evidence:')), true);
+  }
+
+  const service = new LoreIntelligenceService();
+  service.acceptLorebook({
+    id: 'read-surface-evidence',
+    title: 'Read Surface Evidence',
+    discovery: {
+      kind: 'SillyTavernLorebookDiscoveryReceipt',
+      source: 'TEST',
+      lorebookId: 'read-surface-evidence',
+      entryCount: 2,
+      chatId: 'chat:read-surface-evidence',
+      exactAuthoredSource: true,
+    },
+    fullSnapshot: true,
+    entries: [
+      {
+        uid: 'rule',
+        content: 'The Harbor Gate must never open without a Warden.',
+        metadata: {title: 'Gate Rule', treePath: ['Harbor', 'Rules']},
+      },
+      {
+        uid: 'history',
+        content: 'The old Harbor Gate later burned.',
+        metadata: {title: 'Gate History', treePath: ['Harbor', 'History']},
+      },
+    ],
+  });
+  service.runStudy({scope: 'DUE'});
+  const surface = service.summarySurface();
+  assert.ok(surface.summaries.length > 0);
+  assert.equal(surface.rawEvidenceIncluded, false);
+  assert.equal(surface.summaries.every((row) => Array.isArray(row.evidenceRefs)), true);
+  assert.equal(surface.summaries.every((row) => Number.isInteger(row.evidenceRefCount)), true);
+  assert.equal(surface.summaries.every((row) => row.evidenceRefs.length <= 64), true);
+  assert.equal(surface.summaries.some((row) => row.evidenceRefCount > 0), true);
+  assert.equal(surface.summaries.every((row) => row.rawEvidenceIncluded === false), true);
+});

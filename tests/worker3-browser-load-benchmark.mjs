@@ -97,5 +97,6 @@ try{
   assert.ok(after.ownerReads.scatter<before.ownerReads.scatter,'closure must remove duplicate Scatter reads from journal diagnostics');
   assert.ok(after.ownerReads.prompt<before.ownerReads.prompt,'closure must remove duplicate PromptPlan reads from journal diagnostics');
   assert.ok(after.ownerReads.lore<before.ownerReads.lore,'closure must stop journal capture from re-reading Lore status');
+  assert.ok(after.ownerReads.hostDelivery<=before.ownerReads.hostDelivery+2,'observed-host truth must not multiply owner reads while selection is unchanged');
   assert.ok(after.serializedBytes<=262144,'journal remains bounded');
 }finally{await browser.close();}

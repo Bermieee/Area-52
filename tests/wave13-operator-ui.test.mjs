@@ -913,6 +913,23 @@ test('Jev Sidecar and Vectoring saved locks survive reload without serializing p
   assert.equal(adapter2.savedProfiles().some(x=>x.role==='JEV'),false);
 });
 
+test('saved host-managed Jev auto-requalifies on restore while direct credential locks stay configured only',async()=>{
+  const shared=memory(),namespace='wave13-host-managed-restore';
+  const stateStore=new UIStateStore({storage:shared,namespace});
+  stateStore.save({wave13ConnectionProfiles:{
+    JEV:{version:1,locked:true,role:'JEV',resourceId:'jev:host-managed',displayName:'Primary Jev',transportKind:'OPENAI_COMPATIBLE',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['SEMANTIC_JUDGMENT'],providerProfileId:'profile:jev:host-managed',providerId:'provider:jev:host-managed',workerId:'resource:jev:host-managed',maxConcurrency:1,local:false,credentialPreviouslyConfigured:false,credentialManagedByHost:true,connectionProfileId:'cm:jev',connectionProfileName:'OpenRouter Jev',wasConnected:true},
+    SIDECAR:{version:1,locked:true,role:'SIDECAR',resourceId:'sidecar:direct',displayName:'Primary Sidecar',transportKind:'OPENAI_COMPATIBLE',endpoint:'https://openrouter.ai/api/v1',modelId:'owner/model-a',capabilities:['STRUCTURED_EXTRACTION'],providerProfileId:'profile:sidecar:direct',providerId:'provider:sidecar:direct',workerId:'resource:sidecar:direct',maxConcurrency:1,local:false,credentialPreviouslyConfigured:true,credentialManagedByHost:false,connectionProfileId:null,connectionProfileName:null,wasConnected:true},
+  }});
+  const host=worker2ResourceHost(),adapter=new Wave13ResourceControlAdapter({bindings:{resourceHost:host},stateStore});
+  const result=await adapter.restoreSavedProfiles();
+  assert.equal(result.restored,2);assert.equal(result.requalified,1);assert.equal(result.failed.length,0);
+  const rows=adapter.read().data.resources,jev=rows.find(row=>row.kind==='JEV'),sidecar=rows.find(row=>row.kind==='SIDECAR');
+  assert.equal(jev.callable,true);assert.equal(jev.selectedModelQualified,true);
+  assert.equal(sidecar.callable,false);assert.equal(sidecar.state,'CONFIGURED');
+  assert.ok(host.calls.some(call=>call[0]==='connect'&&call[1]==='jev:host-managed'));
+  assert.equal(host.calls.some(call=>call[0]==='connect'&&call[1]==='sidecar:direct'),false);
+});
+
 function directLoreRuntime(){
   const entries=[],revisions=new Map(),learned=new Map(),artifacts=new Map(),obligations=[];
   const registry={

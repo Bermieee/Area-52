@@ -91,11 +91,17 @@ test('Worker 1 #263 selected-turn receipt publishes explicit NO_EVIDENCE and nev
 
 test('Worker 1 #263 chat switch and regeneration fences do not cross-fill selected-turn evidence',async()=>{
   const brain=new Area52NativeBrain();
-  await brain.prepareTurn({chatId:'chat:a',turnId:'a:1',generationId:'g:a:1',query:'Continue',scene:scene('a'),executionLabel:'DETERMINISTIC'});
+  const first=await brain.prepareTurn({chatId:'chat:a',turnId:'a:1',generationId:'g:a:1',query:'Continue',scene:scene('a'),executionLabel:'DETERMINISTIC'});
   await brain.prepareTurn({chatId:'chat:b',turnId:'b:1',generationId:'g:b:1',query:'Continue',scene:scene('b'),executionLabel:'DETERMINISTIC'});
   const ui=brain.uiBindings(),a=ui.readSelectedTurnReceipt({chatId:'chat:a',turnId:'a:1',generationId:'g:a:1'});
   assert.equal(a.chatId,'chat:a');assert.equal(a.generationId,'g:a:1');
   assert.equal(ui.readSelectedTurnReceipt({chatId:'chat:a',turnId:'a:1',generationId:'g:a:regen'}),null);
+  const oldRuntime=brain.runtimeDirector.submit({taskType:'RETRIEVAL',owner:'COGNITIVE_CORE',layer:'L1',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'regen-old-runtime',cause:{chatId:'chat:a',turnId:'a:1',generationId:'g:a:1',correlationId:first.selection.correlationId,worldRevision:first.selection.worldRevision,sceneRevision:first.selection.sceneRevision}},{execute:async()=>['old'],validate:async()=>true,commit:async()=>({output:{id:'old-result'},validation:{valid:true}})});
+  await brain.runtimeDirector.drain({maxCycles:32});assert.ok(oldRuntime.task.taskId);
+  const regen=await brain.prepareTurn({chatId:'chat:a',turnId:'a:1',generationId:'g:a:regen',query:'Continue again',scene:scene('a'),executionLabel:'DETERMINISTIC'});
+  const regenerated=ui.readSelectedTurnReceipt({chatId:'chat:a',turnId:'a:1',generationId:'g:a:regen'});
+  assert.equal(regenerated.generationId,'g:a:regen');assert.equal(regenerated.correlationId,regen.selection.correlationId);
+  assert.equal(regenerated.producers.runtime.status,'NO_EVIDENCE');assert.equal(regenerated.producers.runtime.eventCount,0);
 });
 
 test('Worker 1 #264 provider chat rendering maps semantic context to supported roles and preserves Seal identity',()=>{

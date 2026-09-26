@@ -72,23 +72,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          export CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
           test -n "$CHROME"
-          python3 -m http.server 8765 >/tmp/area52-worker2-http.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
-          timeout 120s "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-background-timer-throttling --enable-precise-memory-info --js-flags=--expose-gc --dump-dom http://127.0.0.1:8765/tests/worker2-layered-scatter-browser.html > worker2-browser-dump.html
-          grep -q 'data-status="PASS"' worker2-browser-dump.html
-          python3 - <<'PY'
-          import html, json, re
-          text=open('worker2-browser-dump.html',encoding='utf-8').read()
-          match=re.search(r'<pre id="results">(.*?)</pre>',text,re.S)
-          if not match:
-              raise SystemExit('benchmark result block missing')
-          payload=json.loads(html.unescape(match.group(1)))
-          print(json.dumps(payload,indent=2))
-          open('worker2-browser-results.json','w',encoding='utf-8').write(json.dumps(payload,indent=2)+'\n')
-          PY
+          timeout 120s node scripts/worker2-browser-benchmark.mjs
       - name: Full regression with baseline debt fence
         shell: bash
         run: |

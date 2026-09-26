@@ -49,6 +49,7 @@ export class CognitiveObligationReconciler{
       [CausalReceiptKind.OWNER_REJECTED]:[CausalLifecycleState.FAILED,CausalReasonCode.OWNER_REJECTED],
     };
     if(!defaults[kind])throw new TypeError('Unsupported external reconciliation evidence kind: '+kind);
+    if(input.id){const existing=(entry.evidence??[]).find(row=>row.id===String(input.id));if(existing)return clone(existing);}
     const index=Math.max(Number(entry.evidenceSequence??0),...(entry.evidence??[]).map(row=>Number(String(row?.id??'').match(/:e(\d+):/)?.[1]??0)))+1,[defaultState,defaultReason]=defaults[kind];
     entry.evidenceSequence=index;
     const receipt=createCausalReceipt({

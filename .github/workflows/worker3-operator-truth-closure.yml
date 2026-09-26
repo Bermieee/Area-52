@@ -1,0 +1,58 @@
+name: Worker 3 Operator Truth Closure
+
+on:
+  push:
+    branches:
+      - Development-Client-Repair-3-Operator-Truth-Closure
+  pull_request:
+    branches:
+      - Development-Client-Repair-3
+  workflow_dispatch:
+
+concurrency:
+  group: worker3-operator-truth-closure-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Operator truth closure acceptance
+        run: node --test tests/worker3-operator-truth-closure.test.mjs
+      - name: Prompt Inspector regressions
+        run: node --test tests/wave7.test.mjs
+      - name: Journal and activity-feed regressions
+        run: node --test tests/demo-visibility.test.mjs tests/worker3-brain-trace-ui.test.mjs
+      - name: Inspect, switch, regeneration, remount compatibility
+        run: >
+          node --test
+          --test-name-pattern='Home Inspect details|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|chat switch cannot retain|attached rail/panel keyboard|floating collapse releases'
+          tests/wave13-operator-ui.test.mjs
+      - name: Host and UI boundedness regressions
+        run: |
+          node tests/wave13-operator-ui-stress.mjs
+          node --test --test-name-pattern='live host listener topology stays bounded' tests/deployment-live-host.test.mjs
+      - name: Browser-facing imports and focused syntax
+        run: |
+          node --input-type=module -e "await import('./src/ui-core/index.js'); await import('./src/ui-core/demo-visibility.js'); await import('./src/ui-core/wave7-explainability.js'); await import('./src/ui-core/wave7-workspaces.js'); await import('./src/ui-core/wave13-operator-adapters.js');"
+          node --check src/ui-core/demo-visibility.js
+          node --check src/ui-core/wave6-runtime.js
+          node --check src/ui-core/wave7-explainability.js
+          node --check src/ui-core/wave7-workspaces.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check tests/worker3-operator-truth-closure.test.mjs

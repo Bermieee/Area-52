@@ -55,3 +55,13 @@ Direct owner evidence is retained in the reconciler snapshot with the same bound
 ## Layered Scatter planning contract
 
 `planLayeredScatter()` is now a non-activating Runtime planning contract. It partitions admitted work by result class and an explicit foreground-dependency declaration: REQUIRED or declared foreground dependencies are Seal-critical; other OPPORTUNISTIC work is conditional; DEFERRED work is post-Seal. The planner explicitly records `jobCountIgnored:true` and `schedulingActivated:false`, so this wave does not silently change Worker 2 routing.
+
+## Final bounded-evidence hardening
+
+Direct owner evidence retains at most 64 causal receipts per expected-work row while keeping a monotonic evidence sequence in the durable reconciler snapshot. Eviction therefore cannot cause receipt-ID reuse after the retention window wraps.
+
+NativeTurn Runtime accepts optional `chatId` and `generationId` on the turn envelope, propagates them with turn/correlation and source/world/scene revision fences into the normalized job obligation, and emits the same identity on causal receipts and result envelopes. Legacy callers may omit the two fields; selected-turn Brain integration must provide them when exact generation attribution is required.
+
+The execution probe confirms the proposed layered partition reduces peak queued work from 9 to 2 for the measured fixture while both eager and layered cases perform exactly 2 provider invocations before the foreground quorum seals. Eager execution leaves 7 non-required tasks open at Seal; the layered fixture leaves 0. `foregroundProviderWorkDelta` is 0 and `productionRoutingChanged` remains false: this is evidence for a future execution-owner scheduling change, not an activated production policy.
+
+A missing Memory owner writeback receipt is now represented consistently as `NO_EVIDENCE` in both obligation reconciliation and the selected-turn UI receipt. Physical invocation alone cannot promote the Memory stage to owner accepted.

@@ -1,7 +1,7 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
 
-export const DEMO_EVIDENCE_JOURNAL_VERSION='1.2.0';
+export const DEMO_EVIDENCE_JOURNAL_VERSION='1.3.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
 const STAGES=['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'];
 
@@ -63,6 +63,14 @@ export class DemoEvidenceJournal{
   listEntries(selection={}, {limit=64}={}){
     const turn=this.readTurn(selection);
     return turn?[...turn.entries].slice(-Math.max(1,Number(limit)||64)): [];
+  }
+
+  readEntry(selection={},entryId=null){
+    const identity=normalizeSelection(selection);
+    if(!identity.chatId||!identity.turnId||!identity.generationId||entryId==null)return null;
+    const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
+    const row=turn?.entries?.find(item=>item.id===String(entryId));
+    return row?clone(row):null;
   }
 
   status(){
@@ -199,6 +207,18 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
+  const liveReadError=diag.host?.liveBinding?.lastError??null;
+  if(liveReadError){
+    const stage=String(liveReadError.stage??'owner-read'),code=technicalReason(liveReadError.code)??'LIVE_RECEIPT_READ_FAILED';
+    out.push(entry({
+      type:'READ_ERROR',subtype:stage,status:'READ_FAILED',title:label(stage)+' selected-turn read blocked',
+      summary:'Selected-turn '+label(stage)+' read was blocked: '+code+'.',
+      detail:liveReadError.message??'The owner reader rejected the selected-turn receipt.',
+      selection,at,identitySuffix:[stage,code,selection.worldRevision??'',selection.sceneRevision??'',selection.sourceRevisionRefs.join(',')].join(':'),
+      metadata:{stage,code,worldRevision:selection.worldRevision,sceneRevision:selection.sceneRevision,sourceRevisionRefs:[...selection.sourceRevisionRefs]},
+    }));
+  }
+
   const scatter=path.scatter??null;
   if(scatter){
     const jobs=scatter.jobs??[],ids=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];
@@ -279,7 +299,7 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
       summary:returned+' result'+(returned===1?'':'s')+' recorded; '+Number(counts.ADMITTED??0)+' admitted by Gather.',
       detail:'Gather disposition is recorded independently from Context Seal admission.',
       receiptRef:gather.receiptId??null,selection,at,identitySuffix:gather.receiptId??JSON.stringify(counts),
-      metadata:{counts:{ADMITTED:Number(counts.ADMITTED??0),LATE:Number(counts.LATE??0),STALE:Number(counts.STALE??0),REJECTED:Number(counts.REJECTED??0),INVALID:Number(counts.INVALID??0)},results:(gather.results??[]).map(row=>({resultId:row.resultId??null,status:row.status??null,resourceId:row.resourceId??null,destination:row.destination??null,capability:row.capability??null}))},
+      metadata:{counts:{ADMITTED:Number(counts.ADMITTED??0),LATE:Number(counts.LATE??0),STALE:Number(counts.STALE??0),REJECTED:Number(counts.REJECTED??0),INVALID:Number(counts.INVALID??0)},results:(gather.results??[]).slice(0,64).map(row=>({resultId:row.resultId??null,taskId:row.taskId??null,jobId:row.jobId??null,status:row.status??null,accepted:row.accepted===true,resourceId:row.resourceId??null,destination:row.destination??null,capability:row.capability??null,providerAttempted:row.providerAttempted===true,at:finite(row.at??row.completedAt),reasonCode:technicalReason(row.reasonCode??row.reason)}))},
     }));
   }
 
@@ -314,7 +334,7 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
       summary:aborted?'The exact generation was aborted before completion.':completed?'SillyTavern observed the request payload and the generation completed.':injected?'SillyTavern observed the prepared payload at the model-request hook.':'A PromptPlan was prepared; host injection has not been observed.',
       detail:'Host delivery is separate from PromptPlan and Context Seal. Only the host receipt can prove request-payload injection.',
       receiptRef:hostDelivery.receiptId??hostDelivery.generationId??null,selection,at,identitySuffix:hostDelivery.receiptId??String(hostDelivery.state??'host'),
-      metadata:{state:hostDelivery.state??null,promptPlanId:hostDelivery.promptPlanId??null,contextSealId:hostDelivery.contextSealId??null,preparedAt:finite(hostDelivery.preparedAt),requestInjectedAt:finite(hostDelivery.requestInjectedAt),completedAt:finite(hostDelivery.completedAt),requestHook:hostDelivery.requestHook??null,renderedPayloadDigest:hostDelivery.renderedPayloadDigest??null,requestPayloadDigest:hostDelivery.requestPayloadDigest??null,renderedMessageCount:finite(hostDelivery.renderedMessageCount),abortCode:hostDelivery.abortCode??null},
+      metadata:{state:hostDelivery.state??null,promptPlanId:hostDelivery.promptPlanId??null,contextSealId:hostDelivery.contextSealId??null,preparedAt:finite(hostDelivery.preparedAt),requestInjectedAt:finite(hostDelivery.requestInjectedAt),completedAt:finite(hostDelivery.completedAt),requestHook:hostDelivery.requestHook??null,renderedPayloadDigest:hostDelivery.renderedPayloadDigest??null,requestPayloadDigest:hostDelivery.requestPayloadDigest??null,renderedMessageCount:finite(hostDelivery.renderedMessageCount),promptInjected:Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt),hostObserved:Boolean(hostDelivery.hostObserved??hostDelivery.requestInjectedAt),responseCompleted:Boolean(hostDelivery.responseCompleted??hostDelivery.completedAt),abortCode:hostDelivery.abortCode??null},
     }));
   }
 
@@ -352,7 +372,7 @@ function entry({type,subtype=null,status,title,summary,detail,receiptRef=null,se
   const id=[type,subtype??'',selection.chatId,selection.turnId,selection.generationId,String(identitySuffix)].join(':');
   return{
     kind:'Area52DemoEvidenceEntry',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,id,identityKey:id,type,subtype,status:String(status??'UNKNOWN'),title:String(title??type),
-    summary:String(summary??''),detail:String(detail??summary??''),receiptRef:receiptRef==null?null:String(receiptRef),selection:clone(selection),at:Number(at??0),metadata:clone(metadata),
+    summary:safeDiagnosticText(summary??''),detail:safeDiagnosticText(detail??summary??''),receiptRef:receiptRef==null?null:safeDiagnosticText(receiptRef,512),selection:clone(selection),at:Number(at??0),metadata:sanitizeMetadata(metadata),
     rawPromptIncluded:false,storyTextIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
   };
 }
@@ -366,6 +386,24 @@ function text(value){const x=value==null?'':String(value).trim();return x||null;
 function label(value){return String(value??'producer').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
 function filePart(value){return String(value??'').replace(/[^a-z0-9._-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,80)||'unknown';}
 function technicalReason(value){const x=value==null?'':String(value).trim().toUpperCase();return /^[A-Z0-9_:-]{1,128}$/.test(x)?x:null;}
+const BLOCKED_METADATA_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
+function safeDiagnosticText(value,limit=2048){
+  let out=String(value??'');
+  out=out.replace(/(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi,'$1[REDACTED]');
+  out=out.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g,'[REDACTED]');
+  out=out.replace(/(\b(?:api[_-]?key|authorization|credential|secret|password|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*)([^\s,;&]+)/gi,'$1[REDACTED]');
+  return out.length>limit?out.slice(0,limit)+'…[clipped]':out;
+}
+function sanitizeMetadata(value,depth=0,key=''){
+  if(depth>7)return'[depth-clipped]';
+  const normalized=String(key??'').toLowerCase();
+  if(BLOCKED_METADATA_KEYS.has(normalized))return'[REDACTED]';
+  if(value==null||typeof value==='number'||typeof value==='boolean')return value;
+  if(typeof value==='string')return safeDiagnosticText(value);
+  if(Array.isArray(value))return value.slice(0,64).map(row=>sanitizeMetadata(row,depth+1,key));
+  if(typeof value==='object'){const out={};for(const [name,row] of Object.entries(value))out[name]=sanitizeMetadata(row,depth+1,name);return out;}
+  return safeDiagnosticText(value);
+}
 function boundedJournalJson(state,maxBytes){
   let json=JSON.stringify(state);
   while(json.length>maxBytes&&state.turns.length>1){state.turns.shift();json=JSON.stringify(state);}

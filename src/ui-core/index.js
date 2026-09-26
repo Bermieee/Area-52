@@ -58,3 +58,4 @@ export * from './wave13-operator-adapters.js';
 export * from './wave13-operator-surfaces.js';
 export * from './wave13-floating-navigation.js';
 export * from './demo-visibility.js';
+export * from './turn-log-diagnostics.js';

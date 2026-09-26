@@ -25,6 +25,7 @@ class DeploymentHostDocument extends FakeDocument{
   getElementById(id){return walkDeployment(this.body).find(x=>x.id===id||x.attributes?.id===id)??null;}
 }
 const walkDeployment=node=>[node,...(node?.children??[]).flatMap(walkDeployment)];
+const deploymentText=node=>walkDeployment(node).map(row=>row.textContent??'').filter(Boolean).join(' ');
 function deploymentDocument(){const document=new DeploymentHostDocument(),sheld=document.createElement('div'),chat=document.createElement('div'),form=document.createElement('div');sheld.id='sheld';chat.id='chat';form.id='form_sheld';sheld.append(chat,form);document.body.append(sheld);return document;}
 
 function makeHost({connectionProfile=null,activeOpenRouter=false}={}) {
@@ -218,6 +219,10 @@ test('Primary Jev automatically uses SillyTavern active OpenRouter secret when n
 
   const saved=ui.operator.resources.savedProfiles().find(item=>item.role==='JEV');
   assert.equal(saved.credentialManagedByHost,true);assert.equal(saved.connectionProfileId,null);
+  ui.shell.selectWorkspace('connections');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
+  const connectionsText=deploymentText(ui.shell.nodes.workspace);
+  assert.match(connectionsText,/Managed by SillyTavern active OpenRouter secret/);
+  assert.doesNotMatch(connectionsText,/Credential Required|A session credential is required/i);
   assert.doesNotMatch(JSON.stringify({row,saved,requests:chatCompletionRequests}),/apiKey|secret[_-]?id|credential.*value/i);
   session.destroy();
 });

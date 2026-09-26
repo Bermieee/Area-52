@@ -44,6 +44,50 @@ function resolveSillyTavernConnectionProfile(context,config={}){
   return profiles.length===1?profiles[0]:null;
 }
 
+function isSillyTavernOpenRouterRoute(context,config={}){
+  const endpoint=normalizeEndpoint(config.endpoint);
+  if(!endpoint)return false;
+  try{
+    const host=new URL(endpoint).hostname.toLowerCase();
+    return (host==='openrouter.ai'||host.endsWith('.openrouter.ai'))&&typeof context?.ChatCompletionService?.processRequest==='function';
+  }catch{return false;}
+}
+
+function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities=[]}={}){
+  let selectedModel=clean(modelId);
+  if(!selectedModel)throw new TypeError('OpenRouter model is required');
+  const request=async(messages,{signal=null,maxOutputTokens=128,temperature=0}={})=>{
+    const context=getContext(),service=context?.ChatCompletionService;
+    if(typeof service?.processRequest!=='function')throw Object.assign(new Error('SillyTavern ChatCompletionService is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const startedAt=Date.now();
+    const response=await service.processRequest({
+      stream:false,messages,model:selectedModel,chat_completion_source:'openrouter',
+      max_tokens:Math.max(1,Math.trunc(Number(maxOutputTokens)||128)),temperature,
+    },{},true,signal);
+    const content=typeof response?.content==='string'?response.content:response?.content==null?'':JSON.stringify(response.content);
+    if(!content)throw Object.assign(new Error('SillyTavern OpenRouter backend returned no completion text'),{code:'MALFORMED_OUTPUT'});
+    const completedAt=Date.now();return{content,startedAt,completedAt};
+  };
+  return{
+    providerId,modelId:selectedModel,capabilities:[...new Set(capabilities)],measurementClass:'MEASURED_LIVE',
+    structuredOutputSupport:true,streamingSupport:false,abortSupport:true,local:false,
+    contextLimit:Number.MAX_SAFE_INTEGER,outputLimit:Number.MAX_SAFE_INTEGER,
+    setModelId(value){selectedModel=clean(value);this.modelId=selectedModel;return selectedModel;},
+    setCredential(){return false;},clearCredential(){return false;},
+    async discoverModels(){return Object.freeze({ok:true,supported:true,state:'READY',models:Object.freeze([{id:selectedModel,displayName:selectedModel}]),latencyMs:0,transportMode:'CHAT_COMPLETIONS'});},
+    async probe({signal=null}={}){
+      const probe=await request([{role:'user',content:'Reply with exactly OK.'}],{signal,maxOutputTokens:8,temperature:0});
+      return Object.freeze({ok:true,providerId,modelId:selectedModel,latencyMs:probe.completedAt-probe.startedAt,modelAvailable:true,discoveryState:'READY',measurementClass:'MEASURED_LIVE',capabilities:Object.freeze([...new Set(capabilities)]),transportMode:'CHAT_COMPLETIONS',actualProvider:'SILLYTAVERN_ACTIVE_OPENROUTER'});
+    },
+    async invoke(task,input,{signal=null,maxOutputTokens=1200,temperature=0}={}){
+      const messages=Array.isArray(input?.messages)?input.messages:[{role:'user',content:JSON.stringify(input?.data??input??{})}];
+      const result=await request(messages,{signal,maxOutputTokens,temperature});
+      return Object.freeze({providerId,modelId:selectedModel,text:result.content,usage:{},finishReason:'stop',startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.completedAt-result.startedAt,
+        metadata:{measurementClass:'MEASURED_LIVE',requestedModelId:selectedModel,actualProvider:'SILLYTAVERN_ACTIVE_OPENROUTER',hostManagedCredential:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET'}});
+    },
+  };
+}
+
 function createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities=[]}={}){
   let selectedModel=clean(modelId)||profile?.model;
   const profileId=clean(profile?.id),profileName=clean(profile?.name)||profileId;
@@ -897,25 +941,35 @@ export class DevelopmentDeploymentSillyTavernSession {
       const jev=role==='JEV'||caps.includes('SEMANTIC_JUDGMENT');
       if(!jev||config.apiKey)return config;
       const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config);
-      if(!profile)return config;
+      const activeOpenRouter=!profile&&isSillyTavernOpenRouterRoute(context,config);
+      if(!profile&&!activeOpenRouter)return config;
       const resourceId=clean(config.resourceId)||('jev:'+clean(config.displayName??'primary-jev').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
-      const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId)||profile.model;
-      const adapter=createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities:caps});
-      session.hostManagedResourceProfiles.set(resourceId,{connectionProfileId:profile.id,connectionProfileName:profile.name,modelId,api:profile.api});
-      return{...config,resourceId,providerId,modelId,adapter,credentialRequired:false,profileMetadata:{...(config.profileMetadata??{}),credentialOwner:'SILLYTAVERN_CONNECTION_MANAGER',connectionProfileId:profile.id}};
+      const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId)||profile?.model;
+      const adapter=profile
+        ?createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities:caps})
+        :createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps});
+      const source=profile?'SILLYTAVERN_CONNECTION_MANAGER':'SILLYTAVERN_ACTIVE_SECRET';
+      session.hostManagedResourceProfiles.set(resourceId,{connectionProfileId:profile?.id??null,connectionProfileName:profile?.name??'SillyTavern active OpenRouter secret',modelId,api:profile?.api??'openrouter',source});
+      return{...config,resourceId,providerId,modelId,adapter,credentialRequired:false,credentialManagedByHost:true,hostCredentialSource:source,
+        connectionProfileId:profile?.id??config.connectionProfileId??null,connectionProfileName:profile?.name??config.connectionProfileName??'SillyTavern active OpenRouter secret',
+        profileMetadata:{...(config.profileMetadata??{}),credentialOwner:source,connectionProfileId:profile?.id??null}};
     };
     const decorateRow=(row)=>{
       if(!row||typeof row!=='object')return row;
       const meta=session.hostManagedResourceProfiles.get(clean(row.resourceId));
-      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:'SILLYTAVERN_CONNECTION_MANAGER',connectionProfileId:meta.connectionProfileId,connectionProfileName:meta.connectionProfileName}:clone(row);
+      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:meta.source??'SILLYTAVERN_CONNECTION_MANAGER',connectionProfileId:meta.connectionProfileId,connectionProfileName:meta.connectionProfileName}:clone(row);
     };
     const actions=Object.freeze({
       ...host.actions,
       addResource:(config)=>host.actions.addResource(decorateConfig(config)),
       discoverModels:async(config,opts)=>{
-        const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config);
-        if(profile&&!config?.apiKey){
-          return Object.freeze({kind:'ResourceModelDiscoveryResult',state:'READY',models:Object.freeze([{id:profile.model,displayName:profile.model}]),manualModelEntryAllowed:true,reasonCode:'SILLYTAVERN_PROFILE_READY',reason:'Using SillyTavern Connection Profile '+profile.name+'.',credentialConfigured:true,credentialStorage:'SILLYTAVERN_CONNECTION_MANAGER'});
+        const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config),activeOpenRouter=!profile&&isSillyTavernOpenRouterRoute(context,config);
+        if((profile||activeOpenRouter)&&!config?.apiKey){
+          const model=clean(config?.modelId)||profile?.model;
+          return Object.freeze({kind:'ResourceModelDiscoveryResult',state:'READY',models:Object.freeze(model?[{id:model,displayName:model}]:[]),manualModelEntryAllowed:true,
+            reasonCode:profile?'SILLYTAVERN_PROFILE_READY':'SILLYTAVERN_ACTIVE_SECRET_READY',
+            reason:profile?'Using SillyTavern Connection Profile '+profile.name+'.':'Using SillyTavern active OpenRouter credential; Test Connection will verify the selected model.',
+            credentialConfigured:true,credentialStorage:profile?'SILLYTAVERN_CONNECTION_MANAGER':'SILLYTAVERN_ACTIVE_SECRET'});
         }
         return host.actions.discoverModels(config,opts);
       },

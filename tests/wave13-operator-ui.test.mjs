@@ -372,8 +372,30 @@ test('Connections model input stays editable and discovered models are suggestio
   const suggestions=walk(sidecar).find(x=>x.tagName==='DATALIST');
   assert.ok(suggestions);assert.ok(walk(suggestions).some(x=>x.tagName==='OPTION'&&x.value==='owner/model-a'));
   model.value='owner/manual-not-in-list';model.dispatch('input');
-  buttonByLabel(sidecar,'Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  buttonByLabel(sidecar,'Save, Lock & Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
   assert.ok(host.calls.some(x=>x[0]==='add'&&x[1]?.modelId==='owner/manual-not-in-list'));
+  ui.destroy();
+});
+
+test('Jev Connection Manager profile selection disables API-key entry and forwards only the profile reference',async()=>{
+  const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
+  owner.bindings.listSillyTavernConnectionProfiles=()=>[
+    {id:'cm:jev',name:'OpenRouter Jev',api:'openrouter',model:'owner/model-a',endpoint:'https://openrouter.ai/api/v1',hasSecretReference:true},
+  ];
+  const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
+  const jev=walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='JEV');
+  const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
+  const buttonByLabel=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  const profile=fieldByLabel(jev,'Jev SillyTavern Connection Profile'),key=fieldByLabel(jev,'Jev API key');
+  const endpoint=fieldByLabel(jev,'Jev endpoint'),model=fieldByLabel(jev,'Jev model');
+  assert.ok(profile);profile.value='cm:jev';profile.dispatch('change');
+  assert.equal(key.disabled,true);assert.equal(key.value,'');assert.equal(key.placeholder,'Managed by SillyTavern Connection Manager');
+  assert.equal(endpoint.value,'https://openrouter.ai/api/v1');assert.equal(model.value,'owner/model-a');
+  buttonByLabel(jev,'Save, Lock & Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  const add=host.calls.find(x=>x[0]==='add');assert.ok(add);
+  assert.equal(add[1].connectionProfileId,'cm:jev');assert.equal(add[1].connectionProfileName,'OpenRouter Jev');
+  assert.equal(Object.hasOwn(add[1],'apiKey'),false);
+  assert.doesNotMatch(JSON.stringify({saved:ui.operator.resources.savedProfiles(),calls:host.calls}),/secret-id|server-secret|apiKey/i);
   ui.destroy();
 });
 

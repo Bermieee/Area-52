@@ -1,6 +1,7 @@
 import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
+import { renderLoreReviewWorkspace } from './lore-authoring-review-ui.js';
 
 export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null}={}){
   const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
@@ -29,7 +30,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     const current=registry.get('lore');
     registry.update('lore',{render(host,ctx){
       renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
-      renderLoreAuthoringSurface(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
+      renderLoreReviewWorkspace(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
     }});
   }
   if(registry.has('memory')&&memory){
@@ -74,6 +75,8 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.previewEdit')return loreAuthoring.previewEditImpact(action.payload??{});
       if(action.type==='wave13.loreAuthoring.proposeTree')return loreAuthoring.proposeTree(action.payload??{});
       if(action.type==='wave13.loreAuthoring.previewMerge')return loreAuthoring.previewMerge(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.startSourceMutationBuild')return loreAuthoring.startSourceMutationBuild(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.rebuildAffectedNavigation')return loreAuthoring.rebuildAffectedNavigation(action.payload??{});
       if(action.type==='wave13.loreAuthoring.startTreeBuild')return loreAuthoring.startTreeBuild(action.payload??{});
       if(action.type==='wave13.loreAuthoring.startMergeBuild')return loreAuthoring.startMergeBuild(action.payload??{});
       if(action.type==='wave13.loreAuthoring.resumeBuild')return loreAuthoring.resumeBuild(action.payload??{});
@@ -85,7 +88,7 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.restoreSettlement')return loreAuthoring.restoreSettlement(action.payload??{});
       throw new Error('Unsupported Wave 13 Lore authoring action');
     }));
-    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
+    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.startSourceMutationBuild','wave13.loreAuthoring.rebuildAffectedNavigation','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
       releases.push(actionRouter.registerAction(type,{subsystem:'wave13-lore-authoring'}));
     }
   }

@@ -333,7 +333,8 @@ export class LoreAuthoringService {
   worker3AuthoringContract() {
     return {
       kind: 'LoreAuthoringOperatorContract',
-      contractVersion: 3,
+      contractVersion: 2,
+      mutationExtensionVersion: 1,
       readModels: {
         sourceDiscoveryIdentity: 'LoreSourceDiscoverySurface',
         progress: 'LoreAuthoringProgressReadModel',
@@ -416,7 +417,8 @@ export class LoreAuthoringService {
     });
     return Object.freeze({
       kind: 'LoreAuthoringOperatorContract',
-      contractVersion: 3,
+      contractVersion: 2,
+      mutationExtensionVersion: 1,
       read,
       actions,
       destructiveMergeApply: null,

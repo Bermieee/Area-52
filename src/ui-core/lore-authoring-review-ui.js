@@ -60,7 +60,9 @@ export function renderLoreReviewWorkspace(host,{loreStudy,loreAuthoring,actionRo
 
   section.append(renderSourceBrowser(d,{state,book,books,sources,selectedSnapshot,scope,refresh,detail}));
   section.append(renderProposalComposer(d,{state,book,sources,source,exact,caps,chatId,actionRouter,scope,refresh}));
+  section.append(renderOwnerImpactPreview(d,{state,source,loreAuthoring,actionRouter,scope,refresh,detail}));
   section.append(renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,refresh,detail}));
+  section.append(renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,scope,refresh,detail}));
   section.append(renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRouter,scope,refresh,detail,chatId}));
 
   if(state.status)section.append(element(d,'p',{className:'a52-wave13-form-status',attrs:{role:'status','aria-live':'polite'},text:state.status}));
@@ -70,14 +72,14 @@ export function renderLoreReviewWorkspace(host,{loreStudy,loreAuthoring,actionRo
 function workspaceHeader(d,caps){
   const root=element(d,'div',{className:'a52-lore-review-workspace__header'});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
-  head.append(element(d,'h2',{text:'Lore authoring & review'}),makeBadge(d,'PREVIEW · NOT COMMITTED','historical'),makeBadge(d,caps.lifecycle?'OWNER-REVIEWED FLOW':'REVIEW CONTRACT PARTIAL',caps.lifecycle?'ready':'warning'));
+  head.append(element(d,'h2',{text:'Lore authoring review'}),makeBadge(d,'PREVIEW · NOT COMMITTED','historical'),makeBadge(d,caps.lifecycle?'OWNER-REVIEWED FLOW':'REVIEW CONTRACT PARTIAL',caps.lifecycle?'ready':'warning'));
   root.append(head,element(d,'p',{className:'a52-muted',text:'Browse exact SillyTavern-authored Lore, prepare evidence-led proposals, and send approvals only through Worker 4’s revision-fenced review/Settlement contract. Preview cards are never committed canon.'}));
   return root;
 }
 
 function renderSourceBrowser(d,{state,book,books,sources,selectedSnapshot,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-browser'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'1. Selected Lorebook · exact entries · human tree'}),makeBadge(d,'AUTHORED SOURCE','observed')));
+  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'1. Source identity · selected Lorebook · exact entries · human tree'}),makeBadge(d,'AUTHORED SOURCE','observed')));
   const verification=verifySelectedLorebook({selectedSnapshot,ownerBook:book});
   root.append(message(d,verification.verified?'Selected Lorebook verified':'Lorebook verification incomplete',verification.reason,verification.verified?'ready':verification.state==='LOREBOOK_MISMATCH'||verification.state==='SOURCE_SET_MISMATCH'?'warning':'historical'));
   root.append(createKeyValue(d,[
@@ -181,14 +183,39 @@ function renderProposalComposer(d,{state,book,sources,source,exact,caps,chatId,a
   return root;
 }
 
+function renderOwnerImpactPreview(d,{state,source,loreAuthoring,actionRouter,scope,refresh,detail}){
+  const root=element(d,'section',{className:'a52-card a52-lore-owner-impact'});
+  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'3. Edit-impact preview'}),makeBadge(d,'OWNER PREVIEW · NOT COMMITTED','historical')),
+    element(d,'p',{className:'a52-muted',text:'Ask Worker 4 to evaluate the currently drafted source edit. This preview may describe semantic/invalidation impact but cannot mutate authored canon.'}));
+  const caps=loreAuthoring.capabilities();
+  root.append(createButton(d,{label:'Preview edit impact with Worker 4',scope,size:'sm',disabled:!caps.previewEdit||!source||!String(state.proposalContent??'').trim(),onPress:async()=>{
+    const route=await actionRouter.route({type:'wave13.loreAuthoring.previewEdit',payload:{sourceId:source.sourceId,content:String(state.proposalContent??'')}});
+    state.status=routeMessage(route,'Worker 4 edit-impact preview refreshed. No source revision was applied.');refresh?.();
+  }}));
+  const preview=valueOf(loreAuthoring.snapshot?.().last?.edit);
+  if(preview){
+    const change=preview.semanticChange??{},claims=change.claims??{},rels=change.relationships??{},plan=change.invalidationPlan??{};
+    root.append(createKeyValue(d,[
+      {key:'Base source revision',value:preview.baseSourceRevisionId??source?.sourceRevisionId??'Not published'},
+      {key:'Proposed revision',value:preview.proposedSourceRevisionId??'Preview only'},
+      {key:'Claims added / altered / superseded',value:[claims.added?.length??0,claims.altered?.length??0,claims.superseded?.length??0].join(' / ')},
+      {key:'Relationships added / removed',value:[rels.added?.length??0,rels.removed?.length??0].join(' / ')},
+      {key:'Dependency / rebuild area',value:(plan.targets??[]).map(row=>row?.target??row).slice(0,20).join(', ')||'None published'},
+      {key:'Unrelated ready sources remain ready',value:preview.allPreviouslyReadyUnrelatedSourcesRemainReady?'Yes':'No / not proven'},
+    ]));
+    if(detail===ProductDetailLevel.ADVANCED&&preview.semanticChange?.provenanceRefs)root.append(createKeyValue(d,[{key:'Provenance refs',value:preview.semanticChange.provenanceRefs.slice(0,24).join(', ')}]));
+  }
+  return root;
+}
+
 function renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-tree'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'3. Worker 4 Tree Builder proposals'}),makeBadge(d,'OWNER PROPOSALS','observed')),
+  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'4. Tree Builder proposal'}),makeBadge(d,'OWNER PROPOSALS','observed')),
     element(d,'p',{className:'a52-muted',text:'Worker 4 owns taxonomy/placement generation and revision fences. The UI reviews proposals; Tree placement remains author-facing navigation rather than semantic truth.'}));
   const caps=loreAuthoring.capabilities();
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
   actions.append(createButton(d,{label:'Refresh Tree proposal',scope,disabled:!caps.tree,onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.proposeTree',payload:{lorebookIds:[book.lorebookId]}});state.status=routeMessage(route,'Worker 4 Tree proposal refreshed.');refresh?.();}}));
-  if(caps.lifecycle)actions.append(createButton(d,{label:'Start reviewed Tree session',scope,disabled:Boolean(state.sessionId),onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.startTreeBuild',payload:{lorebookIds:[book.lorebookId]}});const value=routeValue(route);if(value?.sessionId)state.sessionId=value.sessionId;state.status=routeMessage(route,'Worker 4 Tree review session started.');refresh?.();}}));
+  if(caps.lifecycle)actions.append(createButton(d,{label:'Start reviewed Tree build',scope,disabled:Boolean(state.sessionId),onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.startTreeBuild',payload:{lorebookIds:[book.lorebookId]}});const value=routeValue(route);if(value?.sessionId)state.sessionId=value.sessionId;state.status=routeMessage(route,'Worker 4 Tree review session started.');refresh?.();}}));
   root.append(actions);
   const treePlan=valueOf(loreAuthoring.snapshot?.().last?.tree);
   if(treePlan){
@@ -203,9 +230,38 @@ function renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,r
   return root;
 }
 
+function renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,scope,refresh,detail}){
+  const root=element(d,'section',{className:'a52-card a52-lore-owner-merge'});
+  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'5. Merge / reconciliation preview'}),makeBadge(d,'OWNER PREVIEW · NOT COMMITTED','historical')),
+    element(d,'p',{className:'a52-muted',text:'Compare studied Lorebooks through Worker 4. Similarity and reconciliation are advisory until the reviewed lifecycle reaches a successful owner Settlement.'}));
+  const others=(books??[]).filter(row=>row.lorebookId!==book.lorebookId),select=field(d,'select','Merge comparison lorebook');
+  select.append(option(d,'','Choose second Lorebook'));for(const row of others)select.append(option(d,row.lorebookId,row.title??row.lorebookId));select.value=state.mergeBookId??'';
+  const button=createButton(d,{label:'Preview merge reconciliation',scope,disabled:!loreAuthoring.capabilities().merge||!state.mergeBookId,onPress:async()=>{
+    const route=await actionRouter.route({type:'wave13.loreAuthoring.previewMerge',payload:{lorebookIds:[book.lorebookId,state.mergeBookId]}});
+    state.status=routeMessage(route,'Worker 4 merge reconciliation preview refreshed. No source was committed.');refresh?.();
+  }});
+  listen(scope,select,'change',()=>{state.mergeBookId=select.value||null;button.disabled=!loreAuthoring.capabilities().merge||!state.mergeBookId;});
+  root.append(labelWrap(d,'Compare with',select),button);
+  const preview=valueOf(loreAuthoring.snapshot?.().last?.merge);
+  if(preview){
+    const cls=preview.classifications??{},validation=preview.validation??{};
+    root.append(createKeyValue(d,[
+      {key:'Unique semantic facts retained',value:validation.retainedEverySemanticFact?'Yes':'No'},
+      {key:'Every current source mapped',value:validation.mappedEveryCurrentSource?'Yes':'No'},
+      {key:'Contradictions kept separate',value:validation.preservedContradictionsSeparately?'Yes':'No'},
+      {key:'Exact duplicates',value:cls.exactDuplicates?.length??0},{key:'Likely overlap',value:cls.likelyOverlap?.length??0},
+      {key:'Complementary',value:cls.complementary?.length??0},{key:'Title/key collisions',value:cls.titleKeyCollisions?.length??0},
+      {key:'Unresolved contradictions',value:cls.unresolvedContradictions?.length??0},
+    ]));
+    if(detail===ProductDetailLevel.ADVANCED)root.append(createKeyValue(d,[{key:'Preview ID',value:preview.previewId??'—'},{key:'Source revision fence',value:(preview.sourceRevisionFence??[]).slice(0,24).join(', ')||'none'}]));
+  }
+  if(!loreAuthoring.capabilities().lifecycle)root.append(message(d,'No destructive Apply action','This assembly exposes proposal/reconciliation previews only. Worker 3 intentionally offers no direct Apply path without Worker 4 Draft Review → Final Preview → Settlement.','historical'));
+  return root;
+}
+
 function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRouter,scope,refresh,detail,chatId}){
   const root=element(d,'section',{className:'a52-card a52-lore-review-lifecycle'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'4. Draft Review → Final Preview → owner Settlement'}),makeBadge(d,state.sessionId?'REVIEW SESSION':'NO ACTIVE SESSION',state.sessionId?'observed':'historical')),
+  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'6. Draft Review → Final Preview → owner Settlement'}),makeBadge(d,state.sessionId?'REVIEW SESSION':'NO ACTIVE SESSION',state.sessionId?'observed':'historical')),
     element(d,'p',{className:'a52-muted',text:'Approve means “record ACCEPT with Worker 4.” It does not mean committed. Only a successful owner Settlement receipt is shown as committed.'}));
   if(!state.sessionId){root.append(message(d,'No active reviewed session','Queue owner-supported source proposals or start Worker 4 Tree Builder above.','historical'));return root;}
 
@@ -270,9 +326,9 @@ function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRoute
       createKeyValue(d,[{key:'Validation',value:finalPreview.validation?.ok?'PASS':'FAIL'},{key:'Operations',value:finalPreview.operations?.length??0},{key:'Semantic preflight',value:finalPreview.authoritativeSemanticPreflight?'PASS':'Not published / failed'},{key:'Explicit approval required',value:finalPreview.explicitApprovalRequired?'Yes':'No'},{key:'Final Preview ID',value:finalPreview.finalPreviewId??'—'}]));
     if(finalPreview.validation?.failures?.length)root.append(message(d,'Commit-time revalidation blocked',finalPreview.validation.failures.join(', '),'warning'));
   }
-  if(String(progress.stage)==='FINAL_PREVIEW'&&finalPreview?.validation?.ok&&!stale)root.append(createButton(d,{label:'Approve Final Preview with Worker 4',scope,onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.approveFinalPreview',payload:{sessionId:state.sessionId,operatorApprovalId:'ui:final:'+state.sessionId+':'+String(progress.draftRevision??1)}});const value=routeValue(route);state.status=value?.readyForApproval===false?'Worker 4 rejected approval during revalidation: '+String(value?.stale?.reason??'owner revalidation failed') : routeMessage(route,'Worker 4 accepted the approval. Canon is still unchanged until Settlement succeeds.');refresh?.();}}));
+  if(String(progress.stage)==='FINAL_PREVIEW'&&finalPreview?.validation?.ok&&!stale)root.append(createButton(d,{label:'Approve current Final Preview',scope,onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.approveFinalPreview',payload:{sessionId:state.sessionId,operatorApprovalId:'ui:final:'+state.sessionId+':'+String(progress.draftRevision??1)}});const value=routeValue(route);state.status=value?.readyForApproval===false?'Worker 4 rejected approval during revalidation: '+String(value?.stale?.reason??'owner revalidation failed') : routeMessage(route,'Worker 4 accepted the approval. Canon is still unchanged until Settlement succeeds.');refresh?.();}}));
 
-  if(loreAuthoring.capabilities().settlement&&(String(progress.stage)==='READY_TO_SETTLE'||progress.settlement?.state==='CHECKPOINTED'))root.append(createButton(d,{label:progress.settlement?'Resume owner Settlement':'Commit approved proposal through Worker 4',scope,onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.applySettlement',payload:{sessionId:state.sessionId,maxOperations:32}});const value=routeValue(route);if(value?.settlementId)state.settlementId=value.settlementId;state.status=routeMessage(route,'Worker 4 processed approved Settlement operations.');refresh?.();}}));
+  if(loreAuthoring.capabilities().settlement&&(String(progress.stage)==='READY_TO_SETTLE'||progress.settlement?.state==='CHECKPOINTED'))root.append(createButton(d,{label:progress.settlement?'Resume approved Settlement':'Apply approved Settlement',scope,onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.applySettlement',payload:{sessionId:state.sessionId,maxOperations:32}});const value=routeValue(route);if(value?.settlementId)state.settlementId=value.settlementId;state.status=routeMessage(route,'Worker 4 processed approved Settlement operations.');refresh?.();}}));
 
   const settlementId=state.settlementId??progress.settlement?.settlementId??null,settlement=settlementId?valueOf(loreAuthoring.settlement({settlementId})):null;
   if(settlement){
@@ -281,6 +337,7 @@ function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRoute
       createKeyValue(d,[{key:'State',value:human(settlement.state??'UNKNOWN')},{key:'Applied',value:String(settlement.cursor??0)+' / '+String(settlement.operationCount??0)},{key:'Revision events',value:settlement.revisionEvents?.length??0},{key:'Invalidation receipts',value:settlement.invalidationReceipts?.length??0},{key:'Reconstructable',value:settlement.reconstructable?'Yes':'No'}]));
     if(settlement.lastError)root.append(message(d,'Settlement / commit failure',settlement.lastError.message??settlement.lastError.code??'Worker 4 rejected or failed the commit.','warning'));
     if(committed){
+      if(loreAuthoring.capabilities().restoration)root.append(createButton(d,{label:'Restore settled revisions',scope,size:'sm',variant:'quiet',onPress:async()=>{const route=await actionRouter.route({type:'wave13.loreAuthoring.restoreSettlement',payload:{settlementId,restorationId:'ui:restore:'+settlementId,maxOperations:32}});state.status=routeMessage(route,'Worker 4 restoration processed the committed Settlement.');refresh?.();}}));
       const restudy=loreRestudyProgress(loreStudy?.read?.());
       const pct=restudy.total?Math.round(restudy.ready/restudy.total*100):0;
       root.append(element(d,'h4',{text:'Post-commit restudy'}),createKeyValue(d,[{key:'Accepted / due',value:restudy.accepted},{key:'Studying',value:restudy.studying},{key:'Ready',value:restudy.ready},{key:'Failed',value:restudy.failed},{key:'Stale',value:restudy.stale}]),createProgressBar(d,{value:pct,label:'Post-commit Lore readiness'}));

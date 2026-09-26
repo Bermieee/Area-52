@@ -16,7 +16,7 @@ import { ProductPresentationState } from './wave5-product-model.js';
 import { registerKnowledgeInspectionActions } from './provenance-ui.js';
 import { BrainPulseModel } from './wave6-brain-pulse.js';
 import { CoprocessorProductionUIAdapter, ForensicsProductionUIAdapter, PromptPlanProductionUIAdapter, RuntimeProductionUIAdapter, SceneProductionUIAdapter, Wave6ProductAdapter } from './wave6-production-adapters.js';
-import { FrontFacePresentationState, HostAdjacentMountAdapter } from './wave6-presentation.js';
+import { FrontFaceMode, FrontFacePresentationState, HostAdjacentMountAdapter } from './wave6-presentation.js';
 import { HostAdjacentFrontFaceController, registerWave6FrontFaceWorkspaces } from './wave6-front-face.js';
 import { ExplainabilityPresentationState } from './wave7-explainability.js';
 import { registerWave7Actions, registerWave7Inspectors, registerWave7Workspaces } from './wave7-workspaces.js';
@@ -102,7 +102,8 @@ export function createWave6ProductInterface({
   const inspectionScope=new ResourceScope();
   inspectionScope.subscribe(signals,'UI_INSPECT_SELECTION_CHANGED',({payload})=>{
     if(!payload?.object)return;
-    frontFacePresentation.setInspector(true);
+    frontFacePresentation.patch({inspectorVisible:true,frontFaceMode:FrontFaceMode.EXPANDED});
+    floatingController?.open?.();
     controller?.scheduleQuickDash?.();
   });
   const renderWorkspace=(entry,host)=>{
@@ -128,12 +129,12 @@ export function createWave6ProductInterface({
 
   shell=new ApplicationShell({root,workspaceRegistry,inspector,signals,stateStore,renderWorkspace,productName,productTagline});
   const mountAdapter=hostMountAdapter instanceof HostAdjacentMountAdapter?hostMountAdapter:new HostAdjacentMountAdapter(hostMountAdapter??{});
-  controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName});
+  controller=new HostAdjacentFrontFaceController({host:root,shell,adapter:productAdapter,presentation:frontFacePresentation,scheduler,signals,brainPulse,hostMountAdapter:mountAdapter,productName,collapsedReservationWidth:floatingNavigation?0:76});
   controller.mount();
   floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
   const cognitionScope=new ResourceScope();
   const inspectEvidence=(object)=>signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'demo-activity-feed'});
-  const activityFeed=evidenceJournal?new DemoActivityFeedController({host:shell.nodes.strip,journal:evidenceJournal,selectionProvider,inspect:inspectEvidence,maxVisible:5}).mount():null;
+  let activityFeed=null,activityFeedHost=null;
   const captureEvidence=()=>{
     if(!evidenceJournal||!operations)return null;
     const op=operations.read(),selection=op.selection??selectionProvider();
@@ -172,6 +173,11 @@ export function createWave6ProductInterface({
   const memoryRelease=memoryOwner?.subscribe?.(()=>operatorRefresh('memory'));if(typeof memoryRelease==='function')cognitionScope.add(memoryRelease);
 
   const toastScope=new ResourceScope(),toastViewport=new ToastViewport({host:shell.nodes.toastHost,signals,scope:toastScope});toastViewport.mount();
+  if(evidenceJournal){
+    activityFeedHost=element(root.ownerDocument,'div',{className:'a52-floating-activity-feed-host',attrs:{'aria-label':'Selected-turn activity feed'}});
+    shell.nodes.toastHost.append(activityFeedHost);
+    activityFeed=new DemoActivityFeedController({host:activityFeedHost,journal:evidenceJournal,selectionProvider,inspect:inspectEvidence,maxVisible:5}).mount();
+  }
   scheduleEvidenceCapture();
 
   return{
@@ -180,7 +186,7 @@ export function createWave6ProductInterface({
     floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();activityFeedHost?.remove?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
   };
 }
 

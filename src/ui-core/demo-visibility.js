@@ -125,40 +125,43 @@ export class DemoActivityFeedController{
     this.fadeAfterMs=Math.max(250,Number(fadeAfterMs)||6500);this.visibleForMs=Math.max(this.fadeAfterMs+250,Number(visibleForMs)||12000);
     this.setTimer=typeof setTimer==='function'?setTimer:null;this.clearTimer=typeof clearTimer==='function'?clearTimer:null;
     this.scheduleEnabled=scheduleEnabled==null?typeof host?.isConnected==='boolean':Boolean(scheduleEnabled);
-    this.scope=new ResourceScope();this.renderScope=new ResourceScope();this.held=new Set();this.timer=null;
+    this.scope=new ResourceScope();this.renderScope=new ResourceScope();this.held=new Set();this.timer=null;this.lastSignature=null;
   }
   mount(){this.host?.classList?.add?.('a52-activity-feed-host');this.render();return this;}
   render(){
     if(!this.host||!this.journal)return;
-    this.#cancelTimer();this.renderScope.cleanup();this.renderScope=new ResourceScope();
+    this.#cancelTimer();
     const selection=normalizeSelection(this.selectionProvider?.()??{}),now=Number(this.now()),all=this.journal.listEntries(selection,{limit:Math.max(this.maxVisible*4,32)});
     const active=all.filter(entry=>this.held.has(entry.id)||Math.max(0,now-Number(entry.at??now))<this.visibleForMs).slice(-this.maxVisible);
-    const d=this.host.ownerDocument,root=element(d,'div',{className:'a52-activity-feed',attrs:{'aria-label':'Current turn activity',role:'log','aria-live':'polite','aria-relevant':'additions text'}});
-    if(!active.length){
-      root.append(element(d,'span',{className:'a52-activity-feed__empty',text:selection.turnId?'No new selected-turn activity. Evidence remains available in the local journal.':'Waiting for a selected turn.'}));
-      this.host.replaceChildren(root);return;
-    }
     let nextBoundary=Infinity;
-    active.forEach((entry,index)=>{
+    const rows=active.map((entry,index)=>{
       const elapsed=Math.max(0,now-Number(entry.at??now)),held=this.held.has(entry.id),phase=elapsed>=this.fadeAfterMs?'fading':'fresh';
-      if(!held){
-        const boundary=elapsed<this.fadeAfterMs?this.fadeAfterMs-elapsed:this.visibleForMs-elapsed;
-        if(boundary>0)nextBoundary=Math.min(nextBoundary,boundary);
-      }
-      const age=active.length-1-index;
-      const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),phase,paused:String(held),entryId:entry.id}});
-      button.append(element(d,'strong',{text:entry.title}),element(d,'span',{className:'a52-activity-feed__summary',text:entry.summary}),element(d,'span',{className:'a52-activity-feed__detail',text:entry.detail??entry.summary}));
-      this.renderScope.listen(button,'click',()=>this.#activate(entry));
-      this.renderScope.listen(button,'mouseenter',()=>this.#hold(entry.id));
-      this.renderScope.listen(button,'mouseleave',()=>this.#release(entry.id));
-      this.renderScope.listen(button,'focusin',()=>this.#hold(entry.id));
-      this.renderScope.listen(button,'focusout',()=>this.#release(entry.id));
-      root.append(button);
+      if(!held){const boundary=elapsed<this.fadeAfterMs?this.fadeAfterMs-elapsed:this.visibleForMs-elapsed;if(boundary>0)nextBoundary=Math.min(nextBoundary,boundary);}
+      return{entry,held,phase,age:active.length-1-index};
     });
-    this.host.replaceChildren(root);
+    const signature=selectionKey(selection)+'|'+JSON.stringify(rows.map(row=>[row.entry.id,row.entry.status,row.entry.summary,row.entry.detail,row.phase,row.held]));
+    if(!rows.length){
+      if(this.lastSignature!==signature){this.renderScope.cleanup();this.renderScope=new ResourceScope();this.host.replaceChildren();this.lastSignature=signature;}
+      return;
+    }
+    if(this.lastSignature!==signature){
+      this.renderScope.cleanup();this.renderScope=new ResourceScope();
+      const d=this.host.ownerDocument,root=element(d,'div',{className:'a52-activity-feed',attrs:{'aria-label':'Current turn activity',role:'log','aria-live':'polite','aria-relevant':'additions text'}});
+      for(const {entry,held,phase,age} of rows){
+        const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),phase,paused:String(held),entryId:entry.id}});
+        button.append(element(d,'strong',{text:entry.title}),element(d,'span',{className:'a52-activity-feed__summary',text:entry.summary}),element(d,'span',{className:'a52-activity-feed__detail',text:entry.detail??entry.summary}));
+        this.renderScope.listen(button,'click',()=>this.#activate(entry));
+        this.renderScope.listen(button,'mouseenter',()=>this.#hold(entry.id));
+        this.renderScope.listen(button,'mouseleave',()=>this.#release(entry.id));
+        this.renderScope.listen(button,'focusin',()=>this.#hold(entry.id));
+        this.renderScope.listen(button,'focusout',()=>this.#release(entry.id));
+        root.append(button);
+      }
+      this.host.replaceChildren(root);this.lastSignature=signature;
+    }
     if(this.scheduleEnabled&&Number.isFinite(nextBoundary)&&this.held.size===0)this.#schedule(Math.max(20,nextBoundary+5));
   }
-  destroy(){this.#cancelTimer();this.renderScope.cleanup();this.scope.cleanup();this.held.clear();this.host?.replaceChildren?.();}
+  destroy(){this.#cancelTimer();this.renderScope.cleanup();this.scope.cleanup();this.held.clear();this.lastSignature=null;this.host?.replaceChildren?.();}
   #activate(entry){
     const current=normalizeSelection(this.selectionProvider?.()??{});
     if(selectionKey(current)!==selectionKey(entry.selection)){this.render();return false;}
@@ -175,21 +178,24 @@ export class DemoActivityFeedController{
 function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at}){
   const out=[],op=operations??{},diag=diagnostics??{},path=cognition?.data??cognition??{},pipeline=op.pipeline??{};
   const stages=new Map((op.stages??[]).map(row=>[row.id,row]));
-  const inspections=op.inspections??{};
+  const inspections=op.inspections??{},scatter=path.scatter??null,gather=path.gather??null,seal=path.seal??null;
+  const pp=promptPlan?.data??promptPlan??path.promptPlan??null,hostDelivery=inspections.generation?.payload??null;
+  const dedicated=new Set();
+  if(scatter)dedicated.add('runtime');if(gather)dedicated.add('gather');if(seal)dedicated.add('seal');if(pp)dedicated.add('promptPlan');
+  if(hostDelivery?.kind==='SillyTavernHostDeliveryReceipt')dedicated.add('generation');if(pipeline.learningReceipt)dedicated.add('learning');
   for(const id of STAGES){
-    const row=stages.get(id);if(!row)continue;
+    const row=stages.get(id);if(!row||dedicated.has(id))continue;
     const inspection=inspections[id]??null;
     const ref=inspection?.receiptRef??null;
     if(!inspection?.available&&['runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'].includes(id)&&['UNAVAILABLE','DISCONNECTED','WAITING_FOR_TURN'].includes(String(row.state)))continue;
     const detail=producerDetail(id,path,pipeline,row);
     out.push(entry({
       type:'PRODUCER',subtype:id,status:row.state??'UNKNOWN',title:row.label??label(id),summary:detail.summary,
-      detail:detail.detail,receiptRef:ref,selection,at,identitySuffix:ref??row.state??'status',
+      detail:detail.detail,receiptRef:ref,selection,at,identitySuffix:ref??'selected-turn-status',
       metadata:{producerId:id,errorCode:row.errorCode??null,freshness:row.freshness??null},
     }));
   }
 
-  const scatter=path.scatter??null;
   if(scatter){
     const jobs=scatter.jobs??[],ids=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];
     out.push(entry({
@@ -214,7 +220,6 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
-  const gather=path.gather??null;
   if(gather){
     const counts=gather.counts??{},returned=Object.values(counts).reduce((sum,value)=>sum+(Number(value)||0),0);
     out.push(entry({
@@ -226,7 +231,6 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
-  const seal=path.seal??null;
   if(seal){
     const admitted=[...(seal.effectiveAdmittedResultIds??seal.admittedResultIds??[])];
     out.push(entry({
@@ -238,7 +242,6 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
-  const pp=promptPlan?.data??promptPlan??path.promptPlan??null;
   if(pp){
     out.push(entry({
       type:'PROMPT_PLAN',status:pp.status??'PUBLISHED',title:'Prompt delivery plan',
@@ -249,7 +252,6 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
-  const hostDelivery=inspections.generation?.payload??null;
   if(hostDelivery?.kind==='SillyTavernHostDeliveryReceipt'){
     const injected=Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt),completed=Boolean(hostDelivery.responseCompleted??hostDelivery.completedAt),aborted=String(hostDelivery.state??'').toUpperCase()==='ABORTED';
     out.push(entry({

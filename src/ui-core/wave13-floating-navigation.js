@@ -25,7 +25,7 @@ export class VerticalRailPopoutController{
     if(this.mounted)return this;this.mounted=true;
     const nodes=this.frontFaceController.nodes,d=nodes.root.ownerDocument;
     const rail=element(d,'aside',{className:'a52-wave13-rail',attrs:{'aria-label':this.productName+' navigation'},dataset:{wave13Rail:''}});
-    const railHandle=element(d,'button',{className:'a52-wave13-drag-handle',text:'Move Area-52',attrs:{type:'button','aria-label':'Move Area-52 navigation and panel',title:'Drag to move Area-52. Arrow keys also move it.'}});
+    const railHandle=element(d,'button',{className:'a52-wave13-drag-handle',text:'Area-52',attrs:{type:'button','aria-label':'Move Area-52 navigation and panel',title:'Drag to move Area-52. Arrow keys also move it.'}});
     const nav=element(d,'nav',{className:'a52-wave13-rail__nav',attrs:{'aria-label':'Product sections'}});
     const card=element(d,'section',{className:'a52-wave13-popout',attrs:{role:'region','aria-label':this.productName+' section panel'},dataset:{side:this.state.side}});
     const cardHead=element(d,'header',{className:'a52-wave13-popout__head'});

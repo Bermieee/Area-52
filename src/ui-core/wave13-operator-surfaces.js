@@ -470,7 +470,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   host.append(section);
 }
 
-export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,scope,refresh,inspect,navigate}={}){
+export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,diagnostics,evidenceJournal,scope,refresh,inspect,navigate}={}){
   const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
   root.append(header(d,'Settings','Area-52 display controls. Connection and Brain execution policy remain with their owning subsystems.'));
   const detail=element(d,'section',{className:'a52-wave13-settings__group'});
@@ -490,17 +490,17 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
   }
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
   displayActions.append(inspector);display.append(displayActions);root.append(display);
-  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,detailLevel:productAdapter?.getDetailLevel?.()}));
+  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,inspect,navigate,detailLevel:productAdapter?.getDetailLevel?.()}));
   host.append(root);
 }
 
-export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,detailLevel=ProductDetailLevel.NORMAL}={}){
+export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,inspect,navigate,detailLevel=ProductDetailLevel.NORMAL}={}){
   const snapshot=diagnostics.read(),center=element(d,'section',{className:'a52-wave13-settings__group a52-wave13-diagnostics',attrs:{'aria-label':'Diagnostics Center'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
   const unhealthy=(snapshot.producers?.failures??0)>0||snapshot.resources?.rows?.some(row=>['DEGRADED','UNAVAILABLE'].includes(String(row.state))||['DEGRADED','UNAVAILABLE','COOLDOWN'].includes(String(row.health)));
   head.append(element(d,'strong',{text:'Diagnostics Center'}),makeBadge(d,unhealthy?'ATTENTION':snapshot.host?.waitingForTurn?'WAITING':'LIVE',unhealthy?'warning':snapshot.host?.waitingForTurn?'historical':'ready'));
   const advanced=detailLevel===ProductDetailLevel.ADVANCED;
-  center.append(head,element(d,'p',{className:'a52-muted',text:'Operational read-only summary for the selected chat/turn. This is not a complete forensic transaction timeline. Owner receipts, resource health, routing evidence, and failures appear here; raw prompts or secrets are never collected.'}));
+  center.append(head,element(d,'p',{className:'a52-muted',text:'Operational read-only summary for the selected chat/turn. This is not a complete forensic transaction timeline. Owner receipts, resource health, routing evidence, and failures appear here. Raw prompts, story/lore bodies, credentials, keys, and hidden reasoning are excluded from retained/exported UI evidence.'}));
   const selection=snapshot.selection??{};
   center.append(createKeyValue(d,advanced?[
     {key:'Chat ID',value:selection.chatId??'none'},{key:'Turn ID',value:selection.turnId??'waiting'},{key:'Generation ID',value:selection.generationId??'waiting'},
@@ -569,6 +569,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     flowStep(d,'Learning recorded',pipeline.learningReceipt?'Owner learning receipt recorded':pipeline.generationReceipt?'Not yet':'No generation receipt')
   );
   center.append(element(d,'h3',{text:'Current turn activity'}),activity);
+  center.append(renderSelectedTurnEvidence(d,{snapshot,evidenceJournal,scope,inspect,advanced}));
   const path=element(d,'section',{className:'a52-card a52-wave13-turn-path',attrs:{'aria-label':'Selected turn owner receipt path'}});
   path.append(element(d,'h3',{text:'Selected-turn receipt path'}),element(d,'p',{className:'a52-muted',text:'A read-only owner-receipt path for this selected turn. This is an operational trace, not a complete cognitive transaction ledger.'}));
   const stageMap=new Map((snapshot.producers?.stages??[]).map(row=>[row.id,row]));
@@ -650,6 +651,79 @@ export function renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,de
     center.append(list);
   }else center.append(message(d,'No resource events yet','Connect, test, disconnect, reconnect, or execute an optional resource and owner telemetry will appear here.','historical'));
   return center;
+}
+
+function renderSelectedTurnEvidence(d,{snapshot,evidenceJournal,scope,inspect,advanced=false}={}){
+  const selection=snapshot.selection??{},pipeline=snapshot.pipeline??{},runtimeTurn=snapshot.runtime?.turn??{};
+  const section=element(d,'section',{className:'a52-card a52-wave13-evidence-drilldown',attrs:{'aria-label':'Selected-turn evidence drilldown'}});
+  section.append(element(d,'h3',{text:'Selected-turn evidence drilldown'}),element(d,'p',{className:'a52-muted',text:'Evidence is shown only when an owner receipt or bounded local journal entry exists. Missing per-job resource identity, Context Seal, PromptPlan, or host observation remains explicitly unproven.'}));
+
+  const jobRows=(snapshot.cognition?.jobs?.length?snapshot.cognition.jobs:runtimeTurn.jobs??[]).slice(0,12);
+  section.append(element(d,'h4',{text:'Job → resource / attempt'}));
+  if(jobRows.length){
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const job of jobRows){
+      const resource=job.resourceId??job.workerId??null;
+      const resourceText=resource?String(resource):(runtimeTurn.resourceIds?.length?'Per-job resource not published · turn resource set: '+runtimeTurn.resourceIds.slice(0,4).join(', '):'Resource identity not published');
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      row.append(element(d,'strong',{text:job.taskType??job.capability??job.jobId??job.taskId??'Cognitive job'}),element(d,advanced?'code':'span',{className:advanced?'':'a52-muted',text:resourceText}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
+      list.append(row);
+    }
+    section.append(list);
+  }else section.append(message(d,'No selected-turn job receipt','No Scatter or Runtime job rows are available for this exact turn.','historical'));
+
+  const attempts=(snapshot.resources?.rows??[]).filter(row=>row.physicalExecutionAttempted||row.lastExecution).slice(0,12);
+  if(attempts.length){
+    section.append(element(d,'h4',{text:'Optional-resource physical attempts'}));
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const attempt of attempts){
+      const state=attempt.physicalExecutionSucceeded?'SUCCEEDED':attempt.lastExecution?.status??'ATTEMPTED';
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      row.append(element(d,'strong',{text:attempt.displayName??attempt.id??'Optional resource'}),element(d,advanced?'code':'span',{className:advanced?'':'a52-muted',text:attempt.id??'resource id unavailable'}),makeBadge(d,state,flowStatus(state)));
+      list.append(row);
+    }
+    section.append(list);
+  }
+
+  const results=(snapshot.cognition?.gather??[]).slice(0,16);
+  section.append(element(d,'h4',{text:'Result → Gather → Context Seal'}));
+  if(results.length){
+    const list=element(d,'div',{className:'a52-wave13-flow-list'});
+    for(const result of results){
+      const row=element(d,'div',{className:'a52-wave13-flow-row'});
+      const origin=result.resourceId??(result.taskId?'task '+result.taskId:'owner result; resource not published');
+      row.append(element(d,'strong',{text:result.capability??'Result'}),element(d,advanced?'code':'span',{className:advanced?'':'a52-muted',text:String(origin)}),makeBadge(d,result.contextAdmitted?'SEAL ADMITTED':result.status??'RETURNED',result.contextAdmitted?'ready':flowStatus(result.status)));
+      list.append(row);
+    }
+    section.append(list);
+  }else section.append(message(d,'No Gather result rows','No selected-turn Gather result rows are available.','historical'));
+
+  const planPublished=Boolean(snapshot.promptPlan?.summary?.promptPlanId||pipeline.promptPlanReceipt);
+  const prepared=Boolean(pipeline.hostPrepared),observed=Boolean(pipeline.hostInjected||pipeline.deliveryReceipt);
+  section.append(element(d,'h4',{text:'Prompt delivery proof levels'}),element(d,'div',{className:'a52-wave13-delivery-proof'},
+    flowStep(d,'Planned',planPublished?'PromptPlan receipt published':'No PromptPlan receipt'),
+    flowStep(d,'Compiled / injected',pipeline.hostDeliveryReceipt?(observed?'Host receipt reports request injection':prepared?'Host receipt reports prepared payload only':'Host receipt exists; compilation/injection state not published'):'No exact host-delivery receipt'),
+    flowStep(d,'Host-observed',observed?'Observed at SillyTavern model-request hook':'No host-observed injection evidence')
+  ));
+
+  const journalStatus=evidenceJournal?.status?.()??null,journalEntries=evidenceJournal?.listEntries?.(selection,{limit:12})??[];
+  section.append(element(d,'h4',{text:'Local evidence journal'}),createKeyValue(d,[
+    {key:'Selected-turn entries',value:journalEntries.length},{key:'Storage',value:journalStatus?.storageKind??'Not connected'},
+    {key:'Retention bound',value:journalStatus?String(journalStatus.maxTurns)+' turns · '+String(journalStatus.maxEntriesPerTurn)+' entries/turn':'Not connected'},
+  ]));
+  if(evidenceJournal?.download&&selection.chatId&&selection.turnId&&selection.generationId)section.append(createButton(d,{label:'Export selected turn evidence',scope,size:'sm',variant:'quiet',onPress:()=>evidenceJournal.download({selection,document:d})}));
+  if(journalEntries.length){
+    const list=element(d,'div',{className:'a52-wave13-evidence-journal'});
+    for(const item of journalEntries.slice(-12).reverse()){
+      const row=element(d,'button',{className:'a52-wave13-evidence-row',attrs:{type:'button','aria-label':'Inspect '+item.title},dataset:{status:item.status}});
+      row.append(element(d,'strong',{text:item.title}),element(d,'span',{className:'a52-muted',text:item.summary}),makeBadge(d,item.status,flowStatus(item.status)));
+      if(inspect)scope?.listen?.(row,'click',()=>inspect({kind:'wave14-activity-evidence',id:item.id,title:item.title,available:true,selection:item.selection,receiptRef:item.receiptRef??null,payload:item}));
+      else row.disabled=true;
+      list.append(row);
+    }
+    section.append(list);
+  }else section.append(element(d,'p',{className:'a52-muted',text:'No retained selected-turn journal entries are currently available. This does not imply that backend work did or did not occur.'}));
+  return section;
 }
 
 function formatReceiptCounts(counts){

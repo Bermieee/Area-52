@@ -43,7 +43,7 @@
       mode:'baseline-unlayered',logicalJobs:6,physicalAttempts:6,queueDepthPeak:6,concurrencyPeak:6,
       phases,timeToSealMs:sealedAt-started,retainedBytes:6*90000*4,peakHeapBytes:peak,
       longTaskCount:runLong.length,longTaskMaxMs:runLong.length?Math.max(...runLong.map(x=>x.duration)):0,
-      totalWorkAvoided,retrievalTruthQuality:1,fallbackCorrect:true,
+      totalWorkAvoided:0,retrievalTruthQuality:1,fallbackCorrect:true,
       uiProbeDelayMs:probeAt==null?null:probeAt-started,uiProbeBeforeSeal:probeAt!=null&&probeAt<sealedAt,
     };
     retained.length=0;globalThis.gc?.();await sleep(30);return result;
@@ -87,7 +87,7 @@
       mode:'layered',logicalJobs:6,physicalAttempts,queueDepthPeak:6,concurrencyPeak:2,
       phases,timeToSealMs:sealedAt-started,retainedBytes:4*90000*4,peakHeapBytes:peak,
       longTaskCount:runLong.length,longTaskMaxMs:runLong.length?Math.max(...runLong.map(x=>x.duration)):0,
-      totalWorkAvoided:0,retrievalTruthQuality:1,fallbackCorrect:true,
+      totalWorkAvoided,retrievalTruthQuality:1,fallbackCorrect:true,
       uiProbeDelayMs:probeAt==null?null:probeAt-started,uiProbeBeforeSeal:probeAt!=null&&probeAt<sealedAt,
     };
     retained.length=0;globalThis.gc?.();await sleep(20);return result;

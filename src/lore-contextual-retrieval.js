@@ -62,11 +62,12 @@ function recordTokens(text, extra = []) {
   return tokenize(text + ' ' + extra.join(' ')).slice(0, LORE_WAVE3_LIMITS.maxTokensPerRecord);
 }
 
-function summaryTruthStatus(summary) {
-  const critical = summary.criticalEvidence || [];
+function summaryTruthStatus(evidence) {
+  const critical = evidence || [];
   if (critical.some((row) => row.unresolved)) return 'UNRESOLVED';
   const temporal = new Set(critical.map((row) => row.temporalClass).filter(Boolean));
   if (temporal.size === 1 && temporal.has(TemporalClass.HISTORICAL)) return 'HISTORICAL';
+  if (temporal.has(TemporalClass.CURRENT)) return 'CURRENT';
   return 'UNKNOWN';
 }
 
@@ -208,6 +209,22 @@ export class LoreContextualRetrievalIndex {
         this.pushDiagnostic({summaryId: summary.id, status: 'SUMMARY_SKIPPED_STALE_SOURCE'});
         continue;
       }
+      const evidenceResolution = summaryRegistry.resolveEvidenceRefs(summary.criticalEvidenceRefs || [], {
+        limit: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
+      });
+      if (evidenceResolution.status === 'LIMIT_EXCEEDED') {
+        this.pushDiagnostic({summaryId: summary.id, status: 'SUMMARY_SKIPPED_EVIDENCE_LIMIT'});
+        continue;
+      }
+      if (evidenceResolution.status === 'DEGRADED') {
+        this.pushDiagnostic({
+          summaryId: summary.id,
+          status: 'SUMMARY_SKIPPED_MISSING_EVIDENCE',
+          missingEvidenceRefs: evidenceResolution.missingEvidenceRefs.slice(0, 16),
+        });
+        continue;
+      }
+      const summaryEvidence = evidenceResolution.evidence;
       const id = 'retrieval-summary:' + stableHash(summary.id);
       const sourceEntries = scope.sourceIds.map((sourceId) => {
         const source = runtime.registry.getEntry(sourceId);
@@ -234,14 +251,14 @@ export class LoreContextualRetrievalIndex {
         text: [scope.label, scope.treePath?.join(' > '), summary.content].filter(Boolean).join('\n'),
         exactAuthoredText: null,
         tokens: recordTokens([scope.label, ...(scope.treePath || []), summary.content].join(' ')),
-        claimRefs: [...new Set((summary.criticalEvidence || []).flatMap((row) => row.claimRefs || []))].slice(0, 192),
-        relationshipRefs: [...new Set((summary.criticalEvidence || []).flatMap((row) => row.relationshipRefs || []))].slice(0, 128),
-        entityRefs: [...new Set((summary.criticalEvidence || []).flatMap((row) => row.entityRefs || []))].slice(0, 128),
-        evidenceRefs: [...new Set((summary.criticalEvidence || []).map((row) => row.evidenceId))].slice(0, 256),
+        claimRefs: [...new Set(summaryEvidence.flatMap((row) => row.claimRefs || []))].slice(0, 192),
+        relationshipRefs: [...new Set(summaryEvidence.flatMap((row) => row.relationshipRefs || []))].slice(0, 128),
+        entityRefs: [...new Set(summaryEvidence.flatMap((row) => row.entityRefs || []))].slice(0, 128),
+        evidenceRefs: [...new Set(summaryEvidence.map((row) => row.evidenceId))].slice(0, 256),
         dependencyRevisions: [...new Set([summary.structureRevision, ...summary.sourceRevisionSet, ...summary.childSummaryDependencies.map((row) => row.summaryId)])],
         authorityClass: AuthorityClass.DERIVED,
-        truthStatusHint: summaryTruthStatus(summary),
-        temporalHints: (summary.criticalEvidence || [])
+        truthStatusHint: summaryTruthStatus(summaryEvidence),
+        temporalHints: summaryEvidence
           .filter((row) => row.temporalClass && row.temporalClass !== TemporalClass.TIMELESS)
           .slice(0, 32)
           .map((row) => ({evidenceId: row.evidenceId, temporalClass: row.temporalClass, unresolved: row.unresolved})),

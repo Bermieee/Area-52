@@ -24,6 +24,27 @@ function isSillyTavernOpenRouterRoute(context,config={}){
   }catch{return false;}
 }
 
+export async function persistSillyTavernOpenRouterSecret(context,value,{label='Area-52 Jev'}={}){
+  const secret=clean(value),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+  if(!secret)throw Object.assign(new TypeError('OpenRouter key is required'),{code:'RESOURCE_CREDENTIAL_REQUIRED'});
+  if(typeof hostFetch!=='function'||typeof context?.getRequestHeaders!=='function')throw Object.assign(new Error('SillyTavern secret storage API is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+  let response;
+  try{
+    response=await hostFetch('/api/secrets/write',{
+      method:'POST',headers:context.getRequestHeaders(),cache:'no-cache',
+      body:JSON.stringify({key:'api_key_openrouter',value:secret,label:clean(label)||'Area-52 Jev'}),
+    });
+  }catch(error){
+    throw Object.assign(new Error('Could not save the OpenRouter key to SillyTavern: '+String(error?.message??error)),{code:'RESOURCE_CREDENTIAL_SAVE_FAILED',cause:error});
+  }
+  if(!response?.ok){
+    let detail='';try{detail=clean(await response.text());}catch{}
+    throw Object.assign(new Error('SillyTavern refused to save the OpenRouter key'+(response?.status?' (HTTP '+response.status+')':'')+(detail?': '+detail.slice(0,160):'')),{code:'RESOURCE_CREDENTIAL_SAVE_FAILED',status:Number(response?.status??0)});
+  }
+  let id=null;try{id=(await response.json())?.id??null;}catch{}
+  return Object.freeze({kind:'SillyTavernSecretWriteReceipt',stored:true,key:'api_key_openrouter',secretId:id?String(id):null,rawCredentialIncluded:false});
+}
+
 function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities=[]}={}){
   let selectedModel=clean(modelId);
   if(!selectedModel)throw new TypeError('OpenRouter model is required');
@@ -47,8 +68,11 @@ function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId
     if(!response?.ok||json?.error){
       const detail=clean(json?.error?.message??json?.message??plain);
       const status=Number(response?.status??0);
-      const message='SillyTavern OpenRouter proxy rejected the request'+(status&&status!==200?' (HTTP '+status+')':'')+(detail?': '+detail.slice(0,240):'');
-      const code=status===401||status===403?'PROVIDER_UNAUTHORIZED':status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
+      const missingSecret=status===400&&!detail;
+      const message=missingSecret
+        ?'SillyTavern has no active OpenRouter key. Enter it once in the Jev connection card and choose Save OpenRouter key to SillyTavern.'
+        :'SillyTavern OpenRouter proxy rejected the request'+(status&&status!==200?' (HTTP '+status+')':'')+(detail?': '+detail.slice(0,240):'');
+      const code=missingSecret?'RESOURCE_CREDENTIAL_REQUIRED':status===401||status===403?'PROVIDER_UNAUTHORIZED':status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
       throw Object.assign(new Error(message),{code,status});
     }
     const content=typeof json?.choices?.[0]?.message?.content==='string'
@@ -882,17 +906,20 @@ export class DevelopmentDeploymentSillyTavernSession {
   #decorateSillyTavernResourceHost(host){
     if(!host?.actions||!host?.read)return host;
     const getContext=()=>this.getContext(),session=this;
-    const decorateConfig=(config={})=>{
+    const decorateConfig=async(config={})=>{
       const role=clean(config.role??config.resourceRole).toUpperCase(),caps=[...(config.capabilities??[])].map(String);
       const jev=role==='JEV'||caps.includes('SEMANTIC_JUDGMENT');
-      if(!jev||config.apiKey)return config;
+      if(!jev)return config;
       const context=getContext();
       if(!isSillyTavernOpenRouterRoute(context,config))return config;
+      const suppliedSecret=clean(config.apiKey);
+      if(suppliedSecret)await persistSillyTavernOpenRouterSecret(context,suppliedSecret,{label:'Area-52 '+clean(config.displayName??'Primary Jev')});
       const resourceId=clean(config.resourceId)||('jev:'+clean(config.displayName??'primary-jev').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
       const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId);
       const adapter=createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps});
       session.hostManagedResourceProfiles.set(resourceId,{source:'SILLYTAVERN_ACTIVE_SECRET',name:'SillyTavern active OpenRouter secret'});
-      return{...config,resourceId,providerId,modelId,adapter,credentialRequired:false,credentialManagedByHost:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET',
+      const safe={...config};delete safe.apiKey;
+      return{...safe,resourceId,providerId,modelId,adapter,credentialRequired:false,credentialManagedByHost:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET',
         connectionProfileName:'SillyTavern active OpenRouter secret',profileMetadata:{...(config.profileMetadata??{}),credentialOwner:'SILLYTAVERN_ACTIVE_SECRET'}};
     };
     const decorateRow=(row)=>{
@@ -900,7 +927,16 @@ export class DevelopmentDeploymentSillyTavernSession {
       const meta=session.hostManagedResourceProfiles.get(clean(row.resourceId));
       return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:meta.source,connectionProfileName:meta.name}:clone(row);
     };
-    const actions=Object.freeze({...host.actions,addResource:(config)=>decorateRow(host.actions.addResource(decorateConfig(config)))});
+    const actions=Object.freeze({
+      ...host.actions,
+      addResource:async(config)=>decorateRow(await host.actions.addResource(await decorateConfig(config))),
+      setCredential:async(resourceId,credential)=>{
+        const meta=session.hostManagedResourceProfiles.get(clean(resourceId));
+        if(meta?.source!=='SILLYTAVERN_ACTIVE_SECRET')return host.actions.setCredential(resourceId,credential);
+        await persistSillyTavernOpenRouterSecret(getContext(),credential,{label:'Area-52 '+clean(host.read.resource(resourceId)?.displayName??'Primary Jev')});
+        return decorateRow(host.read.resource(resourceId));
+      },
+    });
     const read=Object.freeze({
       ...host.read,
       resources:()=>{const raw=host.read.resources();return raw&&Array.isArray(raw.resources)?{...clone(raw),resources:raw.resources.map(decorateRow)}:raw;},

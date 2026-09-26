@@ -19,10 +19,17 @@ jobs:
     steps:
       - name: Checkout exact head
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Wave 21 layered scatter and Jev evidence
         run: npm run test:wave21
       - name: Same-workload deterministic evidence report

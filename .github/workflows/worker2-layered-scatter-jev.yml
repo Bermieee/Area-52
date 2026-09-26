@@ -75,19 +75,60 @@ jobs:
           export CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
           test -n "$CHROME"
           timeout 120s node scripts/worker2-browser-benchmark.mjs
-      - name: Full regression with baseline debt fence
+      - name: Full regression with exact-main baseline fence
         shell: bash
         run: |
           set +e
           npm test 2>&1 | tee worker2-full-regression.log
           STATUS=${PIPESTATUS[0]}
           set -e
-          if [ "$STATUS" -ne 0 ]; then
-            grep -q "Wave19 selected-turn cognition read model separates configured, connected, physical execution and owner acceptance without leaking prompts or credentials" worker2-full-regression.log
-            grep -q "#124 capability negotiation enforces version, resource, health, latency, context, concurrency, foreground/background and fallback without provider authority" worker2-full-regression.log
-            FAILS="$(grep -E '^# fail ' worker2-full-regression.log | tail -1 | awk '{print $3}')"
-            test "$FAILS" = "2"
-            echo "BASELINE_DEBT_ONLY: full regression contains only the known Wave19 Worker3 and Wave20 capability-admission failures."
+          python3 - <<'PY'
+          import pathlib,re,sys
+          log=pathlib.Path('worker2-full-regression.log').read_text(encoding='utf-8',errors='replace')
+          current=set()
+          for line in log.splitlines():
+              match=re.match(r'^not ok \d+ - (.*)
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor browser-facing import
+        run: node -e "globalThis.Buffer=undefined; import('./src/coprocessor/index.js').then(()=>console.log('WORKER2 COPROCESSOR IMPORT PASS'))"
+      - name: Upload browser benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker2-layered-scatter-browser-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            worker2-browser-dump.html
+            worker2-browser-results.json
+            worker2-jev-wave10.log
+            worker2-full-regression.log
+            worker2-full-failures.txt
+            worker2-new-failures.txt
+            worker2-baseline-resolved.txt
+            artifacts/jev-wave10/**
+          if-no-files-found: ignore
+,line)
+              if match:
+                  current.add(match.group(1).replace('\\#','#'))
+          baseline=set(filter(None,pathlib.Path('tests/fixtures/worker2-main-ea66ddce-baseline-failures.txt').read_text(encoding='utf-8').splitlines()))
+          new=sorted(current-baseline)
+          resolved=sorted(baseline-current)
+          pathlib.Path('worker2-full-failures.txt').write_text('\n'.join(sorted(current))+('\n' if current else ''),encoding='utf-8')
+          pathlib.Path('worker2-new-failures.txt').write_text('\n'.join(new)+('\n' if new else ''),encoding='utf-8')
+          pathlib.Path('worker2-baseline-resolved.txt').write_text('\n'.join(resolved)+('\n' if resolved else ''),encoding='utf-8')
+          print(f'EXACT_MAIN_BASELINE_FAILURES={len(baseline)}')
+          print(f'CURRENT_FAILURES={len(current)}')
+          print(f'BASELINE_RESOLVED={len(resolved)}')
+          print(f'NEW_FAILURES={len(new)}')
+          if new:
+              print('New failures introduced by Worker2 branch:')
+              print('\n'.join(new))
+              sys.exit(1)
+          PY
+          if [ "$STATUS" -eq 0 ]; then
+            echo "FULL_REGRESSION_GREEN: branch resolved all exact-main baseline failures."
+          else
+            echo "BASELINE_DEBT_ONLY: no failures outside exact main ea66ddce461803d5279b4497f6604e3d75d6def6."
           fi
       - name: Syntax sweep
         run: npm run check

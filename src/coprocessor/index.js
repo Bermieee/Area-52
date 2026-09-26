@@ -86,3 +86,4 @@ export * from './wave18-read-model.js';
 export * from './runtime-director-bridge.js';
 
 export * from './layered-scatter.js';
+export * from './layered-scatter-owner-contract.js';\n

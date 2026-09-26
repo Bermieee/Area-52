@@ -13,7 +13,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     registry.update('brain',{render(host,ctx){current.render?.(host,ctx);if(operations&&ctx.productAdapter.getDetailLevel()!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});}});
   }
   if(!registry.has('connections'))registry.register({
-    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','refresh-models','set-credential','clear-credential','select-model','connect','disconnect','test'],
+    id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','refresh-models','set-credential','clear-credential','select-model','connect','disconnect','test','forget-saved'],
     render(host,ctx){
       host.append(header(host.ownerDocument,'Connections','Connect Jev, Sidecar, and Vectoring resources separately, then watch owner-reported fan-out and Gather without exposing raw prompts.'));
       if(resources)renderResourceSurface(host,{...ctx,resources,coprocessor,actionRouter,connectionDrafts});
@@ -55,6 +55,7 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.resource.connect')return resources.connect(action.payload??action.target??{});
       if(action.type==='wave13.resource.disconnect')return resources.disconnect(action.target??action.payload??{});
       if(action.type==='wave13.resource.test')return resources.test(action.target??action.payload??{});
+      if(action.type==='wave13.resource.forgetSaved')return resources.forgetSavedProfile(action.target??action.payload??{});
       throw new Error('Unsupported Wave 13 resource action');
     }));
     releases.push(actionRouter.registerAction('wave13.resource.discoverModels',{subsystem:'wave13-resources'}));
@@ -65,6 +66,7 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
     releases.push(actionRouter.registerAction('wave13.resource.connect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.disconnect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.test',{subsystem:'wave13-resources'}));
+    releases.push(actionRouter.registerAction('wave13.resource.forgetSaved',{subsystem:'wave13-resources'}));
   }
   if(loreStudy){
     releases.push(actionRouter.registerSubsystem('wave13-lore',async(action)=>{
@@ -154,31 +156,35 @@ export function renderResourceSurface(host,{resources,coprocessor=null,actionRou
   const section=element(d,'section',{className:'a52-wave13-resources',attrs:{'aria-label':'Optional execution resource connections'}});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
   head.append(element(d,'h2',{text:'Connections'}),makeHealthPill(d,{label:source.operationalState??source.health,status:source.statusToken,detail:source.impact}));
-  section.append(head,element(d,'p',{className:'a52-muted',text:'Jev, Sidecar, and Vectoring are configured separately. Once a resource exists, its connection configuration is locked to the owner record; disconnect/test/reconnect remain available.'}));
+  section.append(head,element(d,'p',{className:'a52-muted',text:'Jev, Sidecar, and Vectoring are configured separately. Locked connection profiles are saved across demo reloads and rehydrated into Worker 2; provider credentials remain session-memory-only.'}));
   if(source.reason)section.append(message(d,source.operationalState==='UNAVAILABLE'?'Assembly action seam not connected':'Resource status',source.reason,source.statusToken));
 
   const caps=resources.capabilities();
   if(caps.read&&(!caps.connect||!caps.test||!caps.disconnect))section.append(message(d,'Resource controls incomplete','Resource status is readable, but connect/test/disconnect are not all exported by the assembly. Worker 2 remains the routing/execution owner.','warning'));
 
   const slots=element(d,'div',{className:'a52-wave13-connection-slots'});
-  const drafts=connectionDrafts??createConnectionDraftStore();
-  for(const spec of connectionSlotSpecs())slots.append(renderConnectionSlot(d,{spec,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id).map(row=>overlayTurnResourceEvidence(row,turnResources)),resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts:drafts}));
+  const drafts=connectionDrafts??createConnectionDraftStore(),savedProfiles=resources.savedProfiles?.()??[];
+  if(savedProfiles.length)section.append(message(d,'Saved connection locks',savedProfiles.length+' optional connection profile'+(savedProfiles.length===1?' is':'s are')+' stored for reload recovery. API keys are intentionally not serialized.','ready'));
+  for(const spec of connectionSlotSpecs()){
+    const savedProfile=savedProfiles.find(row=>row.role===spec.id)??null;
+    slots.append(renderConnectionSlot(d,{spec,savedProfile,rows:data.resources.filter(row=>connectionSlotFor(row)===spec.id).map(row=>overlayTurnResourceEvidence(row,turnResources)),resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts:drafts}));
+  }
   section.append(slots);
 
   if(!data.resources.length)section.append(message(d,'No optional resource connected',caps.read?'Worker 2 reports no configured optional resources. Native cognition remains available.':'The host assembly has not exported Worker 2 resource status/actions yet.','historical'));
   host.append(section);
 }
 
-function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}){
-  const connected=rows.some(row=>row.connected),configured=rows.length>0;
-  const slot=element(d,'section',{className:'a52-wave13-connection-slot',dataset:{slot:spec.id,connected:String(connected),locked:String(configured)}});
+function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}){
+  const connected=rows.some(row=>row.connected),configured=rows.length>0,saved=Boolean(savedProfile);
+  const slot=element(d,'section',{className:'a52-wave13-connection-slot',dataset:{slot:spec.id,connected:String(connected),locked:String(configured||saved),saved:String(saved)}});
   const head=element(d,'div',{className:'a52-wave13-connection-slot__head'});
-  head.append(element(d,'h3',{text:spec.title}),makeBadge(d,connected?'CONNECTED':configured?'LOCKED':'OPEN',connected?'ready':configured?'observed':'historical'));
+  head.append(element(d,'h3',{text:spec.title}),makeBadge(d,connected?'CONNECTED':configured?(saved?'SAVED':'LOCKED'):saved?'SAVED':'OPEN',connected?'ready':configured||saved?'observed':'historical'));
   slot.append(head,element(d,'p',{className:'a52-wave13-connection-slot__hint',text:spec.description}));
 
   if(configured){
     const locked=element(d,'div',{className:'a52-wave13-connection-slot__locked'});
-    for(const row of rows)locked.append(renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}));
+    for(const row of rows)locked.append(renderLockedResource(d,{row,spec,savedProfile,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}));
     slot.append(locked);
     return slot;
   }
@@ -188,6 +194,10 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
     return slot;
   }
 
+  if(savedProfile)connectionDrafts.patch(spec.id,{
+    connectionName:savedProfile.displayName??spec.defaultName,endpoint:savedProfile.endpoint??'',capabilities:(savedProfile.capabilities??spec.defaultCapabilities).join(', '),
+    selectedModel:savedProfile.modelId??'',manualModel:savedProfile.modelId??'',
+  });
   const draft=connectionDrafts.get(spec);
   const credentialWasCleared=connectionDrafts.consumeCredentialPresence(spec.id);
   const form=element(d,'div',{className:'a52-wave13-connection-slot__form'});
@@ -233,7 +243,7 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
     for(const modelRow of models)modelSuggestions.append(option(d,modelRow.id,modelRow.label));
     discoveryState.textContent=statusText;reportAction(notifications,result,spec.title+' model discovery');
   }});
-  const testConnection=createButton(d,{label:'Test Connection',scope,onPress:async()=>{
+  const testConnection=createButton(d,{label:'Save, Lock & Test Connection',scope,onPress:async()=>{
     updateDraft();
     const selectedModel=String(modelChoice.value||'').trim();
     if(!selectedModel){
@@ -260,20 +270,21 @@ function renderConnectionSlot(d,{spec,rows,resources,actionRouter,scope,refresh,
   form.append(
     labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
     loadModels,labelWrap(d,'Model',modelChoice),modelSuggestions,discoveryState,
+    ...(savedProfile?[message(d,'Saved profile loaded','The saved '+spec.title+' endpoint, model, capabilities, and identity are prefilled. Enter a session credential only if this provider requires one.','ready')]:[]),
     ...(credentialWasCleared?[message(d,'API key cleared on refresh','For security, the unsubmitted API key was not retained when this workspace refreshed. Re-enter it before loading models or testing the connection.','warning')]:[]),
-    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Area-52 keeps non-secret draft fields for each open slot across refreshes. API-key values are never copied into draft storage; submitted keys are cleared from the field immediately.'}),
+    element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Saving a connection locks its non-secret profile for future demo reloads. API-key values remain session-only and are never copied into UI persistence.'}),
     testConnection
   );
   slot.append(form);return slot;
 }
 
-function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}){
-  const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health}});
+function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRouter,scope,refresh,notifications,caps,connectionDrafts}){
+  const card=element(d,'article',{className:'a52-card a52-wave13-resource',dataset:{health:row.health,saved:String(Boolean(savedProfile))}});
   const top=element(d,'div',{className:'a52-inline-status'});
-  top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
+  top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,savedProfile?'SAVED LOCK':'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
   card.append(top,createKeyValue(d,[
-    {key:'Configured',value:'Yes'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
+    {key:'Configured',value:'Yes'},{key:'Saved across reloads',value:savedProfile?'Yes':'Not yet'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
     {key:'Physical execution',value:row.physicalExecutionAttempted?(row.physicalExecutionSucceeded?'Succeeded':'Attempted / not successful'):'No cognitive execution observed'},
     {key:'Owner accepted',value:row.ownerAccepted===true?'Yes':row.ownerAccepted===false?'No':row.ownerAcceptanceSource==='OWNER_RECEIPT_REQUIRED'?'Requires owner receipt':'Not reported'},
     {key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
@@ -330,6 +341,11 @@ function renderLockedResource(d,{row,spec,resources,actionRouter,scope,refresh,n
   if(caps.connect&&!row.callable)actions.append(createButton(d,{label:row.connected?'Requalify':'Connect / qualify',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.connect',target:row});reportAction(notifications,result,'Resource qualification');refresh?.();}}));
   if(caps.test)actions.append(createButton(d,{label:'Test',scope,size:'sm',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.test',target:row});reportResourceTest(notifications,result,'Resource test');refresh?.();}}));
   if(caps.disconnect&&row.connected)actions.append(createButton(d,{label:'Disconnect',scope,size:'sm',variant:'quiet',onPress:async()=>{const result=await actionRouter.route({type:'wave13.resource.disconnect',target:row});reportAction(notifications,result,'Resource disconnect');refresh?.();}}));
+  if(savedProfile)actions.append(createButton(d,{label:'Forget saved lock',scope,size:'sm',variant:'quiet',onPress:async()=>{
+    const result=await actionRouter.route({type:'wave13.resource.forgetSaved',target:row});
+    if(result.ok)notifications?.push?.({message:'Saved '+(spec?.title??'resource')+' connection lock removed. The current owner record remains configured until this runtime reloads.',status:'info'});
+    else reportAction(notifications,result,'Saved connection removal');refresh?.();
+  }}));
   const test=resources.testResult(row.id);if(test)card.append(element(d,'p',{className:'a52-muted',text:'Latest connection test: '+testSummary(test)}));
   if(row.reason&&!row.lastError)card.append(element(d,'p',{className:'a52-muted',text:row.reason}));
   if(row.lastError)card.append(message(d,'Resource issue',String(row.lastError),'warning'));

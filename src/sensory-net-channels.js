@@ -11,11 +11,21 @@ const boundedText=(v,max=1200)=>String(v??'').slice(0,max);
 const norm=(score)=>{const n=Number(score)||0;return Math.max(0,Math.min(1,n/(1+Math.abs(n))));};
 function claimSourceRefs(claim){return uniq(claim?.provenance?.sourceRevisionIds??[]);}
 function claimArtifactRef(claim){return{artifactId:claim.id,artifactType:'Claim',revision:1};}
+function identityRefs(entityRegistry,entityRefs=[]){return uniq((entityRefs??[]).map(id=>entityRegistry?.identityReference?.(id)?.revisionRef).filter(Boolean));}
+
+export class DeclaredCapabilityChannel{
+  constructor({channelId,capability,fallbackChannelIds=[],reason='OPTIONAL_CAPABILITY_NOT_CONFIGURED'}={}){
+    this.channelId=channelId;
+    this.descriptor=createRetrievalChannelDescriptor({channelId,capabilities:[capability],supportedIntentKinds:['*'],maxCandidates:1,health:RetrievalChannelHealth.UNAVAILABLE,available:false,metadata:{declaredCapability:true,executionState:'UNAVAILABLE',fallbackChannelIds:uniq(fallbackChannelIds),unavailableReason:String(reason),admissionAuthority:false,settlementAuthority:false}});
+  }
+  retrieve(){return[];}
+}
 
 export class CoreClaimRetrievalChannel{
   constructor({channelId,mode,retrieval,capability,supportedIntentKinds=['GENERAL','CURRENT','HISTORICAL','TEMPORAL','CONTRADICTION'],maxCandidates=64}={}){
     this.channelId=channelId;this.mode=mode;this.retrieval=retrieval;
-    this.descriptor=createRetrievalChannelDescriptor({channelId,capabilities:[capability],supportedIntentKinds,maxCandidates,health:RetrievalChannelHealth.HEALTHY,available:true,metadata:{compatibilityChannel:true,graphWalkerOwner:false}});
+    const denseFallback=mode==='DENSE';
+    this.descriptor=createRetrievalChannelDescriptor({channelId,capabilities:[denseFallback?RetrievalChannelCapability.SPECIALIZED_STORE:capability],supportedIntentKinds,maxCandidates,health:RetrievalChannelHealth.HEALTHY,available:true,metadata:{compatibilityChannel:true,graphWalkerOwner:false,...(denseFallback?{fallbackFor:RetrievalChannelCapability.DENSE,implementation:'LEXICAL_SEMANTIC_FALLBACK',providesDenseEmbeddings:false}:{})}});
   }
   retrieve(intent,context={}){
     const query=intent.query??context.query??'',anchors=uniq(context.anchorEntityIds??intent.entityRefs??[]);
@@ -23,20 +33,20 @@ export class CoreClaimRetrievalChannel{
     if(this.mode==='SPARSE')rows=this.retrieval.exact(query);
     else if(this.mode==='DENSE')rows=this.retrieval.semantic(query);
     else if(this.mode==='GRAPH')rows=this.retrieval.graphNeighborhood(anchors);
-    else if(this.mode==='TEMPORAL')rows=['HISTORICAL','TEMPORAL'].includes(intent.intentKind)?this.retrieval.temporal(anchors):[];
+    else if(this.mode==='TEMPORAL')rows=['CURRENT','HISTORICAL','TEMPORAL'].includes(intent.intentKind)?this.retrieval.temporal(anchors):[];
     else if(this.mode==='CONFLICT')rows=['CURRENT','TEMPORAL','CONTRADICTION'].includes(intent.intentKind)?this.retrieval.conflicts(anchors):[];
     return rows.slice(0,this.descriptor.maxCandidates).map(({claim,score},index)=>{
       const legacyLabel={SPARSE:'exact',DENSE:'semantic',GRAPH:'graph',TEMPORAL:'temporal',CONFLICT:'conflict'}[this.mode]??this.mode.toLowerCase();
       const raw={},metadata={mode:this.mode,compatibilityChannel:true,legacyRetrievalIntent:legacyLabel};
       let graphMetadata=null;
       if(this.mode==='SPARSE')Object.assign(raw,{bm25Score:score,sparse:score});
-      if(this.mode==='DENSE')Object.assign(raw,{semanticSimilarity:score,dense:score});
+      if(this.mode==='DENSE')Object.assign(raw,{semanticFallback:score});
       if(this.mode==='GRAPH'){Object.assign(raw,{graphDistance:1});graphMetadata={graphProvider:'CORE_TEMPORAL_GRAPH_COMPAT',distance:1,path:uniq([...anchors,claim.id]),edgeTypes:['CLAIM_NEIGHBOR']};}
       if(this.mode==='TEMPORAL')Object.assign(raw,{temporalFit:score,temporal:score});
       if(this.mode==='CONFLICT')Object.assign(raw,{conflictRelevance:score,conflict:score});
       return createChannelNomination({
         nominationId:this.channelId+':'+intent.intentId+':'+claim.id,channelId:this.channelId,candidateId:'candidate:'+claim.id,
-        evidenceIdentity:'claim:'+claim.id,artifactRef:claimArtifactRef(claim),artifactRevision:1,sourceRevisionRefs:claimSourceRefs(claim),
+        evidenceIdentity:'claim:'+claim.id,artifactRef:claimArtifactRef(claim),artifactRevision:1,sourceRevisionRefs:claimSourceRefs(claim),identityRevisionRefs:uniq(claim.identityRevisionRefs??[]),
         claimRefs:[claim.id],entityRefs:uniq([claim.subjectId,typeof claim.value==='string'?claim.value:null]),
         retrievalIntentIds:[intent.intentId],rankSignals:raw,normalizedRank:Math.max(0,Math.min(1,norm(score)-index*.000001)),
         graphMetadata,temporalHints:[{status:claim.status??CandidateTruthStatus.UNRESOLVED,temporal:clone(claim.temporal??null)}],
@@ -51,8 +61,8 @@ export class CoreClaimRetrievalChannel{
 }
 
 export class ActiveContinuityRetrievalChannel{
-  constructor({hotCognition,maxCandidates=48}={}){
-    this.hotCognition=hotCognition;
+  constructor({hotCognition,entityRegistry=null,maxCandidates=48}={}){
+    this.hotCognition=hotCognition;this.entityRegistry=entityRegistry;
     this.descriptor=createRetrievalChannelDescriptor({
       channelId:'ACTIVE_CONTINUITY',capabilities:[RetrievalChannelCapability.ACTIVE_CONTINUITY],
       supportedIntentKinds:['*'],maxCandidates,health:RetrievalChannelHealth.HEALTHY,available:true,
@@ -62,13 +72,13 @@ export class ActiveContinuityRetrievalChannel{
   retrieve(intent,context={}){
     const snapshot=context.hotCognitionSnapshot??this.hotCognition?.snapshot?.();if(!snapshot)return[];
     const out=[],push=(input)=>{if(out.length<this.descriptor.maxCandidates)out.push(createChannelNomination(input));};
-    const make=(segmentKind,suffix,value,{authorityClass='UNRESOLVED',truthStatusHint=CandidateTruthStatus.UNKNOWN,rank=.9,continuitySignals=[]}={})=>{
+    const make=(segmentKind,suffix,value,{authorityClass='UNRESOLVED',truthStatusHint=CandidateTruthStatus.UNKNOWN,rank=.9,continuitySignals=[],entityRefs=[]}={})=>{
       const segment=snapshot.segments?.[segmentKind];if(!segment||segment.freshness!==HotFreshness.FRESH||value==null)return;
       push({
         nominationId:'ACTIVE_CONTINUITY:'+intent.intentId+':'+suffix,channelId:'ACTIVE_CONTINUITY',
         candidateId:'continuity:'+snapshot.stateId+':'+suffix,evidenceIdentity:'continuity:'+snapshot.chatNamespace+':'+suffix,
         artifactRef:{artifactId:snapshot.stateId,artifactType:'HotCognitionSnapshot',revision:snapshot.hotRevision},artifactRevision:snapshot.hotRevision,
-        sourceRevisionRefs:segment.sourceRevisionRefs??[],entityRefs:[],retrievalIntentIds:[intent.intentId],
+        sourceRevisionRefs:segment.sourceRevisionRefs??[],identityRevisionRefs:identityRefs(this.entityRegistry,entityRefs),entityRefs:uniq(entityRefs),retrievalIntentIds:[intent.intentId],
         rankSignals:{sceneRelevance:rank,activeContinuity:rank},normalizedRank:rank,temporalHints:[{status:truthStatusHint}],
         continuitySignals,authorityClass,truthStatusHint,provenance:(segment.provenanceRefs??[]).map(ref=>({ref})),
         evidenceRefs:segment.provenanceRefs??[],dependencyRevisions:segment.dependencyRevisionRefs??[],
@@ -79,8 +89,8 @@ export class ActiveContinuityRetrievalChannel{
       });
     };
     const loc=snapshot.segments?.[HotSegmentKind.LOCATION];if(loc?.value)make(HotSegmentKind.LOCATION,'location',loc.value,{authorityClass:loc.authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.98,continuitySignals:[{type:'ACTIVE_LOCATION'}]});
-    for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_CAST]?.value??[])make(HotSegmentKind.ACTIVE_CAST,'cast:'+row.id,row,{authorityClass:row.authorityClass??snapshot.segments[HotSegmentKind.ACTIVE_CAST].authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.97,continuitySignals:[{type:'ACTIVE_CAST',entityRef:row.id}]});
-    for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_ENTITIES]?.value??[])make(HotSegmentKind.ACTIVE_ENTITIES,'entity:'+row.id,row,{authorityClass:row.authorityClass??snapshot.segments[HotSegmentKind.ACTIVE_ENTITIES].authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.94,continuitySignals:[{type:'ACTIVE_ENTITY',entityRef:row.id}]});
+    for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_CAST]?.value??[])make(HotSegmentKind.ACTIVE_CAST,'cast:'+row.id,row,{authorityClass:row.authorityClass??snapshot.segments[HotSegmentKind.ACTIVE_CAST].authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.97,continuitySignals:[{type:'ACTIVE_CAST',entityRef:row.id}],entityRefs:[row.id]});
+    for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_ENTITIES]?.value??[])make(HotSegmentKind.ACTIVE_ENTITIES,'entity:'+row.id,row,{authorityClass:row.authorityClass??snapshot.segments[HotSegmentKind.ACTIVE_ENTITIES].authorityClass,truthStatusHint:CandidateTruthStatus.CURRENT,rank:.94,continuitySignals:[{type:'ACTIVE_ENTITY',entityRef:row.id}],entityRefs:[row.id]});
     for(const row of snapshot.segments?.[HotSegmentKind.ACTIVE_THREADS]?.value??[])make(HotSegmentKind.ACTIVE_THREADS,'thread:'+row.threadId,row,{authorityClass:row.authorityClass??'UNRESOLVED',truthStatusHint:CandidateTruthStatus.UNRESOLVED,rank:.96,continuitySignals:[{type:'ACTIVE_THREAD',threadId:row.threadId}]});
     const perspective=intent?.perspective??null,scope=String(perspective?.scope??'WORLD'),characterRef=perspective?.characterRef??perspective?.characterId??null;
     for(const row of snapshot.segments?.[HotSegmentKind.RECENT_EPISODE_TAIL]?.value??[]){
@@ -110,7 +120,7 @@ export class IndexRetrievalChannelProvider{
         nominationId:this.channelId+':'+intent.intentId+':'+rep.representationId,channelId:this.channelId,
         candidateId:'candidate:'+rep.ownerArtifactId+':'+(rep.semanticKey??rep.claimRefs?.[0]??rep.eventRefs?.[0]??rep.representationId),
         artifactRef:{artifactId:rep.ownerArtifactId,artifactType:rep.metadata?.artifactType??'UNKNOWN',revision:rep.ownerArtifactRevision},
-        artifactRevision:rep.ownerArtifactRevision,sourceRevisionRefs:[rep.sourceRevision],claimRefs:rep.claimRefs,eventRefs:rep.eventRefs,
+        artifactRevision:rep.ownerArtifactRevision,sourceRevisionRefs:[rep.sourceRevision],identityRevisionRefs:uniq(rep.identityRevisionRefs??rep.metadata?.identityRevisionRefs??[]),claimRefs:rep.claimRefs,eventRefs:rep.eventRefs,
         entityRefs:rep.entityRefs,relationshipRefs:rep.relationshipRefs,retrievalIntentIds:[intent.intentId],
         rankSignals:row.rankSignals,normalizedRank:normalized,authorityClass:rep.authorityClass,truthStatusHint:rep.truthStatusHint,
         provenance:rep.provenanceRefs.map(ref=>({ref})),evidenceRefs:rep.provenanceRefs,dependencyRevisions:rep.dependencyInvalidators,

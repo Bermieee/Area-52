@@ -1,0 +1,93 @@
+name: Worker 1 Sensory Hot Closure
+
+on:
+  push:
+    branches: [Development-Nexus]
+    paths:
+      - 'src/candidate-bus-contracts.js'
+      - 'src/candidate-bus.js'
+      - 'src/retrieval-channel-registry.js'
+      - 'src/sensory-net-channels.js'
+      - 'src/sensory-net-backbone.js'
+      - 'src/graph-neighborhood-retriever.js'
+      - 'src/hot-cognition-runtime.js'
+      - 'src/generation-publication.js'
+      - 'src/truth-gate.js'
+      - 'src/precision-contract.js'
+      - 'src/publication-contracts.js'
+      - 'src/cognitive-choice-controller.js'
+      - 'src/cognitive-core.js'
+      - 'src/native-brain.js'
+      - 'tests/worker1-sensory-hot-closure.mjs'
+      - 'tests/native-brain-identity-retrieval.mjs'
+      - 'tests/candidate-bus-wave8.mjs'
+      - 'tests/hot-cognition-wave7.mjs'
+      - 'tests/cognitive-choice-wave9.mjs'
+      - 'tests/wave6-integration.mjs'
+      - '.github/workflows/worker1-sensory-hot-closure.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  closure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Worker 1 sensory and Hot closure
+        run: node --test tests/worker1-sensory-hot-closure.mjs
+      - name: Native identity graph and one-resource regression
+        run: >-
+          node --test
+          --test-name-pattern="cross-source entity identity|accepted alias|graph walker preserves owner semantics|graph traversal candidate|quiet continuation|Worker 4 v2 removal"
+          tests/native-brain-identity-retrieval.mjs
+      - name: Known Adaptive Context 4096 baseline
+        continue-on-error: true
+        run: >-
+          node --test
+          --test-name-pattern="small and large delivery budgets"
+          tests/native-brain-identity-retrieval.mjs
+      - name: Candidate Bus Wave 8
+        run: node --test tests/candidate-bus-wave8.mjs
+      - name: Hot Cognition Wave 7
+        run: node --test tests/hot-cognition-wave7.mjs
+      - name: Cognitive Choice Wave 9
+        run: node --test tests/cognitive-choice-wave9.mjs
+      - name: Preserve Wave 6 accepted-contract rehearsal
+        run: node --test tests/wave6-integration.mjs
+      - name: Closure syntax
+        run: >-
+          node --check src/candidate-bus-contracts.js &&
+          node --check src/candidate-bus.js &&
+          node --check src/retrieval-channel-registry.js &&
+          node --check src/sensory-net-channels.js &&
+          node --check src/sensory-net-backbone.js &&
+          node --check src/graph-neighborhood-retriever.js &&
+          node --check src/hot-cognition-runtime.js &&
+          node --check src/generation-publication.js &&
+          node --check src/truth-gate.js &&
+          node --check src/precision-contract.js &&
+          node --check src/cognitive-choice-controller.js &&
+          node --check tests/worker1-sensory-hot-closure.mjs
+      - name: Browser-facing Core imports
+        run: >-
+          node -e "globalThis.Buffer=undefined;
+          Promise.all([
+          import('./src/candidate-bus.js'),
+          import('./src/sensory-net-backbone.js'),
+          import('./src/graph-neighborhood-retriever.js'),
+          import('./src/hot-cognition-runtime.js'),
+          import('./src/generation-publication.js'),
+          import('./src/cognitive-choice-controller.js')
+          ]).then(()=>console.log('WORKER1 SENSORY HOT IMPORT PASS'))"

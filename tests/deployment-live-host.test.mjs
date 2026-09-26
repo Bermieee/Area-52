@@ -234,10 +234,35 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   assert.equal(contextSeal.turnId,selection.turnId);
   assert.ok(runtime,'Runtime owner snapshot must be readable for the same native path');
 
-  const beforeHostObservation=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
+  const installedEvidence=session.exportEvidence().nativeBrainIntegration;
+  assert.equal(installedEvidence.installedUiSceneReadModelKind,'SceneUiReadModel');
+  const beforeHostObservation=installedEvidence.selectedTurnReceipt;
   assert.equal(beforeHostObservation.chatId,selection.chatId);
   assert.equal(beforeHostObservation.turnId,selection.turnId);
   assert.equal(beforeHostObservation.generationId,selection.generationId);
+  assert.equal(beforeHostObservation.sceneFlow.observation.state,'OBSERVED');
+  assert.equal(beforeHostObservation.sceneFlow.readModel.state,'PUBLISHED');
+  assert.equal(beforeHostObservation.sceneFlow.readModel.kind,'SceneUiReadModel');
+  assert.equal(beforeHostObservation.sceneFlow.signal.state,'ADMITTED');
+  assert.ok(['ADMITTED','NO_WORK'].includes(beforeHostObservation.sceneFlow.fanOut.state));
+  assert.ok(['ADMITTED_RESULTS','PUBLISHED_NO_WORK'].includes(beforeHostObservation.sceneFlow.gather.state));
+  assert.equal(beforeHostObservation.sceneFlow.contextSeal.state,'SEALED');
+  assert.equal(beforeHostObservation.sceneFlow.promptPlan.state,'PLANNED');
+  assert.equal(beforeHostObservation.sceneFlow.hostDelivery.state,'UNAVAILABLE');
+  assert.equal(beforeHostObservation.sceneFences.selectedChatId,selection.chatId);
+  assert.equal(beforeHostObservation.sceneFences.selectedTurnId,selection.turnId);
+  assert.equal(beforeHostObservation.sceneFences.selectedGenerationId,selection.generationId);
+  assert.equal(beforeHostObservation.sceneFences.sceneRevisionMatchesSelection,true);
+  assert.equal(beforeHostObservation.sceneFences.sceneSourceRefsInSelection,true);
+  assert.equal(beforeHostObservation.sceneFences.sceneSourceRefsInSeal,true);
+  assert.equal(beforeHostObservation.sceneFences.sceneReadModelMatchesSelection,true);
+  assert.equal(beforeHostObservation.sceneFences.promptPlanTurnMatches,true);
+  assert.equal(beforeHostObservation.sceneFences.promptPlanGenerationMatches,true);
+  assert.equal(beforeHostObservation.sceneFences.contextSealTurnMatches,true);
+  assert.equal(beforeHostObservation.sceneFlow.authorityGranted,false);
+  assert.equal(beforeHostObservation.sceneFlow.canonicalMutationAuthority,false);
+  assert.equal(beforeHostObservation.sceneFlow.settlementAuthority,false);
+  assert.equal(beforeHostObservation.sceneFlow.contextSealAuthority,false);
   assert.equal(beforeHostObservation.delivery.planned.state,'PLANNED');
   assert.equal(beforeHostObservation.delivery.compiled.state,'COMPILED_AND_SEALED');
   assert.equal(beforeHostObservation.delivery.hostObserved.state,'UNAVAILABLE');
@@ -254,6 +279,9 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
   const observedHostDelivery=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
   assert.equal(observedHostDelivery.delivery.hostObserved.state,'OBSERVED');
+  assert.equal(observedHostDelivery.sceneFlow.hostDelivery.state,'OBSERVED');
+  assert.equal(observedHostDelivery.sceneFlow.hostDelivery.promptPlanId,promptPlan.promptPlanId);
+  assert.equal(observedHostDelivery.sceneFlow.hostDelivery.contextSealId,contextSeal.id);
   assert.equal(observedHostDelivery.delivery.hostObserved.promptPlanId,promptPlan.promptPlanId);
   assert.equal(observedHostDelivery.delivery.hostObserved.contextSealId,contextSeal.id);
   assert.equal(observedHostDelivery.delivery.hostObserved.requestHook,'CHAT_COMPLETION_PROMPT_READY');
@@ -328,6 +356,26 @@ test('live narrative feed journals revision events without raw text and invalida
   assert.equal(event.chatId,'chat:observatory');assert.equal(event.messageId,'0');assert.match(event.messageDigest,/^[0-9a-f]{8}$/);assert.match(event.messageRevisionId,/^0:[0-9a-f]{8}$/);assert.match(event.eventId,/^st-host:/);assert.ok(event.turnId);assert.ok(event.generationId);
   assert.equal(evidence.hostNarrativeFeed.rawTextCaptured,false);assert.doesNotMatch(JSON.stringify(evidence.hostNarrativeFeed),/sealed compass/i);
   session.destroy();
+});
+
+test('live host listener topology stays bounded across duplicate start stop and restart',()=>{
+  const {sillyTavern,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();
+  const first=session.loadDiagnostics();
+  assert.equal(first.hostListenerCount,20);
+  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.start();
+  assert.equal(session.loadDiagnostics().hostListenerCount,20);
+  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.stop();
+  assert.equal(session.loadDiagnostics().hostListenerCount,0);
+  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
+  session.start();
+  assert.equal(session.loadDiagnostics().hostListenerCount,20);
+  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.destroy();
+  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
 });
 
 test('live narrative feed records generation boundaries without retaining host payloads',async()=>{

@@ -78,13 +78,15 @@ export function createTruthAssessment({
 export function createPrecisionResult({
   candidateId,rawScore,normalizedScore,finalRank,modelProfileId='deterministic-reference',
   modelProfileRevision='1',runtimeProfile='REFERENCE',latencyMs=0,truncation={},freshness=PrecisionFreshness.FRESH,
-  sourceRevisionIds=[],worldRevision=0,sceneRevision=0,
+  sourceRevisionIds=[],identityRevisionRefs=[],temporalStatus=null,authorityClass=null,evidenceRefs=[],worldRevision=0,sceneRevision=0,
 }){
   if(!Number.isInteger(finalRank)||finalRank<1)throw new TypeError('PrecisionResult.finalRank must be positive');
   return{kind:'PrecisionResult',candidateId:req(candidateId,'PrecisionResult.candidateId'),rawScore:Number(rawScore),normalizedScore:Number(normalizedScore),
     finalRank,modelProfileId:req(modelProfileId,'PrecisionResult.modelProfileId'),modelProfileRevision:req(modelProfileRevision,'PrecisionResult.modelProfileRevision'),
     runtimeProfile:req(runtimeProfile,'PrecisionResult.runtimeProfile'),latencyMs:Number(latencyMs),truncation:serial(truncation,'PrecisionResult.truncation'),
     freshness:oneOf(freshness,PFRESH,'PrecisionResult.freshness'),sourceRevisionIds:strings(sourceRevisionIds,'PrecisionResult.sourceRevisionIds'),
+    identityRevisionRefs:strings(identityRevisionRefs,'PrecisionResult.identityRevisionRefs'),temporalStatus:temporalStatus==null?null:String(temporalStatus),
+    authorityClass:authorityClass==null?null:String(authorityClass),evidenceRefs:strings(evidenceRefs,'PrecisionResult.evidenceRefs'),
     worldRevision:Number(worldRevision),sceneRevision:Number(sceneRevision)};
 }
 

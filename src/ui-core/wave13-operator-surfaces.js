@@ -483,15 +483,28 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
   displayActions.append(inspector);display.append(displayActions);root.append(display);
   if(evidenceJournal){
-    const selection=diagnostics?.read?.()?.selection??{},turn=evidenceJournal.readTurn(selection),entries=turn?.entries??[];
+    const selection=diagnostics?.read?.()?.selection??{},turn=evidenceJournal.readTurn(selection),entries=turn?.entries??[],journalStatus=evidenceJournal.status?.()??{};
     const evidence=element(d,'section',{className:'a52-wave13-settings__group'});
-    evidence.append(element(d,'strong',{text:'Local evidence journal'}),element(d,'p',{className:'a52-muted',text:turn?entries.length+' bounded metadata-only evidence records are stored for the exact selected chat / turn / generation.':'No exact selected-turn journal exists yet.'}));
-    if(turn)evidence.append(createKeyValue(d,[{key:'Chat',value:turn.selection.chatId},{key:'Turn',value:turn.selection.turnId},{key:'Generation',value:turn.selection.generationId},{key:'Records',value:entries.length}]));
-    evidence.append(createButton(d,{label:'Export selected turn evidence',scope,size:'sm',variant:'primary',onPress:()=>{
+    const storageText=journalStatus.available===false?'Storage unavailable: '+String(journalStatus.lastError??'write failed'):journalStatus.persistent===false?'Memory fallback only; evidence will not survive a browser reload.':'Local evidence storage ready.';
+    evidence.append(element(d,'strong',{text:'Local evidence journal'}),element(d,'p',{className:'a52-muted',text:storageText}));
+    evidence.append(createKeyValue(d,[{key:'Retained turns',value:String(journalStatus.turnCount??0)+' / '+String(journalStatus.maxTurns??'—')},{key:'Retained records',value:String(journalStatus.entryCount??0)},{key:'Storage',value:humanLabel(journalStatus.storageKind??'unknown')}]));
+    if(turn){
+      evidence.append(createKeyValue(d,[{key:'Chat',value:turn.selection.chatId},{key:'Turn',value:turn.selection.turnId},{key:'Generation',value:turn.selection.generationId},{key:'Selected-turn records',value:entries.length}]));
+      const timeline=element(d,'div',{className:'a52-stack',attrs:{'aria-label':'Recent selected-turn evidence'}});
+      for(const row of entries.slice(-6))timeline.append(element(d,'div',{className:'a52-muted',text:row.title+' · '+row.status}));
+      evidence.append(element(d,'strong',{text:'Recent selected-turn timeline'}),timeline);
+    }else evidence.append(element(d,'p',{className:'a52-muted',text:'No exact selected-turn journal exists yet.'}));
+    const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
+    actions.append(createButton(d,{label:'Export selected turn evidence',scope,size:'sm',variant:'primary',onPress:()=>{
       const result=evidenceJournal.download({selection,document:d});
       notifications?.push?.({status:result.ok?'success':'warning',title:'Evidence export',message:result.ok?'Downloaded '+result.filename:'Browser download API unavailable; evidence remains in the local journal.'});
     }}));
-    root.append(evidence);
+    actions.append(createButton(d,{label:'Clear local evidence journal',scope,size:'sm',variant:'quiet',onPress:()=>{
+      const ok=evidenceJournal.clear();
+      notifications?.push?.({status:ok?'success':'warning',title:'Evidence journal',message:ok?'Local evidence journal cleared.':'Unable to clear local evidence storage.'});
+      refresh?.();
+    }}));
+    evidence.append(actions);root.append(evidence);
   }
   if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,scope,inspect,navigate,detailLevel:productAdapter?.getDetailLevel?.()}));
   host.append(root);

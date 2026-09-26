@@ -1,7 +1,7 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
 
-export const DEMO_EVIDENCE_JOURNAL_VERSION='1.0.0';
+export const DEMO_EVIDENCE_JOURNAL_VERSION='1.1.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
 const STAGES=['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'];
 
@@ -14,10 +14,12 @@ class MemoryStorage{
 
 export class DemoEvidenceJournal{
   constructor({storage=null,namespace=DEFAULT_NAMESPACE,maxTurns=48,maxEntriesPerTurn=64,now=()=>Date.now()}={}){
-    this.storage=storage??globalThis.localStorage??new MemoryStorage();
+    const local=globalThis.localStorage??null;
+    this.storage=storage??local??new MemoryStorage();
+    this.storageKind=storage?'PROVIDED':local?'LOCAL_STORAGE':'MEMORY_FALLBACK';
     this.namespace=String(namespace||DEFAULT_NAMESPACE);
-    this.maxTurns=Math.max(4,Number(maxTurns)||48);
-    this.maxEntriesPerTurn=Math.max(8,Number(maxEntriesPerTurn)||64);
+    this.maxTurns=Math.max(1,Number(maxTurns)||48);
+    this.maxEntriesPerTurn=Math.max(4,Number(maxEntriesPerTurn)||64);
     this.now=typeof now==='function'?now:()=>Date.now();
     this.lastError=null;
   }
@@ -63,6 +65,16 @@ export class DemoEvidenceJournal{
     return turn?[...turn.entries].slice(-Math.max(1,Number(limit)||64)): [];
   }
 
+  status(){
+    const state=this.#load(),turnCount=state.turns.length,entryCount=state.turns.reduce((sum,row)=>sum+(row.entries?.length??0),0);
+    return {
+      kind:'Area52DemoEvidenceJournalStatus',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,
+      available:this.lastError==null,persistent:this.storageKind!=='MEMORY_FALLBACK',storageKind:this.storageKind,
+      turnCount,entryCount,maxTurns:this.maxTurns,maxEntriesPerTurn:this.maxEntriesPerTurn,updatedAt:state.updatedAt??null,
+      lastError:this.lastError?String(this.lastError?.message??this.lastError):null,
+    };
+  }
+
   exportEvidence({selection=null}={}){
     const state=this.#load();
     const identity=selection?normalizeSelection(selection):null;
@@ -88,7 +100,7 @@ export class DemoEvidenceJournal{
     return{ok:true,filename:a.download,payload,json};
   }
 
-  clear(){try{this.storage.removeItem(this.namespace);return true;}catch(error){this.lastError=error;return false;}}
+  clear(){try{this.storage.removeItem(this.namespace);this.lastError=null;return true;}catch(error){this.lastError=error;return false;}}
 
   #load(){
     try{
@@ -103,36 +115,60 @@ export class DemoEvidenceJournal{
 }
 
 export class DemoActivityFeedController{
-  constructor({host,journal,selectionProvider=()=>({}),inspect=null,maxVisible=5}={}){
+  constructor({
+    host,journal,selectionProvider=()=>({}),inspect=null,maxVisible=5,
+    now=()=>Date.now(),fadeAfterMs=6500,visibleForMs=12000,
+    setTimer=globalThis.setTimeout?.bind(globalThis)??null,clearTimer=globalThis.clearTimeout?.bind(globalThis)??null,
+  }={}){
     this.host=host;this.journal=journal;this.selectionProvider=selectionProvider;this.inspect=typeof inspect==='function'?inspect:null;
-    this.maxVisible=Math.max(2,Number(maxVisible)||5);this.scope=new ResourceScope();this.renderScope=new ResourceScope();
+    this.maxVisible=Math.max(2,Number(maxVisible)||5);this.now=typeof now==='function'?now:()=>Date.now();
+    this.fadeAfterMs=Math.max(250,Number(fadeAfterMs)||6500);this.visibleForMs=Math.max(this.fadeAfterMs+250,Number(visibleForMs)||12000);
+    this.setTimer=typeof setTimer==='function'?setTimer:null;this.clearTimer=typeof clearTimer==='function'?clearTimer:null;
+    this.scope=new ResourceScope();this.renderScope=new ResourceScope();this.held=new Set();this.timer=null;
   }
   mount(){this.host?.classList?.add?.('a52-activity-feed-host');this.render();return this;}
   render(){
     if(!this.host||!this.journal)return;
-    this.renderScope.cleanup();this.renderScope=new ResourceScope();
-    const selection=normalizeSelection(this.selectionProvider?.()??{}),entries=this.journal.listEntries(selection,{limit:this.maxVisible});
-    const d=this.host.ownerDocument,root=element(d,'div',{className:'a52-activity-feed',attrs:{'aria-label':'Current turn activity'}});
-    if(!entries.length){
-      root.append(element(d,'span',{className:'a52-activity-feed__empty',text:selection.turnId?'No selected-turn owner evidence recorded yet.':'Waiting for a selected turn.'}));
+    this.#cancelTimer();this.renderScope.cleanup();this.renderScope=new ResourceScope();
+    const selection=normalizeSelection(this.selectionProvider?.()??{}),now=Number(this.now()),all=this.journal.listEntries(selection,{limit:Math.max(this.maxVisible*4,32)});
+    const active=all.filter(entry=>this.held.has(entry.id)||Math.max(0,now-Number(entry.at??now))<this.visibleForMs).slice(-this.maxVisible);
+    const d=this.host.ownerDocument,root=element(d,'div',{className:'a52-activity-feed',attrs:{'aria-label':'Current turn activity',role:'log','aria-live':'polite','aria-relevant':'additions text'}});
+    if(!active.length){
+      root.append(element(d,'span',{className:'a52-activity-feed__empty',text:selection.turnId?'No new selected-turn activity. Evidence remains available in the local journal.':'Waiting for a selected turn.'}));
       this.host.replaceChildren(root);return;
     }
-    entries.forEach((entry,index)=>{
-      const age=entries.length-1-index;
-      const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),entryId:entry.id}});
+    let nextBoundary=Infinity;
+    active.forEach((entry,index)=>{
+      const elapsed=Math.max(0,now-Number(entry.at??now)),held=this.held.has(entry.id),phase=elapsed>=this.fadeAfterMs?'fading':'fresh';
+      if(!held){
+        const boundary=elapsed<this.fadeAfterMs?this.fadeAfterMs-elapsed:this.visibleForMs-elapsed;
+        if(boundary>0)nextBoundary=Math.min(nextBoundary,boundary);
+      }
+      const age=active.length-1-index;
+      const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),phase,paused:String(held),entryId:entry.id}});
       button.append(element(d,'strong',{text:entry.title}),element(d,'span',{className:'a52-activity-feed__summary',text:entry.summary}),element(d,'span',{className:'a52-activity-feed__detail',text:entry.detail??entry.summary}));
       this.renderScope.listen(button,'click',()=>this.#activate(entry));
+      this.renderScope.listen(button,'mouseenter',()=>this.#hold(entry.id));
+      this.renderScope.listen(button,'mouseleave',()=>this.#release(entry.id));
+      this.renderScope.listen(button,'focusin',()=>this.#hold(entry.id));
+      this.renderScope.listen(button,'focusout',()=>this.#release(entry.id));
       root.append(button);
     });
     this.host.replaceChildren(root);
+    if(Number.isFinite(nextBoundary)&&this.held.size===0)this.#schedule(Math.max(20,nextBoundary+5));
   }
-  destroy(){this.renderScope.cleanup();this.scope.cleanup();this.host?.replaceChildren?.();}
+  destroy(){this.#cancelTimer();this.renderScope.cleanup();this.scope.cleanup();this.held.clear();this.host?.replaceChildren?.();}
   #activate(entry){
     const current=normalizeSelection(this.selectionProvider?.()??{});
     if(selectionKey(current)!==selectionKey(entry.selection)){this.render();return false;}
     this.inspect?.({kind:'wave14-activity-evidence',id:entry.id,title:entry.title,available:true,selection:clone(entry.selection),receiptRef:entry.receiptRef??null,payload:clone(entry)});
     return true;
   }
+  #hold(id){this.held.add(id);this.#cancelTimer();const node=this.#entryNode(id);if(node)node.dataset.paused='true';}
+  #release(id){this.held.delete(id);this.render();}
+  #entryNode(id){return [...(this.host?.querySelectorAll?.('.a52-activity-feed__item')??[])].find(node=>node.dataset?.entryId===id)??null;}
+  #schedule(ms){if(!this.setTimer)return;this.timer=this.setTimer(()=>{this.timer=null;this.render();},ms);this.timer?.unref?.();}
+  #cancelTimer(){if(this.timer!=null&&this.clearTimer)this.clearTimer(this.timer);this.timer=null;}
 }
 
 function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at}){
@@ -212,6 +248,18 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
 
+  const hostDelivery=inspections.generation?.payload??null;
+  if(hostDelivery?.kind==='SillyTavernHostDeliveryReceipt'){
+    const injected=Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt),completed=Boolean(hostDelivery.responseCompleted??hostDelivery.completedAt),aborted=String(hostDelivery.state??'').toUpperCase()==='ABORTED';
+    out.push(entry({
+      type:'HOST_DELIVERY',status:aborted?'ABORTED':completed?'COMPLETED':injected?'INJECTED':'PREPARED',title:'SillyTavern prompt delivery',
+      summary:aborted?'The exact generation was aborted before completion.':completed?'SillyTavern observed the request payload and the generation completed.':injected?'SillyTavern observed the prepared payload at the model-request hook.':'A PromptPlan was prepared; host injection has not been observed.',
+      detail:'Host delivery is separate from PromptPlan and Context Seal. Only the host receipt can prove request-payload injection.',
+      receiptRef:hostDelivery.receiptId??hostDelivery.generationId??null,selection,at,identitySuffix:hostDelivery.receiptId??String(hostDelivery.state??'host'),
+      metadata:{state:hostDelivery.state??null,promptPlanId:hostDelivery.promptPlanId??null,contextSealId:hostDelivery.contextSealId??null,preparedAt:finite(hostDelivery.preparedAt),requestInjectedAt:finite(hostDelivery.requestInjectedAt),completedAt:finite(hostDelivery.completedAt),requestHook:hostDelivery.requestHook??null,renderedPayloadDigest:hostDelivery.renderedPayloadDigest??null,requestPayloadDigest:hostDelivery.requestPayloadDigest??null,renderedMessageCount:finite(hostDelivery.renderedMessageCount),abortCode:hostDelivery.abortCode??null},
+    }));
+  }
+
   if(pipeline.learningReceipt){
     const learning=inspections.learning?.payload??null;
     out.push(entry({
@@ -250,7 +298,7 @@ function entry({type,subtype=null,status,title,summary,detail,receiptRef=null,se
     rawPromptIncluded:false,storyTextIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
   };
 }
-function normalizeSelection(value={}){return{chatId:text(value.chatId),turnId:text(value.turnId),generationId:text(value.generationId),correlationId:text(value.correlationId),worldRevision:numberOrNull(value.worldRevision),sceneRevision:numberOrNull(value.sceneRevision)};}
+function normalizeSelection(value={}){return{chatId:text(value.chatId),turnId:text(value.turnId),generationId:text(value.generationId),correlationId:text(value.correlationId),worldRevision:numberOrNull(value.worldRevision),sceneRevision:numberOrNull(value.sceneRevision),sourceRevisionRefs:[...new Set((value.sourceRevisionRefs??[]).map(text).filter(Boolean))].slice(0,32)};}
 function selectionKey(value={}){const x=normalizeSelection(value);return[x.chatId??'',x.turnId??'',x.generationId??''].join('|');}
 function emptyState(){return{kind:'Area52DemoEvidenceJournal',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,updatedAt:null,turns:[]};}
 function sumCounts(value={}){return Object.values(value??{}).reduce((sum,row)=>sum+(Number(row)||0),0);}

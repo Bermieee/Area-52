@@ -179,7 +179,7 @@ test('mounted resource controls route through UI ActionRouter into owner actions
   ui.destroy();
 });
 
-test('Brain activity distinguishes sealed generation delivery from post-response learning',()=>{
+test('Brain activity distinguishes PromptPlan from host delivery and post-response learning',()=>{
   const owner=liveOwner();
   const selection=owner.bindings.readSelection();
   let learned=false;
@@ -193,10 +193,14 @@ test('Brain activity distinguishes sealed generation delivery from post-response
     learningReceipt:learned?{kind:'NativeBrainLearningReceipt',sourceRevisionId:'narrative:r1'}:null,
   }:null;
   owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',id:'seal:1',sealedState:true,effectiveAdmittedResultIds:[],...selection});
+  let hostInjected=false;
+  owner.bindings.readHostDeliveryReceipt=()=>hostInjected?{kind:'SillyTavernHostDeliveryReceipt',receiptId:'host-delivery:1',...selection,state:'MODEL_REQUEST_PAYLOAD_INJECTED',promptPlanId:'plan:1',contextSealId:'seal:1',preparedAt:10,requestInjectedAt:20,promptInjected:true,hostObserved:true,responseCompleted:false}:null;
   const{ui}=mount(owner);ui.shell.selectWorkspace('brain');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   let pipeline=ui.operator.operations.read().pipeline,body=textOf(ui.shell.nodes.workspace);
-  assert.equal(pipeline.deliveryReceipt,true);assert.equal(pipeline.learningReceipt,false);assert.match(body,/Generation delivery/);assert.match(body,/No learning receipt yet/);
-  learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
+  assert.equal(pipeline.promptPlanReceipt,true);assert.equal(pipeline.deliveryReceipt,false);assert.equal(pipeline.learningReceipt,false);assert.match(body,/PromptPlan exists|No delivery receipt/);assert.match(body,/No learning receipt yet/);
+  hostInjected=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
+  assert.equal(pipeline.deliveryReceipt,true);assert.match(body,/SillyTavern.*observed|Generation delivery/i);
+  learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
   assert.equal(pipeline.learningReceipt,true);assert.match(body,/Learning receipt recorded/);
   ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWorkspace('settings');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
   const diagnostics=ui.operator.diagnostics.read(),advanced=textOf(ui.shell.nodes.workspace);

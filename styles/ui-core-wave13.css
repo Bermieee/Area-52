@@ -12,8 +12,9 @@
 .a52-wave13-shell>.a52-shell__activity{grid-area:activity;padding:4px 8px;overflow:hidden}
 .a52-activity-feed{height:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:2px}
 .a52-activity-feed__item{display:grid;grid-template-columns:minmax(110px,auto) 1fr;gap:8px;align-items:center;width:100%;min-height:18px;border:0;border-radius:5px;background:transparent;color:var(--a52-text);padding:2px 6px;text-align:left;cursor:pointer;opacity:1;transition:opacity var(--a52-motion),background var(--a52-motion)}
-.a52-activity-feed__item[data-age="1"]{opacity:.78}.a52-activity-feed__item[data-age="2"]{opacity:.58}.a52-activity-feed__item[data-age="3"]{opacity:.40}.a52-activity-feed__item[data-age="4"]{opacity:.27}
-.a52-activity-feed__item:hover,.a52-activity-feed__item:focus-visible{opacity:1;background:rgba(74,200,255,.10);outline:1px solid rgba(74,200,255,.38)}
+.a52-activity-feed__item[data-age="1"]{opacity:.86}.a52-activity-feed__item[data-age="2"]{opacity:.72}.a52-activity-feed__item[data-age="3"]{opacity:.58}.a52-activity-feed__item[data-age="4"]{opacity:.46}
+.a52-activity-feed__item[data-phase="fading"]{opacity:.28}
+.a52-activity-feed__item[data-paused="true"],.a52-activity-feed__item:hover,.a52-activity-feed__item:focus-visible{opacity:1;background:rgba(74,200,255,.10);outline:1px solid rgba(74,200,255,.38)}
 .a52-activity-feed__item strong{font-size:.69rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .a52-activity-feed__summary{font-size:.69rem;color:var(--a52-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .a52-activity-feed__detail{display:none;grid-column:1/-1;font-size:.68rem;color:var(--a52-text);padding:2px 0 4px}
@@ -113,4 +114,4 @@
   .a52-wave13-popout__controls{gap:3px}.a52-wave13-text-button{padding-inline:6px;font-size:10px}
 }
 @media(max-height:520px){.a52-wave13-rail{min-height:220px}.a52-wave13-rail__item{min-height:32px}.a52-wave13-popout__head{min-height:42px}}
-@media(prefers-reduced-motion:reduce){.a52-wave13-rail,.a52-wave13-popout{transition:none!important}}
+@media(prefers-reduced-motion:reduce){.a52-wave13-rail,.a52-wave13-popout,.a52-activity-feed__item{transition:none!important}}

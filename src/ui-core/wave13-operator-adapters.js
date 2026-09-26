@@ -518,7 +518,7 @@ export class Wave13OperationalStatusAdapter{
   }
   read(){
     const selection=this.live?.selection?.()??{};
-    const cognition=this.#cognition(selection),generation=this.#generation(selection),hostLifecycle=this.#hostLifecycle();
+    const cognition=this.#cognition(selection),generation=this.#generation(selection),hostLifecycle=this.#hostLifecycle(),hostDelivery=this.#hostDelivery(selection);
     const stages=[
       this.#adapterStage('scene','Scene',this.adapters.scene,selection,{turnBound:true,exported:Boolean(this.hostBindings.readScene||this.hostBindings.readSceneModel||this.hostBindings.readSceneUiReadModel)}),
       this.#runtimeStage(selection,cognition),
@@ -529,7 +529,7 @@ export class Wave13OperationalStatusAdapter{
       this.#cognitionStage('gather','Gather',cognition,selection),
       this.#cognitionStage('seal','Context Seal',cognition,selection),
       this.#adapterStage('promptPlan','PromptPlan',this.adapters.promptPlan,selection,{turnBound:true,exported:Boolean(this.hostBindings.readPromptPlan||this.hostBindings.readPromptPlanReadModel||this.hostBindings.readGeneration)}),
-      this.#generationStage(selection,generation),
+      this.#generationStage(selection,generation,hostDelivery),
       this.#learningStage(selection,generation),
       this.#sourceStage('lore','Lore Study',this.loreStudy?.read?.(),selection),
       this.#memoryStage(selection),
@@ -545,27 +545,29 @@ export class Wave13OperationalStatusAdapter{
     const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
     const physical=coprocessorRead?.data?.physicalExecution??{};
     const physicalAttempts=Math.max(0,Number(physical.attempts??0)),physicalSucceeded=Math.max(0,Number(physical.succeeded??0)),physicalFailed=Math.max(0,Number(physical.failed??0));
-    const learning=generation?.learningReceipt??null,delivery=Boolean(generation?.promptPlan||generation?.contextSeal);
+    const learning=generation?.learningReceipt??null,hostInjected=Boolean(hostDelivery?.promptInjected??hostDelivery?.requestInjectedAt);
     const pipeline=deepFreeze({
       registeredProducers:registered,mappingReceipt:Boolean(scatter),logicalJobsMapped:Array.isArray(jobs)?jobs.length:0,mappedResourceCount:mappedResourceIds.length,mappedResourceIds,
       executionReceipt:physicalAttempts>0,physicalExecutionAttempts:physicalAttempts,physicalExecutionSucceeded:physicalSucceeded,physicalExecutionFailed:physicalFailed,executedJobs:physicalSucceeded,
       resultReceipt:Boolean(gather),returnedResults:Array.isArray(results)?results.length:0,
       admissionReceipt:Boolean(seal),contextAdmitted:Array.isArray(admitted)?admitted.length:0,
       generationReader:Boolean(fn(this.hostBindings,['readGeneration'])),generationReceipt:Boolean(generation),generationState:generation?.state??null,
-      deliveryReceipt:delivery,learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
+      promptPlanReceipt:Boolean(generation?.promptPlan),hostDeliveryReader:Boolean(fn(this.hostBindings,['readHostDeliveryReceipt'])),
+      deliveryReceipt:hostInjected,hostDeliveryReceipt:Boolean(hostDelivery),hostDeliveryState:hostDelivery?.state??null,completionReceipt:Boolean(hostDelivery?.responseCompleted??hostDelivery?.completedAt),
+      learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
       hostLifecycle:cloneSafe(hostLifecycle),
     });
-    const inspections=this.#inspections({selection,cognition,generation,stages,coprocessorRead});
+    const inspections=this.#inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead});
     return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,inspections,inspection:generationInspectionSummary(generation,selection),waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
   }
-  #inspections({selection,cognition,generation,stages,coprocessorRead}={}){
+  #inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead}={}){
     const stageById=new Map((stages??[]).map(row=>[row.id,row]));
     const adapterData=(adapter)=>safeRead(()=>adapter?.read?.(selection)??adapter?.read?.(),null)?.data??null;
     const data=cognition?.data??{};
     const values={
       scene:adapterData(this.adapters.scene),runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
       choice:data.choice??null,truth:data.truth??null,jev:data.jev??null,gather:data.gather??null,seal:data.seal??null,
-      promptPlan:adapterData(this.adapters.promptPlan),generation:generation??null,learning:generation?.learningReceipt??null,
+      promptPlan:adapterData(this.adapters.promptPlan),generation:hostDelivery??null,learning:generation?.learningReceipt??null,
       scatter:data.scatter??null,
     };
     const out={};
@@ -591,13 +593,28 @@ export class Wave13OperationalStatusAdapter{
     if(!reader)return null;
     try{const value=reader();return value&&typeof value.then!=='function'?cloneSafe(value):null;}catch{return null;}
   }
-  #generationStage(selection,generation){
-    const exported=Boolean(fn(this.hostBindings,['readGeneration']));
-    if(!exported)return stage('generation','Generation delivery',OperatorProducerState.UNAVAILABLE,'Assembly does not export the native Brain generation read contract.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
-    if(selection.chatId&&!selection.generationId)return stage('generation','Generation delivery',OperatorProducerState.WAITING_FOR_TURN,'Waiting for a generation identity from the selected chat.',selection,null,'HOST_SELECTION');
-    if(!generation)return stage('generation','Generation delivery',OperatorProducerState.IDLE,'No owner generation receipt exists for the selected generation.',selection,null,'NO_RECEIPT');
-    const delivered=Boolean(generation.promptPlan||generation.contextSeal);
-    return stage('generation','Generation delivery',delivered?OperatorProducerState.LIVE:OperatorProducerState.IDLE,delivered?'The owner recorded sealed context delivery for this generation.':'The generation exists but no sealed delivery receipt is published.',selection,null,delivered?'OWNER_DELIVERY_RECEIPT':'NO_DELIVERY_RECEIPT');
+  #hostDelivery(selection){
+    const reader=fn(this.hostBindings,['readHostDeliveryReceipt']);
+    if(!reader||!selection?.generationId)return null;
+    try{
+      const value=reader(cloneSafe(selection));
+      if(value&&typeof value.then==='function')return null;
+      if(value)assertSelection(value,selection,'SillyTavern host delivery',{allowMissingIdentity:false});
+      return value??null;
+    }catch{return null;}
+  }
+  #generationStage(selection,generation,hostDelivery){
+    const hostReader=Boolean(fn(this.hostBindings,['readHostDeliveryReceipt']));
+    if(!hostReader)return stage('generation','SillyTavern prompt delivery',OperatorProducerState.UNAVAILABLE,'The installed assembly does not export an exact host-delivery receipt. PromptPlan and Context Seal do not prove SillyTavern received the prompt.',selection,null,'HOST_DELIVERY_READER_MISSING');
+    if(selection.chatId&&!selection.generationId)return stage('generation','SillyTavern prompt delivery',OperatorProducerState.WAITING_FOR_TURN,'Waiting for a generation identity from the selected chat.',selection,null,'HOST_SELECTION');
+    if(!hostDelivery){
+      const reason=generation?.promptPlan?'PromptPlan exists, but no exact SillyTavern model-request injection receipt has been observed.':'No exact SillyTavern host-delivery receipt exists for the selected generation.';
+      return stage('generation','SillyTavern prompt delivery',OperatorProducerState.IDLE,reason,selection,null,'NO_HOST_DELIVERY_RECEIPT');
+    }
+    const aborted=String(hostDelivery.state??'').toUpperCase()==='ABORTED',injected=Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt);
+    if(aborted)return stage('generation','SillyTavern prompt delivery',OperatorProducerState.DEGRADED,'The host generation was aborted: '+String(hostDelivery.abortCode??'unknown reason')+'.',selection,null,'HOST_GENERATION_ABORTED');
+    if(!injected)return stage('generation','SillyTavern prompt delivery',OperatorProducerState.WORKING,'Context is prepared, but SillyTavern has not yet observed the request payload at the model-request hook.',selection,null,'HOST_DELIVERY_PENDING');
+    return stage('generation','SillyTavern prompt delivery',OperatorProducerState.LIVE,'SillyTavern observed the exact prepared request payload at the model-request hook.',selection,null,'HOST_DELIVERY_OBSERVED');
   }
   #learningStage(selection,generation){
     const exported=Boolean(fn(this.hostBindings,['readGeneration']));

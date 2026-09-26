@@ -147,3 +147,16 @@ Automated checks establish UI wiring, selection fencing, local persistence, expo
 - that browser download behavior was observed in the director's installed client.
 
 Those remain live operator checks.
+
+
+## Receipt-boundary closure addendum
+
+The final Worker 2 closure removes one invalid inference found during the Trello acceptance audit: **PromptPlan or Context Seal existence is no longer treated as SillyTavern prompt delivery**.
+
+The installed live session now publishes a metadata-only `SillyTavernHostDeliveryReceipt` for the exact chat / turn / generation. It advances independently through prepared, request-payload-injected, completed/learned, or aborted evidence. The receipt carries only timestamps, IDs, bounded hashes/counts, hook identity, and status; it does not carry raw prompt/story/response text, credentials, or hidden reasoning. The Home/Diagnostics delivery stage is LIVE only after the host request hook reports the prepared payload was injected.
+
+The continuous feed now has two layers: durable evidence remains in the local journal, while the visible transient stack has a readable fresh window, a fading window, then expires. Pointer hover and keyboard focus pause dismissal; release resumes it. Reduced-motion clients disable transition animation without changing evidence timing or accessibility.
+
+Settings now reports journal storage health and retention counts, exposes a short selected-turn evidence timeline, provides both **Export selected turn evidence** and **Clear local evidence journal**, and distinguishes persistent browser storage from memory fallback.
+
+Additional focused regression covers storage failure, bounded turn retention, exact-chat isolation, host-delivery redaction, and transient-feed fade/pause/expiry. These are automated contract checks only. The director still must validate the installed SillyTavern extension update/reload, real browser download, real provider execution, and a real host request injection before the live demo gate can be called passed.

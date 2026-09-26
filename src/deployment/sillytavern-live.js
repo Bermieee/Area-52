@@ -812,6 +812,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
     const base={...brainBindings,...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
+    base.readHostDeliveryReceipt=(selection={})=>this.#readHostDeliveryReceipt(selection);
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
     const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readPromptPlan','readContextReceipt','listGenerations','readGeneration'];
@@ -847,7 +848,27 @@ export class DevelopmentDeploymentSillyTavernSession {
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
     merged.readNativeBrainHostLifecycle=base.readNativeBrainHostLifecycle;
+    merged.readHostDeliveryReceipt=base.readHostDeliveryReceipt;
     return merged;
+  }
+
+  #readHostDeliveryReceipt(selection={}){
+    const generationId=clean(selection?.generationId),chatId=clean(selection?.chatId),turnId=clean(selection?.turnId);
+    if(!generationId)return null;
+    const row=[...this.nativeHistory].reverse().find(item=>item?.generationId===generationId&&(!chatId||item.chatId===chatId)&&(!turnId||item.turnId===turnId))??null;
+    const rejection=[...this.nativeRejections].reverse().find(item=>item?.generationId===generationId&&(!chatId||item.chatId===chatId)&&(!turnId||item.turnId===turnId))??null;
+    if(!row&&!rejection)return null;
+    const source=row??rejection,aborted=Boolean(rejection)&&String(row?.state??'')!=='LEARNED';
+    return {
+      kind:'SillyTavernHostDeliveryReceipt',contractVersion:1,receiptId:'host-delivery:'+generationId,
+      chatId:source.chatId??chatId,turnId:source.turnId??turnId,generationId,
+      state:aborted?'ABORTED':row?.state??'UNVERIFIED',promptPlanId:row?.promptPlanId??null,contextSealId:row?.contextSealId??null,
+      preparedAt:row?.preparedAt??null,requestInjectedAt:row?.requestInjectedAt??null,completedAt:row?.completedAt??null,requestHook:row?.requestHook??null,
+      renderedPayloadDigest:row?.renderedPayloadDigest??null,requestPayloadDigest:row?.requestPayloadDigest??null,renderedMessageCount:row?.renderedMessageCount??null,
+      promptInjected:Boolean(row?.requestInjectedAt),hostObserved:Boolean(row?.requestInjectedAt),responseCompleted:Boolean(row?.completedAt),
+      learningObserved:Boolean(row?.state==='LEARNED'&&row?.learning),abortCode:aborted?String(rejection?.code??'HOST_GENERATION_ABORTED'):null,
+      rawPromptIncluded:false,storyTextIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+    };
   }
 
   #nativeAwareLoreAuthoringHost(){

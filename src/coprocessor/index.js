@@ -84,3 +84,7 @@ export * from './jev-memory-temporal-adapter.js';
 export * from './wave18-read-model.js';
 
 export * from './runtime-director-bridge.js';
+
+export * from './layered-scatter-policy.js';
+export * from './layered-scatter-telemetry.js';
+export * from './jev-usefulness-benchmark.js';

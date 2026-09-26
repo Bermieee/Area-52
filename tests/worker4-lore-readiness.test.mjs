@@ -228,6 +228,13 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
 
   const persisted = service.snapshot();
   const snapshotCharacters = JSON.stringify(persisted).length;
+  const snapshotCharactersBySection = Object.fromEntries(
+    ['runtime', 'multiResolution', 'hierarchy', 'ontology', 'storyAuthority']
+      .map((key) => [key, JSON.stringify(persisted[key] ?? null).length]),
+  );
+  assert.equal(persisted.hierarchy.retrievalIndex.recordsIncluded, false);
+  assert.equal(persisted.hierarchy.retrievalIndex.records.length, 0);
+  assert.equal((persisted.hierarchy.builder.sessions || []).some(([, session]) => session?.state === 'COMPLETED'), false);
   const reloadStarted = performance.now();
   const restored = LoreIntelligenceService.fromSnapshot(persisted);
   const restoredStatus = restored.status({chatId: WORKER4_SELECTED_CHAT});
@@ -252,6 +259,7 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
     restudiedEntriesAfterSingleEdit: incrementalStudy.results.length,
     retainedCurrentAfterReload: restoredStatus.counts.READY,
     snapshotCharacters,
+    snapshotCharactersBySection,
     dueAfterStudy: service.runtime.dueObligations().length,
     dueAfterReload: restored.runtime.dueObligations().length,
     noOpStudyMaintenancePerformed: noOpStudy.maintenancePerformed,

@@ -467,4 +467,8 @@ test('reference-backed retrieval and Lore read surfaces preserve stable evidence
   assert.equal(surface.summaries.every((row) => row.evidenceRefs.length <= 64), true);
   assert.equal(surface.summaries.some((row) => row.evidenceRefCount > 0), true);
   assert.equal(surface.summaries.every((row) => row.rawEvidenceIncluded === false), true);
+  const operatorSummaries = service.operatorInterface().read.loreSummaries();
+  assert.equal(operatorSummaries.kind, 'LoreMultiLevelSummarySurface');
+  assert.equal(operatorSummaries.rawEvidenceIncluded, false);
+  assert.deepEqual(operatorSummaries.summaries.map((row) => row.summaryRef), surface.summaries.map((row) => row.summaryRef));
 });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  FrontFaceMode, ProductDetailLevel, UIStateStore,
+  DemoEvidenceJournal, FrontFaceMode, ProductDetailLevel, UIStateStore,
   Wave13LoreAuthoringUIAdapter, Wave13LoreStudyUIAdapter, Wave13ResourceControlAdapter,
   createWave6ProductInterface, parseLoreSubmission,
 } from '../src/ui-core/index.js';
@@ -55,9 +55,9 @@ function liveOwner({withResources=false,withLore=false}={}){
   return{bindings,calls,listenerCount:()=>listeners.size,switchStory({chatId,turnId,generationId,location:nextLocation}){selection={chatId,turnId,generationId,correlationId:'corr:'+turnId,worldRevision:selection.worldRevision+1,sceneRevision:selection.sceneRevision+1,sourceRevisionRefs:['scene:'+chatId+'@'+(selection.sceneRevision+1)]};location=nextLocation;emit();},clearTurn(){selection={...selection,turnId:null,generationId:null,correlationId:null,worldRevision:null,sceneRevision:null,sourceRevisionRefs:[]};emit();}};
 }
 
-function mount(owner,{width=1280,height=800,floating=true}={}){
+function mount(owner,{width=1280,height=800,floating=true,storage=null}={}){
   const document=new Doc(width,height),root=new Node('aside',document);document.body.append(root);
-  const stateStore=new UIStateStore({storage:memory(),namespace:'wave13-test'});
+  const stateStore=new UIStateStore({storage:storage??memory(),namespace:'wave13-test'});
   const ui=createWave6ProductInterface({root,stateStore,hostBindings:owner.bindings,floatingNavigation:floating,viewportProvider:()=>({width,height})});
   ui.scheduler.flush(0);return{document,root,ui,stateStore};
 }
@@ -317,12 +317,53 @@ test('Lore selected-book discovery shows real title ID and entry count before ac
 test('Brain operations distinguish producer availability execution results and context admission',()=>{
   const owner=liveOwner({withResources:true});
   const{ui}=mount(owner),read=ui.operator.operations.read();
-  assert.ok(read.pipeline.registeredProducers>=1);assert.equal(read.pipeline.executionReceipt,true);assert.equal(read.pipeline.executedJobs,1);
+  assert.ok(read.pipeline.registeredProducers>=1);assert.equal(read.pipeline.mappingReceipt,true);assert.equal(read.pipeline.logicalJobsMapped,1);assert.equal(read.pipeline.mappedResourceCount,1);
+  assert.equal(read.pipeline.executionReceipt,false);assert.equal(read.pipeline.physicalExecutionAttempts,0);
   assert.equal(typeof read.pipeline.resultReceipt,'boolean');assert.equal(typeof read.pipeline.admissionReceipt,'boolean');
   ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.selectWorkspace('brain');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Execution \/ admission|Work executed/);assert.match(body,/Returned results/);assert.match(body,/Context-admitted results|Context admitted/);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Execution \/ admission|Jobs mapped/);assert.match(body,/Physical execution/);assert.match(body,/Returned results/);assert.match(body,/Context-admitted results|Context admitted/);
   ui.destroy();
 });
+
+test('Home Inspect details opens the visible inspector with exact selected-turn owner receipts',()=>{
+  const owner=liveOwner(),selection=owner.bindings.readSelection();
+  owner.bindings.readTruth=()=>({kind:'TruthAssessment',id:'truth:1',truthResults:[{candidateId:'candidate:1',classification:'CURRENT',usableForIntent:true}],...selection});
+  owner.bindings.readJev=()=>({kind:'JevDecisionReceipt',receiptId:'jev:1',outcome:'UNRESOLVED',serviceStatus:'JEV_READY',selectedOptionIds:[],rejectedOptionIds:[],evidenceUsed:[],...selection});
+  owner.bindings.readGather=()=>({kind:'GatherReceipt',receiptId:'gather:inspect',results:[{resultId:'result:inspect',capability:'GRAPH',status:'ADMITTED',accepted:true,resourceId:'local:1',destination:'CONTEXT'}],...selection});
+  owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',sealId:'seal:inspect',sealed:true,admittedResultIds:['result:inspect'],...selection});
+  owner.bindings.readCognitionUiState=()=>({kind:'CognitionUiState',physicalExecution:{attempts:1,succeeded:1,failed:0},configuredResources:1,connectedResources:1,physicallyExecutedResources:1,ownerAcceptedResources:1,...selection});
+  const{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
+  const stage=(id)=>walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId===id);
+  for(const id of ['scene','runtime','coprocessor','choice','truth','jev','gather','seal']){
+    const card=stage(id);assert.ok(card,'missing '+id+' producer card');
+    const button=walk(card).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');assert.ok(button,'missing '+id+' Inspect details');
+    button.dispatch('click');ui.scheduler.flush(2);
+    const selected=ui.shell.inspector.selection;assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(selected.producerId,id);assert.equal(selected.selection.chatId,selection.chatId);assert.equal(selected.selection.turnId,selection.turnId);assert.equal(selected.selection.generationId,selection.generationId);assert.equal(selected.available,true,id);
+    assert.match(textOf(ui.shell.nodes.inspectorHost),/detail/i);
+  }
+  ui.destroy();
+});
+
+test('Inspect details explains unavailable owner receipts instead of manufacturing success',()=>{
+  const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
+  const jev=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='jev');
+  const button=walk(jev).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');button.dispatch('click');ui.scheduler.flush(2);
+  assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.shell.inspector.selection.available,false);
+  assert.equal(ui.shell.inspector.selection.payload.status,'UNAVAILABLE');assert.match(ui.shell.inspector.selection.reason,/not connected|not published|unavailable/i);
+  ui.destroy();
+});
+
+test('activity feed is exact-selection fenced and old-chat notices cannot inspect as current',()=>{
+  const owner=liveOwner(),storage=memory(),{ui}=mount(owner,{storage});ui.scheduler.flush(1);ui.operator.captureEvidence();ui.operator.activityFeed.render();
+  const oldSelection=owner.bindings.readSelection(),oldButton=walk(ui.shell.nodes.strip).find(x=>x.tagName==='BUTTON');assert.ok(oldButton);
+  owner.switchStory({chatId:'chat:new-feed',turnId:'turn:new-feed',generationId:'gen:new-feed',location:'Copper Basin'});ui.scheduler.flush(2);ui.operator.captureEvidence();ui.operator.activityFeed.render();
+  assert.doesNotMatch(textOf(ui.shell.nodes.strip),new RegExp(oldSelection.turnId.replace(':','\\:')));
+  assert.equal(ui.shell.inspector.selection,null);oldButton.dispatch('click');ui.scheduler.flush(3);assert.equal(ui.shell.inspector.selection,null);
+  const currentButton=walk(ui.shell.nodes.strip).find(x=>x.tagName==='BUTTON');assert.ok(currentButton);currentButton.dispatch('click');ui.scheduler.flush(4);
+  assert.equal(ui.shell.inspector.selection.selection.turnId,'turn:new-feed');assert.equal(ui.presentation.get().inspectorVisible,true);
+  ui.destroy();
+});
+
 
 test('Memory no-evidence owner code is translated to plain language while the code remains inspectable',()=>{
   const owner=liveOwner();owner.bindings.readMemoryStatus=()=>({kind:'MemoryStatus',reasonCode:'MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT',...owner.bindings.readSelection()});
@@ -414,7 +455,12 @@ test('Connections maps logical fan-out to physical resources and shows owner Gat
   ],...selection});
   owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',sealId:'seal:1',sealed:true,admittedResultIds:['result:a'],...selection});
   const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/3 logical jobs → 2 physical resources/);assert.match(body,/LORE RETRIEVAL|Lore Retrieval/);assert.match(body,/SEALED/);assert.match(body,/LATE/);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/3 logical jobs → 2 mapped resource identities/);assert.match(body,/LORE RETRIEVAL|Lore Retrieval/);assert.match(body,/SEALED/);assert.match(body,/LATE/);
+  const inspectScatter=walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect Scatter receipt');
+  const inspectGather=walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect Gather receipt');
+  assert.ok(inspectScatter);assert.ok(inspectGather);inspectScatter.dispatch('click');ui.scheduler.flush(2);
+  assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.shell.inspector.selection.kind,'wave13-scatter-trace');assert.equal(ui.shell.inspector.selection.selection.turnId,selection.turnId);
+  inspectGather.dispatch('click');ui.scheduler.flush(3);assert.equal(ui.shell.inspector.selection.kind,'wave13-gather-trace');assert.match(textOf(ui.shell.nodes.inspectorHost),/gather:1/);
   ui.destroy();
 });
 

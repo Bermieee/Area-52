@@ -37,8 +37,10 @@ export class DemoEvidenceJournal{
     const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,at});
     for(const entry of entries){
       const index=turn.entries.findIndex(row=>row.identityKey===entry.identityKey);
-      if(index>=0)turn.entries[index]=entry;
-      else turn.entries.push(entry);
+      if(index>=0){
+        const prior=turn.entries[index];
+        if(!sameEvidence(prior,entry))turn.entries[index]=entry;
+      }else turn.entries.push(entry);
     }
     turn.entries.sort((a,b)=>Number(a.at??0)-Number(b.at??0));
     if(turn.entries.length>this.maxEntriesPerTurn)turn.entries.splice(0,turn.entries.length-this.maxEntriesPerTurn);
@@ -236,6 +238,10 @@ function producerDetail(id,path,pipeline,row){
   return{summary:row.reason||label(id)+' owner status updated.',detail:'Selected-turn owner status; no raw narrative content is retained.'};
 }
 
+function sameEvidence(a,b){
+  if(!a||!b)return false;
+  return a.status===b.status&&a.summary===b.summary&&a.detail===b.detail&&a.receiptRef===b.receiptRef&&JSON.stringify(a.metadata??{})===JSON.stringify(b.metadata??{});
+}
 function entry({type,subtype=null,status,title,summary,detail,receiptRef=null,selection,at,identitySuffix='',metadata={}}){
   const id=[type,subtype??'',selection.chatId,selection.turnId,selection.generationId,String(identitySuffix)].join(':');
   return{

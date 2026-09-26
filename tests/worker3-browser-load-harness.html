@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Worker 3 browser load harness</title></head>
+<body><div id="root"></div><script type="module">
+import { createWave6ProductInterface } from '../src/ui-core/wave6-runtime.js';
+
+const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+const root=document.querySelector('#root');
+let selection={chatId:'browser-load-chat',turnId:'turn-1',generationId:'gen-1',correlationId:'corr-1',worldRevision:9,sceneRevision:4,sourceRevisionRefs:['src:9']};
+let hostObserved=false,readerCalls=0,listenersPeak=0;
+const listeners=new Set(),count=(fn)=>((...args)=>{readerCalls+=1;return fn(...args);});
+const identity=()=>({...selection});
+const jobs=Array.from({length:6},(_,i)=>({jobId:'JOB_'+(i+1),taskId:'JOB_'+(i+1),sequence:i+1,state:'EXECUTED',status:'EXECUTED',owner:'COGNITIVE_CORE',resourceId:'native-cpu'}));
+const results=Array.from({length:64},(_,i)=>({resultId:'result-'+i,taskId:'JOB_'+((i%6)+1),status:'ADMITTED',accepted:true,resourceId:'native-cpu',destination:'FOREGROUND'}));
+const plan=()=>({kind:'PromptPlan',promptPlanId:'plan-1',...identity(),contextSealId:'seal-1',sections:[{slot:'CURRENT_SCENE',allocatedTokens:499,reuseState:'REBUILD'},{slot:'RELEVANT_LORE',allocatedTokens:0,reuseState:'REBUILD'}],ordering:['CURRENT_SCENE','RELEVANT_LORE'],deferred:[{slot:'RELEVANT_LORE',reason:'BUDGET_SHORTFALL',requiredTokens:120,remainingTokensAtDecision:0}],budget:{total:4096,allocated:499,remaining:3597,estimatedTokens:499},status:'READY'});
+const hostBindings={
+ readSelection:count(()=>identity()),
+ subscribe(fn){listeners.add(fn);listenersPeak=Math.max(listenersPeak,listeners.size);return()=>listeners.delete(fn);},
+ readScene:count(()=>({kind:'SceneUiReadModel',...identity(),sceneId:'scene-1',revision:4,location:{value:'Load Room'},activeCast:[],objects:[],activeThreads:[],sourceRevisionRefs:['src:9'],health:{state:'READY'}})),
+ readHotCognition:count(()=>({kind:'HotCognitionSnapshot',...identity(),snapshotId:'hot-1',state:'LIVE'})),
+ readCognitiveChoice:count(()=>({kind:'CognitiveChoiceReceipt',...identity(),receiptId:'choice-1',state:'COMPLETE',admittedJobs:jobs.map(x=>x.jobId),skippedJobs:[]})),
+ readScatter:count(()=>({kind:'RuntimeTurnReceipt',...identity(),receiptId:'scatter-1',jobs,resourceIds:['native-cpu'],resourceCount:1,executionComplete:true})),
+ readSensoryTrace:count(()=>({kind:'SensoryTrace',...identity(),receiptId:'sensory-1',state:'COMPLETE'})),
+ readTruth:count(()=>({kind:'TruthAssessment',...identity(),receiptId:'truth-1',state:'COMPLETE'})),
+ readGather:count(()=>({kind:'GatherReceipt',...identity(),receiptId:'gather-1',state:'COMPLETE',counts:{ADMITTED:64,STALE:0,LATE:0,REJECTED:0,INVALID:0},results,admittedResultIds:results.map(x=>x.resultId)})),
+ readContextSeal:count(()=>({kind:'ContextSealReceipt',...identity(),id:'seal-1',sealedState:true,sourceRevisionIds:['src:9'],admittedResultIds:results.map(x=>x.resultId),effectiveAdmittedResultIds:results.map(x=>x.resultId),rejectedResultIds:[],staleResultIds:[],lateResultIds:[]})),
+ readPromptPlan:count(plan),
+ readContextReceipt:count(()=>({kind:'ContextReceiptReadModel',...identity(),promptPlanId:'plan-1',contextSealId:'seal-1',packetId:'packet-1',includedSections:['CURRENT_SCENE'],deferredSections:[{slot:'RELEVANT_LORE',reason:'BUDGET_SHORTFALL'}],omittedSections:[],estimatedTokens:499,budget:{total:4096,allocated:499}})),
+ readSelectedTurnReceipt:count(()=>({kind:'NativeBrainSelectedTurnReceipt',contractVersion:1,...identity(),sourceRevisions:{selectedRefs:['src:9'],sceneRefs:['src:9'],sealRefs:['src:9']},producers:{scene:{status:'PUBLISHED',id:'scene-1'},hotCognition:{status:'PUBLISHED',id:'hot-1'},cognitiveChoice:{status:'PUBLISHED',id:'choice-1'},retrieval:{status:'PUBLISHED',id:'retrieval-1'},gather:{status:'PUBLISHED',id:'gather-1'},contextSeal:{status:'PUBLISHED',id:'seal-1'},promptPlan:{status:'PUBLISHED',id:'plan-1'}},delivery:{planned:{state:'PLANNED',promptPlanId:'plan-1',contextSealId:'seal-1'},compiled:{state:'COMPILED_AND_SEALED',contextSealId:'seal-1',packetId:'packet-1'},hostObserved:hostObserved?{state:'OBSERVED',receiptId:'host-1'}:{state:'UNAVAILABLE',reason:'HOST_NOT_OBSERVED'}}})),
+ readHostDeliveryReceipt:count(()=>hostObserved?({kind:'SillyTavernHostDeliveryReceipt',receiptId:'host-1',...identity(),promptPlanId:'plan-1',contextSealId:'seal-1',hostObserved:true,requestInjectedAt:999,requestHook:'CHAT_COMPLETION_PROMPT_READY'}):null),
+ readRuntimeStatus:count(()=>({kind:'WorkerDirectorSnapshot',lifecycleCounts:{ACTIVE:0,YIELDING:0,PARKED:0,RECOVERING:0,COMPLETE:6,FAILED:0},queueDepth:{},activeBatches:0,queuedObligations:0})),
+};
+const emit=(event)=>{for(const fn of [...listeners])fn({...event,selection:identity()});};
+let mutations=0;const observer=new MutationObserver(rows=>{mutations+=rows.length;});observer.observe(root,{subtree:true,childList:true,attributes:true,characterData:true});
+const longTasks=[];let longObserver=null;try{if(PerformanceObserver.supportedEntryTypes?.includes('longtask')){longObserver=new PerformanceObserver(list=>longTasks.push(...list.getEntries().map(x=>x.duration)));longObserver.observe({entryTypes:['longtask']});}}catch{}
+globalThis.gc?.();const heapBefore=performance.memory?.usedJSHeapSize??null,start=performance.now();
+let ui=createWave6ProductInterface({root,hostBindings,floatingNavigation:false});
+await frame();
+for(let tick=0;tick<90;tick++){
+  for(let n=0;n<8;n++)emit({kind:'SILLYTAVERN_CONTEXT_CHANGED',hostEvent:'MESSAGE_UPDATED'});
+  if(tick===18)emit({kind:'NativeBrainReceiptUpdate',stage:'SCATTER'});
+  if(tick===45)emit({kind:'NativeBrainReceiptUpdate',stage:'GATHER'});
+  if(tick===70){hostObserved=true;emit({kind:'NativeBrainReceiptUpdate',stage:'HOST_DELIVERY'});}
+  await frame();
+}
+emit({kind:'SILLYTAVERN_CONTEXT_CHANGED',hostEvent:'GENERATION_ENDED'});await frame();await frame();
+const elapsedMs=performance.now()-start,nodeCount=root.querySelectorAll('*').length,trace=ui.operator?.loadTrace?.snapshot?.()??null;
+globalThis.gc?.();const heapAfter=performance.memory?.usedJSHeapSize??null;
+ui.destroy();await frame();const listenersAfterDestroy=listeners.size;
+ui=createWave6ProductInterface({root,hostBindings,floatingNavigation:false});await frame();ui.destroy();await frame();
+const listenersAfterRemountDestroy=listeners.size;
+observer.disconnect();longObserver?.disconnect?.();
+const metrics={readerCalls,mutations,elapsedMs:Number(elapsedMs.toFixed(2)),longTaskCount:longTasks.length,longTaskTotalMs:Number(longTasks.reduce((a,b)=>a+b,0).toFixed(2)),longTaskMaxMs:Number(Math.max(0,...longTasks).toFixed(2)),heapGrowthBytes:heapBefore!=null&&heapAfter!=null?heapAfter-heapBefore:null,listenersPeak,listenersAfterDestroy,listenersAfterRemountDestroy,nodeCount,suppressedRoutine:trace?.counters?.suppressedRoutineHostRefreshes??0,workspaceRenders:trace?.areas?.['ui.workspaceRender']?.count??0,journalWrites:ui?.operator?.evidenceJournal?.status?.()?.writes??null};
+for(const [key,value] of Object.entries(metrics))document.body.dataset[key.replace(/[A-Z]/g,m=>'-'+m.toLowerCase())]=value==null?'NA':String(value);
+document.body.dataset.status=listenersAfterDestroy===0&&listenersAfterRemountDestroy===0?'PASS':'FAIL';
+document.body.innerHTML='<pre id="result">'+JSON.stringify(metrics)+'</pre>';
+</script></body></html>

@@ -1,0 +1,95 @@
+name: Worker 3 Operator Truth and Browser Load
+
+on:
+  push:
+    branches: [Development-Client-Repair-3-Operator-Truth]
+  pull_request:
+    branches: [Development-Client-Repair-3]
+    paths:
+      - 'src/ui-core/**'
+      - 'tests/worker3-operator-truth.test.mjs'
+      - 'tests/worker3-browser-load-harness.html'
+      - 'scripts/worker3-browser-load-compare.mjs'
+      - '.github/workflows/worker3-operator-truth.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: worker3-operator-truth-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Prompt Inspector owner truth
+        run: node --test tests/worker3-operator-truth.test.mjs
+      - name: Preserve selected-turn and journal contracts
+        run: |
+          node --test tests/worker3-brain-trace-ui.test.mjs
+          node --test tests/client-repair-wave2.test.mjs
+          node --test tests/demo-visibility.test.mjs
+      - name: Preserve UI.Core / host compatibility focus
+        run: |
+          node --test --test-name-pattern='500 Inspector select/clear cycles|500 product workspace switches' tests/wave6.test.mjs
+          node --test --test-name-pattern='floating UI.Core product beside|mount, duplicate mount, destroy and remount|chat switch drops stale|routine host telemetry' tests/wave12-sillytavern-host.test.mjs
+      - name: Syntax
+        run: |
+          node --check src/ui-core/operator-load-trace.js
+          node --check src/ui-core/wave6-runtime.js
+          node --check src/ui-core/wave6-production-adapters.js
+          node --check src/ui-core/wave7-explainability.js
+          node --check src/ui-core/wave7-workspaces.js
+          node --check src/ui-core/wave11-live-bindings.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check src/ui-core/wave13-operator-surfaces.js
+          node --check tests/worker3-operator-truth.test.mjs
+          node --check scripts/worker3-browser-load-compare.mjs
+
+  browser-before-after:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare representative long-turn browser workload to stacked base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin Development-Client-Repair-3
+          BASE_SHA="$(git merge-base HEAD origin/Development-Client-Repair-3)"
+          echo "STACKED_BASE=$BASE_SHA"
+          test "$BASE_SHA" = "142b78e4bc6d69d3e39e571951389c135c18a38e"
+          git worktree add /tmp/area52-before "$BASE_SHA"
+          cp tests/worker3-browser-load-harness.html /tmp/area52-before/tests/worker3-browser-load-harness.html
+          python3 -m http.server 8765 --directory /tmp/area52-before >/tmp/area52-before-http.log 2>&1 &
+          BEFORE_SERVER=$!
+          python3 -m http.server 8766 --directory . >/tmp/area52-after-http.log 2>&1 &
+          AFTER_SERVER=$!
+          trap 'kill "$BEFORE_SERVER" "$AFTER_SERVER" 2>/dev/null || true' EXIT
+          CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          test -n "$CHROME"
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --enable-precise-memory-info --js-flags=--expose-gc --window-size=1280,900 --virtual-time-budget=20000 --dump-dom http://127.0.0.1:8765/tests/worker3-browser-load-harness.html >/tmp/worker3-before.html
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --enable-precise-memory-info --js-flags=--expose-gc --window-size=1280,900 --virtual-time-budget=20000 --dump-dom http://127.0.0.1:8766/tests/worker3-browser-load-harness.html >/tmp/worker3-after.html
+          grep -q 'data-status="PASS"' /tmp/worker3-before.html
+          grep -q 'data-status="PASS"' /tmp/worker3-after.html
+          node scripts/worker3-browser-load-compare.mjs /tmp/worker3-before.html /tmp/worker3-after.html

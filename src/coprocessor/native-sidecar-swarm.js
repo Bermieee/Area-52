@@ -140,7 +140,7 @@ export class NativeSidecarSwarm{
   readTurn(turnId){return clone(this.turns.get(String(turnId))??null);}
 
   async #executeForeground(tasks,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint,gather=null}){
-    const records=[];
+    const records=[];const turnUsage=new Map();
     for(const bucket of partitionScatterTasks(tasks)){
       if(bucket.layer===ScatterLayer.BACKGROUND||!bucket.tasks.length)continue;
       const pending=bucket.tasks.map(task=>({task,attempt:1,excluded:new Set()}));
@@ -173,9 +173,9 @@ export class NativeSidecarSwarm{
             if(record.fallbackUsed)fallbacks+=1;
             records.push(record);continue;
           }
-          const candidates=this.#eligible(task,item.excluded,reserved);
+          const candidates=this.#eligible(task,item.excluded,reserved,turnUsage);
           if(!candidates.length){index+=1;continue;}
-          const profile=candidates[0];reserved.set(profile.profileId,(reserved.get(profile.profileId)??0)+1);
+          const profile=candidates[0];reserved.set(profile.profileId,(reserved.get(profile.profileId)??0)+1);turnUsage.set(profile.profileId,(turnUsage.get(profile.profileId)??0)+1);
           pending.splice(index,1);
           physicalAttempts+=1;
           emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_STATE,{...checkpoint.selection,turnId:task.turnId,correlationId:task.correlationId,parentReceiptId:checkpoint.checkpointId,taskId:task.taskId,layer:bucket.layer,executionKind:'SIDECAR',decision:'ADMIT',reason:admission.reason,queueDepth:pending.length,concurrency:this.maxLayerConcurrency,costClass:task.metadata?.costBudget??null});
@@ -242,11 +242,15 @@ export class NativeSidecarSwarm{
     return withOwnerAdmission(settled,outcome);
   }
 
-  #eligible(task,excluded,reserved=new Map()){
-    return this.connections.profiles.eligibleProfiles(task,{
+  #eligible(task,excluded,reserved=new Map(),turnUsage=new Map()){
+    const eligible=this.connections.profiles.eligibleProfiles(task,{
       contextTokens:0,maxCostClass:'HIGH',requireStructuredOutput:true,expectedOutputTokens:Number(task.metadata?.expectedOutputTokens??0),
     }).filter(profile=>!excluded.has(profile.profileId)&&this.connections.adapters.get(profile.providerId)
       && Number(profile.currentLoad??0)+Number(reserved.get(profile.profileId)??0)<Number(profile.concurrencyCapacity??profile.maxConcurrency??1));
+    return eligible.map((profile,index)=>({profile,index})).sort((a,b)=>{
+      if(!equivalentPlacementProfiles(a.profile,b.profile))return a.index-b.index;
+      return Number(turnUsage.get(a.profile.profileId)??0)-Number(turnUsage.get(b.profile.profileId)??0)||a.index-b.index;
+    }).map(row=>row.profile);
   }
 
   async #executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}){
@@ -314,7 +318,7 @@ export class NativeSidecarSwarm{
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,
       choiceContribution,executionTrace,resultsForOwner:readyResults,jevReceipt:clone(jevReceipt),
       resultSummary:records.map(publicRecord),continuousOwnerAdmissions,resumeStatus,
-      ownerAdmissionRequired:readyResults.length>0,authority:'NONE',truthAuthority:false,precisionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,finalChoiceAuthority:false,contextSealAuthority:false,
+      ownerAdmissionRequired:true,authority:'NONE',truthAuthority:false,precisionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,finalChoiceAuthority:false,contextSealAuthority:false,
     });
     const summary=deepFreeze({
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,at:this.now(),resumeStatus,
@@ -420,3 +424,5 @@ function clone(v){return v==null?v:structuredClone(v);}
 function deepFreeze(v){if(!v||typeof v!=='object'||Object.isFrozen(v))return v;Object.freeze(v);for(const x of Object.values(v))deepFreeze(x);return v;}
 
 function publicSelection(primary={},secondary={}){return deepFreeze({chatId:secondary?.chatId??secondary?.selection?.chatId??primary?.chatId??null,turnId:primary?.turnId??secondary?.turnId??secondary?.selection?.turnId??null,generationId:secondary?.generationId??secondary?.selection?.generationId??primary?.generationId??null,correlationId:primary?.correlationId??secondary?.correlationId??secondary?.selection?.correlationId??null});}
+
+function equivalentPlacementProfiles(a,b){return a?.latencyClass===b?.latencyClass&&a?.costClass===b?.costClass&&Number(a?.reliability??0)===Number(b?.reliability??0)&&Number(a?.qualityScore??0)===Number(b?.qualityScore??0)&&Boolean(a?.local)===Boolean(b?.local);}

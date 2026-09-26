@@ -59,6 +59,9 @@ function revisionArtifacts(runtime, sourceId, sourceRevisionId) {
 
 function normalizedPayload(artifact) {
   const payload = deepClone(artifact?.payload || {});
+  if (artifact?.artifactType === ArtifactType.RELATIONSHIP) {
+    delete payload.supportingClaimIds;
+  }
   if (artifact?.artifactType === ArtifactType.COMPACT) {
     if (payload?.representation && typeof payload.representation === 'object') {
       delete payload.representation.sourceRef;

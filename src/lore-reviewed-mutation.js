@@ -148,7 +148,7 @@ export class LoreReviewedMutationService {
     this.audits = new Map();
     this.decisionIds = new Map();
     this.sequence = 0;
-    if (snapshot) this.restore(snapshot);
+    if (snapshot) this._restoreSnapshot(snapshot);
   }
 
   _assertCurrentSource(sourceId) {
@@ -953,7 +953,7 @@ export class LoreReviewedMutationService {
     };
   }
 
-  restore(snapshot) {
+  _restoreSnapshot(snapshot) {
     this.sequence = Number(snapshot?.sequence || 0);
     this.proposals = new Map((snapshot?.proposals || []).map((row) => [row.proposalId, deepClone(row)]));
     this.fingerprintIndex = new Map(snapshot?.fingerprintIndex || []);

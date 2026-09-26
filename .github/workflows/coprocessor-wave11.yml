@@ -1,0 +1,49 @@
+name: Cognitive Coprocessor Wave 11
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave11:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve Wave 10 13-case corpus
+        run: npm run test:wave10:corpus
+      - name: Wave 11 native-first contract
+        run: npm run test:wave11:native
+      - name: Wave 11 same-evidence comparison and measured latency
+        run: npm run test:wave11:evaluation
+      - name: Wave 11 controlled failure/fallback
+        run: npm run test:wave11:fallback
+      - name: Wave 11 browser-source guard
+        run: npm run test:browser:wave11
+      - name: Host-neutral native/optional example
+        run: npm run example:wave11
+      - name: Generate Wave 11 measured report
+        run: npm run report:wave11
+      - name: Opt-in live Jev provider smoke
+        run: npm run smoke:jev:live
+      - name: Upload Wave 11 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-wave11-evaluation
+          path: artifacts/jev-wave11/
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"

@@ -1,0 +1,65 @@
+{
+  "kind": "IntegrationLaneManifest",
+  "schemaVersion": "2",
+  "laneId": "core",
+  "branch": "Development-Nexus",
+  "acceptedSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
+  "mode": "BASE_ANCESTRY",
+  "acceptedTreeSha": "182d7dbdbcba90a9b91be412acfb4231c4d23821",
+  "acceptanceRuns": [
+    {
+      "id": "36056569282",
+      "name": "Cognitive Core CI"
+    }
+  ],
+  "copiedPaths": [],
+  "browserRuntimePaths": [
+    "src/core-assembly-manifest.js"
+  ],
+  "nodeOnlyToolPaths": [
+    "scripts/verify-assembly-manifest.mjs"
+  ],
+  "requiredWebApis": [],
+  "optionalWebApis": [],
+  "hostCapabilities": [
+    "Area-52 owner authority boundary"
+  ],
+  "artifactContracts": [
+    {
+      "name": "Candidate Bus / Truth / Settlement / Context Seal / PromptPlan",
+      "version": "accepted Core Wave 11"
+    },
+    {
+      "name": "Main Assembly Manifest Contract",
+      "version": "accepted at ba4619f"
+    }
+  ],
+  "requiredAdapters": [
+    "Native Scene signal -> Core",
+    "Runtime Result Bus -> Core Gather",
+    "Core publication -> Context Seal / PromptPlan"
+  ],
+  "integrationAdapters": [
+    "src/deployment/brain.js"
+  ],
+  "integrationOnlyPatches": [
+    {
+      "path": "src/publication-context-compiler.js",
+      "sourceDigest": "e321ef5a85d742ecae9db7631fcaf5ff414d05da",
+      "expectedDigest": "78a201a8fe21d8fb524686f0d10442271b6cd377",
+      "reason": "Deployment sequential-turn repair: rich fallback must dedupe repeated claim IDs before Context Seal so Prompt Integrity does not reject semantically duplicated facts."
+    }
+  ],
+  "knownConflicts": [],
+  "note": "Development-Deployment was created directly from this accepted Core commit; Core is reconstructed by base ancestry rather than copied files.",
+  "integrationReconciliations": [
+    {
+      "id": "DEPLOYMENT-RICH-FALLBACK-DEDUPE",
+      "sourceSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
+      "commit": "7089e792850cce26a29b98d827f923f7cb6cb1f4",
+      "reason": "Sequential simple -> retrieval -> ambiguous execution exposed repeated semantic claim IDs in the correctness-preserving rich fallback. Dedupe happens before Seal; Prompt Integrity remains strict.",
+      "ownerBranchTransferStatus": "PENDING",
+      "authorityChange": false
+    }
+  ]
+}

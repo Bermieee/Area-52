@@ -1,0 +1,55 @@
+name: Worker 2 Demo Visibility
+
+on:
+  push:
+    branches:
+      - Development-Demo-Visibility/Worker-2
+  workflow_dispatch:
+
+concurrency:
+  group: worker2-demo-visibility-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  demo-visibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Focused Inspect activity journal and export acceptance
+        run: npm run test:demo-visibility
+      - name: Existing Wave 12 host acceptance
+        run: node --test tests/wave12-sillytavern-host.test.mjs
+      - name: Observe inherited main Wave 13 debt without promoting it
+        continue-on-error: true
+        run: node --test tests/wave13-operator-ui.test.mjs
+      - name: Current-head installed-host scripted lifecycle probe
+        id: current_installed_host
+        continue-on-error: true
+        run: node --test tests/deployment-live-host.test.mjs
+      - name: Baseline main installed-host comparison
+        id: baseline_installed_host
+        continue-on-error: true
+        run: |
+          git fetch --no-tags --depth=1 origin 1f8616fb30e5fe17a02a16580f9bba3e43d8190c
+          git checkout --detach FETCH_HEAD
+          node --test tests/deployment-live-host.test.mjs
+      - name: Restore exact Worker 2 head
+        run: git checkout --detach "$GITHUB_SHA"
+      - name: Record installed-host probe outcomes
+        run: |
+          echo "Current head installed-host outcome: ${{ steps.current_installed_host.outcome }}"
+          echo "Baseline main installed-host outcome: ${{ steps.baseline_installed_host.outcome }}"
+          echo "Neither scripted outcome is live SillyTavern acceptance."
+      - name: Browser-facing imports
+        run: node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined; Promise.all([import('./src/ui-core/index.js'),import('./src/ui-core/demo-visibility.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/wave13-operator-surfaces.js'),import('./src/deployment/sillytavern-live.js')]).then(()=>console.log('Worker 2 demo visibility browser imports PASS'))"
+      - name: Focused syntax sweep
+        run: node --check src/ui-core/demo-visibility.js && node --check src/ui-core/wave6-runtime.js && node --check src/ui-core/wave6-front-face.js && node --check src/ui-core/wave13-operator-adapters.js && node --check src/ui-core/wave13-operator-surfaces.js && node --check tests/demo-visibility.test.mjs && node --check tests/wave13-operator-ui.test.mjs

@@ -99,6 +99,8 @@ export class PublicationContextCompiler {
         }
       }
       for(const unknown of unknownSlots)richSections.unresolved.push({e:unknown.subjectId,p:unknown.predicate,v:'unknown',a:'UNRESOLVED',cf:0,id:`compiled-unknown-rich:${hash(`${unknown.subjectId}|${unknown.predicate}`)}`,reason:unknown.reason??'no settled current value',supportIds:[...new Set(unknown.supportClaimIds??[])].sort()});
+      const dedupeRich=(rows)=>[...new Map(rows.map(row=>[row.id,row])).values()];
+      richSections.current=dedupeRich(richSections.current);richSections.historical=dedupeRich(richSections.historical);richSections.unresolved=dedupeRich(richSections.unresolved);
       sortRows(richSections.current,'current');sortRows(richSections.historical,'historical');sortRows(richSections.unresolved,'unresolved');
       const richIdMaterial=[richSections.current,richSections.historical,richSections.unresolved];if((packet.activeThreads??[]).length)richIdMaterial.push(packet.activeThreads);if((packet.relevantLore??[]).length)richIdMaterial.push(packet.relevantLore);if((packet.episodicMemory??[]).length)richIdMaterial.push(packet.episodicMemory);
       output={...packet,id:`packet:${intent.toLowerCase()}:rich:${hash(JSON.stringify(richIdMaterial))}`,representation,...richSections,provenanceIndex,dependencies:[...dependencies].sort()};

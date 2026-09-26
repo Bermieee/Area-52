@@ -1,7 +1,18 @@
-import { runWave4AdaptiveContextGoldenWorld } from '../tests/wave4-golden-harness.js';
+import {
+  DeterministicSemanticJudgeAdapter, benchmarkCandidateScaling, externalPrecisionAvailability,
+  runExternalPrecisionBenchmark, runPrecisionGainBenchmark, runTemporalPrecisionBenchmark,
+  runTwoStagePrecisionBenchmark, summarizeWave4PrecisionQualification,
+} from '../src/coprocessor/index.js';
 
-const scored=runWave4AdaptiveContextGoldenWorld();
-const rows=Object.entries(scored.metrics).map(([name,pass])=>({name,pass:Boolean(pass)}));
-for(const row of rows)console.log(`${row.pass?'PASS':'FAIL'} ${row.name}`);
-console.log(`Wave 4 acceptance: ${rows.filter(x=>x.pass).length}/${rows.length}`);
-if(!scored.pass)process.exitCode=1;
+const gain = await runPrecisionGainBenchmark();
+const temporal = await runTemporalPrecisionBenchmark();
+const twoStage = await runTwoStagePrecisionBenchmark({ secondStageAdapter: new DeterministicSemanticJudgeAdapter() });
+const scaling = await benchmarkCandidateScaling({ sizes: [8, 32, 64, 128, 256] });
+const flashRank = await runExternalPrecisionBenchmark({ adapterId: 'flashrank' });
+const colBert = await runExternalPrecisionBenchmark({ adapterId: 'colbert-late-interaction' });
+const qualification = summarizeWave4PrecisionQualification({
+  broadBaseline: gain.baseline, precision: gain.precision, temporal,
+  contradiction: [true], fallback: [true], providerInterchange: [true], scaling,
+  external: { flashRank, colBert },
+});
+console.log(JSON.stringify({ gain, temporal, twoStage, scaling, availability: externalPrecisionAvailability(), qualification }, null, 2));

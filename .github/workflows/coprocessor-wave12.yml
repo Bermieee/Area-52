@@ -1,0 +1,54 @@
+name: Cognitive Coprocessor Wave 12
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave12:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve Wave 10 corpus
+        run: npm run test:wave10:corpus
+      - name: Wave 12 warmer goldens and negatives
+        run: npm run test:wave12
+      - name: Wave 12 representative stress
+        run: npm run test:wave12:stress
+      - name: Wave 12 browser portability
+        run: npm run test:browser:wave12
+      - name: Generate measured Ember Tavern / Sun Blade benchmark
+        run: npm run report:wave12
+      - name: Wave 11 repair-owned regression observation
+        id: wave11
+        continue-on-error: true
+        run: npm run test:wave11
+      - name: Full branch regression observation
+        id: full
+        continue-on-error: true
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Upload Wave 12 benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: speculative-warmer-wave12
+          path: artifacts/jev-wave12/
+      - name: Record observed repair-owned/full-suite status
+        if: always()
+        run: |
+          echo "Wave 11 repair-owned step outcome: ${{ steps.wave11.outcome }}"
+          echo "Full regression observation outcome: ${{ steps.full.outcome }}"

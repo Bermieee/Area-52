@@ -1,0 +1,51 @@
+name: Cognitive Coprocessor Wave 14
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave14:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve Wave 13 choice acceptance
+        run: npm run test:wave13
+      - name: Wave 14 connection and FT005 goldens
+        run: npm run test:wave14:connections
+      - name: Wave 14 local deterministic benchmark
+        run: npm run test:wave14:evaluation
+      - name: Wave 14 browser host portability
+        run: npm run test:browser:wave14
+      - name: Generate Wave 14 benchmark artifact
+        run: npm run report:wave14
+      - name: Opt-in measured live Jev connection smoke
+        id: live_smoke
+        continue-on-error: true
+        run: npm run smoke:sidecar-jev:live
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"
+      - name: Upload Wave 14 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-connection-wave14
+          path: artifacts/sidecar-connection-wave14/
+      - name: Record live-provider observation
+        if: always()
+        run: |
+          echo "Measured live Jev connection smoke observation: ${{ steps.live_smoke.outcome }}"

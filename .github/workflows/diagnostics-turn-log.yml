@@ -1,0 +1,58 @@
+name: Diagnostics Turn Log
+
+on:
+  push:
+    branches:
+      - main
+      - Development-Diagnostics-Turn-Log
+    paths:
+      - 'src/ui-core/demo-visibility.js'
+      - 'src/ui-core/turn-log-diagnostics.js'
+      - 'src/ui-core/wave6-runtime.js'
+      - 'src/ui-core/index.js'
+      - 'tests/turn-log-diagnostics.test.mjs'
+      - '.github/workflows/diagnostics-turn-log.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/ui-core/demo-visibility.js'
+      - 'src/ui-core/turn-log-diagnostics.js'
+      - 'src/ui-core/wave6-runtime.js'
+      - 'src/ui-core/index.js'
+      - 'tests/turn-log-diagnostics.test.mjs'
+      - '.github/workflows/diagnostics-turn-log.yml'
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Record exact tested head
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          echo "Expected: $EXPECTED_HEAD"
+          echo "Actual:   $(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Selected-turn diagnostics regressions
+        run: node --test tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs
+      - name: Preserve client-load repair contracts
+        run: node --test tests/client-repair-wave2.test.mjs
+      - name: Host and operator stress
+        run: node --test tests/wave12-sillytavern-host-stress.mjs tests/wave13-operator-ui-stress.mjs
+      - name: Browser-facing imports
+        run: |
+          node --input-type=module -e "await import('./src/ui-core/demo-visibility.js'); await import('./src/ui-core/turn-log-diagnostics.js'); await import('./src/ui-core/wave6-runtime.js'); await import('./src/ui-core/index.js');"
+      - name: Changed-surface syntax
+        run: |
+          node --check src/ui-core/demo-visibility.js
+          node --check src/ui-core/turn-log-diagnostics.js
+          node --check src/ui-core/wave6-runtime.js
+          node --check src/ui-core/index.js
+          node --check tests/turn-log-diagnostics.test.mjs

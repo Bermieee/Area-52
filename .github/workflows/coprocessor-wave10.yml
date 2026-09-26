@@ -1,0 +1,47 @@
+name: Cognitive Coprocessor Wave 10
+
+on:
+  push:
+    branches:
+      - Development-Sidecar/Jev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave10:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 8 accepted-checkpoint regression
+        run: npm run test:wave8
+      - name: Wave 9 candidate regression
+        run: npm run test:wave9
+      - name: Wave 10 corpus
+        run: npm run test:wave10:corpus
+      - name: Wave 10 provider qualification
+        run: npm run test:wave10:provider
+      - name: Wave 10 browser safety
+        run: npm run test:browser:wave10
+      - name: Generate reproducible evaluation report
+        run: npm run report:wave10
+      - name: Opt-in live Jev provider smoke
+        run: npm run smoke:jev:live
+      - name: Upload Wave 10 evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jev-wave10-evaluation
+          path: artifacts/jev-wave10/
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"

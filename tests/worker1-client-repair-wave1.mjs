@@ -80,6 +80,15 @@ test('current scene revision replaces stale external source evidence while chat/
   const bindings=brain.uiBindings();
   assert.equal(bindings.readPromptPlan({...second.selection,generationId:first.selection.generationId}),null,'regeneration identity mismatch must not reuse a plan');
   assert.equal(bindings.readContextSeal({...second.selection,chatId:'foreign-chat'}),null,'chat switch must not reuse a seal');
+  assert.equal(
+    bindings.readContextSeal({...second.selection,sourceRevisionRefs:[...second.selection.sourceRevisionRefs,r1]}),
+    null,
+    'a selected-turn read that reintroduces a retired source revision must be rejected',
+  );
+  const historicalFirst=bindings.readSelectedTurnReceipt(first.selection);
+  assert.ok(historicalFirst,'the exact prior turn remains inspectable by its own immutable identity');
+  assert.equal(historicalFirst.producers.scene.id,first.scene.lastReceiptId??first.scene.sceneId,'historical selected-turn diagnostics must use that turn Scene producer, not the newer live Scene');
+  assert.notEqual(historicalFirst.producers.scene.id,second.scene.lastReceiptId??second.scene.sceneId,'a later Scene must not fill an older selected turn');
 
   const late=createCognitiveResult({
     id:'late:worker1-wave1',taskId:'late-task',turnId:second.selection.turnId,correlationId:second.selection.correlationId,

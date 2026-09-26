@@ -38,3 +38,5 @@ export * from './qualification.js';
 export * from './transition-handoff.js';
 export * from './jev-owner.js';
 export * from './operator-service.js';
+
+export * from './research-evaluation.js';

@@ -1032,11 +1032,15 @@ export class DevelopmentDeploymentSillyTavernSession {
       delete merged.loreAuthoringHost;delete merged.loreAuthoringOperator;
     }
     for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
-    const deploymentSceneReader=typeof base.readScene==='function'?base.readScene:null;
-    merged.readScene=(selection={})=>{
-      const direct=deploymentSceneReader?.(selection);
-      if(direct?.kind==='SceneUiReadModel')return direct;
-      return sceneUiReadModelForSelection(this.brain?.scene,selection);
+    const selectedSceneReader=typeof merged.readScene==='function'?merged.readScene:null;
+    if(selectedSceneReader)merged.readScene=(selection={})=>{
+      const model=selectedSceneReader(selection);if(!model||model.kind!=='SceneUiReadModel')return null;
+      if(selection?.chatId&&model.chatId&&String(model.chatId)!==String(selection.chatId))return null;
+      const modelSceneRevision=model.sceneRevision??model.revision??null;
+      if(selection?.sceneRevision!=null&&modelSceneRevision!=null&&Number(modelSceneRevision)!==Number(selection.sceneRevision))return null;
+      const expectedRefs=new Set((selection?.sourceRevisionRefs??[]).map(String)),actualRefs=[...(model.sourceRevisionRefs??[])].map(String);
+      if(expectedRefs.size&&actualRefs.some(ref=>!expectedRefs.has(ref)))return null;
+      return{...clone(model),chatId:selection?.chatId??model.chatId??null,turnId:selection?.turnId??model.turnId??null,generationId:selection?.generationId??model.generationId??null,correlationId:selection?.correlationId??model.correlationId??null,sceneRevision:modelSceneRevision};
     };
     const nativeSelectedTurnReader=typeof merged.readSelectedTurnReceipt==='function'?merged.readSelectedTurnReceipt:null;
     if(nativeSelectedTurnReader)merged.readSelectedTurnReceipt=(selection={})=>{

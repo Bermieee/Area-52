@@ -1,0 +1,79 @@
+name: Worker 3 Client Repair Wave 3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/ui-core/**'
+      - 'styles/ui-core*.css'
+      - 'tests/demo-visibility.test.mjs'
+      - 'tests/wave8.test.mjs'
+      - 'tests/wave13-operator-ui.test.mjs'
+      - '.github/workflows/client-repair-wave3.yml'
+  push:
+    branches: [Development-Client-Repair-3]
+  workflow_dispatch:
+
+concurrency:
+  group: client-repair-wave3-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  selected-turn-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Focused evidence journal and Inspect acceptance
+        run: npm run test:demo-visibility
+      - name: Intentional Jev skip acceptance
+        run: node --test --test-name-pattern='JEV_NOT_REQUIRED' tests/wave8.test.mjs
+      - name: Worker 3 selected-turn UI scenarios
+        run: >
+          node --test
+          --test-name-pattern='floating collapse releases|Home Inspect details|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|local evidence journal survives|Diagnostics drilldown|Diagnostics exposes safe foreign|Diagnostics Center follows chat switches|Worker 2 typed provider failure'
+          tests/wave13-operator-ui.test.mjs
+      - name: Live-like host selection and remount scenarios
+        run: >
+          node --test
+          --test-name-pattern='mount, duplicate mount, destroy and remount|chat switch drops stale|same-turn owner receipt update|wrong-generation Cognitive Choice|Gather late/Seal admission conflict|routine host telemetry'
+          tests/wave12-sillytavern-host.test.mjs
+      - name: Browser-facing imports
+        run: >
+          node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined;
+          Promise.all([
+          import('./src/ui-core/index.js'),
+          import('./src/ui-core/demo-visibility.js'),
+          import('./src/ui-core/wave8-cognition.js'),
+          import('./src/ui-core/wave8-production-adapters.js'),
+          import('./src/ui-core/wave13-operator-adapters.js'),
+          import('./src/ui-core/wave13-operator-surfaces.js'),
+          import('./src/ui-core/wave13-floating-navigation.js')
+          ]).then(()=>console.log('WORKER 3 UI IMPORT PASS'))"
+      - name: Focused syntax
+        run: >
+          node --check src/ui-core/demo-visibility.js &&
+          node --check src/ui-core/notifications.js &&
+          node --check src/ui-core/wave6-front-face.js &&
+          node --check src/ui-core/wave6-presentation.js &&
+          node --check src/ui-core/wave6-runtime.js &&
+          node --check src/ui-core/wave8-cognition.js &&
+          node --check src/ui-core/wave8-production-adapters.js &&
+          node --check src/ui-core/wave13-floating-navigation.js &&
+          node --check src/ui-core/wave13-operator-adapters.js &&
+          node --check src/ui-core/wave13-operator-surfaces.js &&
+          node --check tests/demo-visibility.test.mjs &&
+          node --check tests/wave8.test.mjs &&
+          node --check tests/wave13-operator-ui.test.mjs

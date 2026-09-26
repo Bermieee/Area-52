@@ -283,6 +283,12 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
   ]));
+  const latestTest=String(row.lastTest?.status??'').toUpperCase();
+  if(latestTest){
+    const failed=latestTest==='FAIL'||latestTest==='FAILED'||latestTest==='ERROR';
+    const detail=failed?String(row.lastFailure?.message??row.reason??row.lastTest?.failureCode??'Provider check failed.'):row.lastTest?.latencyMs!=null?'Owner test passed in '+String(row.lastTest.latencyMs)+' ms.':'Owner test passed.';
+    card.append(message(d,'Latest connection test: '+latestTest,detail,failed?'error':'ready'));
+  }
   if(!row.selectedModelQualified&&row.connected)card.append(message(d,'Connected is not qualified','Worker 2 reports a connection, but the selected model is not currently qualified. Requalify before treating this resource as callable.','warning'));
   else if(!row.callable)card.append(message(d,'Resource is not callable','Worker 2 does not currently consider this resource callable. Refresh models, select a valid model if needed, then requalify and Test.','warning'));
 
@@ -426,7 +432,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   const jobs=scatter?.jobs??[],resourceIds=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))],gatherRows=gather?.results??[];
   const summary=element(d,'div',{className:'a52-wave13-flow-summary'});
   summary.append(flowStep(d,'Choice',choice?String(choice.admitted?.length??0)+' admitted · '+String(choice.skipped?.length??0)+' skipped':'No Choice receipt'),
-    flowStep(d,'Fan-out',scatter?jobs.length+' logical jobs → '+resourceIds.length+' physical resources':'No Scatter receipt'),
+    flowStep(d,'Fan-out',scatter?jobs.length+' logical jobs → '+resourceIds.length+' mapped resource identit'+(resourceIds.length===1?'y':'ies'):'No Scatter receipt'),
     flowStep(d,'Gather',gather?String(gather.counts?.ADMITTED??0)+' admitted · '+String((gather.counts?.LATE??0)+(gather.counts?.STALE??0)+(gather.counts?.REJECTED??0)+(gather.counts?.INVALID??0))+' contained':'No Gather receipt'));
   section.append(summary);
 
@@ -438,7 +444,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
   }
 
   if(jobs.length){
-    section.append(element(d,'h3',{text:'Logical jobs / physical mapping'}));
+    section.append(element(d,'h3',{text:'Logical jobs / published resource mapping'}));
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const job of jobs){
       const row=element(d,'div',{className:'a52-wave13-flow-row'});

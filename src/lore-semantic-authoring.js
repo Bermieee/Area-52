@@ -461,6 +461,11 @@ export class LoreSemanticCompiler {
       fromRevisionId: current.id,
       toRevisionId: nextRevision.id,
     });
+    const semanticImpact = previewCompiler.semanticImpactPlan({
+      sourceId,
+      fromRevisionId: current.id,
+      toRevisionId: nextRevision.id,
+    });
 
     const afterStatus = preview.status();
     const beforeBySource = new Map(beforeStatus.entries.map((row) => [row.sourceId, row]));
@@ -491,6 +496,7 @@ export class LoreSemanticCompiler {
         compilationCount: study.compilations?.length || 0,
       },
       semanticChange: report,
+      semanticImpact,
       unaffectedSources: unaffected,
       allPreviouslyReadyUnrelatedSourcesRemainReady: unaffected.every((row) => row.remainsReady),
       previewOnly: true,

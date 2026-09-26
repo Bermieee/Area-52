@@ -25,11 +25,18 @@ async function run(root,port,label,browser){
     const page=await browser.newPage();
     await page.goto('http://127.0.0.1:'+port+'/',{waitUntil:'domcontentloaded'});
     const result=await page.evaluate(async({label,origin})=>{
-      const mod=await import(origin+'/src/coprocessor/index.js');
-      const {
-        Capability,CoprocessorChoiceDisposition,CoprocessorTelemetry,NativeSidecarSwarm,Placement,ResultClass,
-        createCognitiveTask,createCoprocessorChoiceProposal,createTurnEnvelope,createWorkerResult,
-      }=mod;
+      const [constants,telemetryModule,swarmModule,contractsModule,choiceModule]=await Promise.all([
+        import(origin+'/src/coprocessor/constants.js'),
+        import(origin+'/src/coprocessor/telemetry.js'),
+        import(origin+'/src/coprocessor/native-sidecar-swarm.js'),
+        import(origin+'/src/coprocessor/contracts.js'),
+        import(origin+'/src/coprocessor/cognitive-choice-proposal.js'),
+      ]);
+      const {Capability,Placement,ResultClass}=constants;
+      const {CoprocessorTelemetry}=telemetryModule;
+      const {NativeSidecarSwarm}=swarmModule;
+      const {createCognitiveTask,createTurnEnvelope,createWorkerResult}=contractsModule;
+      const {CoprocessorChoiceDisposition,createCoprocessorChoiceProposal}=choiceModule;
       const now=Date.now();
       const turn=createTurnEnvelope({
         turnId:'bench:turn',correlationId:'bench:corr',eventId:'bench:event',createdAt:now,deadline:now+10000,

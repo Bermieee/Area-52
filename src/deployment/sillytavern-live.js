@@ -277,33 +277,44 @@ function registerNarrativeSource(brain, { chatId, message }) {
   return { ...identity, sourceRevisionId: imported.revision.id };
 }
 
-function applyNativeScene(brain, { chatId, message, sourceRevisionId }) {
+function applyNativeScene(brain, { chatId, message, sourceRevisionId = null, activity = HostActivity.USER_SEND, messageRevision = 1, turnId = null, hostEventId = null } = {}) {
   const prior = brain.scene.integrationSignal(chatId);
-  const nextRevision = Number(prior?.sceneRevision ?? 0) + 1;
-  const parsed = extractDevelopmentDeploymentScene(message.text, { revision: nextRevision, evidenceRef: sourceRevisionId });
-  if (!parsed.explicit) {
-    const signal = prior ?? brain.ensureScene({ chatId, sourceRevisionId });
-    return {
-      observed: false,
-      initialized: !prior,
-      parsed,
-      signal,
-      delta: null,
-      reason: prior ? 'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT' : 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS',
-    };
-  }
-
-  const location = parsed.fields.location.value;
-  const observed = brain.observeScene({
+  const identity = sourceIdentity(chatId, message);
+  let parsed = null;
+  const receipt = brain.ingestSceneHostEvent({
+    activity,
     chatId,
-    sourceRevisionId,
-    location,
-    activeCast: prior?.activeCast ?? [],
-    activeThreads: prior?.activeThreads ?? [],
-    objects: prior?.objects ?? [],
-    atmosphere: null,
+    hostEventId: hostEventId ?? ['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':'),
+    messageId: identity.messageKey,
+    messageRevision,
+    turnId: turnId ?? ['scene-turn',chatId,identity.messageKey,messageRevision].join(':'),
+    content: message.text,
+    role: message.role ?? 'user',
+  },{
+    extract:(e,scene)=>{
+      parsed=extractDevelopmentDeploymentScene(e.content,{
+        revision:scene.revision+1,
+        evidenceRef:e.sourceRevisionId,
+        currentScene:scene,
+        sceneRuntime:brain.scene,
+      });
+      return parsed;
+    },
   });
-  return { observed: true, initialized: false, parsed, signal: observed, delta: observed.delta ?? null, reason: 'HOST_LOCATION_OBSERVED' };
+  const signal = receipt.signal ?? prior ?? (sourceRevisionId ? brain.ensureScene({ chatId, sourceRevisionId }) : null);
+  const observed = receipt.status === 'OBSERVED';
+  const initialized = !prior && Boolean(signal);
+  return {
+    ...receipt,
+    observed,
+    initialized,
+    parsed: parsed ?? {explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'},
+    signal,
+    delta: receipt.delta ?? null,
+    reason: observed
+      ? (receipt.transition ? 'HOST_SCENE_TRANSITION_OBSERVED' : 'HOST_SCENE_FIELDS_OBSERVED')
+      : (initialized ? 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS' : receipt.noWorkReason ?? 'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT'),
+  };
 }
 
 async function injectPrompt(context, result) {

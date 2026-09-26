@@ -1,7 +1,7 @@
 import {ArtifactType, deepClone, stableHash, stableStringify} from './lore-contracts.js';
 import {semanticDiff} from './lore-study-engine.js';
 import {LoreIntelligenceService} from './lore-intelligence-service.js';
-import {LoreInvalidationTarget, sourceRevisionIdentity} from './lore-authoring-contracts.js';
+import {LoreInvalidationTarget, sourceRevisionIdentity} from './lore-authoring-contracts.js';\nimport {LoreSemanticImpactPlanner} from './lore-semantic-impact-planner.js';
 
 function splitSentences(content) {
   return String(content || '')
@@ -235,7 +235,7 @@ export class LoreSemanticCompiler {
     this.intelligence = intelligence;
   }
 
-  sourceIdentity(sourceId, revisionId = null) {
+  semanticImpactPlan(request = {}) {\n    return this.impactPlanner.plan(request);\n  }\n\n  sourceIdentity(sourceId, revisionId = null) {
     return sourceRevisionIdentity(this.intelligence.runtime.registry, sourceId, revisionId);
   }
 

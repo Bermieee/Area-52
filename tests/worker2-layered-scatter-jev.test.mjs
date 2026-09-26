@@ -274,6 +274,10 @@ test('checkpoint execution ledger suppresses duplicate physical work across repl
   const replayed=await reloaded.executeCheckpoint(JSON.parse(JSON.stringify(prepared.checkpoint)),{currentRevisionState:t,selection:prepared.checkpoint.selection,inputResolver:()=>({})});
   assert.equal(reloadConnections.stats().physical,0);
   assert.equal(replayed.contribution.proposalId,first.contribution.proposalId);
+  const wrongSelection=await reloaded.executeCheckpoint(JSON.parse(JSON.stringify(prepared.checkpoint)),{currentRevisionState:t,selection:{...prepared.checkpoint.selection,chatId:'chat:other'},inputResolver:()=>({})});
+  assert.equal(reloadConnections.stats().physical,0);
+  assert.equal(wrongSelection.contribution.resumeStatus,'SELECTION_REJECTED');
+  assert.ok(wrongSelection.contribution.resultSummary.every(row=>row.state===NativeSwarmResultState.REJECTED_STALE));
 
   const nextTurn=turn('replay-next');
   await reloaded.runTurn({turnEvent:nextTurn,plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION',selection:{chatId:'chat:replay',generationId:'gen:2'}},currentRevisionState:nextTurn,inputResolver:()=>({})});

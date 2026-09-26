@@ -126,11 +126,15 @@ export class SensoryNetBackbone{
   #warmGraphNeighborhood(envelope,graphReceipt){
     if(!graphReceipt||!this.hotCognition?.hasActiveChat)return null;
     const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
+    const prior=this.hotCognition?.snapshot?.()?.segments?.GRAPH_NEIGHBORHOOD??null;
+    const mergePrior=Boolean(prior?.freshness==='FRESH'&&prior?.value?.state==='AVAILABLE'&&!(graphReceipt?.staleRejectedCount>0));
     const refs=uniq([
+      ...(mergePrior?(prior?.value?.refs??[]):[]),
       ...rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))),
       ...(graphReceipt?.hotNeighborhoodRefs??[]),
     ]);
     const sourceRevisionRefs=uniq([
+      ...(mergePrior?(prior?.sourceRevisionRefs??[]):[]),
       ...rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]),
       ...(graphReceipt?.hotNeighborhoodSourceRevisionRefs??[]),
     ]);
@@ -138,13 +142,17 @@ export class SensoryNetBackbone{
       ...rows.flatMap(candidate=>candidate.identityRevisionRefs??[]),
       ...(graphReceipt?.hotNeighborhoodIdentityRevisionRefs??[]),
     ]);
+    const dependencyRevisionRefs=uniq([
+      ...(mergePrior?(prior?.dependencyRevisionRefs??[]):[]),
+      ...(graphReceipt?.hotNeighborhoodDependencyRevisionRefs??[]),
+    ]);
     const provenanceRefs=uniq(rows.flatMap(candidate=>[
       ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
       ...(candidate.evidenceRefs??[]),
     ]));
     const degraded=(graphReceipt.providers??[]).some(row=>row?.status==='DEGRADED');
     return this.hotCognition.setGraphNeighborhood({
-      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,identityRevisionRefs,provenanceRefs,
+      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,identityRevisionRefs,dependencyRevisionRefs,provenanceRefs,
       updateId:'graph-warm:'+stableHash({candidateSetId:envelope?.candidateSetId??null,worldRevision:envelope?.worldRevision??null,sceneRevision:envelope?.sceneRevision??null,refs},{length:20}),
     });
   }

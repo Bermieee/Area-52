@@ -99,6 +99,7 @@ test('layered NativeSidecarSwarm caps per-layer concurrency, admits Gather conti
   const lastExpansion=stats.starts.map(row=>row.layer).lastIndexOf(ScatterLayer.EXPANSION);
   assert.ok(firstPrecision>lastExpansion,`precision index ${firstPrecision}, expansion index ${lastExpansion}`);
   assert.equal(result.contribution.resultsForOwner.length,0);
+  assert.equal(result.contribution.ownerAdmissionRequired,false);
   assert.ok(result.contribution.continuousOwnerAdmissions.some(row=>row.acceptedByOwner));
   assert.ok(result.checkpoint?.pendingTasks.every(row=>row.resultClass==='DEFERRED'));
   assert.equal(stats.starts.some(row=>row.taskType==='CONSOLIDATION'),false);

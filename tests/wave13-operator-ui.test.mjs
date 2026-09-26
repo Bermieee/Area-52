@@ -882,7 +882,7 @@ test('Jev Sidecar and Vectoring saved locks survive reload without serializing p
   ui.shell.selectWorkspace('connections');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
   const body=textOf(ui.shell.nodes.workspace);
   for(const label of ['Jev','Sidecar','Vectoring'])assert.match(body,new RegExp(label));
-  assert.match(body,/SAVED LOCK/);assert.match(body,/Saved across reloads Yes/);assert.match(body,/API keys are intentionally not serialized/);
+  assert.match(body,/SAVED LOCK/);assert.match(body,/Saved across reloads Yes/);assert.match(body,/API keys are intentionally not serialized/);assert.match(body,/Forget saved lock/);
   assert.doesNotMatch(body,/secret-value/);
   ui.destroy();
 

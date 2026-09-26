@@ -75,7 +75,7 @@ export function createWave6ProductInterface({
   const loreStudy=hostBindings?new Wave13LoreStudyUIAdapter({bindings:hostBindings,selectionProvider}):null;
   const loreAuthoring=hostBindings?new Wave13LoreAuthoringUIAdapter({bindings:hostBindings}):null;
   const memoryOwner=hostBindings?new Wave13MemoryUIAdapter({bindings:hostBindings,selectionProvider}):null;
-  const resources=hostBindings?new Wave13ResourceControlAdapter({bindings:hostBindings}):null;
+  const resources=hostBindings?new Wave13ResourceControlAdapter({bindings:hostBindings,stateStore}):null;
   const productAdapter=new Wave6ProductAdapter({
     scene,runtime,coprocessor,promptPlan,forensics,
     story:effectiveBridges.story??null,characters:effectiveBridges.characters??null,lore:loreStudy??effectiveBridges.lore??null,memory:memoryOwner??effectiveBridges.memory??null,world:effectiveBridges.world??null,
@@ -147,6 +147,8 @@ export function createWave6ProductInterface({
     controller?.scheduleQuickDash?.();
   },{cost:'NORMAL'});
   const resourceRelease=resources?.subscribe?.(()=>operatorRefresh('resources'));if(typeof resourceRelease==='function')cognitionScope.add(resourceRelease);
+  const resourceRestore=resources?.restoreSavedProfiles?.();
+  if(resourceRestore&&typeof resourceRestore.then==='function')resourceRestore.then(()=>operatorRefresh('resources')).catch(()=>operatorRefresh('resources'));
   const loreRelease=loreStudy?.subscribe?.(()=>operatorRefresh('lore'));if(typeof loreRelease==='function')cognitionScope.add(loreRelease);
   const memoryRelease=memoryOwner?.subscribe?.(()=>operatorRefresh('memory'));if(typeof memoryRelease==='function')cognitionScope.add(memoryRelease);
 

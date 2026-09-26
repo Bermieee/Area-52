@@ -91,6 +91,22 @@ test('selected-turn export distinguishes six native jobs from zero optional prov
   assert.match(json,/JEV_NOT_REQUIRED/);
 });
 
+test('failed optional execution stays distinct from intentional Jev skip and owner acceptance',()=>{
+  const journal=new DemoEvidenceJournal({storage:countingStorage(),namespace:'failed-resource',now:()=>2500});
+  const snap=representativeSnapshot();
+  snap.diagnostics.resources.rows=snap.diagnostics.resources.rows.map(row=>row.kind==='SIDECAR'?{
+    ...row,physicalExecutionAttempted:true,physicalExecutionSucceeded:false,ownerAccepted:false,
+    lastExecution:{status:'FAIL',executionId:'sidecar:failed:1',latencyMs:37},
+    lastFailure:{status:'FAIL',code:'PROVIDER_UNAVAILABLE'},
+  }:row);
+  const turn=journal.recordSnapshot({selection,...snap});
+  const lifecycle=turn.entries.find(row=>row.type==='OPTIONAL_RESOURCE_LIFECYCLE');
+  const jev=lifecycle.metadata.resources.find(row=>row.kind==='JEV');
+  const sidecar=lifecycle.metadata.resources.find(row=>row.kind==='SIDECAR');
+  assert.equal(jev.skipReason,'JEV_NOT_REQUIRED');assert.equal(jev.attempted,false);assert.equal(jev.failed,false);
+  assert.equal(sidecar.attempted,true);assert.equal(sidecar.succeeded,false);assert.equal(sidecar.failed,true);assert.equal(sidecar.ownerAccepted,false);
+});
+
 test('cognition UI projection consumes a bounded recent telemetry window while full telemetry remains available on demand',()=>{
   const telemetry=new CoprocessorTelemetry({limit:2000});
   for(let i=0;i<2000;i+=1)telemetry.emit(TelemetryEvent.PROVIDER_HEALTH,{providerProfileId:'provider:'+i,health:'HEALTHY'});

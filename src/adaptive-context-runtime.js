@@ -11,9 +11,9 @@ export { CorePresentationRouter,createCorePromptDeliveryReceipt,attachObservedHo
 
 export class ContextDeliveryEngine extends PromptPlanner{
   constructor(options={}){super(options);this.adapterRegistry=options.adapterRegistry??new ModelAdapterRegistry();this.presentationRouter=options.presentationRouter??new CorePresentationRouter({profileRegistry:this.profileRegistry});}
-  render({plan,profile=null,adapterOverride=null}){
+  render({plan,profile=null,adapterOverride=null,routing=null}){
     if(!plan)throw new TypeError('plan is required');const resolvedProfile=profile??this.profileRegistry.get(plan.modelProfileId);if(!resolvedProfile)return{ok:false,status:DeliveryStatus.PROFILE_UNAVAILABLE,failure:{code:'MODEL_PROFILE_UNAVAILABLE'}};const adapter=adapterOverride??this.adapterRegistry.get(resolvedProfile.adapterId);if(!adapter)return{ok:false,status:DeliveryStatus.ADAPTER_FAILED,failure:{code:'MODEL_ADAPTER_UNAVAILABLE',adapterId:resolvedProfile.adapterId}};
-    try{const rendered=adapter.render(plan),adapterIntegrityReceipt=this.integrityGuard.validateAdapter({plan,rendered});if(!adapterIntegrityReceipt.valid)return{ok:false,status:DeliveryStatus.INTEGRITY_REJECTED,failure:{code:'ADAPTER_SEMANTIC_MUTATION',violations:adapterIntegrityReceipt.violations},rendered,adapterIntegrityReceipt};return{ok:true,status:DeliveryStatus.READY,rendered:Object.freeze(rendered),adapterIntegrityReceipt};}
+    try{const rendered=adapter.render(plan,{profile:resolvedProfile,routing}),adapterIntegrityReceipt=this.integrityGuard.validateAdapter({plan,rendered});if(!adapterIntegrityReceipt.valid)return{ok:false,status:DeliveryStatus.INTEGRITY_REJECTED,failure:{code:'ADAPTER_SEMANTIC_MUTATION',violations:adapterIntegrityReceipt.violations},rendered,adapterIntegrityReceipt};return{ok:true,status:DeliveryStatus.READY,rendered:Object.freeze(rendered),adapterIntegrityReceipt};}
     catch(error){return{ok:false,status:DeliveryStatus.ADAPTER_FAILED,failure:{code:'MODEL_ADAPTER_THROW',message:String(error?.message??error)}};}
   }
   deliver(input){
@@ -24,7 +24,7 @@ export class ContextDeliveryEngine extends PromptPlanner{
     const plannerProfileId=routing.reason==='EXPLICIT_COMPATIBLE_FALLBACK'?(input?.modelProfileId??routing.selectedProfileId):routing.selectedProfileId;
     const planned=this.createPlan({...input,modelProfileId:plannerProfileId});
     if(!planned.ok)return{...planned,presentationRouting:routing};
-    const rendered=this.render({plan:planned.plan,profile:planned.profile});
+    const rendered=this.render({plan:planned.plan,profile:planned.profile,routing});
     if(!rendered.ok)return{...planned,...rendered,presentationRouting:routing,ok:false};
     const receipt=createCorePromptDeliveryReceipt({plan:planned.plan,rendered:rendered.rendered,routing,sealedPacket:input?.sealedPacket??null});
     return{...planned,...rendered,presentationRouting:routing,receipt,ok:true,status:DeliveryStatus.READY};

@@ -5,7 +5,7 @@ import {CognitiveChoiceController} from '../src/cognitive-choice-controller.js';
 import {CognitiveDisposition,CognitiveJob,CognitiveReason} from '../src/cognitive-choice-contracts.js';
 import {ContextDeliveryEngine} from '../src/adaptive-context-runtime.js';
 import {GenerationContextSeal} from '../src/context-seal.js';
-import {CAPABILITIES,CausalReceiptKind,CognitiveObligationReconciler,MemoryPersistenceAdapter,WorkerDirector} from '../src/runtime/index.js';
+import {CAPABILITIES,CausalReceiptKind,CognitiveObligationReconciler,CognitiveRuntimeHost,MemoryPersistenceAdapter,WorkerDirector} from '../src/runtime/index.js';
 
 const scene=(id,revision=1,extra={})=>({sceneId:id,sceneRevision:revision,sourceRevisionRefs:['scene:'+id+':r'+revision],activeCast:['Mara'],location:id,...extra});
 
@@ -106,4 +106,54 @@ test('Worker 1 #264 provider chat rendering maps semantic context to supported r
   assert.ok(delivery.rendered.messageMap.some(row=>row.semanticRole==='context'&&row.providerRole==='system'));
   assert.equal(delivery.rendered.sealedPacketHash,sealed.receipt.packetHash);
   assert.deepEqual(delivery.receipt.unsupportedProviderRoles,[]);
+});
+
+test('Worker 1 #262 expected owner declarations survive reload without inventing an executor',()=>{
+  const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1}}),reconciler=new CognitiveObligationReconciler({director});
+  reconciler.declare({expectedId:'memory:post-turn',owner:'MEMORY',ownerSignalId:'memory:completed-generation',cause:{chatId:'chat:p',turnId:'turn:p',generationId:'gen:p',correlationId:'corr:p',worldRevision:4,sceneRevision:2,sourceRevisionRefs:['narrative:r4']},obligation:{taskType:'MEMORY_POST_TURN',layer:'L2',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'memory:post-turn:r4'}});
+  const restored=new CognitiveObligationReconciler({director,snapshot:JSON.parse(JSON.stringify(reconciler.snapshot()))});
+  const receipt=restored.list()[0];
+  assert.equal(receipt.expectedId,'memory:post-turn');assert.equal(receipt.status,'DUE');assert.equal(receipt.reasonCode,'TASK_NOT_ADMITTED');
+  assert.equal(receipt.cause.generationId,'gen:p');assert.deepEqual(receipt.cause.sourceRevisionRefs,['narrative:r4']);
+});
+
+test('Worker 1 #263 exact host observation and delivery evidence complete the selected-turn causal trace without raw prompt telemetry',async()=>{
+  const brain=new Area52NativeBrain();
+  const prepared=await brain.prepareTurn({chatId:'chat:trace',turnId:'trace:1',generationId:'gen:trace:1',query:'Continue',scene:scene('trace'),providerId:'OpenRouter',executionLabel:'DETERMINISTIC'});
+  brain.recordHostObservationEvidence('trace:1',{eventId:'host:trace:1',chatId:'chat:trace',turnId:'trace:1',generationId:'gen:trace:1',correlationId:prepared.selection.correlationId,worldRevision:prepared.selection.worldRevision,sceneRevision:prepared.selection.sceneRevision,durationMs:3});
+  const delivery=brain.recordObservedHostPromptEvidence('trace:1',{host:'SILLYTAVERN',chatId:'chat:trace',turnId:'trace:1',generationId:'gen:trace:1',correlationId:prepared.selection.correlationId,contextSealId:prepared.contextSealReceipt.id,sealedPacketHash:prepared.promptDeliveryReceipt.sealedPacketHash,semanticManifestIdentity:prepared.promptDeliveryReceipt.semanticManifestIdentity,requestId:'request:trace:1',observedRoles:[...new Set(prepared.rendered.messages.map(row=>row.role))],observedSections:prepared.rendered.messageMap.map(row=>row.slot),live:false});
+  assert.equal(delivery.status,'OBSERVED_MATCH');assert.equal(delivery.observedHostDelivery.identityCompatible,true);
+  await brain.completeTurn({turnId:'trace:1',response:'The scene continues.'});
+  const trace=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:trace',turnId:'trace:1',generationId:'gen:trace:1'});
+  assert.equal(trace.producers.hostObservation.status,'PUBLISHED');assert.equal(trace.producers.delivery.status,'OBSERVED');assert.equal(trace.producers.delivery.metadata.matching,true);assert.equal(trace.producers.learning.status,'PUBLISHED');
+  assert.equal(trace.rawPromptIncluded,false);assert.equal(trace.storyTextIncluded,false);assert.equal(trace.credentialsIncluded,false);assert.equal(trace.hiddenReasoningIncluded,false);
+});
+
+test('Worker 1 #263/#264 host delivery evidence rejects cross-generation identity and low-level receipt records mismatch',async()=>{
+  const brain=new Area52NativeBrain();
+  const prepared=await brain.prepareTurn({chatId:'chat:id',turnId:'id:1',generationId:'gen:id:1',query:'Continue',scene:scene('id'),providerId:'OpenRouter',executionLabel:'DETERMINISTIC'});
+  const mismatch=brain.attachObservedHostPromptEvidence(prepared.promptDeliveryReceipt,{chatId:'chat:id',turnId:'id:1',generationId:'gen:wrong',contextSealId:prepared.contextSealReceipt.id,sealedPacketHash:prepared.promptDeliveryReceipt.sealedPacketHash,semanticManifestIdentity:prepared.promptDeliveryReceipt.semanticManifestIdentity,observedRoles:['system','user']});
+  assert.equal(mismatch.status,'OBSERVED_MISMATCH');assert.equal(mismatch.observedHostDelivery.identityCompatible,false);
+  assert.throws(()=>brain.recordObservedHostPromptEvidence('id:1',{generationId:'gen:wrong'}),/HOST_DELIVERY_IDENTITY_MISMATCH:generationId/);
+});
+
+test('Worker 1 #263 Scatter maps physical Runtime evidence only when an exact turn/generation task actually ran',async()=>{
+  const brain=new Area52NativeBrain();
+  const prepared=await brain.prepareTurn({chatId:'chat:scatter',turnId:'scatter:1',generationId:'gen:scatter:1',query:'Recall where the archive was before this scene.',intent:'TEMPORAL',scene:scene('scatter',2,{relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC'});
+  assert.ok(prepared.cognitiveChoice.admittedJobs.includes('RETRIEVAL'));
+  const admission=brain.runtimeDirector.submit({taskType:'RETRIEVAL',owner:'COGNITIVE_CORE',producerId:'COGNITIVE_CHOICE',layer:'L1',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'scatter:physical:retrieval',cause:{chatId:'chat:scatter',turnId:'scatter:1',generationId:'gen:scatter:1',correlationId:prepared.selection.correlationId,worldRevision:prepared.selection.worldRevision,sceneRevision:prepared.selection.sceneRevision,sourceRevisionRefs:prepared.selection.sourceRevisionRefs}},{execute:async()=>['ok'],validate:async()=>true,commit:async()=>({output:{receiptId:'retrieval:return:1'},validation:{valid:true}})});
+  await brain.runtimeDirector.drain({maxCycles:32});brain.runtimeDirector.recordOwnerAdmission(admission.task.taskId,{accepted:true,receiptId:'retrieval:owner:1'});
+  const scatter=brain.uiBindings().readScatter({chatId:'chat:scatter',turnId:'scatter:1',generationId:'gen:scatter:1'}),retrieval=scatter.jobs.find(row=>row.jobId==='RETRIEVAL');
+  assert.equal(retrieval.physicalExecutionEvidence,'EVIDENCE');assert.ok(retrieval.taskIds.includes(admission.task.taskId));assert.ok(['LATE','OWNER_ACCEPTED','RETURNED'].includes(retrieval.status));assert.ok(scatter.resourceCount>=1);
+});
+
+test('Worker 1 Scatter load probe measures eager pre-Seal queue pressure without changing routing policy',()=>{
+  const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1}}),host=new CognitiveRuntimeHost({director});
+  const turn={turnId:'turn:load',eventId:'event:load',correlationId:'corr:load',sourceRevisionSet:['scene:load:r1'],worldRevision:1,sceneRevision:1,characterStateRevision:1,createdAt:1,deadline:9999999999999,cognitiveLayer:'L1',dedupeKey:'turn:load'};
+  const mk=(id,resultClass,layer='L1')=>({taskId:'load:'+id,taskType:id.toUpperCase(),turnId:turn.turnId,correlationId:turn.correlationId,requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],resultClass,cognitiveLayer:layer,dedupeKey:'load:'+id});
+  const jobs=[mk('retrieval','REQUIRED'),mk('truth','REQUIRED'),mk('historian','OPPORTUNISTIC'),mk('graph','OPPORTUNISTIC'),mk('jev','OPPORTUNISTIC'),mk('precision','OPPORTUNISTIC'),mk('deep-a','DEFERRED','L3'),mk('deep-b','DEFERRED','L3'),mk('deep-c','DEFERRED','L3')];
+  const published=host.publishTurn(turn,jobs),snapshot=director.snapshot(),initialQueued=Object.values(snapshot.queueDepth).reduce((sum,n)=>sum+n,0),nonRequired=published.cohort.opportunistic.length+published.cohort.deferred.length;
+  assert.equal(initialQueued,jobs.length);assert.equal(nonRequired,7);assert.equal(published.cohort.required.length,2);
+  console.log('WORKER1_SCATTER_LOAD_METRIC '+JSON.stringify({admitted:jobs.length,required:published.cohort.required.length,opportunistic:published.cohort.opportunistic.length,deferred:published.cohort.deferred.length,initialQueued,preSealNonRequiredQueued:nonRequired,policyChanged:false}));
+  host.native.close();
 });

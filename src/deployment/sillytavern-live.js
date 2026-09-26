@@ -1048,6 +1048,11 @@ export class DevelopmentDeploymentSillyTavernSession {
         &&(!expectedPromptPlanId||host.promptPlanId===expectedPromptPlanId)
         &&(!expectedContextSealId||host.contextSealId===expectedContextSealId);
       const observed=Boolean(host?.hostObserved)&&identityMatches;
+      const sceneReadModel=merged.readScene({...owner,...selection});
+      const sceneReadMatches=Boolean(sceneReadModel?.kind==='SceneUiReadModel')
+        &&sceneReadModel.chatId===owner.chatId
+        &&Number(sceneReadModel.revision)===Number(owner.sceneRevision)
+        &&(owner.sourceRevisions?.sceneRefs??[]).every(ref=>(sceneReadModel.sourceRevisionRefs??[]).includes(ref));
       const hostObserved=observed?{
         state:'OBSERVED',receiptId:host.receiptId??null,lifecycleState:host.state??null,requestHook:host.requestHook??null,
         requestInjectedAt:host.requestInjectedAt??null,completedAt:host.completedAt??null,promptPlanId:host.promptPlanId??null,contextSealId:host.contextSealId??null,
@@ -1059,7 +1064,17 @@ export class DevelopmentDeploymentSillyTavernSession {
         expectedPromptPlanId,observedPromptPlanId:host?.promptPlanId??null,
         expectedContextSealId,observedContextSealId:host?.contextSealId??null,
       };
-      return{...owner,delivery:{...(owner.delivery??{}),hostObserved},hostDeliveryReceiptId:host?.receiptId??null};
+      const readModelEdge=sceneReadMatches?{
+        state:'PUBLISHED',kind:sceneReadModel.kind,sceneId:sceneReadModel.sceneId,sceneRevision:sceneReadModel.revision,
+        sourceRevisionRefs:[...(sceneReadModel.sourceRevisionRefs??[])].slice(0,32),
+      }:{state:'UNAVAILABLE',reason:sceneReadModel?'SCENE_READ_MODEL_FENCE_MISMATCH':'SCENE_READ_MODEL_UNAVAILABLE'};
+      return{
+        ...owner,
+        sceneFlow:{...(owner.sceneFlow??{}),readModel:readModelEdge,hostDelivery:hostObserved},
+        sceneFences:{...(owner.sceneFences??{}),sceneReadModelMatchesSelection:sceneReadMatches},
+        delivery:{...(owner.delivery??{}),hostObserved},
+        hostDeliveryReceiptId:host?.receiptId??null,
+      };
     };
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};

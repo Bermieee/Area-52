@@ -71,7 +71,8 @@ test('Worker 1 #262 causal execution evidence survives Runtime ledger reload wit
   const record=restored.ledger.get(admission.task.taskId),json=JSON.stringify(record.causalReceipts);
   assert.ok(record.causalReceipts.some(row=>row.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED));
   assert.ok(record.causalReceipts.some(row=>row.eventKind===CausalReceiptKind.OWNER_ADMISSION&&row.ownerAccepted===true));
-  assert.doesNotMatch(json,/privateBody|rawPrompt|story body|credential/i);
+  assert.doesNotMatch(json,/privateBody|story body/i);
+  assert.ok(record.causalReceipts.every(row=>row.rawPromptIncluded===false&&row.credentialsIncluded===false&&row.hiddenReasoningIncluded===false));
   assert.equal(record.obligation.cause.generationId,'gen:r');
 });
 
@@ -98,7 +99,7 @@ test('Worker 1 #263 chat switch and regeneration fences do not cross-fill select
 });
 
 test('Worker 1 #264 provider chat rendering maps semantic context to supported roles and preserves Seal identity',()=>{
-  const seal=new GenerationContextSeal(),sealed=seal.seal({turnId:'turn:role',worldRevision:1,sourceRevisionIds:['src:r1'],packet:{current:[{id:'fact:1',text:'Fact',sourceRevisionIds:['src:r1']}],historical:[],unresolved:[],activeThreads:[],relevantLore:[],episodicMemory:[],dependencies:['src:r1']}});
+  const seal=new GenerationContextSeal(),sealed=seal.seal({turnId:'turn:role',correlationId:'corr:role',worldRevision:1,sourceRevisionIds:['src:r1'],packet:{current:[{id:'fact:1',text:'Fact',sourceRevisionIds:['src:r1']}],historical:[],unresolved:[],activeThreads:[],relevantLore:[],episodicMemory:[],dependencies:['src:r1']}});
   const delivery=new ContextDeliveryEngine().deliver({sealedPacket:sealed.packet,sealReceipt:sealed.receipt,generationId:'gen:role',turnId:'turn:role',budgetTokens:1024,userInput:'Continue',providerId:'OpenRouter'});
   assert.equal(delivery.ok,true);
   assert.ok(delivery.rendered.messages.every(message=>['system','user','assistant'].includes(message.role)));

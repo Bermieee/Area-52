@@ -972,16 +972,24 @@ function normalizePersistedConnectionProfile(input={},observed=null){
   const transportKind=['OPENAI_COMPATIBLE','DETERMINISTIC_LOCAL'].includes(transportRaw)?transportRaw:'OPENAI_COMPATIBLE';
   const endpoint=text(source.endpoint??input.endpoint);
   if(transportKind==='OPENAI_COMPATIBLE'&&!endpoint)return null;
+  // Jev used a short-lived SillyTavern chat-proxy experiment in earlier demo heads.
+  // Migrate those saved locks back to Area-52's actual credential contract:
+  // keep non-secret connection fields, discard host-secret references, and require
+  // a fresh session-only Decision Core credential before qualification.
+  const legacyHostManagedJev=role==='JEV'&&Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false);
   return{
     version:WAVE13_CONNECTION_PROFILE_VERSION,locked:true,role,resourceId:resourceIdValue,displayName,transportKind,endpoint:transportKind==='OPENAI_COMPATIBLE'?endpoint:null,
     modelId:text(source.modelId??input.modelId)??(transportKind==='DETERMINISTIC_LOCAL'?'local-deterministic':'model'),
     capabilities,providerProfileId:text(source.providerProfileId??input.providerProfileId)??('profile:'+resourceIdValue),
     providerId:text(source.providerId??input.providerId)??('provider:'+resourceIdValue),workerId:text(source.workerId??input.workerId)??('resource:'+resourceIdValue),
     maxConcurrency:Math.max(1,Number(source.concurrencyCapacity??source.maxConcurrency??input.maxConcurrency??input.concurrencyCapacity??1)||1),
-    local:Boolean(source.local??input.local??false),credentialPreviouslyConfigured:Boolean(source.credentialConfigured??input.credentialPreviouslyConfigured??input.credentialConfigured??false),
-    credentialManagedByHost:Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false),
-    hostCredentialSource:text(source.hostCredentialSource??input.hostCredentialSource),hostSecretId:text(source.hostSecretId??input.hostSecretId),connectionProfileName:text(source.connectionProfileName??input.connectionProfileName),
-    wasConnected:Boolean(source.connected??source.callable??input.wasConnected??false),
+    local:Boolean(source.local??input.local??false),
+    credentialPreviouslyConfigured:legacyHostManagedJev?false:Boolean(source.credentialConfigured??input.credentialPreviouslyConfigured??input.credentialConfigured??false),
+    credentialManagedByHost:legacyHostManagedJev?false:Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false),
+    hostCredentialSource:legacyHostManagedJev?null:text(source.hostCredentialSource??input.hostCredentialSource),
+    hostSecretId:legacyHostManagedJev?null:text(source.hostSecretId??input.hostSecretId),
+    connectionProfileName:legacyHostManagedJev?null:text(source.connectionProfileName??input.connectionProfileName),
+    wasConnected:legacyHostManagedJev?false:Boolean(source.connected??source.callable??input.wasConnected??false),
   };
 }
 

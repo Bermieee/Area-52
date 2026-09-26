@@ -3,6 +3,7 @@ import { Capability, FailureCode } from './constants.js';
 export const ProviderTransportMode=Object.freeze({
   CHAT_COMPLETIONS:'CHAT_COMPLETIONS',
   EMBEDDINGS:'EMBEDDINGS',
+  DECISIONS:'DECISIONS',
 });
 
 export const ProviderModelDiscoveryState=Object.freeze({

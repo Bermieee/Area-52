@@ -27,10 +27,10 @@ class DeploymentHostDocument extends FakeDocument{
 const walkDeployment=node=>[node,...(node?.children??[]).flatMap(walkDeployment)];
 function deploymentDocument(){const document=new DeploymentHostDocument(),sheld=document.createElement('div'),chat=document.createElement('div'),form=document.createElement('div');sheld.id='sheld';chat.id='chat';form.id='form_sheld';sheld.append(chat,form);document.body.append(sheld);return document;}
 
-function makeHost({connectionProfile=null}={}) {
+function makeHost({connectionProfile=null,activeOpenRouter=false}={}) {
   const listeners = new Map();
   const promptCalls = [];
-  const connectionRequests=[];
+  const connectionRequests=[],chatCompletionRequests=[];
   const context = {
     chatId: 'chat:observatory',
     chat: [],
@@ -41,6 +41,14 @@ function makeHost({connectionProfile=null}={}) {
     },
     async setExtensionPrompt(...args) { promptCalls.push(args); },
   };
+  if(activeOpenRouter){
+    context.ChatCompletionService={
+      async processRequest(data,options,extractData,signal){
+        chatCompletionRequests.push({source:data?.chat_completion_source,model:data?.model,maxTokens:data?.max_tokens,temperature:data?.temperature,roles:Array.isArray(data?.messages)?data.messages.map(row=>row.role):[]});
+        return{content:'OK'};
+      },
+    };
+  }
   if(connectionProfile){
     context.extensionSettings={disabledExtensions:[],connectionManager:{profiles:[connectionProfile],selectedProfile:connectionProfile.id}};
     context.ConnectionManagerRequestService={
@@ -52,7 +60,7 @@ function makeHost({connectionProfile=null}={}) {
       },
     };
   }
-  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners, connectionRequests };
+  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners, connectionRequests, chatCompletionRequests };
 }
 
 function operatorLore() {
@@ -186,6 +194,31 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
   context.chatId = null;
   await assert.rejects(session.processCurrentTurn(), /chatId is unavailable/);
   assert.match(session.exportEvidence().errors.at(-1).message, /chatId is unavailable/);
+  session.destroy();
+});
+
+test('Primary Jev automatically uses SillyTavern active OpenRouter secret when no Connection Manager profile is configured',async()=>{
+  const{sillyTavern,chatCompletionRequests}=makeHost({activeOpenRouter:true}),document=deploymentDocument();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document,mountUi:true});
+  const ui=session.uiHost.ui;
+  assert.deepEqual(ui.operator.resources.connectionProfiles(),[]);
+
+  const connected=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{
+    role:'JEV',displayName:'Primary Jev',endpoint:'https://openrouter.ai/api/v1',modelId:'provider/jev-model',
+    capabilities:['SEMANTIC_JUDGMENT'],local:false,
+  }});
+  assert.equal(connected.ok,true);
+  const row=ui.operator.resources.read().data.resources.find(item=>item.kind==='JEV');
+  assert.ok(row);assert.equal(row.callable,true);assert.equal(row.selectedModelQualified,true);
+  assert.equal(row.reasonCode,'HEALTH_CHECK_PASSED');assert.notEqual(row.reasonCode,'CREDENTIAL_REQUIRED');
+  assert.equal(row.credentialManagedByHost,true);assert.equal(row.hostCredentialSource,'SILLYTAVERN_ACTIVE_SECRET');
+  assert.equal(row.connectionProfileId,null);assert.equal(row.connectionProfileName,'SillyTavern active OpenRouter secret');
+  assert.equal(row.credentialConfigured,false);
+  assert.ok(chatCompletionRequests.length>=1);assert.equal(chatCompletionRequests[0].source,'openrouter');assert.equal(chatCompletionRequests[0].model,'provider/jev-model');
+
+  const saved=ui.operator.resources.savedProfiles().find(item=>item.role==='JEV');
+  assert.equal(saved.credentialManagedByHost,true);assert.equal(saved.connectionProfileId,null);
+  assert.doesNotMatch(JSON.stringify({row,saved,requests:chatCompletionRequests}),/apiKey|secret[_-]?id|credential.*value/i);
   session.destroy();
 });
 

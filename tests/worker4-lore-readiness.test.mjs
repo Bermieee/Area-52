@@ -173,8 +173,8 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
   assert.equal(accepted.sourceRevisionChanged, true);
   assert.equal(study.results.length, 105);
   assert.equal(status.entries.length, 105);
-  assert.equal(status.operatorCounts.READY, 105);
-  assert.equal(status.retrievalReady, 105);
+  assert.equal(status.counts.READY, 105);
+  assert.equal(status.entries.filter((row) => row.retrievalReady).length, 105);
   assert.equal(status.storyAuthorizedReady, 105);
   assert.equal(status.entries.every((row) => row.freshness === 'CURRENT'), true);
   assert.equal(status.entries.every((row) => row.eligibleForStoryRetrieval === true), true);
@@ -289,4 +289,12 @@ test('Worker 4: live Lore owner channel forwards exact chat scope and retains bo
   assert.deepEqual(blocked, []);
   assert.equal(unbound.receipt().status, 'EXCLUDED');
   assert.equal(unbound.receipt().reason, 'LORE_STORY_SCOPE_REQUIRED');
+
+  const missing = new LoreOwnerRetrievalChannel({getInterface: () => service.brainInterface()});
+  missing.beginTurn({selection: {}});
+  const missingScope = missing.retrieve({intentId: 'intent:missing', intentKind: 'NARROW', query: 'Harbor Gate'});
+  assert.deepEqual(missingScope, []);
+  assert.equal(missing.receipt().status, 'EXCLUDED');
+  assert.equal(missing.receipt().reason, 'LORE_STORY_SCOPE_REQUIRED');
+  assert.equal(missing.receipt().queried, false);
 });

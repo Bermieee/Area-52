@@ -336,6 +336,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   return card;
 }
 
+function loadMetric(value){if(!value)return'NO_EVIDENCE';return String(value.count??0)+' samples · '+String(value.avgMs??0)+' ms avg · '+String(value.maxMs??0)+' ms max';}
 function resourceStatus(v){if(v==='HEALTHY')return'ready';if(v==='DEGRADED'||v==='SATURATED'||v==='COOLDOWN'||v==='PROBE')return'warning';return'offline';}
 function testSummary(x){
   if(x?.failure||String(x?.resource?.lastTest?.status??'').toUpperCase()==='FAIL')return'FAIL';
@@ -541,6 +542,31 @@ export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,ins
     {key:'Batch history',value:runtime.batchProgressAvailable===false?'Not published by owner snapshot':runtime.batchProgressAvailable?'Published':'Not available'},
     {key:'Late-result history',value:runtime.lateResultHistoryAvailable===false?'Not published by owner snapshot':runtime.lateResultHistoryAvailable?'Published':'Not available'},
   ]));
+  const uiLoad=snapshot.telemetry?.uiLoad??null,loadCategories=uiLoad?.categories??{};
+  center.append(element(d,'h3',{text:'Browser-side UI load attribution'}),createKeyValue(d,[
+    {key:'Host event invalidations',value:loadMetric(loadCategories.HOST_EVENT_INVALIDATION)},
+    {key:'Scatter / Gather owner read',value:loadMetric(loadCategories.OWNER_SCATTER_GATHER_READ)},
+    {key:'Journal diagnostics read',value:loadMetric(loadCategories.UI_JOURNAL_DIAGNOSTICS_READ)},
+    {key:'Journal processing',value:loadMetric(loadCategories.UI_JOURNAL_PROCESS)},
+    {key:'Activity feed render',value:loadMetric(loadCategories.UI_ACTIVITY_FEED_RENDER)},
+    {key:'Workspace refresh',value:loadMetric(loadCategories.UI_WORKSPACE_REFRESH)},
+    {key:'Capture total',value:loadMetric(loadCategories.UI_CAPTURE_TOTAL)},
+  ]));
+  center.append(element(d,'p',{className:'a52-muted',text:uiLoad?'Bounded in-browser timing samples from this UI instance. These are attribution signals, not a substitute for installed-browser Long Task and heap measurements.':'NO_EVIDENCE — this UI instance has not published bounded load samples.'}));
+  const scatterWaves=snapshot.cognition?.scatterTelemetry??null;
+  center.append(element(d,'h3',{text:'Layered Scatter owner telemetry'}));
+  if(Array.isArray(scatterWaves)&&scatterWaves.length){
+    const waveBox=element(d,'div',{className:'a52-wave13-diagnostic-events'});
+    for(const wave of scatterWaves.slice(0,16)){
+      const line=element(d,'div',{className:'a52-wave13-diagnostic-event'});
+      line.append(element(d,'strong',{text:wave.waveId??'Wave'}),element(d,'span',{className:'a52-muted',text:[
+        wave.trigger?'trigger '+wave.trigger:null,wave.durationMs!=null?wave.durationMs+' ms':null,wave.concurrency!=null?'concurrency '+wave.concurrency:null,
+        wave.jobs!=null?'jobs '+wave.jobs:null,wave.deferred!=null?'deferred '+wave.deferred:null,
+      ].filter(Boolean).join(' · ')||'Owner published a wave without timing/concurrency fields.'}));
+      waveBox.append(line);
+    }
+    center.append(waveBox);
+  }else center.append(element(d,'p',{className:'a52-muted',text:'NO_EVIDENCE — the Scatter owner did not publish layered wave triggers, timings, concurrency, or deferred-work telemetry for this selected turn.'}));
 
   const wiring=element(d,'div',{className:'a52-wave13-diagnostic-lanes'});
   for(const spec of [

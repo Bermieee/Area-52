@@ -188,6 +188,7 @@ test('Worker2 read model separates configured, qualified, physical, returned, ac
   assert.equal(read.lifecycle.JEV.physicalAttempts,1);assert.equal(read.lifecycle.JEV.failed,1);assert.equal(read.lifecycle.JEV.ownerAccepted,1);
   assert.equal(read.lifecycle.VECTORING.physicalAttempts,1);assert.equal(read.lifecycle.VECTORING.returned,1);
   assert.equal(read.waves[0].concurrency,2);
+  assert.equal(read.waves[0].chatId,identity.chatId);assert.equal(read.waves[0].turnId,identity.turnId);assert.equal(read.waves[0].generationId,identity.generationId);assert.equal(read.waves[0].correlationId,identity.correlationId);
   assert.equal(JSON.stringify({read,events:telemetry.list()}).includes('SECRET'),false);
 });
 

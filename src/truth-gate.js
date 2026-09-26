@@ -27,11 +27,12 @@ export class TruthGate {
     if(claims.length){
       const claim=claims[0],classification=claim.status??KnowledgeStatus.UNRESOLVED;
       const ok=usable(classification,intent);
-      return createTruthGateResult({
+      const base=createTruthGateResult({
         candidateId:candidate.candidateId,classification,usableForIntent:ok,
         reasons:[ok?`${classification.toLowerCase()}-usable-for-${intent.toLowerCase()}`:`${classification.toLowerCase()}-not-usable-for-${intent.toLowerCase()}`],
         claimIds:[claim.id],provenance:claim.provenance,
       });
+      return {...base,sourceRevisionRefs:[...(claim.provenance?.sourceRevisionIds??[])],identityRevisionRefs:[...(claim.identityRevisionRefs??candidate.identityRevisionRefs??[])],temporalStatus:classification,authorityClass:claim.authorityClass,evidenceRefs:[...(claim.provenance?.evidenceIds??[])]};
     }
 
     const evidence=this.externalEvidenceResolver?.(candidate)??null;
@@ -51,13 +52,14 @@ export class TruthGate {
           invalidators:[...(evidence.sourceRevisionRefs??[]),...(evidence.dependencyRevisionRefs??[])],
         },
       });
-      return {...base,knowledgeEvidenceId:evidence.evidenceId,authorityClass:evidence.authorityClass,sourceClass:evidence.sourceClass};
+      return {...base,knowledgeEvidenceId:evidence.evidenceId,authorityClass:evidence.authorityClass,sourceClass:evidence.sourceClass,sourceRevisionRefs:[...(evidence.sourceRevisionRefs??candidate.sourceRevisionRefs??[])],identityRevisionRefs:[...(candidate.identityRevisionRefs??evidence.extensions?.identityRevisionRefs??[])],temporalStatus:classification,evidenceRefs:[...(candidate.evidenceRefs??[evidence.evidenceId])]};
     }
 
-    return createTruthGateResult({
+    const missing=createTruthGateResult({
       candidateId:candidate.candidateId,classification:KnowledgeStatus.UNRESOLVED,usableForIntent:false,
       reasons:['claim-missing-or-invalid'],claimIds,provenance:candidate.provenance,
     });
+    return {...missing,sourceRevisionRefs:[...(candidate.sourceRevisionRefs??[])],identityRevisionRefs:[...(candidate.identityRevisionRefs??[])],temporalStatus:candidate.temporalStatus??KnowledgeStatus.UNRESOLVED,authorityClass:candidate.authorityClass??'UNKNOWN',evidenceRefs:[...(candidate.evidenceRefs??[])]};
   }
   classifyAll(candidates,options={}){return candidates.map(c=>this.classify(c,options));}
 }

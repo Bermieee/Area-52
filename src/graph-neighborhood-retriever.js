@@ -14,7 +14,16 @@ const now=()=>globalThis.performance?.now?.()??Date.now();
 const clampInt=(value,fallback,min,max)=>Math.max(min,Math.min(max,Number.isInteger(Number(value))?Number(value):fallback));
 const statusSet=new Set(Object.values(CandidateTruthStatus));
 const currentish=new Set([KnowledgeStatus.CURRENT,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN,KnowledgeStatus.CONTRADICTED]);
+const historicalish=new Set([KnowledgeStatus.CURRENT,KnowledgeStatus.HISTORICAL,KnowledgeStatus.SUPERSEDED]);
+const contradictionish=new Set([KnowledgeStatus.CONTRADICTED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.UNCERTAIN]);
 function status(value){const x=String(value??KnowledgeStatus.UNRESOLVED).toUpperCase();return statusSet.has(x)?x:KnowledgeStatus.UNRESOLVED;}
+function eligibleForIntent(edgeStatus,intentKind){
+  const kind=String(intentKind??'CURRENT').toUpperCase(),value=status(edgeStatus);
+  if(kind==='CURRENT')return currentish.has(value);
+  if(kind==='HISTORICAL')return historicalish.has(value);
+  if(kind==='CONTRADICTION')return contradictionish.has(value);
+  return true;
+}
 function sourceClassFor(owner){
   const x=String(owner??'').toUpperCase();
   if(x.includes('LORE'))return KnowledgeSourceClass.DERIVED_REPRESENTATION;
@@ -90,8 +99,8 @@ export class NativeGraphNeighborhoodRetriever{
       response:{
         shapes:['GraphEdge[]','{providerRevision?,edges:GraphEdge[]}'],
         edgeRequired:['from/fromEntityId','to/toEntityId','edgeMeaning/predicate','sourceRevisionRefs'],
-        edgePreserved:['edgeId','sourceKind','temporalStatus','temporal','authorityClass','dependencyRevisionRefs','provenanceRefs','evidenceRefs','claimRefs','eventRefs','relationshipRefs','artifactRef','artifactRevision','worldRevision','sceneRevision','providerRevision','representationText','perspective','hardRule'],
-        revisionRules:{sourceRevisionRefsRequired:true,dependenciesMustBeCurrent:true,worldFenceCheckedWhenPresent:true,sceneFenceCheckedWhenPresent:true,staleRejectedBeforeCandidateBus:true},
+        edgePreserved:['edgeId','sourceKind','temporalStatus','temporal','authorityClass','identityRevisionRefs','dependencyRevisionRefs','provenanceRefs','evidenceRefs','claimRefs','eventRefs','relationshipRefs','artifactRef','artifactRevision','worldRevision','sceneRevision','providerRevision','representationText','perspective','hardRule'],
+        revisionRules:{sourceRevisionRefsRequired:true,identityRevisionRefsValidatedWhenPresent:true,dependenciesMustBeCurrent:true,worldFenceCheckedWhenPresent:true,sceneFenceCheckedWhenPresent:true,staleRejectedBeforeCandidateBus:true},
         provenanceRules:{sourceRevisionRefsAreAlwaysCarriedAsProvenance:true,traversalPathAddedByCore:true,providerAndOwnerIdentityPreserved:true},
       },
       authority:{providerOwnsSourceSemantics:true,coreOwnsTraversal:true,graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false},
@@ -129,25 +138,25 @@ export class NativeGraphNeighborhoodRetriever{
         const evidence=createKnowledgeEvidence({
           evidenceId:knowledgeEvidenceId,evidenceIdentity:identity,artifactRef:artifactRef(edge),sourceClass,
           authorityClass:authority,authorityOrigin:origin,sourceAuthorityClass:origin===KnowledgeAuthorityOrigin.CARRIED?authority:null,
-          temporalStatus:temporalStatus(temporal),sourceRevisionRefs:edge.sourceRevisionRefs,dependencyRevisionRefs:edge.dependencyRevisionRefs,
+          temporalStatus:temporalStatus(temporal),sourceRevisionRefs:edge.sourceRevisionRefs,dependencyRevisionRefs:uniq([...(edge.dependencyRevisionRefs??[]),...(edge.identityRevisionRefs??[])]),
           provenanceRefs:uniq([...edge.provenanceRefs,...edge.sourceRevisionRefs]),claimIds:edge.claimRefs,
           semantic:{subjectId:edge.fromEntityId,predicate:edge.edgeMeaning,value:edge.toEntityId,status:temporal},
           hardRule:Boolean(edge.hardRule),
-          extensions:{representationText:edgeText(edge),graphProvider:edge.providerId,graphOwner:edge.owner,edgeMeaning:edge.edgeMeaning,traversalPath:clone(row.path),sourceKind:edge.sourceKind,identityResolution:clone(edge.identityResolution)},
+          extensions:{representationText:edgeText(edge),graphProvider:edge.providerId,graphOwner:edge.owner,edgeMeaning:edge.edgeMeaning,traversalPath:clone(row.path),sourceKind:edge.sourceKind,identityResolution:clone(edge.identityResolution),identityRevisionRefs:[...(edge.identityRevisionRefs??[])]},
         });
         this.evidenceSink(evidence);
       }
       nominations.push(createChannelNomination({
         nominationId:'ZZ_NATIVE_GRAPH_WALKER:'+intent.intentId+':'+edge.providerId+':'+edge.edgeId,
         channelId:'ZZ_NATIVE_GRAPH_WALKER',candidateId:'candidate:graph:'+stableHash(identity,{length:24,alreadyString:true}),evidenceIdentity:identity,
-        artifactRef:artifactRef(edge),artifactRevision:edge.artifactRevision??1,sourceRevisionRefs:edge.sourceRevisionRefs,
+        artifactRef:artifactRef(edge),artifactRevision:edge.artifactRevision??1,sourceRevisionRefs:edge.sourceRevisionRefs,identityRevisionRefs:edge.identityRevisionRefs??[],
         claimRefs:edge.claimRefs,eventRefs:edge.eventRefs,entityRefs:uniq([edge.fromEntityId,edge.toEntityId]),relationshipRefs:edge.relationshipRefs,
         retrievalIntentIds:[intent.intentId],rankSignals:{graphDistance:1/Math.max(1,row.distance),graphProviderWeight:Number(edge.providerWeight??1)},
         normalizedRank:Math.max(0,Math.min(1,1/(1+Math.max(0,row.distance-1)))),
         graphMetadata:{
           graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,
           edgeId:edge.edgeId,fromEntityId:edge.fromEntityId,toEntityId:edge.toEntityId,distance:row.distance,traversalPath:clone(row.path),temporalStatus:temporal,
-          revisionFence:{sourceRevisionRefs:[...edge.sourceRevisionRefs],dependencyRevisionRefs:[...edge.dependencyRevisionRefs],worldRevision:edge.worldRevision,sceneRevision:edge.sceneRevision,providerRevision:edge.providerRevision??null},
+          revisionFence:{sourceRevisionRefs:[...edge.sourceRevisionRefs],identityRevisionRefs:[...(edge.identityRevisionRefs??[])],dependencyRevisionRefs:[...edge.dependencyRevisionRefs],worldRevision:edge.worldRevision,sceneRevision:edge.sceneRevision,providerRevision:edge.providerRevision??null},
           identityResolution:clone(edge.identityResolution),semanticsVersion:edge.semanticsVersion??'1.0.0',
         },
         temporalHints:[{status:temporal,temporal:clone(edge.temporal??null),perspective:clone(edge.perspective??null)}],
@@ -203,7 +212,7 @@ export class NativeGraphNeighborhoodRetriever{
       return{
         edgeId:'temporal:'+claim.id,providerId:'CORE_TEMPORAL_STATE',owner:'TEMPORAL_STATE_GRAPH',sourceKind:'TEMPORAL_STATE',
         fromEntityId,toEntityId,edgeMeaning:claim.predicate,temporalStatus:claim.status??KnowledgeStatus.UNRESOLVED,
-        temporal:clone(claim.temporal),authorityClass:claim.authorityClass,sourceRevisionRefs:uniq(claim.provenance?.sourceRevisionIds??[]),
+        temporal:clone(claim.temporal),authorityClass:claim.authorityClass,sourceRevisionRefs:uniq(claim.provenance?.sourceRevisionIds??[]),identityRevisionRefs:uniq(claim.identityRevisionRefs??[]),
         dependencyRevisionRefs:uniq(claim.provenance?.invalidators??[]),provenanceRefs:uniq([claim.provenance?.id,...(claim.provenance?.sourceRevisionIds??[])]),
         evidenceRefs:uniq([claim.id,...(claim.provenance?.evidenceIds??[])]),claimRefs:[claim.id],eventRefs:[],relationshipRefs:[],
         artifactRef:{artifactId:claim.id,artifactType:'Claim',revision:1},artifactRevision:1,worldRevision:request.worldRevision,sceneRevision:request.sceneRevision,
@@ -216,9 +225,10 @@ export class NativeGraphNeighborhoodRetriever{
   #sceneEdges(request){
     const snapshot=this.sceneSnapshot?.();if(!snapshot?.sceneId)return[];
     const rows=[],sceneId='scene:'+snapshot.sceneId,sourceRevisionRefs=uniq(snapshot.sourceRevisionRefs??[]);
+    const identityRefs=(ids)=>uniq((ids??[]).map(id=>this.entityRegistry?.identityReference?.(id)?.revisionRef).filter(Boolean));
     const push=(edgeId,from,to,meaning,authority='OBSERVED',temporal='CURRENT',extra={})=>rows.push({
       edgeId,providerId:'SCENE_OWNER',owner:'SCENE_INTELLIGENCE',sourceKind:'SCENE_OBSERVATION',fromEntityId:from,toEntityId:to,edgeMeaning:meaning,
-      temporalStatus:temporal,authorityClass:authority,sourceRevisionRefs,dependencyRevisionRefs:sourceRevisionRefs,provenanceRefs:uniq(snapshot.provenanceRefs??[]),
+      temporalStatus:temporal,authorityClass:authority,sourceRevisionRefs,identityRevisionRefs:identityRefs([from,to]),dependencyRevisionRefs:sourceRevisionRefs,provenanceRefs:uniq(snapshot.provenanceRefs??[]),
       evidenceRefs:uniq(snapshot.provenanceRefs??[]),claimRefs:[],eventRefs:[],relationshipRefs:[],artifactRef:{artifactId:snapshot.snapshotId??sceneId,artifactType:'SceneUiReadModel',revision:snapshot.sceneRevision??1},
       artifactRevision:snapshot.sceneRevision??1,worldRevision:snapshot.worldRevision??request.worldRevision,sceneRevision:snapshot.sceneRevision??request.sceneRevision,
       identityResolution:{from:'SCENE_OWNER',to:'SCENE_OWNER'},semanticsVersion:'SCENE_OWNER_V1',...extra,
@@ -233,7 +243,7 @@ export class NativeGraphNeighborhoodRetriever{
   #externalEdge(raw,provider,request){
     const from=this.#normalizeRef(raw?.from??raw?.subject??raw?.sourceEntity??raw?.fromEntityId,{providerId:provider.providerId,worldId:raw?.worldId,entityType:raw?.fromType});
     const to=this.#normalizeRef(raw?.to??raw?.object??raw?.targetEntity??raw?.toEntityId,{providerId:provider.providerId,worldId:raw?.worldId,entityType:raw?.toType});
-    const refs=uniq(raw?.sourceRevisionRefs??raw?.revisionFence?.sourceRevisionRefs??[]),deps=uniq(raw?.dependencyRevisionRefs??raw?.revisionFence?.dependencyRevisionRefs??[]);
+    const refs=uniq(raw?.sourceRevisionRefs??raw?.revisionFence?.sourceRevisionRefs??[]),identityRefs=uniq(raw?.identityRevisionRefs??raw?.revisionFence?.identityRevisionRefs??[]),deps=uniq(raw?.dependencyRevisionRefs??raw?.revisionFence?.dependencyRevisionRefs??[]);
     let stale=false,staleReason=null;
     if(!refs.length){stale=true;staleReason='OWNER_GRAPH_SOURCE_REVISION_REQUIRED';}
     else for(const ref of [...refs,...deps]){
@@ -241,6 +251,7 @@ export class NativeGraphNeighborhoodRetriever{
       try{current=provider.isRevisionCurrent?provider.isRevisionCurrent(ref)===true:this.isSourceRevisionCurrent(ref)===true;}catch{}
       if(!current){stale=true;staleReason=refs.includes(ref)?'OWNER_GRAPH_SOURCE_REVISION_STALE':'OWNER_GRAPH_DEPENDENCY_REVISION_STALE';break;}
     }
+    if(!stale&&identityRefs.some(ref=>this.entityRegistry?.isCurrentRevisionRef?.(ref)===false)){stale=true;staleReason='OWNER_GRAPH_IDENTITY_REVISION_STALE';}
     if(!stale&&raw?.worldRevision!=null&&Number(raw.worldRevision)!==Number(request.worldRevision)){stale=true;staleReason='OWNER_GRAPH_WORLD_REVISION_STALE';}
     if(!stale&&raw?.sceneRevision!=null&&Number(raw.sceneRevision)!==Number(request.sceneRevision)){stale=true;staleReason='OWNER_GRAPH_SCENE_REVISION_STALE';}
     return{
@@ -248,7 +259,7 @@ export class NativeGraphNeighborhoodRetriever{
       providerId:provider.providerId,owner:provider.owner,sourceKind:String(raw?.sourceKind??provider.metadata?.sourceKind??'OWNER_GRAPH'),
       fromEntityId:from.entityId,toEntityId:to.entityId,edgeMeaning:String(raw?.edgeMeaning??raw?.predicate??raw?.relationshipType??'RELATED_TO'),
       temporalStatus:status(raw?.temporalStatus??raw?.status),temporal:clone(raw?.temporal??null),authorityClass:raw?.authorityClass??AuthorityClass.UNRESOLVED,
-      sourceRevisionRefs:refs,dependencyRevisionRefs:deps,provenanceRefs:uniq([...(raw?.provenanceRefs??raw?.provenance?.map?.(x=>typeof x==='string'?x:x?.ref??x?.id)??[]),...refs]),
+      sourceRevisionRefs:refs,identityRevisionRefs:identityRefs,dependencyRevisionRefs:deps,provenanceRefs:uniq([...(raw?.provenanceRefs??raw?.provenance?.map?.(x=>typeof x==='string'?x:x?.ref??x?.id)??[]),...refs]),
       evidenceRefs:uniq(raw?.evidenceRefs??[]),claimRefs:uniq(raw?.claimRefs??[]),eventRefs:uniq(raw?.eventRefs??[]),relationshipRefs:uniq(raw?.relationshipRefs??[]),
       artifactRef:artifactRef(raw),artifactRevision:raw?.artifactRevision??raw?.artifactRef?.revision??1,worldRevision:raw?.worldRevision??request.worldRevision,sceneRevision:raw?.sceneRevision??request.sceneRevision,
       providerRevision:raw?.providerRevision??null,representationText:raw?.representationText??null,representationRef:raw?.representationRef??null,representationRevision:raw?.representationRevision??null,
@@ -261,12 +272,10 @@ export class NativeGraphNeighborhoodRetriever{
   #normalizeRef(ref,options){return this.entityRegistry?.normalizeRef?.(ref,options)??{entityId:typeof ref==='string'?ref:String(ref?.entityId??ref?.id??ref?.ref??''),resolved:false,state:'IDENTITY_REGISTRY_UNAVAILABLE'};}
 
   #walk(edges,request,started){
-    // Retrieval may surface historical neighbors as support even for a CURRENT
-    // question; Truth Gate owns whether they are usable as current truth. To keep
-    // stale topology from widening a current traversal, historical edges can be
-    // selected when adjacent but only CURRENT/TEMPORAL traversals may expand
-    // through them.
-    const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>!allowed.size||allowed.has(edge.edgeMeaning));
+    // Preserve owner temporal semantics at the graph-admission boundary. CURRENT
+    // traversal may carry unresolved/contradictory evidence for Truth, but must not
+    // surface superseded/historical state as if it were a current graph fact.
+    const allowed=new Set(request.allowedEdgeMeanings),edgeRows=edges.filter(edge=>(!allowed.size||allowed.has(edge.edgeMeaning))&&eligibleForIntent(edge.temporalStatus,request.intentKind));
     const adjacency=new Map();
     for(const edge of edgeRows){
       for(const id of [edge.fromEntityId,edge.toEntityId]){const rows=adjacency.get(id)??[];rows.push(edge);adjacency.set(id,rows);}

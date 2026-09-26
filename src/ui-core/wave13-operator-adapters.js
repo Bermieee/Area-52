@@ -709,6 +709,7 @@ export class Wave13OperationalStatusAdapter{
     const source=cognition?.sources?.[key]??null,data=cognition?.data?.[key]??null,exported=readerExported(this.hostBindings,key);
     if(!exported)return stage(key,label,optional?OperatorProducerState.DISCONNECTED:OperatorProducerState.UNAVAILABLE,optional?'Optional '+label+' reader/resource is not connected.':'Assembly does not export the '+label+' owner reader.',selection,null,'ASSEMBLY_CONTRACT_MISSING');
     if(selection.chatId&&!selection.turnId)return stage(key,label,OperatorProducerState.WAITING_FOR_TURN,'Waiting for an active turn.',selection,null,'HOST_SELECTION');
+    if(key==='jev'&&data&&isIntentionalJevSkip(data))return stage(key,label,OperatorProducerState.IDLE,'Jev was intentionally not required for this selected turn. No provider failure occurred.',selection,freshnessOf(data),'JEV_NOT_REQUIRED');
     if(data)return stageFromSource(key,label,source,selection,{readerPresent:true});
     if(source?.mode===ProductDataMode.DEGRADED)return stageFromSource(key,label,source,selection,{readerPresent:true});
     if(source?.mode===ProductDataMode.UNAVAILABLE)return stage(key,label,OperatorProducerState.IDLE,'No receipt was published for the selected turn.',selection,null,'NO_RECEIPT');
@@ -1161,6 +1162,11 @@ function unavailable(label,reason,producer){return deepFreeze({source:createProd
 function waiting(label,reason,producer,selection){return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label,operationalState:OperatorProducerState.WAITING_FOR_TURN,impact:reason,producer,connected:true,selection}),data:null});}
 function idle(label,reason,producer,selection){return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label,operationalState:OperatorProducerState.IDLE,impact:reason,producer,connected:true,selection}),data:null});}
 function degraded(label,impact,producer,selection,error,data=null){return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.DEGRADED,health:Wave6Health.DEGRADED,label,operationalState:OperatorProducerState.DEGRADED,impact,reason:String(error?.message??error??''),producer,connected:true,selection,errorCode:error?.code??'READ_ERROR'}),data:cloneSafe(data)});}
+function isIntentionalJevSkip(raw){
+  const values=[raw?.reasonCode,raw?.decisionCode,raw?.serviceStatus,raw?.state,raw?.outcome,...(Array.isArray(raw?.reasonCodes)?raw.reasonCodes:[])];
+  const codes=values.filter(Boolean).map(value=>String(value).toUpperCase());
+  return codes.includes('JEV_NOT_REQUIRED')||codes.includes('JEV_SKIPPED')||codes.includes('SKIPPED');
+}
 function reasonOf(raw){return Array.isArray(raw?.health?.reasons)?raw.health.reasons.join(', '):text(raw?.reason??raw?.error??'')??'';}
 function revisionOf(raw){return raw?.revision??raw?.receiptRevision??raw?.sourceRevisionId??raw?.learnedRevisionId??null;}
 function freshnessOf(raw){return raw?.freshness??raw?.revisionFence?.freshness??null;}

@@ -356,6 +356,17 @@ test('Home Inspect details opens the visible inspector with exact selected-turn 
   ui.destroy();
 });
 
+test('intentional JEV_NOT_REQUIRED is neutral selected-turn evidence rather than a provider failure',()=>{
+  const owner=liveOwner(),selection=owner.bindings.readSelection();
+  owner.bindings.readJev=()=>({kind:'JevDecisionReceipt',receiptId:'jev:not-required',outcome:'SKIPPED',serviceStatus:'JEV_SKIPPED',reasonCode:'JEV_NOT_REQUIRED',reasonCodes:['JEV_NOT_REQUIRED'],...selection});
+  const{ui}=mount(owner),row=ui.operator.operations.read().stages.find(x=>x.id==='jev');
+  assert.equal(row.state,'IDLE');assert.equal(row.errorCode,'JEV_NOT_REQUIRED');assert.match(row.reason,/intentionally not required/i);
+  ui.shell.selectWorkspace('home');ui.scheduler.flush(2);
+  const card=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='jev');
+  assert.ok(card);assert.equal(card.dataset.state,'IDLE');assert.match(textOf(card),/intentionally not required/i);
+  ui.destroy();
+});
+
 test('Inspect details explains unavailable owner receipts instead of manufacturing success',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
   const jev=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='jev');

@@ -210,7 +210,7 @@ function criticalKey(row) {
   return row.evidenceId + '|' + row.sourceRevisionId;
 }
 
-function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
+function buildScopeDependencies({scope, runtime, registry}) {
   if (scope.sourceIds.length > LORE_WAVE3_LIMITS.maxSourceRefsPerSummary) {
     return {ok: false, failure: NavigationFailure.SOURCE_REF_LIMIT};
   }
@@ -218,21 +218,17 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
     return {ok: false, failure: NavigationFailure.CHILD_LIMIT};
   }
 
-  const sourceRows = [];
+  const sourceRevisionSet = [];
   for (const sourceId of scope.sourceIds) {
     const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
-    const cacheKey = revision ? sourceId + '|' + revision.id : sourceId + '|missing';
-    let row = evidenceCache?.get(cacheKey) || null;
-    if (!row) {
-      row = sourceEvidence(runtime, sourceId);
-      if (evidenceCache && row.ok) evidenceCache.set(cacheKey, deepClone(row));
-    } else {
-      row = deepClone(row);
+    const learned = runtime.store.currentLearnedRevision(sourceId);
+    if (!revision || revision.state === 'REMOVED' || !learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== revision.id) {
+      return {ok: false, failure: NavigationFailure.SOURCE_REVISION_STALE, sourceId};
     }
-    if (!row.ok) return {ok: false, failure: row.reason, sourceId};
-    sourceRows.push(row);
+    sourceRevisionSet.push(revision.id);
   }
-  const sourceRevisionSet = sourceRows.map((row) => row.sourceRevisionId).sort();
+  sourceRevisionSet.sort();
+
   const childSummaries = [];
   for (const childScopeId of scope.childScopeIds) {
     const child = registry.current(childScopeId);
@@ -249,15 +245,78 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
     }))
     .sort((a, b) => a.scopeId.localeCompare(b.scopeId));
 
+  return {
+    ok: true,
+    sourceRevisionSet,
+    childSummaries,
+    childSummaryDependencies,
+  };
+}
+
+function buildScopeRequest({scope, runtime, registry, evidenceCache = null, dependencies = null}) {
+  const dependencyState = dependencies || buildScopeDependencies({scope, runtime, registry});
+  if (!dependencyState.ok) return dependencyState;
+  const {
+    sourceRevisionSet,
+    childSummaries,
+    childSummaryDependencies,
+  } = dependencyState;
+
+  const sourceRows = [];
+  if (!scope.childScopeIds.length) {
+    for (const sourceId of scope.sourceIds) {
+      const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
+      const cacheKey = revision ? sourceId + '|' + revision.id : sourceId + '|missing';
+      let row = evidenceCache?.get(cacheKey) || null;
+      if (!row) {
+        row = sourceEvidence(runtime, sourceId);
+        if (evidenceCache && row.ok) evidenceCache.set(cacheKey, deepClone(row));
+      } else {
+        row = deepClone(row);
+      }
+      if (!row.ok) return {ok: false, failure: row.reason, sourceId};
+      sourceRows.push(row);
+    }
+  }
+
+  const childEvidence = new Map();
+  for (const child of childSummaries) {
+    const resolved = registry.resolveEvidenceRefs(child.criticalEvidenceRefs || [], {
+      limit: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
+    });
+    if (resolved.status === 'LIMIT_EXCEEDED') {
+      return {ok: false, failure: NavigationFailure.EVIDENCE_REF_LIMIT, childScopeId: child.targetScopeId};
+    }
+    if (resolved.status === 'DEGRADED') {
+      return {
+        ok: false,
+        failure: NavigationFailure.EVIDENCE_REF_MISSING,
+        childScopeId: child.targetScopeId,
+        missingEvidenceRefs: resolved.missingEvidenceRefs,
+      };
+    }
+    childEvidence.set(child.id, resolved.evidence);
+  }
+
   const evidenceById = new Map();
   if (!scope.childScopeIds.length) {
-    for (const source of sourceRows) for (const row of source.evidence) evidenceById.set(criticalKey(row), row);
+    for (const source of sourceRows) {
+      const refs = registry.registerEvidence(source.evidence);
+      for (let index = 0; index < source.evidence.length; index += 1) {
+        const row = {...deepClone(source.evidence[index]), evidenceRef: refs[index]};
+        evidenceById.set(criticalKey(row), row);
+      }
+    }
   } else {
     for (const child of childSummaries) {
-      for (const row of child.criticalEvidence || []) evidenceById.set(criticalKey(row), deepClone(row));
+      for (const row of childEvidence.get(child.id) || []) evidenceById.set(criticalKey(row), deepClone(row));
     }
   }
   const criticalEvidence = [...evidenceById.values()].sort((a, b) => a.evidenceId.localeCompare(b.evidenceId));
+  if (criticalEvidence.length > LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary) {
+    return {ok: false, failure: NavigationFailure.EVIDENCE_REF_LIMIT};
+  }
+  const criticalEvidenceRefs = [...new Set(criticalEvidence.map((row) => row.evidenceRef).filter(Boolean))];
   const navigationStatements = [];
 
   if (!scope.childScopeIds.length) {
@@ -289,7 +348,7 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
         statementId: 'statement:' + stableHash(scope.id + '|child|' + child.id),
         text: child.targetLabel + ': ' + firstLine.slice(0, 260),
         sourceRevisionRefs: [...child.sourceRevisionSet],
-        evidenceRefs: (child.criticalEvidence || []).slice(0, 16).map((row) => row.evidenceId),
+        evidenceRefs: (childEvidence.get(child.id) || []).slice(0, 16).map((row) => row.evidenceId),
         childSummaryRef: child.id,
         critical: false,
       });
@@ -319,6 +378,7 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
     childSummaryDependencies,
     childSummaries,
     criticalEvidence,
+    criticalEvidenceRefs,
     allowedStatements: [...deduped.values()].sort((a, b) => Number(b.critical) - Number(a.critical) || a.statementId.localeCompare(b.statementId)),
   };
 }
@@ -553,16 +613,29 @@ export class LoreNavigationSummaryBuilder {
       }
     }
 
-    const request = buildScopeRequest({scope, runtime: this.runtime, registry: this.registry, evidenceCache: this.evidenceCache});
-    if (!request.ok) return {state: NavigationSummaryState.BLOCKED, reason: request.failure, details: request};
+    const dependencies = buildScopeDependencies({
+      scope,
+      runtime: this.runtime,
+      registry: this.registry,
+    });
+    if (!dependencies.ok) return {state: NavigationSummaryState.BLOCKED, reason: dependencies.failure, details: dependencies};
 
     const reusable = this.registry.findReusable({
       scope,
-      sourceRevisionSet: request.sourceRevisionSet,
-      childSummaryDependencies: request.childSummaryDependencies,
+      sourceRevisionSet: dependencies.sourceRevisionSet,
+      childSummaryDependencies: dependencies.childSummaryDependencies,
       generatorRevision: this.generatorRevision,
     });
     if (reusable) return {state: NavigationSummaryState.REUSED, summary: reusable};
+
+    const request = buildScopeRequest({
+      scope,
+      runtime: this.runtime,
+      registry: this.registry,
+      evidenceCache: this.evidenceCache,
+      dependencies,
+    });
+    if (!request.ok) return {state: NavigationSummaryState.BLOCKED, reason: request.failure, details: request};
 
     const draft = this.provider.generate(request);
     const receipt = validateNavigationSummaryDraft({draft, request});
@@ -577,7 +650,7 @@ export class LoreNavigationSummaryBuilder {
       sourceRevisionSet: request.sourceRevisionSet,
       childSummaryDependencies: request.childSummaryDependencies,
       content: draft.content,
-      criticalEvidence: request.criticalEvidence,
+      criticalEvidenceRefs: request.criticalEvidenceRefs,
       provenance: {
         kind: 'NavigationSummaryProvenance',
         targetScopeId: scope.id,

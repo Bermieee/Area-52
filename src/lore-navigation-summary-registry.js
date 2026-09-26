@@ -1,4 +1,5 @@
 import {deepClone} from './lore-contracts.js';
+import {LoreNavigationEvidenceRegistry} from './lore-navigation-evidence-registry.js';
 import {
   NavigationSummaryState,
   summaryReuseKey,
@@ -6,12 +7,56 @@ import {
 
 export class LoreNavigationSummaryRegistry {
   constructor(snapshot = null) {
+    this.evidenceRegistry = new LoreNavigationEvidenceRegistry();
     this.summaries = new Map();
     this.historyByScope = new Map();
     this.currentByScope = new Map();
     this.byReuseKey = new Map();
     this.staleReasons = new Map();
     if (snapshot) this.restore(snapshot);
+  }
+
+  registerEvidence(rows = []) {
+    return this.evidenceRegistry.registerMany(rows);
+  }
+
+  resolveEvidenceRefs(refs = [], {limit = 4096} = {}) {
+    return this.evidenceRegistry.resolveAll(refs, {limit});
+  }
+
+  readEvidenceRefs(refs = [], {offset = 0, limit = 64} = {}) {
+    return this.evidenceRegistry.resolveMany(refs, {offset, limit});
+  }
+
+  evidenceForSummary(summaryOrId, {offset = 0, limit = 64} = {}) {
+    const summary = typeof summaryOrId === 'string' ? this.get(summaryOrId) : deepClone(summaryOrId);
+    if (!summary) {
+      return {
+        kind: 'LoreNavigationSummaryEvidenceDrillback',
+        status: 'NOT_FOUND',
+        summaryId: typeof summaryOrId === 'string' ? summaryOrId : null,
+        evidence: [],
+        missingEvidenceRefs: [],
+        totalRefs: 0,
+        offset: 0,
+        limit,
+        hasMore: false,
+        authorityGranted: false,
+        sourceAuthority: false,
+        truthAuthority: false,
+      };
+    }
+    const resolved = this.readEvidenceRefs(summary.criticalEvidenceRefs || [], {offset, limit});
+    return {
+      ...resolved,
+      kind: 'LoreNavigationSummaryEvidenceDrillback',
+      summaryId: summary.id,
+      summaryRevision: summary.summaryRevision,
+      targetScopeId: summary.targetScopeId,
+      sourceRevisionRefs: [...summary.sourceRevisionSet],
+      summaryState: summary.state,
+      summaryFreshness: summary.freshness,
+    };
   }
 
   nextRevision(scopeId) {
@@ -24,11 +69,25 @@ export class LoreNavigationSummaryRegistry {
     if (!id) return null;
     const row = this.summaries.get(id);
     if (!row || ![NavigationSummaryState.BUILT, NavigationSummaryState.REUSED].includes(row.state) || row.freshness !== 'FRESH') return null;
+    const evidenceResolution = this.resolveEvidenceRefs(row.criticalEvidenceRefs || []);
+    if (evidenceResolution.status !== 'COMPLETE') return null;
     row.state = NavigationSummaryState.REUSED;
     return deepClone(row);
   }
 
   publish({summary, scope}) {
+    const evidenceResolution = this.resolveEvidenceRefs(summary?.criticalEvidenceRefs || []);
+    if (evidenceResolution.status === 'LIMIT_EXCEEDED') {
+      const error = new Error('Navigation summary evidence reference limit exceeded');
+      error.code = 'EVIDENCE_REF_LIMIT';
+      throw error;
+    }
+    if (evidenceResolution.status === 'DEGRADED') {
+      const error = new Error('Navigation summary references missing evidence: ' + evidenceResolution.missingEvidenceRefs.join(','));
+      error.code = 'EVIDENCE_REF_MISSING';
+      error.missingEvidenceRefs = [...evidenceResolution.missingEvidenceRefs];
+      throw error;
+    }
     const reuseKey = summaryReuseKey({
       scope,
       sourceRevisionSet: summary.sourceRevisionSet,
@@ -145,12 +204,14 @@ export class LoreNavigationSummaryRegistry {
     const counts = {};
     for (const state of Object.values(NavigationSummaryState)) counts[state] = 0;
     for (const row of this.summaries.values()) counts[row.state] = (counts[row.state] || 0) + 1;
-    return {kind: 'LoreNavigationSummaryStatus', counts};
+    return {kind: 'LoreNavigationSummaryStatus', counts, evidence: this.evidenceRegistry.status()};
   }
 
   snapshot() {
     return {
       kind: 'LoreNavigationSummaryRegistrySnapshot',
+      contractVersion: 2,
+      evidenceRegistry: this.evidenceRegistry.snapshot(),
       summaries: [...this.summaries.values()].map(deepClone),
       historyByScope: [...this.historyByScope.entries()].map(([id, rows]) => [id, [...rows]]),
       currentByScope: [...this.currentByScope.entries()],
@@ -160,8 +221,21 @@ export class LoreNavigationSummaryRegistry {
   }
 
   restore(snapshot) {
-    this.summaries = new Map((snapshot?.summaries || []).map((row) => [row.id, deepClone(row)]));
-    this.historyByScope = new Map((snapshot?.historyByScope || []).map(([id, rows]) => [id, [...rows]]));
+    this.evidenceRegistry = new LoreNavigationEvidenceRegistry(snapshot?.evidenceRegistry || null);
+    const rows = (snapshot?.summaries || []).map((row) => {
+      const migrated = deepClone(row);
+      const legacyEvidence = Array.isArray(migrated.criticalEvidence) ? migrated.criticalEvidence : [];
+      const legacyRefs = legacyEvidence.length ? this.registerEvidence(legacyEvidence) : [];
+      migrated.criticalEvidenceRefs = [...new Set([
+        ...(migrated.criticalEvidenceRefs || []),
+        ...legacyRefs,
+      ].filter(Boolean).map(String))];
+      migrated.criticalEvidenceCount = migrated.criticalEvidenceRefs.length;
+      delete migrated.criticalEvidence;
+      return migrated;
+    });
+    this.summaries = new Map(rows.map((row) => [row.id, row]));
+    this.historyByScope = new Map((snapshot?.historyByScope || []).map(([id, values]) => [id, [...values]]));
     this.currentByScope = new Map(snapshot?.currentByScope || []);
     this.byReuseKey = new Map(snapshot?.byReuseKey || []);
     this.staleReasons = new Map((snapshot?.staleReasons || []).map(([id, reason]) => [id, deepClone(reason)]));

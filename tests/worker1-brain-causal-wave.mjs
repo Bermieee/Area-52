@@ -161,13 +161,15 @@ test('#263 causal selection survives true scene transition and chat switch while
   assert.equal(brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:B',turnId:'A:2',generationId:'gen:A:2'}),null);
 
   await brain.prepareTurn({
-    chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2:regen',query:'Regenerate this turn.',
-    executionLabel:'DETERMINISTIC',
+    chatId:'chat:A',turnId:'A:2:regen',generationId:'gen:A:2:regen',query:'Move on.',
+    executionLabel:'REGENERATION',
   });
-  assert.equal(brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2'}),null);
-  const regenerated=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2:regen'});
+  const original=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2'});
+  assert.equal(original.generationId,'gen:A:2');
+  const regenerated=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2:regen',generationId:'gen:A:2:regen'});
   assert.equal(regenerated.generationId,'gen:A:2:regen');
   assert.equal(regenerated.sceneId,'room-B');
+  assert.equal(brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2:regen',generationId:'gen:A:2'}),null);
 });
 
 test('#264 OpenRouter outbound roles are provider-supported while semantic context identity is retained',async()=>{

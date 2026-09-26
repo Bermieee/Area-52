@@ -1,0 +1,41 @@
+name: Cognitive Coprocessor Wave 21 Layered Scatter
+
+on:
+  push:
+    branches:
+      - Development-Worker2-Layered-Scatter-Jev
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wave21:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wave 21 layered scatter and Jev evidence
+        run: npm run test:wave21
+      - name: Same-workload deterministic evidence report
+        run: npm run report:wave21
+      - name: Preserve native swarm contracts
+        run: npm run test:wave15
+      - name: Preserve Jev corpus/provider contracts
+        run: npm run test:wave10
+      - name: Preserve current backend/runtime closure
+        run: npm run test:wave20
+      - name: Full branch regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor index ESM import
+        run: node -e "import('./src/coprocessor/index.js').then(()=>console.log('Coprocessor index ESM import PASS'))"

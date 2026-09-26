@@ -9,6 +9,19 @@ The supplied real demo export showed substantial Lore operation: 105 entries wer
 
 That evidence does **not** prove that a particular Lore entry was story-authorized, selected into the final PromptPlan, or delivered to SillyTavern. Worker 1 owns that final PromptPlan/host-delivery boundary.
 
+### One real observed Lorebook trace
+
+The demo's selected live turn names `Mushoku_Tensei_Akira_Kagenou_WorldInfo_v1` in the Runtime owner revision fence. The Runtime receipt carries exact Lore revision refs such as UID 102, 104, 13, 3, 50, 70, 71, and 83–91 at `@r1`, and its `ownerSourceRevisionRefs` mirrors that Lore fence.
+
+Downstream, the same selected turn shows:
+- Sensory: 16 nominations / 16 unique;
+- Truth: 16 CURRENT;
+- Gather: 32 admitted;
+- normalized Gather result IDs rooted at `candidate:owner-lore:...`;
+- PromptPlan dependencies containing the observed Lore revision refs.
+
+However, the normalized Gather rows have empty `sourceRevisionRefs` / `evidenceRefs`, while PromptPlan exposes `RELEVANT_LORE` as omitted/deferred. Therefore the strongest evidence-backed trace stops at **Lore candidate/results reached the cognitive pipeline**. It does not cross the final “selected into prompt text / delivered to SillyTavern model request” boundary.
+
 The normalized Gather export showed admitted `owner-lore` result IDs but empty `evidenceRefs` and `sourceRevisionRefs`.
 
 ## Root causes and disposition

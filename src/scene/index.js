@@ -31,3 +31,12 @@ export * from './scene-ui-read-model.js';
 export * from './host-bridge.js';
 export * from './scene-integration-view.js';
 export * from './scene-assembly-manifest.js';
+export * from './live-state-assimilation.js';
+export * from './scene-query-planner.js';
+export * from './atmosphere-policy.js';
+export * from './qualification.js';
+export * from './transition-handoff.js';
+export * from './jev-owner.js';
+export * from './operator-service.js';
+
+export * from './research-evaluation.js';

@@ -1,12 +1,13 @@
 import { BoundaryStatus } from './contracts.js';
 import { SceneEventType, SceneRelationship, TransitionStatus } from './lifecycle-contracts.js';
+import { SceneTransitionHandoffBuilder } from './transition-handoff.js';
 
 const clone=(v)=>structuredClone(v);
 
 export class ClapperboardTransitionManager{
-  constructor({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,contextInvalidationPublisher=null}={}){
+  constructor({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,contextInvalidationPublisher=null,handoffBuilder=new SceneTransitionHandoffBuilder()}={}){
     if(!registry||!stack||!episodeCompiler||!graph||!publisher)throw new TypeError('registry, stack, episodeCompiler, graph and publisher are required');
-    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.contextInvalidationPublisher=contextInvalidationPublisher;this.transitions=new Map();this.sequence=0;
+    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.contextInvalidationPublisher=contextInvalidationPublisher;this.handoffBuilder=handoffBuilder;this.transitions=new Map();this.handoffs=new Map();this.sequence=0;
   }
 
   #publish(eventType,scene,sourceRevisionRefs,payload,meta={}){
@@ -31,7 +32,7 @@ export class ClapperboardTransitionManager{
     return {episode,error,closed};
   }
 
-  transition({decision,fromSceneId,nextSceneId=null,relationship=SceneRelationship.CONTINUES,evidenceRefs=[],sourceRevisionRefs=[],sourceRange={start:null,end:null},expectedSceneRevision=null,correlationId=null,causationId=null,turnId=null}={}){
+  transition({decision,fromSceneId,nextSceneId=null,relationship=SceneRelationship.CONTINUES,evidenceRefs=[],sourceRevisionRefs=[],sourceRange={start:null,end:null},recentTailRefs=[],destinationHints={},expectedSceneRevision=null,correlationId=null,causationId=null,turnId=null}={}){
     if(decision?.status!==BoundaryStatus.CONFIRMED)throw new Error('confirmed boundary decision required');
     const prior=[...this.transitions.entries()].find(([key])=>key.startsWith(`${decision.candidateId}:`));if(prior)return {...clone(prior[1]),status:TransitionStatus.DUPLICATE};
     const current=this.registry.current(fromSceneId);if(!current)return {status:TransitionStatus.REJECTED,reason:'unknown-current-scene'};
@@ -71,15 +72,34 @@ export class ClapperboardTransitionManager{
 
     let contextInvalidation=null;
     if(this.contextInvalidationPublisher){const nextScene=nextRecord.snapshots.at(-1);contextInvalidation=this.contextInvalidationPublisher.publish({fromSceneId,fromRevision:current.revision,toSceneId:target,toRevision:nextScene.revision,relationship,resumedSceneRef:relationship===SceneRelationship.RESUMES?{sceneId:target,fromRevision:resumedFromRevision,toRevision:nextScene.revision,sceneRevision:nextScene.revision}:null,sourceRevisionRefs,evidenceRefs,reason:relationship===SceneRelationship.RESUMES?'SCENE_RESUMED':'SCENE_TRANSITION'});}
+    const nextScene=nextRecord.snapshots.at(-1);
     let prefetch=null;
     if(this.prefetchTrigger){
-      const nextScene=nextRecord.snapshots.at(-1);prefetch=this.prefetchTrigger.recommend({sceneId:nextScene.sceneId,sceneRevision:nextScene.revision,trigger:`TRANSITION_${relationship}`,sceneRefs:[fromSceneId,target],priority:'HIGH',evidenceRefs,sourceRevisionRefs});
+      prefetch=this.prefetchTrigger.recommend({sceneId:nextScene.sceneId,sceneRevision:nextScene.revision,trigger:`TRANSITION_${relationship}`,sceneRefs:[fromSceneId,target],entityRefs:destinationHints.entityRefs??[],locationRefs:destinationHints.locationRefs??[],threadRefs:destinationHints.threadRefs??[],priority:'HIGH',evidenceRefs,sourceRevisionRefs});
       this.#publish(SceneEventType.PREFETCH_RECOMMENDED,nextScene,sourceRevisionRefs,{recommendation:prefetch},{dedupeKey:prefetch.recommendationId,correlationId,causationId,turnId});
     }
-    const result={status:partial?TransitionStatus.EPISODE_PENDING:TransitionStatus.COMPLETE,fromSceneId,toSceneId:target,relationship,episodeRef:episode?.artifactRef??null,nextSceneRevision:nextRecord.revision,prefetchRef:prefetch?.recommendationId??null,contextInvalidationId:contextInvalidation?.invalidationId??null,resumed:Boolean(resumed)};
+    const status=partial?TransitionStatus.EPISODE_PENDING:TransitionStatus.COMPLETE;
+    const handoff=this.handoffBuilder?.build?.({
+      transition:{status,fromSceneId,toSceneId:target,relationship},priorScene:current,nextScene,episode,
+      recentTailRefs,destinationHints,evidenceRefs,sourceRevisionRefs,
+    })??null;
+    if(handoff)this.handoffs.set(handoff.handoffId,handoff);
+    const result={status,fromSceneId,toSceneId:target,relationship,episodeRef:episode?.artifactRef??null,nextSceneRevision:nextRecord.revision,prefetchRef:prefetch?.recommendationId??null,contextInvalidationId:contextInvalidation?.invalidationId??null,handoff:clone(handoff),handoffRef:handoff?.handoffId??null,resumed:Boolean(resumed)};
     this.transitions.set(key,result);return clone(result);
   }
 
-  exportState(){return clone({version:1,sequence:this.sequence,transitions:[...this.transitions.entries()]});}
-  static importState(state,deps){const t=new ClapperboardTransitionManager(deps);t.sequence=state.sequence??0;t.transitions=new Map(state.transitions??[]);return t;}
+  listHandoffs(){return [...this.handoffs.values()].map(clone);}
+  invalidateHandoffs({sourceRevisionRefs=[],replacementRef=null}={}){
+    const refs=new Set((sourceRevisionRefs??[]).filter(Boolean).map(String)),changed=[];
+    if(!refs.size)return changed;
+    for(const [id,handoff] of this.handoffs){
+      if(handoff.status!=='ACTIVE'||!(handoff.sourceRevisionRefs??[]).some(ref=>refs.has(String(ref))))continue;
+      let next=handoff;for(const ref of handoff.sourceRevisionRefs??[])if(refs.has(String(ref)))next=this.handoffBuilder.invalidate(next,{sourceRevisionRef:ref,replacementRef});
+      this.handoffs.set(id,next);changed.push(clone(next));
+    }
+    return changed;
+  }
+
+  exportState(){return clone({version:2,sequence:this.sequence,transitions:[...this.transitions.entries()],handoffs:[...this.handoffs.entries()]});}
+  static importState(state,deps){const t=new ClapperboardTransitionManager(deps);t.sequence=state.sequence??0;t.transitions=new Map(state.transitions??[]);t.handoffs=new Map(state.handoffs??[]);return t;}
 }

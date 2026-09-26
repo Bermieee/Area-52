@@ -335,21 +335,11 @@ test('live narrative feed journals revision events without raw text and invalida
 test('live host listener topology stays bounded across duplicate start stop and restart',()=>{
   const {sillyTavern,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
-  session.start();
-  const first=session.loadDiagnostics();
-  assert.equal(first.hostListenerCount,20);
-  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
-  session.start();
-  assert.equal(session.loadDiagnostics().hostListenerCount,20);
-  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
-  session.stop();
-  assert.equal(session.loadDiagnostics().hostListenerCount,0);
-  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
-  session.start();
-  assert.equal(session.loadDiagnostics().hostListenerCount,20);
-  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
-  session.destroy();
-  assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
+  session.start();assert.equal(session.loadDiagnostics().hostListenerCount,20);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.start();assert.equal(session.loadDiagnostics().hostListenerCount,20);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.stop();assert.equal(session.loadDiagnostics().hostListenerCount,0);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
+  session.start();assert.equal(session.loadDiagnostics().hostListenerCount,20);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.destroy();assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
 });
 
 test('live narrative feed records generation boundaries without retaining host payloads',async()=>{

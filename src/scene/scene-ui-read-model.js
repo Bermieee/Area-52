@@ -35,3 +35,23 @@ export function createSceneUiReadModel({scene,relationshipToPrior=null,latestEpi
 }
 
 export function isSceneUiReadModelFresh(model,{sceneId,revision}={}){return model?.kind==='SceneUiReadModel'&&model.sceneId===sceneId&&Number(model.revision)===Number(revision);}
+
+export function createSceneUiReadModelFromIntegrationState(state={}){
+  if(state?.kind==='SceneUiReadModel')return freeze(clone(state));
+  if(!state?.sceneId||!Number.isFinite(Number(state?.sceneRevision)))throw new TypeError('Scene core integration state requires Scene identity/revision');
+  const revision=Math.max(1,Number(state.sceneRevision)),refs=[...new Set((state.sourceRevisionRefs??[]).filter(Boolean).map(String))];
+  const fs=(value,observationClass=ObservationClass.OBSERVED)=>({value:clone(value),confidence:value==null?0:1,evidenceRefs:[...refs],observationClass:value==null?ObservationClass.UNKNOWN:observationClass,revision,provenance:[...(state.provenanceRefs??[])],metadata:{projectedFrom:'SceneCoreIntegrationState'}});
+  const scene={
+    sceneId:String(state.sceneId),revision,lifecycle:'OPEN',sourceRevisionRefs:refs,
+    fields:{
+      location:fs(state.location),narrativeTime:fs(state.narrativeTime),
+      activeCast:fs((state.activeAnchorIds??[]).map(characterId=>({characterId,state:'PRESENT',observationClass:'OBSERVED',evidenceRefs:[...refs]}))),
+      immediateObjects:fs((state.activeObjectIds??[]).map(objectId=>({objectId,state:'PRESENT',observationClass:'OBSERVED',evidenceRefs:[...refs]}))),
+      activeRelationships:fs(null,ObservationClass.UNKNOWN),activeThreads:fs(null,ObservationClass.UNKNOWN),activeObjectives:fs(null,ObservationClass.UNKNOWN),atmosphere:fs(null,ObservationClass.UNKNOWN),boundaryState:fs(null,ObservationClass.UNKNOWN),
+    },
+    unresolvedFields:[...(state.cognitiveNeeds??[]).filter(row=>row?.priority==='REQUIRED').map(row=>String(row.kind??row.need??'UNKNOWN'))],
+    provenance:[...new Set([...(state.provenanceRefs??[]),...refs])],
+    health:{status:state.retrievalRequired?'warning':'ready',reasons:state.retrievalRequired?['CORE_RETRIEVAL_REQUIRED']:[]},
+  };
+  return createSceneUiReadModel({scene,relationshipToPrior:state.sceneRelationship??null,diagnosticRefs:{coreReceiptId:state.lastReceiptId??null,lastEventType:state.lastEventType??null,projection:'NATIVE_BRAIN_CORE_STATE'}});
+}

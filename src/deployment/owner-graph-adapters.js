@@ -137,6 +137,13 @@ export function createMemoryOwnerGraphProvider(memoryInterface){
 
 export function createSceneOwnerGraphProvider(sceneRuntime){
   if(!sceneRuntime?.graph?.exportState)return null;
+  const temporalStatusFor=(row)=>{
+    if(row?.temporalStatus)return String(row.temporalStatus).toUpperCase();
+    if(String(row?.edgeType??'')==='SCENE_FLASHBACK')return'HISTORICAL';
+    const sceneIds=[row?.fromSceneId,row?.toSceneId].filter(Boolean);
+    if(sceneIds.length&&sceneIds.every(sceneId=>sceneRuntime.registry?.get?.(sceneId)?.lifecycle==='CLOSED'))return'HISTORICAL';
+    return sceneIds.length?'CURRENT':'UNRESOLVED';
+  };
   return Object.freeze({
     providerId:'SCENE_OWNER_GRAPH',
     owner:'SCENE_LIFECYCLE',
@@ -160,8 +167,8 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
             toEntityId:String(to),
             edgeMeaning:String(row.edgeType??'SCENE_RELATED'),
             sourceKind:'SCENE_OWNER',
-            temporalStatus:'CURRENT',
-            authorityClass:'OBSERVED',
+            temporalStatus:temporalStatusFor(row),
+            authorityClass:row.authorityClass??(['EVIDENCE_CAUSES','EVIDENCE_SUPPORTS'].includes(String(row.edgeType))?'INFERRED':'OBSERVED'),
             sourceRevisionRefs:refs,
             dependencyRevisionRefs:bounded(row.derivedFrom??[],32),
             provenanceRefs:bounded(row.provenance??[],32),

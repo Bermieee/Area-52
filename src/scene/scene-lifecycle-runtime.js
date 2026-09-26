@@ -58,8 +58,9 @@ export class SceneLifecycleRuntime{
     if([HostActivity.CHAT_LOAD,HostActivity.CHAT_SWITCH,HostActivity.NEW_CHAT,HostActivity.IMPORT_OR_RELOAD].includes(evidence.activity)){
       const scene=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});return {...normalized,scene:clone(scene)};
     }
-    const invalidated=(evidence.invalidates??[]).flatMap((source)=>this.#invalidateSource(source,evidence.sourceRevisionId));
-    if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated};
+    const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[],invalidationRefs=[...new Set([...(evidence.invalidates??[]),evidence.replacesRevisionId].filter(Boolean))];
+    for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
+    if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
     const extracted=extract(evidence,current)??{};const fields=extracted.fields??extracted;
     const observed=this.sceneRuntime.observe({sceneId:current.sceneId,proposalId:`host:${evidence.sourceRevisionId}`,fields,sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId],allowWhenRefreshRequired:Boolean(extracted.allowWhenRefreshRequired)});
@@ -77,7 +78,7 @@ export class SceneLifecycleRuntime{
         }
       }
     }
-    return {...normalized,invalidated,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
+    return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }
 
   integrationSignal(chatId){return buildSceneIntegrationSignal(this,chatId);}

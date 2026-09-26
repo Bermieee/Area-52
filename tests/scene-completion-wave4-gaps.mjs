@@ -126,7 +126,7 @@ test('Scene provider executes through the existing bounded Core Graph Walker bes
   const nominations=walker.retrieve({intentId:'scene-graph-intent',intentKind:'HISTORICAL',entityRefs:['Mara'],query:'Mara'},{
     worldRevision:1,sceneRevision:scene.revision,sourceRevisionSet:['scene:r1','memory:r1'],
   });
-  const providers=new Set(nominations.flatMap(row=>(row.graphMetadata??[]).map(meta=>meta.graphProvider)));
+  const providers=new Set(nominations.map(row=>row.graphMetadata?.graphProvider).filter(Boolean));
   assert.ok(providers.has('SCENE_OWNER_GRAPH'));
   assert.ok(providers.has('MEMORY_TEST'));
   assert.ok(nominations.every(row=>row.channelId==='ZZ_NATIVE_GRAPH_WALKER'));

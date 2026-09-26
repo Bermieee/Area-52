@@ -3,7 +3,7 @@ import {CandidateBus} from './candidate-bus.js';
 import {RetrievalChannelRegistry} from './retrieval-channel-registry.js';
 import {RetrievalIndexLifecycleManager} from './retrieval-index-lifecycle.js';
 import {createRetrievalIntent,CandidateFreshness,RetrievalChannelCapability} from './candidate-bus-contracts.js';
-import {CoreClaimRetrievalChannel,ActiveContinuityRetrievalChannel,IndexRetrievalChannelProvider} from './sensory-net-channels.js';
+import {CoreClaimRetrievalChannel,ActiveContinuityRetrievalChannel,IndexRetrievalChannelProvider,DeclaredCapabilityChannel} from './sensory-net-channels.js';
 import {NativeGraphNeighborhoodRetriever} from './graph-neighborhood-retriever.js';
 import {stableHash} from './browser-runtime-utils.js';
 
@@ -17,7 +17,7 @@ export class SensoryNetBackbone{
     this.isSourceRevisionCurrent=typeof isSourceRevisionCurrent==='function'?isSourceRevisionCurrent:(ref)=>sourceRegistry?.getRevision?.(ref)?sourceRegistry.isActiveRevision(ref):true;
     this.externalRevisionSink=typeof externalRevisionSink==='function'?externalRevisionSink:()=>{};
     this.legacyRetrieval=new MinimalRetrieval({graph});
-    this.candidateBus=candidateBus??new CandidateBus({isSourceRevisionCurrent:(ref)=>this.isSourceRevisionCurrent(ref)});
+    this.candidateBus=candidateBus??new CandidateBus({isSourceRevisionCurrent:(ref)=>this.isSourceRevisionCurrent(ref),isIdentityRevisionCurrent:(ref)=>this.entityRegistry?.isCurrentRevisionRef?.(ref)??true});
     this.channelRegistry=channelRegistry??new RetrievalChannelRegistry();
     this.indexLifecycle=indexLifecycle??new RetrievalIndexLifecycleManager();
     this.graphEvidence=new Map();
@@ -36,7 +36,11 @@ export class SensoryNetBackbone{
       this.graphWalker,
       new CoreClaimRetrievalChannel({channelId:'CORE_TEMPORAL',mode:'TEMPORAL',retrieval:this.legacyRetrieval,capability:RetrievalChannelCapability.WORLD_STATE}),
       new CoreClaimRetrievalChannel({channelId:'CORE_CONFLICT',mode:'CONFLICT',retrieval:this.legacyRetrieval,capability:RetrievalChannelCapability.SPECIALIZED_STORE}),
-      new ActiveContinuityRetrievalChannel({hotCognition:this.hotCognition}),
+      new ActiveContinuityRetrievalChannel({hotCognition:this.hotCognition,entityRegistry:this.entityRegistry}),
+      new DeclaredCapabilityChannel({channelId:'DENSE_EMBEDDINGS',capability:RetrievalChannelCapability.DENSE,fallbackChannelIds:['CORE_DENSE','CORE_SPARSE'],reason:'NO_NATIVE_EMBEDDING_PROVIDER_CONFIGURED'}),
+      new DeclaredCapabilityChannel({channelId:'LATE_INTERACTION',capability:RetrievalChannelCapability.LATE_INTERACTION,fallbackChannelIds:['CORE_SPARSE'],reason:'NO_NATIVE_LATE_INTERACTION_PROVIDER_CONFIGURED'}),
+      new DeclaredCapabilityChannel({channelId:'HIERARCHY_RAPTOR',capability:RetrievalChannelCapability.RAPTOR,fallbackChannelIds:['NATIVE_LORE','OWNER_LORE'],reason:'NO_HIERARCHICAL_INDEX_PROVIDER_CONFIGURED'}),
+      new DeclaredCapabilityChannel({channelId:'GRAPHRAG_COMMUNITY',capability:RetrievalChannelCapability.GRAPHRAG_COMMUNITY,fallbackChannelIds:['ZZ_NATIVE_GRAPH_WALKER'],reason:'NO_COMMUNITY_INDEX_PROVIDER_CONFIGURED'}),
     ];
     for(const channel of channels)if(!this.channelRegistry.lookup(channel.descriptor.channelId))this.channelRegistry.register(channel);
   }
@@ -124,13 +128,14 @@ export class SensoryNetBackbone{
     const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
     const refs=uniq(rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))));
     const sourceRevisionRefs=uniq(rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]));
+    const identityRevisionRefs=uniq(rows.flatMap(candidate=>candidate.identityRevisionRefs??[]));
     const provenanceRefs=uniq(rows.flatMap(candidate=>[
       ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
       ...(candidate.evidenceRefs??[]),
     ]));
     const degraded=(graphReceipt.providers??[]).some(row=>row?.status==='DEGRADED');
     return this.hotCognition.setGraphNeighborhood({
-      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,provenanceRefs,
+      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,identityRevisionRefs,provenanceRefs,
       updateId:'graph-warm:'+stableHash({candidateSetId:envelope?.candidateSetId??null,worldRevision:envelope?.worldRevision??null,sceneRevision:envelope?.sceneRevision??null,refs},{length:20}),
     });
   }

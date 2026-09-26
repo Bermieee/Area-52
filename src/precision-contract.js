@@ -66,6 +66,8 @@ export class DeterministicPrecisionStub {
       finalRank:index+1,modelProfileId:this.profileId,modelProfileRevision:this.profileRevision,
       runtimeProfile,latencyMs:0,truncation:{applied:false},freshness,
       sourceRevisionIds:[...new Set(row.candidate.sourceRevisionRefs??row.candidate.legacyProvenance?.sourceRevisionIds??row.candidate.provenance?.sourceRevisionIds??[])].sort(),
+      identityRevisionRefs:[...new Set(row.candidate.identityRevisionRefs??[])].sort(),temporalStatus:row.candidate.temporalStatus??row.candidate.truthStatusHint??null,
+      authorityClass:row.candidate.authorityClass??null,evidenceRefs:[...new Set(row.candidate.evidenceRefs??[])].sort(),
       worldRevision:inputWorldRevision,sceneRevision:inputSceneRevision,
     }));
   }

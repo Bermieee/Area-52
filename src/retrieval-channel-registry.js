@@ -76,7 +76,7 @@ export class RetrievalChannelRegistry{
       if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health});continue;}
       const id=row.descriptor.channelId;
       if(!row.available||[RetrievalChannelHealth.UNAVAILABLE,RetrievalChannelHealth.ERROR].includes(row.health)){
-        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0});continue;
+        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0,reason:row.descriptor.metadata?.unavailableReason??row.lastError??'CHANNEL_UNAVAILABLE',fallbackChannelIds:uniq(row.descriptor.metadata?.fallbackChannelIds??[]),capabilities:[...(row.descriptor.capabilities??[])]});continue;
       }
       if([RetrievalChannelHealth.DEGRADED,RetrievalChannelHealth.STALE].includes(row.health))degradedChannels.push(id);
       let count=0,status='OK';
@@ -112,7 +112,7 @@ export class RetrievalChannelRegistry{
       if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health});continue;}
       const id=row.descriptor.channelId;
       if(!row.available||[RetrievalChannelHealth.UNAVAILABLE,RetrievalChannelHealth.ERROR].includes(row.health)){
-        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0});continue;
+        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0,reason:row.descriptor.metadata?.unavailableReason??row.lastError??'CHANNEL_UNAVAILABLE',fallbackChannelIds:uniq(row.descriptor.metadata?.fallbackChannelIds??[]),capabilities:[...(row.descriptor.capabilities??[])]});continue;
       }
       if([RetrievalChannelHealth.DEGRADED,RetrievalChannelHealth.STALE].includes(row.health))degradedChannels.push(id);
       let count=0,status='OK';
@@ -148,7 +148,7 @@ export class RetrievalChannelRegistry{
         channelId:row.descriptor.channelId,version:row.descriptor.channelVersion,capabilities:[...row.descriptor.capabilities],
         health:row.health,available:row.available,supportedIntents:[...row.descriptor.supportedIntentKinds],
         maxCandidates:row.descriptor.maxCandidates,currentIndexRevision:row.currentIndexRevision,stale:row.stale,
-        retrievals:row.retrievals,failures:row.failures,lastError:row.lastError,
+        retrievals:row.retrievals,failures:row.failures,lastError:row.lastError,metadata:clone(row.descriptor.metadata??{}),
       })).sort((a,b)=>a.channelId.localeCompare(b.channelId)),
       readOnly:true,mutationAuthority:false,
     });

@@ -366,7 +366,8 @@ export class HotCognitionRuntime{
     const previousWorldRevision=state.worldRevision;
     const current=state.segments[HotSegmentKind.WORLD_REFERENCES].value??[],rows=artifactRefs.map(ref=>typeof ref==='string'?{ref,authorityClass:AuthorityClass.SETTLED,temporalStatus:'CURRENT'}:{...clone(ref),ref:identityOf(ref),authorityClass:observationOf(ref,AuthorityClass.SETTLED),temporalStatus:ref.temporalStatus??'CURRENT'}).filter(x=>x.ref&&x.temporalStatus==='CURRENT');
     const merged=cap([...new Map([...current,...rows].map(x=>[x.ref,x])).values()].sort((a,b)=>a.ref.localeCompare(b.ref)),this.limits.maxWorldRefs),changed=[],reused=[],invalidated=[];
-    this.#setSegment(state,HotSegmentKind.WORLD_REFERENCES,{value:merged,sourceRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.SETTLED,owner:'WORLD_STATE',freshness:HotFreshness.FRESH,updateId:id,changed,reused});
+    const dependencyRevisionRefs=uniq(merged.flatMap(row=>[...(row?.identityRevisionRefs??[]),...(row?.dependencyRevisionRefs??[])]));
+    this.#setSegment(state,HotSegmentKind.WORLD_REFERENCES,{value:merged,sourceRevisionRefs,dependencyRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.SETTLED,owner:'WORLD_STATE',freshness:HotFreshness.FRESH,updateId:id,changed,reused});
     state.worldRevision=Math.max(state.worldRevision,Number.isFinite(revision)?revision:state.worldRevision);
     if(state.worldRevision>previousWorldRevision)this.#invalidateSegments(state,[HotSegmentKind.GRAPH_NEIGHBORHOOD],{reason:'WORLD_REVISION_CHANGED',updateId:id,invalidated});
     return this.#commit(state,{updateId:id,eventType,changed,reused,invalidated,sourceRevisionRefs,worldRevision:state.worldRevision});
@@ -384,12 +385,13 @@ export class HotCognitionRuntime{
     return this.#commit(state,{updateId:id,eventType:'DEPENDENCY_STATE_CHANGED',changed,reused,invalidated:[],sourceRevisionRefs:[]});
   }
 
-  setGraphNeighborhood({chatNamespace=this.activeChatNamespace,state=HotDependencyState.UNAVAILABLE,refs=[],sourceRevisionRefs=[],provenanceRefs=[],updateId=null}={}){
+  setGraphNeighborhood({chatNamespace=this.activeChatNamespace,state=HotDependencyState.UNAVAILABLE,refs=[],sourceRevisionRefs=[],identityRevisionRefs=[],provenanceRefs=[],updateId=null}={}){
     if(!chatNamespace||!this.states.has(chatNamespace))return null;const hot=this.states.get(chatNamespace),id=String(updateId??('graph:'+state+':'+stableHash(refs,{length:12})));
     const duplicate=this.#duplicateReceipt(hot,id,'GRAPH_NEIGHBORHOOD_CHANGED');if(duplicate)return duplicate;
     const changed=[],reused=[],normalized=cap(uniq((refs??[]).map(identityOf).filter(Boolean)),this.limits.maxGraphRefs),freshness=state===HotDependencyState.AVAILABLE?HotFreshness.FRESH:state===HotDependencyState.STALE?HotFreshness.STALE:HotFreshness.UNAVAILABLE;
-    this.#setSegment(hot,HotSegmentKind.GRAPH_NEIGHBORHOOD,{value:{state,refs:normalized},sourceRevisionRefs,provenanceRefs,authorityClass:AuthorityClass.UNRESOLVED,owner:'GRAPH_OWNER',freshness,updateId:id,changed,reused});
-    this.#setDependencyInternal(hot,'GRAPH_NEIGHBORHOOD',state,{revisionRefs:sourceRevisionRefs,reason:state,updateId:id,changed,reused});
+    const graphDependencyRefs=uniq([...sourceRevisionRefs,...identityRevisionRefs]);
+    this.#setSegment(hot,HotSegmentKind.GRAPH_NEIGHBORHOOD,{value:{state,refs:normalized},sourceRevisionRefs,dependencyRevisionRefs:graphDependencyRefs,provenanceRefs,authorityClass:AuthorityClass.UNRESOLVED,owner:'GRAPH_OWNER',freshness,updateId:id,changed,reused});
+    this.#setDependencyInternal(hot,'GRAPH_NEIGHBORHOOD',state,{revisionRefs:graphDependencyRefs,reason:state,updateId:id,changed,reused});
     return this.#commit(hot,{updateId:id,eventType:'GRAPH_NEIGHBORHOOD_CHANGED',changed,reused,invalidated:[],sourceRevisionRefs});
   }
 

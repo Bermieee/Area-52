@@ -99,7 +99,7 @@ export function normalizeRankSignals(input={}){
 
 export function createChannelNomination({
   nominationId,channelId,channelVersion=RETRIEVAL_CHANNEL_CONTRACT_VERSION,candidateId=null,evidenceIdentity=null,
-  artifactRef=null,artifactRevision=null,sourceRevisionRefs=[],claimRefs=[],eventRefs=[],entityRefs=[],relationshipRefs=[],
+  artifactRef=null,artifactRevision=null,sourceRevisionRefs=[],identityRevisionRefs=[],claimRefs=[],eventRefs=[],entityRefs=[],relationshipRefs=[],
   retrievalIntentIds=[],rankSignals={},normalizedRank=null,graphMetadata=null,temporalHints=[],continuitySignals=[],
   authorityClass='UNKNOWN',truthStatusHint=CandidateTruthStatus.UNKNOWN,provenance=[],evidenceRefs=[],
   dependencyRevisions=[],freshness=CandidateFreshness.FRESH,representationRef=null,representationRevision=null,
@@ -110,7 +110,7 @@ export function createChannelNomination({
   if(!FRESHNESS.has(freshness))throw new CandidateBusContractError('CANDIDATE_FRESHNESS_INVALID','Unsupported freshness: '+freshness);
   if(!TRUTH.has(truthStatusHint))throw new CandidateBusContractError('CANDIDATE_TRUTH_STATUS_INVALID','Unsupported truth status: '+truthStatusHint);
   if(!AUTHORITIES.has(authorityClass))throw new CandidateBusContractError('CANDIDATE_AUTHORITY_INVALID','Unsupported authority: '+authorityClass);
-  const base={candidateId,evidenceIdentity,artifactRef,artifactRevision,sourceRevisionRefs,claimRefs,eventRefs,entityRefs,relationshipRefs,representationRef,representationRevision,metadata};
+  const base={candidateId,evidenceIdentity,artifactRef,artifactRevision,sourceRevisionRefs,identityRevisionRefs,claimRefs,eventRefs,entityRefs,relationshipRefs,representationRef,representationRevision,metadata};
   const identity=deriveEvidenceIdentity(base);
   return frozen({
     kind:'CandidateNomination',contractVersion:CANDIDATE_BUS_CONTRACT_VERSION,
@@ -118,7 +118,7 @@ export function createChannelNomination({
     channelId:req(channelId,'CandidateNomination.channelId'),channelVersion,
     candidateId:candidateId==null?null:String(candidateId),evidenceIdentity:identity,
     artifactRef:clone(artifactRef),artifactRevision:artifactRevision==null?null:Number(artifactRevision),
-    sourceRevisionRefs:uniq(sourceRevisionRefs),claimRefs:uniq(claimRefs),eventRefs:uniq(eventRefs),
+    sourceRevisionRefs:uniq(sourceRevisionRefs),identityRevisionRefs:uniq(identityRevisionRefs),claimRefs:uniq(claimRefs),eventRefs:uniq(eventRefs),
     entityRefs:uniq(entityRefs),relationshipRefs:uniq(relationshipRefs),retrievalIntentIds:uniq(retrievalIntentIds),
     rankSignals:normalizeRankSignals(rankSignals),normalizedRank:unit(normalizedRank,'CandidateNomination.normalizedRank'),
     graphMetadata:clone(graphMetadata),temporalHints:arr(temporalHints,'CandidateNomination.temporalHints'),
@@ -136,7 +136,7 @@ export function createChannelNomination({
 }
 
 export function createCanonicalCandidate({
-  candidateId,evidenceIdentity,artifactRef=null,artifactRevision=null,sourceRevisionRefs=[],
+  candidateId,evidenceIdentity,artifactRef=null,artifactRevision=null,sourceRevisionRefs=[],identityRevisionRefs=[],
   claimRefs=[],eventRefs=[],entityRefs=[],relationshipRefs=[],retrievalIntentIds=[],channelNominations=[],
   rankSignals={},graphMetadata=[],temporalHints=[],continuitySignals=[],authorityClass='UNKNOWN',
   truthStatusHint=CandidateTruthStatus.UNKNOWN,provenance=[],evidenceRefs=[],dependencyRevisions=[],
@@ -151,12 +151,12 @@ export function createCanonicalCandidate({
   const legacyProvenance={
     id:'candidate-prov:'+id,
     sourceRevisionIds:uniq(sourceRevisionRefs),evidenceIds:uniq(evidenceRefs),derivedFromIds:uniq([typeof artifactRef==='string'?artifactRef:artifactRef?.artifactId??artifactRef?.id,representationRef].filter(Boolean)),
-    activity:'CANDIDATE_BUS_FUSION',agent:'candidate-bus',invalidators:uniq([...sourceRevisionRefs,...dependencyRevisions]),
+    activity:'CANDIDATE_BUS_FUSION',agent:'candidate-bus',invalidators:uniq([...sourceRevisionRefs,...identityRevisionRefs,...dependencyRevisions]),
   };
   return frozen({
     kind:'CanonicalRetrievalCandidate',contractVersion:CANDIDATE_BUS_CONTRACT_VERSION,candidateId:id,
     evidenceIdentity:req(evidenceIdentity,'CanonicalCandidate.evidenceIdentity'),artifactRef:clone(artifactRef),
-    artifactRevision:artifactRevision==null?null:Number(artifactRevision),sourceRevisionRefs:uniq(sourceRevisionRefs),
+    artifactRevision:artifactRevision==null?null:Number(artifactRevision),sourceRevisionRefs:uniq(sourceRevisionRefs),identityRevisionRefs:uniq(identityRevisionRefs),
     claimRefs:claims,eventRefs:uniq(eventRefs),entityRefs:uniq(entityRefs),relationshipRefs:uniq(relationshipRefs),
     retrievalIntentIds:intents,channelNominations:arr(channelNominations,'CanonicalCandidate.channelNominations'),
     rankSignals:normalizeRankSignals(rankSignals),graphMetadata:arr(graphMetadata,'CanonicalCandidate.graphMetadata'),
@@ -201,7 +201,7 @@ export function createFusionReceipt({
 }
 
 export function createCandidateBusEnvelope({
-  candidateSetId,query=null,retrievalIntentIds=[],sourceRevisionSet=[],worldRevision=0,sceneRevision=0,
+  candidateSetId,query=null,retrievalIntentIds=[],sourceRevisionSet=[],identityRevisionSet=[],worldRevision=0,sceneRevision=0,
   candidates=[],unavailableChannels=[],degradedChannels=[],fusionReceipt,freshness=CandidateFreshness.UNKNOWN,metadata={},
 }={}){
   if(!FRESHNESS.has(freshness))throw new CandidateBusContractError('CANDIDATE_FRESHNESS_INVALID','Unsupported envelope freshness: '+freshness);
@@ -209,7 +209,7 @@ export function createCandidateBusEnvelope({
   return frozen({
     kind:'CandidateBusEnvelope',contractVersion:CANDIDATE_BUS_CONTRACT_VERSION,candidateSetId:req(candidateSetId,'CandidateBusEnvelope.candidateSetId'),
     query:query==null?null:String(query),retrievalIntentIds:ids,intentFingerprint:'intent:'+stableHash(ids,{length:24}),
-    sourceRevisionSet:uniq(sourceRevisionSet),worldRevision:Number(worldRevision)||0,sceneRevision:Number(sceneRevision)||0,
+    sourceRevisionSet:uniq(sourceRevisionSet),identityRevisionSet:uniq(identityRevisionSet),worldRevision:Number(worldRevision)||0,sceneRevision:Number(sceneRevision)||0,
     candidates:arr(candidates,'CandidateBusEnvelope.candidates'),candidateCount:candidates.length,
     unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),fusionReceipt:clone(fusionReceipt),
     freshness,metadata:obj(metadata,'CandidateBusEnvelope.metadata'),

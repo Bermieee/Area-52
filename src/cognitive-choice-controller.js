@@ -63,6 +63,14 @@ function representationRefs(envelopes=[]){
   }
   return uniq(refs);
 }
+function identityRevisionRefs(envelopes=[]){
+  return uniq(envelopes.flatMap(envelope=>(envelope?.candidates??[]).flatMap(candidate=>candidate.identityRevisionRefs??[])));
+}
+function temporalEvidenceRefs(envelopes=[]){
+  const rows=[];
+  for(const envelope of envelopes)for(const candidate of envelope?.candidates??[])rows.push({candidateId:candidate.candidateId,temporalStatus:candidate.temporalStatus??candidate.truthStatusHint??'UNKNOWN',temporalHints:clone(candidate.temporalHints??[]),identityRevisionRefs:uniq(candidate.identityRevisionRefs??[]),sourceRevisionRefs:uniq(candidate.sourceRevisionRefs??[])});
+  return rows.sort((a,b)=>String(a.candidateId).localeCompare(String(b.candidateId)));
+}
 function candidateRevisionRefs(envelopes=[]){
   const refs=[];
   for(const envelope of envelopes)for(const candidate of envelope?.candidates??[]){
@@ -286,10 +294,10 @@ export class CognitiveChoiceController{
       },
       revisions:{
         turnRevision:session.turnRevision,sceneId:session.sceneContext?.sceneId??null,sceneRevision:session.sceneRevision,worldRevision:session.worldRevision,
-        sourceRevisionRefs,candidateRevisionRefs:candidateRevisionRefs(envelopes),sceneSourceRevisionRefs:uniq(session.sceneContext?.sourceRevisionRefs??[]),
+        sourceRevisionRefs,identityRevisionRefs:identityRevisionRefs(envelopes),candidateRevisionRefs:candidateRevisionRefs(envelopes),sceneSourceRevisionRefs:uniq(session.sceneContext?.sourceRevisionRefs??[]),
         sceneProvenanceRefs:uniq(session.sceneContext?.provenanceRefs??[]),sceneContextInvalidationEpoch:Number(session.sceneContext?.contextInvalidationEpoch??0),
         retrievalRepresentationRevisionRefs:representationRefs(envelopes),
-        truthInputCandidateIds:uniq(assessment?.truthResults?.map(x=>x.candidateId)??[]),
+        truthInputCandidateIds:uniq(assessment?.truthResults?.map(x=>x.candidateId)??[]),temporalEvidenceRefs:temporalEvidenceRefs(envelopes),
         jevDecisionRevision:session.jev?.decisionRevision??null,
         contextSealRevision:sealReceipt?.sequence??null,
       },

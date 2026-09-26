@@ -41,3 +41,17 @@ The proposed layered Scatter contract is: current and cheap owner evidence plus 
 ## Adaptive Context inherited defect
 
 The 4,096-token `small and large delivery budgets preserve protected truth/source identity while optional lore is omitted without authority promotion` case remains intentionally non-green. On this branch it fails at the large-plan assertion because one section is dropped or deferred when the test requires zero. Worker 1 does not treat that as repaired by the causal/provider-role changes.
+
+## Assembled owner paths
+
+Scene REQUIRED retrieval needs now enter the expected-work journal from the real Scene integration signal. Sensory/Truth execution can supply physical-execution and result-return evidence, but Scene owner acceptance remains explicitly missing until the Scene owner publishes it; the reconciler therefore stays DUE instead of manufacturing completion.
+
+Lore `LoreSourceRevisionChanged` events register the owner's `studyObligationId` as expected work. Worker 1 does not invent Lore study execution or acceptance. Those stages remain DUE until the Lore owner path supplies evidence.
+
+Post-turn Memory writeback is reconciled at the real `admitExternalEvidenceMapping` boundary. An attached Memory owner that returns `ADMITTED` yields physical, returned, and explicit owner-admission stages and can reconcile DONE. When the optional Memory owner is not attached, the row is `SKIPPED_WITH_REASON / OPTIONAL_RESOURCE_UNAVAILABLE` while native Brain learning remains available.
+
+Direct owner evidence is retained in the reconciler snapshot with the same bounded causal receipt shape as Runtime evidence. Reload therefore preserves returned/rejected evidence without restoring a fake executor. Owner rejection remains FAILED after reload.
+
+## Layered Scatter planning contract
+
+`planLayeredScatter()` is now a non-activating Runtime planning contract. It partitions admitted work by result class and an explicit foreground-dependency declaration: REQUIRED or declared foreground dependencies are Seal-critical; other OPPORTUNISTIC work is conditional; DEFERRED work is post-Seal. The planner explicitly records `jobCountIgnored:true` and `schedulingActivated:false`, so this wave does not silently change Worker 2 routing.

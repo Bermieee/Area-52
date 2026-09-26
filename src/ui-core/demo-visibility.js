@@ -118,12 +118,13 @@ export class DemoActivityFeedController{
   constructor({
     host,journal,selectionProvider=()=>({}),inspect=null,maxVisible=5,
     now=()=>Date.now(),fadeAfterMs=6500,visibleForMs=12000,
-    setTimer=globalThis.setTimeout?.bind(globalThis)??null,clearTimer=globalThis.clearTimeout?.bind(globalThis)??null,
+    setTimer=globalThis.setTimeout?.bind(globalThis)??null,clearTimer=globalThis.clearTimeout?.bind(globalThis)??null,scheduleEnabled=null,
   }={}){
     this.host=host;this.journal=journal;this.selectionProvider=selectionProvider;this.inspect=typeof inspect==='function'?inspect:null;
     this.maxVisible=Math.max(2,Number(maxVisible)||5);this.now=typeof now==='function'?now:()=>Date.now();
     this.fadeAfterMs=Math.max(250,Number(fadeAfterMs)||6500);this.visibleForMs=Math.max(this.fadeAfterMs+250,Number(visibleForMs)||12000);
     this.setTimer=typeof setTimer==='function'?setTimer:null;this.clearTimer=typeof clearTimer==='function'?clearTimer:null;
+    this.scheduleEnabled=scheduleEnabled==null?typeof host?.isConnected==='boolean':Boolean(scheduleEnabled);
     this.scope=new ResourceScope();this.renderScope=new ResourceScope();this.held=new Set();this.timer=null;
   }
   mount(){this.host?.classList?.add?.('a52-activity-feed-host');this.render();return this;}
@@ -155,7 +156,7 @@ export class DemoActivityFeedController{
       root.append(button);
     });
     this.host.replaceChildren(root);
-    if(Number.isFinite(nextBoundary)&&this.held.size===0)this.#schedule(Math.max(20,nextBoundary+5));
+    if(this.scheduleEnabled&&Number.isFinite(nextBoundary)&&this.held.size===0)this.#schedule(Math.max(20,nextBoundary+5));
   }
   destroy(){this.#cancelTimer();this.renderScope.cleanup();this.scope.cleanup();this.held.clear();this.host?.replaceChildren?.();}
   #activate(entry){

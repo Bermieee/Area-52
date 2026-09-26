@@ -100,7 +100,7 @@ test('transient activity feed fades, pauses while interacted with, and then leav
     const out=[];const scan=node=>{if(String(node?.className??'').split(/\\s+/).includes('a52-activity-feed__item'))out.push(node);for(const child of node?.children??[])scan(child);};scan(host);return out;
   };
   const controller=new DemoActivityFeedController({
-    host,journal,selectionProvider:()=>selection,now:()=>now,fadeAfterMs:500,visibleForMs:1000,
+    host,journal,selectionProvider:()=>selection,now:()=>now,fadeAfterMs:500,visibleForMs:1000,scheduleEnabled:true,
     setTimer:(fn,ms)=>(timer={fn,ms,unref(){}}),clearTimer:()=>{timer=null;},
   }).mount();
   let buttons=feedButtons();assert.ok(buttons.length>0);assert.equal(buttons.at(-1).dataset.phase,'fresh');

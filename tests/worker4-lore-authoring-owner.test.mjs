@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {LoreIntelligenceService} from '../src/lore-intelligence-service.js';
+import {LoreAuthoringService} from '../src/lore-authoring-service.js';
 import {LoreSemanticImpactPlanner} from '../src/lore-semantic-impact-planner.js';
 import {LoreReviewedMutationService} from '../src/lore-reviewed-mutation.js';
 import {LoreMutationOperation, LoreMutationState} from '../src/lore-authoring-contracts.js';
@@ -535,4 +536,94 @@ test('commit-time operation fingerprint revalidation rejects a tampered restored
   assert.equal(result.state, LoreMutationState.STALE);
   assert.equal(result.lastError.code, 'LORE_MUTATION_FINGERPRINT_CHANGED');
   assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, before.id);
+});
+
+
+test('LoreAuthoringService publishes bounded Worker 3 mutation read/action contract without absorbing UI ownership', () => {
+  let intelligence = readyWorld();
+  let authoring = new LoreAuthoringService({intelligence});
+  const contract = authoring.operatorContract();
+
+  assert.equal(contract.kind, 'LoreAuthoringOperatorContract');
+  assert.equal(contract.contractVersion, 3);
+  for (const name of [
+    'mutationProposal', 'mutationQueue', 'semanticImpactPreview', 'mutationAudit',
+  ]) assert.equal(typeof contract.read[name], 'function', 'missing read ' + name);
+  for (const name of [
+    'createMutationProposal', 'approveMutationProposal', 'rejectMutationProposal',
+    'commitMutationProposal', 'restoreMutationProposal',
+  ]) assert.equal(typeof contract.actions[name], 'function', 'missing action ' + name);
+  for (const legacy of ['startTreeBuild', 'startMergeBuild', 'applySettlement', 'restoreSettlement']) {
+    assert.equal(typeof contract.actions[legacy], 'function', 'legacy Wave 7 action lost: ' + legacy);
+  }
+
+  const sourceId = 'lore:authoring-owner:mara';
+  const current = intelligence.runtime.registry.currentRevision(sourceId);
+  const impact = contract.read.semanticImpactPreview({
+    sourceId,
+    content: 'Mara formerly owned the Ember Tavern. Mara protects the Archive.',
+    metadata: current.metadata,
+  });
+  assert.equal(impact.ok, true);
+  assert.equal(impact.value.semanticImpact.kind, 'LoreSemanticImpactPlan');
+  assert.equal(impact.value.previewOnly, true);
+
+  const created = contract.actions.createMutationProposal({
+    operation: LoreMutationOperation.UPDATE,
+    chatId: CHAT,
+    sourceId,
+    after: {
+      content: 'Mara formerly owned the Ember Tavern. Mara protects the Archive.',
+      metadata: current.metadata,
+    },
+    origin: {kind: 'JEV_ADVICE', provider: 'fixture-only'},
+  });
+  assert.equal(created.ok, true);
+  assert.equal(created.value.authority.jevMutationAuthority, false);
+
+  const read = contract.read.mutationProposal({proposalId: created.value.proposalId});
+  assert.equal(read.ok, true);
+  assert.equal(read.value.proposalId, created.value.proposalId);
+
+  const queue = contract.read.mutationQueue({chatId: CHAT, limit: 8});
+  assert.equal(queue.ok, true);
+  assert.equal(queue.value.kind, 'LoreMutationQueueReadModel');
+  assert.equal(queue.value.items.length, 1);
+  assert.equal(queue.value.items[0].proposalId, created.value.proposalId);
+  assert.equal(queue.value.bounds.limit, 8);
+
+  const approved = contract.actions.approveMutationProposal({
+    proposalId: created.value.proposalId,
+    operatorDecisionId: 'worker3-approval',
+    chatId: CHAT,
+  });
+  assert.equal(approved.ok, true);
+  assert.equal(approved.value.state, LoreMutationState.APPROVED);
+
+  const committed = contract.actions.commitMutationProposal({
+    proposalId: created.value.proposalId,
+    operatorDecisionId: 'worker3-approval',
+    chatId: CHAT,
+  });
+  assert.equal(committed.ok, true);
+  assert.equal(committed.value.state, LoreMutationState.COMMITTED);
+
+  const audit = contract.read.mutationAudit({proposalId: created.value.proposalId});
+  assert.equal(audit.ok, true);
+  assert.equal(audit.value.kind, 'LoreMutationAuditReadModel');
+  assert.equal(audit.value.rawReconstructionIncluded, false);
+  assert.equal(audit.value.reconstruction.sources.every((row) => !Object.hasOwn(row, 'exactContent')), true);
+  assert.ok(audit.value.events.some((row) => row.kind === 'LoreMutationCommittedAudit'));
+
+  const serviceSnapshot = authoring.snapshot();
+  const intelligenceSnapshot = intelligence.snapshot();
+  intelligence = LoreIntelligenceService.fromSnapshot(intelligenceSnapshot);
+  authoring = LoreAuthoringService.fromSnapshot(serviceSnapshot, {intelligence});
+  assert.equal(authoring.mutationProposal({proposalId: created.value.proposalId}).state, LoreMutationState.COMMITTED);
+
+  const worker3 = authoring.worker3AuthoringContract();
+  assert.equal(worker3.contractVersion, 3);
+  assert.deepEqual(worker3.mutationOperations.sort(), Object.values(LoreMutationOperation).sort());
+  assert.equal(worker3.uiImplementationOwner, 'Worker 3');
+  assert.equal(worker3.backendOwnsRendering, false);
 });

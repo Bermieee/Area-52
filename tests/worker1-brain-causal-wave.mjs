@@ -38,21 +38,24 @@ test('#225 complete finite decision matrix is source-fenced and query-safe',asyn
 test('#225 layered Scatter keeps quiet continuation cheap without using job count as routing policy',async()=>{
   const brain=new Area52NativeBrain();
   const first=await brain.prepareTurn({
-    chatId:'chat:load',turnId:'load:1',generationId:'gen:load:1',query:'What is happening in the current scene?',
+    chatId:'chat:load',turnId:'load:1',generationId:'gen:load:1',query:'What happened before Aya reached this room?',intent:'HISTORICAL',
     scene:scene('quiet-room',1,{location:'Quiet Room',activeCast:['Aya']}),executionLabel:'DETERMINISTIC',
   });
   await brain.completeTurn({turnId:'load:1',response:'Aya watches the rain.',knownBy:['Aya']});
   const quiet=await brain.prepareTurn({chatId:'chat:load',turnId:'load:2',generationId:'gen:load:2',query:'Continue.',executionLabel:'DETERMINISTIC'});
   assert.ok(quiet.cognitiveChoice.paths.includes('HOT_ONLY'));
-  assert.ok(quiet.cognitiveChoice.measurements.avoidedForegroundJobs>first.cognitiveChoice.measurements.avoidedForegroundJobs);
+  assert.ok(first.cognitiveChoice.measurements.retrievalEnvelopeCount>0);
+  assert.equal(quiet.cognitiveChoice.measurements.retrievalEnvelopeCount,0);
   assert.equal(quiet.cognitiveChoice.executionPlan.layers[1].chosen.length,0);
   assert.equal(quiet.cognitiveChoice.measurements.remoteProviderExecutionInferred,false);
   const scatter=brain.uiBindings().readScatter({chatId:'chat:load',turnId:'load:2',generationId:'gen:load:2'});
   assert.equal(scatter.jobCountIsNotRoutingPolicy,true);
   assert.equal(scatter.jobs.some(row=>row.status==='EXECUTED'),false);
   console.log('WORKER1_LOAD_METRIC '+JSON.stringify({
-    firstAvoided:first.cognitiveChoice.measurements.avoidedForegroundJobs,
-    quietAvoided:quiet.cognitiveChoice.measurements.avoidedForegroundJobs,
+    firstRetrievalEnvelopes:first.cognitiveChoice.measurements.retrievalEnvelopeCount,
+    quietRetrievalEnvelopes:quiet.cognitiveChoice.measurements.retrievalEnvelopeCount,
+    firstRetrievalMs:first.cognitiveChoice.measurements.retrievalElapsedMs,
+    quietRetrievalMs:quiet.cognitiveChoice.measurements.retrievalElapsedMs,
     firstChannels:first.cognitiveChoice.measurements.usedChannelCount,
     quietChannels:quiet.cognitiveChoice.measurements.usedChannelCount,
     configuredResources:quiet.cognitiveChoice.measurements.configuredNativeResources,

@@ -144,7 +144,7 @@ test('Worker 1 #263 Scatter maps physical Runtime evidence only when an exact tu
   const admission=brain.runtimeDirector.submit({taskType:'RETRIEVAL',owner:'COGNITIVE_CORE',producerId:'COGNITIVE_CHOICE',layer:'L1',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'scatter:physical:retrieval',cause:{chatId:'chat:scatter',turnId:'scatter:1',generationId:'gen:scatter:1',correlationId:prepared.selection.correlationId,worldRevision:prepared.selection.worldRevision,sceneRevision:prepared.selection.sceneRevision,sourceRevisionRefs:prepared.selection.sourceRevisionRefs}},{execute:async()=>['ok'],validate:async()=>true,commit:async()=>({output:{receiptId:'retrieval:return:1'},validation:{valid:true}})});
   await brain.runtimeDirector.drain({maxCycles:32});brain.runtimeDirector.recordOwnerAdmission(admission.task.taskId,{accepted:true,receiptId:'retrieval:owner:1'});
   const scatter=brain.uiBindings().readScatter({chatId:'chat:scatter',turnId:'scatter:1',generationId:'gen:scatter:1'}),retrieval=scatter.jobs.find(row=>row.jobId==='RETRIEVAL');
-  assert.equal(retrieval.physicalExecutionEvidence,'EVIDENCE');assert.ok(retrieval.taskIds.includes(admission.task.taskId));assert.ok(['LATE','OWNER_ACCEPTED','RETURNED'].includes(retrieval.status));assert.ok(scatter.resourceCount>=1);
+  assert.equal(retrieval.physicalExecutionEvidence,'EVIDENCE');assert.ok(retrieval.taskIds.includes(admission.task.taskId));assert.equal(retrieval.status,'LATE');assert.ok(scatter.resourceCount>=1);
 });
 
 test('Worker 1 Scatter load probe measures eager pre-Seal queue pressure without changing routing policy',()=>{
@@ -189,4 +189,24 @@ test('Worker 1 #262 absent optional Memory owner is a finite skip and does not b
   const learning=await brain.completeTurn({turnId:'memory-native:1',response:'Native learning remains available.'});assert.ok(learning.experienceId);
   const expected=brain.uiBindings().readExpectedWork({chatId:'chat:memory-native',turnId:'memory-native:1',generationId:'gen:memory-native:1'}),row=expected.items.find(item=>item.owner==='MEMORY');
   assert.ok(row);assert.equal(row.status,'SKIPPED_WITH_REASON');assert.equal(row.reasonCode,'OPTIONAL_RESOURCE_UNAVAILABLE');
+});
+
+test('Worker 1 #262 direct owner rejection is durable FAILED evidence rather than owner acceptance',()=>{
+  const persistence=new MemoryPersistenceAdapter(),director=new WorkerDirector({persistence,capacity:{CPU:1},foregroundReserve:{CPU:1}}),reconciler=new CognitiveObligationReconciler({director});
+  reconciler.declare({expectedId:'scene:reject',owner:'SCENE',ownerSignalId:'scene:signal:reject',cause:{chatId:'chat:reject',turnId:'turn:reject',generationId:'gen:reject',correlationId:'corr:reject',sourceRevisionRefs:['scene:r9'],worldRevision:9,sceneRevision:9},obligation:{taskType:'SCENE_RETRIEVAL_NEED',layer:'L1',requiredCapabilities:['RETRIEVAL'],dedupeKey:'scene:reject'}});
+  reconciler.recordEvidence('scene:reject',{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'SENSORY_NET',consumerId:'SCENE'});
+  reconciler.recordEvidence('scene:reject',{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'SENSORY_NET',consumerId:'SCENE'});
+  reconciler.recordEvidence('scene:reject',{kind:CausalReceiptKind.OWNER_REJECTED,producerId:'SCENE',consumerId:'COGNITIVE_STATE',ownerAccepted:false});
+  const failed=reconciler.reconcile('scene:reject',{admit:false});assert.equal(failed.status,'FAILED');assert.equal(failed.reasonCode,'OWNER_REJECTED');
+  const restored=new CognitiveObligationReconciler({director,snapshot:JSON.parse(JSON.stringify(reconciler.snapshot()))}),after=restored.reconcile('scene:reject',{admit:false});
+  assert.equal(after.status,'FAILED');assert.ok(after.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.OWNER_REJECTED&&e.ownerAccepted===false));
+});
+
+test('Worker 1 #262 direct physical/result evidence survives reconciler reload while missing owner admission stays DUE',()=>{
+  const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1}}),reconciler=new CognitiveObligationReconciler({director});
+  reconciler.declare({expectedId:'lore:direct',owner:'LORE',ownerSignalId:'lore:signal',cause:{sourceRevisionRefs:['lore:r2'],worldRevision:3},obligation:{taskType:'LORE_STUDY',layer:'L2',requiredCapabilities:['LORE_STUDY'],dedupeKey:'lore:direct'}});
+  reconciler.recordEvidence('lore:direct',{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'LORE',consumerId:'RUNTIME_CORE'});
+  reconciler.recordEvidence('lore:direct',{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'LORE',consumerId:'RUNTIME_CORE'});
+  const restored=new CognitiveObligationReconciler({director,snapshot:JSON.parse(JSON.stringify(reconciler.snapshot()))}),row=restored.reconcile('lore:direct',{admit:false});
+  assert.equal(row.status,'DUE');assert.equal(row.reasonCode,'NO_EVIDENCE');assert.ok(row.missingEvidence.includes('OWNER_ADMISSION'));assert.equal(row.evidenceStages.length,2);
 });

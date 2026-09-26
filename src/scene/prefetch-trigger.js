@@ -5,6 +5,10 @@ export class ScenePrefetchTrigger{
     const sourceRevisionSet=[...new Set(sourceRevisionRefs)].sort();const id=`prefetch:${sceneId}:${sceneRevision}:${++this.seq}`;const r={kind:'PrefetchRecommendation',contractVersion:'1.0.0',recommendationId:id,sceneId,sceneRevision,trigger,entityRefs:[...new Set(entityRefs)],locationRefs:[...new Set(locationRefs)],threadRefs:[...new Set(threadRefs)],sceneRefs:[...new Set(sceneRefs)],priority,expiryRevision:sceneRevision+ttlRevisions,evidenceRefs:[...new Set(evidenceRefs)],sourceRevisionRefs:[...sourceRevisionSet],sourceRevisionSet,authority:'NONE',status:'ACTIVE'};
     this.pending.set(id,r);while(this.pending.size>this.maxPending)this.pending.delete(this.pending.keys().next().value);return clone(r);
   }
+  recommendFromIntents({sceneId,sceneRevision,intents=[],trigger='QUERY_PLAN',evidenceRefs=[],sourceRevisionRefs=[]}={}){
+    const rows=[];for(const intent of intents.slice(0,8))rows.push(this.recommend({sceneId,sceneRevision,trigger:trigger+':'+String(intent.intentKind??'INTENT'),entityRefs:intent.entityRefs??[],locationRefs:intent.locationRefs??[],threadRefs:intent.threadRefs??[],priority:['LOCATION_CONTEXT','THREAT_CONTEXT'].includes(intent.intentKind)?'HIGH':'NORMAL',evidenceRefs,sourceRevisionRefs}));
+    return rows;
+  }
   active({sceneId,sceneRevision}){this.expire({sceneId,sceneRevision});return [...this.pending.values()].filter((x)=>x.sceneId===sceneId&&x.status==='ACTIVE').map(clone);}
   expire({sceneId,sceneRevision}){for(const r of this.pending.values())if(r.sceneId===sceneId&&r.expiryRevision<sceneRevision)r.status='EXPIRED';}
   cancelSuperseded({sceneId,sceneRevision}){for(const r of this.pending.values())if(r.sceneId===sceneId&&r.sceneRevision<sceneRevision)r.status='CANCELLED';}

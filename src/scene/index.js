@@ -35,3 +35,6 @@ export * from './live-state-assimilation.js';
 export * from './scene-query-planner.js';
 export * from './atmosphere-policy.js';
 export * from './qualification.js';
+export * from './transition-handoff.js';
+export * from './jev-owner.js';
+export * from './operator-service.js';

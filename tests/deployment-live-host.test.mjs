@@ -234,7 +234,9 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   assert.equal(contextSeal.turnId,selection.turnId);
   assert.ok(runtime,'Runtime owner snapshot must be readable for the same native path');
 
-  const beforeHostObservation=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
+  const installedEvidence=session.exportEvidence().nativeBrainIntegration;
+  assert.equal(installedEvidence.installedUiSceneReadModelKind,'SceneUiReadModel');
+  const beforeHostObservation=installedEvidence.selectedTurnReceipt;
   assert.equal(beforeHostObservation.chatId,selection.chatId);
   assert.equal(beforeHostObservation.turnId,selection.turnId);
   assert.equal(beforeHostObservation.generationId,selection.generationId);

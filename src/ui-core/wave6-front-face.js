@@ -44,7 +44,7 @@ export class HostAdjacentFrontFaceController{
     this.brainPulse?.mount?.();
     this.#applyPresentation();
     const state=this.presentation.get();if(this.shell.workspaceRegistry.has(state.lastProductWorkspace)&&this.shell.currentWorkspace!==state.lastProductWorkspace)this.shell.selectWorkspace(state.lastProductWorkspace);
-    this.renderQuickDash();return this;
+    this.scheduler.cancel('wave6:quick-dash');this.renderQuickDash();return this;
   }
   scheduleQuickDash(){this.scheduler.invalidate('wave6:quick-dash',()=>this.renderQuickDash(),{cost:'CHEAP'});}
   renderQuickDash(){

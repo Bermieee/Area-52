@@ -686,8 +686,12 @@ export class DevelopmentDeploymentSillyTavernSession {
 
     const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     const installedUiBindings=this.#uiHostBindings(),installedUiReaderNames=Object.entries(installedUiBindings).filter(([name,value])=>typeof value==='function'&&(name.startsWith('read')||name.startsWith('list')||name.startsWith('reconstruct'))).map(([name])=>name).sort();
-    let selectedTurnReceipt=null;
-    try{const selected=installedUiBindings.readSelection?.()??{};selectedTurnReceipt=installedUiBindings.readSelectedTurnReceipt?.(selected)??null;}catch{}
+    let selectedTurnReceipt=null,installedUiSceneReadModelKind=null;
+    try{
+      const selected=installedUiBindings.readSelection?.()??{};
+      selectedTurnReceipt=installedUiBindings.readSelectedTurnReceipt?.(selected)??null;
+      installedUiSceneReadModelKind=installedUiBindings.readScene?.(selected)?.kind??null;
+    }catch{}
     const installedOptionalOwners={
       resources:Boolean(installedUiBindings.resourceHost??installedUiBindings.coprocessorResourceHost),
       loreStudy:Boolean(installedUiBindings.loreIntelligenceService??installedUiBindings.loreStudyService??installedUiBindings.loreOperatorHost??installedUiBindings.loreStudyHost),
@@ -773,7 +777,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       },
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
-        installedUiReaderNames,installedOptionalOwners,
+        installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
         pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
@@ -918,7 +922,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     else{
       delete merged.loreAuthoringHost;delete merged.loreAuthoringOperator;
     }
-    for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
+    for(const key of nativeKeys){
+      if(key==='readScene'&&typeof merged.readScene==='function')continue;
+      if(typeof native?.[key]==='function')merged[key]=native[key];
+    }
     const nativeSelectedTurnReader=typeof merged.readSelectedTurnReceipt==='function'?merged.readSelectedTurnReceipt:null;
     if(nativeSelectedTurnReader)merged.readSelectedTurnReceipt=(selection={})=>{
       const owner=nativeSelectedTurnReader(selection);if(!owner)return null;

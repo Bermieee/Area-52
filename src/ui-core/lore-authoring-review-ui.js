@@ -70,7 +70,7 @@ export function renderLoreReviewWorkspace(host,{loreStudy,loreAuthoring,actionRo
 function workspaceHeader(d,caps){
   const root=element(d,'div',{className:'a52-lore-review-workspace__header'});
   const head=element(d,'div',{className:'a52-wave13-section-head'});
-  head.append(element(d,'h2',{text:'Lore authoring & review'}),makeBadge(d,caps.lifecycle?'OWNER-REVIEWED FLOW':'REVIEW CONTRACT PARTIAL',caps.lifecycle?'ready':'warning'));
+  head.append(element(d,'h2',{text:'Lore authoring & review'}),makeBadge(d,'PREVIEW · NOT COMMITTED','historical'),makeBadge(d,caps.lifecycle?'OWNER-REVIEWED FLOW':'REVIEW CONTRACT PARTIAL',caps.lifecycle?'ready':'warning'));
   root.append(head,element(d,'p',{className:'a52-muted',text:'Browse exact SillyTavern-authored Lore, prepare evidence-led proposals, and send approvals only through Worker 4’s revision-fenced review/Settlement contract. Preview cards are never committed canon.'}));
   return root;
 }

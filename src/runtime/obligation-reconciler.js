@@ -10,9 +10,10 @@ export const ReconciliationStatus=Object.freeze({
 });
 
 export class CognitiveObligationReconciler{
-  constructor({director,maxExpected=256}={}){
+  constructor({director,maxExpected=256,snapshot=null}={}){
     if(!director)throw new TypeError('CognitiveObligationReconciler requires a WorkerDirector');
     this.director=director;this.maxExpected=Math.max(16,Number(maxExpected)||256);this.expected=new Map();this.order=[];
+    if(snapshot)this.restore(snapshot);
   }
 
   declare(input={},executor=null){
@@ -73,6 +74,20 @@ export class CognitiveObligationReconciler{
   }
 
   list(){return this.order.map(id=>this.reconcile(id,{admit:false}));}
+
+  snapshot(){
+    return Object.freeze({
+      kind:'CognitiveObligationReconcilerSnapshot',contractVersion:1,maxExpected:this.maxExpected,
+      declarations:this.order.map(id=>clone(this.expected.get(id)?.declaration)).filter(Boolean),
+    });
+  }
+
+  restore(snapshot={}){
+    const rows=Array.isArray(snapshot?.declarations)?snapshot.declarations:[];
+    this.expected.clear();this.order=[];
+    for(const declaration of rows.slice(-this.maxExpected))this.declare(declaration,null);
+    return this.snapshot();
+  }
 
   #findTask(d){return this.director.ledger.list().find(r=>r.obligation?.dedupeKey===(d.obligation?.dedupeKey??('expected:'+d.expectedId)))??null;}
 

@@ -55,9 +55,9 @@ function liveOwner({withResources=false,withLore=false}={}){
   return{bindings,calls,listenerCount:()=>listeners.size,switchStory({chatId,turnId,generationId,location:nextLocation}){selection={chatId,turnId,generationId,correlationId:'corr:'+turnId,worldRevision:selection.worldRevision+1,sceneRevision:selection.sceneRevision+1,sourceRevisionRefs:['scene:'+chatId+'@'+(selection.sceneRevision+1)]};location=nextLocation;emit();},clearTurn(){selection={...selection,turnId:null,generationId:null,correlationId:null,worldRevision:null,sceneRevision:null,sourceRevisionRefs:[]};emit();}};
 }
 
-function mount(owner,{width=1280,height=800,floating=true}={}){
+function mount(owner,{width=1280,height=800,floating=true,storage=null,namespace='wave13-test'}={}){
   const document=new Doc(width,height),root=new Node('aside',document);document.body.append(root);
-  const stateStore=new UIStateStore({storage:memory(),namespace:'wave13-test'});
+  const stateStore=new UIStateStore({storage:storage??memory(),namespace});
   const ui=createWave6ProductInterface({root,stateStore,hostBindings:owner.bindings,floatingNavigation:floating,viewportProvider:()=>({width,height})});
   ui.scheduler.flush(0);return{document,root,ui,stateStore};
 }
@@ -850,6 +850,46 @@ async function uiConnectConfigured(host){
   const row=host.read.resources().resources.find(x=>x.resourceId==='sidecar:configured');
   if(row?.state!=='READY')await host.actions.connectResource('sidecar:configured');
 }
+
+
+test('Jev Sidecar and Vectoring saved locks survive reload without serializing provider credentials',async()=>{
+  const shared=memory(),namespace='wave13-connection-persist',host1=worker2ResourceHost();
+  const store1=new UIStateStore({storage:shared,namespace}),adapter1=new Wave13ResourceControlAdapter({bindings:{resourceHost:host1},stateStore:store1});
+  const profiles=[
+    {role:'JEV',displayName:'Demo Jev',endpoint:'https://jev.example/v1',modelId:'jev/model',capabilities:['SEMANTIC_JUDGMENT'],local:false,apiKey:'jev-secret-value'},
+    {role:'SIDECAR',displayName:'Demo Sidecar',endpoint:'https://sidecar.example/v1',modelId:'sidecar/model',capabilities:['STRUCTURED_EXTRACTION'],local:false,apiKey:'sidecar-secret-value'},
+    {role:'VECTORING',displayName:'Demo Vectoring',endpoint:'https://vector.example/v1',modelId:'vector/model',capabilities:['RETRIEVAL','EMBED'],local:false,apiKey:'vector-secret-value'},
+  ];
+  for(const profile of profiles)await adapter1.connect(profile);
+  assert.deepEqual(adapter1.savedProfiles().map(x=>x.role),['JEV','SIDECAR','VECTORING']);
+  const serialized=shared.getItem(namespace);
+  for(const secret of ['jev-secret-value','sidecar-secret-value','vector-secret-value'])assert.doesNotMatch(serialized,new RegExp(secret));
+  assert.doesNotMatch(serialized,/"apiKey"\\s*:/i);
+  for(const endpoint of profiles.map(x=>x.endpoint))assert.equal(serialized.includes(endpoint),true);
+
+  const host2=worker2ResourceHost(),store2=new UIStateStore({storage:shared,namespace}),adapter2=new Wave13ResourceControlAdapter({bindings:{resourceHost:host2},stateStore:store2});
+  const restored=await adapter2.restoreSavedProfiles();
+  assert.equal(restored.saved,3);assert.equal(restored.restored,3);assert.equal(restored.failed.length,0);
+  const rows=adapter2.read().data.resources;
+  assert.deepEqual(rows.map(x=>x.kind).sort(),['JEV','SIDECAR','VECTORING']);
+  assert.ok(rows.every(x=>x.state==='CONFIGURED'));assert.ok(rows.every(x=>x.credentialConfigured===false));
+  for(const profile of profiles){
+    const row=rows.find(x=>x.kind===profile.role);assert.equal(row.endpoint,profile.endpoint);assert.equal(row.modelId,profile.modelId);
+  }
+
+  const owner=liveOwner();owner.bindings.resourceHost=host2;
+  const{ui}=mount(owner,{storage:shared,namespace});await ui.operator.resources.restoreSavedProfiles();
+  ui.shell.selectWorkspace('connections');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
+  const body=textOf(ui.shell.nodes.workspace);
+  for(const label of ['Jev','Sidecar','Vectoring'])assert.match(body,new RegExp(label));
+  assert.match(body,/SAVED LOCK/);assert.match(body,/Saved across reloads Yes/);assert.match(body,/API keys are intentionally not serialized/);
+  assert.doesNotMatch(body,/secret-value/);
+  ui.destroy();
+
+  const jev=rows.find(x=>x.kind==='JEV');assert.equal(adapter2.forgetSavedProfile(jev),true);
+  adapter2.read();
+  assert.equal(adapter2.savedProfiles().some(x=>x.role==='JEV'),false);
+});
 
 function directLoreRuntime(){
   const entries=[],revisions=new Map(),learned=new Map(),artifacts=new Map(),obligations=[];

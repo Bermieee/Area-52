@@ -39,8 +39,31 @@ jobs:
       - name: Journal and activity-feed regressions
         run: node --test tests/demo-visibility.test.mjs tests/worker3-brain-trace-ui.test.mjs
       - name: Inspect, switch, regeneration, remount and narrow-view compatibility
+        run: >
+          node --test
+          --test-name-pattern='Wave 13 rail is labeled|rail pointer drag crosses viewport|attached rail/panel keyboard|floating collapse releases|narrow viewport clamps|browser viewport resize|Brain activity distinguishes PromptPlan|chat switch cannot retain|Home Inspect details|Inspect details explains|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|local evidence journal survives|Connections is first-class|Diagnostics Center follows chat switches'
+          tests/wave13-operator-ui.test.mjs
+      - name: Full Wave 13 compatibility delta versus exact stack base
+        env:
+          BASE_SHA: 142b78e4bc6d69d3e39e571951389c135c18a38e
         run: |
-          node --test tests/wave13-operator-ui.test.mjs
+          git worktree add /tmp/area52-worker3-wave13-base "$BASE_SHA"
+          set +e
+          (cd /tmp/area52-worker3-wave13-base && node --test tests/wave13-operator-ui.test.mjs) > /tmp/wave13-base.tap 2>&1
+          (cd "$GITHUB_WORKSPACE" && node --test tests/wave13-operator-ui.test.mjs) > /tmp/wave13-head.tap 2>&1
+          set -e
+          grep -E '^not ok [0-9]+ - ' /tmp/wave13-base.tap | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/wave13-base.fail || true
+          grep -E '^not ok [0-9]+ - ' /tmp/wave13-head.tap | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/wave13-head.fail || true
+          echo "BASELINE_WAVE13_FAILURES"
+          cat /tmp/wave13-base.fail
+          echo "HEAD_WAVE13_FAILURES"
+          cat /tmp/wave13-head.fail
+          comm -13 /tmp/wave13-base.fail /tmp/wave13-head.fail > /tmp/wave13-new.fail
+          if test -s /tmp/wave13-new.fail; then
+            echo "New Wave 13 failures introduced by Worker 3 closure:"
+            cat /tmp/wave13-new.fail
+            exit 1
+          fi
       - name: Host compatibility and UI boundedness regressions
         run: |
           node tests/wave13-operator-ui-stress.mjs

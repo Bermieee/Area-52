@@ -524,6 +524,20 @@ export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,ins
     {key:'Selected chat',value:selection.chatId?'Current chat selected':'No chat selected'},{key:'Turn',value:selection.turnId?'Active turn':'Waiting for turn'},{key:'Generation',value:selection.generationId?'Active generation':'Waiting for generation'},
     {key:'Owner read coherence',value:(snapshot.host?.liveBinding?.rejected??0)>0?'Stale/foreign reads contained':'Current selection coherent'},
   ]));
+  const load=snapshot.load??null;
+  if(load){
+    const areas=load.areas??{},scatterTiming=load.ownerTimings?.SCATTER??{state:'NO_EVIDENCE'},gatherTiming=load.ownerTimings?.GATHER??{state:'NO_EVIDENCE'};
+    center.append(element(d,'h3',{text:'Browser / UI load attribution'}),createKeyValue(d,[
+      {key:'Host updates / owner updates',value:(load.counters?.hostUpdates??0)+' / '+(load.counters?.ownerUpdates??0)},
+      {key:'Streaming host updates coalesced before reread',value:load.counters?.suppressedRoutineHostRefreshes??0},
+      {key:'Workspace renders',value:loadArea(areas['ui.workspaceRender'])},{key:'Host refresh work',value:loadArea(areas['ui.hostRefresh'])},
+      {key:'Owner reads',value:loadArea(areas['journal.ownerReads'])},{key:'Journal processing',value:loadArea(areas['journal.recordSnapshot'])},
+      {key:'Activity-feed renders',value:loadArea(areas['ui.activityFeedRender'])},
+      {key:'Long tasks',value:load.longTasks?.supported?(load.longTasks.count+' · '+loadMs(load.longTasks.totalMs)+' total · '+loadMs(load.longTasks.maxMs)+' max'):'Not measurable in this host'},
+      {key:'JS heap',value:load.heap?.usedJSHeapSize==null?'Not measurable':String(load.heap.usedJSHeapSize)+' bytes'},
+      {key:'Scatter timing / waves',value:ownerTiming(scatterTiming)},{key:'Gather timing',value:ownerTiming(gatherTiming)},
+    ]));
+  }
   const copro=snapshot.coprocessor?.summary??{},resourceTelemetry=copro.resourceTelemetry??{},providerCalls=copro.providerCalls??{};
   center.append(element(d,'h3',{text:'Coprocessor telemetry'}),createKeyValue(d,[
     {key:'Events',value:copro.totalEvents??0},{key:'Warm hit / miss',value:(copro.warm?.hit??0)+' / '+(copro.warm?.miss??0)},
@@ -1152,6 +1166,14 @@ function stageCard(d,row,scope,inspect,{showIds=false,inspection=null}={}){
     card.append(createButton(d,{label:'Inspect details',ariaLabel:'Inspect '+row.label+' for the selected turn',scope,size:'sm',variant:'inspect',onPress:()=>inspect(target)}));
   }
   return card;
+}
+
+function loadMs(value){return Number.isFinite(Number(value))?Number(value).toFixed(2)+' ms':'NO_EVIDENCE';}
+function loadArea(row){return row?String(row.count??0)+' × · '+loadMs(row.totalMs)+' total · '+loadMs(row.maxMs)+' max':'NO_EVIDENCE';}
+function ownerTiming(row){
+  if(!row||row.state!=='OBSERVED')return'NO_EVIDENCE';
+  const parts=[];if(row.durationMs!=null)parts.push(loadMs(row.durationMs));if(row.concurrency!=null)parts.push('concurrency '+row.concurrency);if(row.deferredWork!=null)parts.push('deferred '+row.deferredWork);if(row.waveTriggers!=null)parts.push('wave telemetry published');
+  return parts.join(' · ')||'NO_EVIDENCE';
 }
 
 function header(d,title,subtitle){const h=element(d,'div',{className:'a52-workspace-header'});h.append(element(d,'h1',{text:title}),element(d,'p',{className:'a52-muted',text:subtitle}));return h;}

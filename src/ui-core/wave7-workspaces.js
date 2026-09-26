@@ -61,6 +61,7 @@ export function createWave7BrainLaunchers(doc,{ctx,currentGenerationId=null}={})
       {key:'Model profile',value:explain.modelProfileId??'unavailable'},
       {key:'Fallback',value:explain.fallbackState??'NONE'},
       {key:'Final packet estimate',value:`${number(explain.usedOrEstimatedTokens)} tokens`},
+      {key:'Planned / compiled / host',value:[explain.delivery?.planned?.state??'NO_EVIDENCE',explain.delivery?.compiled?.state??'NO_EVIDENCE',explain.delivery?.observed?.state??'NO_EVIDENCE'].join(' → ')},
       {key:'Unresolved evidence',value:String(explain.unresolvedEvidence?.length??0)},
     ]));
   }
@@ -80,6 +81,7 @@ function renderGenerationWorkspace(host,ctx){
   const explain=read.data.explainability;
   const forensic=explain.generationId?ctx.forensics.readGeneration(explain.generationId,{limit:5000}):null;
   host.append(generationHero(d,explain,source));
+  host.append(section(d,'Delivery truth'),deliveryTruthCard(d,explain));
   host.append(section(d,'Why?'),whySummary(d,explain,ctx));
   host.append(section(d,'Context plan'),contextSections(d,explain,detail,ctx));
   host.append(section(d,'Context Seal'),sealCard(d,explain,forensic,detail,ctx));
@@ -140,6 +142,27 @@ function generationHero(d,x,source){
   return card;
 }
 
+function deliveryTruthCard(d,x){
+  const delivery=x.delivery??{},planned=delivery.planned??{state:'NO_EVIDENCE'},compiled=delivery.compiled??{state:'NO_EVIDENCE'},observed=delivery.observed??{state:'NO_EVIDENCE'};
+  const card=element(d,'section',{className:'a52-card a52-delivery-truth',attrs:{'aria-label':'Prompt delivery truth'}});
+  card.append(element(d,'p',{className:'a52-muted',text:'Planning, sealed compilation, and SillyTavern host-request observation are separate receipts. A plan never proves delivery.'}));
+  const list=element(d,'div',{className:'a52-wave13-flow-list'});
+  for(const [label,row] of [['Planned',planned],['Compiled / sealed',compiled],['Observed in host request',observed]]){
+    const line=element(d,'div',{className:'a52-wave13-flow-row'});line.append(element(d,'strong',{text:label}),makeBadge(d,row.state??'NO_EVIDENCE',deliveryStatusToken(row.state)),element(d,'span',{className:'a52-muted',text:deliveryTruthDetail(label,row)}));list.append(line);
+  }
+  card.append(list);
+  const omissions=(compiled.deferredSections??[]).concat(compiled.omittedSections??[]).slice(0,8);
+  if(omissions.length){card.append(element(d,'h3',{text:'Core omissions / deferrals'}));for(const row of omissions)card.append(element(d,'p',{className:'a52-muted',text:human(rowSlotLabel(row))+' — '+String(row.reason??row.reasonCode??'owner reason not published')}));}
+  return card;
+}
+function rowSlotLabel(row){return typeof row==='string'?row:row?.slot??row?.segmentKey??row?.id??'unknown section';}
+function deliveryTruthDetail(label,row){
+  if(row?.reason)return String(row.reason);
+  if(label==='Planned')return 'PromptPlan '+String(row?.promptPlanId??'id unavailable')+' · budget '+number(row?.budget?.allocated??row?.budget?.usedTokens)+' / '+number(row?.budget?.total??row?.budget?.available);
+  if(label==='Compiled / sealed')return 'ContextReceipt '+String(row?.contextSealId??'seal unavailable')+' · packet '+String(row?.packetId??'unavailable');
+  return row?.receiptId?'SillyTavern receipt '+row.receiptId:'No exact host-request receipt.';
+}
+
 function whySummary(d,x,ctx){
   const card=element(d,'section',{className:'a52-card'}),counts=x.sectionCounts??{};
   card.append(element(d,'p',{text:`${x.sections.length} context section records · ${counts.REUSED??0} reused · ${counts.UPDATED??0} updated · ${counts.REBUILT??0} rebuilt · ${counts.DROPPED??0} dropped · ${counts.DEFERRED??0} deferred.`}));
@@ -153,9 +176,9 @@ function contextSections(d,x,detail,ctx){
   const root=element(d,'div',{className:'a52-context-section-grid'});
   for(const [index,section] of x.sections.entries()){
     const explanation=explainContextSection(section),card=element(d,'article',{className:'a52-context-section-card',dataset:{state:explanation.state},attrs:{'aria-label':`Context section ${index+1}: ${human(explanation.slot)}`}});
-    const head=element(d,'div',{className:'a52-inline-status'});head.append(makeBadge(d,`#${index+1}`,'observed'),makeBadge(d,explanation.state,stateToken(explanation.state)),element(d,'strong',{text:human(explanation.slot)}),makeBadge(d,`${number(explanation.actualTokens??explanation.estimatedTokens)} tokens`,'observed'));
+    const head=element(d,'div',{className:'a52-inline-status'});head.append(makeBadge(d,`#${index+1}`,'observed'),makeBadge(d,'PLAN '+(explanation.plannedState??explanation.state),stateToken(explanation.plannedState??explanation.state)),makeBadge(d,'COMPILED '+(explanation.compiledState??'NO_EVIDENCE'),deliveryStatusToken(explanation.compiledState)),element(d,'strong',{text:human(explanation.slot)}),makeBadge(d,`planned ${number(explanation.actualTokens??explanation.estimatedTokens)} tokens`,'observed'));
     card.append(head,element(d,'p',{text:explanation.impact}));
-    if(explanation.reason)card.append(element(d,'p',{className:'a52-muted',text:explanation.reason}));else card.append(element(d,'p',{className:'a52-muted',text:'Reason not published by the owning context model.'}));
+    if(explanation.compiledReason)card.append(element(d,'p',{className:'a52-muted',text:'Owner disposition: '+explanation.compiledReason}));else if(explanation.reason)card.append(element(d,'p',{className:'a52-muted',text:explanation.reason}));else card.append(element(d,'p',{className:'a52-muted',text:'Reason not published by the owning context model.'}));
     if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Priority',value:explanation.priority??'unavailable'},{key:'Tokens',value:number(explanation.actualTokens??explanation.estimatedTokens)},{key:'Representation',value:explanation.representation??'unavailable'},{key:'Cache eligible',value:explanation.cacheEligible==null?'unavailable':String(explanation.cacheEligible)}]));
     if(explanation.authority)card.append(createAuthorityPill(d,explanation.authority));
     const actions=element(d,'div',{className:'a52-inline-status'});actions.append(createButton(d,{label:'Why?',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>why(ctx,{section})}),createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'inspect',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-context-section',id:`${x.generationId}:${section.slot}`,title:human(section.slot),section,generationId:x.generationId})}));card.append(actions);root.append(card);
@@ -274,4 +297,5 @@ function list(d,items=[]){const ul=element(d,'ul');for(const item of items)ul.ap
 function human(v){return String(v??'').toLowerCase().replace(/(^|_)([a-z])/g,(_,sp,l)=>`${sp?' ':''}${l.toUpperCase()}`);}
 function number(v){return v==null?'unavailable':new Intl.NumberFormat('en-US').format(Number(v)||0);}
 function stateToken(v){if(v==='REUSED'||v==='INCLUDED')return'ready';if(v==='UPDATED'||v==='REBUILT'||v==='NEW')return'loading';if(v==='DEFERRED'||v==='DROPPED'||v==='INVALIDATED')return'warning';return'offline';}
+function deliveryStatusToken(v){if(v==='OBSERVED'||v==='COMPILED_AND_SEALED'||v==='INCLUDED')return'ready';if(v==='PLANNED')return'observed';if(v==='DEFERRED'||v==='OMITTED')return'warning';return'offline';}
 function statusToken(v){if(['ACCEPTED','RECORDED','REFERENCE'].includes(v))return'ready';if(['STALE','LATE','UNRESOLVED'].includes(v))return'warning';if(v==='REJECTED')return'error';if(v==='MISSING')return'offline';if(v==='SKIPPED')return'historical';return'observed';}

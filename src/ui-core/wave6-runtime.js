@@ -28,6 +28,8 @@ import { installWave13OperatorSurfaces, registerWave13OperatorActions } from './
 import { VerticalRailPopoutController } from './wave13-floating-navigation.js';
 import { DemoActivityFeedController, DemoEvidenceJournal } from './demo-visibility.js';
 import { installTurnLogDiagnosticsWorkspace } from './turn-log-diagnostics.js';
+import { OperatorLoadTrace } from './operator-load-trace.js';
+import { prepareSelectedTurnInspection } from './selected-turn-inspection.js';
 
 export function createWave6ProductInterface({
   root,
@@ -45,7 +47,7 @@ export function createWave6ProductInterface({
   if(fixture&&hostBindings)throw new TypeError('Fixture review mode and Wave 11 live host bindings are mutually exclusive');
   const liveReceiptBinding=hostBindings?createWave11LiveReceiptBinding(hostBindings):null;
   const effectiveBridges=liveReceiptBinding?mergeWave11Bridges(bridges,liveReceiptBinding.bridges):bridges;
-  const signals=new SignalHub(),scheduler=new RenderScheduler(),widgetRegistry=new WidgetRegistry(),workspaceRegistry=new WorkspaceRegistry(),inspectorRegistry=new InspectorRegistry(),actionRouter=new ActionRouter();
+  const signals=new SignalHub(),scheduler=new RenderScheduler(),loadTrace=new OperatorLoadTrace(),widgetRegistry=new WidgetRegistry(),workspaceRegistry=new WorkspaceRegistry(),inspectorRegistry=new InspectorRegistry(),actionRouter=new ActionRouter();
   const extensionRegistry=new UIExtensionRegistry({workspaceRegistry,inspectorRegistry,actionRouter,scheduler});
   const overlays=new OverlayManager({document:root.ownerDocument,root:root.ownerDocument.body});
   const notifications=new NotificationCenter({signals});
@@ -101,6 +103,11 @@ export function createWave6ProductInterface({
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});
   const inspectionScope=new ResourceScope();
+  const inspectSelectedEvidence=(object,source='wave6-product')=>{
+    const prepared=prepareSelectedTurnInspection(object,selectionProvider());
+    loadTrace.measure('ui.inspectDispatch',()=>signals.publish('UI_INSPECT_SELECTION_CHANGED',{object:prepared},{source}));
+    return prepared;
+  };
   inspectionScope.subscribe(signals,'UI_INSPECT_SELECTION_CHANGED',({payload})=>{
     if(!payload?.object)return;
     frontFacePresentation.patch({inspectorVisible:true,frontFaceMode:FrontFaceMode.EXPANDED});
@@ -109,20 +116,20 @@ export function createWave6ProductInterface({
   });
   const renderWorkspace=(entry,host)=>{
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
-    entry.render?.(host,{
+    loadTrace.measure('ui.workspaceRender',()=>entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
       promptPlan,forensics,cognition,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,loreAuthoring,diagnostics,floatingController,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
-      inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
+      inspect(object){inspectSelectedEvidence(object,'wave6-product');},
       navigate(id){shell?.selectWorkspace(id);},
       refresh(){shell?.refreshCurrentWorkspace();},
-    });
+    }));
   };
 
   registerWave6FrontFaceWorkspaces(workspaceRegistry,{adapter:productAdapter,brainPulse});
   const productionAdapters={scene,runtime,coprocessor,promptPlan,forensics,cognition};
   const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters,loreStudy,resources}):null;
-  const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,memory:memoryOwner,cognition,liveReceiptBinding,productionAdapters}):null;
+  const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,memory:memoryOwner,cognition,liveReceiptBinding,productionAdapters,loadTrace}):null;
   const evidenceJournal=hostBindings?new DemoEvidenceJournal({storage:stateStore.storage,namespace:String(stateStore.namespace??'area52.ui.v1')+'.demoEvidence.v1'}):null;
   const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider}):null;
   const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,actionRouter,cognition,coprocessor,frontFacePresentation,evidenceJournal});
@@ -135,21 +142,25 @@ export function createWave6ProductInterface({
   controller.mount();
   floatingController=floatingNavigation?new VerticalRailPopoutController({frontFaceController:controller,shell,presentation:frontFacePresentation,signals,scheduler,stateStore,workspaceRegistry,productName,viewportProvider}).mount():null;
   const cognitionScope=new ResourceScope();
-  const inspectEvidence=(object)=>signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'demo-activity-feed'});
+  const inspectEvidence=(object)=>inspectSelectedEvidence(object,'demo-activity-feed');
   let activityFeed=null,activityFeedHost=null;
   const captureEvidence=()=>{
-    if(!evidenceJournal||!operations)return null;
-    const op=operations.read(),selection=op.selection??selectionProvider();
-    let ownerReceipt=null;
-    try{ownerReceipt=effectiveBridges.selectedTurn?.readReceipt?.(selection)??null;}catch{/* LiveReceiptBinding records the safe rejection for Diagnostics. */}
-    const cognitionRead=cognition.read?.(selection)??null,diagnosticsRead=diagnostics?.read?.()??null,promptPlanRead=promptPlan.read?.(selection)??null;
-    const turn=evidenceJournal.recordSnapshot({selection,operations:op,diagnostics:diagnosticsRead,cognition:cognitionRead,promptPlan:promptPlanRead,ownerReceipt});
-    activityFeed?.render();return turn;
+    if(!evidenceJournal||!operations)return null;loadTrace.increment('evidenceCapturesExecuted');
+    const reads=loadTrace.measure('journal.ownerReads',()=>{
+      const op=operations.read(),selection=op.selection??selectionProvider();let ownerReceipt=null;
+      try{ownerReceipt=effectiveBridges.selectedTurn?.readReceipt?.(selection)??null;}catch{/* LiveReceiptBinding records the safe rejection for Diagnostics. */}
+      const cognitionRead=cognition.read?.(selection)??null,diagnosticsRead=diagnostics?.read?.()??null,promptPlanRead=promptPlan.read?.(selection)??null;
+      return{op,selection,ownerReceipt,cognitionRead,diagnosticsRead,promptPlanRead};
+    });
+    loadTrace.observeOwnerReceipt('SCATTER',reads.cognitionRead?.data?.scatter??null);loadTrace.observeOwnerReceipt('GATHER',reads.cognitionRead?.data?.gather??null);
+    const turn=loadTrace.measure('journal.recordSnapshot',()=>evidenceJournal.recordSnapshot({selection:reads.selection,operations:reads.op,diagnostics:reads.diagnosticsRead,cognition:reads.cognitionRead,promptPlan:reads.promptPlanRead,ownerReceipt:reads.ownerReceipt}));
+    if(activityFeed){loadTrace.increment('activityFeedRendersScheduled');scheduler.invalidate('demo:activity-feed',()=>loadTrace.measure('ui.activityFeedRender',()=>activityFeed?.render()),{cost:'CHEAP'});}
+    return turn;
   };
-  const scheduleEvidenceCapture=()=>evidenceJournal&&operations?scheduler.invalidate('demo:evidence-capture',captureEvidence,{cost:'CHEAP'}):false;
+  const scheduleEvidenceCapture=()=>{if(!evidenceJournal||!operations)return false;loadTrace.increment('evidenceCapturesScheduled');return scheduler.invalidate('demo:evidence-capture',captureEvidence,{cost:'CHEAP'});};
   let liveSelectionKey=null;
   const applyLiveSelection=(update=null,{initial=false}={})=>{
-    const selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;
+    const eventClass=loadTrace.noteUpdate(update),selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;
     if(!selection)return;
     const key=JSON.stringify([selection.chatId,selection.turnId,selection.generationId,selection.correlationId,selection.worldRevision,selection.sceneRevision,selection.sourceRevisionRefs]);
     const switched=liveSelectionKey!==null&&key!==liveSelectionKey;liveSelectionKey=key;
@@ -157,8 +168,11 @@ export function createWave6ProductInterface({
       explainabilityPresentation.selectGeneration({generationId:selection.generationId??null,turnId:selection.turnId??null});
       inspector.clear();scheduler.cancelPrefix('inspector');
       signals.publish('UI_HOST_CONTEXT_CHANGED',{selection,switched},{source:'wave11-live-binding'});
-    }else if(inspector.selection)scheduler.invalidate('wave11:inspector-refresh',()=>inspector.render(),{cost:'NORMAL'});
-    scheduler.invalidate('wave11:host-refresh',()=>{if(shell?.currentWorkspace)shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();},{cost:'NORMAL'});
+    }else if(inspector.selection)scheduler.invalidate('wave11:inspector-refresh',()=>loadTrace.measure('ui.inspectorRender',()=>inspector.render()),{cost:'NORMAL'});
+    const routineStream=eventClass.routineStreamingHostEvent&&!eventClass.ownerStage&&!switched&&!initial;
+    if(routineStream){loadTrace.increment('suppressedRoutineHostRefreshes');return;}
+    loadTrace.increment('hostRefreshesScheduled');
+    scheduler.invalidate('wave11:host-refresh',()=>loadTrace.measure('ui.hostRefresh',()=>{if(shell?.currentWorkspace)shell.refreshCurrentWorkspace();controller?.scheduleQuickDash?.();}),{cost:'NORMAL'});
     scheduleEvidenceCapture();
   };
   if(liveReceiptBinding)applyLiveSelection(null,{initial:true});
@@ -187,10 +201,10 @@ export function createWave6ProductInterface({
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
     productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,liveReceiptBinding,
-    floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,turnLog:turnLogWorkspace?.model??null},
+    floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,loadTrace,turnLog:turnLogWorkspace?.model??null},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
-    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();activityFeedHost?.remove?.();turnLogWorkspace?.release?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},
+    destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();activityFeedHost?.remove?.();turnLogWorkspace?.release?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();loadTrace.destroy();signals.clear();},
   };
 }
 

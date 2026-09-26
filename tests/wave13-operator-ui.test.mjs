@@ -875,11 +875,12 @@ test('Worker 4 v2 lifecycle gates Settlement behind review Final Preview and exp
   const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.operator.loreAuthoring.sourceDiscoveryIdentity({});ui.shell.selectWorkspace('lore');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const findButton=label=>walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
   assert.equal(Boolean(findButton('Apply approved Settlement')),false);
-  findButton('Start reviewed Tree build').dispatch('click');await Promise.resolve();ui.scheduler.flush(3);
-  assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Approve').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
-  findButton('Compute revision-fenced Final Preview').dispatch('click');await Promise.resolve();ui.scheduler.flush(5);
-  assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Approve current Final Preview').dispatch('click');await Promise.resolve();ui.scheduler.flush(6);
-  assert.ok(findButton('Apply approved Settlement'));findButton('Apply approved Settlement').dispatch('click');await Promise.resolve();ui.scheduler.flush(7);
+  const settleUi=async(label,frame)=>{const button=findButton(label);assert.ok(button,'Expected Lore review button: '+label);button.dispatch('click');await new Promise(resolve=>setImmediate(resolve));ui.scheduler.flush(frame);};
+  await settleUi('Start reviewed Tree build',3);
+  assert.equal(Boolean(findButton('Apply approved Settlement')),false);await settleUi('Approve',4);
+  await settleUi('Compute revision-fenced Final Preview',5);
+  assert.equal(Boolean(findButton('Apply approved Settlement')),false);await settleUi('Approve current Final Preview',6);
+  assert.ok(findButton('Apply approved Settlement'));await settleUi('Apply approved Settlement',7);
   assert.match(textOf(ui.shell.nodes.workspace),/Settlement receipt/);assert.match(textOf(ui.shell.nodes.workspace),/Reconstructable Yes/);assert.ok(findButton('Restore settled revisions'));
   assert.deepEqual(calls.slice(0,5),['start','ACCEPT','preview','approve','settle']);ui.destroy();
 });

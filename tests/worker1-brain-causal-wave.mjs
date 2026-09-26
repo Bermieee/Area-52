@@ -137,6 +137,39 @@ test('#263 selected-turn causal journal publishes evidence and explicit NO_EVIDE
   assert.equal(restored.uiBindings().readSelectedTurnReceipt({chatId:'chat:causal',turnId:'causal:1',generationId:'wrong'}),null);
 });
 
+test('#263 causal selection survives true scene transition and chat switch while regeneration invalidates the old generation fence',async()=>{
+  const brain=new Area52NativeBrain();
+  await brain.prepareTurn({
+    chatId:'chat:A',turnId:'A:1',generationId:'gen:A:1',query:'Enter.',
+    scene:scene('room-A',1,{location:'Room A',activeCast:['Ari']}),executionLabel:'DETERMINISTIC',
+  });
+  await brain.completeTurn({turnId:'A:1',response:'Ari enters Room A.',knownBy:['Ari']});
+  await brain.prepareTurn({
+    chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2',query:'Move on.',
+    scene:scene('room-B',2,{location:'Room B',activeCast:['Ari']}),executionLabel:'DETERMINISTIC',
+  });
+  const transitioned=brain.uiBindings().readCausalTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2'});
+  assert.equal(transitioned.sceneId,'room-B');
+  assert.equal(transitioned.sceneRevision,2);
+  assert.ok(transitioned.causalEvents.some(row=>row.stage==='scene'&&row.lifecycleState==='RETURNED'));
+
+  await brain.prepareTurn({
+    chatId:'chat:B',turnId:'B:1',generationId:'gen:B:1',query:'Continue elsewhere.',
+    scene:scene('room-C',1,{location:'Room C',activeCast:['Bea']}),executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2'}).sceneId,'room-B');
+  assert.equal(brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:B',turnId:'A:2',generationId:'gen:A:2'}),null);
+
+  await brain.prepareTurn({
+    chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2:regen',query:'Regenerate this turn.',
+    executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2'}),null);
+  const regenerated=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:A',turnId:'A:2',generationId:'gen:A:2:regen'});
+  assert.equal(regenerated.generationId,'gen:A:2:regen');
+  assert.equal(regenerated.sceneId,'room-B');
+});
+
 test('#264 OpenRouter outbound roles are provider-supported while semantic context identity is retained',async()=>{
   const brain=new Area52NativeBrain();
   const prepared=await brain.prepareTurn({

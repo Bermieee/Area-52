@@ -96,13 +96,16 @@ test('transient activity feed fades, pauses while interacted with, and then leav
   class Doc extends FakeDocument{createElement(tag){return new FakeNode(tag,this);}}
   let now=0,timer=null;const storage=memory(),journal=new DemoEvidenceJournal({storage,namespace:'feed-expiry',now:()=>now});
   journal.recordSnapshot({selection,...snapshot()});
-  const d=new Doc(),host=new FakeNode('div',d),controller=new DemoActivityFeedController({
-    host,journal,selectionProvider:()=>selection,now:()=>now,fadeAfterMs:50,visibleForMs:100,
+  const d=new Doc(),host=new FakeNode('div',d),feedButtons=()=>{
+    const out=[];const scan=node=>{if(String(node?.className??'').split(/\\s+/).includes('a52-activity-feed__item'))out.push(node);for(const child of node?.children??[])scan(child);};scan(host);return out;
+  };
+  const controller=new DemoActivityFeedController({
+    host,journal,selectionProvider:()=>selection,now:()=>now,fadeAfterMs:500,visibleForMs:1000,
     setTimer:(fn,ms)=>(timer={fn,ms,unref(){}}),clearTimer:()=>{timer=null;},
   }).mount();
-  let buttons=host.querySelectorAll('.a52-activity-feed__item');assert.ok(buttons.length>0);assert.equal(buttons.at(-1).dataset.phase,'fresh');
-  now=60;controller.render();buttons=host.querySelectorAll('.a52-activity-feed__item');assert.equal(buttons.at(-1).dataset.phase,'fading');
-  const held=buttons.at(-1);held.dispatch('mouseenter');now=120;controller.render();assert.ok(host.querySelectorAll('.a52-activity-feed__item').length>0);
-  host.querySelectorAll('.a52-activity-feed__item').at(-1).dispatch('mouseleave');
-  assert.equal(host.querySelectorAll('.a52-activity-feed__item').length,0);controller.destroy();assert.equal(timer,null);
+  let buttons=feedButtons();assert.ok(buttons.length>0);assert.equal(buttons.at(-1).dataset.phase,'fresh');
+  now=600;controller.render();buttons=feedButtons();assert.equal(buttons.at(-1).dataset.phase,'fading');
+  const held=buttons.at(-1);held.dispatch('mouseenter');now=1200;controller.render();assert.ok(feedButtons().length>0);
+  feedButtons().at(-1).dispatch('mouseleave');
+  assert.equal(feedButtons().length,0);controller.destroy();assert.equal(timer,null);
 });

@@ -5,6 +5,7 @@ import {
   classifyDevelopmentDeploymentTurn,
   createDevelopmentDeploymentSillyTavernSession,
   extractDevelopmentDeploymentScene,
+  persistSillyTavernOpenRouterSecret,
 } from '../src/deployment/sillytavern-live.js';
 import { Area52NativeBrain } from '../src/native-brain.js';
 
@@ -97,6 +98,23 @@ function fakeNativeBrain(){
     },
   };
 }
+
+test('OpenRouter key handoff writes only to SillyTavern server secret storage',async()=>{
+  const calls=[];
+  const context={
+    getRequestHeaders:()=>({'Content-Type':'application/json','X-CSRF-Token':'test'}),
+    fetch:async(url,init)=>{
+      calls.push({url,method:init.method,headers:init.headers,body:JSON.parse(init.body)});
+      return{ok:true,status:200,async json(){return{id:'secret:area52'};}};
+    },
+  };
+  const receipt=await persistSillyTavernOpenRouterSecret(context,'sk-or-secret-value',{label:'Area-52 Primary Jev'});
+  assert.equal(receipt.stored,true);assert.equal(receipt.key,'api_key_openrouter');assert.equal(receipt.secretId,'secret:area52');assert.equal(receipt.rawCredentialIncluded,false);
+  assert.equal(calls.length,1);assert.equal(calls[0].url,'/api/secrets/write');assert.equal(calls[0].method,'POST');
+  assert.deepEqual(calls[0].body,{key:'api_key_openrouter',value:'sk-or-secret-value',label:'Area-52 Primary Jev'});
+  assert.equal(calls[0].headers['X-CSRF-Token'],'test');
+  assert.doesNotMatch(JSON.stringify(receipt),/sk-or-secret-value/);
+});
 
 test('live adapter source contains no Ember fixture names or fixed-scenario rejection', () => {
   const source = readFileSync(new URL('../src/deployment/sillytavern-live.js', import.meta.url), 'utf8');

@@ -297,7 +297,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
 
   const management=element(d,'div',{className:'a52-wave13-connection-slot__form'});
   const lockedKey='locked:'+row.id,credentialWasCleared=connectionDrafts?.consumeCredentialPresence?.(lockedKey)===true;
-  const credential=field(d,'input',(spec?.title??row.kind??'Resource')+' session credential',{type:'password',placeholder:'Replace session credential',autocomplete:'off',spellcheck:'false'});
+  const credential=field(d,'input',(spec?.title??row.kind??'Resource')+' session credential',{type:'password',placeholder:activeHostSecret?'Enter once to save in SillyTavern':'Replace session credential',autocomplete:'off',spellcheck:'false'});
   listenField(scope,credential,'input',()=>connectionDrafts?.setCredentialPresence?.(lockedKey,Boolean(String(credential.value||'').trim())));
   const discovered=Array.isArray(row.modelDiscovery?.models)?row.modelDiscovery.models:[];
   const modelListId='a52-model-list-locked-'+String(row.id??row.resourceId??'resource').replace(/[^a-z0-9_-]/gi,'-');
@@ -306,15 +306,22 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   for(const item of discovered)modelSuggestions.append(option(d,String(item.id??item.modelId??''),String(item.displayName??item.name??item.id??item.modelId??'model')));
   model.value=String(row.modelId??'');
 
-  const managementStatus=element(d,'p',{className:'a52-wave13-connection-slot__hint',attrs:{role:'status','aria-live':'polite'},text:'Operational settings remain owner-backed. Saving a model or credential invalidates prior qualification until Worker 2 passes a new authenticated check.'});
+  const managementStatus=element(d,'p',{className:'a52-wave13-connection-slot__hint',attrs:{role:'status','aria-live':'polite'},text:activeHostSecret?'SillyTavern owns the OpenRouter key. If it is missing, enter it once here; Area-52 sends it directly to SillyTavern secret storage and does not retain it.':'Operational settings remain owner-backed. Saving a model or credential invalidates prior qualification until Worker 2 passes a new authenticated check.'});
   const manageActions=element(d,'div',{className:'a52-wave13-resource-actions'});
-  if(caps.setCredential&&!hostManaged)manageActions.append(createButton(d,{label:'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+  if(caps.setCredential)manageActions.append(createButton(d,{label:activeHostSecret?'Save OpenRouter key to SillyTavern':'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const secret=String(credential.value||'').trim();
-    if(!secret){managementStatus.textContent='Enter a credential before saving it to the Worker 2 session.';return;}
+    if(!secret){managementStatus.textContent=activeHostSecret?'Enter the OpenRouter key once so SillyTavern can store it server-side.':'Enter a credential before saving it to the Worker 2 session.';return;}
     const result=await actionRouter.route({type:'wave13.resource.setCredential',target:row,payload:{credential:secret}});
     credential.value='';connectionDrafts?.setCredentialPresence?.(lockedKey,false);
-    managementStatus.textContent=result.ok?'Session credential updated. Prior model qualification is no longer assumed.':'Credential update failed: '+String(result.error??'unknown error');
-    reportAction(notifications,result,'Session credential update');refresh?.();
+    if(result.ok&&activeHostSecret){
+      const qualified=await actionRouter.route({type:'wave13.resource.connect',target:row});
+      managementStatus.textContent=qualified.ok?'OpenRouter key saved in SillyTavern and Jev requalified successfully.':'OpenRouter key saved in SillyTavern. Requalification failed: '+String(qualified.error??'unknown error');
+      reportAction(notifications,qualified,'Jev requalification');
+    }else{
+      managementStatus.textContent=result.ok?'Session credential updated. Prior model qualification is no longer assumed.':'Credential update failed: '+String(result.error??'unknown error');
+      reportAction(notifications,result,activeHostSecret?'SillyTavern OpenRouter key save':'Session credential update');
+    }
+    refresh?.();
   }}));
   if(caps.clearCredential&&row.credentialConfigured&&!hostManaged)manageActions.append(createButton(d,{label:'Clear session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const result=await actionRouter.route({type:'wave13.resource.clearCredential',target:row});reportAction(notifications,result,'Session credential clear');refresh?.();
@@ -329,7 +336,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
-    if((caps.setCredential||caps.clearCredential)&&!hostManaged)management.append(labelWrap(d,'Session credential',credential));
+    if(caps.setCredential||((caps.clearCredential&&!hostManaged)&&row.credentialConfigured))management.append(labelWrap(d,activeHostSecret?'OpenRouter key (stored by SillyTavern)':'Session credential',credential));
     if(caps.refreshModels||caps.selectModel)management.append(labelWrap(d,'Model',model),modelSuggestions);
     management.append(manageActions,managementStatus);
     if(credentialWasCleared)management.append(message(d,'API key cleared on refresh','For security, the unsubmitted session credential was not retained when this workspace refreshed. Re-enter it before saving or requalifying.','warning'));

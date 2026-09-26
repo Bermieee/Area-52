@@ -8,6 +8,84 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
 
+function normalizeEndpoint(value){
+  const text=clean(value);if(!text)return null;
+  try{return new URL(text).origin+new URL(text).pathname.replace(/\/+$/,'');}catch{return text.replace(/\/+$/,'');}
+}
+
+function sillyTavernConnectionProfiles(context){
+  const service=context?.ConnectionManagerRequestService;
+  if(typeof service?.getSupportedProfiles!=='function')return[];
+  try{
+    return (service.getSupportedProfiles()??[]).map(profile=>({
+      id:clean(profile?.id),name:clean(profile?.name)||clean(profile?.id),api:clean(profile?.api),model:clean(profile?.model),
+      endpoint:clean(profile?.['api-url'])||null,hasSecretReference:Boolean(profile?.['secret-id']),
+    })).filter(row=>row.id);
+  }catch{return[];}
+}
+
+function resolveSillyTavernConnectionProfile(context,config={}){
+  const service=context?.ConnectionManagerRequestService,profiles=sillyTavernConnectionProfiles(context);
+  if(!service||!profiles.length)return null;
+  const requested=clean(config.connectionProfileId);
+  if(requested){const exact=profiles.find(row=>row.id===requested);if(exact)return exact;return null;}
+  const model=clean(config.modelId),endpoint=normalizeEndpoint(config.endpoint);
+  const modelMatches=model?profiles.filter(row=>row.model===model):[];
+  if(endpoint){
+    const exact=modelMatches.find(row=>normalizeEndpoint(row.endpoint)===endpoint);
+    if(exact)return exact;
+  }
+  if(modelMatches.length===1)return modelMatches[0];
+  const selected=clean(context?.extensionSettings?.connectionManager?.selectedProfile);
+  if(selected){
+    const selectedProfile=profiles.find(row=>row.id===selected);
+    if(selectedProfile&&(!model||selectedProfile.model===model))return selectedProfile;
+  }
+  return profiles.length===1?profiles[0]:null;
+}
+
+function createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities=[]}={}){
+  let selectedModel=clean(modelId)||profile?.model;
+  const profileId=clean(profile?.id),profileName=clean(profile?.name)||profileId;
+  if(!profileId||!selectedModel)throw new TypeError('SillyTavern Connection Profile and model are required');
+  const request=async(messages,{signal=null,maxOutputTokens=128,temperature=0}={})=>{
+    const context=getContext(),service=context?.ConnectionManagerRequestService;
+    if(typeof service?.sendRequest!=='function')throw Object.assign(new Error('SillyTavern ConnectionManagerRequestService is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const current=service.getProfile?.(profileId);
+    if(!current)throw Object.assign(new Error('SillyTavern Connection Profile is no longer available: '+profileName),{code:'PROVIDER_UNAVAILABLE'});
+    const startedAt=Date.now();
+    const response=await service.sendRequest(profileId,messages,Math.max(1,Math.trunc(Number(maxOutputTokens)||128)),{
+      stream:false,signal,extractData:true,includePreset:false,includeInstruct:false,
+    },{model:selectedModel,temperature});
+    const content=typeof response?.content==='string'?response.content:response?.content==null?'':JSON.stringify(response.content);
+    if(!content)throw Object.assign(new Error('SillyTavern Connection Profile returned no completion text'),{code:'MALFORMED_OUTPUT'});
+    const completedAt=Date.now();
+    return{content,startedAt,completedAt,profile:current};
+  };
+  return{
+    providerId,modelId:selectedModel,capabilities:[...new Set(capabilities)],measurementClass:'MEASURED_LIVE',
+    structuredOutputSupport:true,streamingSupport:false,abortSupport:true,local:false,
+    contextLimit:Number.MAX_SAFE_INTEGER,outputLimit:Number.MAX_SAFE_INTEGER,
+    setModelId(value){selectedModel=clean(value);this.modelId=selectedModel;return selectedModel;},
+    setCredential(){return false;},clearCredential(){return false;},
+    async discoverModels(){
+      const current=getContext()?.ConnectionManagerRequestService?.getProfile?.(profileId);
+      const model=clean(current?.model)||selectedModel;
+      return Object.freeze({ok:true,supported:true,state:'READY',models:Object.freeze([{id:model,displayName:model}]),latencyMs:0,transportMode:'CHAT_COMPLETIONS'});
+    },
+    async probe({signal=null}={}){
+      const probe=await request([{role:'user',content:'Reply with exactly OK.'}],{signal,maxOutputTokens:8,temperature:0});
+      return Object.freeze({ok:true,providerId,modelId:selectedModel,latencyMs:probe.completedAt-probe.startedAt,modelAvailable:true,discoveryState:'READY',measurementClass:'MEASURED_LIVE',capabilities:Object.freeze([...new Set(capabilities)]),transportMode:'CHAT_COMPLETIONS',actualProvider:'SILLYTAVERN_CONNECTION_PROFILE'});
+    },
+    async invoke(task,input,{signal=null,maxOutputTokens=1200,temperature=0}={}){
+      const messages=Array.isArray(input?.messages)?input.messages:[{role:'user',content:JSON.stringify(input?.data??input??{})}];
+      const result=await request(messages,{signal,maxOutputTokens,temperature});
+      return Object.freeze({providerId,modelId:selectedModel,text:result.content,usage:{},finishReason:'stop',startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.completedAt-result.startedAt,
+        metadata:{measurementClass:'MEASURED_LIVE',requestedModelId:selectedModel,actualProvider:'SILLYTAVERN_CONNECTION_PROFILE',connectionProfileId:profileId,connectionProfileName:profileName,hostManagedCredential:true}});
+    },
+  };
+}
+
 function shortHash(value) {
   let h = 2166136261;
   for (const ch of String(value)) {
@@ -331,6 +409,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
+    this.hostManagedResourceProfiles = new Map();
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -810,9 +889,60 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
   }
 
+  #decorateSillyTavernResourceHost(host){
+    if(!host?.actions||!host?.read)return host;
+    const getContext=()=>this.getContext(),session=this;
+    const decorateConfig=(config={})=>{
+      const role=clean(config.role??config.resourceRole).toUpperCase(),caps=[...(config.capabilities??[])].map(String);
+      const jev=role==='JEV'||caps.includes('SEMANTIC_JUDGMENT');
+      if(!jev||config.apiKey)return config;
+      const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config);
+      if(!profile)return config;
+      const resourceId=clean(config.resourceId)||('jev:'+clean(config.displayName??'primary-jev').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
+      const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId)||profile.model;
+      const adapter=createSillyTavernProfileProviderAdapter({getContext,profile,providerId,modelId,capabilities:caps});
+      session.hostManagedResourceProfiles.set(resourceId,{connectionProfileId:profile.id,connectionProfileName:profile.name,modelId,api:profile.api});
+      return{...config,resourceId,providerId,modelId,adapter,credentialRequired:false,profileMetadata:{...(config.profileMetadata??{}),credentialOwner:'SILLYTAVERN_CONNECTION_MANAGER',connectionProfileId:profile.id}};
+    };
+    const decorateRow=(row)=>{
+      if(!row||typeof row!=='object')return row;
+      const meta=session.hostManagedResourceProfiles.get(clean(row.resourceId));
+      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:'SILLYTAVERN_CONNECTION_MANAGER',connectionProfileId:meta.connectionProfileId,connectionProfileName:meta.connectionProfileName}:clone(row);
+    };
+    const actions=Object.freeze({
+      ...host.actions,
+      addResource:(config)=>host.actions.addResource(decorateConfig(config)),
+      discoverModels:async(config,opts)=>{
+        const context=getContext(),profile=resolveSillyTavernConnectionProfile(context,config);
+        if(profile&&!config?.apiKey){
+          return Object.freeze({kind:'ResourceModelDiscoveryResult',state:'READY',models:Object.freeze([{id:profile.model,displayName:profile.model}]),manualModelEntryAllowed:true,reasonCode:'SILLYTAVERN_PROFILE_READY',reason:'Using SillyTavern Connection Profile '+profile.name+'.',credentialConfigured:true,credentialStorage:'SILLYTAVERN_CONNECTION_MANAGER'});
+        }
+        return host.actions.discoverModels(config,opts);
+      },
+    });
+    const read=Object.freeze({
+      ...host.read,
+      resources:()=>{const raw=host.read.resources();return raw&&Array.isArray(raw.resources)?{...clone(raw),resources:raw.resources.map(decorateRow)}:raw;},
+      resource:(resourceId)=>decorateRow(host.read.resource(resourceId)),
+    });
+    return Object.freeze({...host,actions,read});
+  }
+
+  #listSillyTavernConnectionProfiles(){
+    return sillyTavernConnectionProfiles(this.getContext()).map(row=>({id:row.id,name:row.name,api:row.api,model:row.model,endpoint:row.endpoint,hasSecretReference:row.hasSecretReference}));
+  }
+
   #uiHostBindings(){
     const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
     const base={...brainBindings,...this.ownerBindings},contract=nativeBrainContract(this.nativeBrain);
+    const rawResourceHost=base.resourceHost??base.coprocessorResourceHost??null,hostResourceBridge=this.#decorateSillyTavernResourceHost(rawResourceHost);
+    if(hostResourceBridge){
+      base.resourceHost=hostResourceBridge;base.coprocessorResourceHost=hostResourceBridge;
+      base.addResource=(config)=>hostResourceBridge.actions.addResource(config);
+      base.listResources=()=>hostResourceBridge.read.resources();
+      base.listResourceProfiles=()=>hostResourceBridge.read.resources();
+    }
+    base.listSillyTavernConnectionProfiles=()=>this.#listSillyTavernConnectionProfiles();
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();

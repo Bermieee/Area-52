@@ -29,7 +29,7 @@ export class Area52CognitiveCore {
     this.truthGate=new TruthGate({graph:this.graph});this.compiler=new ContextCompiler({graph:this.graph,isCurrentRevision:(revisionId)=>this.isSourceRevisionCurrent(revisionId)});this.reflection=new ReflectionEngine({registry:this.registry,graph:this.graph});this.studyResults=new Map();
     this.framework=new FrameworkKernel({isCurrentRevision:(revisionId)=>this.registry.isActiveRevision(revisionId)});
     this.hotCognition=new HotCognitionRuntime({sourceRegistry:this.registry,getWorldRevision:()=>this.graph.revision});
-    this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition,entityRegistry:this.entities,isSourceRevisionCurrent:(revisionId)=>this.isSourceRevisionCurrent(revisionId),externalRevisionSink:(refs)=>this.mergeExternalCurrentSourceRevisionRefs(refs)});
+    this.retrieval=new SensoryNetBackbone({graph:this.graph,sourceRegistry:this.registry,hotCognition:this.hotCognition,entityRegistry:this.entities,isSourceRevisionCurrent:(revisionId)=>this.isSourceRevisionCurrent(revisionId),externalRevisionSink:(refs)=>this.setExternalCurrentSourceRevisionRefs(refs)});
     this.cognitiveChoice=new CognitiveChoiceController();
     this.sceneIntegration=new SceneCoreIntegrationBridge({core:this});
     this.audit=new CognitiveAuditPlane({core:this,framework:this.framework,settlement:this.settlement});this.observation=new CoreObservationSpine();
@@ -68,7 +68,6 @@ export class Area52CognitiveCore {
   sceneIntegrationSnapshot(chatNamespace){return this.sceneIntegration.snapshot(chatNamespace);}
   sceneIntegrationDiagnostics(chatNamespace){return this.sceneIntegration.diagnostics(chatNamespace);}
   setExternalCurrentSourceRevisionRefs(refs=[]){this.externalCurrentSourceRevisionRefs=new Set((refs??[]).filter(Boolean).map(String));return this.externalCurrentSourceRevisionIds();}
-  mergeExternalCurrentSourceRevisionRefs(refs=[]){for(const ref of refs??[])if(ref)this.externalCurrentSourceRevisionRefs.add(String(ref));return this.externalCurrentSourceRevisionIds();}
   externalCurrentSourceRevisionIds(){return [...this.externalCurrentSourceRevisionRefs].sort();}
   currentSourceRevisionIds(){return [...new Set([...this.registry.activeRevisionIds(),...this.externalCurrentSourceRevisionIds()])].sort();}
   isSourceRevisionCurrent(revisionId){const id=String(revisionId);return this.registry.getRevision(id)?this.registry.isActiveRevision(id):this.externalCurrentSourceRevisionRefs.has(id);}

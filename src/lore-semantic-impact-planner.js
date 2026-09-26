@@ -167,7 +167,12 @@ function contradictionPredicate(row) {
 }
 
 function meaningRows(rows) {
-  return rows.filter((row) => ![ArtifactType.CONTEXT_CHUNK, ArtifactType.STRUCTURE].includes(row.artifactType));
+  return rows.filter((row) => ![
+    ArtifactType.CONTEXT_CHUNK,
+    ArtifactType.STRUCTURE,
+    ArtifactType.RETRIEVAL,
+    ArtifactType.COMPACT,
+  ].includes(row.artifactType));
 }
 
 function semanticMeaningChanged(beforeRows, afterRows) {

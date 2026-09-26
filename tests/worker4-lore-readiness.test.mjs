@@ -9,6 +9,7 @@ import {
   WORKER4_UNBOUND_CHAT,
   worker4SelectedLorebook,
   worker4LargeCurrentLorebook,
+  worker4TemporalLorebook,
   worker4UnacceptedLorebook,
 } from './fixtures/worker4-lore-readiness-fixtures.mjs';
 
@@ -197,15 +198,65 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
   assert.equal(repeat.dueStudyObligations, 0);
   assert.equal(service.runtime.dueObligations().length, 0);
 
+  const learnedBeforeEdit = new Map(status.entries.map((row) => [row.sourceId, row.learnedRevisionId]));
+  const changedSnapshot = structuredClone(snapshot);
+  changedSnapshot.entries[51].content += ' Revised marker W4-52-R2.';
+  const incrementalStarted = performance.now();
+  const incrementalAccept = service.acceptLorebook(changedSnapshot);
+  const incrementalAcceptedAt = performance.now();
+  assert.equal(incrementalAccept.sourceRevisionChanged, true);
+  assert.equal(incrementalAccept.dueStudyObligations, 1);
+  assert.equal(service.runtime.dueObligations().length, 1);
+
+  const staleAfterSingleEdit = service.status({chatId: WORKER4_SELECTED_CHAT});
+  assert.equal(staleAfterSingleEdit.entries.filter((row) => row.freshness === 'CURRENT').length, 104);
+  assert.equal(staleAfterSingleEdit.entries.filter((row) => row.retrievalReady).length, 104);
+  const editedRow = staleAfterSingleEdit.entries.find((row) => row.uid === '52');
+  assert.equal(editedRow.freshness, 'STALE_OR_UNLEARNED');
+  assert.equal(editedRow.retrievalReady, false);
+  for (const row of staleAfterSingleEdit.entries.filter((entry) => entry.uid !== '52')) {
+    assert.equal(row.learnedRevisionId, learnedBeforeEdit.get(row.sourceId), 'unrelated learned revisions must be retained');
+  }
+
+  const incrementalStudy = service.runStudy({scope: 'DUE'});
+  const incrementalStudiedAt = performance.now();
+  assert.equal(incrementalStudy.results.length, 1);
+  assert.equal(service.runtime.dueObligations().length, 0);
+  const afterSingleEdit = service.status({chatId: WORKER4_SELECTED_CHAT});
+  assert.equal(afterSingleEdit.counts.READY, 105);
+  assert.equal(afterSingleEdit.entries.every((row) => row.freshness === 'CURRENT' && row.retrievalReady), true);
+
+  const persisted = service.snapshot();
+  const snapshotCharacters = JSON.stringify(persisted).length;
+  const reloadStarted = performance.now();
+  const restored = LoreIntelligenceService.fromSnapshot(persisted);
+  const restoredStatus = restored.status({chatId: WORKER4_SELECTED_CHAT});
+  const reloadFinished = performance.now();
+  assert.equal(restoredStatus.counts.READY, 105);
+  assert.equal(restoredStatus.storyAuthorizedReady, 105);
+  assert.equal(restored.runtime.dueObligations().length, 0);
+  const reloadNoOp = restored.runStudy({scope: 'DUE'});
+  assert.equal(reloadNoOp.requested, 0);
+  assert.equal(reloadNoOp.maintenancePerformed, false);
+
   console.log('WORKER4_LORE_105_METRIC ' + JSON.stringify({
     entries: 105,
     initialAcceptMs: Number((acceptedAt - started).toFixed(2)),
     studyAndIndexMs: Number((studiedAt - acceptedAt).toFixed(2)),
     noOpDueStudyMs: Number((noOpStudyFinished - noOpStudyStarted).toFixed(2)),
     identicalReacceptMs: Number((repeatFinished - repeatStarted).toFixed(2)),
+    singleEntryAcceptMs: Number((incrementalAcceptedAt - incrementalStarted).toFixed(2)),
+    singleEntryRestudyAndIndexMs: Number((incrementalStudiedAt - incrementalAcceptedAt).toFixed(2)),
+    reloadMs: Number((reloadFinished - reloadStarted).toFixed(2)),
+    retainedCurrentAfterSingleEdit: 104,
+    restudiedEntriesAfterSingleEdit: incrementalStudy.results.length,
+    retainedCurrentAfterReload: restoredStatus.counts.READY,
+    snapshotCharacters,
     dueAfterStudy: service.runtime.dueObligations().length,
+    dueAfterReload: restored.runtime.dueObligations().length,
     noOpStudyMaintenancePerformed: noOpStudy.maintenancePerformed,
     repeatMaintenancePerformed: repeat.maintenancePerformed,
+    reloadMaintenancePerformed: reloadNoOp.maintenancePerformed,
   }));
 });
 
@@ -220,6 +271,7 @@ test('Worker 4: exact-chat eligible Lore survives Native Brain retrieval through
     intent: 'CURRENT',
     scene: worker4Scene('worker4-harbor', 1),
     executionLabel: 'DETERMINISTIC',
+    budgetTokens: 8192,
   });
   assert.equal(prepared.loreSync.status, 'SYNCED');
   assert.ok(prepared.loreSync.nominationCount > 0);
@@ -233,6 +285,15 @@ test('Worker 4: exact-chat eligible Lore survives Native Brain retrieval through
     .flatMap((candidate) => candidate.channelNominations || [])
     .filter((nomination) => nomination.channelId === 'OWNER_LORE');
   assert.ok(loreNominations.length > 0);
+  assert.ok(prepared.truthAssessment, 'Truth/Precision publication must produce a truth assessment before Gather');
+  assert.ok(prepared.contextSealReceipt, 'Gather output must be sealed before PromptPlan construction');
+  assert.equal(prepared.loreSync.sourceRevisionFence.every((ref) => prepared.contextSealReceipt.sourceRevisionIds.includes(ref)), true);
+  const loreSection = prepared.promptPlan?.sections?.find((row) => row.slot === 'RELEVANT_LORE');
+  assert.ok(loreSection, 'PromptPlan must expose an explicit RELEVANT_LORE decision');
+  assert.notEqual(loreSection.representation, 'OMITTED', 'small eligible Lore should fit the deterministic 8192-token fixture budget');
+  assert.equal(prepared.loreSync.sourceRevisionFence.every((ref) => prepared.promptPlan.sourceRevisionDependencies.includes(ref)), true);
+  assert.ok(prepared.promptDeliveryReceipt, 'internal prompt delivery must emit its receipt');
+  // This proves deterministic Area-52 delivery planning, not installed SillyTavern host delivery.
   // Fusion is not the owner provenance surface. The owner receipt above carries
   // the bounded entry/revision/authority metadata; Gather proves admission by result id.
 
@@ -307,4 +368,120 @@ test('Worker 4: live Lore owner channel forwards exact chat scope and retains bo
   assert.equal(missing.receipt().status, 'EXCLUDED');
   assert.equal(missing.receipt().reason, 'LORE_STORY_SCOPE_REQUIRED');
   assert.equal(missing.receipt().queried, false);
+});
+
+
+test('Worker 4: temporal and ambiguous Lore semantics survive drilldown and owner admission', () => {
+  const service = new LoreIntelligenceService();
+  service.acceptLorebook(worker4TemporalLorebook());
+  const study = service.runStudy({scope: 'DUE'});
+  assert.equal(study.results.length, 3);
+
+  const current = service.queryForStory({
+    chatId: WORKER4_SELECTED_CHAT,
+    query: 'Tavern Fire',
+    intent: 'NARROW',
+  });
+  const currentEntry = current.candidateReceipts
+    .flatMap((row) => row.sourceEntries || [])
+    .find((row) => row.uid === 'current-tavern');
+  assert.equal(currentEntry?.truthStatusHint, 'CURRENT');
+
+  const historical = service.queryForStory({
+    chatId: WORKER4_SELECTED_CHAT,
+    query: 'Historical Blade Fate',
+    intent: 'NARROW',
+  });
+  const historicalEntry = historical.candidateReceipts
+    .flatMap((row) => row.sourceEntries || [])
+    .find((row) => row.uid === 'historical-blade');
+  assert.equal(historicalEntry?.truthStatusHint, 'HISTORICAL');
+
+  const ambiguous = service.queryForStory({
+    chatId: WORKER4_SELECTED_CHAT,
+    query: 'Ambiguous Blade Fate',
+    intent: 'NARROW',
+  });
+  const ambiguousEntry = ambiguous.candidateReceipts
+    .flatMap((row) => row.sourceEntries || [])
+    .find((row) => row.uid === 'ambiguous-blade');
+  assert.equal(ambiguousEntry?.truthStatusHint, 'UNRESOLVED');
+
+  const evidence = [];
+  const channel = new LoreOwnerRetrievalChannel({
+    getInterface: () => service.brainInterface(),
+    evidenceSink: (row) => evidence.push(row),
+  });
+  channel.beginTurn({selection: {chatId: WORKER4_SELECTED_CHAT}});
+  const historicalRows = channel.retrieve({
+    intentId: 'intent:worker4:historical',
+    intentKind: 'NARROW',
+    query: 'Historical Blade Fate',
+  });
+  const historicalNomination = historicalRows.find((row) => row.metadata?.uid === 'historical-blade');
+  const historicalEvidence = evidence.find((row) => row.loreRef?.uid === 'historical-blade');
+  assert.equal(historicalNomination?.truthStatusHint, 'HISTORICAL');
+  assert.equal(historicalEvidence?.temporalStatus, 'HISTORICAL');
+
+  channel.beginTurn({selection: {chatId: WORKER4_SELECTED_CHAT}});
+  const ambiguousRows = channel.retrieve({
+    intentId: 'intent:worker4:ambiguous',
+    intentKind: 'NARROW',
+    query: 'Ambiguous Blade Fate',
+  });
+  const ambiguousNomination = ambiguousRows.find((row) => row.metadata?.uid === 'ambiguous-blade');
+  const ambiguousEvidence = evidence.find((row) => row.loreRef?.uid === 'ambiguous-blade');
+  assert.equal(ambiguousNomination?.truthStatusHint, 'UNRESOLVED');
+  assert.equal(ambiguousEvidence?.temporalStatus, 'UNRESOLVED');
+});
+
+test('Worker 4: bounded operator read model keeps Lore lifecycle stages distinct without raw canon', () => {
+  const service = readySelectedService();
+  service.queryForStory({chatId: WORKER4_SELECTED_CHAT, query: 'Harbor Gate', intent: 'NARROW'});
+  const read = service.operatorReadModel({chatId: WORKER4_SELECTED_CHAT, maxEntries: 1, maxReceipts: 4});
+  assert.equal(read.kind, 'LoreOperatorReadModel');
+  assert.equal(read.entryCountTotal, 2);
+  assert.equal(read.entries.length, 1);
+  assert.equal(read.entriesTruncated, true);
+  assert.equal(read.rawLoreIncluded, false);
+  assert.equal(read.entries[0].lifecycle.discoveredForStory, true);
+  assert.equal(read.entries[0].lifecycle.acceptedForStudy, true);
+  assert.equal(read.entries[0].lifecycle.studiedCurrent, true);
+  assert.equal(read.entries[0].lifecycle.retrievalReady, true);
+  assert.equal(read.entries[0].lifecycle.selectedChatAuthorized, true);
+  assert.equal(read.entries[0].lifecycle.eligibleForNomination, true);
+  assert.equal(read.entries[0].lifecycle.producerNomination, 'NOMINATED');
+  assert.equal(read.entries[0].lifecycle.truthPrecision, 'DOWNSTREAM_NOT_OBSERVED_BY_LORE');
+  assert.equal(read.entries[0].lifecycle.gather, 'DOWNSTREAM_NOT_OBSERVED_BY_LORE');
+  assert.equal(read.entries[0].lifecycle.contextSeal, 'DOWNSTREAM_NOT_OBSERVED_BY_LORE');
+  assert.equal(read.entries[0].lifecycle.promptPlan, 'DOWNSTREAM_NOT_OBSERVED_BY_LORE');
+  assert.equal(read.entries[0].lifecycle.hostDelivery, 'DOWNSTREAM_NOT_OBSERVED_BY_LORE');
+  assert.equal(JSON.stringify(read).includes('Only Harbor Wardens may open the Harbor Gate.'), false);
+  assert.deepEqual(read.entries[0].treePath, ['Harbor', 'Places']);
+});
+
+test('Worker 4: unavailable and degraded Lore owners fail observably without fabricating candidates', () => {
+  const unavailable = new LoreOwnerRetrievalChannel({getInterface: () => null});
+  unavailable.beginTurn({selection: {chatId: WORKER4_SELECTED_CHAT}});
+  assert.deepEqual(unavailable.retrieve({intentId: 'intent:missing-owner', intentKind: 'NARROW', query: 'Harbor Gate'}), []);
+  assert.equal(unavailable.receipt().status, 'NOT_ATTACHED');
+  assert.equal(unavailable.receipt().nominationCount, 0);
+
+  const degraded = new LoreOwnerRetrievalChannel({
+    getInterface: () => ({
+      query: () => {
+        const error = new Error('LORE_SOURCE_UNAVAILABLE');
+        error.code = 'LORE_SOURCE_UNAVAILABLE';
+        throw error;
+      },
+    }),
+  });
+  degraded.beginTurn({selection: {chatId: WORKER4_SELECTED_CHAT}});
+  assert.throws(
+    () => degraded.retrieve({intentId: 'intent:degraded-owner', intentKind: 'NARROW', query: 'Harbor Gate'}),
+    /LORE_SOURCE_UNAVAILABLE/,
+  );
+  assert.equal(degraded.receipt().status, 'DEGRADED');
+  assert.equal(degraded.receipt().nominationCount, 0);
+  assert.deepEqual(degraded.receipt().sourceRevisionFence, []);
 });

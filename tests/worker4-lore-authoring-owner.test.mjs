@@ -210,6 +210,10 @@ test('reviewed mutation CREATE UPDATE DELETE TREE_ASSIGN mutate only after expli
     assert.equal(proposal.authority.jevMutationAuthority, false);
     assert.equal(proposal.preview.after[0].contentIncluded, true);
     assert.ok(proposal.evidence.sourceRevisionRefs.length >= 0);
+    const createImpactTargets = new Set(proposal.semanticImpact[0].impact.required.map((row) => row.target));
+    for (const target of ['STUDY_ARTIFACTS', 'REPRESENTATIONS', 'RETRIEVAL_INDEX', 'ONTOLOGY', 'NAVIGATION_SUMMARIES']) {
+      assert.ok(createImpactTargets.has(target), 'new source impact must plan ' + target);
+    }
 
     approve(mutations, proposal.proposalId, 'approve-create');
     assert.equal(intelligence.runtime.registry.getEntry('lore:authoring-owner:new-place'), null);
@@ -638,4 +642,64 @@ test('LoreAuthoringService publishes bounded Worker 3 mutation read/action contr
   assert.deepEqual(worker3.mutationOperations.sort(), Object.values(LoreMutationOperation).sort());
   assert.equal(worker3.uiImplementationOwner, 'Worker 3');
   assert.equal(worker3.backendOwnsRendering, false);
+});
+
+
+test('multi-write failure compensates applied writes and records recoverable audit evidence', () => {
+  const {intelligence, mutations} = mutationService();
+  const originalSourceId = 'lore:authoring-owner:mara';
+  const originalRevisionId = intelligence.runtime.registry.currentRevision(originalSourceId).id;
+  const proposal = mutations.createProposal({
+    operation: LoreMutationOperation.SPLIT,
+    chatId: CHAT,
+    sourceId: originalSourceId,
+    outputs: [
+      {
+        lorebookId: 'authoring-owner',
+        uid: 'partial-a',
+        content: 'Mara owns the Ember Tavern.',
+        metadata: {title: 'Partial A', treePath: ['Characters', 'Mara']},
+      },
+      {
+        lorebookId: 'authoring-owner',
+        uid: 'partial-b',
+        content: 'Mara must never reveal the cellar key.',
+        metadata: {title: 'Partial B', treePath: ['Rules', 'Mara']},
+      },
+    ],
+  });
+  approve(mutations, proposal.proposalId, 'partial-failure-approval');
+
+  const originalUpsert = intelligence.runtime.upsertEntry.bind(intelligence.runtime);
+  let calls = 0;
+  intelligence.runtime.upsertEntry = (input) => {
+    calls += 1;
+    if (calls === 2) {
+      const error = new Error('forced second-write failure');
+      error.code = 'TEST_FORCED_SECOND_WRITE_FAILURE';
+      throw error;
+    }
+    return originalUpsert(input);
+  };
+
+  const result = mutations.commit({
+    proposalId: proposal.proposalId,
+    operatorDecisionId: 'partial-failure-approval',
+    chatId: CHAT,
+  });
+  intelligence.runtime.upsertEntry = originalUpsert;
+
+  assert.equal(result.state, LoreMutationState.FAILED);
+  assert.equal(result.commit, null);
+  assert.equal(result.recovery.status, 'COMPENSATED');
+  assert.equal(intelligence.runtime.registry.currentRevision(originalSourceId).id, originalRevisionId);
+  assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:partial-a').state, 'REMOVED');
+  assert.equal(intelligence.runtime.registry.getEntry('lore:authoring-owner:partial-b'), null);
+
+  const audit = mutations.audit({proposalId: proposal.proposalId});
+  const failed = audit.events.find((row) => row.kind === 'LoreMutationFailedAudit');
+  assert.ok(failed);
+  assert.equal(failed.recovery.status, 'COMPENSATED');
+  assert.ok(failed.partialRevisionEvents.length === 1);
+  assert.ok(failed.compensationRevisionEvents.length >= 1);
 });

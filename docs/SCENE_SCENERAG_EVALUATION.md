@@ -25,19 +25,24 @@ The paper contrasts fixed-length chunks with narrative-consistent scene segmenta
 1. three semantic SceneEpisodes, and
 2. naive fixed-size chunks of two source turns,
 
-using the same deterministic lexical Top-1 retrieval scorer. The benchmark measures event completeness, source traceability, temporal correctness, retrieved context characters, and how many derived units require rebuild after a single source edit.
+using the same deterministic lexical Top-1 retrieval scorer. The benchmark measures boundary coherence, source-level retrieval precision/recall, event completeness, source traceability, temporal correctness, callback recovery, graph-neighbor/multi-hop usefulness, retrieved context characters, and how many derived units require rebuild after a single source edit.
 
 Measured result from the exact-head completion CI after the benchmark was introduced:
 
 | Metric | Semantic SceneEpisode | Fixed 2-turn chunks |
 | --- | ---: | ---: |
+| Boundary coherence | 1.000 | 0.667 |
+| Retrieval precision | 0.667 | 0.500 |
+| Retrieval recall | 1.000 | 0.833 |
 | Event completeness | 1.000 | 0.833 |
 | Source traceability | 1.000 | 1.000 |
 | Temporal correctness | 1.000 | 0.333 |
+| Cross-scene callback recovery | 1.000 | 0.500 |
+| Graph-neighbor / multi-hop usefulness | 1.000 | 0.000 |
 | Average retrieved context characters | 77.33 | 129.67 |
 | Derived units rebuilt by one edited source (average) | 1.000 | 1.000 |
 
-The fixture specifically includes a current vault scene, a historical harbor flashback, and a callback where an earlier key transfer is needed to understand a later door-opening event. The semantic representation retrieves both source turns needed for the callback while keeping the flashback temporally isolated; the naive two-turn chunk mixes the flashback with the resumed current scene and misses one callback source in one query.
+The fixture specifically includes a current vault scene, a historical harbor flashback, and a callback where an earlier key transfer is needed to understand a later door-opening event. Semantic episode neighbor metadata also preserves the Tavern→Vault relationship used by the graph-usefulness check. The semantic representation retrieves both source turns needed for the callback while keeping the flashback temporally isolated; the naive two-turn chunk mixes the flashback with the resumed current scene, misses one callback source, and has no semantic graph-neighbor metadata.
 
 These numbers are a deterministic **Area-52 regression benchmark**, not a claim that Area-52 reproduces SceneRAG's video benchmark or its reported research scores.
 

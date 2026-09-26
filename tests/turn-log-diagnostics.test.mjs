@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { DemoEvidenceJournal } from '../src/ui-core/demo-visibility.js';
 import { SelectedTurnLogModel, installTurnLogDiagnosticsWorkspace } from '../src/ui-core/turn-log-diagnostics.js';
 import { WorkspaceRegistry } from '../src/ui-core/registry.js';
+import { ResourceScope } from '../src/ui-core/lifecycle.js';
+import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
 function memoryStorage(){
   const map=new Map();
@@ -164,4 +166,26 @@ test('chat switch, regeneration, reload, bounded retention, failed storage, and 
   assert.equal(registry.has('turn-log'),true);
   mounted.release();
   assert.equal(registry.has('turn-log'),false);
+});
+
+
+test('workspace answers the selected-turn drilldown in human-readable labels instead of JSON',()=>{
+  let now=1700000500000;
+  const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});
+  journal.recordSnapshot(snapshot());
+  const registry=new WorkspaceRegistry(),mounted=installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider:()=>baseSelection});
+  const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
+  registry.get('turn-log').render(host,{scope,refresh:()=>{}});
+  const all=(node)=>[node,...(node.children??[]).flatMap(all)],nodes=all(host),visible=nodes.map(node=>node.textContent??'').join(' ');
+  assert.match(visible,/6 logical jobs/);
+  assert.match(visible,/0 optional provider attempts/);
+  assert.match(visible,/result:1 · job HOT → GATHER · Gather ADMITTED/);
+  const row=nodes.find(node=>node.tagName==='DETAILS'&&String(node.dataset?.turnLogRow??'').includes('RESULT:'));
+  assert.ok(row);
+  row.open=true;row.dispatch('toggle');
+  const expanded=all(row),expandedText=expanded.map(node=>node.textContent??'').join(' ');
+  assert.match(expandedText,/Destination/);
+  assert.match(expandedText,/GATHER/);
+  assert.equal(expanded.some(node=>node.tagName==='PRE'),false);
+  scope.cleanup();mounted.release();
 });

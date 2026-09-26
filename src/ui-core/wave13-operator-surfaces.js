@@ -44,8 +44,6 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
     releases.push(actionRouter.registerSubsystem('wave13-resources',async(action)=>{
       if(action.type==='wave13.resource.discoverModels')return resources.discoverModels(action.payload??{});
       if(action.type==='wave13.resource.refreshModels')return resources.refreshModels(action.target??action.payload??{});
-      if(action.type==='wave13.resource.setCredential')return resources.setCredential(action.target??{},action.payload?.credential??'');
-      if(action.type==='wave13.resource.clearCredential')return resources.clearCredential(action.target??action.payload??{});
       if(action.type==='wave13.resource.selectModel')return resources.selectModel(action.target??{},action.payload?.modelId??'');
       if(action.type==='wave13.resource.connect')return resources.connect(action.payload??action.target??{});
       if(action.type==='wave13.resource.disconnect')return resources.disconnect(action.target??action.payload??{});
@@ -55,8 +53,6 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
     }));
     releases.push(actionRouter.registerAction('wave13.resource.discoverModels',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.refreshModels',{subsystem:'wave13-resources'}));
-    releases.push(actionRouter.registerAction('wave13.resource.setCredential',{subsystem:'wave13-resources'}));
-    releases.push(actionRouter.registerAction('wave13.resource.clearCredential',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.selectModel',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.connect',{subsystem:'wave13-resources'}));
     releases.push(actionRouter.registerAction('wave13.resource.disconnect',{subsystem:'wave13-resources'}));

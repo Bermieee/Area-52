@@ -404,8 +404,6 @@ export class Wave13ResourceControlAdapter{
     this.addFn=fn(bindings,['addResource','configureResource'])??fn(this.host?.actions,['addResource']);
     this.discoverModelsFn=fn(bindings,['discoverModels','loadModels','listProviderModels'])??fn(this.host?.actions,['discoverModels']);
     this.refreshModelsFn=fn(bindings,['refreshModels','refreshResourceModels'])??fn(this.host?.actions,['refreshModels']);
-    this.setCredentialFn=fn(bindings,['setCredential','setResourceCredential'])??fn(this.host?.actions,['setCredential']);
-    this.clearCredentialFn=fn(bindings,['clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential'])??fn(this.host?.actions,['clearCredential','revokeCredential']);
     this.selectModelFn=fn(bindings,['selectModel','selectResourceModel'])??fn(this.host?.actions,['selectModel']);
     this.connectFn=fn(bindings,['connectResource','mountResource'])??fn(this.host?.actions,['connectResource']);
     this.disconnectFn=fn(bindings,['disconnectResource','unmountResource'])??fn(this.host?.actions,['disconnectResource']);
@@ -492,18 +490,6 @@ export class Wave13ResourceControlAdapter{
   async refreshModels(resource){
     return this.#resourceAction('REFRESH_MODELS',this.refreshModelsFn,resource,'Configured-resource model refresh is not exported by the Worker 2 resource host.');
   }
-  async setCredential(resource,credential){
-    this.lastError=null;
-    if(!this.setCredentialFn){const e=new Error('Session credential update is not exported by the Worker 2 resource host.');e.code='RESOURCE_CREDENTIAL_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
-    const id=resourceId(resource),secret=typeof credential==='string'?credential.trim():'';
-    if(!id){const e=new TypeError('Resource credential action requires resourceId.');e.code='RESOURCE_ID_REQUIRED';this.lastError=e;throw e;}
-    if(!secret){const e=new TypeError('Session credential must be non-empty.');e.code='RESOURCE_CREDENTIAL_REQUIRED';this.lastError=e;throw e;}
-    try{const result=await this.setCredentialFn(id,secret);this.lastAction={type:'SET_CREDENTIAL',result:cloneSafe(result)};return cloneSafe(result);}
-    catch(error){this.lastError=error;throw error;}
-  }
-  async clearCredential(resource){
-    return this.#resourceAction('CLEAR_CREDENTIAL',this.clearCredentialFn,resource,'Session credential clear is not exported by the Worker 2 resource host.');
-  }
   async selectModel(resource,modelId){
     this.lastError=null;
     if(!this.selectModelFn){const e=new Error('Configured-resource model selection is not exported by the Worker 2 resource host.');e.code='RESOURCE_MODEL_SELECTION_UNAVAILABLE';this.lastError=e;throw e;}
@@ -574,7 +560,6 @@ export class Wave13ResourceControlAdapter{
     if(this.persistenceSuppressed.has(normalized.role)&&!force)return null;
     if(force)this.persistenceSuppressed.delete(normalized.role);
     const map=this.#profileMap(),previous=map[normalized.role]??null;
-    if(previous?.credentialPreviouslyConfigured&&!normalized.credentialPreviouslyConfigured)normalized.credentialPreviouslyConfigured=true;
     if(JSON.stringify(previous)===JSON.stringify(normalized))return cloneSafe(normalized);
     map[normalized.role]=normalized;this.#writeProfileMap(map);return cloneSafe(normalized);
   }
@@ -1037,7 +1022,6 @@ function normalizeWorker2ResourceConfig(input={}){
     const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
     const apiKey=typeof input.apiKey==='string'?input.apiKey.trim():'';if(apiKey)out.apiKey=apiKey;
   }
-  if(input.hostSecretId)out.hostSecretId=String(input.hostSecretId);
   return out;
 }
 

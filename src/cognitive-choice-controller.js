@@ -3,7 +3,8 @@ import {CandidateFreshness} from './candidate-bus-contracts.js';
 import {HotFreshness,HotSegmentKind} from './hot-cognition-contracts.js';
 import {stableHash} from './browser-runtime-utils.js';
 import {
-  CognitiveChoicePath,CognitiveJob,CognitiveReason,JevAction,createCognitiveChoiceReceipt,
+  CognitiveChoicePath,CognitiveJob,CognitiveReason,CognitiveDisposition,CognitiveDeadlineClass,CognitiveFreshnessRequirement,
+  JevAction,createCognitiveChoiceReceipt,createCognitiveFunctionDecision,
 } from './cognitive-choice-contracts.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
@@ -91,6 +92,61 @@ function channelSummary(envelope){
   };
 }
 
+const JOB_CONSUMER=Object.freeze({
+  [CognitiveJob.HOT_CONTEXT]:'CONTEXT_COMPILER',
+  [CognitiveJob.RETRIEVAL]:'TRUTH',
+  [CognitiveJob.HISTORIAN]:'TRUTH',
+  [CognitiveJob.GRAPH_WALKER]:'TRUTH',
+  [CognitiveJob.GREEN_ROOM]:'TRUTH',
+  [CognitiveJob.CORRECTIVE_RETRIEVAL]:'TRUTH',
+  [CognitiveJob.TRUTH]:'GATHER',
+  [CognitiveJob.JEV]:'GATHER',
+  [CognitiveJob.PRECISION]:'GATHER',
+  [CognitiveJob.EXTERNAL_GROUNDING]:'TRUTH',
+  [CognitiveJob.GATHER]:'CONTEXT_COMPILER',
+  [CognitiveJob.CONTEXT_COMPILER]:'CONTEXT_SEAL',
+  [CognitiveJob.CONTEXT_SEAL]:'CORE_RENDER',
+  [CognitiveJob.DEEP_COGNITION]:'POST_TURN_LEARNING',
+});
+function reasonForJob(session,job,disposition){
+  if(disposition===CognitiveDisposition.DEFERRED)return CognitiveReason.DEFER_BACKGROUND;
+  if(disposition===CognitiveDisposition.SKIPPED){
+    if(job===CognitiveJob.JEV)return session.jev?.reason??CognitiveReason.JEV_NOT_REQUIRED;
+    if(job===CognitiveJob.PRECISION)return session.precision?.reason??CognitiveReason.PRECISION_NOT_REQUIRED;
+    if(session.hotOnly)return CognitiveReason.HOT_SUFFICIENT;
+    if([CognitiveJob.HISTORIAN,CognitiveJob.GRAPH_WALKER,CognitiveJob.GREEN_ROOM,CognitiveJob.EXTERNAL_GROUNDING].includes(job))return CognitiveReason.LOW_EXPECTED_VALUE;
+    return CognitiveReason.NO_WORK_WARRANTED;
+  }
+  if(job===CognitiveJob.HOT_CONTEXT)return CognitiveReason.HOT_SUFFICIENT;
+  if(job===CognitiveJob.RETRIEVAL)return CognitiveReason.RETRIEVAL_REQUIRED;
+  if([CognitiveJob.HISTORIAN,CognitiveJob.GRAPH_WALKER,CognitiveJob.GREEN_ROOM,CognitiveJob.EXTERNAL_GROUNDING].includes(job))return CognitiveReason.SOURCE_CHANNEL_USED;
+  if(job===CognitiveJob.CORRECTIVE_RETRIEVAL)return CognitiveReason.CORRECTION_REQUIRED;
+  if(job===CognitiveJob.TRUTH)return CognitiveReason.TRUTH_REQUIRED;
+  if(job===CognitiveJob.JEV)return session.jev?.reason??CognitiveReason.JEV_REQUIRED;
+  if(job===CognitiveJob.PRECISION)return session.precision?.reason??CognitiveReason.PRECISION_REQUIRED;
+  if(job===CognitiveJob.GATHER)return CognitiveReason.GATHER_REQUIRED;
+  if([CognitiveJob.CONTEXT_COMPILER,CognitiveJob.CONTEXT_SEAL].includes(job))return CognitiveReason.CONTEXT_REQUIRED;
+  return CognitiveReason.NO_WORK_WARRANTED;
+}
+function decisionsFor(session,{sourceRevisionRefs=[],parentReceiptIds=[],evidenceRefs=[]}={}){
+  return allJobs.map(job=>{
+    const disposition=session.admitted.has(job)?CognitiveDisposition.ADMITTED:session.deferred.has(job)?CognitiveDisposition.DEFERRED:CognitiveDisposition.SKIPPED;
+    const reasonCode=reasonForJob(session,job,disposition);
+    const required=job===CognitiveJob.CONTEXT_COMPILER||job===CognitiveJob.CONTEXT_SEAL||job===CognitiveJob.TRUTH||job===CognitiveJob.GATHER;
+    return createCognitiveFunctionDecision({
+      decisionId:'choice-decision:'+stableHash({turnId:session.turnId,job,disposition,reasonCode},{length:20}),
+      capability:job,disposition,reasonCode,warranted:disposition!==CognitiveDisposition.SKIPPED,
+      expectedValue:disposition===CognitiveDisposition.ADMITTED?1:disposition===CognitiveDisposition.DEFERRED?0.5:0,
+      freshnessRequirement:job===CognitiveJob.DEEP_COGNITION?CognitiveFreshnessRequirement.NONE:CognitiveFreshnessRequirement.TURN_CURRENT,
+      deadlineClass:job===CognitiveJob.DEEP_COGNITION?CognitiveDeadlineClass.DEFERRED:required?CognitiveDeadlineClass.FOREGROUND_REQUIRED:CognitiveDeadlineClass.FOREGROUND_OPPORTUNISTIC,
+      channelIds:job===CognitiveJob.RETRIEVAL?session.requestedChannels:[],
+      sourceRevisionRefs,parentReceiptIds,consumerIds:[JOB_CONSUMER[job]??'COGNITIVE_CORE'],
+      evidenceRefs:disposition===CognitiveDisposition.ADMITTED?evidenceRefs:[],
+      metadata:{physicalExecutionInferred:false,hotOnly:Boolean(session.hotOnly)},
+    });
+  });
+}
+
 export class CognitiveChoiceController{
   constructor({maxReceipts=128}={}){
     this.maxReceipts=Math.max(8,Number(maxReceipts)||128);
@@ -106,7 +162,7 @@ export class CognitiveChoiceController{
   }
 
   begin({
-    turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
+    turnId,turnRevision=0,correlationId,chatId=null,generationId=null,query,intent='CURRENT',anchorEntityIds=[],
     hotSnapshot=null,worldRevision=0,sceneRevision=0,budgetBytes=null,deadline=null,channelIds=null,channelManifest=null,sceneContext=null,
     candidateBudget=64,latencyBudgetMs=100,
   }={}){
@@ -114,7 +170,7 @@ export class CognitiveChoiceController{
     const requested=channelIds?.length?uniq(channelIds):uniq((channelManifest?.channels??[]).filter(x=>x.available!==false).map(x=>x.channelId));
     const hotOnly=hotSufficient({snapshot:hotSnapshot,query,intent,anchorEntityIds,worldRevision,sceneRevision,sceneContext});
     const session={
-      turnId:String(turnId),turnRevision:Number(turnRevision)||0,correlationId:String(correlationId),query:String(query),intent:String(intent),
+      turnId:String(turnId),turnRevision:Number(turnRevision)||0,correlationId:String(correlationId),chatId:chatId==null?null:String(chatId),generationId:generationId==null?null:String(generationId),query:String(query),intent:String(intent),
       anchorEntityIds:uniq(anchorEntityIds),startedAt,budgetBytes,deadline,candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),hotSnapshotId:hotSnapshot?.snapshotId??null,
       worldRevision:Number(worldRevision)||0,sceneRevision:Number(sceneRevision)||0,sceneContext:clone(sceneContext),requestedChannels:requested,
       paths:new Set([hotOnly?CognitiveChoicePath.HOT_ONLY:CognitiveChoicePath.STANDARD_RETRIEVAL]),
@@ -185,9 +241,11 @@ export class CognitiveChoiceController{
       revisionFence:{turnRevision:session.turnRevision,worldRevision:session.worldRevision,sceneRevision:session.sceneRevision},
       canonicalMutationAuthority:false,
     };
+    const receiptRequest={...request,query:undefined,queryFingerprint:stableHash(session.query,{alreadyString:true,length:24})};
+    delete receiptRequest.query;
     if(!this.jevAdapter){
       session.skipped.add(CognitiveJob.JEV);session.reasons.add(CognitiveReason.JEV_UNAVAILABLE);
-      session.jev={...this.#defaultJev(),considered:true,skipped:true,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request};
+      session.jev={...this.#defaultJev(),considered:true,skipped:true,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request:receiptRequest};
       return session.jev;
     }
 
@@ -201,13 +259,13 @@ export class CognitiveChoiceController{
         ...this.#defaultJev(),considered:true,invoked:true,abstained,skipped:false,unavailable:false,
         action:abstained?JevAction.JEV_ABSTAINED:JevAction.INVOKE_JEV,
         reason:abstained?CognitiveReason.JEV_ABSTAINED:CognitiveReason.JEV_REQUIRED,
-        alternativeCount:alternatives.length,request,
+        alternativeCount:alternatives.length,request:receiptRequest,
         decisionRevision:result?.decisionRevision??result?.revision??null,
         resultRef:result?.decisionId??result?.id??null,
       };
     }catch(error){
       session.reasons.add(CognitiveReason.JEV_UNAVAILABLE);
-      session.jev={...this.#defaultJev(),considered:true,invoked:true,skipped:false,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request,error:String(error?.message??error)};
+      session.jev={...this.#defaultJev(),considered:true,invoked:true,skipped:false,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request:receiptRequest,error:String(error?.message??error)};
     }
     return session.jev;
   }
@@ -260,9 +318,37 @@ export class CognitiveChoiceController{
       ...(packet?.dependencies??[]),
       ...envelopes.flatMap(x=>x?.sourceRevisionSet??[]),
     ]);
+    const parentReceiptIds=uniq([
+      session.sceneContext?.lastReceiptId,session.hotSnapshotId,
+      ...envelopes.flatMap(envelope=>[envelope?.envelopeId,envelope?.fusionReceipt?.receiptId,envelope?.fusionReceipt?.id]),
+      assessment?.id,publicationAssessment?.id,sealReceipt?.id,
+    ]);
+    const functionDecisions=decisionsFor(session,{sourceRevisionRefs,parentReceiptIds,evidenceRefs:refs});
+    const executionPlan={
+      kind:'CognitiveExecutionPlan',contractVersion:'1.0.0',
+      layers:[
+        {layer:'CURRENT_NATIVE',chosen:session.hotOnly?[CognitiveJob.HOT_CONTEXT]:[],reason:session.hotOnly?CognitiveReason.HOT_SUFFICIENT:CognitiveReason.RETRIEVAL_REQUIRED},
+        {layer:'CONDITIONAL_RETRIEVAL',chosen:session.hotOnly?[]:[...session.admitted].filter(job=>[CognitiveJob.RETRIEVAL,CognitiveJob.HISTORIAN,CognitiveJob.GRAPH_WALKER,CognitiveJob.GREEN_ROOM,CognitiveJob.EXTERNAL_GROUNDING].includes(job)),reason:session.hotOnly?CognitiveReason.NO_WORK_WARRANTED:CognitiveReason.RETRIEVAL_REQUIRED},
+        {layer:'BOUNDED_PRECISION_JEV',chosen:[...session.admitted].filter(job=>[CognitiveJob.PRECISION,CognitiveJob.JEV,CognitiveJob.CORRECTIVE_RETRIEVAL].includes(job)),reason:session.jev?.reason??session.precision?.reason??CognitiveReason.NO_WORK_WARRANTED},
+        {layer:'POST_SEAL_DEEP',chosen:[CognitiveJob.DEEP_COGNITION],disposition:CognitiveDisposition.DEFERRED,reason:CognitiveReason.DEFER_BACKGROUND},
+      ],
+      sensory:{envelopeIds:uniq(envelopes.map(envelope=>envelope?.envelopeId)),fusionReceiptIds:uniq(envelopes.map(envelope=>envelope?.fusionReceipt?.receiptId??envelope?.fusionReceipt?.id)),sourceRevisionRefs},
+      truth:{assessmentId:assessment?.id??null,publicationAssessmentId:publicationAssessment?.id??null,inputCandidateIds:uniq(assessment?.truthResults?.map(row=>row.candidateId)??[])},
+      physicalExecutionInferred:false,
+    };
+    const measurements={
+      kind:'CognitiveChoiceLoadMeasurement',basis:'DECISION_AND_PRODUCER_RECEIPTS_NOT_JOB_COUNT_ROUTING',
+      consideredJobs:allJobs.length,admittedJobs:session.admitted.size,skippedJobs:session.skipped.size,deferredJobs:session.deferred.size,
+      avoidedForegroundJobs:[...session.skipped].filter(job=>job!==CognitiveJob.DEEP_COGNITION).length,
+      requestedChannelCount:session.requestedChannels.length,usedChannelCount:session.channelsUsed.size,
+      nominatedCandidates:nominated,deduplicatedCandidates:session.candidateIds.size,
+      retrievalElapsedMs:envelopes.reduce((sum,envelope)=>sum+Number(envelope?.metadata?.retrievalBudgetReceipt?.elapsedMs??0),0),
+      controllerOverheadMs:Math.max(0,Number(finishedAt)-Number(session.startedAt)),
+      configuredNativeResources:1,remoteProviderExecutionInferred:false,
+    };
     const receipt=createCognitiveChoiceReceipt({
       id:'cognitive-choice:'+stableHash({turnId:session.turnId,correlationId:session.correlationId},{length:24}),
-      receiptRevision:1,turnId:session.turnId,turnRevision:session.turnRevision,correlationId:session.correlationId,
+      receiptRevision:1,turnId:session.turnId,turnRevision:session.turnRevision,correlationId:session.correlationId,chatId:session.chatId,generationId:session.generationId,parentReceiptId:session.sceneContext?.lastReceiptId??null,
       paths:[...session.paths],consideredCognitionOptions:allJobs,admittedJobs:[...session.admitted],
       skippedJobs:[...session.skipped],deferredJobs:[...session.deferred],reasonCodes:[...session.reasons],
       retrievalIntents:[...session.retrievalIntents],sensoryChannelsRequested:session.requestedChannels,
@@ -310,8 +396,9 @@ export class CognitiveChoiceController{
         sealed:Boolean(sealReceipt?.sealedState),sealReceiptId:sealReceipt?.id??null,sequence:sealReceipt?.sequence??null,
         packetId:sealReceipt?.packetId??packet?.id??null,packetHash:sealReceipt?.packetHash??null,publicationBoundary:'CLOSED',
       },
-      lateResultIds,staleResultIds,invalidResultIds,
-      metadata:{hotCognitionSnapshotId:session.hotSnapshotId,query:session.query,intent:session.intent,sceneIntegration:clone(session.sceneContext),sceneCognitiveNeeds:clone(session.sceneContext?.cognitiveNeeds??[])},
+      lateResultIds,staleResultIds,invalidResultIds,functionDecisions,executionPlan,measurements,
+      degradedState:{optionalJevUnavailable:Boolean(session.jev?.unavailable),precisionFallback:Boolean(session.precision?.fallback),correctionFailed:Boolean(session.correctionFailed||corrective?.failed)},
+      metadata:{hotCognitionSnapshotId:session.hotSnapshotId,queryFingerprint:stableHash(session.query,{alreadyString:true,length:24}),intent:session.intent,sceneIntegration:clone(session.sceneContext),sceneCognitiveNeeds:clone(session.sceneContext?.cognitiveNeeds??[])},
     });
     this.#store(receipt);return receipt;
   }

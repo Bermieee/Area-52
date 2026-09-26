@@ -841,6 +841,7 @@ export class LoreIntelligenceService {
       status: () => this.status(),
       loreStudy: (request = {}) => this.status({chatId: request?.chatId ?? null}),
       loreReadModel: (request = {}) => this.operatorReadModel(request),
+      loreSummaries: () => this.summarySurface(),
     });
     const actions = Object.freeze({
       acceptLorebook: (input) => this.acceptLorebook(input),

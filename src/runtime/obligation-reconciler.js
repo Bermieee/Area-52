@@ -69,7 +69,7 @@ export class CognitiveObligationReconciler{
       if(state.status!==ReconciliationStatus.DONE)return this.#receipt(d,ReconciliationStatus.BLOCKED,CausalReasonCode.PREREQUISITE_PENDING,null,[],{blockedBy:prerequisite});
     }
     let record=this.#findTask(d);
-    if(!record&&admit){
+    if(!record&&admit&&!(entry.evidence??[]).length){
       if(typeof entry.executor?.execute!=='function')return this.#receipt(d,ReconciliationStatus.DUE,CausalReasonCode.EXECUTOR_UNAVAILABLE,null,[]);
       const obligation={...clone(d.obligation),owner:d.obligation?.owner??d.owner,producerId:d.obligation?.producerId??d.owner,cause:clone(d.cause),dedupeKey:d.obligation?.dedupeKey??('expected:'+d.expectedId)};
       const admission=this.director.submit(obligation,entry.executor);

@@ -49,7 +49,8 @@ function isSillyTavernOpenRouterRoute(context,config={}){
   if(!endpoint)return false;
   try{
     const host=new URL(endpoint).hostname.toLowerCase();
-    return (host==='openrouter.ai'||host.endsWith('.openrouter.ai'))&&typeof context?.ChatCompletionService?.processRequest==='function';
+    const hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+    return (host==='openrouter.ai'||host.endsWith('.openrouter.ai'))&&typeof hostFetch==='function';
   }catch{return false;}
 }
 
@@ -57,14 +58,42 @@ function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId
   let selectedModel=clean(modelId);
   if(!selectedModel)throw new TypeError('OpenRouter model is required');
   const request=async(messages,{signal=null,maxOutputTokens=128,temperature=0}={})=>{
-    const context=getContext(),service=context?.ChatCompletionService;
-    if(typeof service?.processRequest!=='function')throw Object.assign(new Error('SillyTavern ChatCompletionService is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const context=getContext(),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+    if(typeof hostFetch!=='function')throw Object.assign(new Error('SillyTavern host fetch is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
+    const headers=typeof context?.getRequestHeaders==='function'?context.getRequestHeaders():{'Content-Type':'application/json'};
+    const body={
+      stream:false,
+      messages,
+      model:selectedModel,
+      chat_completion_source:'openrouter',
+      max_tokens:Math.max(1,Math.trunc(Number(maxOutputTokens)||128)),
+      temperature:Number.isFinite(Number(temperature))?Number(temperature):0,
+      include_reasoning:false,
+    };
     const startedAt=Date.now();
-    const response=await service.processRequest({
-      stream:false,messages,model:selectedModel,chat_completion_source:'openrouter',
-      max_tokens:Math.max(1,Math.trunc(Number(maxOutputTokens)||128)),temperature,
-    },{},true,signal);
-    const content=typeof response?.content==='string'?response.content:response?.content==null?'':JSON.stringify(response.content);
+    let response;
+    try{
+      response=await hostFetch('/api/backends/chat-completions/generate',{
+        method:'POST',headers,cache:'no-cache',body:JSON.stringify(body),signal:signal??undefined,
+      });
+    }catch(error){
+      throw Object.assign(new Error('SillyTavern OpenRouter proxy request failed: '+String(error?.message??error)),{code:'PROVIDER_UNAVAILABLE',cause:error});
+    }
+    let json=null,text='';
+    try{json=await response.json();}
+    catch{
+      try{text=await response.text();}catch{}
+    }
+    if(!response?.ok||json?.error){
+      const detail=clean(json?.error?.message??json?.message??text);
+      const message='SillyTavern OpenRouter proxy returned HTTP '+String(response?.status??0)+(detail?': '+detail.slice(0,240):'');
+      const code=response?.status===401||response?.status===403?'PROVIDER_UNAUTHORIZED':response?.status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
+      throw Object.assign(new Error(message),{code,status:Number(response?.status??0)});
+    }
+    const content=typeof json?.choices?.[0]?.message?.content==='string'
+      ?json.choices[0].message.content
+      :typeof json?.choices?.[0]?.text==='string'?json.choices[0].text
+      :typeof json?.content==='string'?json.content:'';
     if(!content)throw Object.assign(new Error('SillyTavern OpenRouter backend returned no completion text'),{code:'MALFORMED_OUTPUT'});
     const completedAt=Date.now();return{content,startedAt,completedAt};
   };

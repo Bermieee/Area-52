@@ -107,7 +107,7 @@ Browser and deterministic stress/recovery evidence do not satisfy the original i
 | #203 | Scene graph provider works through shared bounded Graph Walker | Partial/shared — other owner providers/integration remain external |
 | #213 | Optional Jev ambiguity seam preserves Scene owner authority | Partial until the full deterministic + sidecar-assisted + Jev + unavailable golden is demonstrated together |
 | #214 | ScenePulse comparison artifact produced | Scene research work complete |
-| #215 | SceneRAG comparison + semantic-vs-fixed benchmark produced | Partial — current benchmark directly covers event completeness, source traceability, temporal correctness, context size and rebuild scope; original acceptance still needs explicit boundary-coherence, precision/recall, callback-recovery and graph/multi-hop usefulness measurements |
+| #215 | SceneRAG comparison + semantic-vs-fixed benchmark now measures boundary coherence, retrieval precision/recall, event completeness, source traceability, temporal correctness, callback recovery, graph-neighbor usefulness, context size and rebuild scope | Scene research acceptance complete, subject to exact-head CI |
 | #216 | bounded transition handoff/prefetch + targeted invalidation implemented | Partial — Context Compiler final decision is external |
 | #217 | safe vibe consumption policy preserves inferred/expiring/disableable semantics | Scene policy complete; downstream compiler use remains shared |
 | #220 | native live-state assimilation and bounded correction path | Scene owner work complete |

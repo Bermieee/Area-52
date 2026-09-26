@@ -60,7 +60,7 @@ export function summarizeOptionalResourceStates({resources=[],records=[],jevExec
 function stateRow(resources,records,ownerByTask){
   const configured=resources.length;
   const qualified=resources.filter(row=>Boolean(row.callable||row.qualification?.qualified)).length;
-  const attempts=records.filter(row=>row.providerProfileId||row.providerId).length;
+  const attempts=records.filter(row=>row.providerProfileId||row.providerId).reduce((sum,row)=>sum+Math.max(1,Number(row.attempt??1)),0);
   const returned=records.filter(row=>row.state==='READY_FOR_CORE').length;
   const failed=records.filter(row=>['FAILED','UNAVAILABLE','REJECTED_INVALID','REJECTED_LATE','REJECTED_STALE'].includes(row.state)).length;
   const skipped=records.filter(row=>row.state==='SKIPPED').length;

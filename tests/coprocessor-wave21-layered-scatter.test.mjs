@@ -124,6 +124,20 @@ test('provider unavailable and timeout preserve declared fallback without manufa
   }
 });
 
+test('late physical result is never owner-admitted and required work falls back while the fence is fresh',async()=>{
+  const registry=new CoprocessorResourceConnections();
+  addResource(registry,{capabilities:[Capability.GRAPH],handlers:{GRAPH_WALK:async()=>{await sleep(35);return graphOutput('late');}}});
+  await registry.connectResource('one');
+  const swarm=new NativeSidecarSwarm({connections:registry,planner:new DynamicFanOutPlanner({defaultSoftBudgetMs:5,defaultHardBudgetMs:15})});
+  const t=turn('late');
+  const result=await swarm.runTurn({turnEvent:t,plannerInput:{text:'Where is the instrument?',queryIntent:'LOCATION'},inputResolver:()=>graphInput('late'),currentRevisionState:t});
+  assert.equal(result.contribution.resultsForOwner.length,0);
+  assert.ok(result.contribution.resultSummary.some(x=>x.state===NativeSwarmResultState.REJECTED_LATE));
+  assert.ok(result.contribution.resultSummary.some(x=>x.state===NativeSwarmResultState.FALLBACK));
+  assert.equal(result.contribution.gatherBundle.missingRequired.length,0);
+  assert.ok(result.contribution.layeredScatterReceipt.metrics.lateAdmissionCount>=1);
+});
+
 test('revision drift rejects late work and cannot be converted into a fallback against the stale turn',async()=>{
   const registry=new CoprocessorResourceConnections();
   addResource(registry,{capabilities:[Capability.GRAPH],handlers:{GRAPH_WALK:async()=>{await sleep(5);return graphOutput('stale');}}});

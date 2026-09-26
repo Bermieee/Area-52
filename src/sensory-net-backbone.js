@@ -128,13 +128,14 @@ export class SensoryNetBackbone{
     const rows=(envelope?.candidates??[]).filter(candidate=>candidate?.freshness===CandidateFreshness.FRESH&&(candidate?.graphMetadata??[]).length);
     const refs=uniq(rows.flatMap(candidate=>(candidate.graphMetadata??[]).map(meta=>String(meta.graphProvider??'GRAPH')+'|'+String(meta.edgeId??meta.representationRef??candidate.candidateId))));
     const sourceRevisionRefs=uniq(rows.flatMap(candidate=>candidate.sourceRevisionRefs??[]));
+    const identityRevisionRefs=uniq(rows.flatMap(candidate=>candidate.identityRevisionRefs??[]));
     const provenanceRefs=uniq(rows.flatMap(candidate=>[
       ...((candidate.provenance??[]).map(item=>item?.ref).filter(Boolean)),
       ...(candidate.evidenceRefs??[]),
     ]));
     const degraded=(graphReceipt.providers??[]).some(row=>row?.status==='DEGRADED');
     return this.hotCognition.setGraphNeighborhood({
-      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,provenanceRefs,
+      state:refs.length||!degraded?'AVAILABLE':'DEGRADED',refs,sourceRevisionRefs,identityRevisionRefs,provenanceRefs,
       updateId:'graph-warm:'+stableHash({candidateSetId:envelope?.candidateSetId??null,worldRevision:envelope?.worldRevision??null,sceneRevision:envelope?.sceneRevision??null,refs},{length:20}),
     });
   }

@@ -60,12 +60,14 @@ export class GenerationPublicationPipeline {
       return{...replay.output,cognitiveChoiceReceipt:receipt,duplicate:true};
     }
 
-    const hotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
-    const sceneTrace=this.core.sceneIntegration?.publicationTrace?.(hotSnapshot?.chatNamespace)??null;
+    const rawHotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
+    const sceneTrace=this.core.sceneIntegration?.publicationTrace?.(rawHotSnapshot?.chatNamespace)??null;
     if(sceneTrace?.sceneId)this.setSceneRevision(sceneTrace.sceneRevision,{sceneId:sceneTrace.sceneId});
-    else if(hotSnapshot?.sceneId)this.setSceneRevision(hotSnapshot.sceneRevision,{sceneId:hotSnapshot.sceneId});
-    else if(hotSnapshot?.sceneRevision&&hotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=hotSnapshot.sceneRevision;
+    else if(rawHotSnapshot?.sceneId)this.setSceneRevision(rawHotSnapshot.sceneRevision,{sceneId:rawHotSnapshot.sceneId});
+    else if(rawHotSnapshot?.sceneRevision&&rawHotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=rawHotSnapshot.sceneRevision;
     const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
+    const hotSnapshot=rawHotSnapshot&&Number(rawHotSnapshot.worldRevision)===Number(worldRevision)&&Number(rawHotSnapshot.sceneRevision)===Number(sceneRevision)?rawHotSnapshot:null;
+    const hotFreshnessReceipt={kind:'HotGenerationFreshnessReceipt',snapshotId:rawHotSnapshot?.snapshotId??null,accepted:Boolean(hotSnapshot),snapshotWorldRevision:rawHotSnapshot?.worldRevision??null,snapshotSceneRevision:rawHotSnapshot?.sceneRevision??null,worldRevision,sceneRevision,reason:!rawHotSnapshot?'HOT_STATE_UNAVAILABLE':hotSnapshot?'HOT_STATE_CURRENT':'HOT_REVISION_MISMATCH',authorityGranted:false};
     const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
     const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot,{perspectiveConstraint}):null;
@@ -239,13 +241,13 @@ export class GenerationPublicationPipeline {
       assessment,publicationAssessment,corrective,packet:sealed.packet,sealReceipt:sealed.receipt,resultRoutes:finalRoutes,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,
     })??null;
-    if(sceneTrace)this.core.sceneIntegration?.noteSeal?.({chatNamespace:hotSnapshot?.chatNamespace,sealReceipt:sealed.receipt});
+    if(sceneTrace)this.core.sceneIntegration?.noteSeal?.({chatNamespace:rawHotSnapshot?.chatNamespace,sealReceipt:sealed.receipt});
 
     const output={
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,publicationAssessment,corrective,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
       candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
-      hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,
+      hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,hotFreshnessReceipt,
       hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,
       retrievalBudgetReceipt:primaryEnvelope?.metadata?.retrievalBudgetReceipt??null,
       graphTraversalReceipt:primaryEnvelope?.metadata?.graphTraversalReceipt??null,duplicate:false,

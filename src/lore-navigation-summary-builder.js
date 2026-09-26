@@ -628,12 +628,19 @@ export class LoreNavigationSummaryBuilder {
     };
   }
 
-  snapshot() {
+  snapshot({includeCompletedSessions = true} = {}) {
+    const sessions = [...this.sessions.entries()];
+    const retainedSessions = includeCompletedSessions
+      ? sessions
+      : sessions.filter(([, session]) => session?.state !== 'COMPLETED');
     return {
       kind: 'LoreNavigationSummaryBuilderSnapshot',
       generatorRevision: this.generatorRevision,
       sequence: this.sequence,
-      sessions: [...this.sessions.entries()].map(([id, session]) => [id, deepClone(session)]),
+      sessions: retainedSessions.map(([id, session]) => [id, deepClone(session)]),
+      completedSessionsOmitted: includeCompletedSessions
+        ? 0
+        : sessions.filter(([, session]) => session?.state === 'COMPLETED').length,
       scopeStates: [...this.scopeStates.entries()].map(([id, state]) => [id, deepClone(state)]),
     };
   }

@@ -401,11 +401,12 @@ export class LoreContextualRetrievalIndex {
     };
   }
 
-  snapshot() {
+  snapshot({includeRecords = true} = {}) {
     return {
       kind: 'LoreContextualRetrievalIndexSnapshot',
       revision: this.revision,
-      records: [...this.records.values()].map(deepClone),
+      recordsIncluded: Boolean(includeRecords),
+      records: includeRecords ? [...this.records.values()].map(deepClone) : [],
       diagnostics: deepClone(this.diagnostics),
     };
   }

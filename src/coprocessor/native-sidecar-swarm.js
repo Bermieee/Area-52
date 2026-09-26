@@ -47,7 +47,7 @@ export class NativeSidecarSwarm{
     this.jev=new JevDecisionCore({providerExecutor:this.connections.createJevProviderExecutor()});
   }
 
-  prepareTurn({turnEvent,plannerInput={},ownerSignals={},choicePolicyVersion='sidecar-choice-v1'}={}){
+  prepareTurn({turnEvent,plannerInput={},ownerSignals={},choicePolicyVersion='sidecar-choice-v1',selection=null}={}){
     if(!turnEvent?.turnId||!turnEvent?.correlationId)throw new TypeError('turnEvent with turnId and correlationId is required');
     const resources=this.connections.readModel();
     const profiles=this.connections.profiles.list();
@@ -64,9 +64,10 @@ export class NativeSidecarSwarm{
     });
     const checkpoint=createSwarmCheckpoint({
       turnEvent,proposal:plan.choiceProposal,tasks:plan.fanOutPlan.tasks,createdAt:this.now(),maxBytes:this.maxCheckpointBytes,
+      selection:normalizeSwarmSelection(selection??turnEvent),
     });
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TURN_PLANNED,{
-      turnId:turnEvent.turnId,correlationId:turnEvent.correlationId,proposalId:plan.choiceProposal.proposalId,
+      ...checkpoint.selection,turnId:turnEvent.turnId,correlationId:turnEvent.correlationId,proposalId:plan.choiceProposal.proposalId,
       plannedWorkerCount:plan.fanOutPlan.plannedWorkerCount,readyResourceCount:resources.readyResourceCount,
     });
     return Object.freeze({kind:'NativeSidecarSwarmPreparedTurn',fanOutPlan:plan.fanOutPlan,choiceProposal:plan.choiceProposal,checkpoint,resourceSnapshot:resources});

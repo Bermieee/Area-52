@@ -321,6 +321,9 @@ export class Wave13LoreAuthoringUIAdapter{
     this.settlementFn=fn(this.host?.read,['settlement']);
     this.worker1ReceiptsFn=fn(this.host?.read,['worker1Receipts']);
     this.worker3ContractFn=fn(this.host?.read,['worker3AuthoringContract']);
+    this.adaptiveNavigationFn=fn(this.host?.read,['adaptiveNavigation','readAdaptiveNavigation']);
+    this.startSourceMutationBuildFn=fn(this.host?.actions,['startSourceMutationBuild']);
+    this.rebuildAffectedNavigationFn=fn(this.host?.actions,['rebuildAffectedNavigation']);
     this.startTreeBuildFn=fn(this.host?.actions,['startTreeBuild']);
     this.startMergeBuildFn=fn(this.host?.actions,['startMergeBuild']);
     this.resumeBuildFn=fn(this.host?.actions,['resumeAuthoringBuild']);
@@ -330,7 +333,7 @@ export class Wave13LoreAuthoringUIAdapter{
     this.approveFinalPreviewFn=fn(this.host?.actions,['approveFinalPreview']);
     this.applySettlementFn=fn(this.host?.actions,['applySettlement']);
     this.restoreSettlementFn=fn(this.host?.actions,['restoreSettlement']);
-    this.last={discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null,progress:null,draft:null,finalPreview:null,settlement:null,worker1Receipts:null};
+    this.last={discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null,navigation:null,navigationRebuild:null,progress:null,draft:null,finalPreview:null,settlement:null,worker1Receipts:null};
   }
   capabilities(){
     const v2=Number(this.host?.contractVersion??0)>=2;
@@ -340,6 +343,8 @@ export class Wave13LoreAuthoringUIAdapter{
       previewEdit:Boolean(this.previewEditFn),tree:Boolean(this.treeFn),merge:Boolean(this.mergeFn),
       lifecycle,mergeLifecycle:lifecycle&&Boolean(this.startMergeBuildFn),reclassify:lifecycle&&Boolean(this.reclassifyFn),settlement:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
       restoration:lifecycle&&Boolean(this.restoreSettlementFn),worker1Receipts:Boolean(this.worker1ReceiptsFn),
+      sourceMutation:Boolean(this.startSourceMutationBuildFn),adaptiveNavigation:Boolean(this.adaptiveNavigationFn),
+      incrementalNavigationRebuild:Boolean(this.rebuildAffectedNavigationFn),
       destructiveApply:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
     });
   }
@@ -373,6 +378,9 @@ export class Wave13LoreAuthoringUIAdapter{
   settlement(request){const result=this.#invoke(this.settlementFn,request,'LORE_AUTHORING_SETTLEMENT_READ_UNAVAILABLE');this.last.settlement=cloneSafe(result);return cloneSafe(result);}
   worker1Receipts(request){const result=this.#invoke(this.worker1ReceiptsFn,request,'LORE_AUTHORING_WORKER1_RECEIPTS_UNAVAILABLE');this.last.worker1Receipts=cloneSafe(result);return cloneSafe(result);}
   worker3Contract(){return this.#invoke(this.worker3ContractFn,{},'LORE_AUTHORING_WORKER3_CONTRACT_UNAVAILABLE');}
+  adaptiveNavigation(request={}){const result=this.#invoke(this.adaptiveNavigationFn,request,'LORE_AUTHORING_ADAPTIVE_NAVIGATION_UNAVAILABLE');this.last.navigation=cloneSafe(result);return cloneSafe(result);}
+  startSourceMutationBuild(request){return this.#lifecycleAction('START_SOURCE_MUTATION_BUILD',this.startSourceMutationBuildFn,request,'LORE_AUTHORING_SOURCE_MUTATION_UNAVAILABLE');}
+  rebuildAffectedNavigation(request){const result=this.#invoke(this.rebuildAffectedNavigationFn,request,'LORE_AUTHORING_NAVIGATION_REBUILD_UNAVAILABLE');this.last.navigationRebuild=cloneSafe(result);return cloneSafe(result);}
   startTreeBuild(request){return this.#lifecycleAction('START_TREE_BUILD',this.startTreeBuildFn,request,'LORE_AUTHORING_START_TREE_UNAVAILABLE');}
   startMergeBuild(request){return this.#lifecycleAction('START_MERGE_BUILD',this.startMergeBuildFn,request,'LORE_AUTHORING_START_MERGE_UNAVAILABLE');}
   resumeBuild(request){return this.#lifecycleAction('RESUME_BUILD',this.resumeBuildFn,request,'LORE_AUTHORING_RESUME_UNAVAILABLE');}

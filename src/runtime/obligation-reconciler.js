@@ -30,7 +30,7 @@ export class CognitiveObligationReconciler{
     });
     const prior=this.expected.get(expectedId)??null;
     if(!prior)this.order.push(expectedId);
-    this.expected.set(expectedId,{declaration,executor:executor??prior?.executor??null,evidence:[...(prior?.evidence??[])]});
+    this.expected.set(expectedId,{declaration,executor:executor??prior?.executor??null,evidence:[...(prior?.evidence??[])],evidenceSequence:Number(prior?.evidenceSequence??prior?.evidence?.length??0)});
     while(this.order.length>this.maxExpected){const old=this.order.shift();this.expected.delete(old);}
     return clone(declaration);
   }
@@ -49,7 +49,8 @@ export class CognitiveObligationReconciler{
       [CausalReceiptKind.OWNER_REJECTED]:[CausalLifecycleState.FAILED,CausalReasonCode.OWNER_REJECTED],
     };
     if(!defaults[kind])throw new TypeError('Unsupported external reconciliation evidence kind: '+kind);
-    const index=(entry.evidence?.length??0)+1,[defaultState,defaultReason]=defaults[kind];
+    const index=Math.max(Number(entry.evidenceSequence??0),...(entry.evidence??[]).map(row=>Number(String(row?.id??'').match(/:e(\d+):/)?.[1]??0)))+1,[defaultState,defaultReason]=defaults[kind];
+    entry.evidenceSequence=index;
     const receipt=createCausalReceipt({
       id:input.id??('expected:'+d.expectedId+':e'+index+':'+kind),kind,lifecycleState:input.lifecycleState??defaultState,reasonCode:input.reasonCode??defaultReason,
       taskId:input.taskId??null,taskType:d.obligation?.taskType??null,owner:d.owner,producerId:input.producerId??d.owner,consumerId:input.consumerId??d.cause?.consumerId??null,
@@ -104,14 +105,14 @@ export class CognitiveObligationReconciler{
   snapshot(){
     return Object.freeze({
       kind:'CognitiveObligationReconcilerSnapshot',contractVersion:2,maxExpected:this.maxExpected,
-      entries:this.order.map(id=>{const row=this.expected.get(id);return row?{declaration:clone(row.declaration),evidence:clone(row.evidence??[])}:null;}).filter(Boolean),
+      entries:this.order.map(id=>{const row=this.expected.get(id);return row?{declaration:clone(row.declaration),evidence:clone(row.evidence??[]),evidenceSequence:Number(row.evidenceSequence??row.evidence?.length??0)}:null;}).filter(Boolean),
     });
   }
 
   restore(snapshot={}){
     const rows=Array.isArray(snapshot?.entries)?snapshot.entries:Array.isArray(snapshot?.declarations)?snapshot.declarations.map(declaration=>({declaration,evidence:[]})):[];
     this.expected.clear();this.order=[];
-    for(const row of rows.slice(-this.maxExpected)){const declaration=row?.declaration??row;this.declare(declaration,null);const entry=this.expected.get(declaration.expectedId);if(entry)entry.evidence=clone(row?.evidence??[]).slice(-64);}
+    for(const row of rows.slice(-this.maxExpected)){const declaration=row?.declaration??row;this.declare(declaration,null);const entry=this.expected.get(declaration.expectedId);if(entry){entry.evidence=clone(row?.evidence??[]).slice(-64);entry.evidenceSequence=Math.max(Number(row?.evidenceSequence??0),...(entry.evidence??[]).map(receipt=>Number(String(receipt?.id??'').match(/:e(\d+):/)?.[1]??0)));}}
     return this.snapshot();
   }
 

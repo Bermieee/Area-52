@@ -31,7 +31,7 @@ function readyWorld() {
   intelligence.acceptLorebook(book([
     {
       uid: 'mara',
-      content: 'Mara owns the Ember Tavern. Mara must never reveal the cellar key. Mara knows Eris.',
+      content: 'Mara, also called Red, owns the Ember Tavern. Mara must never reveal the cellar key. Mara knows Eris. Mara smells of cedar.',
       metadata: {title: 'Mara', treePath: ['Places', 'Ember Tavern']},
     },
     {
@@ -69,7 +69,7 @@ test('semantic impact planner reports bounded typed A -> B changes and exact rev
   const {sourceId, before, after} = changeSource(
     intelligence,
     'mara',
-    'Mara formerly owned the Ember Tavern. Mara carries the Sun Blade. Mara must never reveal the archive key.',
+    'Mara is also called Ash. Mara formerly owned the Ember Tavern. Mara carries the Sun Blade. Mara must never reveal the archive key. Mara smells of smoke.',
     {title: 'Mara', treePath: ['People', 'Mara']},
   );
   const planner = new LoreSemanticImpactPlanner({intelligence});
@@ -89,7 +89,7 @@ test('semantic impact planner reports bounded typed A -> B changes and exact rev
   for (const key of [
     'CLAIM', 'ENTITY', 'ALIAS', 'RELATIONSHIP', 'RULE', 'CAPABILITY',
     'TEMPORAL', 'CONTRADICTION', 'CONCEPT', 'COMMUNITY',
-    'RETRIEVAL', 'COMPACT', 'STRUCTURE',
+    'RETRIEVAL', 'COMPACT', 'STRUCTURE', 'BEHAVIORAL_ANCHOR', 'SENSORY_ANCHOR',
   ]) {
     assert.ok(plan.changes[key], 'missing typed change bucket ' + key);
     assert.ok(Array.isArray(plan.changes[key].added));
@@ -99,6 +99,10 @@ test('semantic impact planner reports bounded typed A -> B changes and exact rev
 
   assert.equal(plan.classification.meaningChanged, true);
   assert.equal(plan.classification.wordingOnly, false);
+  assert.ok(plan.changes.ALIAS.added.length + plan.changes.ALIAS.removed.length > 0);
+  assert.ok(plan.changes.RULE.added.length + plan.changes.RULE.removed.length + plan.changes.RULE.changed.length > 0);
+  assert.ok(plan.changes.SENSORY_ANCHOR.added.length + plan.changes.SENSORY_ANCHOR.removed.length + plan.changes.SENSORY_ANCHOR.changed.length > 0);
+  assert.ok(plan.changes.RETRIEVAL.added.length + plan.changes.RETRIEVAL.removed.length + plan.changes.RETRIEVAL.changed.length > 0);
   assert.deepEqual(plan.structure.beforeTreePath, ['Places', 'Ember Tavern']);
   assert.deepEqual(plan.structure.afterTreePath, ['People', 'Mara']);
   assert.equal(plan.structure.changed, true);

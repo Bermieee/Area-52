@@ -102,6 +102,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Typed OpenRouter Jev Decisions transport
+        run: node --test tests/openrouter-jev-decisions.test.mjs
       - name: Coprocessor Wave 4 + 13 + 14 routing, connection, and provider regressions
         run: node --test tests/coprocessor-wave4.test.mjs tests/coprocessor-wave13-browser.test.mjs tests/coprocessor-wave13-choice.test.mjs tests/coprocessor-wave13-evaluation.test.mjs tests/coprocessor-wave13-stress.test.mjs tests/coprocessor-wave14-browser.test.mjs tests/coprocessor-wave14-connections.test.mjs tests/coprocessor-wave14-evaluation.test.mjs
 

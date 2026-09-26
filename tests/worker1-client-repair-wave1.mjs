@@ -8,6 +8,11 @@ import {ResultClass,ResultDestination,ResultFreshness,ResultPayloadClass,createC
 
 const LIVE_CHAT='Akira Kagenou - 2026-09-16@18h19m27s303ms imported';
 const LIVE_REF='sillytavern:'+LIVE_CHAT+':message:389:1f2b3f0b@1';
+const MESSAGE_389_FENCE_FIXTURE=Object.freeze({
+  selectedTurn:'native-live:'+LIVE_CHAT+':389:1f2b3f0b:1',
+  expectedSceneRevisionRefs:Object.freeze([LIVE_REF]),
+  observedPreFixSelectedRevisionRefs:Object.freeze([]),
+});
 
 function liveScene({chatId=LIVE_CHAT,sceneRevision=1,sourceRevisionRef=LIVE_REF,sceneId='chat:'+chatId+':scene:1'}={}){
   return{
@@ -37,10 +42,13 @@ test('REPRO: selected native turn fence includes the host message revision used 
     budgetTokens:4096,
   });
 
-  assert.ok(
-    prepared.selection.sourceRevisionRefs.includes(LIVE_REF),
-    'selected source fence must include the host message revision retained by Scene/Hot Cognition',
+  assert.deepEqual(MESSAGE_389_FENCE_FIXTURE.observedPreFixSelectedRevisionRefs,[]);
+  assert.deepEqual(
+    prepared.selection.sourceRevisionRefs.filter(ref=>ref===LIVE_REF),
+    MESSAGE_389_FENCE_FIXTURE.expectedSceneRevisionRefs,
+    'selected source fence must carry the exact host message revision retained by Scene/Hot Cognition',
   );
+  assert.equal(prepared.selection.ownerSourceRevisionRefs.includes(LIVE_REF),false,'Scene evidence must not be mislabeled as owner-knowledge evidence');
 
   const live=createWave11LiveReceiptBinding(brain.uiBindings());
   const selected=live.selection();

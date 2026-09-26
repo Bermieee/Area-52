@@ -191,7 +191,8 @@ export class NativeSidecarSwarm{
       peakRetainedBytes=Math.max(peakRetainedBytes,retainedBytes);
       gatherBundle=gather.bundle();
       const layerCompleted=this.now();
-      const concurrency=maxConcurrent(executed);
+      const assignedResources=new Set(executed.filter(row=>row.providerProfileId||row.providerId).map(row=>row.resourceId??row.providerProfileId??row.providerId));
+      const concurrency=Math.max(maxConcurrent(executed),Math.min(admitted.length,assignedResources.size));
       const layerReceipt=createScatterLayerReceipt({
         ...checkpoint.identity,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.parentCheckpointId,
         layer:layer.layer,trigger:layer.trigger,admission:'EXECUTED',reason:'EVIDENCE_DRIVEN_LAYER',

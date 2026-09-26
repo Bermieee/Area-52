@@ -165,7 +165,7 @@ function contradictionPredicate(row) {
 }
 
 function meaningRows(rows) {
-  return rows.filter((row) => row.artifactType !== ArtifactType.CONTEXT_CHUNK);
+  return rows.filter((row) => ![ArtifactType.CONTEXT_CHUNK, ArtifactType.STRUCTURE].includes(row.artifactType));
 }
 
 function semanticMeaningChanged(beforeRows, afterRows) {
@@ -326,6 +326,22 @@ export class LoreSemanticImpactPlanner {
     const summaries = fromRevision ? listSummaryDependencies(this.intelligence, fromRevision.id) : [];
     const retrievalRecords = fromRevision ? listRetrievalDependencies(this.intelligence, sourceId, fromRevision.id) : [];
     const ontology = fromRevision ? listOntologyDependencies(this.intelligence, sourceId, fromRevision.id) : [];
+    const beforeRetrievalArtifacts = beforeRows
+      .filter((row) => [ArtifactType.RETRIEVAL, ArtifactType.COMPACT].includes(row.artifactType))
+      .map((row) => ({
+        kind: 'RETRIEVAL_ARTIFACT',
+        ref: row.id,
+        sourceId,
+        sourceRevisionId: fromRevision?.id || null,
+      }));
+    const beforeOntologyArtifacts = beforeRows
+      .filter((row) => [ArtifactType.ENTITY, ArtifactType.ALIAS, ArtifactType.RELATIONSHIP, ArtifactType.CONCEPT, ArtifactType.COMMUNITY].includes(row.artifactType))
+      .map((row) => ({
+        kind: 'ONTOLOGY_SOURCE_ARTIFACT',
+        ref: row.id,
+        sourceId,
+        sourceRevisionId: fromRevision?.id || null,
+      }));
     const beforeArtifactRows = beforeRows.map((row) => ({
       kind: 'STUDY_ARTIFACT',
       ref: row.id,
@@ -338,10 +354,12 @@ export class LoreSemanticImpactPlanner {
       ...beforeArtifactRows,
       ...representations,
       ...retrievalRecords,
+      ...beforeRetrievalArtifacts,
     ], MAX_REFS);
     const transitive = bounded([
       ...summaries,
       ...ontology,
+      ...beforeOntologyArtifacts,
     ], MAX_REFS);
 
     const required = [];
@@ -358,11 +376,11 @@ export class LoreSemanticImpactPlanner {
         reason: 'SOURCE_REVISION_FENCE_CHANGED',
         refs: bounded(dedupeRefs(representations), MAX_REFS),
       });
-      if (retrievalRecords.length) required.push({
+      if (retrievalRecords.length || beforeRetrievalArtifacts.length) required.push({
         target: 'RETRIEVAL_INDEX',
         action: 'REINDEX',
         reason: 'SOURCE_REVISION_FENCE_CHANGED',
-        refs: bounded(dedupeRefs(retrievalRecords), MAX_REFS),
+        refs: bounded([...new Set([...dedupeRefs(retrievalRecords), ...dedupeRefs(beforeRetrievalArtifacts)])].sort(), MAX_REFS),
       });
       if (summaries.length) required.push({
         target: 'NAVIGATION_SUMMARIES',
@@ -370,11 +388,11 @@ export class LoreSemanticImpactPlanner {
         reason: 'EXPLICIT_SOURCE_REVISION_DEPENDENCY',
         refs: bounded(dedupeRefs(summaries), MAX_REFS),
       });
-      if (meaningChanged && ontology.length) required.push({
+      if (meaningChanged && (ontology.length || beforeOntologyArtifacts.length)) required.push({
         target: 'ONTOLOGY',
         action: 'REGENERATE',
         reason: 'SEMANTIC_MEANING_CHANGED',
-        refs: bounded(dedupeRefs(ontology), MAX_REFS),
+        refs: bounded([...new Set([...dedupeRefs(ontology), ...dedupeRefs(beforeOntologyArtifacts)])].sort(), MAX_REFS),
       });
       if (structureChanged) required.push({
         target: 'HUMAN_TREE_CLASSIFICATION',

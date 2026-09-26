@@ -1,4 +1,5 @@
-import { ObservationClass, createFieldState } from '../scene/contracts.js';
+import { CastPresence, ObservationClass, createFieldState } from '../scene/contracts.js';
+import { HostActivity, SceneRelationship } from '../scene/lifecycle-contracts.js';
 import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 import {
@@ -148,18 +149,82 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
   });
 }
 
-export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef } = {}) {
+export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef, currentScene = null, sceneRuntime = null } = {}) {
   const raw = clean(text);
   const fields = {};
-  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  const priorLocation = clean(currentScene?.fields?.location?.value?.location ?? currentScene?.fields?.location?.value);
+  const priorCast = Array.isArray(currentScene?.fields?.activeCast?.value) ? clone(currentScene.fields.activeCast.value) : [];
+  const cast = new Map(priorCast.filter((row)=>row?.characterId).map((row)=>[String(row.characterId),{...clone(row)}]));
+  let castChanged = false;
+  const boundarySignals = {};
+  let relationship = null;
+  let resumeSceneId = null;
+
+  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
+    ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  let location = null;
   if (locationMatch?.[1]) {
-    const location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
+    location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
     if (location) fields.location = sceneField({ location }, revision, evidenceRef);
   }
+
+  const person = String.raw`[\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’_-]*)?`;
+  const enterRe = new RegExp(`\\b(${person})\\s+(?:enters?|entered|arrives?|arrived|joins?|joined|steps? in|walks? in)\\b`,'gu');
+  const leaveRe = new RegExp(`\\b(${person})\\s+(?:leaves?|left|exits?|exited|departs?|departed|walks? out|steps? out)\\b`,'gu');
+  const mentionRe = new RegExp(`\\b(?:mentions?|mentioned|talks? about|asks? about|references?|referenced)\\s+(${person})\\b`,'gu');
+  for (const match of raw.matchAll(enterRe)) {
+    const characterId=match[1].trim();cast.set(characterId,{characterId,state:CastPresence.PRESENT,evidenceRefs:[evidenceRef]});castChanged=true;
+  }
+  for (const match of raw.matchAll(leaveRe)) {
+    const characterId=match[1].trim();cast.set(characterId,{characterId,state:CastPresence.DEPARTED,evidenceRefs:[evidenceRef]});castChanged=true;
+  }
+  for (const match of raw.matchAll(mentionRe)) {
+    const characterId=match[1].trim();
+    if (!cast.has(characterId) || cast.get(characterId)?.state!==CastPresence.PRESENT) {
+      cast.set(characterId,{characterId,state:CastPresence.MENTIONED_ONLY,evidenceRefs:[evidenceRef]});castChanged=true;
+    }
+  }
+  if (castChanged) fields.activeCast = sceneField([...cast.values()], revision, evidenceRef);
+
+  const numberWords={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
+  const timeMatch=raw.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+(later|earlier)\b/i);
+  if(timeMatch){
+    const rawAmount=timeMatch[1].toLowerCase(),amount=numberWords[rawAmount]??Number(rawAmount),unit=timeMatch[2].toLowerCase(),direction=timeMatch[3].toLowerCase();
+    fields.narrativeTime=sceneField({anchor:`${amount} ${unit} ${direction}`,mode:direction==='earlier'?'FLASHBACK':'CONTINUOUS'},revision,evidenceRef);
+    if(direction==='earlier'){boundarySignals.flashback=1;relationship=SceneRelationship.FLASHBACK_OF;}
+    else if(/days?|weeks?|months?|years?/.test(unit)){boundarySignals.majorTimeJump={strength:1,explicit:true};}
+  }else if(/\b(?:years?|months?|weeks?|days?)\s+earlier\b/i.test(raw)||/\bflashback\b/i.test(raw)){
+    const anchor=(raw.match(/\b(?:years?|months?|weeks?|days?)\s+earlier\b/i)?.[0]??'flashback').toLowerCase();
+    fields.narrativeTime=sceneField({anchor,mode:'FLASHBACK'},revision,evidenceRef);
+    boundarySignals.flashback=1;relationship=SceneRelationship.FLASHBACK_OF;
+  }
+
+  if(/\bmeanwhile\b|\bat the same time elsewhere\b/i.test(raw)){boundarySignals.parallel=1;relationship=SceneRelationship.PARALLEL_TO;}
+  if(/\bdoorway\b|\bthreshold\b/i.test(raw))boundarySignals.doorway=1;
+
+  const resumeCue=/\bback in the present\b|\breturn(?:s|ed)? to (?:the )?(?:present|prior scene)\b|\bresume(?:s|d)? (?:the )?(?:present|prior scene)\b/i.test(raw);
+  if(resumeCue){
+    boundarySignals.explicitBreak=1;relationship=SceneRelationship.RESUMES;
+    const frames=[...(sceneRuntime?.stack?.frames??[])].reverse();
+    resumeSceneId=frames.find((frame)=>frame?.suspended&&frame?.resumable!==false)?.sceneId??null;
+  }
+
+  const travelCue=/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|went|go(?:es)?|return(?:s|ed)?)\b/i.test(raw);
+  if(location&&priorLocation&&location!==priorLocation&&travelCue&&!resumeCue){
+    boundarySignals.locationTransition=1;boundarySignals.explicitBreak=1;
+  }
+
+  const explicitBreak=/\bscene break\b|\bcut to\b|(?:^|\n)\s*\*\*\*\s*(?:$|\n)/i.test(raw);
+  if(explicitBreak)boundarySignals.explicitBreak=1;
+
   return {
-    explicit: Object.keys(fields).length > 0,
+    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0,
     fields,
     sourceText: raw,
+    boundarySignals:Object.keys(boundarySignals).length?boundarySignals:null,
+    relationship,
+    resumeSceneId,
+    allowWhenRefreshRequired:Boolean(relationship||boundarySignals.explicitBreak),
     extractionPolicy: 'GENERIC_HOST_EVIDENCE_ONLY',
   };
 }

@@ -196,13 +196,17 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
 
   if(savedProfile)connectionDrafts.patch(spec.id,{
     connectionName:savedProfile.displayName??spec.defaultName,endpoint:savedProfile.endpoint??'',capabilities:(savedProfile.capabilities??spec.defaultCapabilities).join(', '),
-    selectedModel:savedProfile.modelId??'',manualModel:savedProfile.modelId??'',
+    selectedModel:savedProfile.modelId??'',manualModel:savedProfile.modelId??'',connectionProfileId:savedProfile.connectionProfileId??'',connectionProfileName:savedProfile.connectionProfileName??'',
   });
-  const draft=connectionDrafts.get(spec);
+  const draft=connectionDrafts.get(spec),hostProfiles=resources.connectionProfiles?.()??[];
   const credentialWasCleared=connectionDrafts.consumeCredentialPresence(spec.id);
   const form=element(d,'div',{className:'a52-wave13-connection-slot__form'});
   const connectionName=field(d,'input',spec.title+' connection name',{type:'text',placeholder:spec.defaultName,autocomplete:'off'});
   connectionName.value=draft.connectionName??spec.defaultName;
+  const connectionProfile=field(d,'select',spec.title+' SillyTavern Connection Profile',{});
+  connectionProfile.append(option(d,'','Use direct endpoint / session credential'));
+  for(const profile of hostProfiles)connectionProfile.append(option(d,profile.id,profile.name+(profile.model?' · '+profile.model:'')));
+  connectionProfile.value=draft.connectionProfileId??'';
   const endpoint=field(d,'input',spec.title+' endpoint',{type:'url',placeholder:spec.remotePlaceholder??'https://provider.example/v1'});
   endpoint.value=draft.endpoint??'';
   const apiKey=field(d,'input',spec.title+' API key',{type:'password',placeholder:'Required when the provider requires authentication',autocomplete:'off',spellcheck:'false'});
@@ -218,18 +222,38 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
   for(const modelRow of draftModels)modelSuggestions.append(option(d,modelRow.id,modelRow.label));
   modelChoice.value=draft.manualModel??draft.selectedModel??'';
   const discoveryState=element(d,'p',{className:'a52-wave13-connection-slot__hint',text:draft.discoveryMessage??(caps.discoverModels?'Load models from the provider before testing the connection. Choosing a model does not prove the connection works.':'Worker 2 model discovery is not exported here. Manual model entry is available only as a compatibility fallback.')});
-  const updateDraft=()=>connectionDrafts.patch(spec.id,{
-    connectionName:String(connectionName.value||spec.defaultName),endpoint:String(endpoint.value||''),capabilities:String(capabilities.value||''),
-    selectedModel:String(modelChoice.value||''),manualModel:String(modelChoice.value||''),
-  });
+  const applyProfileState=()=>{
+    const selected=hostProfiles.find(row=>row.id===connectionProfile.value)??null;
+    if(selected){
+      if(selected.endpoint&&!String(endpoint.value||'').trim())endpoint.value=selected.endpoint;
+      if(selected.model)modelChoice.value=selected.model;
+      apiKey.value='';apiKey.disabled=true;apiKey.setAttribute('aria-disabled','true');apiKey.placeholder='Managed by SillyTavern Connection Manager';
+      connectionDrafts.setCredentialPresence(spec.id,false);
+    }else{
+      apiKey.disabled=false;apiKey.setAttribute('aria-disabled','false');apiKey.placeholder='Required when the provider requires authentication';
+    }
+    return selected;
+  };
+  const updateDraft=()=>{
+    const selected=hostProfiles.find(row=>row.id===connectionProfile.value)??null;
+    return connectionDrafts.patch(spec.id,{
+      connectionName:String(connectionName.value||spec.defaultName),endpoint:String(endpoint.value||''),capabilities:String(capabilities.value||''),
+      selectedModel:String(modelChoice.value||''),manualModel:String(modelChoice.value||''),
+      connectionProfileId:String(connectionProfile.value||''),connectionProfileName:selected?.name??'',
+    });
+  };
   listenField(scope,connectionName,'input',updateDraft);listenField(scope,endpoint,'input',updateDraft);listenField(scope,capabilities,'input',updateDraft);
   listenField(scope,modelChoice,'input',updateDraft);listenField(scope,modelChoice,'change',updateDraft);
+  listenField(scope,connectionProfile,'change',()=>{applyProfileState();updateDraft();});
   listenField(scope,apiKey,'input',()=>connectionDrafts.setCredentialPresence(spec.id,Boolean(String(apiKey.value||'').trim())));
+  applyProfileState();
   const loadModels=createButton(d,{label:'Load / Refresh Models',scope,size:'sm',variant:'quiet',disabled:!caps.discoverModels,onPress:async()=>{
     updateDraft();
     const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const selectedProfile=hostProfiles.find(row=>row.id===connectionProfile.value)??null;
     const result=await actionRouter.route({type:'wave13.resource.discoverModels',payload:{
-      role:spec.role,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||null,apiKey:apiKey.value||null,capabilities:parsedCaps,
+      role:spec.role,transportKind:'OPENAI_COMPATIBLE',endpoint:endpoint.value||selectedProfile?.endpoint||null,apiKey:selectedProfile?null:(apiKey.value||null),capabilities:parsedCaps,
+      connectionProfileId:selectedProfile?.id??null,connectionProfileName:selectedProfile?.name??null,
     }});
     if(!result.ok){
       const text='Model discovery failed: '+String(result.error??'unknown error')+'.';
@@ -251,9 +275,11 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
       return;
     }
     const parsedCaps=String(capabilities.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const selectedProfile=hostProfiles.find(row=>row.id===connectionProfile.value)??null;
     const connectResult=await actionRouter.route({type:'wave13.resource.connect',payload:{
       role:spec.role,displayName:connectionName.value||spec.defaultName,transportKind:'OPENAI_COMPATIBLE',
-      endpoint:endpoint.value||null,modelId:selectedModel,apiKey:apiKey.value||null,capabilities:parsedCaps,local:isLocalConnectionEndpoint(endpoint.value),
+      endpoint:endpoint.value||selectedProfile?.endpoint||null,modelId:selectedModel,apiKey:selectedProfile?null:(apiKey.value||null),capabilities:parsedCaps,local:isLocalConnectionEndpoint(endpoint.value),
+      connectionProfileId:selectedProfile?.id??null,connectionProfileName:selectedProfile?.name??null,
     }});
     apiKey.value='';connectionDrafts.setCredentialPresence(spec.id,false);
     if(!connectResult.ok){
@@ -268,9 +294,11 @@ function renderConnectionSlot(d,{spec,savedProfile=null,rows,resources,actionRou
     reportResourceTest(notifications,testResult,spec.title+' connection test');refresh?.();
   }});
   form.append(
-    labelWrap(d,'Connection name',connectionName),labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
+    labelWrap(d,'Connection name',connectionName),
+    ...(hostProfiles.length?[labelWrap(d,'SillyTavern Connection Profile',connectionProfile)]:[]),
+    labelWrap(d,'Endpoint',endpoint),labelWrap(d,'API key',apiKey),labelWrap(d,'Capabilities',capabilities),
     loadModels,labelWrap(d,'Model',modelChoice),modelSuggestions,discoveryState,
-    ...(savedProfile?[message(d,'Saved profile loaded','The saved '+spec.title+' endpoint, model, capabilities, and identity are prefilled. Enter a session credential only if this provider requires one.','ready')]:[]),
+    ...(savedProfile?[message(d,'Saved profile loaded','The saved '+spec.title+' endpoint, model, capabilities, identity, and SillyTavern profile binding are prefilled. If a Connection Manager profile is bound, SillyTavern owns the credential.','ready')]:[]),
     ...(credentialWasCleared?[message(d,'API key cleared on refresh','For security, the unsubmitted API key was not retained when this workspace refreshed. Re-enter it before loading models or testing the connection.','warning')]:[]),
     element(d,'p',{className:'a52-wave13-connection-slot__hint',text:'Saving a connection locks its non-secret profile for future demo reloads. API-key values remain session-only and are never copied into UI persistence.'}),
     testConnection
@@ -283,18 +311,20 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   const top=element(d,'div',{className:'a52-inline-status'});
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,savedProfile?'SAVED LOCK':'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
+  const hostManaged=Boolean(row.credentialManagedByHost);
   card.append(top,createKeyValue(d,[
     {key:'Configured',value:'Yes'},{key:'Saved across reloads',value:savedProfile?'Yes':'Not yet'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
     {key:'Physical execution',value:row.physicalExecutionAttempted?(row.physicalExecutionSucceeded?'Succeeded':'Attempted / not successful'):'No cognitive execution observed'},
     {key:'Owner accepted',value:row.ownerAccepted===true?'Yes':row.ownerAccepted===false?'No':row.ownerAcceptanceSource==='OWNER_RECEIPT_REQUIRED'?'Requires owner receipt':'Not reported'},
     {key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
-    {key:'Credential',value:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
+    {key:'Credential',value:hostManaged?'Managed by SillyTavern Connection Manager':row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
+    {key:'Connection profile',value:hostManaged?(row.connectionProfileName??row.connectionProfileId??'Bound profile'):'—'},
     {key:'Provider',value:row.actualProvider??row.providerId??'—'},{key:'Model',value:row.actualModelId??row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
   ]));
   if(!row.selectedModelQualified&&row.connected)card.append(message(d,'Connected is not qualified','Worker 2 reports a connection, but the selected model is not currently qualified. Requalify before treating this resource as callable.','warning'));
-  else if(!row.callable)card.append(message(d,'Resource is not callable','Worker 2 does not currently consider this resource callable. Refresh models, update the session credential if needed, select a valid model, then requalify and Test.','warning'));
+  else if(!row.callable)card.append(message(d,'Resource is not callable',hostManaged?'The SillyTavern Connection Profile is bound but has not passed provider qualification. Requalify and Test the host-managed profile.':'Worker 2 does not currently consider this resource callable. Refresh models, update the session credential if needed, select a valid model, then requalify and Test.','warning'));
 
   const management=element(d,'div',{className:'a52-wave13-connection-slot__form'});
   const lockedKey='locked:'+row.id,credentialWasCleared=connectionDrafts?.consumeCredentialPresence?.(lockedKey)===true;
@@ -309,7 +339,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
 
   const managementStatus=element(d,'p',{className:'a52-wave13-connection-slot__hint',attrs:{role:'status','aria-live':'polite'},text:'Operational settings remain owner-backed. Saving a model or credential invalidates prior qualification until Worker 2 passes a new authenticated check.'});
   const manageActions=element(d,'div',{className:'a52-wave13-resource-actions'});
-  if(caps.setCredential)manageActions.append(createButton(d,{label:'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+  if(caps.setCredential&&!hostManaged)manageActions.append(createButton(d,{label:'Save session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const secret=String(credential.value||'').trim();
     if(!secret){managementStatus.textContent='Enter a credential before saving it to the Worker 2 session.';return;}
     const result=await actionRouter.route({type:'wave13.resource.setCredential',target:row,payload:{credential:secret}});
@@ -317,7 +347,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     managementStatus.textContent=result.ok?'Session credential updated. Prior model qualification is no longer assumed.':'Credential update failed: '+String(result.error??'unknown error');
     reportAction(notifications,result,'Session credential update');refresh?.();
   }}));
-  if(caps.clearCredential&&row.credentialConfigured)manageActions.append(createButton(d,{label:'Clear session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
+  if(caps.clearCredential&&row.credentialConfigured&&!hostManaged)manageActions.append(createButton(d,{label:'Clear session credential',scope,size:'sm',variant:'quiet',onPress:async()=>{
     const result=await actionRouter.route({type:'wave13.resource.clearCredential',target:row});reportAction(notifications,result,'Session credential clear');refresh?.();
   }}));
   if(caps.refreshModels)manageActions.append(createButton(d,{label:'Refresh models',scope,size:'sm',variant:'quiet',onPress:async()=>{
@@ -330,7 +360,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     reportAction(notifications,result,'Configured resource model selection');refresh?.();
   }}));
   if(manageActions.children?.length){
-    if(caps.setCredential||caps.clearCredential)management.append(labelWrap(d,'Session credential',credential));
+    if((caps.setCredential||caps.clearCredential)&&!hostManaged)management.append(labelWrap(d,'Session credential',credential));
     if(caps.refreshModels||caps.selectModel)management.append(labelWrap(d,'Model',model),modelSuggestions);
     management.append(manageActions,managementStatus);
     if(credentialWasCleared)management.append(message(d,'API key cleared on refresh','For security, the unsubmitted session credential was not retained when this workspace refreshed. Re-enter it before saving or requalifying.','warning'));

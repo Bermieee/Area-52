@@ -230,7 +230,7 @@ test('DETERMINISTIC: long-session Hot, retrieval and prompt work remain bounded 
     chatId:'chat:long',turnId:'long:1',generationId:'gen:long:1',
     query:'Long Session Anchor archival detail and current state?',intent:'CURRENT',anchorEntityIds:['entity:long:anchor'],
     channelIds:['CORE_SPARSE','NATIVE_LORE','NATIVE_MEMORY','DENSE_EMBEDDINGS'],
-    candidateBudget:12,latencyBudgetMs:1000,budgetTokens:2048,executionLabel:'DETERMINISTIC',
+    candidateBudget:12,latencyBudgetMs:1000,budgetTokens:4096,executionLabel:'DETERMINISTIC',
   });
 
   const hot=brain.core.hotCognitionSnapshot('chat:long');

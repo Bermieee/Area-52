@@ -7,10 +7,30 @@ import {
   extractDevelopmentDeploymentScene,
 } from '../src/deployment/sillytavern-live.js';
 import { Area52NativeBrain } from '../src/native-brain.js';
+import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
-function makeHost() {
+class DeploymentHostNode extends FakeNode{
+  constructor(tag,doc){super(tag,doc);this.id='';this.value='';}
+  setAttribute(name,value){super.setAttribute(name,value);if(name==='id')this.id=String(value);if(name==='value')this.value=String(value);}
+  getAttribute(name){return this.attributes?.[name]??null;}
+  get nextSibling(){const rows=this.parentNode?.children??[],i=rows.indexOf(this);return i>=0?rows[i+1]??null:null;}
+  insertBefore(node,before){const i=this.children.indexOf(before);if(i<0){this.append(node);return node;}this.children.splice(i,0,node);node.parentNode=this;return node;}
+  remove(){const p=this.parentNode;if(!p)return;const i=p.children.indexOf(this);if(i>=0)p.children.splice(i,1);this.parentNode=null;}
+}
+class DeploymentHostDocument extends FakeDocument{
+  constructor(){super();this.body=new DeploymentHostNode('body',this);this.documentElement=new DeploymentHostNode('html',this);this.documentElement.append(this.body);}
+  createElement(tag){return new DeploymentHostNode(tag,this);}
+  createDocumentFragment(){return new DeploymentHostNode('fragment',this);}
+  querySelector(selector){if(selector?.startsWith('#'))return this.getElementById(selector.slice(1));if(selector==='[data-area52-ui-host]')return walkDeployment(this.body).find(x=>x.attributes?.['data-area52-ui-host']!=null)??null;return null;}
+  getElementById(id){return walkDeployment(this.body).find(x=>x.id===id||x.attributes?.id===id)??null;}
+}
+const walkDeployment=node=>[node,...(node?.children??[]).flatMap(walkDeployment)];
+function deploymentDocument(){const document=new DeploymentHostDocument(),sheld=document.createElement('div'),chat=document.createElement('div'),form=document.createElement('div');sheld.id='sheld';chat.id='chat';form.id='form_sheld';sheld.append(chat,form);document.body.append(sheld);return document;}
+
+function makeHost({connectionProfile=null}={}) {
   const listeners = new Map();
   const promptCalls = [];
+  const connectionRequests=[];
   const context = {
     chatId: 'chat:observatory',
     chat: [],
@@ -21,7 +41,18 @@ function makeHost() {
     },
     async setExtensionPrompt(...args) { promptCalls.push(args); },
   };
-  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners };
+  if(connectionProfile){
+    context.extensionSettings={disabledExtensions:[],connectionManager:{profiles:[connectionProfile],selectedProfile:connectionProfile.id}};
+    context.ConnectionManagerRequestService={
+      getSupportedProfiles:()=>[connectionProfile],
+      getProfile:(id)=>id===connectionProfile.id?connectionProfile:null,
+      async sendRequest(profileId,prompt,maxTokens,custom,overridePayload){
+        connectionRequests.push({profileId,maxTokens,stream:custom?.stream,extractData:custom?.extractData,model:overridePayload?.model,temperature:overridePayload?.temperature,promptRoles:Array.isArray(prompt)?prompt.map(row=>row.role):[]});
+        return{content:'OK'};
+      },
+    };
+  }
+  return { sillyTavern: { getContext: () => context }, context, promptCalls, listeners, connectionRequests };
 }
 
 function operatorLore() {
@@ -155,6 +186,33 @@ test('armed session processes MESSAGE_SENT and records operator-visible failures
   context.chatId = null;
   await assert.rejects(session.processCurrentTurn(), /chatId is unavailable/);
   assert.match(session.exportEvidence().errors.at(-1).message, /chatId is unavailable/);
+  session.destroy();
+});
+
+test('live Jev can qualify through a SillyTavern Connection Manager profile without exposing its secret',async()=>{
+  const profile={id:'st-openrouter-jev',name:'OpenRouter Jev',api:'openrouter',model:'provider/jev-model','api-url':'https://openrouter.ai/api/v1','secret-id':'server-secret-reference'};
+  const{sillyTavern,connectionRequests}=makeHost({connectionProfile:profile}),document=deploymentDocument();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document,mountUi:true});
+  const ui=session.uiHost.ui;
+  assert.deepEqual(ui.operator.resources.connectionProfiles().map(row=>({id:row.id,name:row.name,model:row.model})),[{id:'st-openrouter-jev',name:'OpenRouter Jev',model:'provider/jev-model'}]);
+
+  const connected=await ui.actionRouter.route({type:'wave13.resource.connect',payload:{
+    role:'JEV',displayName:'Primary Jev',endpoint:'https://openrouter.ai/api/v1',modelId:'provider/jev-model',
+    capabilities:['SEMANTIC_JUDGMENT'],connectionProfileId:'st-openrouter-jev',connectionProfileName:'OpenRouter Jev',local:false,
+  }});
+  assert.equal(connected.ok,true);
+  const row=ui.operator.resources.read().data.resources.find(item=>item.kind==='JEV');
+  assert.ok(row);assert.equal(row.callable,true);assert.equal(row.selectedModelQualified,true);
+  assert.equal(row.reasonCode,'HEALTH_CHECK_PASSED');assert.notEqual(row.reasonCode,'CREDENTIAL_REQUIRED');
+  assert.equal(row.credentialManagedByHost,true);assert.equal(row.hostCredentialSource,'SILLYTAVERN_CONNECTION_MANAGER');
+  assert.equal(row.connectionProfileId,'st-openrouter-jev');assert.equal(row.connectionProfileName,'OpenRouter Jev');
+  assert.equal(row.credentialConfigured,false,'Area-52 must not pretend the host-owned secret is stored in Worker 2');
+  assert.ok(connectionRequests.length>=1);assert.equal(connectionRequests[0].profileId,'st-openrouter-jev');assert.equal(connectionRequests[0].model,'provider/jev-model');
+
+  const saved=ui.operator.resources.savedProfiles().find(item=>item.role==='JEV');
+  assert.equal(saved.connectionProfileId,'st-openrouter-jev');assert.equal(saved.credentialManagedByHost,true);
+  const publicEvidence=JSON.stringify({row,saved,profiles:ui.operator.resources.connectionProfiles(),requests:connectionRequests});
+  assert.doesNotMatch(publicEvidence,/server-secret-reference/);assert.doesNotMatch(publicEvidence,/"secret-id"|"apiKey"/i);
   session.destroy();
 });
 

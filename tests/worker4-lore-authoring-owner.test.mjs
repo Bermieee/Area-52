@@ -1,0 +1,709 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {LoreIntelligenceService} from '../src/lore-intelligence-service.js';
+import {LoreAuthoringService} from '../src/lore-authoring-service.js';
+import {LoreSemanticImpactPlanner} from '../src/lore-semantic-impact-planner.js';
+import {LoreReviewedMutationService} from '../src/lore-reviewed-mutation.js';
+import {LoreMutationOperation, LoreMutationState} from '../src/lore-authoring-contracts.js';
+
+const CHAT = 'chat:authoring-owner';
+
+function book(entries) {
+  return {
+    id: 'authoring-owner',
+    title: 'Authoring Owner',
+    discovery: {
+      kind: 'SillyTavernLorebookDiscoveryReceipt',
+      source: 'WORKER4_FIXTURE',
+      lorebookId: 'authoring-owner',
+      entryCount: entries.length,
+      chatId: CHAT,
+      exactAuthoredSource: true,
+    },
+    fullSnapshot: true,
+    entries,
+  };
+}
+
+function readyWorld() {
+  const intelligence = new LoreIntelligenceService();
+  intelligence.acceptLorebook(book([
+    {
+      uid: 'mara',
+      content: 'Mara, also called Red, owns the Ember Tavern. Mara must never reveal the cellar key. Mara knows Eris. Mara smells of cedar.',
+      metadata: {title: 'Mara', treePath: ['Places', 'Ember Tavern']},
+    },
+    {
+      uid: 'blade',
+      content: 'Eris carried the Sun Blade. Eris later left the Sun Blade at the Ember Tavern.',
+      metadata: {title: 'Sun Blade', treePath: ['Artifacts', 'Sun Blade']},
+    },
+    {
+      uid: 'rumor',
+      content: 'A witness reports the Sun Blade may have been removed before the fire.',
+      metadata: {title: 'Rumor', treePath: ['Artifacts', 'Sun Blade']},
+    },
+  ]));
+  intelligence.runStudy({scope: 'DUE'});
+  return intelligence;
+}
+
+function changeSource(intelligence, uid, content, metadata) {
+  const sourceId = 'lore:authoring-owner:' + uid;
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+  const source = intelligence.runtime.registry.getEntry(sourceId);
+  const result = intelligence.runtime.upsertEntry({
+    lorebookId: source.lorebookId,
+    uid: source.uid,
+    content,
+    metadata,
+  });
+  intelligence.runStudy({scope: 'DUE'});
+  const after = intelligence.runtime.registry.currentRevision(sourceId);
+  return {sourceId, before, after, result};
+}
+
+test('semantic impact planner reports bounded typed A -> B changes and exact revision drillback', () => {
+  const intelligence = readyWorld();
+  const {sourceId, before, after} = changeSource(
+    intelligence,
+    'mara',
+    'Mara is also called Ash. Mara formerly owned the Ember Tavern. Mara carries the Sun Blade. Mara must never reveal the archive key. Mara smells of smoke.',
+    {title: 'Mara', treePath: ['People', 'Mara']},
+  );
+  const planner = new LoreSemanticImpactPlanner({intelligence});
+  const plan = planner.plan({
+    sourceId,
+    fromRevisionId: before.id,
+    toRevisionId: after.id,
+  });
+
+  assert.equal(plan.kind, 'LoreSemanticImpactPlan');
+  assert.equal(plan.contractVersion, 1);
+  assert.equal(plan.source.sourceRevisionId, after.id);
+  assert.equal(plan.previousSource.sourceRevisionId, before.id);
+  assert.equal(plan.exactSourcePreserved, true);
+  assert.equal(plan.bounds.truncated, false);
+
+  for (const key of [
+    'CLAIM', 'ENTITY', 'ALIAS', 'RELATIONSHIP', 'RULE', 'CAPABILITY',
+    'TEMPORAL', 'CONTRADICTION', 'CONCEPT', 'COMMUNITY',
+    'RETRIEVAL', 'COMPACT', 'STRUCTURE', 'BEHAVIORAL_ANCHOR', 'SENSORY_ANCHOR',
+  ]) {
+    assert.ok(plan.changes[key], 'missing typed change bucket ' + key);
+    assert.ok(Array.isArray(plan.changes[key].added));
+    assert.ok(Array.isArray(plan.changes[key].removed));
+    assert.ok(Array.isArray(plan.changes[key].changed));
+  }
+
+  assert.equal(plan.classification.meaningChanged, true);
+  assert.equal(plan.classification.wordingOnly, false);
+  assert.ok(plan.changes.ALIAS.added.length + plan.changes.ALIAS.removed.length > 0);
+  assert.ok(plan.changes.RULE.added.length + plan.changes.RULE.removed.length + plan.changes.RULE.changed.length > 0);
+  assert.ok(plan.changes.SENSORY_ANCHOR.added.length + plan.changes.SENSORY_ANCHOR.removed.length + plan.changes.SENSORY_ANCHOR.changed.length > 0);
+  assert.ok(plan.changes.RETRIEVAL.added.length + plan.changes.RETRIEVAL.removed.length + plan.changes.RETRIEVAL.changed.length > 0);
+  assert.deepEqual(plan.structure.beforeTreePath, ['Places', 'Ember Tavern']);
+  assert.deepEqual(plan.structure.afterTreePath, ['People', 'Mara']);
+  assert.equal(plan.structure.changed, true);
+
+  const descriptors = Object.values(plan.changes)
+    .flatMap((bucket) => [...bucket.added, ...bucket.removed, ...bucket.changed.flatMap((row) => [row.before, row.after].filter(Boolean))])
+    .filter(Boolean);
+  assert.ok(descriptors.some((row) => row.sourceRevisionId === before.id));
+  assert.ok(descriptors.some((row) => row.sourceRevisionId === after.id));
+  assert.ok(descriptors.filter((row) => row.exactEvidence).every((row) => row.exactEvidence.sourceRevisionId));
+});
+
+test('wording-only source revision preserves semantic aggregates while revision-fenced rows refresh', () => {
+  const intelligence = readyWorld();
+  const sourceId = 'lore:authoring-owner:blade';
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+  const beforeArtifacts = intelligence.runtime.store.artifactsForLearnedRevision(
+    intelligence.runtime.store.currentLearnedRevision(sourceId).id,
+  );
+  const wordingOnly = before.exactContent.replace('Sun Blade.', 'Sun Blade!');
+
+  const {after} = changeSource(
+    intelligence,
+    'blade',
+    wordingOnly,
+    before.metadata,
+  );
+  const planner = new LoreSemanticImpactPlanner({intelligence});
+  const plan = planner.plan({sourceId, fromRevisionId: before.id, toRevisionId: after.id});
+
+  assert.notEqual(before.contentHash, after.contentHash);
+  assert.equal(plan.classification.meaningChanged, false);
+  assert.equal(plan.classification.wordingOnly, true);
+  assert.ok(plan.impact.required.some((row) => row.target === 'STUDY_ARTIFACTS'));
+  assert.ok(plan.impact.required.some((row) => row.target === 'REPRESENTATIONS'));
+  assert.ok(plan.impact.required.some((row) => row.target === 'RETRIEVAL_INDEX'));
+  assert.equal(plan.impact.required.some((row) => row.target === 'ONTOLOGY' && row.reason === 'SEMANTIC_MEANING_CHANGED'), false);
+  assert.ok(plan.impact.preserved.unrelatedSourceCount >= 2);
+  assert.ok(plan.impact.preserved.refs.every((ref) => !String(ref).includes(before.id) || !plan.impact.invalidatedRefs.includes(ref)));
+  assert.ok(beforeArtifacts.length > 0);
+});
+
+test('temporal and unresolved transitions are explicit and dependency cone preserves unrelated sources', () => {
+  const intelligence = readyWorld();
+  const sourceId = 'lore:authoring-owner:rumor';
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+  const {after} = changeSource(
+    intelligence,
+    'rumor',
+    'The Sun Blade was removed before the fire. The Sun Blade is now stored in the Archive.',
+    before.metadata,
+  );
+  const planner = new LoreSemanticImpactPlanner({intelligence});
+  const plan = planner.plan({sourceId, fromRevisionId: before.id, toRevisionId: after.id});
+
+  assert.ok(
+    plan.changes.TEMPORAL.added.length
+      + plan.changes.TEMPORAL.removed.length
+      + plan.changes.TEMPORAL.changed.length > 0,
+  );
+  assert.ok(
+    plan.changes.CONTRADICTION.added.length
+      + plan.changes.CONTRADICTION.removed.length
+      + plan.changes.CONTRADICTION.changed.length > 0,
+  );
+  assert.ok(plan.impact.edges.every((edge) => ['DIRECT', 'TRANSITIVE', 'REGENERATE', 'REINDEX', 'REVIEW', 'PRESERVE'].includes(edge.class)));
+  assert.equal(plan.impact.unrelatedSourcesInvalidated, false);
+  assert.ok(plan.impact.preserved.unrelatedSourceCount >= 2);
+  assert.ok(plan.impact.direct.some((row) => row.sourceRevisionId === before.id));
+});
+
+
+function mutationService() {
+  const intelligence = readyWorld();
+  return {intelligence, mutations: new LoreReviewedMutationService({intelligence})};
+}
+
+function approve(mutations, proposalId, decisionId) {
+  return mutations.approve({proposalId, operatorDecisionId: decisionId, chatId: CHAT});
+}
+
+test('reviewed mutation CREATE UPDATE DELETE TREE_ASSIGN mutate only after explicit approval and commit', () => {
+  {
+    const {intelligence, mutations} = mutationService();
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.CREATE,
+      chatId: CHAT,
+      target: {
+        lorebookId: 'authoring-owner',
+        uid: 'new-place',
+        content: 'The Archive stands north of the Ember Tavern.',
+        metadata: {title: 'Archive', treePath: ['Places', 'Archive']},
+      },
+      origin: {kind: 'MODEL_SUGGESTION', provider: 'fixture'},
+    });
+    assert.equal(proposal.state, LoreMutationState.REVIEW_READY);
+    assert.equal(intelligence.runtime.registry.getEntry('lore:authoring-owner:new-place'), null);
+    assert.equal(proposal.authority.modelMutationAuthority, false);
+    assert.equal(proposal.authority.jevMutationAuthority, false);
+    assert.equal(proposal.preview.after[0].contentIncluded, true);
+    assert.ok(proposal.evidence.sourceRevisionRefs.length >= 0);
+    const createImpactTargets = new Set(proposal.semanticImpact[0].impact.required.map((row) => row.target));
+    for (const target of ['STUDY_ARTIFACTS', 'REPRESENTATIONS', 'RETRIEVAL_INDEX', 'ONTOLOGY', 'NAVIGATION_SUMMARIES']) {
+      assert.ok(createImpactTargets.has(target), 'new source impact must plan ' + target);
+    }
+
+    approve(mutations, proposal.proposalId, 'approve-create');
+    assert.equal(intelligence.runtime.registry.getEntry('lore:authoring-owner:new-place'), null);
+    const committed = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-create', chatId: CHAT});
+    assert.equal(committed.state, LoreMutationState.COMMITTED);
+    const created = intelligence.runtime.registry.currentRevision('lore:authoring-owner:new-place');
+    assert.equal(created.exactContent, 'The Archive stands north of the Ember Tavern.');
+    assert.equal(intelligence.runtime.dueObligations().filter((row) => row.sourceId === created.sourceId).length, 1);
+  }
+
+  {
+    const {intelligence, mutations} = mutationService();
+    const sourceId = 'lore:authoring-owner:mara';
+    const before = intelligence.runtime.registry.currentRevision(sourceId);
+    const unrelated = intelligence.runtime.registry.currentRevision('lore:authoring-owner:blade').id;
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.UPDATE,
+      chatId: CHAT,
+      sourceId,
+      after: {
+        content: 'Mara formerly owned the Ember Tavern. Mara protects the Archive.',
+        metadata: before.metadata,
+      },
+    });
+    assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, before.id);
+    assert.ok(proposal.semanticImpact.length >= 1);
+    approve(mutations, proposal.proposalId, 'approve-update');
+    const committed = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-update', chatId: CHAT});
+    assert.equal(committed.state, LoreMutationState.COMMITTED);
+    assert.notEqual(intelligence.runtime.registry.currentRevision(sourceId).id, before.id);
+    assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:blade').id, unrelated);
+    assert.equal(committed.revisionEvents.length, 1);
+    assert.equal(committed.invalidationReceipts[0].unrelatedSourcesInvalidated, false);
+  }
+
+  {
+    const {intelligence, mutations} = mutationService();
+    const sourceId = 'lore:authoring-owner:mara';
+    const before = intelligence.runtime.registry.currentRevision(sourceId);
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.DELETE,
+      chatId: CHAT,
+      sourceId,
+    });
+    approve(mutations, proposal.proposalId, 'approve-delete');
+    const committed = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-delete', chatId: CHAT});
+    assert.equal(committed.state, LoreMutationState.COMMITTED);
+    assert.equal(intelligence.runtime.registry.currentRevision(sourceId).state, 'REMOVED');
+    assert.equal(intelligence.runtime.registry.getRevision(before.id).exactContent, before.exactContent);
+
+    assert.throws(
+      () => mutations.restore({proposalId: proposal.proposalId, restorationId: 'restore-delete', chatId: CHAT}),
+      /operatorDecisionId|decision/i,
+    );
+    const restored = mutations.restore({
+      proposalId: proposal.proposalId,
+      restorationId: 'restore-delete',
+      operatorDecisionId: 'restore-delete-approval',
+      chatId: CHAT,
+    });
+    assert.equal(restored.state, LoreMutationState.RESTORED);
+    assert.equal(restored.restoration.operatorDecisionId, 'restore-delete-approval');
+    assert.equal(intelligence.runtime.registry.currentRevision(sourceId).state, 'CURRENT');
+    assert.equal(intelligence.runtime.registry.currentRevision(sourceId).exactContent, before.exactContent);
+    assert.ok(intelligence.runtime.registry.revisionHistory(sourceId).length >= 3);
+  }
+
+  {
+    const {intelligence, mutations} = mutationService();
+    const sourceId = 'lore:authoring-owner:mara';
+    const before = intelligence.runtime.registry.currentRevision(sourceId);
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.TREE_ASSIGN,
+      chatId: CHAT,
+      sourceId,
+      treePath: ['Characters', 'Mara'],
+    });
+    approve(mutations, proposal.proposalId, 'approve-tree');
+    mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-tree', chatId: CHAT});
+    const after = intelligence.runtime.registry.currentRevision(sourceId);
+    assert.equal(after.exactContent, before.exactContent);
+    assert.deepEqual(after.metadata.treePath, ['Characters', 'Mara']);
+    assert.deepEqual(before.metadata.treePath, ['Places', 'Ember Tavern']);
+  }
+});
+
+test('reviewed mutation MERGE SPLIT MOVE preserve inputs unless an approved operation explicitly changes them', () => {
+  {
+    const {intelligence, mutations} = mutationService();
+    const sourceIds = ['lore:authoring-owner:blade', 'lore:authoring-owner:rumor'];
+    const inputFence = new Map(sourceIds.map((id) => [id, intelligence.runtime.registry.currentRevision(id).id]));
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.MERGE,
+      chatId: CHAT,
+      sourceIds,
+      target: {
+        lorebookId: 'authoring-owner',
+        uid: 'blade-reconciled',
+        content: 'Eris later left the Sun Blade at the Ember Tavern. A witness reported a conflicting account.',
+        metadata: {title: 'Sun Blade Reconciled', treePath: ['Artifacts', 'Sun Blade']},
+      },
+    });
+    approve(mutations, proposal.proposalId, 'approve-merge');
+    mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-merge', chatId: CHAT});
+    assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:blade-reconciled').state, 'CURRENT');
+    for (const [sourceId, revisionId] of inputFence) {
+      assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, revisionId);
+    }
+  }
+
+  {
+    const {intelligence, mutations} = mutationService();
+    const sourceId = 'lore:authoring-owner:mara';
+    const sourceRevisionId = intelligence.runtime.registry.currentRevision(sourceId).id;
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.SPLIT,
+      chatId: CHAT,
+      sourceId,
+      outputs: [
+        {
+          lorebookId: 'authoring-owner',
+          uid: 'mara-role',
+          content: 'Mara owns the Ember Tavern.',
+          metadata: {title: 'Mara Role', treePath: ['Characters', 'Mara']},
+        },
+        {
+          lorebookId: 'authoring-owner',
+          uid: 'mara-rule',
+          content: 'Mara must never reveal the cellar key.',
+          metadata: {title: 'Mara Rule', treePath: ['Rules', 'Mara']},
+        },
+      ],
+    });
+    approve(mutations, proposal.proposalId, 'approve-split');
+    mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-split', chatId: CHAT});
+    assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, sourceRevisionId);
+    assert.ok(intelligence.runtime.registry.currentRevision('lore:authoring-owner:mara-role'));
+    assert.ok(intelligence.runtime.registry.currentRevision('lore:authoring-owner:mara-rule'));
+  }
+
+  {
+    const {intelligence, mutations} = mutationService();
+    const sourceId = 'lore:authoring-owner:mara';
+    const before = intelligence.runtime.registry.currentRevision(sourceId);
+    const proposal = mutations.createProposal({
+      operation: LoreMutationOperation.MOVE,
+      chatId: CHAT,
+      sourceId,
+      target: {lorebookId: 'authoring-owner', uid: 'mara-moved'},
+    });
+    approve(mutations, proposal.proposalId, 'approve-move');
+    const committed = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'approve-move', chatId: CHAT});
+    assert.equal(committed.revisionEvents.length, 2);
+    assert.equal(intelligence.runtime.registry.currentRevision(sourceId).state, 'REMOVED');
+    const moved = intelligence.runtime.registry.currentRevision('lore:authoring-owner:mara-moved');
+    assert.equal(moved.exactContent, before.exactContent);
+    assert.deepEqual(moved.metadata.treePath, before.metadata.treePath);
+  }
+});
+
+test('rejected duplicate and stale reviewed proposals change no authored canon', () => {
+  const {intelligence, mutations} = mutationService();
+  const sourceId = 'lore:authoring-owner:mara';
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+  const request = {
+    operation: LoreMutationOperation.UPDATE,
+    chatId: CHAT,
+    sourceId,
+    after: {
+      content: 'Mara owns the Ember Tavern. Mara protects the cellar key.',
+      metadata: before.metadata,
+    },
+  };
+  const first = mutations.createProposal(request);
+  const duplicate = mutations.createProposal(request);
+  assert.equal(duplicate.proposalId, first.proposalId);
+
+  const rejected = mutations.reject({
+    proposalId: first.proposalId,
+    operatorDecisionId: 'reject-update',
+    chatId: CHAT,
+  });
+  assert.equal(rejected.state, LoreMutationState.REJECTED);
+  assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, before.id);
+  assert.throws(
+    () => mutations.commit({proposalId: first.proposalId, operatorDecisionId: 'reject-update', chatId: CHAT}),
+    /approved/i,
+  );
+
+  const staleProposal = mutations.createProposal({
+    ...request,
+    after: {...request.after, content: 'Mara owns the Ember Tavern. Mara protects the Archive.'},
+  });
+  approve(mutations, staleProposal.proposalId, 'approve-stale');
+  const external = intelligence.runtime.upsertEntry({
+    lorebookId: 'authoring-owner',
+    uid: 'mara',
+    content: before.exactContent + ' External operator edit.',
+    metadata: before.metadata,
+  });
+  const historyBeforeCommit = intelligence.runtime.registry.revisionHistory(sourceId).length;
+  const stale = mutations.commit({
+    proposalId: staleProposal.proposalId,
+    operatorDecisionId: 'approve-stale',
+    chatId: CHAT,
+  });
+  assert.equal(stale.state, LoreMutationState.STALE);
+  assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, external.revision.id);
+  assert.equal(intelligence.runtime.registry.revisionHistory(sourceId).length, historyBeforeCommit);
+});
+
+test('reviewed mutation enforces exact chat scope and requires explicit global operator mode when unscoped', () => {
+  const {intelligence, mutations} = mutationService();
+  const sourceId = 'lore:authoring-owner:mara';
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+
+  assert.throws(
+    () => mutations.createProposal({
+      operation: LoreMutationOperation.UPDATE,
+      chatId: 'chat:not-authorized',
+      sourceId,
+      after: {content: before.exactContent + ' Change.', metadata: before.metadata},
+    }),
+    /scope|authorized/i,
+  );
+
+  assert.throws(
+    () => mutations.createProposal({
+      operation: LoreMutationOperation.UPDATE,
+      sourceId,
+      after: {content: before.exactContent + ' Change.', metadata: before.metadata},
+    }),
+    /GLOBAL_OPERATOR|chatId/i,
+  );
+
+  const global = mutations.createProposal({
+    operation: LoreMutationOperation.UPDATE,
+    scopeMode: 'GLOBAL_OPERATOR',
+    sourceId,
+    after: {content: before.exactContent + ' Reviewed global operator change.', metadata: before.metadata},
+  });
+  assert.equal(global.scope.scopeMode, 'GLOBAL_OPERATOR');
+  const approved = mutations.approve({
+    proposalId: global.proposalId,
+    operatorDecisionId: 'global-approval',
+    scopeMode: 'GLOBAL_OPERATOR',
+  });
+  assert.equal(approved.state, LoreMutationState.APPROVED);
+});
+
+test('reviewed mutation replay, collision, reload and audit stay deterministic and recoverable', () => {
+  let {intelligence, mutations} = mutationService();
+  const proposal = mutations.createProposal({
+    operation: LoreMutationOperation.CREATE,
+    chatId: CHAT,
+    target: {
+      lorebookId: 'authoring-owner',
+      uid: 'audit-entry',
+      content: 'The Audit Bell hangs in the Archive.',
+      metadata: {title: 'Audit Bell', treePath: ['Artifacts', 'Audit Bell']},
+    },
+  });
+  approve(mutations, proposal.proposalId, 'audit-approval');
+  const committed = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'audit-approval', chatId: CHAT});
+  const revisionId = intelligence.runtime.registry.currentRevision('lore:authoring-owner:audit-entry').id;
+  const historyLength = intelligence.runtime.registry.revisionHistory('lore:authoring-owner:audit-entry').length;
+
+  assert.throws(
+    () => mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'audit-approval', chatId: 'chat:wrong'}),
+    /scope|chat/i,
+  );
+  const replay = mutations.commit({proposalId: proposal.proposalId, operatorDecisionId: 'audit-approval', chatId: CHAT});
+  assert.equal(replay.replayed, true);
+  assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:audit-entry').id, revisionId);
+  assert.equal(intelligence.runtime.registry.revisionHistory('lore:authoring-owner:audit-entry').length, historyLength);
+
+  const audit = mutations.audit({proposalId: proposal.proposalId});
+  assert.equal(audit.proposalId, proposal.proposalId);
+  assert.ok(audit.events.some((row) => row.kind === 'LoreMutationCommittedAudit'));
+  assert.ok(audit.reconstruction);
+
+  const intelligenceSnapshot = intelligence.snapshot();
+  const mutationSnapshot = mutations.snapshot();
+  intelligence = LoreIntelligenceService.fromSnapshot(intelligenceSnapshot);
+  mutations = LoreReviewedMutationService.fromSnapshot(mutationSnapshot, {intelligence});
+  assert.equal(mutations.read(proposal.proposalId).state, LoreMutationState.COMMITTED);
+  assert.equal(mutations.audit({proposalId: proposal.proposalId}).proposalId, proposal.proposalId);
+
+  const collision = mutations.createProposal({
+    operation: LoreMutationOperation.CREATE,
+    chatId: CHAT,
+    target: {
+      lorebookId: 'authoring-owner',
+      uid: 'future-collision',
+      content: 'Proposed content.',
+      metadata: {title: 'Collision', treePath: []},
+    },
+  });
+  mutations.approve({proposalId: collision.proposalId, operatorDecisionId: 'collision-approval', chatId: CHAT});
+  intelligence.runtime.upsertEntry({
+    lorebookId: 'authoring-owner',
+    uid: 'future-collision',
+    content: 'External owner content.',
+    metadata: {title: 'External', treePath: []},
+  });
+  const collisionResult = mutations.commit({
+    proposalId: collision.proposalId,
+    operatorDecisionId: 'collision-approval',
+    chatId: CHAT,
+  });
+  assert.equal(collisionResult.state, LoreMutationState.STALE);
+  assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:future-collision').exactContent, 'External owner content.');
+  assert.equal(committed.authority.sourceMutationAuthority, true);
+  assert.equal(committed.authority.modelMutationAuthority, false);
+  assert.equal(committed.authority.jevMutationAuthority, false);
+});
+
+
+test('commit-time operation fingerprint revalidation rejects a tampered restored proposal without mutation', () => {
+  let {intelligence, mutations} = mutationService();
+  const sourceId = 'lore:authoring-owner:mara';
+  const before = intelligence.runtime.registry.currentRevision(sourceId);
+  const proposal = mutations.createProposal({
+    operation: LoreMutationOperation.UPDATE,
+    chatId: CHAT,
+    sourceId,
+    after: {
+      content: before.exactContent + ' Approved exact addition.',
+      metadata: before.metadata,
+    },
+  });
+  approve(mutations, proposal.proposalId, 'fingerprint-approval');
+
+  const snapshot = mutations.snapshot();
+  const stored = snapshot.proposals.find((row) => row.proposalId === proposal.proposalId);
+  stored.intent.after.content = 'Tampered content that was never approved.';
+  mutations = LoreReviewedMutationService.fromSnapshot(snapshot, {intelligence});
+
+  const result = mutations.commit({
+    proposalId: proposal.proposalId,
+    operatorDecisionId: 'fingerprint-approval',
+    chatId: CHAT,
+  });
+  assert.equal(result.state, LoreMutationState.STALE);
+  assert.equal(result.lastError.code, 'LORE_MUTATION_FINGERPRINT_CHANGED');
+  assert.equal(intelligence.runtime.registry.currentRevision(sourceId).id, before.id);
+});
+
+
+test('LoreAuthoringService publishes bounded Worker 3 mutation read/action contract without absorbing UI ownership', () => {
+  let intelligence = readyWorld();
+  let authoring = new LoreAuthoringService({intelligence});
+  const contract = authoring.operatorContract();
+
+  assert.equal(contract.kind, 'LoreAuthoringOperatorContract');
+  assert.equal(contract.contractVersion, 2);
+  assert.equal(contract.mutationExtensionVersion, 1);
+  for (const name of [
+    'mutationProposal', 'mutationQueue', 'semanticImpactPreview', 'mutationAudit',
+  ]) assert.equal(typeof contract.read[name], 'function', 'missing read ' + name);
+  for (const name of [
+    'createMutationProposal', 'approveMutationProposal', 'rejectMutationProposal',
+    'commitMutationProposal', 'restoreMutationProposal',
+  ]) assert.equal(typeof contract.actions[name], 'function', 'missing action ' + name);
+  for (const legacy of ['startTreeBuild', 'startMergeBuild', 'applySettlement', 'restoreSettlement']) {
+    assert.equal(typeof contract.actions[legacy], 'function', 'legacy Wave 7 action lost: ' + legacy);
+  }
+
+  const sourceId = 'lore:authoring-owner:mara';
+  const current = intelligence.runtime.registry.currentRevision(sourceId);
+  const impact = contract.read.semanticImpactPreview({
+    sourceId,
+    content: 'Mara formerly owned the Ember Tavern. Mara protects the Archive.',
+    metadata: current.metadata,
+  });
+  assert.equal(impact.ok, true);
+  assert.equal(impact.value.semanticImpact.kind, 'LoreSemanticImpactPlan');
+  assert.equal(impact.value.previewOnly, true);
+
+  const created = contract.actions.createMutationProposal({
+    operation: LoreMutationOperation.UPDATE,
+    chatId: CHAT,
+    sourceId,
+    after: {
+      content: 'Mara formerly owned the Ember Tavern. Mara protects the Archive.',
+      metadata: current.metadata,
+    },
+    origin: {kind: 'JEV_ADVICE', provider: 'fixture-only'},
+  });
+  assert.equal(created.ok, true);
+  assert.equal(created.value.authority.jevMutationAuthority, false);
+
+  const read = contract.read.mutationProposal({proposalId: created.value.proposalId});
+  assert.equal(read.ok, true);
+  assert.equal(read.value.proposalId, created.value.proposalId);
+
+  const queue = contract.read.mutationQueue({chatId: CHAT, limit: 8});
+  assert.equal(queue.ok, true);
+  assert.equal(queue.value.kind, 'LoreMutationQueueReadModel');
+  assert.equal(queue.value.items.length, 1);
+  assert.equal(queue.value.items[0].proposalId, created.value.proposalId);
+  assert.equal(queue.value.bounds.limit, 8);
+
+  const approved = contract.actions.approveMutationProposal({
+    proposalId: created.value.proposalId,
+    operatorDecisionId: 'worker3-approval',
+    chatId: CHAT,
+  });
+  assert.equal(approved.ok, true);
+  assert.equal(approved.value.state, LoreMutationState.APPROVED);
+
+  const committed = contract.actions.commitMutationProposal({
+    proposalId: created.value.proposalId,
+    operatorDecisionId: 'worker3-approval',
+    chatId: CHAT,
+  });
+  assert.equal(committed.ok, true);
+  assert.equal(committed.value.state, LoreMutationState.COMMITTED);
+
+  const audit = contract.read.mutationAudit({proposalId: created.value.proposalId});
+  assert.equal(audit.ok, true);
+  assert.equal(audit.value.kind, 'LoreMutationAuditReadModel');
+  assert.equal(audit.value.rawReconstructionIncluded, false);
+  assert.equal(audit.value.reconstruction.sources.every((row) => !Object.hasOwn(row, 'exactContent')), true);
+  assert.ok(audit.value.events.some((row) => row.kind === 'LoreMutationCommittedAudit'));
+
+  const serviceSnapshot = authoring.snapshot();
+  const intelligenceSnapshot = intelligence.snapshot();
+  intelligence = LoreIntelligenceService.fromSnapshot(intelligenceSnapshot);
+  authoring = LoreAuthoringService.fromSnapshot(serviceSnapshot, {intelligence});
+  assert.equal(authoring.mutationProposal({proposalId: created.value.proposalId}).state, LoreMutationState.COMMITTED);
+
+  const worker3 = authoring.worker3AuthoringContract();
+  assert.equal(worker3.contractVersion, 2);
+  assert.equal(worker3.mutationExtensionVersion, 1);
+  assert.deepEqual(worker3.mutationOperations.sort(), Object.values(LoreMutationOperation).sort());
+  assert.equal(worker3.uiImplementationOwner, 'Worker 3');
+  assert.equal(worker3.backendOwnsRendering, false);
+});
+
+
+test('multi-write failure compensates applied writes and records recoverable audit evidence', () => {
+  const {intelligence, mutations} = mutationService();
+  const originalSourceId = 'lore:authoring-owner:mara';
+  const originalRevisionId = intelligence.runtime.registry.currentRevision(originalSourceId).id;
+  const proposal = mutations.createProposal({
+    operation: LoreMutationOperation.SPLIT,
+    chatId: CHAT,
+    sourceId: originalSourceId,
+    outputs: [
+      {
+        lorebookId: 'authoring-owner',
+        uid: 'partial-a',
+        content: 'Mara owns the Ember Tavern.',
+        metadata: {title: 'Partial A', treePath: ['Characters', 'Mara']},
+      },
+      {
+        lorebookId: 'authoring-owner',
+        uid: 'partial-b',
+        content: 'Mara must never reveal the cellar key.',
+        metadata: {title: 'Partial B', treePath: ['Rules', 'Mara']},
+      },
+    ],
+  });
+  approve(mutations, proposal.proposalId, 'partial-failure-approval');
+
+  const originalUpsert = intelligence.runtime.upsertEntry.bind(intelligence.runtime);
+  let calls = 0;
+  intelligence.runtime.upsertEntry = (input) => {
+    calls += 1;
+    if (calls === 2) {
+      const error = new Error('forced second-write failure');
+      error.code = 'TEST_FORCED_SECOND_WRITE_FAILURE';
+      throw error;
+    }
+    return originalUpsert(input);
+  };
+
+  const result = mutations.commit({
+    proposalId: proposal.proposalId,
+    operatorDecisionId: 'partial-failure-approval',
+    chatId: CHAT,
+  });
+  intelligence.runtime.upsertEntry = originalUpsert;
+
+  assert.equal(result.state, LoreMutationState.FAILED);
+  assert.equal(result.commit, null);
+  assert.equal(result.recovery.status, 'COMPENSATED');
+  assert.equal(intelligence.runtime.registry.currentRevision(originalSourceId).id, originalRevisionId);
+  assert.equal(intelligence.runtime.registry.currentRevision('lore:authoring-owner:partial-a').state, 'REMOVED');
+  assert.equal(intelligence.runtime.registry.getEntry('lore:authoring-owner:partial-b'), null);
+
+  const audit = mutations.audit({proposalId: proposal.proposalId});
+  const failed = audit.events.find((row) => row.kind === 'LoreMutationFailedAudit');
+  assert.ok(failed);
+  assert.equal(failed.recovery.status, 'COMPENSATED');
+  assert.ok(failed.partialRevisionEvents.length === 1);
+  assert.ok(failed.compensationRevisionEvents.length >= 1);
+});

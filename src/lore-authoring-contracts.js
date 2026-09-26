@@ -39,6 +39,32 @@ export const LoreSettlementState = Object.freeze({
   FAILED: 'FAILED',
 });
 
+export const LoreMutationOperation = Object.freeze({
+  CREATE: 'CREATE',
+  UPDATE: 'UPDATE',
+  DELETE: 'DELETE',
+  MERGE: 'MERGE',
+  SPLIT: 'SPLIT',
+  MOVE: 'MOVE',
+  TREE_ASSIGN: 'TREE_ASSIGN',
+});
+
+export const LoreMutationState = Object.freeze({
+  PROPOSED: 'PROPOSED',
+  REVIEW_READY: 'REVIEW_READY',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  COMMITTED: 'COMMITTED',
+  STALE: 'STALE',
+  FAILED: 'FAILED',
+  RESTORED: 'RESTORED',
+});
+
+export const LoreMutationScopeMode = Object.freeze({
+  CHAT: 'CHAT',
+  GLOBAL_OPERATOR: 'GLOBAL_OPERATOR',
+});
+
 export const LoreTreeAction = Object.freeze({
   CREATE_NODE: 'CREATE_NODE',
   MOVE_ENTRY: 'MOVE_ENTRY',

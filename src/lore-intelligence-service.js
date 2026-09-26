@@ -587,6 +587,10 @@ export class LoreIntelligenceService {
         lorebookId: scope?.lorebookId || null,
         sourceRevisionRefs: [...summary.sourceRevisionSet],
         childSummaryRefs: summary.childSummaryDependencies.map((row) => row.summaryId),
+        evidenceRefs: [...(summary.criticalEvidenceRefs || [])].slice(0, 64),
+        evidenceRefCount: (summary.criticalEvidenceRefs || []).length,
+        evidenceRefsTruncated: (summary.criticalEvidenceRefs || []).length > 64,
+        rawEvidenceIncluded: false,
         content: summary.content,
         qualityReceipt: deepClone(summary.qualityReceipt),
         provenance: deepClone(summary.provenance),
@@ -605,6 +609,8 @@ export class LoreIntelligenceService {
         return acc;
       }, {}),
       exactSourceDrillbackAvailable: true,
+      evidenceDrillbackAvailable: true,
+      rawEvidenceIncluded: false,
       sourceAuthority: false,
       temporalStateAuthority: false,
     };

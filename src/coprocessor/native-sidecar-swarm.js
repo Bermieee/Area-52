@@ -456,7 +456,7 @@ function resultRecord(task,result,profile,state,extra={}){
   const compactedBytes=retain?0:byteLength(result);
   return deepFreeze({
     taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state,
-    providerProfileId:profile.profileId,providerId:result.providerId,workerId:result.workerId,resourceId:profile.profileMetadata?.resourceId??null,
+    layer:task.metadata?.scatterLayer??null,trigger:scatterTriggerForTask(task),providerProfileId:profile.profileId,providerId:result.providerId,workerId:result.workerId,resourceId:profile.profileMetadata?.resourceId??null,
     startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.latency,resultId:result.resultId??null,result:retain?result:null,compactedBytes,attempt:Number(extra.attempt??1),
     failureCode:extra.failureCode??null,fallbackUsed:Boolean(extra.fallbackUsed),late:Boolean(extra.late),stale:Boolean(extra.stale),invalid:Boolean(extra.invalid),
   });
@@ -465,7 +465,7 @@ function rejectedRecord(task,state,failureCode,extra={}){
   const startedAt=extra.startedAt??null,completedAt=extra.completedAt??null;
   return deepFreeze({
     taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state,
-    providerProfileId:extra.providerProfileId??null,providerId:extra.providerId??null,workerId:extra.workerId??null,resourceId:extra.resourceId??null,
+    layer:task.metadata?.scatterLayer??null,trigger:scatterTriggerForTask(task),providerProfileId:extra.providerProfileId??null,providerId:extra.providerId??null,workerId:extra.workerId??null,resourceId:extra.resourceId??null,
     startedAt,completedAt,latencyMs:startedAt!=null&&completedAt!=null?Math.max(0,completedAt-startedAt):null,result:null,attempt:Number(extra.attempt??1),
     failureCode,fallbackUsed:Boolean(extra.fallbackUsed),late:Boolean(extra.late),stale:state===NativeSwarmResultState.REJECTED_STALE,invalid:state===NativeSwarmResultState.REJECTED_INVALID,
   });
@@ -473,6 +473,7 @@ function rejectedRecord(task,state,failureCode,extra={}){
 function parkedRecord(task){return rejectedRecord(task,NativeSwarmResultState.PARKED,null);}
 function skippedRecord(task,reason){return deepFreeze({...rejectedRecord(task,NativeSwarmResultState.SKIPPED,null),skipReason:String(reason??'POLICY_SKIPPED')});}
 function publicRecord(record){return deepFreeze({taskId:record.taskId,optionId:record.optionId,taskType:record.taskType,resultClass:record.resultClass,state:record.state,
+  layer:record.layer??null,trigger:record.trigger??null,skipReason:record.skipReason??null,compactedBytes:Number(record.compactedBytes??0),
   providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,attempt:record.attempt,
   resultId:record.resultId??record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
   fallbackUsed:record.fallbackUsed,late:record.late,stale:record.stale,invalid:record.invalid});}

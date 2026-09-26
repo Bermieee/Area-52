@@ -328,7 +328,7 @@ export class NativeSidecarSwarm{
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,
       choiceContribution,executionTrace,resultsForOwner:readyResults,jevReceipt:clone(jevReceipt),
       resultSummary:records.map(publicRecord),continuousOwnerAdmissions,resumeStatus,
-      ownerAdmissionRequired:readyResults.length>0,authority:'NONE',truthAuthority:false,precisionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,finalChoiceAuthority:false,contextSealAuthority:false,
+      ownerAdmissionRequired:continuousOwnerAdmissions.length?readyResults.length>0:true,authority:'NONE',truthAuthority:false,precisionAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,finalChoiceAuthority:false,contextSealAuthority:false,
     });
     const summary=deepFreeze({
       turnId:sourceCheckpoint.turnId,correlationId:sourceCheckpoint.correlationId,proposalId:sourceCheckpoint.proposal.proposalId,at:this.now(),resumeStatus,

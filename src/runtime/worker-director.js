@@ -436,8 +436,8 @@ export class WorkerDirector {
   }
 
   #completionEnvelope(record) {
-    const payload = record.obligation.payload ?? {};
-    const turnId = payload.turnId ?? null;
+    const payload = record.obligation.payload ?? {}, cause = record.obligation.cause ?? {};
+    const turnId = payload.turnId ?? cause.turnId ?? null;
     const late = Boolean(turnId && this.isTurnSealed(turnId));
     const receipt = record.resultReceipts.at(-1)?.external ?? null;
     const providerProvenance = receipt?.providerExecution ?? (record.negotiation ? {
@@ -452,9 +452,11 @@ export class WorkerDirector {
       owner: record.obligation.owner,
       producerId: record.obligation.producerId,
       runtimeClass: record.obligation.runtimeClass,
+      chatId: payload.chatId ?? cause.chatId ?? null,
       turnId,
-      correlationId: payload.correlationId ?? null,
-      causationId: payload.causationId ?? null,
+      generationId: payload.generationId ?? cause.generationId ?? null,
+      correlationId: payload.correlationId ?? cause.correlationId ?? null,
+      causationId: payload.causationId ?? cause.eventId ?? null,
       sourceRevisions: structuredClone(record.obligation.sourceRevisions ?? {}),
       sourceRevisionIds: [...(record.obligation.sourceRevisionIds ?? [])],
       worldRevision: record.obligation.worldRevision ?? null,
@@ -481,8 +483,8 @@ export class WorkerDirector {
   }
 
   #failureEnvelope(record, outcome, assignment) {
-    const payload = record.obligation.payload ?? {};
-    const turnId = payload.turnId ?? null;
+    const payload = record.obligation.payload ?? {}, cause = record.obligation.cause ?? {};
+    const turnId = payload.turnId ?? cause.turnId ?? null;
     const late = Boolean(turnId && this.isTurnSealed(turnId));
     return {
       taskId: record.taskId,
@@ -490,9 +492,11 @@ export class WorkerDirector {
       owner: record.obligation.owner,
       producerId: record.obligation.producerId,
       runtimeClass: record.obligation.runtimeClass,
+      chatId: payload.chatId ?? cause.chatId ?? null,
       turnId,
-      correlationId: payload.correlationId ?? null,
-      causationId: payload.causationId ?? null,
+      generationId: payload.generationId ?? cause.generationId ?? null,
+      correlationId: payload.correlationId ?? cause.correlationId ?? null,
+      causationId: payload.causationId ?? cause.eventId ?? null,
       sourceRevisions: structuredClone(record.obligation.sourceRevisions ?? {}),
       sourceRevisionIds: [...(record.obligation.sourceRevisionIds ?? [])],
       worldRevision: record.obligation.worldRevision ?? null,

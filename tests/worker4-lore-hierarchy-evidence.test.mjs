@@ -128,6 +128,31 @@ test('missing referenced navigation evidence degrades closed instead of fabricat
 });
 
 
+test('rebuild rehydrates missing current evidence before reusing stable summary identity', () => {
+  const {runtime, system} = evidenceWorld();
+  const corpus = scope(system, (row) => row.type === NavigationScopeType.CORPUS, 'corpus');
+  const summaryBefore = system.currentSummary(corpus.id);
+  const snapshot = system.snapshot();
+  const missingRef = summaryBefore.criticalEvidenceRefs[0];
+
+  snapshot.summaryRegistry.evidenceRegistry.records =
+    snapshot.summaryRegistry.evidenceRegistry.records.filter((row) => row.evidenceRef !== missingRef);
+
+  const restored = LoreHierarchyRetrievalSystem.fromSnapshot({runtime, snapshot});
+  assert.equal(restored.drillEvidence(summaryBefore.id).status, 'DEGRADED');
+
+  const rebuild = restored.buildAll({maxUnits: 8});
+  const summaryAfter = restored.currentSummary(corpus.id);
+  assert.equal(summaryAfter.id, summaryBefore.id, 'repair must preserve deterministic summary identity');
+  assert.equal(restored.drillEvidence(summaryAfter.id).status, 'COMPLETE');
+  assert.ok(restored.summaryRegistry.evidenceRegistry.resolve(missingRef));
+  assert.ok(rebuild.builtScopeIds.length > 0 || rebuild.reusedScopeIds.length > 0);
+
+  const recordId = restored.retrievalIndex.summaryRecordIds.get(summaryAfter.id);
+  assert.ok(recordId, 'repaired current summary must return to retrieval index');
+});
+
+
 function asLegacyEmbeddedHierarchySnapshot(snapshot) {
   const legacy = structuredClone(snapshot);
   const registry = legacy.summaryRegistry || {};

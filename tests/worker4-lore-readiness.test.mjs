@@ -3,12 +3,28 @@ import assert from 'node:assert/strict';
 
 import {LoreIntelligenceService} from '../src/lore-intelligence-service.js';
 import {LoreOwnerRetrievalChannel} from '../src/owner-knowledge-channels.js';
+import {Area52NativeBrain} from '../src/native-brain.js';
 import {
   WORKER4_SELECTED_CHAT,
   WORKER4_UNBOUND_CHAT,
   worker4SelectedLorebook,
   worker4UnacceptedLorebook,
 } from './fixtures/worker4-lore-readiness-fixtures.mjs';
+
+function worker4Scene(sceneId, sceneRevision) {
+  return {
+    sceneId,
+    sceneRevision,
+    location: 'Harbor Gate',
+    narrativeTime: 'day ' + sceneRevision,
+    activeCast: ['Warden'],
+    activeThreads: [],
+    objects: [],
+    sceneRelationship: null,
+    sourceRevisionRefs: [],
+    provenance: ['worker4-scene:' + sceneId + ':' + sceneRevision],
+  };
+}
 
 function readySelectedService() {
   const service = new LoreIntelligenceService();
@@ -142,6 +158,49 @@ test('Worker 4: identical accepted snapshot reuses current study/index instead o
   assert.equal(service.runtime.dueObligations().length, dueBefore);
   const after = service.status({chatId: WORKER4_SELECTED_CHAT});
   assert.equal(after.entries.every((row) => row.operatorState === 'READY'), true);
+});
+
+test('Worker 4: exact-chat eligible Lore survives Native Brain retrieval through Gather while unbound chat stays excluded', async () => {
+  const service = readySelectedService();
+  const brain = new Area52NativeBrain({loreInterface: service.brainInterface()});
+  const prepared = await brain.prepareTurn({
+    chatId: WORKER4_SELECTED_CHAT,
+    turnId: 'worker4:gather:1',
+    generationId: 'worker4:gather-gen:1',
+    query: 'What is true about the Harbor Gate?',
+    intent: 'CURRENT',
+    scene: worker4Scene('worker4-harbor', 1),
+    executionLabel: 'DETERMINISTIC',
+  });
+  assert.equal(prepared.loreSync.status, 'SYNCED');
+  assert.ok(prepared.loreSync.nominationCount > 0);
+  assert.equal(prepared.loreSync.authorityScope.chatId, WORKER4_SELECTED_CHAT);
+  assert.ok(prepared.loreSync.candidateReceipts.length > 0);
+  assert.ok(prepared.gatherReceipt);
+  assert.equal(prepared.gatherReceipt.authorityGranted, false);
+  assert.equal(prepared.gatherReceipt.admittedResultIds.some((id) => id.includes('owner-lore')), true);
+  assert.equal(prepared.gatherReceipt.rejectedResultIds.some((id) => id.includes('owner-lore')), false);
+  const loreNominations = (prepared.candidateEnvelope?.candidates || [])
+    .flatMap((candidate) => candidate.channelNominations || [])
+    .filter((nomination) => nomination.channelId === 'OWNER_LORE');
+  assert.ok(loreNominations.length > 0);
+  assert.equal(loreNominations.every((row) => row.sourceRevisionRefs.length > 0), true);
+  assert.equal(loreNominations.every((row) => row.evidenceRefs.length > 0), true);
+  assert.equal(loreNominations.every((row) => row.metadata.authorityScope.chatId === WORKER4_SELECTED_CHAT), true);
+
+  const unboundBrain = new Area52NativeBrain({loreInterface: service.brainInterface()});
+  const unbound = await unboundBrain.prepareTurn({
+    chatId: WORKER4_UNBOUND_CHAT,
+    turnId: 'worker4:gather:unbound',
+    generationId: 'worker4:gather-gen:unbound',
+    query: 'What is true about the Harbor Gate?',
+    intent: 'CURRENT',
+    scene: worker4Scene('worker4-unbound-harbor', 1),
+    executionLabel: 'DETERMINISTIC',
+  });
+  assert.equal(unbound.loreSync.status, 'EXCLUDED');
+  assert.equal(unbound.loreSync.reason, 'LORE_STORY_SCOPE_REQUIRED');
+  assert.equal(unbound.gatherReceipt.admittedResultIds.some((id) => id.includes('owner-lore')), false);
 });
 
 test('Worker 4: live Lore owner channel forwards exact chat scope and retains bounded provenance metadata', () => {

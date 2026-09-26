@@ -675,6 +675,8 @@ export class DevelopmentDeploymentSillyTavernSession {
 
     const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     const installedUiBindings=this.#uiHostBindings(),installedUiReaderNames=Object.entries(installedUiBindings).filter(([name,value])=>typeof value==='function'&&(name.startsWith('read')||name.startsWith('list')||name.startsWith('reconstruct'))).map(([name])=>name).sort();
+    let selectedTurnReceipt=null;
+    try{const selected=installedUiBindings.readSelection?.()??{};selectedTurnReceipt=installedUiBindings.readSelectedTurnReceipt?.(selected)??null;}catch{}
     const installedOptionalOwners={
       resources:Boolean(installedUiBindings.resourceHost??installedUiBindings.coprocessorResourceHost),
       loreStudy:Boolean(installedUiBindings.loreIntelligenceService??installedUiBindings.loreStudyService??installedUiBindings.loreOperatorHost??installedUiBindings.loreStudyHost),
@@ -766,7 +768,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
-        rawPromptCaptured:false,rawResponseCaptured:false,
+        selectedTurnReceipt:clone(selectedTurnReceipt),rawPromptCaptured:false,rawResponseCaptured:false,
       },
       uiProducerDiagnosticsAreRegistrationOnly: !nativeContract.available,
       loreOperatorEvidence,

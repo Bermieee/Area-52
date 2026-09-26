@@ -1,7 +1,7 @@
 import { ProductDataMode, Wave6Health, createProductSourceStatus, deepFreeze, clone, normalizeWave6Health } from './wave6-contracts.js';
 
 export const ContextSectionState=Object.freeze({
-  REUSED:'REUSED',UPDATED:'UPDATED',REBUILT:'REBUILT',NEW:'NEW',DROPPED:'DROPPED',DEFERRED:'DEFERRED',INVALIDATED:'INVALIDATED',INCLUDED:'INCLUDED',UNAVAILABLE:'UNAVAILABLE',
+  REUSED:'REUSED',UPDATED:'UPDATED',REBUILT:'REBUILT',NEW:'NEW',DROPPED:'DROPPED',DEFERRED:'DEFERRED',INVALIDATED:'INVALIDATED',INCLUDED:'INCLUDED',UNAVAILABLE:'UNAVAILABLE',NO_EVIDENCE:'NO_EVIDENCE',
 });
 export const ExplainabilityView=Object.freeze({WHY:'WHY',CONTEXT:'CONTEXT',DIFF:'DIFF',SEAL:'SEAL',FORENSICS:'FORENSICS',ADVANCED:'ADVANCED'});
 const STATES=new Set(Object.values(ContextSectionState));
@@ -82,12 +82,14 @@ export function normalizeContextSealReceipt(seal,forensic=null){
   });
 }
 
-export function buildGenerationExplainability({promptPlan,contextReceipt=null,sealReceipt=null,forensic=null}={}){
+export function buildGenerationExplainability({promptPlan,contextReceipt=null,sealReceipt=null,hostDeliveryReceipt=null,forensic=null}={}){
   const plan=normalizePromptPlanReadModel(promptPlan);if(!plan)return null;
-  const receipt=normalizeContextReceiptReadModel(contextReceipt);const seal=normalizeContextSealReceipt(sealReceipt,forensic);
-  const counts=countSectionStates(plan.sections);
-  const reasons=plan.sections.filter(x=>x.reason).map(x=>({slot:x.slot,state:x.state,reason:x.reason}));
-  const unavailableReasonCount=plan.sections.filter(x=>!x.reason).length;
+  const receipt=normalizeContextReceiptReadModel(contextReceipt),seal=normalizeContextSealReceipt(sealReceipt,forensic);
+  const host=normalizeHostDeliveryEvidence(hostDeliveryReceipt);
+  const sections=mergeSectionEvidence(plan.sections,receipt,host);
+  const counts=countSectionStates(sections);
+  const reasons=sections.filter(x=>x.reason).map(x=>({slot:x.slot,state:x.state,plannedState:x.plannedState,compiledState:x.compiledState,observedState:x.observedState,reason:x.reason}));
+  const unavailableReasonCount=sections.filter(x=>!x.reason).length;
   const health=normalizeWave6Health(plan.health?.state??plan.integrityStatus??'READY',{fallback:Wave6Health.READY});
   const degraded=[Wave6Health.DEGRADED,Wave6Health.STALE,Wave6Health.BLOCKED].includes(health)||Boolean(seal&&seal.fallbackState!=='NONE');
   const fixture=promptPlan?.fixture===true||promptPlan?.dataMode===ProductDataMode.FIXTURE||promptPlan?.dataMode==='FIXTURE';
@@ -95,10 +97,16 @@ export function buildGenerationExplainability({promptPlan,contextReceipt=null,se
   const mode=fixture?ProductDataMode.FIXTURE:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE;
   const impact=degraded?'Context was delivered with omissions, deferrals, fallback, stale evidence, or degraded integrity.':health===Wave6Health.WORKING?'Context delivery is still being assembled.':'Context delivery is explainable and healthy.';
   const source=createProductSourceStatus({mode,health:displayHealth,label:'Generation Explainability',impact,producer:'PromptPlanReadModel/ContextReceiptReadModel',revision:plan.promptPlanId});
+  const deliveryEvidence=deepFreeze({
+    planned:{state:'PLANNED',receiptRef:plan.promptPlanId,reason:null},
+    compiled:receipt?{state:(seal?.sealedState!==false&&(seal||receipt.contextSealId))?'COMPILED_AND_SEALED':'COMPILED',receiptRef:receipt.packetId??receipt.contextSealId??receipt.promptPlanId??null,reason:null}:{state:'NO_EVIDENCE',receiptRef:null,reason:'CONTEXT_RECEIPT_NOT_PUBLISHED'},
+    observed:host,
+  });
+  const budgetEvidence=deepFreeze({planned:budgetRecord(plan.budget,plan.estimatedTokens),compiled:receipt?budgetRecord(receipt.budget,receipt.estimatedTokens):budgetRecord(null,null)});
   return deepFreeze({
     kind:'GenerationExplainability',generationId:plan.generationId,turnId:plan.turnId,contextSealId:plan.contextSealId??receipt?.contextSealId??seal?.sealId??null,promptPlanId:plan.promptPlanId,
-    modelProfileId:plan.modelProfileId,budget:plan.budget,plannedTokens:plan.estimatedTokens,usedOrEstimatedTokens:receipt?.estimatedTokens??plan.estimatedTokens,
-    worldRevision:plan.worldRevision,sceneRevision:plan.sceneRevision,sourceRevisionRefs:plan.sourceRevisionRefs,sections:plan.sections,sectionCounts:counts,
+    modelProfileId:plan.modelProfileId,budget:plan.budget,budgetEvidence,deliveryEvidence,plannedTokens:plan.estimatedTokens,usedOrEstimatedTokens:receipt?.estimatedTokens??plan.estimatedTokens,
+    worldRevision:plan.worldRevision,sceneRevision:plan.sceneRevision,sourceRevisionRefs:plan.sourceRevisionRefs,sections,sectionCounts:counts,
     dropped:plan.dropped,deferred:plan.deferred,reasons,unavailableReasonCount,integrityState:plan.integrityStatus??receipt?.health?.state??'UNAVAILABLE',
     fallbackState:receipt?.fallbackState??seal?.fallbackState??(plan.fallbackDecisions?.length?'RECORDED':'NONE'),receipt,seal,forensic:cloneSafe(forensic),
     unresolvedEvidence:cloneSafe(receipt?.unresolvedEvidence??[]),source,authority:'READ_ONLY',mutationAuthority:false,
@@ -109,6 +117,10 @@ export function explainContextSection(section){
   if(!section)return null;
   return deepFreeze({
     kind:'ContextSectionExplanation',slot:section.slot,state:STATES.has(section.state)?section.state:ContextSectionState.UNAVAILABLE,
+    plannedState:STATES.has(section.plannedState)?section.plannedState:ContextSectionState.NO_EVIDENCE,
+    compiledState:STATES.has(section.compiledState)?section.compiledState:ContextSectionState.NO_EVIDENCE,
+    observedState:STATES.has(section.observedState)?section.observedState:ContextSectionState.NO_EVIDENCE,
+    evidence:cloneSafe(section.evidence??null),
     reason:section.reason??null,reasonAvailable:Boolean(section.reason),priority:section.priority??null,estimatedTokens:section.estimatedTokens??null,actualTokens:section.actualTokens??null,
     sourceSubsystem:section.sourceSubsystem??null,authority:section.authority??null,revisionIdentity:cloneSafe(section.revisionIdentity),reuseState:section.reuseState??null,
     cacheEligible:section.cacheEligible??null,representation:section.representation??null,required:Boolean(section.required),protected:Boolean(section.protected),
@@ -166,6 +178,81 @@ export class ExplainabilityPresentationState{
     const bookmark=createForensicBookmark({...v.bookmark,view});return deepFreeze({view,bookmark,filters,sortDirection:v.sortDirection==='DESC'?'DESC':'ASC',expandedSections});
   }
 }
+
+function mergeSectionEvidence(plannedSections,receipt,host){
+  const planned=new Map((plannedSections??[]).map(row=>[row.slot,row]));
+  const slots=new Set(planned.keys());
+  for(const row of receipt?.includedSections??[])slots.add(sectionSlot(row));
+  for(const row of receipt?.omittedSections??[])slots.add(sectionSlot(row));
+  for(const row of receipt?.deferredSections??[])slots.add(sectionSlot(row));
+  slots.delete(null);slots.delete(undefined);slots.delete('');
+  const out=[];
+  for(const slot of slots){
+    const base=planned.get(slot)??emptySection(slot),compiled=contextDisposition(receipt,slot),observed=hostSectionDisposition(host,slot);
+    const plannedState=STATES.has(base.state)?base.state:ContextSectionState.NO_EVIDENCE;
+    const state=effectiveSectionState(plannedState,compiled.state);
+    const reason=(compiled.state===ContextSectionState.DEFERRED||compiled.state===ContextSectionState.DROPPED?compiled.reason:null)??base.reason??compiled.reason??null;
+    out.push(deepFreeze({
+      ...base,slot,state,plannedState,compiledState:compiled.state,observedState:observed.state,
+      reason,included:isIncludedState(state),
+      evidence:deepFreeze({
+        planned:{state:plannedState,receiptRef:base.receiptRef??null,reason:base.reason??null},
+        compiled:{state:compiled.state,receiptRef:receipt?.packetId??receipt?.contextSealId??receipt?.promptPlanId??null,reason:compiled.reason??null},
+        observed:{state:observed.state,receiptRef:host?.receiptRef??null,reason:observed.reason??null},
+      }),
+    }));
+  }
+  return out;
+}
+function emptySection(slot){return{kind:'GenerationContextSection',slot,state:ContextSectionState.NO_EVIDENCE,priority:null,estimatedTokens:null,actualTokens:null,sourceSubsystem:null,authority:null,revisionIdentity:null,reuseState:null,cacheEligible:null,representation:null,required:false,protected:false,reason:null,included:false,rawRef:null};}
+function sectionSlot(row){if(typeof row==='string')return row;return row?.slot??row?.segmentKey??row?.section??row?.id??null;}
+function dispositionRow(rows,slot){return (rows??[]).find(row=>sectionSlot(row)===slot)??null;}
+function contextDisposition(receipt,slot){
+  if(!receipt)return{state:ContextSectionState.NO_EVIDENCE,reason:'CONTEXT_RECEIPT_NOT_PUBLISHED'};
+  const deferred=dispositionRow(receipt.deferredSections,slot);if(deferred)return{state:ContextSectionState.DEFERRED,reason:ownerReason(deferred)??'CONTEXT_SECTION_DEFERRED'};
+  const omitted=dispositionRow(receipt.omittedSections,slot);if(omitted)return{state:ContextSectionState.DROPPED,reason:ownerReason(omitted)??'CONTEXT_SECTION_OMITTED'};
+  if((receipt.includedSections??[]).some(row=>sectionSlot(row)===slot))return{state:ContextSectionState.INCLUDED,reason:null};
+  return{state:ContextSectionState.NO_EVIDENCE,reason:'CONTEXT_SECTION_DISPOSITION_NOT_PUBLISHED'};
+}
+function normalizeHostDeliveryEvidence(host){
+  if(!host)return deepFreeze({state:'NO_EVIDENCE',receiptRef:null,reason:'HOST_DELIVERY_RECEIPT_NOT_PUBLISHED',observedAt:null,sectionEvidence:null});
+  const injected=Boolean(host.promptInjected||host.requestInjectedAt!=null);
+  const sectionEvidence={
+    includedSections:cloneSafe(host.includedSections??host.observedIncludedSections??[]),
+    omittedSections:cloneSafe(host.omittedSections??host.observedOmittedSections??[]),
+    deferredSections:cloneSafe(host.deferredSections??host.observedDeferredSections??[]),
+  };
+  const hasSections=Object.values(sectionEvidence).some(rows=>Array.isArray(rows)&&rows.length);
+  return deepFreeze({
+    state:injected?'OBSERVED':'NOT_OBSERVED',receiptRef:host.receiptId??host.id??host.generationId??null,
+    reason:injected?null:(host.abortCode??host.reasonCode??'HOST_REQUEST_NOT_OBSERVED'),observedAt:host.requestInjectedAt??host.observedAt??null,
+    sectionEvidence:hasSections?sectionEvidence:null,
+  });
+}
+function hostSectionDisposition(host,slot){
+  if(!host||host.state==='NO_EVIDENCE')return{state:ContextSectionState.NO_EVIDENCE,reason:host?.reason??'HOST_DELIVERY_RECEIPT_NOT_PUBLISHED'};
+  const rows=host.sectionEvidence;if(!rows)return{state:ContextSectionState.NO_EVIDENCE,reason:'HOST_SECTION_DISPOSITION_NOT_PUBLISHED'};
+  const deferred=dispositionRow(rows.deferredSections,slot);if(deferred)return{state:ContextSectionState.DEFERRED,reason:ownerReason(deferred)??'HOST_SECTION_DEFERRED'};
+  const omitted=dispositionRow(rows.omittedSections,slot);if(omitted)return{state:ContextSectionState.DROPPED,reason:ownerReason(omitted)??'HOST_SECTION_OMITTED'};
+  if((rows.includedSections??[]).some(row=>sectionSlot(row)===slot))return{state:ContextSectionState.INCLUDED,reason:null};
+  return{state:ContextSectionState.NO_EVIDENCE,reason:'HOST_SECTION_DISPOSITION_NOT_PUBLISHED'};
+}
+function effectiveSectionState(planned,compiled){
+  if(compiled===ContextSectionState.DEFERRED||compiled===ContextSectionState.DROPPED||compiled===ContextSectionState.INVALIDATED)return compiled;
+  if(compiled===ContextSectionState.INCLUDED){
+    if([ContextSectionState.REUSED,ContextSectionState.UPDATED,ContextSectionState.REBUILT,ContextSectionState.NEW].includes(planned))return planned;
+    return ContextSectionState.INCLUDED;
+  }
+  return planned;
+}
+function isIncludedState(state){return[ContextSectionState.REUSED,ContextSectionState.UPDATED,ContextSectionState.REBUILT,ContextSectionState.NEW,ContextSectionState.INCLUDED].includes(state);}
+function budgetRecord(budget,estimated){
+  const b=budget&&typeof budget==='object'?budget:{};
+  const total=finiteOrNull(b.total??b.available??b.contextWindow),allocated=finiteOrNull(b.allocated??b.usedTokens??estimated);
+  const explicitRemaining=finiteOrNull(b.remaining),remaining=explicitRemaining??(total!=null&&allocated!=null?Math.max(0,total-allocated):null);
+  return deepFreeze({total,allocated,remaining});
+}
+function finiteOrNull(value){if(value==null||value==='')return null;const n=Number(value);return Number.isFinite(n)?n:null;}
 
 function mapReuseState(value,included){
   if(value==='NO_CHANGE')return ContextSectionState.REUSED;

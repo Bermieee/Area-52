@@ -158,7 +158,7 @@ export class NativeEntityIdentityRegistry{
     for(const entity of this.entities.values()){
       if(!compatibleDimension(entity.worldId,worldId)||!compatibleDimension(entity.entityType,type))continue;
       const canonical=!historical&&labelKey(entity.canonicalLabel)===key;
-      const aliases=(entity.aliases??[]).filter(row=>(includeRetiredAliases||historical)?aliasTemporalMatch(row,{temporalMode:historical?'HISTORICAL':'CURRENT',at}):currentAlias(row)).filter(row=>labelKey(row.alias)===key);
+      const aliases=(entity.aliases??[]).filter(row=>historical?aliasTemporalMatch(row,{temporalMode:'HISTORICAL',at}):(includeRetiredAliases||currentAlias(row))).filter(row=>labelKey(row.alias)===key);
       if(canonical||aliases.length)out.push({entityId:entity.entityId,canonicalLabel:entity.canonicalLabel,entityType:entity.entityType,worldId:entity.worldId,canonicalLabelMatch:canonical,aliasMatches:clone(aliases)});
     }
     return out.sort((a,b)=>a.entityId.localeCompare(b.entityId));

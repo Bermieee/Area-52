@@ -197,7 +197,7 @@ test('Brain activity distinguishes PromptPlan from host delivery and post-respon
   owner.bindings.readHostDeliveryReceipt=()=>hostInjected?{kind:'SillyTavernHostDeliveryReceipt',receiptId:'host-delivery:1',...selection,state:'MODEL_REQUEST_PAYLOAD_INJECTED',promptPlanId:'plan:1',contextSealId:'seal:1',preparedAt:10,requestInjectedAt:20,promptInjected:true,hostObserved:true,responseCompleted:false}:null;
   const{ui}=mount(owner);ui.shell.selectWorkspace('brain');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   let pipeline=ui.operator.operations.read().pipeline,body=textOf(ui.shell.nodes.workspace);
-  assert.equal(pipeline.promptPlanReceipt,true);assert.equal(pipeline.deliveryReceipt,false);assert.equal(pipeline.learningReceipt,false);assert.match(body,/PromptPlan exists|No delivery receipt/);assert.match(body,/No learning receipt yet/);
+  assert.equal(pipeline.promptPlanReceipt,true);assert.equal(pipeline.deliveryReceipt,false);assert.equal(pipeline.learningReceipt,false);assert.match(body,/PromptPlan exists|No delivery receipt/);assert.match(body,/no post-response learning receipt|No learning receipt yet/i);
   hostInjected=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
   assert.equal(pipeline.deliveryReceipt,true);assert.match(body,/SillyTavern.*observed|Generation delivery/i);
   learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);

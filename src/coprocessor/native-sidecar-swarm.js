@@ -214,8 +214,68 @@ export class NativeSidecarSwarm{
   readTurn(turnId){return clone(this.turns.get(String(turnId))??null);}
 
   async #executeForeground(tasks,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint}){
+    const grouped=groupTasksByScatterLayer(tasks);
+    const records=[];
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
+    for(let layerIndex=0;layerIndex<FOREGROUND_SCATTER_LAYERS.length;layerIndex+=1){
+      const layer=FOREGROUND_SCATTER_LAYERS[layerIndex];
+      const layerTasks=grouped[layer]??[];
+      if(!layerTasks.length)continue;
+      const waveId=checkpoint.checkpointId+':'+layer;
+      const startedAt=this.now();
+      const concurrency=readyResourceConcurrency(this.connections.readModel());
+      const costClass=layerCostClass(layerTasks);
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_STARTED,{
+        ...selection,waveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer,trigger:layerTasks.map(scatterTriggerForTask).join('|'),startedAt,queueDepth:layerTasks.length,concurrency,taskCount:layerTasks.length,costClass,
+      });
+
+      const admitted=[];
+      const alreadySealed=Boolean(await resolveValue(sealed,false));
+      for(const task of layerTasks){
+        let decision=alreadySealed
+          ?{admitted:false,decision:'SKIPPED',reason:'SEALED_BEFORE_LAYER',layer}
+          :evaluateScatterAdmission(task,{priorRecords:records,minimumPrecisionExpectedValue:this.minimumPrecisionExpectedValue});
+        const event={
+          ...selection,waveId,turnId:task.turnId,correlationId:task.correlationId,parentReceiptId:checkpoint.proposalId,
+          taskId:task.taskId,layer,trigger:scatterTriggerForTask(task),decision:decision.decision,reason:decision.reason,
+          queueDepth:layerTasks.length,concurrency,fallback:false,costClass:task.metadata?.costEstimate?.class??task.metadata?.costBudget??costClass,
+        };
+        emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_TASK_DECISION,event);
+        if(decision.admitted)admitted.push(task);
+        else{
+          const record=alreadySealed
+            ?rejectedRecord(task,NativeSwarmResultState.REJECTED_LATE,FailureCode.DEADLINE_MISS,{late:true})
+            :skippedRecord(task,decision.reason);
+          records.push(record);
+          emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{
+            ...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,
+            failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:false,resourceId:null,layer,
+          });
+        }
+      }
+
+      const layerRecords=await this.#executeTaskBatch(admitted,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint,layer,waveId});
+      records.push(...layerRecords);
+      const retainedBytes=estimateRetainedResultBytes(records);
+      const releasedBytes=layerRecords.reduce((sum,record)=>sum+Number(record.compactedBytes??0),0);
+      emitTelemetry(this.telemetry,TelemetryEvent.SCATTER_LAYER_COMPLETED,{
+        ...selection,waveId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,parentReceiptId:checkpoint.proposalId,
+        layer,completedAt:this.now(),durationMs:Math.max(0,this.now()-startedAt),retainedBytes,releasedBytes,
+        failed:layerRecords.filter(record=>['FAILED','UNAVAILABLE','REJECTED_INVALID','REJECTED_STALE','REJECTED_LATE'].includes(record.state)).length,
+        fallbacks:layerRecords.filter(record=>record.fallbackUsed).length,costClass,
+      });
+
+      const hasLater=FOREGROUND_SCATTER_LAYERS.slice(layerIndex+1).some(next=>(grouped[next]??[]).length>0);
+      if(hasLater&&!signal?.aborted)await this.cooperativeYield();
+    }
+    return records;
+  }
+
+  async #executeTaskBatch(tasks,{inputResolver,currentRevisionState,sealed,signal,maxProvidersPerTask,checkpoint,layer=null,waveId=null}){
     const pending=tasks.map(task=>({task,attempt:1,excluded:new Set()}));
     const records=[];
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
     while(pending.length){
       if(signal?.aborted){
         for(const item of pending.splice(0))records.push(rejectedRecord(item.task,NativeSwarmResultState.FAILED,FailureCode.PROVIDER_ABORTED));
@@ -232,7 +292,7 @@ export class NativeSidecarSwarm{
         if(!candidates.length){index+=1;continue;}
         const profile=candidates[0];reserved.set(profile.profileId,(reserved.get(profile.profileId)??0)+1);
         pending.splice(index,1);
-        round.push(this.#executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}));
+        round.push(this.#executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint,layer,waveId}));
       }
       if(!round.length){
         for(const item of pending.splice(0))records.push(rejectedRecord(item.task,NativeSwarmResultState.UNAVAILABLE,FailureCode.CAPABILITY_UNAVAILABLE,{attempt:item.attempt}));
@@ -243,9 +303,9 @@ export class NativeSidecarSwarm{
         if(outcome.retry&&outcome.item.attempt<Math.max(1,Number(maxProvidersPerTask)||1)&&this.now()<outcome.item.task.hardDeadline){
           const nextAttempt=outcome.item.attempt+1;
           emitTelemetry(this.telemetry,TelemetryEvent.RETRY,{
-            taskId:outcome.item.task.taskId,turnId:outcome.item.task.turnId,correlationId:outcome.item.task.correlationId,
+            ...selection,taskId:outcome.item.task.taskId,turnId:outcome.item.task.turnId,correlationId:outcome.item.task.correlationId,
             attempt:nextAttempt,failedProviderProfileId:outcome.profile.profileId,failedProviderId:outcome.profile.providerId,
-            resourceId:outcome.record.resourceId,failureCode:outcome.record.failureCode,
+            resourceId:outcome.record.resourceId,failureCode:outcome.record.failureCode,layer,waveId,
           });
           outcome.item.attempt=nextAttempt;outcome.item.excluded.add(outcome.profile.profileId);pending.push(outcome.item);
         }else records.push(outcome.record);

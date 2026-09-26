@@ -8,7 +8,7 @@ const sameValue=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 
 export class SettlementEngine {
   #decisions=new Map(); #sequence=0;
-  constructor({registry,graph}){this.registry=registry;this.graph=graph;}
+  constructor({registry,graph,entityRegistry=null}){this.registry=registry;this.graph=graph;this.entityRegistry=entityRegistry;}
 
   settle(proposal){
     const validation=this.#validate(proposal);if(!validation.ok)return this.#record(proposal,SettlementDecisionType.REJECT,validation.reason,[],null,{validation});
@@ -56,6 +56,9 @@ export class SettlementEngine {
     if(proposal.freshnessRevisionIds.some(id=>!this.registry.isActiveRevision(id)))return{ok:false,reason:'proposal source revision is stale'};
     if(proposal.evidenceIds.some(id=>!this.registry.isArtifactValid(id)))return{ok:false,reason:'proposal evidence is missing or invalid'};
     if(proposal.mutationType===MutationType.SET_CLAIM&&!proposal.payload?.claim?.id)return{ok:false,reason:'SET_CLAIM payload is invalid'};
+    const claim=proposal.payload?.claim??null;
+    if(claim?.authorityClass===AuthorityClass.INFERRED)return{ok:false,reason:'inferred claim cannot mutate canonical temporal state'};
+    if(this.entityRegistry&&(claim?.identityRevisionRefs??[]).some(ref=>!this.entityRegistry.isCurrentRevisionRef(ref)))return{ok:false,reason:'claim identity revision is stale'};
     return{ok:true};
   }
 

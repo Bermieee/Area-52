@@ -662,15 +662,15 @@ export class Area52NativeBrain{
     // current Scene/Hot snapshots here can silently fill an older selection from a newer turn.
     const selection=this.#selection(record),scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
     const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record);
-    const producer=(value,{id=null,reasonCodes=[]}={})=>({status:value?'PUBLISHED':'UNAVAILABLE',id:value?(id??value.receiptId??value.id??value.promptPlanId??value.kind??null):null,reasonCodes:uniq(reasonCodes).slice(0,16)});
+    const producer=(value,{id=null,reasonCodes=[],metadata={}}={})=>({status:value?'PUBLISHED':'UNAVAILABLE',id:value?(id??value.receiptId??value.id??value.promptPlanId??value.kind??null):null,reasonCodes:uniq(reasonCodes).slice(0,16),...clone(metadata)});
     const deferred=(plan?.deferred??[]).slice(0,16).map(row=>({slot:row.slot??null,reason:row.reason??null,requiredTokens:row.requiredTokens??null,remainingTokensAtDecision:row.remainingTokensAtDecision??null,shortfallTokens:row.shortfallTokens??null}));
     const includedSlots=(context?.includedSections??[]).slice(0,32),selectedRefs=selection.sourceRevisionRefs.slice(0,128),sceneRefs=uniq(record.sceneSourceRevisionRefs??scene?.sourceRevisionRefs??[]).slice(0,32),sealRefs=uniq(seal?.sourceRevisionIds??[]).slice(0,128);
     return{
       kind:'NativeBrainSelectedTurnReceipt',contractVersion:1,...selection,
       sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length},
       producers:{
-        scene:producer(scene,{id:scene?.lastReceiptId??scene?.sceneId??null}),
-        hotCognition:producer(hot,{id:hot?.snapshotId??null}),
+        scene:producer(scene,{id:scene?.lastReceiptId??scene?.sceneId??null,metadata:{sceneRevision:scene?.sceneRevision??null,sourceRevisionRefs:uniq(scene?.sourceRevisionRefs??[]).slice(0,32)}}),
+        hotCognition:producer(hot,{id:hot?.snapshotId??null,metadata:{hotRevision:hot?.hotRevision??null}}),
         cognitiveChoice:producer(choice,{id:choice?.receiptId??choice?.id??null,reasonCodes:choice?.reasonCodes??[]}),
         retrieval:producer(record.published?.candidateEnvelope,{id:record.published?.candidateEnvelope?.envelopeId??record.published?.candidateEnvelope?.id??null,reasonCodes:choice?.skippedJobs?.includes('RETRIEVAL')?(choice?.reasonCodes??[]):[]}),
         gather:producer(gather,{id:gather?.receiptId??gather?.kind??null}),

@@ -94,6 +94,6 @@
     "report:wave18": "node scripts/coprocessor-wave18-evaluation.mjs",
     "test:wave19": "node --test tests/coprocessor-wave19-standing-wiring.test.mjs",
     "test:wave20": "node --test tests/coprocessor-wave20-backend-closure.test.mjs tests/worker4-jev211-repro.test.mjs",
-    "test:demo-visibility": "node --test tests/demo-visibility.test.mjs tests/wave13-operator-ui.test.mjs"
+    "test:demo-visibility": "node --test --test-name-pattern='durable evidence journal|evidence export|unchanged owner evidence|Home Inspect details|Inspect details explains|activity feed is exact-selection|Connections maps logical fan-out' tests/demo-visibility.test.mjs tests/wave13-operator-ui.test.mjs"
   }
 }

@@ -39,6 +39,7 @@ jobs:
         id: baseline_installed_host
         continue-on-error: true
         run: |
+          git fetch --no-tags --depth=1 origin main
           git checkout --detach 1e4938b8eb10ad86f83417fad5056b00f31972a9
           node --test tests/deployment-live-host.test.mjs
       - name: Restore exact Worker 2 head

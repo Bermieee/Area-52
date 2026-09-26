@@ -18,10 +18,10 @@ export function projectWorker2WaveTelemetry({
   const lifecycle=Object.fromEntries(EXECUTION_KINDS.map(kind=>[kind,{configured:0,qualified:0,physicalAttempts:0,returned:0,ownerAccepted:0,skipped:0,failed:0}]));
   const resourceRows=Array.isArray(resources)?resources:(resources?.resources??[]);
   for(const row of resourceRows){
-    const kind=resourceKind(row);
-    if(!kind)continue;
-    lifecycle[kind].configured+=1;
-    if(row?.selectedModelQualified||row?.qualification?.qualified)lifecycle[kind].qualified+=1;
+    for(const kind of resourceKinds(row)){
+      lifecycle[kind].configured+=1;
+      if(row?.selectedModelQualified||row?.qualification?.qualified)lifecycle[kind].qualified+=1;
+    }
   }
   const waves=[];
   for(const event of filtered){
@@ -86,11 +86,14 @@ export function createWorker2WaveTelemetryReader({telemetry=null,resourceConnect
   });
 }
 
-function resourceKind(row){
+function resourceKinds(row){
+  if(row?.configured===false)return[];
   const caps=new Set(row?.activeCapabilities??row?.qualifiedCapabilities??row?.capabilities??[]);
-  if(caps.has('EMBED'))return 'VECTORING';
-  if(caps.has('SEMANTIC_JUDGMENT'))return 'JEV';
-  return row?.configured===false?null:'SIDECAR';
+  const kinds=[];
+  if(caps.has('EMBED'))kinds.push('VECTORING');
+  if(caps.has('SEMANTIC_JUDGMENT'))kinds.push('JEV');
+  if([...caps].some(cap=>cap!=='EMBED')||!caps.size)kinds.push('SIDECAR');
+  return[...new Set(kinds)];
 }
 function kindFromTaskType(value){
   const type=String(value??'').toUpperCase();

@@ -107,6 +107,9 @@ test('Scene provider executes through the existing bounded Core Graph Walker bes
   const scene=lifecycle.ensureChatScene('graph',{sourceRevisionRefs:['scene:r1'],evidenceRefs:['scene:r1']});
   lifecycle.graph.addMembership({sceneId:scene.sceneId,refId:'Mara',kind:'ENTITY',evidenceRefs:['scene:r1'],provenance:['scene:r1']});
   const sceneProvider=createSceneOwnerGraphProvider(lifecycle);
+  lifecycle.registry.closeScene(scene.sceneId,{reason:'GRAPH_HISTORY_TEST'});
+  const historicalEdge=sceneProvider.query({maxEdges:8}).edges.find(row=>row.edgeMeaning==='ENTITY_IN_SCENE');
+  assert.equal(historicalEdge.temporalStatus,'HISTORICAL');
   const walker=new NativeGraphNeighborhoodRetriever({
     temporalGraph:{allClaims:()=>[]},
     isSourceRevisionCurrent:ref=>['scene:r1','memory:r1'].includes(ref),

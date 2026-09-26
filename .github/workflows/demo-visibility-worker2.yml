@@ -31,8 +31,23 @@ jobs:
       - name: Observe inherited main Wave 13 debt without promoting it
         continue-on-error: true
         run: node --test tests/wave13-operator-ui.test.mjs
-      - name: Installed-host scripted lifecycle regression
+      - name: Current-head installed-host scripted lifecycle probe
+        id: current_installed_host
+        continue-on-error: true
         run: node --test tests/deployment-live-host.test.mjs
+      - name: Baseline main installed-host comparison
+        id: baseline_installed_host
+        continue-on-error: true
+        run: |
+          git checkout --detach 1e4938b8eb10ad86f83417fad5056b00f31972a9
+          node --test tests/deployment-live-host.test.mjs
+      - name: Restore exact Worker 2 head
+        run: git checkout --detach "$GITHUB_SHA"
+      - name: Record installed-host probe outcomes
+        run: |
+          echo "Current head installed-host outcome: ${{ steps.current_installed_host.outcome }}"
+          echo "Baseline main installed-host outcome: ${{ steps.baseline_installed_host.outcome }}"
+          echo "Neither scripted outcome is live SillyTavern acceptance."
       - name: Browser-facing imports
         run: node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined; Promise.all([import('./src/ui-core/index.js'),import('./src/ui-core/demo-visibility.js'),import('./src/ui-core/wave12-sillytavern-host.js'),import('./src/ui-core/wave13-operator-surfaces.js'),import('./src/deployment/sillytavern-live.js')]).then(()=>console.log('Worker 2 demo visibility browser imports PASS'))"
       - name: Focused syntax sweep

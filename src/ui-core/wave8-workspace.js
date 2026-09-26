@@ -66,7 +66,7 @@ function sceneLoreStrip(d,path,sources,ctx){
   loreCard.append(element(d,'span',{className:'a52-eyebrow',text:'Lore'}));
   if(lore){
     loreCard.append(sourceModeBadge(d,sources?.lore),element(d,'strong',{text:`${lore.sourceEntryCount??'—'} source entries`}),element(d,'span',{className:'a52-muted',text:`Representations: ${lore.learnedState??'unavailable'} · Index: ${lore.indexState??'unavailable'}`}),element(d,'span',{className:'a52-muted',text:`Revision: ${lore.lastRevision??'unavailable'}`}));
-    loreCard.append(createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave8-lore',id:lore.lastRevision??'lore',title:'Lore cognition',item:lore})}));
+    loreCard.append(createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'inspect',onPress:()=>inspectThroughRouter(ctx,{kind:'wave8-lore',id:lore.lastRevision??'lore',title:'Lore cognition',item:lore})}));
   }else loreCard.append(element(d,'strong',{text:'Lore learning status unavailable'}));
   grid.append(loreCard);return grid;
 }
@@ -163,7 +163,7 @@ function jevPrecisionDetail(d,path,ctx){
     const selected=j.selectedOptionIds.length?j.selectedOptionIds.join(', '):'none';
     jev.append(createKeyValue(d,[{key:'Selected/recommended',value:selected},{key:'Unresolved factors',value:j.unresolvedFactors.length},{key:'Owner settlement',value:j.ownerSettlement?.status??(j.requiresOwnerSettlement?'PENDING':'separate / not claimed')}]));
     jev.append(element(d,'p',{className:'a52-muted',text:'Jev is advisory cognition. A Jev selection is not automatically canon or Settlement.'}));
-    jev.append(createButton(d,{label:'Inspect Jev evidence',scope:ctx.scope,variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave8-jev',id:j.receiptId??'jev',title:'Jev decision',item:j})}));
+    jev.append(createButton(d,{label:'Inspect Jev evidence',scope:ctx.scope,variant:'inspect',onPress:()=>inspectThroughRouter(ctx,{kind:'wave8-jev',id:j.receiptId??'jev',title:'Jev decision',item:j})}));
   }
   wrap.append(jev);
 

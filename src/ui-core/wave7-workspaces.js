@@ -145,7 +145,7 @@ function whySummary(d,x,ctx){
   card.append(element(d,'p',{text:`${x.sections.length} context section records · ${counts.REUSED??0} reused · ${counts.UPDATED??0} updated · ${counts.REBUILT??0} rebuilt · ${counts.DROPPED??0} dropped · ${counts.DEFERRED??0} deferred.`}));
   if(x.reasons.length){const ul=element(d,'ul',{className:'a52-why-list'});for(const row of x.reasons.slice(0,8))ul.append(element(d,'li',{text:`${human(row.slot)} — ${row.reason}`}));card.append(ul);}
   if(x.unavailableReasonCount)card.append(state(d,'Some reasons were not published',`${x.unavailableReasonCount} section${x.unavailableReasonCount===1?' has':'s have'} state/revision data but no owner-provided explanation. Area-52 will not invent one.`));
-  card.append(createButton(d,{label:'Inspect generation',scope:ctx.scope,variant:'quiet',onPress:()=>inspect(ctx,{kind:'wave7-generation',id:x.generationId,title:x.generationId??'Generation',generation:x})}));
+  card.append(createButton(d,{label:'Inspect generation',scope:ctx.scope,variant:'inspect',onPress:()=>inspect(ctx,{kind:'wave7-generation',id:x.generationId,title:x.generationId??'Generation',generation:x})}));
   return card;
 }
 
@@ -158,7 +158,7 @@ function contextSections(d,x,detail,ctx){
     if(explanation.reason)card.append(element(d,'p',{className:'a52-muted',text:explanation.reason}));else card.append(element(d,'p',{className:'a52-muted',text:'Reason not published by the owning context model.'}));
     if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Priority',value:explanation.priority??'unavailable'},{key:'Tokens',value:number(explanation.actualTokens??explanation.estimatedTokens)},{key:'Representation',value:explanation.representation??'unavailable'},{key:'Cache eligible',value:explanation.cacheEligible==null?'unavailable':String(explanation.cacheEligible)}]));
     if(explanation.authority)card.append(createAuthorityPill(d,explanation.authority));
-    const actions=element(d,'div',{className:'a52-inline-status'});actions.append(createButton(d,{label:'Why?',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>why(ctx,{section})}),createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-context-section',id:`${x.generationId}:${section.slot}`,title:human(section.slot),section,generationId:x.generationId})}));card.append(actions);root.append(card);
+    const actions=element(d,'div',{className:'a52-inline-status'});actions.append(createButton(d,{label:'Why?',scope:ctx.scope,size:'sm',variant:'quiet',onPress:()=>why(ctx,{section})}),createButton(d,{label:'Inspect',scope:ctx.scope,size:'sm',variant:'inspect',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-context-section',id:`${x.generationId}:${section.slot}`,title:human(section.slot),section,generationId:x.generationId})}));card.append(actions);root.append(card);
   }
   return root;
 }
@@ -170,7 +170,7 @@ function sealCard(d,x,forensic,detail,ctx){
   card.append(element(d,'div',{className:'a52-inline-status'},makeBadge(d,'SEALED','canonical'),makeBadge(d,expl.fallbackState??'NONE',expl.fallbackState&&expl.fallbackState!=='NONE'?'warning':'ready')),element(d,'p',{text:expl.summary}));
   card.append(createKeyValue(d,[{key:'Accepted',value:expl.accepted},{key:'Rejected',value:expl.rejected},{key:'Stale',value:expl.stale},{key:'Late',value:expl.late}]));
   if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Seal',value:expl.sealId},{key:'Turn',value:expl.turnId},{key:'World / Scene revision',value:`${expl.revisionFences.worldRevision??'—'} / ${expl.revisionFences.sceneRevision??'—'}`},{key:'Source revisions',value:expl.revisionFences.sourceRevisionRefs.join(', ')||'none'}]));
-  if(detail===ProductDetailLevel.ADVANCED)card.append(createButton(d,{label:'Inspect seal',scope:ctx.scope,variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-generation',id:expl.sealId,title:'Context Seal',payload:seal})}));
+  if(detail===ProductDetailLevel.ADVANCED)card.append(createButton(d,{label:'Inspect seal',scope:ctx.scope,variant:'inspect',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-generation',id:expl.sealId,title:'Context Seal',payload:seal})}));
   return card;
 }
 
@@ -187,7 +187,7 @@ function diffCard(d,diff,ctx){
 function conflictCard(d,conflict,ctx){
   const card=element(d,'article',{className:'a52-card a52-unresolved-card'});card.append(element(d,'div',{className:'a52-inline-status'},makeBadge(d,'UNRESOLVED','warning'),createAuthorityPill(d,conflict.authority)),element(d,'h3',{text:`${conflict.subjectId??'Unknown subject'} · ${conflict.predicate??'unknown claim'}`}),element(d,'p',{text:'Area-52 preserved disagreement; no winning alternative is implied.'}));
   if(conflict.alternatives.length)card.append(list(d,conflict.alternatives.map(x=>typeof x==='string'?x:JSON.stringify(x))));else card.append(element(d,'p',{className:'a52-muted',text:'Competing alternatives were not expanded in the available read model.'}));
-  card.append(createButton(d,{label:'Inspect evidence',scope:ctx.scope,variant:'quiet',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-unresolved-conflict',id:conflict.id,title:'Unresolved evidence',conflict})}));return card;
+  card.append(createButton(d,{label:'Inspect evidence',scope:ctx.scope,variant:'inspect',onPress:()=>inspectThroughRouter(ctx,{kind:'wave7-unresolved-conflict',id:conflict.id,title:'Unresolved evidence',conflict})}));return card;
 }
 
 function forensicFilters(d,ctx,timeline){

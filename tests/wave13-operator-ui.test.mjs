@@ -365,6 +365,19 @@ test('activity feed is exact-selection fenced and old-chat notices cannot inspec
 });
 
 
+test('local evidence journal survives UI reload with the same browser storage and remains exportable',()=>{
+  const owner=liveOwner(),storage=memory(),selection=owner.bindings.readSelection();
+  const first=mount(owner,{storage});first.ui.scheduler.flush(1);first.ui.operator.captureEvidence();
+  const before=first.ui.operator.evidenceJournal.readTurn(selection);assert.ok(before);assert.ok(before.entries.length>0);first.ui.destroy();
+  const second=mount(owner,{storage});second.ui.scheduler.flush(2);
+  const after=second.ui.operator.evidenceJournal.readTurn(selection);assert.ok(after);assert.equal(after.key,before.key);assert.ok(after.entries.length>=before.entries.length);
+  second.ui.shell.selectWorkspace('settings');second.ui.scheduler.flush(3);
+  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Local evidence journal/);assert.match(body,/Export selected turn evidence/);
+  const exported=second.ui.operator.evidenceJournal.exportEvidence({selection});assert.equal(exported.turns.length,1);assert.equal(exported.safety.rawPromptsPersisted,false);
+  second.ui.destroy();
+});
+
+
 test('Memory no-evidence owner code is translated to plain language while the code remains inspectable',()=>{
   const owner=liveOwner();owner.bindings.readMemoryStatus=()=>({kind:'MemoryStatus',reasonCode:'MEMORY_NO_EVIDENCE_FOR_SELECTED_CHAT',...owner.bindings.readSelection()});
   const{ui}=mount(owner),stage=ui.operator.operations.read().stages.find(x=>x.id==='memory');
@@ -442,7 +455,7 @@ test('Connections preserves independent non-secret drafts when another slot beco
   ui.destroy();
 });
 
-test('Connections maps logical fan-out to physical resources and shows owner Gather disposition',()=>{
+test('Connections maps logical fan-out to resource identities and shows owner Gather disposition',()=>{
   const owner=liveOwner({withResources:true}),selection=owner.bindings.readSelection();
   owner.bindings.readScatter=()=>({kind:'RuntimeScatterReceipt',receiptId:'scatter:1',jobs:[
     {taskId:'job:a',capability:'LORE_RETRIEVAL',state:'COMPLETE',resourceId:'sidecar:local'},

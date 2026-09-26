@@ -1,0 +1,84 @@
+name: Worker2 Layered Scatter Jev Wave
+
+on:
+  push:
+    branches: [Development-Worker2-Layered-Scatter-Jev-Wave1]
+    paths:
+      - 'src/coprocessor/**'
+      - 'tests/worker2-layered-scatter-*'
+      - 'docs/WORKER2_LAYERED_SCATTER_JEV_WAVE.md'
+      - '.github/workflows/worker2-layered-scatter-jev.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/coprocessor/**'
+      - 'tests/worker2-layered-scatter-*'
+      - 'docs/WORKER2_LAYERED_SCATTER_JEV_WAVE.md'
+      - '.github/workflows/worker2-layered-scatter-jev.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Worker2 layered Scatter and Jev evidence
+        run: node --test tests/worker2-layered-scatter-jev.test.mjs
+      - name: Preserve native Sidecar swarm contracts
+        run: npm run test:wave15
+      - name: Preserve resource Jev Vectoring contracts
+        run: npm run test:wave16
+      - name: Preserve standing resource and telemetry wiring
+        run: npm run test:wave19
+      - name: Preserve backend runtime closure and Jev owner seam
+        run: npm run test:wave20
+      - name: Real Chromium burst comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          test -n "$CHROME"
+          python3 -m http.server 8765 >/tmp/area52-worker2-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --disable-background-timer-throttling --enable-precise-memory-info --js-flags=--expose-gc --virtual-time-budget=30000 --dump-dom http://127.0.0.1:8765/tests/worker2-layered-scatter-browser.html > worker2-browser-dump.html
+          grep -q 'data-status="PASS"' worker2-browser-dump.html
+          python3 - <<'PY'
+          import html, json, re
+          text=open('worker2-browser-dump.html',encoding='utf-8').read()
+          match=re.search(r'<pre id="results">(.*?)</pre>',text,re.S)
+          if not match:
+              raise SystemExit('benchmark result block missing')
+          payload=json.loads(html.unescape(match.group(1)))
+          print(json.dumps(payload,indent=2))
+          open('worker2-browser-results.json','w',encoding='utf-8').write(json.dumps(payload,indent=2)+'\n')
+          PY
+      - name: Full regression
+        run: npm test
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor browser-facing import
+        run: node -e "globalThis.Buffer=undefined; import('./src/coprocessor/index.js').then(()=>console.log('WORKER2 COPROCESSOR IMPORT PASS'))"
+      - name: Upload browser benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker2-layered-scatter-browser-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            worker2-browser-dump.html
+            worker2-browser-results.json
+          if-no-files-found: ignore

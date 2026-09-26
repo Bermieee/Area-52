@@ -219,3 +219,12 @@ test('Worker 1 #262 Memory cannot infer owner acceptance when adapter returns no
   const expected=brain.uiBindings().readExpectedWork({chatId:'chat:memory-no-receipt',turnId:'memory-no-receipt:1',generationId:'gen:memory-no-receipt:1'}),row=expected.items.find(item=>item.owner==='MEMORY');
   assert.ok(row);assert.equal(row.status,'DUE');assert.equal(row.reasonCode,'NO_EVIDENCE');assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED));assert.equal(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.OWNER_ADMISSION),false);
 });
+
+test('Worker 1 #263 Runtime result envelope preserves causal chat/generation/revision fences when obligation fields are absent',async()=>{
+  const captured=[];
+  const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:1},resultSink:(row)=>captured.push(row)});
+  director.registerWorker({workerId:'local-fence',capabilities:[CAPABILITIES.CPU_ANALYSIS],supportedLayers:['L1'],resourceProfile:{CPU:1},provider:'AREA52_NATIVE',implementationId:'fence-test',concurrencyCapacity:1,foregroundEligible:true,backgroundEligible:true});
+  director.submit({taskType:'FENCE_TEST',owner:'COGNITIVE_CORE',producerId:'COGNITIVE_CHOICE',layer:'L1',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'fence:test',cause:{chatId:'chat:fence',turnId:'turn:fence',generationId:'gen:fence',correlationId:'corr:fence',eventId:'event:fence',sourceRevisionRefs:['scene:fence:r4'],worldRevision:7,sceneRevision:4}},{execute:async()=>['ok'],validate:async()=>true,commit:async()=>({output:{ok:true},validation:{valid:true}})});
+  await director.drain({maxCycles:32});
+  const result=captured.at(-1);assert.ok(result);assert.equal(result.chatId,'chat:fence');assert.equal(result.turnId,'turn:fence');assert.equal(result.generationId,'gen:fence');assert.equal(result.correlationId,'corr:fence');assert.equal(result.causationId,'event:fence');assert.deepEqual(result.sourceRevisionIds,['scene:fence:r4']);assert.equal(result.worldRevision,7);assert.equal(result.sceneRevision,4);
+});

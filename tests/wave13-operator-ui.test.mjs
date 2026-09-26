@@ -876,7 +876,7 @@ test('Worker 4 v2 lifecycle gates Settlement behind review Final Preview and exp
   const findButton=label=>walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
   assert.equal(Boolean(findButton('Apply approved Settlement')),false);
   findButton('Start reviewed Tree build').dispatch('click');await Promise.resolve();ui.scheduler.flush(3);
-  assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Accept').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
+  assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Approve').dispatch('click');await Promise.resolve();ui.scheduler.flush(4);
   findButton('Compute revision-fenced Final Preview').dispatch('click');await Promise.resolve();ui.scheduler.flush(5);
   assert.equal(Boolean(findButton('Apply approved Settlement')),false);findButton('Approve current Final Preview').dispatch('click');await Promise.resolve();ui.scheduler.flush(6);
   assert.ok(findButton('Apply approved Settlement'));findButton('Apply approved Settlement').dispatch('click');await Promise.resolve();ui.scheduler.flush(7);

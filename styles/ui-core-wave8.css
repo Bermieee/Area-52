@@ -45,3 +45,17 @@
 @media(max-width:760px){.a52-wave8-status-grid,.a52-wave8-detail-grid,.a52-wave8-summary{grid-template-columns:1fr}.a52-wave8-pipeline__flow{grid-template-columns:repeat(2,minmax(0,1fr))}.a52-wave8-stage{min-height:82px}.a52-wave8-decision-row,.a52-wave8-truth-row,.a52-wave8-gather-row{grid-template-columns:auto minmax(0,1fr)}}
 @media(max-width:440px){.a52-wave8-pipeline__flow{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.a52-wave8-stage,.a52-wave8-list-row,.a52-wave8-decision-row,.a52-wave8-gather-row{transition:none!important;animation:none!important}}
+
+
+/* Worker 3 selected-turn Brain decision visibility */
+.a52-brain-decision-visibility{display:grid;gap:10px;min-width:0}
+.a52-brain-decision-block{display:grid;gap:7px;min-width:0;padding-top:4px}
+.a52-brain-decision-block h3{margin:0;font-size:.86rem}
+.a52-brain-decision-list,.a52-brain-candidate-flow{display:grid;gap:6px;max-height:360px;overflow:auto;overscroll-behavior:contain}
+.a52-brain-decision-row{display:grid;grid-template-columns:auto minmax(110px,.8fr) minmax(160px,1.7fr);gap:8px;align-items:center;padding:7px 8px;border:1px solid var(--a52-border-soft);border-radius:8px;background:rgba(6,16,25,.45);font-size:.74rem}
+.a52-brain-candidate-row{display:grid;grid-template-columns:minmax(110px,.8fr) minmax(120px,1fr) minmax(150px,1.4fr);gap:8px;align-items:center;padding:7px 8px;border:1px solid var(--a52-border-soft);border-radius:8px;background:rgba(6,16,25,.45);font-size:.72rem}
+.a52-brain-candidate-row code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--a52-muted)}
+.a52-brain-candidate-flow__row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 8px;border:1px solid var(--a52-border-soft);border-radius:8px;background:rgba(6,16,25,.45);font-size:.72rem}
+.a52-brain-candidate-flow__row strong{min-width:120px;margin-right:4px}
+.a52-brain-delivery-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media(max-width:760px){.a52-brain-delivery-grid{grid-template-columns:1fr}.a52-brain-decision-row,.a52-brain-candidate-row{grid-template-columns:1fr}.a52-brain-decision-list,.a52-brain-candidate-flow{max-height:300px}}

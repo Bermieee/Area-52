@@ -34,7 +34,8 @@ Repair:
 - Added exact-chat `LoreStoryAuthorityRegistry`.
 - Discovery, acceptance-for-study, read authorization, learned/current, retrieval-ready, and candidate eligibility are now separate claims.
 - SillyTavern discovery already carries `discovery.chatId`; explicit acceptance binds that discovered Lorebook to that exact chat.
-- The live owner channel forwards the turn's exact `chatId`.
+- The live owner channel forwards the turn's exact `chatId` through the scoped owner query.
+- A missing chat identity is rejected before owner retrieval can fall back to any global Lore query.
 - An unbound/imported chat fails closed with `LORE_STORY_SCOPE_REQUIRED`.
 - An accepted Lorebook can be removed from a story's read scope without altering authored Lore.
 - Lore never gains Truth, Gather, Context Seal, settlement, mutation, or host-prompt authority.
@@ -81,6 +82,7 @@ Repair:
 - unchanged accepted snapshots reuse current study/index state;
 - no new study obligations are created;
 - ontology/hierarchy/retrieval maintenance is skipped with `maintenanceReason: NO_SOURCE_REVISION_CHANGE`;
+- a repeated `runStudy({scope:'DUE'})` with zero due obligations also skips ontology/hierarchy/retrieval rebuild work with `maintenanceReason: NO_DUE_STUDY`;
 - changed/removed source revisions still force freshness maintenance immediately.
 
 Worker 2 should profile call frequency and browser cost in the installed client. This repair removes the Lore-owned redundant rebuild but does not claim to solve non-Lore UI/journal/browser costs.
@@ -150,9 +152,10 @@ For provenance loss, compare:
 
 For performance:
 1. accept/study a large Lorebook once;
-2. submit the identical full snapshot again;
-3. verify acceptance reports `sourceRevisionChanged:false`, `maintenancePerformed:false`, `dueStudyObligations:0`;
-4. profile installed-client call frequency and total time around discovery/acceptance/retrieval separately.
+2. call `runStudy({scope:'DUE'})` again after all 105 entries are current and verify `requested:0`, `maintenancePerformed:false`, `maintenanceReason:NO_DUE_STUDY`;
+3. submit the identical full snapshot again;
+4. verify acceptance reports `sourceRevisionChanged:false`, `maintenancePerformed:false`, `dueStudyObligations:0`;
+5. profile installed-client call frequency and total time around discovery/acceptance/study/retrieval separately.
 
 ## Worker 3 producer contract
 

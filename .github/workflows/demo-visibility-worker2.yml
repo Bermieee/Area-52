@@ -39,9 +39,8 @@ jobs:
         id: baseline_installed_host
         continue-on-error: true
         run: |
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          test "$(git rev-parse origin/main)" = "1e4938b8eb10ad86f83417fad5056b00f31972a9"
-          git checkout --detach origin/main
+          git fetch --no-tags --depth=1 origin ea5ed40c00f521ab5342c15ba26f464447a50964
+          git checkout --detach FETCH_HEAD
           node --test tests/deployment-live-host.test.mjs
       - name: Restore exact Worker 2 head
         run: git checkout --detach "$GITHUB_SHA"

@@ -63,6 +63,7 @@ export class ObligationProducerRegistry {
       foreground: request.foreground,
       payload: request.payload ?? {},
       producerId,
+      cause: request.cause ?? null,
     };
     return this.director.submit(obligation, { ...executor, units: request.units ?? executor.units });
   }
@@ -74,8 +75,9 @@ export class ObligationProducerRegistry {
     const unsubscribe = this.director.events.subscribe(eventType, (event) => {
       const request = mapEvent(event);
       if (!request) return;
-      const executor = executorFactory(event, request);
-      this.produce(producerId, request, executor);
+      const mapped = { ...request, cause: request.cause ?? { eventType: event.eventType, eventId: event.eventId, correlationId: event.correlationId, turnId: event.turnId } };
+      const executor = executorFactory(event, mapped);
+      this.produce(producerId, mapped, executor);
     });
     const binding = { eventType, producerId, unsubscribe };
     this.bindings.push(binding);

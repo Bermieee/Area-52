@@ -120,6 +120,10 @@ export class WorkerDirector {
       return admission;
     }
     const taskId = admission.task.taskId;
+    this.telemetry.emit(admission.deduped ? 'OBLIGATION_DEDUPED' : admission.coalesced ? 'OBLIGATION_COALESCED' : 'OBLIGATION_ADMITTED', {
+      taskId, taskType: admission.task.taskType, owner: admission.task.owner,
+      producerId: admission.task.producerId, cause: admission.task.cause,
+    });
     if (admission.coalesced) {
       this.batch.append(taskId, units);
       return admission;
@@ -280,6 +284,11 @@ export class WorkerDirector {
         lifecycleStatus: record.lifecycleStatus,
         executionStatus: record.executionStatus,
         layer: record.obligation.layer,
+        owner: record.obligation.owner,
+        taskType: record.obligation.taskType,
+        producerId: record.obligation.producerId ?? null,
+        cause: structuredClone(record.obligation.cause ?? null),
+        why: record.executionReason ?? record.lifecycleReason ?? null,
         degradation: structuredClone(record.degradation),
       })),
       queueDepth: this.scheduler.depthByLayer(),
@@ -288,6 +297,34 @@ export class WorkerDirector {
       dependencies: this.dependencies.snapshot(),
       eventTypes: this.eventTypes.list(),
       telemetry: this.telemetry.snapshot(),
+    };
+  }
+
+  explainObligation(taskId) {
+    const record = this.ledger.get(taskId);
+    if (!record) return null;
+    const signals = this.telemetry.list().filter((signal) => signal.taskId === taskId);
+    const communications = signals.flatMap((signal) => {
+      if (signal.type === 'OBLIGATION_ADMITTED') return [{ from: record.obligation.owner, to: 'Runtime', action: 'OBLIGATION_ADMITTED', sequence: signal.sequence }];
+      if (signal.type === 'WORK_STARTED' || signal.type === 'WORK_RESUMED') return [{ from: 'Runtime', to: signal.workerId, action: signal.type, sequence: signal.sequence }];
+      return [];
+    });
+    if (!communications.some((item) => item.action === 'OBLIGATION_ADMITTED')) {
+      communications.unshift({ from: record.obligation.owner, to: 'Runtime', action: 'OBLIGATION_ADMITTED', sequence: record.createdSequence });
+    }
+    if (record.startedCount > 0 && record.negotiation?.workerId && !communications.some((item) => item.to === record.negotiation.workerId)) {
+      communications.push({ from: 'Runtime', to: record.negotiation.workerId, action: 'WORK_STARTED', sequence: record.updatedSequence });
+    }
+    return {
+      taskId, taskType: record.obligation.taskType, owner: record.obligation.owner,
+      producerId: record.obligation.producerId ?? null, cause: structuredClone(record.obligation.cause ?? null),
+      lifecycleStatus: record.lifecycleStatus, executionStatus: record.executionStatus,
+      why: record.executionReason ?? record.lifecycleReason ?? (record.lifecycleStatus === LIFECYCLE_STATUS.SATISFIED ? 'completed-and-satisfied' : null),
+      dependencies: record.dependencies.map((id) => ({ taskId: id, lifecycleStatus: this.ledger.get(id)?.lifecycleStatus ?? 'MISSING' })),
+      sourceRevisionIds: [...(record.obligation.sourceRevisionIds ?? [])],
+      completedSlices: record.batch?.completedSliceIds?.length ?? 0,
+      resultReceiptCount: record.resultReceipts.length,
+      communications,
     };
   }
 

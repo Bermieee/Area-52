@@ -1,5 +1,6 @@
 import { DeepCognitionRuntime } from './deep-cognition.js';
 import { ObligationProducerRegistry } from './obligation-producers.js';
+import { CognitiveObligationReconciler } from './obligation-reconciler.js';
 import { NativeTurnRuntime } from './native-swarm.js';
 import { SleepMaintenanceRuntime } from './sleep-runtime.js';
 
@@ -10,6 +11,7 @@ export class CognitiveRuntimeHost {
     this.deep = new DeepCognitionRuntime({ director });
     this.sleep = new SleepMaintenanceRuntime({ director, ...sleep });
     this.producers = new ObligationProducerRegistry({ director });
+    this.obligations = new CognitiveObligationReconciler({ director });
     this.native = new NativeTurnRuntime({ director, ...native });
   }
 

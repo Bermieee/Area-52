@@ -79,7 +79,7 @@ function workspaceHeader(d,caps){
 
 function renderSourceBrowser(d,{state,book,books,sources,selectedSnapshot,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-browser'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'1. Source identity · selected Lorebook · exact entries · human tree'}),makeBadge(d,'AUTHORED SOURCE','observed')));
+  root.append(sectionHead(d,'1. Source identity · selected Lorebook · exact entries · human tree','AUTHORED SOURCE','observed'));
   const verification=verifySelectedLorebook({selectedSnapshot,ownerBook:book});
   root.append(message(d,verification.verified?'Selected Lorebook verified':'Lorebook verification incomplete',verification.reason,verification.verified?'ready':verification.state==='LOREBOOK_MISMATCH'||verification.state==='SOURCE_SET_MISMATCH'?'warning':'historical'));
   root.append(createKeyValue(d,[
@@ -123,7 +123,7 @@ function renderSourceBrowser(d,{state,book,books,sources,selectedSnapshot,scope,
 
 function renderProposalComposer(d,{state,book,sources,source,exact,caps,chatId,actionRouter,scope,refresh}){
   const root=element(d,'section',{className:'a52-card a52-lore-proposal-composer'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'2. Evidence-led proposal queue'}),makeBadge(d,'PREVIEW · NOT COMMITTED','historical')),
+  root.append(sectionHead(d,'2. Evidence-led proposal queue','PREVIEW · NOT COMMITTED','historical'),
     element(d,'p',{className:'a52-muted',text:'Draft create/update/delete/merge/split/move/place proposals locally. Approval is disabled unless Worker 4 publishes the matching owner-reviewed action path.'}));
 
   const grid=element(d,'div',{className:'a52-lore-proposal-form'});
@@ -160,7 +160,7 @@ function renderProposalComposer(d,{state,book,sources,source,exact,caps,chatId,a
     const queueList=element(d,'div',{className:'a52-lore-proposal-queue'});
     for(const proposal of state.queuedProposals.slice(-40)){
       const pathState=proposalOwnerPath(proposal,caps),card=element(d,'article',{className:'a52-card a52-lore-proposal-card'});
-      card.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'strong',{text:human(proposal.proposalKind)}),makeBadge(d,'PREVIEW · NOT COMMITTED','historical')),
+      card.append(sectionHead(d,human(proposal.proposalKind),'PREVIEW · NOT COMMITTED','historical','strong'),
         createKeyValue(d,[
           {key:'Source revision',value:proposal.baseSourceRevisionId??'New source'},{key:'Owner path',value:human(pathState)},
           {key:'Scope',value:proposal.scope??'Not published'},{key:'Temporal',value:proposal.temporalState??'Not published'},{key:'Contradiction',value:proposal.contradictionState??'Not published'},
@@ -185,7 +185,7 @@ function renderProposalComposer(d,{state,book,sources,source,exact,caps,chatId,a
 
 function renderOwnerImpactPreview(d,{state,source,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-impact'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'3. Edit-impact preview'}),makeBadge(d,'OWNER PREVIEW · NOT COMMITTED','historical')),
+  root.append(sectionHead(d,'3. Edit-impact preview','OWNER PREVIEW · NOT COMMITTED','historical'),
     element(d,'p',{className:'a52-muted',text:'Ask Worker 4 to evaluate the currently drafted source edit. This preview may describe semantic/invalidation impact but cannot mutate authored canon.'}));
   const caps=loreAuthoring.capabilities();
   root.append(createButton(d,{label:'Preview edit impact with Worker 4',scope,size:'sm',disabled:!caps.previewEdit||!source||!String(state.proposalContent??'').trim(),onPress:async()=>{
@@ -210,7 +210,7 @@ function renderOwnerImpactPreview(d,{state,source,loreAuthoring,actionRouter,sco
 
 function renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-tree'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'4. Tree Builder proposal'}),makeBadge(d,'OWNER PROPOSALS','observed')),
+  root.append(sectionHead(d,'4. Tree Builder proposal','OWNER PROPOSALS','observed'),
     element(d,'p',{className:'a52-muted',text:'Worker 4 owns taxonomy/placement generation and revision fences. The UI reviews proposals; Tree placement remains author-facing navigation rather than semantic truth.'}));
   const caps=loreAuthoring.capabilities();
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
@@ -232,7 +232,7 @@ function renderOwnerTreeBuilder(d,{state,book,loreAuthoring,actionRouter,scope,r
 
 function renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,scope,refresh,detail}){
   const root=element(d,'section',{className:'a52-card a52-lore-owner-merge'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'5. Merge / reconciliation preview'}),makeBadge(d,'OWNER PREVIEW · NOT COMMITTED','historical')),
+  root.append(sectionHead(d,'5. Merge / reconciliation preview','OWNER PREVIEW · NOT COMMITTED','historical'),
     element(d,'p',{className:'a52-muted',text:'Compare studied Lorebooks through Worker 4. Similarity and reconciliation are advisory until the reviewed lifecycle reaches a successful owner Settlement.'}));
   const others=(books??[]).filter(row=>row.lorebookId!==book.lorebookId),select=field(d,'select','Merge comparison lorebook');
   select.append(option(d,'','Choose second Lorebook'));for(const row of others)select.append(option(d,row.lorebookId,row.title??row.lorebookId));select.value=state.mergeBookId??'';
@@ -261,7 +261,7 @@ function renderOwnerMergePreview(d,{state,book,books,loreAuthoring,actionRouter,
 
 function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRouter,scope,refresh,detail,chatId}){
   const root=element(d,'section',{className:'a52-card a52-lore-review-lifecycle'});
-  root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h3',{text:'6. Draft Review → Final Preview → owner Settlement'}),makeBadge(d,state.sessionId?'REVIEW SESSION':'NO ACTIVE SESSION',state.sessionId?'observed':'historical')),
+  root.append(sectionHead(d,'6. Draft Review → Final Preview → owner Settlement',state.sessionId?'REVIEW SESSION':'NO ACTIVE SESSION',state.sessionId?'observed':'historical'),
     element(d,'p',{className:'a52-muted',text:'Approve means “record ACCEPT with Worker 4.” It does not mean committed. Only a successful owner Settlement receipt is shown as committed.'}));
   if(!state.sessionId){root.append(message(d,'No active reviewed session','Queue owner-supported source proposals or start Worker 4 Tree Builder above.','historical'));return root;}
 
@@ -300,7 +300,7 @@ function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRoute
     const list=element(d,'div',{className:'a52-lore-review-cards'});
     for(const action of visible){
       const summary=summarizeLoreReviewAction(action),card=element(d,'article',{className:'a52-card a52-lore-review-card'});
-      card.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'strong',{text:human(summary.action??'Authoring action')}),makeBadge(d,action.decision?human(action.decision):'DECISION REQUIRED',action.decision?'observed':'warning'),makeBadge(d,summary.materialized?'MATERIALIZED BY OWNER':'PREVIEW · NOT COMMITTED',summary.materialized?'ready':'historical')));
+      card.append(reviewCardHead(d,summary,action));
       card.append(createKeyValue(d,[
         {key:'Source revision refs',value:summary.sourceRevisionRefs.length?summary.sourceRevisionRefs.join(', '):'NO_EVIDENCE'},
         {key:'Provenance / evidence refs',value:summary.provenanceRefs.length},{key:'Scope',value:summary.scope??chatId??'Not published'},
@@ -322,7 +322,7 @@ function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRoute
 
   const finalPreview=valueOf(loreAuthoring.finalPreview({sessionId:state.sessionId}));
   if(finalPreview){
-    root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h4',{text:'Final Preview'}),makeBadge(d,'PREVIEW · NOT COMMITTED','historical')),
+    root.append(sectionHead(d,'Final Preview','PREVIEW · NOT COMMITTED','historical','h4'),
       createKeyValue(d,[{key:'Validation',value:finalPreview.validation?.ok?'PASS':'FAIL'},{key:'Operations',value:finalPreview.operations?.length??0},{key:'Semantic preflight',value:finalPreview.authoritativeSemanticPreflight?'PASS':'Not published / failed'},{key:'Explicit approval required',value:finalPreview.explicitApprovalRequired?'Yes':'No'},{key:'Final Preview ID',value:finalPreview.finalPreviewId??'—'}]));
     if(finalPreview.validation?.failures?.length)root.append(message(d,'Commit-time revalidation blocked',finalPreview.validation.failures.join(', '),'warning'));
   }
@@ -333,7 +333,7 @@ function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRoute
   const settlementId=state.settlementId??progress.settlement?.settlementId??null,settlement=settlementId?valueOf(loreAuthoring.settlement({settlementId})):null;
   if(settlement){
     const committed=String(settlement.state)==='SETTLED';
-    root.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h4',{text:'Owner Settlement receipt'}),makeBadge(d,committed?'COMMITTED BY OWNER':human(settlement.state??'PENDING'),committed?'ready':'warning')),
+    root.append(sectionHead(d,'Owner Settlement receipt',committed?'COMMITTED BY OWNER':human(settlement.state??'PENDING'),committed?'ready':'warning','h4'),
       createKeyValue(d,[{key:'State',value:human(settlement.state??'UNKNOWN')},{key:'Applied',value:String(settlement.cursor??0)+' / '+String(settlement.operationCount??0)},{key:'Revision events',value:settlement.revisionEvents?.length??0},{key:'Invalidation receipts',value:settlement.invalidationReceipts?.length??0},{key:'Reconstructable',value:settlement.reconstructable?'Yes':'No'}]));
     if(settlement.lastError)root.append(message(d,'Settlement / commit failure',settlement.lastError.message??settlement.lastError.code??'Worker 4 rejected or failed the commit.','warning'));
     if(committed){
@@ -345,6 +345,15 @@ function renderReviewLifecycle(d,{state,book,loreStudy,loreAuthoring,actionRoute
     }
   }
   return root;
+}
+
+function sectionHead(d,title,badge,status='observed',tag='h3'){
+  const head=element(d,'div',{className:'a52-wave13-section-head'});head.append(element(d,tag,{text:title}),makeBadge(d,badge,status));return head;
+}
+function reviewCardHead(d,summary,action){
+  const head=element(d,'div',{className:'a52-wave13-section-head'});
+  head.append(element(d,'strong',{text:human(summary.action??'Authoring action')}),makeBadge(d,action.decision?human(action.decision):'DECISION REQUIRED',action.decision?'observed':'warning'),makeBadge(d,summary.materialized?'MATERIALIZED BY OWNER':'PREVIEW · NOT COMMITTED',summary.materialized?'ready':'historical'));
+  return head;
 }
 
 function previewBox(d,label,value){

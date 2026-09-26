@@ -292,7 +292,11 @@ export class Area52NativeBrain{
     if(sceneSignal||scene)this.observeScene(chat,sceneSignal??scene);
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
-    this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
+    this.ownerEvidence.clear();
+    // The Scene owner may carry a host revision that is not stored in the native SourceRegistry.
+    // Reset the external fence to this turn's accepted Scene revisions; retrieval channels merge
+    // their current owner revisions into the same fence instead of replacing the Scene evidence.
+    this.core.setExternalCurrentSourceRevisionRefs(sceneState.sourceRevisionRefs??[]);
     const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
     this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
     this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
@@ -319,7 +323,7 @@ export class Area52NativeBrain{
     const record={
       kind:'NativeBrainTurnRecord',turnId:turn,sequence,chatId:chat,generationId:generation,correlationId:corr,
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
-      worldRevision:published.worldRevision,sourceRevisionSet:this.core.currentSourceRevisionIds(),
+      worldRevision:published.worldRevision,sourceRevisionSet:this.core.currentSourceRevisionIds(),sceneSourceRevisionRefs:uniq(sceneState.sourceRevisionRefs??[]),
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal)},
       published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
@@ -462,7 +466,8 @@ export class Area52NativeBrain{
       readMemoryStatus:(selection={})=>this.#readStage(selection,record=>this.#memoryReadModel(record,selection)),
       readRuntimeStatus:()=>clone(this.runtimeDirector.snapshot()),
       readPromptPlan:(selection={})=>this.#readStage(selection,record=>record.delivery?.plan??null),
-      readContextReceipt:(selection={})=>this.#readStage(selection,record=>record.delivery?.receipt??record.delivery?.contextReceipt??null),
+      readContextReceipt:(selection={})=>this.#readStage(selection,record=>this.#contextReceipt(record)),
+      readSelectedTurnReceipt:(selection={})=>this.#readStage(selection,record=>this.#selectedTurnReceipt(record)),
       listGenerations:({limit=50,selection={}}={})=>this.#listGenerations({limit,selection}),
       readGeneration:({generationId,...selection}={})=>this.#readGeneration(generationId,selection),
     });
@@ -637,6 +642,48 @@ export class Area52NativeBrain{
   #selection(record){
     const ownerSourceRevisionRefs=uniq((record.sourceRevisionSet??[]).filter(ref=>!this.core.registry.getRevision(ref)));
     return{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,sceneId:record.sceneId,sceneRevision:record.sceneRevision,worldRevision:record.worldRevision,sourceRevisionRefs:[...record.sourceRevisionSet],ownerSourceRevisionRefs};
+  }
+
+  #contextReceipt(record){
+    if(!record?.published?.sealReceipt||!record?.delivery?.plan)return null;
+    const receipt=this.core.observation.contextReceipt({published:record.published,delivery:record.delivery});
+    return{
+      ...receipt,chatId:record.chatId,correlationId:record.correlationId,
+      sourceRevisionRefs:uniq([...(receipt.sourceRevisionRefs??[]),...(record.published.sealReceipt.sourceRevisionIds??[])]),
+    };
+  }
+
+  #selectedTurnReceipt(record){
+    const selection=this.#selection(record),scene=this.core.sceneIntegrationSnapshot(record.chatId),hot=this.core.hotCognitionSnapshot(record.chatId);
+    const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record);
+    const producer=(value,{id=null,reasonCodes=[]}={})=>({status:value?'PUBLISHED':'UNAVAILABLE',id:value?(id??value.receiptId??value.id??value.promptPlanId??value.kind??null):null,reasonCodes:uniq(reasonCodes).slice(0,16)});
+    const deferred=(plan?.deferred??[]).slice(0,16).map(row=>({slot:row.slot??null,reason:row.reason??null,requiredTokens:row.requiredTokens??null,remainingTokensAtDecision:row.remainingTokensAtDecision??null,shortfallTokens:row.shortfallTokens??null}));
+    const includedSlots=(context?.includedSections??[]).slice(0,32),selectedRefs=selection.sourceRevisionRefs.slice(0,128),sceneRefs=uniq(record.sceneSourceRevisionRefs??scene?.sourceRevisionRefs??[]).slice(0,32),sealRefs=uniq(seal?.sourceRevisionIds??[]).slice(0,128);
+    return{
+      kind:'NativeBrainSelectedTurnReceipt',contractVersion:1,...selection,
+      sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length},
+      producers:{
+        scene:producer(scene,{id:scene?.lastReceiptId??scene?.sceneId??null}),
+        hotCognition:producer(hot,{id:hot?.snapshotId??null}),
+        cognitiveChoice:producer(choice,{id:choice?.receiptId??choice?.id??null,reasonCodes:choice?.reasonCodes??[]}),
+        retrieval:producer(record.published?.candidateEnvelope,{id:record.published?.candidateEnvelope?.envelopeId??record.published?.candidateEnvelope?.id??null,reasonCodes:choice?.skippedJobs?.includes('RETRIEVAL')?(choice?.reasonCodes??[]):[]}),
+        gather:producer(gather,{id:gather?.receiptId??gather?.kind??null}),
+        contextSeal:producer(seal,{id:seal?.id??null}),
+        promptPlan:producer(plan,{id:plan?.promptPlanId??null}),
+        contextReceipt:producer(context,{id:context?.contextSealId??null}),
+      },
+      counts:{
+        admittedJobs:(choice?.admittedJobs??[]).length,skippedJobs:(choice?.skippedJobs??[]).length,
+        admittedResults:(gather?.admittedResultIds??[]).length,staleResults:(gather?.staleResultIds??[]).length,rejectedResults:(gather?.rejectedResultIds??[]).length,
+        plannedSections:(plan?.sections??[]).length,includedSections:includedSlots.length,deferredSections:deferred.length,
+      },
+      delivery:{
+        planned:plan?{state:'PLANNED',promptPlanId:plan.promptPlanId,contextSealId:plan.contextSealId,totalTokens:plan.budget?.allocated??null,budgetTotal:plan.budget?.total??null,budgetRemaining:plan.budget?.remaining??null,includedSlots,deferred}: {state:'UNAVAILABLE',reason:'PROMPT_PLAN_UNAVAILABLE'},
+        compiled:context?{state:'COMPILED_AND_SEALED',contextSealId:context.contextSealId,packetId:context.packetId??null,packetHash:context.packetHash??null,includedSlots:[...(context.includedSections??[])].slice(0,32),deferred:[...(context.deferredSections??[])].slice(0,16)}:{state:'UNAVAILABLE',reason:'CONTEXT_RECEIPT_UNAVAILABLE'},
+        hostObserved:{state:'UNAVAILABLE',reason:'HOST_OBSERVATION_OWNED_BY_SILLYTAVERN_BOUNDARY'},
+      },
+      rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+    };
   }
 
   #rememberOwnerEvidence(evidence){

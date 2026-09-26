@@ -67,7 +67,7 @@ The Connections workspace now persists one non-secret saved lock per optional ro
 
 On a fresh UI mount, saved profiles are rehydrated into Worker 2 as `CONFIGURED` resources when the owner inventory is empty. The UI then shows **SAVED LOCK** and preserves the endpoint/model/capability information instead of requiring the operator to re-enter it after every demo reload.
 
-Provider credentials are deliberately excluded. Worker 2 publishes `ResourceCredentialStorage.SESSION_MEMORY_ONLY`, so API keys/tokens are never serialized into UI state. An authenticated provider may therefore require only its session credential to be re-entered/requalified after a full reload; the rest of the connection profile remains saved.
+Provider credentials are deliberately excluded from Area-52 persistence. Worker 2 still publishes `ResourceCredentialStorage.SESSION_MEMORY_ONLY` for direct provider credentials, so API keys/tokens are never serialized into UI state. For the installed SillyTavern demo, Jev may instead bind to a SillyTavern Connection Manager profile. UI.Core persists only the Connection Profile ID/name; the deployment bridge supplies a host-managed provider adapter that sends requests through SillyTavern's ConnectionManagerRequestService, where the server-side secret reference remains owned by SillyTavern. Worker 2 receives `credentialRequired:false` only for this host-managed adapter and still requires a real probe before the resource becomes callable. If no Connection Manager profile is bound, the direct session-credential path remains unchanged.
 
 The operator can remove a saved lock without pretending the current owner record was mutated: **Forget saved lock** stops future persistence for that role during the current runtime, while the existing Worker 2 resource remains configured until the runtime reloads.
 
@@ -80,7 +80,7 @@ Until a director/operator runs a real installed turn, live behavior is **PENDING
 
 ## Automated acceptance coverage used by this wave
 
-- `tests/deployment-live-host.test.mjs`: direct host sequence, single listener topology, user-turn narrative event, generation preparation, prompt-ready injection, assistant completion, post-turn learning, cross-chat completion rejection, no raw prompt/response capture.
+- `tests/deployment-live-host.test.mjs`: direct host sequence, single listener topology, user-turn narrative event, generation preparation, prompt-ready injection, assistant completion, post-turn learning, cross-chat completion rejection, no raw prompt/response capture, and mounted Jev qualification through a SillyTavern Connection Manager profile without exposing its server-side secret reference.
 - `tests/wave12-sillytavern-host.test.mjs`: chat switching, stale-owner identity drop, remount/reload idempotence, missing Choice/Truth/Seal, Sensory unavailable vs owner-declared skip, late Gather/Seal containment, small-window workspace behavior.
 - `tests/wave13-operator-ui.test.mjs`: workspace navigation, cross-chat Scene containment, diagnostics following chat switches, Worker 2 connection/qualification lifecycle, Lore/Memory selected-chat presentation.
 - `tests/worker3-ui-producer-inspector-wave.test.mjs`: plan/injection/observation separation, raw-secret exclusion, foreign-generation delivery rejection, bounded forensic reconstruction, and regeneration containment.

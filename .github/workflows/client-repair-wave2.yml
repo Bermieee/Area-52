@@ -1,0 +1,57 @@
+name: Client Repair Wave 2
+
+on:
+  push:
+    branches:
+      - Development-Client-Repair-2
+  workflow_dispatch:
+
+concurrency:
+  group: client-repair-wave2-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  profile-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preserve exact-head profiler
+        run: cp scripts/client-repair-wave2-profile.mjs /tmp/client-repair-wave2-profile.mjs
+      - name: Profile exact published base
+        run: |
+          git fetch --no-tags --depth=1 origin 1bc78102eeafa8624be3726731e3f0038983d4a2
+          git checkout --detach 1bc78102eeafa8624be3726731e3f0038983d4a2
+          PROFILE_LABEL=before-main-1bc78102 node --expose-gc /tmp/client-repair-wave2-profile.mjs
+      - name: Restore exact repair head
+        run: git checkout --detach "$GITHUB_SHA"
+      - name: Profile exact repair head
+        run: PROFILE_LABEL=after-repair-head node --expose-gc scripts/client-repair-wave2-profile.mjs
+      - name: Focused Client Repair Wave 2 regressions
+        run: node --test tests/client-repair-wave2.test.mjs
+      - name: Existing durable journal and activity-feed acceptance
+        run: npm run test:demo-visibility
+      - name: Installed-host scripted lifecycle checks
+        run: node --test tests/deployment-live-host.test.mjs
+      - name: Host and operator stress checks
+        run: node --test tests/wave12-sillytavern-host-stress.mjs tests/wave13-operator-ui-stress.mjs
+      - name: Browser-facing imports
+        run: node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined; Promise.all([import('./src/ui-core/demo-visibility.js'),import('./src/coprocessor/telemetry.js'),import('./src/coprocessor/coprocessor-ui-read-model.js'),import('./src/deployment/sillytavern-live.js')]).then(()=>console.log('Client Repair Wave 2 browser imports PASS'))"
+      - name: Changed-surface syntax
+        run: |
+          node --check src/ui-core/demo-visibility.js
+          node --check src/coprocessor/telemetry.js
+          node --check src/coprocessor/coprocessor-ui-read-model.js
+          node --check src/deployment/sillytavern-live.js
+          node --check tests/client-repair-wave2.test.mjs
+          node --check scripts/client-repair-wave2-profile.mjs

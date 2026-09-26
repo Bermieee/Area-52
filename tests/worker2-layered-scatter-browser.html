@@ -3,8 +3,7 @@
 <head><meta charset="utf-8"><title>Worker2 Layered Scatter Browser Benchmark</title></head>
 <body data-status="RUNNING">
 <pre id="results">running</pre>
-<script>
-(async()=>{
+<script type="module">
   const longTasks=[];
   if(globalThis.PerformanceObserver?.supportedEntryTypes?.includes('longtask')){
     const observer=new PerformanceObserver(list=>{for(const entry of list.getEntries())longTasks.push({start:entry.startTime,duration:entry.duration});});
@@ -113,7 +112,6 @@
   },pass};
   document.getElementById('results').textContent=JSON.stringify(result,null,2);
   document.body.dataset.status=pass?'PASS':'FAIL';
-})();
 </script>
 </body>
 </html>

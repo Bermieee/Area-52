@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   DemoActivityFeedController,
   DemoEvidenceJournal,
+  OperatorLoadTrace,
+  Wave13DiagnosticsCenterAdapter,
   buildGenerationExplainability,
+  normalizeScatterReceipt,
 } from '../src/ui-core/index.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
@@ -89,4 +92,48 @@ test('activity feed click and keyboard expose exact selected-turn NO_EVIDENCE in
   assert.equal(inspected.evidenceState,'NO_EVIDENCE');
   assert.equal(inspected.selection.turnId,selection.turnId);
   feed.destroy();
+});
+
+
+test('bounded UI load trace keeps safe attribution only',()=>{
+  let tick=0;
+  const trace=new OperatorLoadTrace({maxSamples:8,clock:()=>tick++});
+  for(let i=0;i<20;i++)trace.record('UI_JOURNAL_PROCESS',i,{selection:{...selection,sourceRevisionRefs:['a','b']},details:{jobs:40,entries:64,rawPrompt:'SECRET',story:'SECRET'}});
+  const snapshot=trace.snapshot();
+  assert.equal(snapshot.retainedSamples,8);
+  assert.equal(snapshot.categories.UI_JOURNAL_PROCESS.count,8);
+  assert.equal(snapshot.recent.at(-1).details.jobs,40);
+  assert.equal(snapshot.recent.at(-1).details.entries,64);
+  assert.equal('rawPrompt' in snapshot.recent.at(-1).details,false);
+  assert.equal('story' in snapshot.recent.at(-1).details,false);
+  assert.equal(snapshot.rawPromptTelemetry,false);
+});
+
+test('journal diagnostics seam does not re-read Scatter PromptPlan Runtime Lore or Memory',()=>{
+  const calls={operations:0,resources:0,cognition:0,runtime:0,prompt:0,lore:0,memory:0};
+  const live={selection:()=>selection,diagnostics:()=>({reads:3,rejected:0})};
+  const adapter=new Wave13DiagnosticsCenterAdapter({
+    operations:{read(){calls.operations++;return{selection};}},
+    resources:{read(){calls.resources++;return{data:{resources:[{id:'jev:1',displayName:'Jev',kind:'JEV',physicalExecutionAttempted:true,physicalExecutionSucceeded:true,ownerAccepted:null}]};}},
+    cognition:{read(){calls.cognition++;return null;}},
+    loreStudy:{read(){calls.lore++;return null;}},
+    memory:{read(){calls.memory++;return null;}},
+    liveReceiptBinding:live,
+    productionAdapters:{runtime:{read(){calls.runtime++;return null;}},promptPlan:{read(){calls.prompt++;return null;}}},
+  });
+  const out=adapter.readJournalEvidence();
+  assert.equal(out.selection.generationId,selection.generationId);
+  assert.equal(out.resources.rows.length,1);
+  assert.deepEqual(calls,{operations:0,resources:1,cognition:0,runtime:0,prompt:0,lore:0,memory:0});
+  assert.equal(out.resources.rows[0].ownerAccepted,null);
+});
+
+test('layered Scatter telemetry is shown only when the owner publishes it',()=>{
+  const none=normalizeScatterReceipt({receiptId:'scatter:none',turnId:selection.turnId,jobs:[]});
+  assert.equal(none.layeredTelemetry,null);
+  const receipt=normalizeScatterReceipt({
+    receiptId:'scatter:waves',turnId:selection.turnId,jobs:[],
+    layeredTelemetry:[{waveId:'hot-1',trigger:'CHOICE_REQUIRED',durationMs:12.5,concurrency:3,deferredCount:2,jobCount:4}],
+  });
+  assert.deepEqual(receipt.layeredTelemetry,[{waveId:'hot-1',trigger:'CHOICE_REQUIRED',startedAt:null,completedAt:null,durationMs:12.5,concurrency:3,deferred:2,jobs:4}]);
 });

@@ -163,6 +163,32 @@ test('Worker 1 Scatter load probe measures eager pre-Seal queue pressure without
   host.native.close();
 });
 
+test('Worker 1 layered Scatter probe cuts pre-Seal queue pressure without adding foreground provider work',async()=>{
+  const run=async(label,{layered=false}={})=>{
+    const director=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:0}}),host=new CognitiveRuntimeHost({director}),invocations=[];
+    host.registerExecutionResource({
+      worker:{workerId:'scatter-probe:'+label,capabilities:[CAPABILITIES.CPU_ANALYSIS],supportedLayers:['L1','L3'],resourceProfile:{CPU:1},concurrencyCapacity:1,latencyScore:1,provider:'AREA52_NATIVE',implementationId:'scatter-probe',foregroundEligible:true,backgroundEligible:true},
+      adapter:{async invoke({job}){invocations.push({taskId:job.taskId,resultClass:job.resultClass});return{ok:true};}},
+    });
+    const turn={turnId:'turn:scatter-probe:'+label,eventId:'event:scatter-probe:'+label,correlationId:'corr:scatter-probe:'+label,sourceRevisionSet:['scene:scatter:r1'],worldRevision:1,sceneRevision:1,characterStateRevision:1,createdAt:1,deadline:9999999999999,cognitiveLayer:'L1',dedupeKey:'turn:scatter-probe:'+label};
+    const mk=(id,resultClass,layer='L1')=>({taskId:label+':'+id,taskType:id.toUpperCase(),turnId:turn.turnId,correlationId:turn.correlationId,requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],resultClass,cognitiveLayer:layer,dedupeKey:label+':'+id});
+    const jobs=[mk('retrieval','REQUIRED'),mk('truth','REQUIRED'),mk('historian','OPPORTUNISTIC'),mk('graph','OPPORTUNISTIC'),mk('jev','OPPORTUNISTIC'),mk('precision','OPPORTUNISTIC'),mk('deep-a','DEFERRED','L3'),mk('deep-b','DEFERRED','L3'),mk('deep-c','DEFERRED','L3')];
+    const plan=host.native.layeredScatterPlan(jobs),submitted=layered?jobs.filter(job=>plan.sealCritical.some(row=>row.taskId===job.taskId)):jobs;
+    host.publishTurn(turn,submitted);
+    const peakQueued=Object.values(director.snapshot().queueDepth).reduce((sum,n)=>sum+n,0);
+    const quorum=await host.native.awaitForeground(turn.turnId);
+    const invocationsAtSeal=invocations.length,openAtSeal=director.lifecycle.listOpen().length;
+    host.native.close();
+    return{peakQueued,invocationsAtSeal,openAtSeal,requiredSatisfied:[...(quorum.requiredSatisfied??[])].sort(),plan};
+  };
+  const eager=await run('eager'),layered=await run('layered',{layered:true});
+  assert.equal(eager.peakQueued,9);assert.equal(layered.peakQueued,2);
+  assert.equal(eager.invocationsAtSeal,2);assert.equal(layered.invocationsAtSeal,2);
+  assert.equal(eager.requiredSatisfied.length,2);assert.equal(layered.requiredSatisfied.length,2);
+  assert.equal(layered.plan.counts.conditional,4);assert.equal(layered.plan.counts.postSeal,3);assert.equal(layered.plan.schedulingActivated,false);
+  console.log('WORKER1_LAYERED_SCATTER_EXECUTION_METRIC '+JSON.stringify({eagerPeakQueued:eager.peakQueued,layeredPeakQueued:layered.peakQueued,queueReduction:eager.peakQueued-layered.peakQueued,eagerProviderInvocationsAtSeal:eager.invocationsAtSeal,layeredProviderInvocationsAtSeal:layered.invocationsAtSeal,foregroundProviderWorkDelta:layered.invocationsAtSeal-eager.invocationsAtSeal,eagerOpenAtSeal:eager.openAtSeal,layeredOpenAtSeal:layered.openAtSeal,productionRoutingChanged:false}));
+});
+
 test('Worker 1 #262 real Scene retrieval need reconciles physical/result evidence but waits for explicit Scene owner admission',async()=>{
   const brain=new Area52NativeBrain();
   await brain.prepareTurn({chatId:'chat:scene-owner',turnId:'scene-owner:1',generationId:'gen:scene-owner:1',query:'Continue',scene:scene('hall',1),executionLabel:'DETERMINISTIC'});

@@ -289,16 +289,6 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
     const detail=failed?String(row.lastFailure?.message??row.reason??row.lastTest?.failureCode??'Provider check failed.'):row.lastTest?.latencyMs!=null?'Owner test passed in '+String(row.lastTest.latencyMs)+' ms.':'Owner test passed.';
     card.append(message(d,'Latest connection test: '+latestTest,detail,failed?'error':'ready'));
   }
-  const latestTest=String(row.lastTest?.status??'').toUpperCase();
-  if(latestTest){
-    const failed=['FAIL','FAILED','ERROR'].includes(latestTest);
-    const detail=failed
-      ? String(row.lastFailure?.message??row.reason??row.lastTest?.failureCode??'Provider check failed.')
-      : row.lastTest?.latencyMs!=null
-        ? 'Owner test passed in '+String(row.lastTest.latencyMs)+' ms.'
-        : 'Owner test passed.';
-    card.append(message(d,'Latest connection test: '+latestTest,detail,failed?'error':'ready'));
-  }
   if(!row.selectedModelQualified&&row.connected)card.append(message(d,'Connected is not qualified','Worker 2 reports a connection, but the selected model is not currently qualified. Requalify before treating this resource as callable.','warning'));
   else if(!row.callable)card.append(message(d,'Resource is not callable','Worker 2 does not currently consider this resource callable. Refresh models, select a valid model if needed, then requalify and Test.','warning'));
 

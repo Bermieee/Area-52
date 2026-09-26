@@ -8,7 +8,7 @@ const one=(value,set,name)=>{if(!set.has(value))throw new TypeError(name+' has u
 function deepFreeze(value){if(value&&typeof value==='object'&&!Object.isFrozen(value)){for(const child of Object.values(value))deepFreeze(child);Object.freeze(value);}return value;}
 const frozen=(value)=>deepFreeze(clone(value));
 
-export const COGNITIVE_CHOICE_CONTRACT_VERSION='1.0.0';
+export const COGNITIVE_CHOICE_CONTRACT_VERSION='1.1.0';
 
 export const CognitiveChoicePath=Object.freeze({
   HOT_ONLY:'HOT_ONLY',
@@ -62,12 +62,21 @@ export const CognitiveReason=Object.freeze({
   STALE_RESULT:'STALE_RESULT',
   INVALID_RESULT:'INVALID_RESULT',
   DUPLICATE_PUBLICATION:'DUPLICATE_PUBLICATION',
+  NO_WORK_WARRANTED:'NO_WORK_WARRANTED',
+  SOURCE_CHANNEL_USED:'SOURCE_CHANNEL_USED',
+  TRUTH_REQUIRED:'TRUTH_REQUIRED',
+  GATHER_REQUIRED:'GATHER_REQUIRED',
+  CONTEXT_REQUIRED:'CONTEXT_REQUIRED',
+  PREREQUISITE_PENDING:'PREREQUISITE_PENDING',
+  AMBIGUITY_ESCALATED:'AMBIGUITY_ESCALATED',
 });
 
 export const CognitiveDisposition=Object.freeze({
   ADMITTED:'ADMITTED',
   SKIPPED:'SKIPPED',
   DEFERRED:'DEFERRED',
+  WAITING:'WAITING',
+  ESCALATED:'ESCALATED',
 });
 
 export const CognitiveDeadlineClass=Object.freeze({
@@ -94,7 +103,7 @@ export const JevAction=Object.freeze({
   PRESERVE_UNRESOLVED:'PRESERVE_UNRESOLVED',
 });
 
-const PATHS=enumSet(CognitiveChoicePath),JEV_ACTIONS=enumSet(JevAction),DISPOSITIONS=enumSet(CognitiveDisposition),DEADLINES=enumSet(CognitiveDeadlineClass),FRESHNESS=enumSet(CognitiveFreshnessRequirement);
+const PATHS=enumSet(CognitiveChoicePath),JEV_ACTIONS=enumSet(JevAction),DISPOSITIONS=enumSet(CognitiveDisposition),DEADLINES=enumSet(CognitiveDeadlineClass),FRESHNESS=enumSet(CognitiveFreshnessRequirement),REASONS=enumSet(CognitiveReason);
 const countShape=(value={})=>({
   nominated:nonNegative(value.nominated??0,'candidateCounts.nominated'),
   normalized:nonNegative(value.normalized??0,'candidateCounts.normalized'),
@@ -107,22 +116,31 @@ const countShape=(value={})=>({
 export function createCognitiveFunctionDecision({
   capability,disposition,reasonCode,expectedValue=0,resourceCost={},freshnessRequirement=CognitiveFreshnessRequirement.TURN_CURRENT,
   deadlineClass=CognitiveDeadlineClass.FOREGROUND_OPPORTUNISTIC,requiredCapabilities=[],channelIds=[],metadata={},
+  decisionId=null,warranted=null,sourceRevisionRefs=[],parentReceiptIds=[],consumerIds=[],evidenceRefs=[],prerequisiteIds=[],
 }={}){
   const d=one(disposition,DISPOSITIONS,'CognitiveFunctionDecision.disposition');
   const fresh=one(freshnessRequirement,FRESHNESS,'CognitiveFunctionDecision.freshnessRequirement');
   const deadline=one(deadlineClass,DEADLINES,'CognitiveFunctionDecision.deadlineClass');
+  one(reasonCode,REASONS,'CognitiveFunctionDecision.reasonCode');
   const value=Number(expectedValue);if(!Number.isFinite(value)||value<0||value>1)throw new TypeError('CognitiveFunctionDecision.expectedValue must be 0..1');
   return frozen({
     kind:'CognitiveFunctionDecision',capability:req(capability,'CognitiveFunctionDecision.capability'),disposition:d,
     reasonCode:req(reasonCode,'CognitiveFunctionDecision.reasonCode'),expectedValue:value,
     resourceCost:serial(resourceCost,'CognitiveFunctionDecision.resourceCost'),freshnessRequirement:fresh,deadlineClass:deadline,
     requiredCapabilities:strings(requiredCapabilities,'CognitiveFunctionDecision.requiredCapabilities'),channelIds:strings(channelIds,'CognitiveFunctionDecision.channelIds'),
+    decisionId:decisionId==null?null:req(decisionId,'CognitiveFunctionDecision.decisionId'),
+    warranted:typeof warranted==='boolean'?warranted:d===CognitiveDisposition.ADMITTED,
+    sourceRevisionRefs:strings(sourceRevisionRefs,'CognitiveFunctionDecision.sourceRevisionRefs'),
+    parentReceiptIds:strings(parentReceiptIds,'CognitiveFunctionDecision.parentReceiptIds'),
+    consumerIds:strings(consumerIds,'CognitiveFunctionDecision.consumerIds'),
+    evidenceRefs:strings(evidenceRefs,'CognitiveFunctionDecision.evidenceRefs'),
+    prerequisiteIds:strings(prerequisiteIds,'CognitiveFunctionDecision.prerequisiteIds'),
     metadata:serial(metadata,'CognitiveFunctionDecision.metadata'),authorityGranted:false,canonicalMutationAuthority:false,
   });
 }
 
 export function createCognitiveChoiceReceipt({
-  id,receiptRevision=1,turnId,turnRevision=0,correlationId,paths=[],
+  id,receiptRevision=1,turnId,turnRevision=0,correlationId,chatId=null,generationId=null,parentReceiptId=null,paths=[],
   consideredCognitionOptions=[],admittedJobs=[],skippedJobs=[],deferredJobs=[],reasonCodes=[],
   retrievalIntents=[],sensoryChannelsRequested=[],sensoryChannelsUsed=[],candidateCounts={},
   retrievalQuality=null,correctiveRetrieval={},truthGate={},jev={},precision={},finalEvidenceRefs=[],
@@ -137,6 +155,7 @@ export function createCognitiveChoiceReceipt({
     kind:'CognitiveChoiceReceipt',contractVersion:COGNITIVE_CHOICE_CONTRACT_VERSION,
     id:req(id,'CognitiveChoiceReceipt.id'),receiptRevision,turnId:req(turnId,'CognitiveChoiceReceipt.turnId'),
     turnRevision:Number(turnRevision),correlationId:req(correlationId,'CognitiveChoiceReceipt.correlationId'),
+    chatId:chatId==null?null:String(chatId),generationId:generationId==null?null:String(generationId),parentReceiptId:parentReceiptId==null?null:String(parentReceiptId),
     paths:normalizedPaths,consideredCognitionOptions:strings(consideredCognitionOptions,'CognitiveChoiceReceipt.consideredCognitionOptions'),
     admittedJobs:strings(admittedJobs,'CognitiveChoiceReceipt.admittedJobs'),skippedJobs:strings(skippedJobs,'CognitiveChoiceReceipt.skippedJobs'),
     deferredJobs:strings(deferredJobs,'CognitiveChoiceReceipt.deferredJobs'),reasonCodes:strings(reasonCodes,'CognitiveChoiceReceipt.reasonCodes'),
@@ -158,5 +177,6 @@ export function createCognitiveChoiceReceipt({
     degradedState:serial(degradedState,'CognitiveChoiceReceipt.degradedState'),metadata:serial(metadata,'CognitiveChoiceReceipt.metadata'),
     truthAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealBypass:false,
   };
+  for(const reason of receipt.reasonCodes)one(reason,REASONS,'CognitiveChoiceReceipt.reasonCodes');
   return frozen(receipt);
 }

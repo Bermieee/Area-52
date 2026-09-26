@@ -342,6 +342,8 @@ export class CognitiveChoiceController{
       avoidedForegroundJobs:[...session.skipped].filter(job=>job!==CognitiveJob.DEEP_COGNITION).length,
       requestedChannelCount:session.requestedChannels.length,usedChannelCount:session.channelsUsed.size,
       nominatedCandidates:nominated,deduplicatedCandidates:session.candidateIds.size,
+      retrievalWarranted:!session.hotOnly,retrievalEnvelopeCount:envelopes.length,conditionalRetrievalExecuted:envelopes.length>0,
+      precisionInvoked:Boolean(session.precision?.invoked),jevInvoked:Boolean(session.jev?.invoked),
       retrievalElapsedMs:envelopes.reduce((sum,envelope)=>sum+Number(envelope?.metadata?.retrievalBudgetReceipt?.elapsedMs??0),0),
       controllerOverheadMs:Math.max(0,Number(finishedAt)-Number(session.startedAt)),
       configuredNativeResources:1,remoteProviderExecutionInferred:false,

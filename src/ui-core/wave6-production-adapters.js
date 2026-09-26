@@ -82,10 +82,10 @@ export class CoprocessorProductionUIAdapter{
 export class PromptPlanProductionUIAdapter{
   constructor({
     readPlan=null,readPromptPlanReadModel=null,readSealReceipt=null,readContextReceipt=null,readContextReceiptReadModel=null,
-    readIntegrityReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
+    readIntegrityReceipt=null,readHostDeliveryReceipt=null,listGenerations=null,readGeneration=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',selectionProvider=null,
   }={}){
     this.readPlan=optional(readPlan);this.readPromptPlanReadModel=optional(readPromptPlanReadModel);this.readSealReceipt=optional(readSealReceipt);
-    this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);
+    this.readContextReceipt=optional(readContextReceipt);this.readContextReceiptReadModel=optional(readContextReceiptReadModel);this.readIntegrityReceipt=optional(readIntegrityReceipt);this.readHostDeliveryReceipt=optional(readHostDeliveryReceipt);
     this.listGenerationsFn=optional(listGenerations);this.readGenerationFn=optional(readGeneration);this.selectionProvider=optional(selectionProvider);this.fixture=Boolean(fixture);this.fixtureLabel=String(fixtureLabel||'DEMO / FIXTURE DATA');this.kind='PromptPlanProductionUIAdapter';
   }
   #plan(selection){
@@ -109,8 +109,8 @@ export class PromptPlanProductionUIAdapter{
     try{
       const raw=this.#plan(selection);if(!raw)return deepFreeze({source:createProductSourceStatus({mode:ProductDataMode.LIVE,health:Wave6Health.IDLE,label:'Context Delivery',operationalState:'IDLE',impact:'No completed PromptPlan exists for the selected turn.',reason:'The producer is connected but has not published context delivery for this turn.',producer:'PromptPlan/ContextSeal',connected:true,selection}),data:null});
       const plan=normalizePromptPlanReadModel(raw);if(!plan)return degraded('PromptPlan','PromptPlan producer returned an unsupported contract.',{kind:raw.kind??null});
-      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null;
-      const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal});
+      const rawContext=this.#context(selection),receipt=normalizeContextReceiptReadModel(rawContext),seal=this.#seal(selection),integrity=this.readIntegrityReceipt?.(selection??{})??null,hostDelivery=this.readHostDeliveryReceipt?.(selection??{})??null;
+      const explain=buildGenerationExplainability({promptPlan:raw,contextReceipt:rawContext,sealReceipt:seal,hostDeliveryReceipt:hostDelivery});
       const allocated=Number(plan.estimatedTokens??plan.budget?.allocated??plan.budget?.usedTokens??0),total=Number(plan.budget?.total??plan.budget?.available??plan.budget?.contextWindow??allocated);
       const reused=plan.sections.filter(x=>x.state==='REUSED').length,updated=plan.sections.filter(x=>['UPDATED','REBUILT'].includes(x.state)).length;
       const health=normalizeWave6Health(raw.health?.state??plan.health?.state??(raw.status==='READY'?'READY':raw.integrityStatus==='ERROR'?'BLOCKED':'READY'),{fallback:Wave6Health.READY});
@@ -126,7 +126,7 @@ export class PromptPlanProductionUIAdapter{
           dropped:clone(plan.dropped),deferred:clone(plan.deferred),segments:clone(raw.segments??[]),sections:clone(plan.sections),
           modelProfileId:plan.modelProfileId??null,ordering:[...(plan.sectionOrder??[])],cacheDecisions:clone(raw.cacheDecisions??[]),
           reuseDecisions:clone(raw.reuseDecisions??[]),fallbackDecisions:clone(plan.fallbackDecisions??[]),integrityReceipt:clone(integrity),
-          seal:clone(seal),contextReceipt:clone(receipt),sourceRevisionDependencies:[...(plan.sourceRevisionRefs??[])],
+          seal:clone(seal),contextReceipt:clone(receipt),hostDeliveryReceipt:clone(hostDelivery),deliveryTruth:clone(explain?.delivery??null),sourceRevisionDependencies:[...(plan.sourceRevisionRefs??[])],
           worldRevision:plan.worldRevision??null,sceneRevision:plan.sceneRevision??null,status:raw.status??raw.integrityStatus??null,explainability:explain,
           readModelKind:raw.kind??null,
         },

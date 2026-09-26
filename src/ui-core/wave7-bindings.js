@@ -4,7 +4,7 @@ const optionalFn=(value,name)=>{if(value==null)return null;if(typeof value!=='fu
 
 export function createWave7ProductionBindings({
   scene=null,runtimeAdapter=null,coprocessorTelemetry=null,
-  readPromptPlanReadModel=null,readContextReceiptReadModel=null,readContextSealReceipt=null,readIntegrityReceipt=null,listGenerations=null,readGeneration=null,
+  readPromptPlanReadModel=null,readContextReceiptReadModel=null,readContextSealReceipt=null,readIntegrityReceipt=null,readHostDeliveryReceipt=null,listGenerations=null,readGeneration=null,
   listForensicReadModels=null,readForensicReadModel=null,listCognitiveTransactions=null,readCognitiveTransaction=null,
   reconstructGeneration=null,reconstructTransaction=null,readRuntimeWork=null,readKnowledgeTrace=null,readLazyForensicPayload=null,searchForensics=null,
   story=null,characters=null,lore=null,memory=null,world=null,fixture=false,fixtureLabel='DEMO / FIXTURE DATA',
@@ -19,6 +19,7 @@ export function createWave7ProductionBindings({
       readContextReceiptReadModel:optionalFn(readContextReceiptReadModel,'readContextReceiptReadModel'),
       readSealReceipt:optionalFn(readContextSealReceipt,'readContextSealReceipt'),
       readIntegrityReceipt:optionalFn(readIntegrityReceipt,'readIntegrityReceipt'),
+      readHostDeliveryReceipt:optionalFn(readHostDeliveryReceipt,'readHostDeliveryReceipt'),
       listGenerations:optionalFn(listGenerations,'listGenerations'),
       readGeneration:optionalFn(readGeneration,'readGeneration'),
     },

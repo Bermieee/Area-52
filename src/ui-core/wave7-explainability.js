@@ -37,24 +37,31 @@ export function normalizePromptPlanReadModel(model){
       contextSealId:model.contextSealId??null,sealedPacketHash:model.sealedPacketHash??null,modelProfileId:model.modelProfileId??null,
       modelProfileRevision:model.modelProfileRevision??null,deliveryPolicyRevision:model.deliveryPolicyRevision??null,
       worldRevision:model.worldRevision??null,sceneRevision:model.sceneRevision??null,sourceRevisionRefs:[...(model.sourceRevisionRefs??[])],
-      sections,sectionOrder,budget:cloneSafe(model.budget??{}),estimatedTokens:model.estimatedTokens??null,
+      sections:sections.map(section=>deepFreeze({...section,plannedState:section.state})),sectionOrder,budget:cloneSafe(model.budget??{}),estimatedTokens:model.estimatedTokens??null,
+      budgetDecision:cloneSafe(model.budgetDecision??model.diagnosticReceipt?.budgetDecision??null),
       integrityStatus:model.integrityStatus??null,fallbackDecisions:cloneSafe(model.fallbackDecisions??[]),
       dropped:cloneSafe(model.dropped??[]),deferred:cloneSafe(model.deferred??[]),health:cloneSafe(model.health??null),
       previousPromptPlanId:model.previousPromptPlanId??null,authority:model.authority??'READ_ONLY',mutationAuthority:false,
     });
   }
-  // Wave 6 compatibility for raw PromptPlan; kept only so accepted callers do not break.
-  const sections=(model.sections??[]).map(section=>{
-    const reuse=(model.reuseDecisions??[]).find(x=>x.slot===section.slot)||(model.segments??[]).find(x=>(x.slot??x.segmentKey)===section.slot)||null;
-    return deepFreeze({kind:'GenerationContextSection',slot:section.slot??section.segmentKey??'UNKNOWN',state:mapReuseState(reuse?.state??reuse?.reuseState??section.reuseState,true),
-      priority:section.priority??reuse?.priority??null,estimatedTokens:section.estimatedTokens??section.tokenEstimate??section.allocatedTokens??null,actualTokens:section.actualTokens??null,
+  // Wave 6 compatibility for raw PromptPlan. One slot becomes one row: an owner-published
+  // dropped/deferred disposition wins over a zero-token/planned section so UI cannot show both.
+  const bySlot=new Map();
+  for(const section of model.sections??[]){
+    const slot=section.slot??section.segmentKey??'UNKNOWN',reuse=(model.reuseDecisions??[]).find(x=>x.slot===slot)||(model.segments??[]).find(x=>(x.slot??x.segmentKey)===slot)||null;
+    const state=mapReuseState(reuse?.state??reuse?.reuseState??section.reuseState,true);
+    bySlot.set(slot,{kind:'GenerationContextSection',slot,state,plannedState:state,priority:section.priority??reuse?.priority??null,
+      estimatedTokens:section.estimatedTokens??section.tokenEstimate??section.allocatedTokens??null,actualTokens:section.actualTokens??null,
       sourceSubsystem:section.sourceSubsystem??null,authority:section.authorityClass??null,revisionIdentity:cloneSafe(section.sourceRevisionIds??null),
       reuseState:reuse?.state??reuse?.reuseState??section.reuseState??null,cacheEligible:reuse?.cacheEligible??section.cacheEligible??null,representation:section.representation??null,
       required:Boolean(section.required),protected:Boolean(section.protected),reason:ownerReason(section)??ownerReason(reuse),included:true,rawRef:null});
-  });
-  for(const row of model.dropped??[])sections.push(sectionFromDisposition(row,ContextSectionState.DROPPED));
-  for(const row of model.deferred??[])sections.push(sectionFromDisposition(row,ContextSectionState.DEFERRED));
-  return deepFreeze({kind:'NormalizedPromptPlan',sourceKind:model.kind??'PromptPlan',promptPlanId:model.promptPlanId,generationId:model.generationId??null,turnId:model.turnId??null,contextSealId:model.contextSealId??null,sealedPacketHash:model.sealedPacketHash??null,modelProfileId:model.modelProfileId??null,modelProfileRevision:model.modelProfileRevision??null,deliveryPolicyRevision:model.deliveryPolicyRevision??null,worldRevision:model.worldRevision??null,sceneRevision:model.sceneRevision??null,sourceRevisionRefs:[...(model.sourceRevisionDependencies??[])],sections,sectionOrder:[...(model.ordering??[])],budget:cloneSafe(model.budget??{}),estimatedTokens:model.budget?.estimatedTokens??model.budget?.usedTokens??model.budget?.allocated??null,integrityStatus:model.status??null,fallbackDecisions:cloneSafe(model.fallbackDecisions??[]),dropped:cloneSafe(model.dropped??[]),deferred:cloneSafe(model.deferred??[]),health:null,previousPromptPlanId:model.previousPromptPlanId??null,authority:'READ_ONLY',mutationAuthority:false});
+  }
+  for(const [rows,state] of [[model.dropped??[],ContextSectionState.DROPPED],[model.deferred??[],ContextSectionState.DEFERRED]])for(const row of rows){
+    const disposition=sectionFromDisposition(row,state),prior=bySlot.get(disposition.slot)??{};
+    bySlot.set(disposition.slot,{...prior,...disposition,plannedState:state,estimatedTokens:disposition.estimatedTokens??prior.estimatedTokens??null,reason:disposition.reason??prior.reason??null,included:false});
+  }
+  const sections=[...bySlot.values()].map(row=>deepFreeze(row));
+  return deepFreeze({kind:'NormalizedPromptPlan',sourceKind:model.kind??'PromptPlan',promptPlanId:model.promptPlanId,generationId:model.generationId??null,turnId:model.turnId??null,contextSealId:model.contextSealId??null,sealedPacketHash:model.sealedPacketHash??null,modelProfileId:model.modelProfileId??null,modelProfileRevision:model.modelProfileRevision??null,deliveryPolicyRevision:model.deliveryPolicyRevision??null,worldRevision:model.worldRevision??null,sceneRevision:model.sceneRevision??null,sourceRevisionRefs:[...(model.sourceRevisionDependencies??[])],sections,sectionOrder:[...(model.ordering??[])],budget:cloneSafe(model.budget??{}),estimatedTokens:model.budget?.estimatedTokens??model.budget?.usedTokens??model.budget?.allocated??null,budgetDecision:cloneSafe(model.budgetDecision??model.diagnosticReceipt?.budgetDecision??null),integrityStatus:model.status??null,fallbackDecisions:cloneSafe(model.fallbackDecisions??[]),dropped:cloneSafe(model.dropped??[]),deferred:cloneSafe(model.deferred??[]),health:null,previousPromptPlanId:model.previousPromptPlanId??null,authority:'READ_ONLY',mutationAuthority:false});
 }
 
 export function normalizeContextReceiptReadModel(model){
@@ -82,12 +89,12 @@ export function normalizeContextSealReceipt(seal,forensic=null){
   });
 }
 
-export function buildGenerationExplainability({promptPlan,contextReceipt=null,sealReceipt=null,forensic=null}={}){
+export function buildGenerationExplainability({promptPlan,contextReceipt=null,sealReceipt=null,hostDeliveryReceipt=null,forensic=null}={}){
   const plan=normalizePromptPlanReadModel(promptPlan);if(!plan)return null;
   const receipt=normalizeContextReceiptReadModel(contextReceipt);const seal=normalizeContextSealReceipt(sealReceipt,forensic);
-  const counts=countSectionStates(plan.sections);
-  const reasons=plan.sections.filter(x=>x.reason).map(x=>({slot:x.slot,state:x.state,reason:x.reason}));
-  const unavailableReasonCount=plan.sections.filter(x=>!x.reason).length;
+  const sections=reconcileCompiledSections(plan.sections,receipt),counts=countSectionStates(sections);
+  const reasons=sections.filter(x=>x.reason||x.compiledReason).map(x=>({slot:x.slot,state:x.state,reason:x.compiledReason??x.reason}));
+  const unavailableReasonCount=sections.filter(x=>!x.reason&&!x.compiledReason).length;
   const health=normalizeWave6Health(plan.health?.state??plan.integrityStatus??'READY',{fallback:Wave6Health.READY});
   const degraded=[Wave6Health.DEGRADED,Wave6Health.STALE,Wave6Health.BLOCKED].includes(health)||Boolean(seal&&seal.fallbackState!=='NONE');
   const fixture=promptPlan?.fixture===true||promptPlan?.dataMode===ProductDataMode.FIXTURE||promptPlan?.dataMode==='FIXTURE';
@@ -95,12 +102,13 @@ export function buildGenerationExplainability({promptPlan,contextReceipt=null,se
   const mode=fixture?ProductDataMode.FIXTURE:degraded?ProductDataMode.DEGRADED:ProductDataMode.LIVE;
   const impact=degraded?'Context was delivered with omissions, deferrals, fallback, stale evidence, or degraded integrity.':health===Wave6Health.WORKING?'Context delivery is still being assembled.':'Context delivery is explainable and healthy.';
   const source=createProductSourceStatus({mode,health:displayHealth,label:'Generation Explainability',impact,producer:'PromptPlanReadModel/ContextReceiptReadModel',revision:plan.promptPlanId});
+  const delivery=buildDeliveryTruth({plan,receipt,seal,hostDeliveryReceipt});
   return deepFreeze({
     kind:'GenerationExplainability',generationId:plan.generationId,turnId:plan.turnId,contextSealId:plan.contextSealId??receipt?.contextSealId??seal?.sealId??null,promptPlanId:plan.promptPlanId,
-    modelProfileId:plan.modelProfileId,budget:plan.budget,plannedTokens:plan.estimatedTokens,usedOrEstimatedTokens:receipt?.estimatedTokens??plan.estimatedTokens,
-    worldRevision:plan.worldRevision,sceneRevision:plan.sceneRevision,sourceRevisionRefs:plan.sourceRevisionRefs,sections:plan.sections,sectionCounts:counts,
+    modelProfileId:plan.modelProfileId,budget:plan.budget,budgetDecision:cloneSafe(plan.budgetDecision),plannedTokens:plan.estimatedTokens,usedOrEstimatedTokens:receipt?.estimatedTokens??plan.estimatedTokens,
+    worldRevision:plan.worldRevision,sceneRevision:plan.sceneRevision,sourceRevisionRefs:plan.sourceRevisionRefs,sections,sectionCounts:counts,delivery,
     dropped:plan.dropped,deferred:plan.deferred,reasons,unavailableReasonCount,integrityState:plan.integrityStatus??receipt?.health?.state??'UNAVAILABLE',
-    fallbackState:receipt?.fallbackState??seal?.fallbackState??(plan.fallbackDecisions?.length?'RECORDED':'NONE'),receipt,seal,forensic:cloneSafe(forensic),
+    fallbackState:receipt?.fallbackState??seal?.fallbackState??(plan.fallbackDecisions?.length?'RECORDED':'NONE'),receipt,seal,hostDelivery:cloneSafe(hostDeliveryReceipt),forensic:cloneSafe(forensic),
     unresolvedEvidence:cloneSafe(receipt?.unresolvedEvidence??[]),source,authority:'READ_ONLY',mutationAuthority:false,
   });
 }
@@ -112,6 +120,7 @@ export function explainContextSection(section){
     reason:section.reason??null,reasonAvailable:Boolean(section.reason),priority:section.priority??null,estimatedTokens:section.estimatedTokens??null,actualTokens:section.actualTokens??null,
     sourceSubsystem:section.sourceSubsystem??null,authority:section.authority??null,revisionIdentity:cloneSafe(section.revisionIdentity),reuseState:section.reuseState??null,
     cacheEligible:section.cacheEligible??null,representation:section.representation??null,required:Boolean(section.required),protected:Boolean(section.protected),
+    plannedState:section.plannedState??section.state,compiledState:section.compiledState??'NO_EVIDENCE',compiledReason:section.compiledReason??null,
     impact:sectionImpact(section),
   });
 }
@@ -167,6 +176,40 @@ export class ExplainabilityPresentationState{
   }
 }
 
+function rowSlot(row){return row?.slot??row?.segmentKey??row?.id??null;}
+function dispositionBySlot(rows=[]){const out=new Map();for(const row of rows??[]){const slot=rowSlot(row);if(slot)out.set(String(slot),row);}return out;}
+function reconcileCompiledSections(plannedSections,receipt){
+  const included=new Set((receipt?.includedSections??[]).map(row=>String(typeof row==='string'?row:rowSlot(row))).filter(Boolean));
+  const deferred=dispositionBySlot(receipt?.deferredSections??[]),omitted=dispositionBySlot(receipt?.omittedSections??[]);
+  const bySlot=new Map((plannedSections??[]).map(section=>[String(section.slot),{...section,plannedState:section.plannedState??section.state}]));
+  if(receipt)for(const slot of new Set([...included,...deferred.keys(),...omitted.keys()]))if(!bySlot.has(slot))bySlot.set(slot,{kind:'GenerationContextSection',slot,state:ContextSectionState.UNAVAILABLE,plannedState:ContextSectionState.UNAVAILABLE,priority:null,estimatedTokens:null,actualTokens:null,sourceSubsystem:null,authority:null,revisionIdentity:null,reuseState:null,cacheEligible:null,representation:null,required:false,protected:false,reason:null,included:false,rawRef:null});
+  return [...bySlot.values()].map(section=>{
+    let compiledState='NO_EVIDENCE',compiledReason=null;
+    if(receipt){
+      if(deferred.has(String(section.slot))){compiledState='DEFERRED';compiledReason=ownerReason(deferred.get(String(section.slot)));}
+      else if(omitted.has(String(section.slot))){compiledState='OMITTED';compiledReason=ownerReason(omitted.get(String(section.slot)));}
+      else if(included.has(String(section.slot)))compiledState='INCLUDED';
+    }
+    const state=compiledState==='DEFERRED'?ContextSectionState.DEFERRED:compiledState==='OMITTED'?ContextSectionState.DROPPED:section.state;
+    return deepFreeze({...section,state,compiledState,compiledReason:compiledReason??section.reason??null,included:compiledState==='INCLUDED'});
+  });
+}
+function buildDeliveryTruth({plan,receipt,seal,hostDeliveryReceipt}={}){
+  const expectedPlan=plan?.promptPlanId??null,expectedSeal=receipt?.contextSealId??plan?.contextSealId??seal?.sealId??null;
+  const host=hostDeliveryReceipt&&typeof hostDeliveryReceipt==='object'?hostDeliveryReceipt:null;
+  const planMatch=!expectedPlan||String(host?.promptPlanId??'')===String(expectedPlan);
+  const sealMatch=!expectedSeal||String(host?.contextSealId??'')===String(expectedSeal);
+  const observed=Boolean(host?.hostObserved??host?.requestInjectedAt)&&planMatch&&sealMatch;
+  const observedReason=observed?null:host&&Boolean(host?.hostObserved??host?.requestInjectedAt)?'SILLYTAVERN_HOST_DELIVERY_IDENTITY_MISMATCH':host?.observationReason??'SILLYTAVERN_HOST_REQUEST_NOT_OBSERVED';
+  const plannedIncluded=(plan?.sections??[]).filter(row=>row.included).map(row=>row.slot);
+  const plannedDeferred=(plan?.sections??[]).filter(row=>row.state===ContextSectionState.DEFERRED).map(row=>({slot:row.slot,reason:row.reason??null}));
+  return deepFreeze({
+    planned:{state:'PLANNED',promptPlanId:expectedPlan,contextSealId:plan?.contextSealId??null,budget:cloneSafe(plan?.budget??{}),budgetDecision:cloneSafe(plan?.budgetDecision??null),includedSections:plannedIncluded,deferredSections:plannedDeferred},
+    compiled:receipt?{state:'COMPILED_AND_SEALED',contextSealId:receipt.contextSealId??expectedSeal,packetId:receipt.packetId??null,packetHash:receipt.packetHash??null,estimatedTokens:receipt.estimatedTokens??null,includedSections:[...(receipt.includedSections??[])],deferredSections:cloneSafe(receipt.deferredSections??[]),omittedSections:cloneSafe(receipt.omittedSections??[])}:{state:'NO_EVIDENCE',reason:'CONTEXT_RECEIPT_NOT_PUBLISHED'},
+    observed:observed?{state:'OBSERVED',receiptId:host.receiptId??null,requestHook:host.requestHook??null,requestInjectedAt:host.requestInjectedAt??null,promptPlanId:host.promptPlanId??null,contextSealId:host.contextSealId??null}:{state:'NO_EVIDENCE',reason:observedReason,receiptId:host?.receiptId??null,expectedPromptPlanId:expectedPlan,observedPromptPlanId:host?.promptPlanId??null,expectedContextSealId:expectedSeal,observedContextSealId:host?.contextSealId??null},
+  });
+}
+
 function mapReuseState(value,included){
   if(value==='NO_CHANGE')return ContextSectionState.REUSED;
   if(value==='PATCH')return ContextSectionState.UPDATED;
@@ -177,7 +220,7 @@ function mapReuseState(value,included){
 function ownerReason(row){if(!row)return null;return row.reason??row.reasonCode??row.explanation??row.metadata?.reason??null;}
 function sectionFromDisposition(row,state){return deepFreeze({kind:'GenerationContextSection',slot:row.slot??row.segmentKey??row.id??'UNKNOWN',state,priority:row.priority??null,estimatedTokens:row.estimatedTokens??row.tokenEstimate??null,actualTokens:null,sourceSubsystem:row.sourceSubsystem??null,authority:row.authorityClass??null,revisionIdentity:cloneSafe(row.sourceRevisionIds??null),reuseState:row.reuseState??null,cacheEligible:row.cacheEligible??null,representation:row.representation??null,required:Boolean(row.required),protected:Boolean(row.protected),reason:ownerReason(row),included:false,rawRef:null});}
 function countSectionStates(sections){const out=Object.fromEntries(Object.values(ContextSectionState).map(x=>[x,0]));for(const x of sections)out[x.state]=(out[x.state]??0)+1;return out;}
-function sectionImpact(section){if(section.state===ContextSectionState.DROPPED)return'This section did not reach the generation.';if(section.state===ContextSectionState.DEFERRED)return'This section was deferred and did not reach this generation.';if(section.state===ContextSectionState.REUSED)return'Previously valid context was reused.';if(section.state===ContextSectionState.UPDATED)return'Only the affected context segment was updated.';if(section.state===ContextSectionState.REBUILT)return'The owning context logic rebuilt this section.';if(section.state===ContextSectionState.INVALIDATED)return'This section was invalidated before generation.';return section.included?'This section was included in generation context.':'Section impact is unavailable.';}
+function sectionImpact(section){if(section.compiledState==='DEFERRED')return'The ContextReceipt says this section was deferred and was not compiled into the sealed packet.';if(section.compiledState==='OMITTED')return'The ContextReceipt says this section was omitted from the sealed packet.';if(section.compiledState==='NO_EVIDENCE'&&section.included!==true&&![ContextSectionState.DROPPED,ContextSectionState.DEFERRED].includes(section.state))return'This section was planned, but no compiled inclusion evidence exists for the selected generation.';if(section.state===ContextSectionState.DROPPED)return'This section did not reach the generation.';if(section.state===ContextSectionState.DEFERRED)return'This section was deferred and did not reach this generation.';if(section.state===ContextSectionState.REUSED)return'Previously valid context was reused.';if(section.state===ContextSectionState.UPDATED)return'Only the affected context segment was updated.';if(section.state===ContextSectionState.REBUILT)return'The owning context logic rebuilt this section.';if(section.state===ContextSectionState.INVALIDATED)return'This section was invalidated before generation.';return section.included?'This section was included in generation context.':'Section impact is unavailable.';}
 function pushDiff(groups,key,slot,before,after){groups[key].push({slot,beforeState:before?.state??null,afterState:after?.state??null,reason:after?.reason??null});}
 function sanitizePresentationMap(v){const out={};for(const [k,x] of Object.entries(v??{}).slice(0,32)){if(['string','number','boolean'].includes(typeof x)||x==null)out[String(k)]=x;else if(Array.isArray(x))out[String(k)]=x.slice(0,64).map(y=>String(y));}return out;}
 function stringOrNull(v){return v==null?null:String(v);}

@@ -100,7 +100,7 @@ export class Wave11LiveReceiptBinding{
   #buildBridges(){
     const x=this.input,read=(name,...aliases)=>optional(x[name]??aliases.map(k=>x[k]).find(v=>typeof v==='function'));
     const scene=read('readScene','readSceneModel','readSceneUiReadModel');
-    const prompt=read('readPromptPlan','readPromptPlanReadModel'),context=read('readContextReceipt','readContextReceiptReadModel'),seal=read('readContextSeal','readContextSealReceipt','readSealReceipt');
+    const prompt=read('readPromptPlan','readPromptPlanReadModel'),context=read('readContextReceipt','readContextReceiptReadModel'),seal=read('readContextSeal','readContextSealReceipt','readSealReceipt'),hostDelivery=read('readHostDeliveryReceipt');
     const forensic=read('readForensic','readForensicReadModel'),forensicList=read('listForensics','listForensicReadModels','listBundles'),transactions=read('listTransactions','listCognitiveTransactions');
     const txRead=read('readTransaction','readCognitiveTransaction'),integrity=read('readIntegrityReceipt'),generationRead=read('readGeneration'),generations=read('listGenerations');
     const selectedTurn=read('readSelectedTurnReceipt','readCausalTurnReceipt','readOwnerTurnReceipt');
@@ -114,6 +114,7 @@ export class Wave11LiveReceiptBinding{
         readContextReceiptReadModel:context?(selection)=>binding.#read('ContextReceipt',context,selection):null,
         readSealReceipt:seal?(selection)=>binding.#read('ContextSeal',seal,selection):null,
         readIntegrityReceipt:integrity?(selection)=>binding.#read('ContextIntegrity',integrity,selection):null,
+        readHostDeliveryReceipt:hostDelivery?(selection)=>binding.#read('HostDelivery',hostDelivery,selection):null,
         listGenerations:generations?({limit=50}={})=>(generations({limit,selection:binding.selection()})??[]).slice(-Math.max(1,limit)):null,
         readGeneration:generationRead?(generationId)=>binding.#read('Generation',generationRead,{generationId}):null,
       },

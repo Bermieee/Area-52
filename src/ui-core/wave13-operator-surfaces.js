@@ -311,20 +311,21 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   const top=element(d,'div',{className:'a52-inline-status'});
   top.append(element(d,'strong',{text:row.displayName??'Connected resource'}),makeBadge(d,savedProfile?'SAVED LOCK':'CONFIG LOCKED','observed'),makeBadge(d,row.state??row.health,resourceStatus(row.health)));
   const qualification=row.selectedModelQualified||row.callable?'Qualified callable by owner':row.connected?'Connected; not owner-qualified callable':'Not connected';
-  const hostManaged=Boolean(row.credentialManagedByHost);
+  const hostManaged=Boolean(row.credentialManagedByHost),activeHostSecret=row.hostCredentialSource==='SILLYTAVERN_ACTIVE_SECRET';
+  const hostCredentialLabel=activeHostSecret?'Managed by SillyTavern active OpenRouter secret':'Managed by SillyTavern Connection Manager';
   card.append(top,createKeyValue(d,[
     {key:'Configured',value:'Yes'},{key:'Saved across reloads',value:savedProfile?'Yes':'Not yet'},{key:'Connection',value:row.state??(row.connected?'CONNECTED':'DISCONNECTED')},{key:'Qualification',value:qualification},
     {key:'Physical execution',value:row.physicalExecutionAttempted?(row.physicalExecutionSucceeded?'Succeeded':'Attempted / not successful'):'No cognitive execution observed'},
     {key:'Owner accepted',value:row.ownerAccepted===true?'Yes':row.ownerAccepted===false?'No':row.ownerAcceptanceSource==='OWNER_RECEIPT_REQUIRED'?'Requires owner receipt':'Not reported'},
     {key:'Health',value:row.health??'Not reported'},{key:'Availability',value:row.availability??'Not reported'},
-    {key:'Credential',value:hostManaged?'Managed by SillyTavern Connection Manager':row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
-    {key:'Connection profile',value:hostManaged?(row.connectionProfileName??row.connectionProfileId??'Bound profile'):'—'},
+    {key:'Credential',value:hostManaged?hostCredentialLabel:row.credentialConfigured===true?'Configured':row.credentialConfigured===false?'Not configured':'Not reported'},
+    {key:'Host credential source',value:hostManaged?(activeHostSecret?'Active OpenRouter secret':row.connectionProfileName??row.connectionProfileId??'Bound Connection Manager profile'):'—'},
     {key:'Provider',value:row.actualProvider??row.providerId??'—'},{key:'Model',value:row.actualModelId??row.modelId??'—'},
     {key:'Transport',value:row.transportKind??'—'},{key:'Measurement',value:row.measurementClass??'—'},
     {key:'Concurrency',value:String(row.currentLoad)+' / '+String(row.concurrencyCapacity)},{key:'Capabilities',value:(row.capabilities??row.declaredCapabilities??[]).join(', ')||'none published'},
   ]));
   if(!row.selectedModelQualified&&row.connected)card.append(message(d,'Connected is not qualified','Worker 2 reports a connection, but the selected model is not currently qualified. Requalify before treating this resource as callable.','warning'));
-  else if(!row.callable)card.append(message(d,'Resource is not callable',hostManaged?'The SillyTavern Connection Profile is bound but has not passed provider qualification. Requalify and Test the host-managed profile.':'Worker 2 does not currently consider this resource callable. Refresh models, update the session credential if needed, select a valid model, then requalify and Test.','warning'));
+  else if(!row.callable)card.append(message(d,'Resource is not callable',hostManaged?(activeHostSecret?'SillyTavern owns the active OpenRouter credential, but this model has not passed provider qualification. Requalify and Test.':'The SillyTavern Connection Profile is bound but has not passed provider qualification. Requalify and Test the host-managed profile.'):'Worker 2 does not currently consider this resource callable. Refresh models, update the session credential if needed, select a valid model, then requalify and Test.','warning'));
 
   const management=element(d,'div',{className:'a52-wave13-connection-slot__form'});
   const lockedKey='locked:'+row.id,credentialWasCleared=connectionDrafts?.consumeCredentialPresence?.(lockedKey)===true;

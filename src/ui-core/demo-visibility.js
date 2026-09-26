@@ -226,7 +226,7 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
     }));
   }
 
-  out.push(...deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations:op,diagnostics:diag,promptPlan:pp,at}));
+  if(ownerReceipt)out.push(...deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations:op,diagnostics:diag,promptPlan:pp,at}));
 
   if(scatter){
     const jobs=scatter.jobs??[],ids=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];

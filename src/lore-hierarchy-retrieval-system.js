@@ -95,13 +95,14 @@ export class LoreHierarchyRetrievalSystem {
     };
   }
 
-  snapshot() {
+  snapshot({compact = false} = {}) {
     return {
       kind: 'LoreHierarchyRetrievalSystemSnapshot',
       hierarchy: deepClone(this.hierarchy),
       summaryRegistry: this.summaryRegistry.snapshot(),
-      builder: this.builder.snapshot(),
-      retrievalIndex: this.retrievalIndex.snapshot(),
+      builder: this.builder.snapshot({includeCompletedSessions: !compact}),
+      retrievalIndex: this.retrievalIndex.snapshot({includeRecords: !compact}),
+      compactDerivedState: Boolean(compact),
     };
   }
 
@@ -115,6 +116,16 @@ export class LoreHierarchyRetrievalSystem {
       provider: summaryProvider || new DeterministicNavigationSummaryProvider(),
       snapshot: snapshot?.builder || null,
     });
+    if (
+      this.hierarchy
+      && (snapshot?.compactDerivedState === true || snapshot?.retrievalIndex?.recordsIncluded === false)
+    ) {
+      this.retrievalIndex.build({
+        runtime: this.runtime,
+        hierarchy: this.hierarchy,
+        summaryRegistry: this.summaryRegistry,
+      });
+    }
   }
 
   static fromSnapshot({runtime, snapshot, summaryProvider = null}) {

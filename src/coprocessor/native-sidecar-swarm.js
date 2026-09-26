@@ -93,12 +93,12 @@ export class NativeSidecarSwarm{
     maxProvidersPerTask=this.maxProvidersPerTask,gather=null,selection=null,
   }={}){
     const checkpoint=validateCheckpoint(checkpointInput,this.maxCheckpointBytes);
-    const replay=this.executionLedger.get(checkpoint.checkpointId);
-    if(replay){emitTelemetry(this.telemetry,TelemetryEvent.SWARM_RESUMED,{...checkpoint.selection,checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:0,replaySuppressed:true});return replay;}
     if(selection&&!selectionMatches(checkpoint.selection,selection)){
       const records=checkpoint.pendingTasks.map(task=>rejectedRecord(task,NativeSwarmResultState.REJECTED_STALE,FailureCode.STALE_RESULT));
       return this.#finish(checkpoint,{records,jevReceipt:null,checkpoint:null,resumeStatus:'SELECTION_REJECTED',cache:false});
     }
+    const replay=this.executionLedger.get(checkpoint.checkpointId);
+    if(replay){emitTelemetry(this.telemetry,TelemetryEvent.SWARM_RESUMED,{...checkpoint.selection,checkpointId:checkpoint.checkpointId,turnId:checkpoint.turnId,correlationId:checkpoint.correlationId,pendingTaskCount:0,replaySuppressed:true});return replay;}
     const current=await resolveValue(currentRevisionState,checkpoint.revisionFence);
     const freshness=classifyFreshness(checkpoint.revisionFence,current??checkpoint.revisionFence);
     if(freshness!==Freshness.FRESH){

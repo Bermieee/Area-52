@@ -715,8 +715,8 @@ export class Area52NativeBrain{
   }
 
   #selectedTurnReceipt(record){
-    const selection=this.#selection(record),scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
-    const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record);
+    const selection=this.#selection(record),hostObservation=record.hostObservation??null,scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
+    const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record),expectedWork=this.#expectedWorkReadModel(record);
     const candidate=record.published?.candidateEnvelope??null,truth=record.published?.publicationAssessment??record.published?.assessment??null;
     const stageId=(stage,value,explicit=null)=>!value?null:(explicit??value.receiptId??value.id??value.envelopeId??value.promptPlanId??('native:'+stage+':'+stableHash({turnId:record.turnId,stage,kind:value.kind??null},{length:20})));
     const producer=(stage,value,{producerId,consumerId,parentReceiptId=null,status=null,reasonCode=null,reasonCodes=[],durationMs=null,ownerAccepted=null,sourceRevisionRefs=null,metadata={}}={})=>{
@@ -742,7 +742,7 @@ export class Area52NativeBrain{
     const deferred=(plan?.deferred??[]).slice(0,16).map(row=>({slot:row.slot??null,reason:row.reason??null,requiredTokens:row.requiredTokens??null,remainingTokensAtDecision:row.remainingTokensAtDecision??null,shortfallTokens:row.shortfallTokens??null}));
     const includedSlots=(context?.includedSections??[]).slice(0,32),selectedRefs=selection.sourceRevisionRefs.slice(0,128),sceneRefs=uniq(record.sceneSourceRevisionRefs??scene?.sourceRevisionRefs??[]).slice(0,32),sealRefs=uniq(seal?.sourceRevisionIds??[]).slice(0,128);
     const producers={
-      hostObservation:producer('hostObservation',null,{producerId:'SILLYTAVERN_HOST',consumerId:'SCENE',reasonCode:'NO_EVIDENCE'}),
+      hostObservation:producer('hostObservation',hostObservation,{producerId:'SILLYTAVERN_HOST',consumerId:'SCENE',reasonCode:hostObservation?'EVIDENCE_PUBLISHED':'NO_EVIDENCE',durationMs:hostObservation?.durationMs??null,sourceRevisionRefs:hostObservation?.sourceRevisionRefs??[],metadata:{id:hostObservation?.eventId??null}}),
       scene:producer('scene',scene,{producerId:'SCENE',consumerId:'HOT_COGNITION',sourceRevisionRefs:scene?.sourceRevisionRefs??[],metadata:{id:sceneId,sceneRevision:scene?.sceneRevision??null}}),
       hotCognition:producer('hotCognition',hot,{producerId:'HOT_COGNITION',consumerId:'COGNITIVE_CHOICE',parentReceiptId:sceneId,metadata:{id:hotId,hotRevision:hot?.hotRevision??null}}),
       cognitiveChoice:producer('cognitiveChoice',choice,{producerId:'COGNITIVE_CHOICE',consumerId:'RUNTIME_SCATTER',parentReceiptId:hotId,reasonCodes:choice?.reasonCodes??[],durationMs:choice?.latencyResourceBudget?.controllerOverheadMs??null,metadata:{id:choiceId}}),
@@ -759,7 +759,7 @@ export class Area52NativeBrain{
       promptPlan:producer('promptPlan',plan,{producerId:'PROMPT_PLAN',consumerId:'CORE_RENDER',parentReceiptId:sealId,metadata:{id:planId}}),
       contextReceipt:producer('contextReceipt',context,{producerId:'CORE_RENDER',consumerId:'SILLYTAVERN_HOST',parentReceiptId:planId,metadata:{id:context?.contextSealId??null}}),
       compiledDelivery:producer('compiledDelivery',promptReceipt,{producerId:'CORE_DELIVERY',consumerId:'SILLYTAVERN_HOST',parentReceiptId:planId,metadata:{id:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),providerRoles:uniq(promptReceipt?.providerRoles??[])}}),
-      delivery:producer('delivery',observed,{producerId:'SILLYTAVERN_HOST',consumerId:'MODEL_PROVIDER',parentReceiptId:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),reasonCode:observed?'EVIDENCE_PUBLISHED':'NO_EVIDENCE',metadata:{id:observed?.requestId??null,live:Boolean(observed?.live),observedRoles:uniq(observed?.observedRoles??[])}}),
+      delivery:producer('delivery',observed,{producerId:'SILLYTAVERN_HOST',consumerId:'MODEL_PROVIDER',parentReceiptId:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),status:observed?(promptReceipt?.status==='OBSERVED_MATCH'?'OBSERVED':'REJECTED'):null,reasonCode:observed?(promptReceipt?.status==='OBSERVED_MATCH'?'HOST_EVIDENCE_MATCH':'HOST_EVIDENCE_MISMATCH'):'NO_EVIDENCE',metadata:{id:observed?.requestId??null,live:Boolean(observed?.live),matching:Boolean(observed?.matching),identityCompatible:observed?.identityCompatible??null,observedRoles:uniq(observed?.observedRoles??[])}}),
       learning:producer('learning',learning,{producerId:'COGNITIVE_LEARNING',consumerId:'MEMORY_LORE',parentReceiptId:observed?.requestId??sealId,ownerAccepted:learning?true:null,metadata:{id:stageId('learning',learning,learning?.experienceId??null)}}),
       memory:producer('memory',memoryEvidence,{producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:stageId('learning',learning,learning?.experienceId??null),status:memoryEvidence?.status==='NOT_ATTACHED'?'SKIPPED':null,reasonCode:memoryEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':null,ownerAccepted:memoryEvidence?.status==='ADMITTED'?true:null}),
       lore:producer('lore',loreEvidence,{producerId:'LORE',consumerId:'COGNITIVE_STATE',parentReceiptId:candidateId,status:loreEvidence?.status==='NOT_ATTACHED'?'SKIPPED':null,reasonCode:loreEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':null,ownerAccepted:null}),
@@ -768,11 +768,11 @@ export class Area52NativeBrain{
     return{
       kind:'NativeBrainSelectedTurnReceipt',contractVersion:2,...selection,
       sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length},
-      producers,causalOwnerEvents,
+      producers,causalOwnerEvents,expectedWork,
       counts:{
         admittedJobs:(choice?.admittedJobs??[]).length,skippedJobs:(choice?.skippedJobs??[]).length,
         admittedResults:(gather?.admittedResultIds??[]).length,staleResults:(gather?.staleResultIds??[]).length,rejectedResults:(gather?.rejectedResultIds??[]).length,
-        plannedSections:(plan?.sections??[]).length,includedSections:includedSlots.length,deferredSections:deferred.length,runtimeCausalEvents:runtimeEvents.length,
+        plannedSections:(plan?.sections??[]).length,includedSections:includedSlots.length,deferredSections:deferred.length,runtimeCausalEvents:runtimeEvents.length,expectedWork:expectedWork.items.length,
       },
       delivery:{
         planned:plan?{state:'PLANNED',promptPlanId:plan.promptPlanId,contextSealId:plan.contextSealId,totalTokens:plan.budget?.allocated??null,budgetTotal:plan.budget?.total??null,budgetRemaining:plan.budget?.remaining??null,includedSlots,deferred}: {state:'UNAVAILABLE',reason:'PROMPT_PLAN_UNAVAILABLE'},
@@ -825,21 +825,43 @@ export class Area52NativeBrain{
 
   #uiScatterReceipt(record){
     const choice=record.published?.cognitiveChoiceReceipt??{};
-    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>String(row.obligation?.cause?.turnId??row.obligation?.payload?.turnId??'')===record.turnId);
-    const physicalEvents=runtimeRecords.flatMap(row=>(row.causalReceipts??[]).filter(event=>event.eventKind==='PHYSICAL_EXECUTION_STARTED').map(event=>({taskId:row.taskId,...clone(event)})));
-    const jobs=(choice.admittedJobs??[]).map((jobId,index)=>({
-      jobId:String(jobId),sequence:index+1,status:'ADMITTED_LOGICAL',owner:'COGNITIVE_CORE',
-      physicalExecutionEvidence:'NO_EVIDENCE',reasonCode:'LOGICAL_ADMISSION_ONLY',
-    }));
+    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>{
+      const cause=row.obligation?.cause??{},payload=row.obligation?.payload??{};
+      if(String(cause.turnId??payload.turnId??'')!==record.turnId)return false;
+      if((cause.generationId??payload.generationId)!=null&&String(cause.generationId??payload.generationId)!==record.generationId)return false;
+      if((cause.correlationId??payload.correlationId)!=null&&String(cause.correlationId??payload.correlationId)!==record.correlationId)return false;
+      return true;
+    });
+    const eventsFor=(row)=>row.causalReceipts??[];
+    const physicalEvents=runtimeRecords.flatMap(row=>eventsFor(row).filter(event=>event.eventKind==='PHYSICAL_EXECUTION_STARTED').map(event=>({taskId:row.taskId,...clone(event)})));
+    const matchesJob=(row,jobId)=>[row.obligation?.taskType,row.obligation?.payload?.cognitiveTask?.taskType,row.obligation?.payload?.cognitiveTask?.jobId].filter(Boolean).map(String).includes(String(jobId));
+    const jobs=(choice.admittedJobs??[]).map((jobId,index)=>{
+      const matched=runtimeRecords.filter(row=>matchesJob(row,jobId)),events=matched.flatMap(eventsFor),physical=events.filter(x=>x.eventKind==='PHYSICAL_EXECUTION_STARTED'),returned=events.filter(x=>x.eventKind==='RESULT_RETURNED'),late=events.find(x=>x.eventKind==='RESULT_LATE'),stale=events.find(x=>x.eventKind==='RESULT_STALE'),rejected=events.find(x=>x.eventKind==='OWNER_REJECTED'||x.ownerAccepted===false),accepted=[...events].reverse().find(x=>x.eventKind==='OWNER_ADMISSION'&&x.ownerAccepted===true);
+      const terminal=stale?'STALE':late?'LATE':rejected?'REJECTED':accepted?'OWNER_ACCEPTED':returned.length?'RETURNED':physical.length?'RUNNING':'ADMITTED_LOGICAL';
+      const lastEvidence=stale??late??rejected??accepted??returned.at(-1)??physical.at(-1)??null;
+      return{jobId:String(jobId),sequence:index+1,status:terminal,owner:'COGNITIVE_CORE',taskIds:matched.map(row=>row.taskId),physicalExecutionEvidence:physical.length?'EVIDENCE':'NO_EVIDENCE',resultReturned:returned.length>0,ownerAccepted:rejected?false:accepted?true:null,reasonCode:lastEvidence?.reasonCode??'LOGICAL_ADMISSION_ONLY'};
+    });
+    const runtimeTasks=runtimeRecords.map(row=>({taskId:row.taskId,taskType:row.obligation?.taskType??null,owner:row.obligation?.owner??null,lifecycleStatus:row.lifecycleStatus,executionStatus:row.executionStatus,eventKinds:uniq(eventsFor(row).map(event=>event.eventKind)),lastReasonCode:eventsFor(row).at(-1)?.reasonCode??null}));
     return{
-      kind:'RuntimeTurnReceipt',...this.#selection(record),jobs,admittedJobCount:jobs.length,
+      kind:'RuntimeTurnReceipt',...this.#selection(record),jobs,runtimeTasks,admittedJobCount:jobs.length,
       resourceCount:new Set(physicalEvents.map(event=>event.workerId).filter(Boolean)).size,
       resourceIds:uniq(physicalEvents.map(event=>event.workerId).filter(Boolean)),physicalEvents:physicalEvents.slice(-32),
-      requiredFallback:0,opportunisticPending:0,executionComplete:jobs.length===0&&physicalEvents.length===0,
+      requiredFallback:0,opportunisticPending:jobs.filter(row=>row.status==='RUNNING').length,executionComplete:jobs.every(row=>['RETURNED','OWNER_ACCEPTED','STALE','LATE','REJECTED'].includes(row.status)),
       logicalAdmissionIsNotExecution:true,authorityGranted:false,
     };
   }
 
+
+  #expectedWorkReadModel(record){
+    const items=this.obligationReconciler.list().filter(row=>{
+      const cause=row.cause??{};
+      if(cause.chatId!=null&&String(cause.chatId)!==record.chatId)return false;
+      if(cause.turnId!=null&&String(cause.turnId)!==record.turnId)return false;
+      if(cause.generationId!=null&&String(cause.generationId)!==record.generationId)return false;
+      return cause.chatId!=null||cause.turnId!=null||cause.generationId!=null;
+    });
+    return{kind:'NativeBrainExpectedWorkReadModel',...this.#selection(record),items:clone(items),counts:{total:items.length,done:items.filter(row=>row.status==='DONE').length,due:items.filter(row=>row.status==='DUE').length,blocked:items.filter(row=>row.status==='BLOCKED').length,failed:items.filter(row=>row.status==='FAILED').length,skipped:items.filter(row=>row.status==='SKIPPED_WITH_REASON').length,deferred:items.filter(row=>row.status==='DEFERRED').length,stale:items.filter(row=>row.status==='STALE').length,late:items.filter(row=>row.status==='LATE').length},authorityGranted:false};
+  }
 
   #uiRetrievalBudgetReceipt(record){
     const fusion=record.published?.candidateEnvelope?.fusionReceipt??null,latency=record.published?.retrievalBudgetReceipt??record.published?.candidateEnvelope?.metadata?.retrievalBudgetReceipt??null,choice=record.published?.cognitiveChoiceReceipt?.latencyResourceBudget??null,delivery=record.delivery?.plan?.diagnosticReceipt?.budgetDecision??null;

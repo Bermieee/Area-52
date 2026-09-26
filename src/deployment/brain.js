@@ -13,6 +13,7 @@ import { LoreAuthoringService } from '../lore-authoring-service.js';
 import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
+import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
 import { SceneEventPublisher } from '../scene/event-publisher.js';
 import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
@@ -373,6 +374,21 @@ export class DevelopmentDeploymentBrain {
     this.turns = new Map();
     this.listeners = new Set();
     this.selectedTurnId = null;
+    this.sceneLoreHandoff = new SceneLoreHandoffAdapter({
+      getLoreInterface: () => this.loreIntelligence.brainInterface(),
+      getCurrentContext: (need) => {
+        const signal = this.scene.integrationSignal(String(need.chatId));
+        const knownTurn = this.turns.get(String(need.turnId))?.selection ?? null;
+        return {
+          activeChatId: this.core.hotCognition?.activeChatNamespace ?? null,
+          sceneId: signal?.sceneId ?? null,
+          sceneRevision: signal?.sceneRevision ?? null,
+          turnId: knownTurn?.turnId ?? null,
+          generationId: knownTurn?.generationId ?? null,
+        };
+      },
+      isTurnSealed: (turnId) => Boolean(this.core.publication.seal.isTurnSealed(turnId)),
+    });
     this.runtimeDirector = new WorkerDirector({
       persistence: null,
       capacity: { CPU: resourceCount },
@@ -595,6 +611,12 @@ export class DevelopmentDeploymentBrain {
       contextSealBypass: false,
       rawNarrativeIncluded: false,
     });
+  }
+
+  async runSceneLoreHandoff({ sceneReceipt, chatId = null, turnId = null, generationId } = {}) {
+    const result = await this.sceneLoreHandoff.retrieve({ sceneReceipt, chatId, turnId, generationId });
+    this.#emit({ type: 'SCENE_LORE_HANDOFF', result: clone(result) });
+    return clone(result);
   }
 
   admitMemoryEvidenceMapping(input = {}) {
@@ -892,6 +914,7 @@ export class DevelopmentDeploymentBrain {
       loreStudyHost,
       loreHost: loreStudyHost,
       loreBrainInterface: this.loreIntelligence.brainInterface(),
+      sceneLoreHandoff: (request = {}) => this.runSceneLoreHandoff(request),
       memoryIntegrationSurface: this.memorySurface,
       sceneRuntime: this.scene,
       graphProviders: createOwnerGraphProviders({

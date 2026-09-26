@@ -248,6 +248,7 @@ test('Worker 1 #262 Memory cannot infer owner acceptance when adapter returns no
   await brain.completeTurn({turnId:'memory-no-receipt:1',response:'No owner receipt was emitted.'});
   const expected=brain.uiBindings().readExpectedWork({chatId:'chat:memory-no-receipt',turnId:'memory-no-receipt:1',generationId:'gen:memory-no-receipt:1'}),row=expected.items.find(item=>item.owner==='MEMORY');
   assert.ok(row);assert.equal(row.status,'DUE');assert.equal(row.reasonCode,'NO_EVIDENCE');assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED));assert.equal(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.OWNER_ADMISSION),false);
+  const selected=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:memory-no-receipt',turnId:'memory-no-receipt:1',generationId:'gen:memory-no-receipt:1'});assert.equal(selected.producers.memory.status,'NO_EVIDENCE');assert.equal(selected.producers.memory.reasonCode,'NO_EVIDENCE');assert.equal(selected.producers.memory.ownerAccepted,null);
 });
 
 test('Worker 1 #263 Runtime result envelope preserves causal chat/generation/revision fences when obligation fields are absent',async()=>{

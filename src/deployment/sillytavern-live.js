@@ -686,6 +686,8 @@ export class DevelopmentDeploymentSillyTavernSession {
 
     const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     const installedUiBindings=this.#uiHostBindings(),installedUiReaderNames=Object.entries(installedUiBindings).filter(([name,value])=>typeof value==='function'&&(name.startsWith('read')||name.startsWith('list')||name.startsWith('reconstruct'))).map(([name])=>name).sort();
+    let selectedTurnReceipt=null;
+    try{const selected=installedUiBindings.readSelection?.()??{};selectedTurnReceipt=installedUiBindings.readSelectedTurnReceipt?.(selected)??null;}catch{}
     const installedOptionalOwners={
       resources:Boolean(installedUiBindings.resourceHost??installedUiBindings.coprocessorResourceHost),
       loreStudy:Boolean(installedUiBindings.loreIntelligenceService??installedUiBindings.loreStudyService??installedUiBindings.loreOperatorHost??installedUiBindings.loreStudyHost),
@@ -777,7 +779,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
-        rawPromptCaptured:false,rawResponseCaptured:false,
+        selectedTurnReceipt:clone(selectedTurnReceipt),rawPromptCaptured:false,rawResponseCaptured:false,
       },
       uiProducerDiagnosticsAreRegistrationOnly: !nativeContract.available,
       loreOperatorEvidence,
@@ -887,7 +889,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     base.readHostDeliveryReceipt=(selection={})=>this.#readHostDeliveryReceipt(selection);
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
-    const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readPromptPlan','readContextReceipt','listGenerations','readGeneration'];
+    const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readPromptPlan','readContextReceipt','readSelectedTurnReceipt','listGenerations','readGeneration'];
     const merged={...base};
 
     const resourceHost=merged.resourceHost??merged.coprocessorResourceHost??null;
@@ -917,6 +919,29 @@ export class DevelopmentDeploymentSillyTavernSession {
       delete merged.loreAuthoringHost;delete merged.loreAuthoringOperator;
     }
     for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
+    const nativeSelectedTurnReader=typeof merged.readSelectedTurnReceipt==='function'?merged.readSelectedTurnReceipt:null;
+    if(nativeSelectedTurnReader)merged.readSelectedTurnReceipt=(selection={})=>{
+      const owner=nativeSelectedTurnReader(selection);if(!owner)return null;
+      const expectedPromptPlanId=owner.delivery?.planned?.promptPlanId??null;
+      const expectedContextSealId=owner.delivery?.compiled?.contextSealId??owner.delivery?.planned?.contextSealId??null;
+      const host=this.#readHostDeliveryReceipt({...owner,...selection});
+      const identityMatches=Boolean(host)
+        &&(!expectedPromptPlanId||host.promptPlanId===expectedPromptPlanId)
+        &&(!expectedContextSealId||host.contextSealId===expectedContextSealId);
+      const observed=Boolean(host?.hostObserved)&&identityMatches;
+      const hostObserved=observed?{
+        state:'OBSERVED',receiptId:host.receiptId??null,lifecycleState:host.state??null,requestHook:host.requestHook??null,
+        requestInjectedAt:host.requestInjectedAt??null,completedAt:host.completedAt??null,promptPlanId:host.promptPlanId??null,contextSealId:host.contextSealId??null,
+        requestPayloadDigest:host.requestPayloadDigest??null,renderedPayloadDigest:host.renderedPayloadDigest??null,
+      }:{
+        state:'UNAVAILABLE',
+        reason:host?.hostObserved&&!identityMatches?'SILLYTAVERN_HOST_DELIVERY_IDENTITY_MISMATCH':host?.observationReason??'SILLYTAVERN_HOST_REQUEST_NOT_OBSERVED',
+        receiptId:host?.receiptId??null,lifecycleState:host?.state??null,
+        expectedPromptPlanId,observedPromptPlanId:host?.promptPlanId??null,
+        expectedContextSealId,observedContextSealId:host?.contextSealId??null,
+      };
+      return{...owner,delivery:{...(owner.delivery??{}),hostObserved},hostDeliveryReceiptId:host?.receiptId??null};
+    };
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
     merged.readNativeBrainHostLifecycle=base.readNativeBrainHostLifecycle;
@@ -937,8 +962,9 @@ export class DevelopmentDeploymentSillyTavernSession {
       state:aborted?'ABORTED':row?.state??'UNVERIFIED',promptPlanId:row?.promptPlanId??null,contextSealId:row?.contextSealId??null,
       preparedAt:row?.preparedAt??null,requestInjectedAt:row?.requestInjectedAt??null,completedAt:row?.completedAt??null,requestHook:row?.requestHook??null,
       renderedPayloadDigest:row?.renderedPayloadDigest??null,requestPayloadDigest:row?.requestPayloadDigest??null,renderedMessageCount:row?.renderedMessageCount??null,
-      promptInjected:Boolean(row?.requestInjectedAt),hostObserved:Boolean(row?.requestInjectedAt),responseCompleted:Boolean(row?.completedAt),
-      learningObserved:Boolean(row?.state==='LEARNED'&&row?.learning),abortCode:aborted?String(rejection?.code??'HOST_GENERATION_ABORTED'):null,
+      promptInjected:Boolean(row?.requestInjectedAt),hostObserved:Boolean(row?.requestInjectedAt),observationState:row?.requestInjectedAt?'OBSERVED':'UNAVAILABLE',
+      observationReason:row?.requestInjectedAt?null:(aborted?String(rejection?.code??'HOST_GENERATION_ABORTED'):'SILLYTAVERN_HOST_REQUEST_NOT_OBSERVED'),
+      responseCompleted:Boolean(row?.completedAt),learningObserved:Boolean(row?.state==='LEARNED'&&row?.learning),abortCode:aborted?String(rejection?.code??'HOST_GENERATION_ABORTED'):null,
       rawPromptIncluded:false,storyTextIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
     };
   }

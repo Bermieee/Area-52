@@ -23,10 +23,23 @@ export class AdaptiveBudgetAllocator{
     const targetsBySlot=Object.fromEntries(measured.map(x=>[x.slot,(x.protected?x.compactTokens:0)+Math.floor(targetPool*(x.weight/weightTotal))]));
     if(protectedFloor>available)return{ok:false,status:DeliveryStatus.DELIVERY_BUDGET_UNSATISFIABLE,intent:intentKey,budget:{available,total,reserved:profile.reservedTokens,protected:protectedFloor,allocated:0,remaining:available,targetsBySlot},sections:[],dropped:[],deferred:optionalRows.map(x=>x.slot),fallbackDecisions:['PROTECTED_MINIMUM_EXCEEDS_AVAILABLE']};
     const score=(row)=>(row.weight*1000)/Math.max(1,row.compactTokens),orderedOptional=[...optionalRows].sort((a,b)=>score(b)-score(a)||a.slot.localeCompare(b.slot));
+    // Admission is semantic; richness is presentation. First admit every section that can
+    // fit in its minimum COMPACT representation, then spend remaining headroom on RICH
+    // serialization. This prevents rich protected presentation from evicting optional Lore.
     let remaining=available-protectedFloor;const decisions=[];
-    for(const row of protectedRows){const canRich=profile.structuredContextPreference==='RICH'&&row.richTokens-row.compactTokens<=remaining,representation=canRich?RepresentationMode.RICH:RepresentationMode.COMPACT,used=canRich?row.richTokens:row.compactTokens;remaining-=used-row.compactTokens;decisions.push({...row,representation,allocatedTokens:used,targetTokens:targetsBySlot[row.slot]??used});}
-    for(const row of orderedOptional){const preferred=profile.structuredContextPreference==='RICH'?row.richTokens:row.compactTokens;let representation=RepresentationMode.OMITTED,used=0;if(preferred<=remaining){representation=profile.structuredContextPreference==='RICH'?RepresentationMode.RICH:RepresentationMode.COMPACT;used=preferred;}else if(row.compactTokens<=remaining){representation=RepresentationMode.COMPACT;used=row.compactTokens;}if(used)remaining-=used;decisions.push({...row,representation,allocatedTokens:used,targetTokens:targetsBySlot[row.slot]??Math.max(0,used)});}
-    const bySlot=new Map(decisions.map(x=>[x.slot,x])),ordered=sections.map(x=>bySlot.get(x.slot)).filter(Boolean),omitted=ordered.filter(x=>x.representation===RepresentationMode.OMITTED),dropped=omitted.filter(x=>Number(x.priority??0)<5).map(x=>({slot:x.slot,reason:'OPTIONAL_BUDGET_PRESSURE'})),deferred=omitted.filter(x=>Number(x.priority??0)>=5).map(x=>({slot:x.slot,reason:'OPTIONAL_DEFERRED_BY_BUDGET'})),fallbackDecisions=[];
+    for(const row of protectedRows)decisions.push({...row,representation:RepresentationMode.COMPACT,allocatedTokens:row.compactTokens,targetTokens:targetsBySlot[row.slot]??row.compactTokens,remainingTokensAtDecision:remaining,minimumTokens:row.compactTokens});
+    for(const row of orderedOptional){
+      const remainingTokensAtDecision=remaining;let representation=RepresentationMode.OMITTED,used=0;
+      if(row.compactTokens<=remaining){representation=RepresentationMode.COMPACT;used=row.compactTokens;remaining-=used;}
+      decisions.push({...row,representation,allocatedTokens:used,targetTokens:targetsBySlot[row.slot]??Math.max(0,used),remainingTokensAtDecision,minimumTokens:row.compactTokens});
+    }
+    if(profile.structuredContextPreference==='RICH'){
+      const enrichment=[...decisions].filter(row=>row.representation!==RepresentationMode.OMITTED).sort((a,b)=>Number(b.protected)-Number(a.protected)||b.weight-a.weight||a.slot.localeCompare(b.slot));
+      for(const row of enrichment){const extra=Math.max(0,row.richTokens-row.compactTokens);if(extra<=remaining){const index=decisions.findIndex(item=>item.slot===row.slot);decisions[index]={...decisions[index],representation:RepresentationMode.RICH,allocatedTokens:row.richTokens};remaining-=extra;}}
+    }
+    const bySlot=new Map(decisions.map(x=>[x.slot,x])),ordered=sections.map(x=>bySlot.get(x.slot)).filter(Boolean),omitted=ordered.filter(x=>x.representation===RepresentationMode.OMITTED);
+    const omission=(x,reason)=>({slot:x.slot,reason,reasonClass:'BUDGET_CAPACITY',legacyReason:Number(x.priority??0)>=5?'OPTIONAL_DEFERRED_BY_BUDGET':'OPTIONAL_BUDGET_PRESSURE',requiredTokens:x.compactTokens,remainingTokensAtDecision:x.remainingTokensAtDecision,shortfallTokens:Math.max(0,x.compactTokens-x.remainingTokensAtDecision),targetTokens:x.targetTokens,priority:Number(x.priority??0)});
+    const dropped=omitted.filter(x=>Number(x.priority??0)<5).map(x=>omission(x,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET')),deferred=omitted.filter(x=>Number(x.priority??0)>=5).map(x=>omission(x,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET')),fallbackDecisions=[];
     if(ordered.some(x=>x.representation===RepresentationMode.COMPACT&&profile.structuredContextPreference==='RICH'))fallbackDecisions.push('COMPACT_SAFE_REPRESENTATION');if(dropped.length)fallbackDecisions.push('DROP_OPTIONAL_MATERIAL');if(deferred.length)fallbackDecisions.push('DEFER_OPTIONAL_MATERIAL');const allocated=ordered.reduce((sum,x)=>sum+x.allocatedTokens,0);
     return{ok:true,status:DeliveryStatus.READY,intent:intentKey,budget:{available,total,reserved:profile.reservedTokens,protected:protectedFloor,allocated,remaining:Math.max(0,available-allocated),targetsBySlot},sections:ordered,dropped,deferred,fallbackDecisions};
   }

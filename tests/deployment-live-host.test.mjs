@@ -234,11 +234,31 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   assert.equal(contextSeal.turnId,selection.turnId);
   assert.ok(runtime,'Runtime owner snapshot must be readable for the same native path');
 
+  const beforeHostObservation=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
+  assert.equal(beforeHostObservation.chatId,selection.chatId);
+  assert.equal(beforeHostObservation.turnId,selection.turnId);
+  assert.equal(beforeHostObservation.generationId,selection.generationId);
+  assert.equal(beforeHostObservation.delivery.planned.state,'PLANNED');
+  assert.equal(beforeHostObservation.delivery.compiled.state,'COMPILED_AND_SEALED');
+  assert.equal(beforeHostObservation.delivery.hostObserved.state,'UNAVAILABLE');
+  assert.equal(beforeHostObservation.rawPromptIncluded,false);
+  assert.equal(beforeHostObservation.storyTextIncluded,false);
+  assert.equal(beforeHostObservation.loreBodiesIncluded,false);
+  assert.equal(beforeHostObservation.credentialsIncluded,false);
+  assert.equal(beforeHostObservation.hiddenReasoningIncluded,false);
+
   const actualRequest={chat:[
     {role:'system',content:'SillyTavern host policy'},
     {role:'user',content:'At Moonlit Observatory, I inspect the sealed compass beside the lantern.'},
   ],dryRun:false};
   await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
+  const observedHostDelivery=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
+  assert.equal(observedHostDelivery.delivery.hostObserved.state,'OBSERVED');
+  assert.equal(observedHostDelivery.delivery.hostObserved.promptPlanId,promptPlan.promptPlanId);
+  assert.equal(observedHostDelivery.delivery.hostObserved.contextSealId,contextSeal.id);
+  assert.equal(observedHostDelivery.delivery.hostObserved.requestHook,'CHAT_COMPLETION_PROMPT_READY');
+  assert.ok(observedHostDelivery.delivery.hostObserved.requestPayloadDigest);
+  assert.ok(observedHostDelivery.delivery.hostObserved.renderedPayloadDigest);
 
   const assistantIndex=pushAssistant(context,'The lantern reflects from the sealed compass while the observatory remains quiet.');
   await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));

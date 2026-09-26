@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Area-52 Scene browser load qualification</title></head>
+<body>
+<pre id="scene-result" data-status="PENDING">running</pre>
+<script type="module">
+import { ObservationClass, SceneIntelligenceRuntime, createFieldState } from '../src/scene/index.js';
+const out=document.getElementById('scene-result');
+const field=(value,revision,evidence)=>createFieldState({value,revision,evidenceRefs:[evidence],observationClass:ObservationClass.OBSERVED,confidence:1});
+const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+const longTasks=[];
+let observer=null;
+try{observer=new PerformanceObserver(list=>{for(const entry of list.getEntries())longTasks.push(entry.duration);});observer.observe({entryTypes:['longtask']});}catch{}
+try{
+  globalThis.gc?.();
+  const heapSupported=Number.isFinite(Number(performance.memory?.usedJSHeapSize));
+  const heapBefore=heapSupported?Number(performance.memory.usedJSHeapSize):null;
+  const runtime=new SceneIntelligenceRuntime();
+  runtime.open({sceneId:'browser:stress',sourceRevisionRefs:['browser:0'],provenance:['browser:0']});
+  let maxBatchMs=0,totalBatchMs=0;
+  const batchCount=25,updatesPerBatch=100;
+  for(let batch=0;batch<batchCount;batch++){
+    await frame();
+    const started=performance.now();
+    for(let j=0;j<updatesPerBatch;j++){
+      const i=batch*updatesPerBatch+j+1,current=runtime.registry.current('browser:stress'),evidence='browser:'+i;
+      const result=runtime.observe({sceneId:'browser:stress',proposalId:'browser:p:'+i,sourceRevisionRefs:[evidence],evidenceRefs:[evidence],fields:{activeThreads:field(['thread:'+(i%11)],current.revision+1,evidence)}});
+      if(!result.applied)throw new Error('browser stress update was not applied at '+i);
+    }
+    const elapsed=performance.now()-started;maxBatchMs=Math.max(maxBatchMs,elapsed);totalBatchMs+=elapsed;
+  }
+  await frame();await frame();globalThis.gc?.();await frame();
+  const heapAfter=heapSupported?Number(performance.memory.usedJSHeapSize):null,record=runtime.registry.get('browser:stress');
+  const heapGrowthBytes=heapSupported?heapAfter-heapBefore:null;
+  const report={
+    kind:'SceneBrowserLoadQualification',contractVersion:'1.0.0',browser:navigator.userAgent,
+    updates:batchCount*updatesPerBatch,batchCount,updatesPerBatch,maxBatchMs,totalBatchMs,
+    longTaskCount:longTasks.length,maxLongTaskMs:longTasks.length?Math.max(...longTasks):0,
+    heapSupported,heapBeforeBytes:heapBefore,heapAfterBytes:heapAfter,heapGrowthBytes,
+    retainedSnapshots:record.snapshots.length,retainedDeltas:record.deltas.length,
+  };
+  const pass=record.snapshots.length<=96&&record.deltas.length<=192&&maxBatchMs<1000&&(heapGrowthBytes==null||heapGrowthBytes<64*1024*1024);
+  out.dataset.status=pass?'PASS':'FAIL';out.textContent=JSON.stringify({...report,status:out.dataset.status});
+}catch(error){out.dataset.status='FAIL';out.textContent=JSON.stringify({kind:'SceneBrowserLoadQualification',status:'FAIL',error:String(error?.stack??error)});}
+finally{observer?.disconnect?.();}
+</script>
+</body>
+</html>

@@ -54,7 +54,10 @@ export class CorePresentationRouter{
 
 export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPacket=null}={}){
   if(!plan||!rendered)throw new TypeError('plan and rendered input are required');
-  const roles=uniq((rendered.messages??[]).map(row=>row.role).concat((plan.sections??[]).map(row=>row.role)));
+  const semanticRoles=uniq((plan.sections??[]).map(row=>row.role));
+  const providerRoles=uniq((rendered.messages??[]).map(row=>row.role));
+  const supportedProviderRoles=['assistant','system','user'];
+  const unsupportedProviderRoles=providerRoles.filter(role=>!supportedProviderRoles.includes(role));
   const omissionMap=new Map();
   for(const row of [...(plan.dropped??[]),...(plan.deferred??[])])omissionMap.set(String(row.slot),clone(row));
   for(const row of (plan.sections??[]).filter(row=>row.representation==='OMITTED'))if(!omissionMap.has(String(row.slot)))omissionMap.set(String(row.slot),{slot:row.slot,reason:'OMITTED_REPRESENTATION'});
@@ -69,7 +72,9 @@ export function createCorePromptDeliveryReceipt({plan,rendered,routing,sealedPac
     requestedProfileId:routing?.requestedProfileId??plan.modelProfileId,profileChoice:plan.modelProfileId,
     profileRevision:plan.modelProfileRevision,providerId:routing?.providerId??null,modelId:routing?.modelId??null,routeId:routing?.routeId??null,
     profileReason:routing?.reason??'DIRECT',profileFallbackUsed:Boolean(routing?.fallbackUsed),cacheAssumption:routing?.cacheAssumption??'PROFILE_DECLARED',
-    plannedRoles:roles,plannedSections:(plan.sections??[]).map(row=>({slot:row.slot,role:row.role,representation:row.representation,sourceRevisionIds:uniq(row.sourceRevisionIds??[])})),
+    plannedRoles:semanticRoles,semanticRoles,providerRoles,supportedProviderRoles,unsupportedProviderRoles,
+    messageRoleMap:clone(rendered.messageMap??[]),
+    plannedSections:(plan.sections??[]).map(row=>({slot:row.slot,role:row.role,semanticRole:row.role,representation:row.representation,sourceRevisionIds:uniq(row.sourceRevisionIds??[])})),
     sourceRevisionRefs:uniq([...(plan.sourceRevisionDependencies??[]),...(plan.sections??[]).flatMap(row=>row.sourceRevisionIds??[])]),omissions:clone(omissions),
     presentationOnly:true,semanticSelectionAuthority:false,loreSelectionAuthority:false,factCreationAuthority:false,authorityMutation:false,
     providerChatTemplateTokensEmitted:false,observedHostDelivery:null,hostEvidenceRequired:true,
@@ -80,14 +85,16 @@ export function attachObservedHostPromptEvidence(receipt,evidence={}){
   if(receipt?.kind!=='CorePromptDeliveryReceipt')throw new TypeError('CorePromptDeliveryReceipt is required');
   const observedSeal=evidence.sealedPacketHash??receipt.sealedPacketHash;
   const observedManifest=evidence.semanticManifestIdentity??receipt.semanticManifestIdentity;
-  const matching=observedSeal===receipt.sealedPacketHash&&observedManifest===receipt.semanticManifestIdentity;
+  const observedRoles=uniq(evidence.observedRoles??[]);
+  const roleCompatible=observedRoles.length===0||observedRoles.every(role=>(receipt.supportedProviderRoles??['assistant','system','user']).includes(role));
+  const matching=observedSeal===receipt.sealedPacketHash&&observedManifest===receipt.semanticManifestIdentity&&roleCompatible;
   return Object.freeze({
     ...clone(receipt),
     status:matching?'OBSERVED_MATCH':'OBSERVED_MISMATCH',
     observedHostDelivery:{
       kind:'ObservedHostPromptEvidence',host:String(evidence.host??'SILLYTAVERN'),
       generationId:evidence.generationId??receipt.generationId,requestId:evidence.requestId??null,
-      observedRoles:uniq(evidence.observedRoles??[]),observedSections:uniq(evidence.observedSections??[]),
+      observedRoles,observedSections:uniq(evidence.observedSections??[]),roleCompatible,
       sealedPacketHash:observedSeal,semanticManifestIdentity:observedManifest,
       promptFingerprint:evidence.promptFingerprint??null,matching,live:Boolean(evidence.live),capturedAt:evidence.capturedAt??null,
     },
@@ -102,6 +109,9 @@ export function promptDeliveryIntegrationContract(){
     identityChecks:['sealedPacketHash','semanticManifestIdentity'],
     corePlanIsNotHostProof:true,
     providerChatTemplateTokens:false,
+    providerMessageRoles:['system','user','assistant'],
+    semanticRoleMapping:{context:'system'},
+    unsupportedOutboundRolesRejected:true,
     semanticMutationAllowed:false,
   });
 }

@@ -1,5 +1,6 @@
 import { COGNITIVE_LAYERS, LIFECYCLE_STATUS, assertLayer, isForegroundLayer } from './constants.js';
 import { compareRevision, deepClone, makeSequenceId, normalizeCapabilities } from './utils.js';
+import { normalizeCausalCause } from './causal-receipts.js';
 
 const OPEN = new Set([LIFECYCLE_STATUS.PENDING, LIFECYCLE_STATUS.ELIGIBLE]);
 
@@ -43,6 +44,7 @@ export class LifecycleCore {
         revision: this.#newerRevision(coalesced.obligation.revision, input.revision),
         sourceRevisions: { ...(coalesced.obligation.sourceRevisions ?? {}), ...(input.sourceRevisions ?? {}) },
         payload: { ...(coalesced.obligation.payload ?? {}), ...(input.payload ?? {}) },
+        cause: input.cause ? normalizeCausalCause(input.cause) : coalesced.obligation.cause,
         coalescedCount: (coalesced.obligation.coalescedCount ?? 0) + 1,
       };
       this.ledger.updateObligation(coalesced.taskId, patch);
@@ -63,6 +65,7 @@ export class LifecycleCore {
       layer,
       owner: input.owner,
       producerId: input.producerId ?? null,
+      cause: normalizeCausalCause({...input.cause,producerId:input.producerId??input.cause?.producerId,ownerId:input.owner}),
       resultContract: deepClone(input.resultContract ?? null),
       runtimeClass: input.runtimeClass ?? null,
       requiredCapabilities,

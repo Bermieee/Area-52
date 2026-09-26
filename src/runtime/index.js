@@ -5,6 +5,8 @@ export * from './event-type-registry.js';
 export * from './event-spine.js';
 export * from './dependency-graph.js';
 export * from './work-ledger.js';
+export * from './causal-receipts.js';
+export * from './obligation-reconciler.js';
 export * from './lifecycle.js';
 export * from './capability-registry.js';
 export * from './resource-governor.js';

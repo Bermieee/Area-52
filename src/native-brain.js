@@ -411,12 +411,17 @@ export class Area52NativeBrain{
     const task=this.#scheduleFeedback(id,experience.sourceRevisionId);
     if(autoDrain)await this.runtimeDirector.drain({maxCycles:128});
     const latest=this.turns.get(id);
+    const feedbackTaskId=task?.task?.taskId??null;
+    if(feedbackTaskId&&latest.feedback){
+      const feedbackReceiptId=latest.feedback.receiptId??latest.feedback.id??latest.feedback.kind??('feedback:'+id);
+      this.runtimeDirector.recordOwnerAdmission(feedbackTaskId,{accepted:true,receiptId:feedbackReceiptId,consumerId:'COGNITIVE_CORE'});
+    }
     latest.state='LEARNED';
     latest.learningReceipt={
       kind:'NativeBrainLearningReceipt',turnId:id,experienceId:experience.evidenceId,sourceRevisionId:experience.sourceRevisionId,
       settlementDecisions:settlements.map(x=>x?.decision?.decision??'REJECTED'),
       reflectionEvidenceIds:reflectionRows.map(x=>x.evidenceId),
-      feedback:clone(latest.feedback),runtimeTaskId:task?.task?.taskId??null,memoryWriteback:clone(memoryWriteback),memorySettlementReceipts:clone(memorySettlementReceipts),
+      feedback:clone(latest.feedback),runtimeTaskId:feedbackTaskId,memoryWriteback:clone(memoryWriteback),memorySettlementReceipts:clone(memorySettlementReceipts),
       rawExperienceRecoverable:Boolean(this.core.registry.getRevision(experience.sourceRevisionId)?.exactContent===text),
       canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
     };
@@ -587,7 +592,8 @@ export class Area52NativeBrain{
       layer:'L2',runtimeClass:'NEARLINE',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],
       dedupeKey:'native-feedback:'+turnId,foreground:false,sourceRevisionIds:[sourceRevisionId],
       worldRevision:this.core.graph.revision,sceneRevision:record.sceneRevision,
-      payload:{turnId:String(turnId),correlationId:record.correlationId,resultClass:'DEFERRED'},
+      payload:{chatId:record.chatId,turnId:String(turnId),generationId:record.generationId,correlationId:record.correlationId,resultClass:'DEFERRED'},
+      cause:{eventType:'POST_TURN_LEARNING',eventId:'learning:'+record.generationId,correlationId:record.correlationId,producerId:'NATIVE_BRAIN',consumerId:'COGNITIVE_LEARNING',ownerId:'COGNITIVE_CORE',chatId:record.chatId,turnId:String(turnId),generationId:record.generationId,turnRevision:record.sequence,sourceRevisionRefs:[sourceRevisionId],worldRevision:this.core.graph.revision,sceneRevision:record.sceneRevision},
       batchHint:{maxSliceUnits:1},checkpointPolicy:{maxUnitsPerCheckpoint:1},
     },{
       units:[{id:'feedback:'+turnId,payload:{turnId:String(turnId)}}],
@@ -683,39 +689,74 @@ export class Area52NativeBrain{
   }
 
   #selectedTurnReceipt(record){
-    // Selected-turn diagnostics must be assembled from the immutable turn record. Reading the
-    // current Scene/Hot snapshots here can silently fill an older selection from a newer turn.
     const selection=this.#selection(record),scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
     const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record);
-    const producer=(value,{id=null,reasonCodes=[],metadata={}}={})=>({status:value?'PUBLISHED':'UNAVAILABLE',id:value?(id??value.receiptId??value.id??value.promptPlanId??value.kind??null):null,reasonCodes:uniq(reasonCodes).slice(0,16),...clone(metadata)});
+    const candidate=record.published?.candidateEnvelope??null,truth=record.published?.publicationAssessment??record.published?.assessment??null;
+    const stageId=(stage,value,explicit=null)=>!value?null:(explicit??value.receiptId??value.id??value.envelopeId??value.promptPlanId??('native:'+stage+':'+stableHash({turnId:record.turnId,stage,kind:value.kind??null},{length:20})));
+    const producer=(stage,value,{producerId,consumerId,parentReceiptId=null,status=null,reasonCode=null,reasonCodes=[],durationMs=null,ownerAccepted=null,sourceRevisionRefs=null,metadata={}}={})=>{
+      const present=Boolean(value),resolvedStatus=status??(present?'PUBLISHED':'NO_EVIDENCE');
+      return{
+        status:resolvedStatus,lifecycleState:resolvedStatus,id:stageId(stage,value,metadata.id??null),
+        producerId,consumerId,parentReceiptId,durationMs:Number.isFinite(Number(durationMs))?Number(durationMs):null,ownerAccepted,
+        reasonCode:reasonCode??(present?'EVIDENCE_PUBLISHED':'NO_EVIDENCE'),reasonCodes:uniq(reasonCodes).slice(0,16),
+        chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,
+        turnRevision:record.sequence,worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,
+        sourceRevisionRefs:uniq(sourceRevisionRefs??(present?(record.sourceRevisionSet??[]):[])).slice(0,32),...clone(metadata),
+      };
+    };
+    const sceneId=stageId('scene',scene,scene?.lastReceiptId??scene?.sceneId??null),hotId=stageId('hotCognition',hot,hot?.snapshotId??null),choiceId=stageId('cognitiveChoice',choice,choice?.id??null);
+    const candidateId=stageId('sensory',candidate,candidate?.envelopeId??candidate?.id??null),truthId=stageId('truth',truth,null),gatherId=stageId('gather',gather,gather?.receiptId??null),sealId=stageId('contextSeal',seal,seal?.id??null),planId=stageId('promptPlan',plan,plan?.promptPlanId??null);
+    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>String(row.obligation?.cause?.turnId??row.obligation?.payload?.turnId??'')===record.turnId);
+    const runtimeEvents=runtimeRecords.flatMap(row=>(row.causalReceipts??[]).map(event=>({...clone(event),taskId:row.taskId}))).slice(-32);
+    const runtimeValue=runtimeEvents.length?{kind:'NativeBrainRuntimeCausalEvidence',id:'native:runtime:'+stableHash({turnId:record.turnId,ids:runtimeEvents.map(x=>x.id)},{length:20})}:null;
+    const jevDecision=choice?.jev?.considered?{kind:'CognitiveJevDecision',id:(choiceId??'choice')+':jev'}:null;
+    const precisionDecision=choice?.precision?.considered?{kind:'CognitivePrecisionDecision',id:(choiceId??'choice')+':precision'}:null;
+    const promptReceipt=record.delivery?.receipt??null,observed=promptReceipt?.observedHostDelivery??null,learning=record.learningReceipt??null;
+    const memoryEvidence=learning?.memoryWriteback??record.memorySync??null,loreEvidence=record.loreSync??null;
     const deferred=(plan?.deferred??[]).slice(0,16).map(row=>({slot:row.slot??null,reason:row.reason??null,requiredTokens:row.requiredTokens??null,remainingTokensAtDecision:row.remainingTokensAtDecision??null,shortfallTokens:row.shortfallTokens??null}));
     const includedSlots=(context?.includedSections??[]).slice(0,32),selectedRefs=selection.sourceRevisionRefs.slice(0,128),sceneRefs=uniq(record.sceneSourceRevisionRefs??scene?.sourceRevisionRefs??[]).slice(0,32),sealRefs=uniq(seal?.sourceRevisionIds??[]).slice(0,128);
+    const producers={
+      hostObservation:producer('hostObservation',null,{producerId:'SILLYTAVERN_HOST',consumerId:'SCENE',reasonCode:'NO_EVIDENCE'}),
+      scene:producer('scene',scene,{producerId:'SCENE',consumerId:'HOT_COGNITION',sourceRevisionRefs:scene?.sourceRevisionRefs??[],metadata:{id:sceneId,sceneRevision:scene?.sceneRevision??null}}),
+      hotCognition:producer('hotCognition',hot,{producerId:'HOT_COGNITION',consumerId:'COGNITIVE_CHOICE',parentReceiptId:sceneId,metadata:{id:hotId,hotRevision:hot?.hotRevision??null}}),
+      cognitiveChoice:producer('cognitiveChoice',choice,{producerId:'COGNITIVE_CHOICE',consumerId:'RUNTIME_SCATTER',parentReceiptId:hotId,reasonCodes:choice?.reasonCodes??[],durationMs:choice?.latencyResourceBudget?.controllerOverheadMs??null,metadata:{id:choiceId}}),
+      sensory:producer('sensory',candidate,{producerId:'SENSORY_NET',consumerId:'TRUTH',parentReceiptId:choiceId,durationMs:choice?.latencyResourceBudget?.retrievalElapsedMs??null,metadata:{id:candidateId}}),
+      retrieval:producer('retrieval',candidate,{producerId:'RETRIEVAL',consumerId:'TRUTH',parentReceiptId:choiceId,status:choice?.skippedJobs?.includes('RETRIEVAL')?'SKIPPED':null,reasonCode:choice?.skippedJobs?.includes('RETRIEVAL')?(choice?.reasonCodes?.includes('HOT_SUFFICIENT')?'HOT_SUFFICIENT':'NOT_REQUIRED'):null,reasonCodes:choice?.skippedJobs?.includes('RETRIEVAL')?(choice?.reasonCodes??[]):[],metadata:{id:candidateId}}),
+      truth:producer('truth',truth,{producerId:'TRUTH',consumerId:'GATHER',parentReceiptId:candidateId,metadata:{id:truthId}}),
+      runtime:producer('runtime',runtimeValue,{producerId:'RUNTIME_CORE',consumerId:'OWNER',parentReceiptId:choiceId,reasonCode:runtimeValue?'EVIDENCE_PUBLISHED':'LOGICAL_ADMISSION_ONLY',metadata:{id:runtimeValue?.id??null,eventCount:runtimeEvents.length,events:runtimeEvents}}),
+      jev:producer('jev',jevDecision,{producerId:'JEV',consumerId:'GATHER',parentReceiptId:truthId,status:choice?.jev?.unavailable?'UNAVAILABLE':choice?.jev?.abstained?'DEFERRED':choice?.jev?.skipped?'SKIPPED':null,reasonCode:choice?.jev?.reason??(jevDecision?'EVIDENCE_PUBLISHED':'NO_EVIDENCE'),ownerAccepted:null,metadata:{id:jevDecision?.id??null,configured:Boolean(choice?.jev?.considered),qualified:Boolean(choice?.jev?.alternativeCount>=2),physicalAttempt:Boolean(choice?.jev?.invoked),returned:Boolean(choice?.jev?.resultRef||choice?.jev?.abstained),resultRef:choice?.jev?.resultRef??null}}),
+      sidecar:producer('sidecar',null,{producerId:'SIDECAR',consumerId:'GATHER',reasonCode:'NO_EVIDENCE'}),
+      vectoring:producer('vectoring',null,{producerId:'VECTORING',consumerId:'GATHER',reasonCode:'NO_EVIDENCE'}),
+      precision:producer('precision',precisionDecision,{producerId:'PRECISION',consumerId:'GATHER',parentReceiptId:truthId,status:choice?.precision?.failed?'FAILED':choice?.precision?.skipped?'SKIPPED':null,reasonCode:choice?.precision?.reason??(precisionDecision?'EVIDENCE_PUBLISHED':'NO_EVIDENCE'),metadata:{id:precisionDecision?.id??null,physicalAttempt:Boolean(choice?.precision?.invoked),returned:Number(choice?.precision?.resultCount??0)>0}}),
+      gather:producer('gather',gather,{producerId:'GATHER',consumerId:'CONTEXT_SEAL',parentReceiptId:truthId,metadata:{id:gatherId}}),
+      contextSeal:producer('contextSeal',seal,{producerId:'CONTEXT_SEAL',consumerId:'PROMPT_PLAN',parentReceiptId:gatherId,metadata:{id:sealId}}),
+      promptPlan:producer('promptPlan',plan,{producerId:'PROMPT_PLAN',consumerId:'CORE_RENDER',parentReceiptId:sealId,metadata:{id:planId}}),
+      contextReceipt:producer('contextReceipt',context,{producerId:'CORE_RENDER',consumerId:'SILLYTAVERN_HOST',parentReceiptId:planId,metadata:{id:context?.contextSealId??null}}),
+      compiledDelivery:producer('compiledDelivery',promptReceipt,{producerId:'CORE_DELIVERY',consumerId:'SILLYTAVERN_HOST',parentReceiptId:planId,metadata:{id:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),providerRoles:uniq(promptReceipt?.providerRoles??[])}}),
+      delivery:producer('delivery',observed,{producerId:'SILLYTAVERN_HOST',consumerId:'MODEL_PROVIDER',parentReceiptId:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),reasonCode:observed?'EVIDENCE_PUBLISHED':'NO_EVIDENCE',metadata:{id:observed?.requestId??null,live:Boolean(observed?.live),observedRoles:uniq(observed?.observedRoles??[])}}),
+      learning:producer('learning',learning,{producerId:'COGNITIVE_LEARNING',consumerId:'MEMORY_LORE',parentReceiptId:observed?.requestId??sealId,ownerAccepted:learning?true:null,metadata:{id:stageId('learning',learning,learning?.experienceId??null)}}),
+      memory:producer('memory',memoryEvidence,{producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:stageId('learning',learning,learning?.experienceId??null),status:memoryEvidence?.status==='NOT_ATTACHED'?'SKIPPED':null,reasonCode:memoryEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':null,ownerAccepted:memoryEvidence?.status==='ADMITTED'?true:null}),
+      lore:producer('lore',loreEvidence,{producerId:'LORE',consumerId:'COGNITIVE_STATE',parentReceiptId:candidateId,status:loreEvidence?.status==='NOT_ATTACHED'?'SKIPPED':null,reasonCode:loreEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':null,ownerAccepted:null}),
+    };
+    const causalOwnerEvents=Object.entries(producers).map(([stage,event])=>({stage,...clone(event)})).slice(0,32);
     return{
-      kind:'NativeBrainSelectedTurnReceipt',contractVersion:1,...selection,
+      kind:'NativeBrainSelectedTurnReceipt',contractVersion:2,...selection,
       sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length},
-      producers:{
-        scene:producer(scene,{id:scene?.lastReceiptId??scene?.sceneId??null,metadata:{sceneRevision:scene?.sceneRevision??null,sourceRevisionRefs:uniq(scene?.sourceRevisionRefs??[]).slice(0,32)}}),
-        hotCognition:producer(hot,{id:hot?.snapshotId??null,metadata:{hotRevision:hot?.hotRevision??null}}),
-        cognitiveChoice:producer(choice,{id:choice?.receiptId??choice?.id??null,reasonCodes:choice?.reasonCodes??[]}),
-        retrieval:producer(record.published?.candidateEnvelope,{id:record.published?.candidateEnvelope?.envelopeId??record.published?.candidateEnvelope?.id??null,reasonCodes:choice?.skippedJobs?.includes('RETRIEVAL')?(choice?.reasonCodes??[]):[]}),
-        gather:producer(gather,{id:gather?.receiptId??gather?.kind??null}),
-        contextSeal:producer(seal,{id:seal?.id??null}),
-        promptPlan:producer(plan,{id:plan?.promptPlanId??null}),
-        contextReceipt:producer(context,{id:context?.contextSealId??null}),
-      },
+      producers,causalOwnerEvents,
       counts:{
         admittedJobs:(choice?.admittedJobs??[]).length,skippedJobs:(choice?.skippedJobs??[]).length,
         admittedResults:(gather?.admittedResultIds??[]).length,staleResults:(gather?.staleResultIds??[]).length,rejectedResults:(gather?.rejectedResultIds??[]).length,
-        plannedSections:(plan?.sections??[]).length,includedSections:includedSlots.length,deferredSections:deferred.length,
+        plannedSections:(plan?.sections??[]).length,includedSections:includedSlots.length,deferredSections:deferred.length,runtimeCausalEvents:runtimeEvents.length,
       },
       delivery:{
         planned:plan?{state:'PLANNED',promptPlanId:plan.promptPlanId,contextSealId:plan.contextSealId,totalTokens:plan.budget?.allocated??null,budgetTotal:plan.budget?.total??null,budgetRemaining:plan.budget?.remaining??null,includedSlots,deferred}: {state:'UNAVAILABLE',reason:'PROMPT_PLAN_UNAVAILABLE'},
         compiled:context?{state:'COMPILED_AND_SEALED',contextSealId:context.contextSealId,packetId:context.packetId??null,packetHash:context.packetHash??null,includedSlots:[...(context.includedSections??[])].slice(0,32),deferred:[...(context.deferredSections??[])].slice(0,16)}:{state:'UNAVAILABLE',reason:'CONTEXT_RECEIPT_UNAVAILABLE'},
-        hostObserved:{state:'UNAVAILABLE',reason:'HOST_OBSERVATION_OWNED_BY_SILLYTAVERN_BOUNDARY'},
+        hostObserved:observed?{state:'OBSERVED',requestId:observed.requestId??null,matching:Boolean(observed.matching),live:Boolean(observed.live),observedRoles:uniq(observed.observedRoles??[])}:{state:'UNAVAILABLE',reason:'HOST_OBSERVATION_OWNED_BY_SILLYTAVERN_BOUNDARY'},
       },
       rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
     };
   }
+
 
   #rememberOwnerEvidence(evidence){
     if(!evidence?.evidenceId)return null;
@@ -757,9 +798,22 @@ export class Area52NativeBrain{
   }
 
   #uiScatterReceipt(record){
-    const choice=record.published?.cognitiveChoiceReceipt??{},jobs=(choice.admittedJobs??[]).map((jobId,index)=>({jobId:String(jobId),sequence:index+1,status:'EXECUTED',owner:'COGNITIVE_CORE'}));
-    return{kind:'RuntimeTurnReceipt',...this.#selection(record),jobs,admittedJobCount:jobs.length,resourceCount:1,resourceIds:['native-brain-local-cpu'],requiredFallback:0,opportunisticPending:0,executionComplete:true,authorityGranted:false};
+    const choice=record.published?.cognitiveChoiceReceipt??{};
+    const runtimeRecords=this.runtimeDirector.ledger.list().filter(row=>String(row.obligation?.cause?.turnId??row.obligation?.payload?.turnId??'')===record.turnId);
+    const physicalEvents=runtimeRecords.flatMap(row=>(row.causalReceipts??[]).filter(event=>event.eventKind==='PHYSICAL_EXECUTION_STARTED').map(event=>({taskId:row.taskId,...clone(event)})));
+    const jobs=(choice.admittedJobs??[]).map((jobId,index)=>({
+      jobId:String(jobId),sequence:index+1,status:'ADMITTED_LOGICAL',owner:'COGNITIVE_CORE',
+      physicalExecutionEvidence:'NO_EVIDENCE',reasonCode:'LOGICAL_ADMISSION_ONLY',
+    }));
+    return{
+      kind:'RuntimeTurnReceipt',...this.#selection(record),jobs,admittedJobCount:jobs.length,
+      resourceCount:new Set(physicalEvents.map(event=>event.workerId).filter(Boolean)).size,
+      resourceIds:uniq(physicalEvents.map(event=>event.workerId).filter(Boolean)),physicalEvents:physicalEvents.slice(-32),
+      requiredFallback:0,opportunisticPending:0,executionComplete:jobs.length===0&&physicalEvents.length===0,
+      logicalAdmissionIsNotExecution:true,authorityGranted:false,
+    };
   }
+
 
   #uiRetrievalBudgetReceipt(record){
     const fusion=record.published?.candidateEnvelope?.fusionReceipt??null,latency=record.published?.retrievalBudgetReceipt??record.published?.candidateEnvelope?.metadata?.retrievalBudgetReceipt??null,choice=record.published?.cognitiveChoiceReceipt?.latencyResourceBudget??null,delivery=record.delivery?.plan?.diagnosticReceipt?.budgetDecision??null;

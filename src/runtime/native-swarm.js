@@ -88,6 +88,29 @@ function normalizeJob(job, turn) {
   });
 }
 
+export function planLayeredScatter(admittedJobs = [], { foregroundDependencyTaskIds = [] } = {}) {
+  if (!Array.isArray(admittedJobs)) throw new TypeError('admittedJobs must be an array');
+  const foregroundDependencies = new Set((foregroundDependencyTaskIds ?? []).map(String));
+  const sealCritical = [], conditional = [], postSeal = [];
+  for (const raw of admittedJobs) {
+    if (!raw || typeof raw !== 'object') throw new TypeError('layered Scatter jobs must be objects');
+    const taskId = requiredString(raw.taskId, 'job.taskId');
+    const resultClass = raw.resultClass ?? RuntimeResultClass.REQUIRED;
+    if (!RESULT_CLASSES.has(resultClass)) throw new TypeError(`Unsupported resultClass: ${resultClass}`);
+    const foregroundDependency = foregroundDependencies.has(taskId) || raw.metadata?.foregroundDependency === true || raw.foregroundDependency === true;
+    const row = immutableCopy({taskId,taskType:raw.taskType??null,resultClass,foregroundDependency});
+    if (resultClass === RuntimeResultClass.REQUIRED || foregroundDependency) sealCritical.push(row);
+    else if (resultClass === RuntimeResultClass.OPPORTUNISTIC) conditional.push(row);
+    else postSeal.push(row);
+  }
+  return immutableCopy({
+    kind:'LayeredScatterPlan',contractVersion:1,
+    sealCritical,conditional,postSeal,
+    counts:{total:admittedJobs.length,sealCritical:sealCritical.length,conditional:conditional.length,postSeal:postSeal.length},
+    policyBasis:'RESULT_CLASS_AND_DECLARED_FOREGROUND_DEPENDENCY',jobCountIgnored:true,schedulingActivated:false,
+    conditionalGate:'OWNER_OR_QUALITY_SIGNAL_REQUIRED',postSealGate:'CONTEXT_SEALED',
+  });
+}
 function basePriority(job) {
   const byClass = {
     [RuntimeResultClass.REQUIRED]: 10,
@@ -122,6 +145,11 @@ export class NativeTurnRuntime {
   registerExecutionResource(resource) {
     return this.providers.registerResource(resource);
   }
+
+  layeredScatterPlan(admittedJobs = [], options = {}) {
+    return planLayeredScatter(admittedJobs, options);
+  }
+
 
   setExecutionResourceAvailability(workerId, available) {
     return this.providers.setAvailability(workerId, available);

@@ -180,6 +180,14 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
   assert.equal(status.entries.every((row) => row.eligibleForStoryRetrieval === true), true);
   assert.equal(service.runtime.dueObligations().length, 0);
 
+  const noOpStudyStarted = performance.now();
+  const noOpStudy = service.runStudy({scope: 'DUE'});
+  const noOpStudyFinished = performance.now();
+  assert.equal(noOpStudy.requested, 0);
+  assert.equal(noOpStudy.maintenancePerformed, false);
+  assert.equal(noOpStudy.maintenanceReason, 'NO_DUE_STUDY');
+  assert.equal(service.runtime.dueObligations().length, 0);
+
   const repeatStarted = performance.now();
   const repeat = service.acceptLorebook(snapshot);
   const repeatFinished = performance.now();
@@ -193,8 +201,10 @@ test('Worker 4: 105 current entries stay current without repeated study or retri
     entries: 105,
     initialAcceptMs: Number((acceptedAt - started).toFixed(2)),
     studyAndIndexMs: Number((studiedAt - acceptedAt).toFixed(2)),
+    noOpDueStudyMs: Number((noOpStudyFinished - noOpStudyStarted).toFixed(2)),
     identicalReacceptMs: Number((repeatFinished - repeatStarted).toFixed(2)),
     dueAfterStudy: service.runtime.dueObligations().length,
+    noOpStudyMaintenancePerformed: noOpStudy.maintenancePerformed,
     repeatMaintenancePerformed: repeat.maintenancePerformed,
   }));
 });

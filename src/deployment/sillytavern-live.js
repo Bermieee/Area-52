@@ -686,8 +686,8 @@ export class DevelopmentDeploymentSillyTavernSession {
 
     const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     const installedUiBindings=this.#uiHostBindings(),installedUiReaderNames=Object.entries(installedUiBindings).filter(([name,value])=>typeof value==='function'&&(name.startsWith('read')||name.startsWith('list')||name.startsWith('reconstruct'))).map(([name])=>name).sort();
-    let selectedTurnReceipt=null;
-    try{const selected=installedUiBindings.readSelection?.()??{};selectedTurnReceipt=installedUiBindings.readSelectedTurnReceipt?.(selected)??null;}catch{}
+    let selectedTurnReceipt=null,installedUiSceneReadModelKind=null;
+    try{const selected=installedUiBindings.readSelection?.()??{};selectedTurnReceipt=installedUiBindings.readSelectedTurnReceipt?.(selected)??null;installedUiSceneReadModelKind=installedUiBindings.readScene?.(selected)?.kind??null;}catch{}
     const installedOptionalOwners={
       resources:Boolean(installedUiBindings.resourceHost??installedUiBindings.coprocessorResourceHost),
       loreStudy:Boolean(installedUiBindings.loreIntelligenceService??installedUiBindings.loreStudyService??installedUiBindings.loreOperatorHost??installedUiBindings.loreStudyHost),
@@ -773,7 +773,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       },
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
-        installedUiReaderNames,installedOptionalOwners,
+        installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
         pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
@@ -919,6 +919,16 @@ export class DevelopmentDeploymentSillyTavernSession {
       delete merged.loreAuthoringHost;delete merged.loreAuthoringOperator;
     }
     for(const key of nativeKeys)if(typeof native?.[key]==='function')merged[key]=native[key];
+    const selectedSceneReader=typeof merged.readScene==='function'?merged.readScene:null;
+    if(selectedSceneReader)merged.readScene=(selection={})=>{
+      const model=selectedSceneReader(selection);if(!model||model.kind!=='SceneUiReadModel')return null;
+      if(selection?.chatId&&model.chatId&&String(model.chatId)!==String(selection.chatId))return null;
+      const modelSceneRevision=model.sceneRevision??model.revision??null;
+      if(selection?.sceneRevision!=null&&modelSceneRevision!=null&&Number(modelSceneRevision)!==Number(selection.sceneRevision))return null;
+      const expectedRefs=new Set((selection?.sourceRevisionRefs??[]).map(String)),actualRefs=[...(model.sourceRevisionRefs??[])].map(String);
+      if(expectedRefs.size&&actualRefs.some(ref=>!expectedRefs.has(ref)))return null;
+      return{...clone(model),chatId:selection?.chatId??model.chatId??null,turnId:selection?.turnId??model.turnId??null,generationId:selection?.generationId??model.generationId??null,correlationId:selection?.correlationId??model.correlationId??null,sceneRevision:modelSceneRevision};
+    };
     const nativeSelectedTurnReader=typeof merged.readSelectedTurnReceipt==='function'?merged.readSelectedTurnReceipt:null;
     if(nativeSelectedTurnReader)merged.readSelectedTurnReceipt=(selection={})=>{
       const owner=nativeSelectedTurnReader(selection);if(!owner)return null;

@@ -103,8 +103,10 @@ export class Wave11LiveReceiptBinding{
     const prompt=read('readPromptPlan','readPromptPlanReadModel'),context=read('readContextReceipt','readContextReceiptReadModel'),seal=read('readContextSeal','readContextSealReceipt','readSealReceipt');
     const forensic=read('readForensic','readForensicReadModel'),forensicList=read('listForensics','listForensicReadModels','listBundles'),transactions=read('listTransactions','listCognitiveTransactions');
     const txRead=read('readTransaction','readCognitiveTransaction'),integrity=read('readIntegrityReceipt'),generationRead=read('readGeneration'),generations=read('listGenerations');
+    const selectedTurn=read('readSelectedTurnReceipt','readCausalTurnReceipt','readOwnerTurnReceipt');
     const binding=this;
     return deepFreeze({
+      selectedTurn:selectedTurn?{readReceipt:(selection)=>binding.#read('SelectedTurnReceipt',selectedTurn,selection)}:null,
       scene:scene?{readModel:()=>binding.#read('Scene',scene),subscribe:null}:null,
       runtimeAdapter:x.runtimeAdapter??null,coprocessorTelemetry:x.coprocessorTelemetry??x.coprocessorAdapter??null,
       promptPlan:{
@@ -149,7 +151,7 @@ export function createWave11LiveReceiptBinding(input){return new Wave11LiveRecei
 
 export function mergeWave11Bridges(base={},live={}){
   const out={...base,...live};
-  for(const key of ['scene','promptPlan','forensics','cognition'])out[key]={...(base?.[key]??{}),...(live?.[key]??{})};
+  for(const key of ['selectedTurn','scene','promptPlan','forensics','cognition'])out[key]={...(base?.[key]??{}),...(live?.[key]??{})};
   return out;
 }
 

@@ -234,7 +234,9 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   assert.equal(contextSeal.turnId,selection.turnId);
   assert.ok(runtime,'Runtime owner snapshot must be readable for the same native path');
 
-  const beforeHostObservation=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
+  const installedEvidence=session.exportEvidence().nativeBrainIntegration;
+  assert.equal(installedEvidence.installedUiSceneReadModelKind,'SceneUiReadModel');
+  const beforeHostObservation=installedEvidence.selectedTurnReceipt;
   assert.equal(beforeHostObservation.chatId,selection.chatId);
   assert.equal(beforeHostObservation.turnId,selection.turnId);
   assert.equal(beforeHostObservation.generationId,selection.generationId);
@@ -328,6 +330,16 @@ test('live narrative feed journals revision events without raw text and invalida
   assert.equal(event.chatId,'chat:observatory');assert.equal(event.messageId,'0');assert.match(event.messageDigest,/^[0-9a-f]{8}$/);assert.match(event.messageRevisionId,/^0:[0-9a-f]{8}$/);assert.match(event.eventId,/^st-host:/);assert.ok(event.turnId);assert.ok(event.generationId);
   assert.equal(evidence.hostNarrativeFeed.rawTextCaptured,false);assert.doesNotMatch(JSON.stringify(evidence.hostNarrativeFeed),/sealed compass/i);
   session.destroy();
+});
+
+test('live host listener topology stays bounded across duplicate start stop and restart',()=>{
+  const {sillyTavern,listeners}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();assert.equal(session.loadDiagnostics().hostListenerCount,20);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.start();assert.equal(session.loadDiagnostics().hostListenerCount,20);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.stop();assert.equal(session.loadDiagnostics().hostListenerCount,0);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
+  session.start();assert.equal(session.loadDiagnostics().hostListenerCount,20);assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),20);
+  session.destroy();assert.equal([...listeners.values()].reduce((sum,set)=>sum+set.size,0),0);
 });
 
 test('live narrative feed records generation boundaries without retaining host payloads',async()=>{

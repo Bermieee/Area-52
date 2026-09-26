@@ -55,16 +55,17 @@ function liveOwner({withResources=false,withLore=false}={}){
   return{bindings,calls,listenerCount:()=>listeners.size,switchStory({chatId,turnId,generationId,location:nextLocation}){selection={chatId,turnId,generationId,correlationId:'corr:'+turnId,worldRevision:selection.worldRevision+1,sceneRevision:selection.sceneRevision+1,sourceRevisionRefs:['scene:'+chatId+'@'+(selection.sceneRevision+1)]};location=nextLocation;emit();},clearTurn(){selection={...selection,turnId:null,generationId:null,correlationId:null,worldRevision:null,sceneRevision:null,sourceRevisionRefs:[]};emit();}};
 }
 
-function mount(owner,{width=1280,height=800,floating=true,storage=null}={}){
+function mount(owner,{width=1280,height=800,floating=true,storage=null,hostMountAdapter=null}={}){
   const document=new Doc(width,height),root=new Node('aside',document);document.body.append(root);
   const stateStore=new UIStateStore({storage:storage??memory(),namespace:'wave13-test'});
-  const ui=createWave6ProductInterface({root,stateStore,hostBindings:owner.bindings,floatingNavigation:floating,viewportProvider:()=>({width,height})});
+  const ui=createWave6ProductInterface({root,stateStore,hostBindings:owner.bindings,floatingNavigation:floating,hostMountAdapter,viewportProvider:()=>({width,height})});
   ui.scheduler.flush(0);return{document,root,ui,stateStore};
 }
 
 test('Wave 13 rail is labeled, edge-aware and opens one attached workspace panel',()=>{
   const owner=liveOwner(),{ui}=mount(owner,{width:1280,height:800});
   assert.ok(ui.floatingController);
+  assert.equal(ui.floatingController.nodes.railHandle.textContent,'Area-52');assert.doesNotMatch(ui.floatingController.nodes.railHandle.textContent,/Move/i);
   let d=ui.floatingController.diagnostics();
   assert.equal(d.card.side,'LEFT');assert.equal(d.card.attached,true);
   assert.equal(ui.shell.currentWorkspace,'home');
@@ -99,6 +100,13 @@ test('attached rail/panel keyboard movement, resize, collapse, restore and close
   c.nodes.minimize.dispatch('click');assert.equal(c.diagnostics().card.minimized,false);assert.equal(c.nodes.minimize.textContent,'Collapse');
   c.nodes.close.dispatch('click');assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.COLLAPSED);
   c.open();assert.equal(ui.shell.currentWorkspace,'story');ui.destroy();
+});
+
+test('floating collapse releases host reservation instead of leaving a stray collapsed bar',()=>{
+  const widths=[],owner=liveOwner(),{ui}=mount(owner,{hostMountAdapter:{reserveWidth:value=>widths.push(value),releaseWidth:()=>{}}});
+  ui.floatingController.open('brain');ui.scheduler.flush(1);assert.ok(widths.at(-1)>0);
+  ui.floatingController.close();ui.scheduler.flush(2);assert.equal(widths.at(-1),0);assert.equal(ui.floatingController.nodes.card.style.display,'none');
+  ui.destroy();
 });
 
 test('narrow viewport clamps rail and attached card to reachable bounds even near viewport center',()=>{
@@ -357,14 +365,24 @@ test('Inspect details explains unavailable owner receipts instead of manufacturi
   ui.destroy();
 });
 
-test('activity feed is exact-selection fenced and old-chat notices cannot inspect as current',()=>{
+test('generic selected-turn inspector never renders raw prompt story lore credential or hidden-reasoning bodies',()=>{
+  const owner=liveOwner(),{ui}=mount(owner);
+  ui.shell.inspector.select({kind:'wave13-producer-inspection',id:'safe:1',title:'PromptPlan detail',available:true,payload:{prompt:'SECRET_PROMPT',storyText:'SECRET_STORY',loreBody:'SECRET_LORE',apiKey:'SECRET_KEY',hiddenReasoning:'SECRET_REASONING',promptPlanId:'plan:safe',sections:[{slot:'USER_INPUT',text:'SECRET_USER_TEXT'}]}});
+  ui.scheduler.flush(2);const body=textOf(ui.shell.nodes.inspectorHost);
+  for(const secret of ['SECRET_PROMPT','SECRET_STORY','SECRET_LORE','SECRET_KEY','SECRET_REASONING','SECRET_USER_TEXT'])assert.equal(body.includes(secret),false,secret);
+  assert.match(body,/omitted from UI evidence|bounded metadata/i);ui.destroy();
+});
+
+test('activity feed is bottom-right exact-selection fenced and old-chat notices cannot inspect as current',()=>{
   const owner=liveOwner(),storage=memory(),{ui}=mount(owner,{storage});ui.scheduler.flush(1);ui.operator.captureEvidence();ui.operator.activityFeed.render();
-  const oldSelection=owner.bindings.readSelection(),oldButton=walk(ui.shell.nodes.strip).find(x=>x.tagName==='BUTTON');assert.ok(oldButton);
+  assert.equal(textOf(ui.shell.nodes.strip),'');
+  const feedHost=ui.operator.activityFeed.host;assert.ok(String(feedHost.className).includes('a52-floating-activity-feed-host'));
+  const oldSelection=owner.bindings.readSelection(),oldButton=walk(feedHost).find(x=>x.tagName==='BUTTON');assert.ok(oldButton);
   owner.switchStory({chatId:'chat:new-feed',turnId:'turn:new-feed',generationId:'gen:new-feed',location:'Copper Basin'});ui.scheduler.flush(2);ui.operator.captureEvidence();ui.operator.activityFeed.render();
-  assert.doesNotMatch(textOf(ui.shell.nodes.strip),new RegExp(oldSelection.turnId.replace(':','\\:')));
+  assert.doesNotMatch(textOf(feedHost),new RegExp(oldSelection.turnId.replace(':','\\:')));
   assert.equal(ui.shell.inspector.selection,null);oldButton.dispatch('click');ui.scheduler.flush(3);assert.equal(ui.shell.inspector.selection,null);
-  const currentButton=walk(ui.shell.nodes.strip).find(x=>x.tagName==='BUTTON');assert.ok(currentButton);currentButton.dispatch('click');ui.scheduler.flush(4);
-  assert.equal(ui.shell.inspector.selection.selection.turnId,'turn:new-feed');assert.equal(ui.presentation.get().inspectorVisible,true);
+  const currentButton=walk(feedHost).find(x=>x.tagName==='BUTTON');assert.ok(currentButton);currentButton.dispatch('click');ui.scheduler.flush(4);
+  assert.equal(ui.shell.inspector.selection.selection.turnId,'turn:new-feed');assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.EXPANDED);
   ui.destroy();
 });
 
@@ -519,6 +537,26 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
   ]);
   assert.ok(snap.telemetry.resourceEvents.some(x=>x.code==='TEST_PASSED'));
   ui.destroy();assert.equal(host.listenerCount(),0);
+});
+
+test('Diagnostics drilldown shows six owner jobs and native turn resource without inventing per-job assignment',()=>{
+  const owner=liveOwner(),selection=owner.bindings.readSelection(),jobs=['CONTEXT_COMPILER','CONTEXT_SEAL','GATHER','PRECISION','RETRIEVAL','TRUTH'].map((jobId,index)=>({jobId,sequence:index+1,status:'EXECUTED',owner:'COGNITIVE_CORE'}));
+  owner.bindings.readScatter=()=>({kind:'RuntimeTurnReceipt',jobs,admittedJobCount:6,resourceCount:1,resourceIds:['native-brain-local-cpu'],executionComplete:true,...selection});
+  const{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace);for(const id of ['CONTEXT_COMPILER','CONTEXT_SEAL','GATHER','PRECISION','RETRIEVAL','TRUTH'])assert.match(body,new RegExp(id));
+  assert.match(body,/native-brain-local-cpu/);assert.match(body,/Per-job resource not published/);assert.match(body,/Prompt delivery proof levels/);assert.match(body,/No host-observed injection evidence/);
+  ui.destroy();
+});
+
+test('Diagnostics exposes safe foreign source-fence identity while keeping the failed receipt out of selected-turn data',()=>{
+  const owner=liveOwner(),selection=owner.bindings.readSelection(),foreign='sillytavern:foreign-chat:message:389:deadbeef@1';
+  owner.bindings.readCognitiveChoice=()=>({...choice(selection),sourceRevisionRefs:[foreign]});
+  owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',sealId:'seal:foreign',sealed:true,admittedResultIds:[],...selection,sourceRevisionRefs:[foreign]});
+  const{ui}=mount(owner);const snap=ui.operator.diagnostics.read();
+  assert.equal(snap.cognition.errors.choice.code,'LIVE_RECEIPT_STALE');assert.deepEqual(snap.cognition.errors.choice.foreignSourceRevisionRefs,[foreign]);assert.equal(snap.cognition.jobs.length,1);
+  ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Outside selected source fence/);assert.match(body,/deadbeef@1/);assert.match(body,/LIVE_RECEIPT_STALE/);
+  ui.destroy();
 });
 
 test('Diagnostics Center follows chat switches and rejects stale turn telemetry',()=>{

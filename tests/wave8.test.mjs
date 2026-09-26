@@ -70,6 +70,11 @@ test('Jev skipped case is distinct from unavailable',()=>{
   assert.match(p.jev.reason,/DETERMINISTIC_EVIDENCE_SUFFICIENT/);
 });
 
+test('JEV_NOT_REQUIRED is an intentional Jev skip rather than an INVALID provider failure',()=>{
+  const x=normalizeJevDecisionReceipt({kind:'JevDecisionReceipt',reason:'JEV_NOT_REQUIRED',reasonCodes:['JEV_NOT_REQUIRED'],selectedOptionIds:[],rejectedOptionIds:[],evidenceUsed:[]});
+  assert.equal(x.state,CognitionStageState.SKIPPED);assert.equal(x.outcome,'SKIPPED');assert.equal(x.invoked,false);assert.equal(x.reason,'JEV_NOT_REQUIRED');
+});
+
 test('Jev confidence stays metadata and does not become authority',()=>{
   const p=fixtureAdapter(wave8AmbiguousFixture()).read().data;
   assert.equal(p.jev.confidence,.63);assert.equal(p.jev.authority,'READ_ONLY');assert.equal(p.jev.mutationAuthority,false);

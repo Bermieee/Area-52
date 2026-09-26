@@ -599,7 +599,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,ins
     const list=element(d,'div',{className:'a52-wave13-flow-list'});
     for(const job of jobs.slice(0,40)){
       const row=element(d,'div',{className:'a52-wave13-flow-row'});
-      row.append(element(d,'strong',{text:job.taskType??job.capability??'Cognitive job'}),advanced?element(d,'code',{text:job.resourceId??job.taskId??'native / unreported'}):element(d,'span',{className:'a52-muted',text:job.resourceId?'Optional resource':'Native / owner resource'}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
+      row.append(element(d,'strong',{text:job.taskType??job.jobId??job.taskId??job.capability??'Cognitive job'}),advanced?element(d,'code',{text:job.resourceId??job.taskId??'native / unreported'}):element(d,'span',{className:'a52-muted',text:job.resourceId?'Optional resource':'Native / owner resource'}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
       list.append(row);
     }
     center.append(list);
@@ -666,7 +666,7 @@ function renderSelectedTurnEvidence(d,{snapshot,evidenceJournal,scope,inspect,ad
       const resource=job.resourceId??job.workerId??null;
       const resourceText=resource?String(resource):(runtimeTurn.resourceIds?.length?'Per-job resource not published · turn resource set: '+runtimeTurn.resourceIds.slice(0,4).join(', '):'Resource identity not published');
       const row=element(d,'div',{className:'a52-wave13-flow-row'});
-      row.append(element(d,'strong',{text:job.taskType??job.capability??job.jobId??job.taskId??'Cognitive job'}),element(d,advanced?'code':'span',{className:advanced?'':'a52-muted',text:resourceText}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
+      row.append(element(d,'strong',{text:job.taskType??job.jobId??job.taskId??job.capability??'Cognitive job'}),element(d,advanced?'code':'span',{className:advanced?'':'a52-muted',text:resourceText}),makeBadge(d,job.state??'PUBLISHED',flowStatus(job.state)));
       list.append(row);
     }
     section.append(list);

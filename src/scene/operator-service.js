@@ -1,4 +1,5 @@
 import { ObservationClass, createFieldState } from './contracts.js';
+import { createExperienceProposalFromScene } from './scene-memory-handoff.js';
 const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values,limit=64)=>[...new Set((values??[]).filter(Boolean).map(String))].slice(-limit);
 
@@ -7,7 +8,7 @@ export class SceneOperatorService{
     if(!runtime?.registry||!runtime?.sceneRuntime)throw new TypeError('SceneOperatorService requires SceneLifecycleRuntime');
     this.runtime=runtime;this.maxHistoryRows=Math.max(10,Math.min(500,Number(maxHistoryRows)||100));
   }
-  capabilities(){return Object.freeze({rescan:true,compare:true,correct:true,mergeSplitReview:true,episodeRepair:true,carryover:true,history:true,continuityWarnings:true,mutationScope:'SCENE_LOCAL_ONLY',settlementAuthority:false,memoryMutationAuthority:false});}
+  capabilities(){return Object.freeze({rescan:true,compare:true,correct:true,mergeSplitReview:true,episodeRepair:true,carryover:true,history:true,continuityWarnings:true,detectContinuityGaps:true,memoryPromotionPreview:true,characterMemoryPreview:true,mutationScope:'SCENE_LOCAL_ONLY',settlementAuthority:false,memoryMutationAuthority:false});}
   compare({sceneId,fromRevision,toRevision}={}){
     const record=this.runtime.registry.get(sceneId);if(!record)throw new Error('unknown Scene');
     const from=record.snapshots.find(x=>x.revision===fromRevision),to=record.snapshots.find(x=>x.revision===toRevision);if(!from||!to)throw new Error('requested Scene revision not retained');
@@ -45,6 +46,29 @@ export class SceneOperatorService{
     const warnings=(scene.unresolvedFields??[]).map(field=>({code:'UNRESOLVED_SCENE_FIELD',field}));
     for(const item of scene.fields?.immediateObjects?.value??[])if(item.state==='UNCERTAIN')warnings.push({code:'OBJECT_STATE_UNCERTAIN',objectId:item.objectId});
     return warnings.slice(0,64);
+  }
+  detectContinuityGaps({sceneId,expectedCharacterRefs=[],expectedObjectRefs=[]}={}){
+    const scene=this.runtime.registry.current(sceneId);if(!scene)throw new Error('unknown Scene');
+    const presentCharacters=new Set((scene.fields?.activeCast?.value??[]).filter(row=>(row.state??row.presence??'PRESENT')==='PRESENT').map(row=>String(row.characterId??row.characterRef??row.id??row)).filter(Boolean));
+    const presentObjects=new Set((scene.fields?.immediateObjects?.value??[]).filter(row=>!['MENTIONED_ONLY','REMOVED','DESTROYED'].includes(String(row.state??'PRESENT'))).map(row=>String(row.objectId??row.objectRef??row.id??row)).filter(Boolean));
+    const expectedCharacters=uniq(expectedCharacterRefs,64),expectedObjects=uniq(expectedObjectRefs,64);
+    return Object.freeze({kind:'SceneContinuityGapReport',sceneId,sceneRevision:scene.revision,missingCharacterRefs:expectedCharacters.filter(ref=>!presentCharacters.has(ref)),missingObjectRefs:expectedObjects.filter(ref=>!presentObjects.has(ref)),presentCharacterRefs:[...presentCharacters].sort(),presentObjectRefs:[...presentObjects].sort(),sourceRevisionRefs:uniq(scene.sourceRevisionRefs,64),authority:'DIAGNOSTIC_ONLY',mutationAuthority:false,settlementAuthority:false});
+  }
+  previewMemoryPromotion({sceneId,episode=null}={}){
+    const scene=this.runtime.registry.current(sceneId),record=this.runtime.registry.get(sceneId);if(!scene||!record)throw new Error('unknown Scene');
+    const derived=episode??this.runtime.episodeCompiler.list().filter(row=>row.sceneId===sceneId).sort((a,b)=>a.sceneRevision-b.sceneRevision).at(-1)??this.runtime.episodeCompiler.compile({scene,record,sceneRelationships:this.runtime.graph.neighbors(sceneId)});
+    const proposal=createExperienceProposalFromScene({scene,episode:derived,graph:this.runtime.graph,proposalId:`operator-memory-preview:${sceneId}:${scene.revision}`});
+    return Object.freeze({kind:'SceneMemoryPromotionPreview',sceneId,sceneRevision:scene.revision,proposal:clone(proposal),reviewRequired:true,authority:'REVIEW_ONLY',memoryMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false});
+  }
+  previewCharacterMemoryExtraction({sceneId,characterRefs=[]}={}){
+    const scene=this.runtime.registry.current(sceneId);if(!scene)throw new Error('unknown Scene');
+    const cast=scene.fields?.activeCast?.value??[],available=new Set(cast.filter(row=>(row.state??row.presence??'PRESENT')==='PRESENT').map(row=>String(row.characterId??row.characterRef??row.id??row)).filter(Boolean));
+    const requested=uniq(characterRefs?.length?characterRefs:[...available],32).filter(ref=>available.has(ref));
+    const unresolvedThreadRefs=uniq((scene.fields?.activeThreads?.value??[]).map(row=>typeof row==='string'?row:(row.threadId??row.id??null)).filter(Boolean),64);
+    const objects=scene.fields?.immediateObjects?.value??[];
+    const evidenceRefs=uniq([...(scene.sourceRevisionRefs??[]),...(scene.fields?.activeCast?.evidenceRefs??[]),...(scene.fields?.activeThreads?.evidenceRefs??[])],64);
+    const items=requested.map(characterRef=>Object.freeze({characterRef,sceneId,sceneRevision:scene.revision,unresolvedThreadRefs:[...unresolvedThreadRefs],heldObjectRefs:uniq(objects.filter(row=>String(row.holderId??'')===characterRef&&!['REMOVED','DESTROYED'].includes(String(row.state))).map(row=>row.objectId??row.objectRef),32),evidenceRefs:[...evidenceRefs],authority:'PROPOSAL',memoryMutationAuthority:false}));
+    return Object.freeze({kind:'SceneCharacterMemoryExtractionPreview',sceneId,sceneRevision:scene.revision,items,reviewRequired:true,sourceRevisionRefs:uniq(scene.sourceRevisionRefs,64),authority:'REVIEW_ONLY',memoryMutationAuthority:false,settlementAuthority:false});
   }
   history({offset=0,limit=25}={}){
     const all=this.runtime.registry.list().flatMap(record=>record.snapshots.map(snapshot=>({sceneId:record.sceneId,revision:snapshot.revision,lifecycle:snapshot.lifecycle,sourceRevisionRefs:uniq(snapshot.sourceRevisionRefs,16),unresolvedFields:[...(snapshot.unresolvedFields??[])],location:clone(snapshot.fields?.location?.value??null),updatedAt:snapshot.updatedAt}))).sort((a,b)=>(a.updatedAt??0)-(b.updatedAt??0));

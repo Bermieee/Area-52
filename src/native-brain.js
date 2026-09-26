@@ -22,6 +22,7 @@ import {
 } from './runtime/index.js';
 import {stableHash} from './browser-runtime-utils.js';
 import {createSceneUiReadModelFromIntegrationState} from './scene/scene-ui-read-model.js';
+import {NativeContextRetirementPolicy,contextRetirementContract} from './context-retirement-policy.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
@@ -91,6 +92,7 @@ export class Area52NativeBrain{
     if(snapshot?.core?.contextSeal)this.core.publication.seal.restoreState(snapshot.core.contextSeal);
 
     this.feedback=new NativeLearningFeedback({snapshot:snapshot?.feedback??null});
+    this.contextRetirement=new NativeContextRetirementPolicy({isSourceRevisionCurrent:(ref)=>this.core.isSourceRevisionCurrent(ref)});
     this.knowledge=new NativeKnowledgeStore({registry:this.core.registry,snapshot:snapshot?.knowledge??null});
     this.ownerEvidence=new Map();
     this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));
@@ -282,8 +284,9 @@ export class Area52NativeBrain{
   async prepareTurn({
     chatId,turnId,generationId,correlationId=null,query,intent='CURRENT',
     scene=null,sceneSignal=null,anchorEntityIds=[],perspectiveConstraint=null,
-    budgetBytes=5000,budgetTokens=null,deadline=null,modelProfileId='CACHE_STABLE',
-    systemPolicy=null,activeThreads=[],precisionAvailable=true,channelIds=null,
+    budgetBytes=5000,budgetTokens=null,deadline=null,modelProfileId=null,
+    providerId=null,modelId=null,routeId=null,observedCacheBehavior=null,
+    systemPolicy=null,activeThreads=[],activeContext=null,precisionAvailable=true,channelIds=null,
     candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
     executionLabel='LIVE_HOST',
   }={}){
@@ -305,8 +308,18 @@ export class Area52NativeBrain{
       anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,precisionAvailable,
       activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,
     });
+    const contextRetirement=activeContext?this.contextRetirement.evaluate({chatId:chat,...clone(activeContext)}):null;
+    const narrativeMessages=(contextRetirement?.retainedMessages??[]).filter(row=>!(String(row.role).toLowerCase()==='user'&&String(row.content).trim()===q));
+    const contributions=narrativeMessages.length?[{
+      id:'recent-narrative:'+stableHash({chatId:chat,turnId:turn,receiptId:contextRetirement.receiptId,messageIds:narrativeMessages.map(row=>row.messageId)},{length:20}),
+      slot:'RECENT_NARRATIVE',sourceCategory:'GENERATION_ENVELOPE',owner:'GENERATION_ENVELOPE',semantic:false,semanticRefs:[],
+      content:narrativeMessages.map(row=>({messageId:row.messageId,role:row.role,content:row.content})),
+      sourceRevisionIds:[...new Set(narrativeMessages.flatMap(row=>row.sourceRevisionRefs??[]))].sort(),role:'context',
+      required:false,priority:8,metadata:{contextRetirementReceiptId:contextRetirement.receiptId,hostHistoryMutation:false},
+    }]:[];
     const delivery=this.core.deliverGenerationContext({
-      published,generationId,modelProfileId,budgetTokens,systemPolicy,userInput:q,
+      published,generationId,modelProfileId,budgetTokens,systemPolicy,userInput:q,contributions,
+      providerId,modelId,routeId,observedCacheBehavior,
     });
     if(!delivery?.ok)throw new Error('NATIVE_BRAIN_DELIVERY_FAILED:'+String(delivery?.status??delivery?.failure?.code??'UNKNOWN'));
     const retrievalSkipped=(published.cognitiveChoiceReceipt?.skippedJobs??[]).includes('RETRIEVAL');
@@ -326,7 +339,7 @@ export class Area52NativeBrain{
       worldRevision:published.worldRevision,sourceRevisionSet,sceneSourceRevisionRefs,ownerSourceRevisionSet,
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal)},
-      published:clone(published),delivery:clone(delivery),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
+      published:clone(published),delivery:clone(delivery),contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       state:'SEALED_FOR_GENERATION',
     };
     this.#rememberTurn(record);
@@ -338,6 +351,7 @@ export class Area52NativeBrain{
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,
       budgetDecision:delivery.plan?.diagnosticReceipt?.budgetDecision??null,
+      contextRetirement,promptDeliveryReceipt:delivery.receipt??null,
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });
@@ -466,6 +480,8 @@ export class Area52NativeBrain{
       readMemoryStatus:(selection={})=>this.#readStage(selection,record=>this.#memoryReadModel(record,selection)),
       readRuntimeStatus:()=>clone(this.runtimeDirector.snapshot()),
       readPromptPlan:(selection={})=>this.#readStage(selection,record=>record.delivery?.plan??null),
+      readContextRetirement:(selection={})=>this.#readStage(selection,record=>record.contextRetirement??null),
+      readPromptDeliveryReceipt:(selection={})=>this.#readStage(selection,record=>record.delivery?.receipt??null),
       readContextReceipt:(selection={})=>this.#readStage(selection,record=>this.#contextReceipt(record)),
       readSelectedTurnReceipt:(selection={})=>this.#readStage(selection,record=>this.#selectedTurnReceipt(record)),
       listGenerations:({limit=50,selection={}}={})=>this.#listGenerations({limit,selection}),
@@ -476,6 +492,12 @@ export class Area52NativeBrain{
   receiveCognitiveResult(result){
     return this.core.publication.receiveResult(result);
   }
+
+  contextRetirementContract(){return contextRetirementContract();}
+  promptDeliveryIntegrationContract(){return this.core.delivery.integrationContract();}
+  attachObservedHostPromptEvidence(receipt,evidence={}){return this.core.delivery.attachObservedHostEvidence(receipt,evidence);}
+  identityReferences(entityIds=[],options={}){return this.core.entityIdentityReferences(entityIds,options);}
+  temporalReferences(options={}){return this.core.temporalStateReferences(options);}
 
   readTurn(turnId){const row=this.turns.get(String(turnId));return row?clone(row):null;}
   currentWorldModel(){return this.core.currentWorldModel();}
@@ -527,6 +549,8 @@ export class Area52NativeBrain{
       return{kind:'NativeObservationReceipt',status:'REJECTED',reason:'NARRATIVE_OBSERVATION_AUTHORITY_UNSUPPORTED',authorityClass:authority,canonicalMutation:false};
     }
     const subjectId=req(input.subjectId,'observation.subjectId'),predicate=req(input.predicate,'observation.predicate');
+    const explicitIdentityIds=[subjectId,...(typeof input.value==='string'?[input.value]:[])].filter(id=>Boolean(this.core.entities.get(id)));
+    const identityRevisionRefs=this.core.entityIdentityReferences(explicitIdentityIds).references.map(row=>row.revisionRef);
     const temporalKind=observationTemporalKind(input.temporalKind),at=finite(input.at,turn.sequence);
     const claimId='native-claim:'+stableHash({sourceRevisionId:experience.sourceRevisionId,index,subjectId,predicate,value:input.value,at,temporalKind},{length:24});
     const provenance=createProvenance({
@@ -538,7 +562,7 @@ export class Area52NativeBrain{
       id:claimId,subjectId,predicate,value:clone(input.value),
       temporal:{kind:temporalKind,validFrom:at,validUntil:null},
       authorityClass:authority,confidence:Number(input.confidence??1),status:statusForTemporal(temporalKind),
-      provenance,owner:'WORLD_STATE',claimType:input.claimType??'FACT',slotPolicy:input.slotPolicy??'SINGLE',
+      provenance,owner:'WORLD_STATE',stableIdentity:this.core.entities.get(subjectId)?subjectId:null,identityRevisionRefs,claimType:input.claimType??'FACT',slotPolicy:input.slotPolicy??'SINGLE',
       explicitness:'OBSERVED_POST_TURN',evidenceTime:at,
     });
     const proposal=createMutationProposal({
@@ -615,10 +639,11 @@ export class Area52NativeBrain{
   #recordForSelection(selection={}){
     const turnId=selection?.turnId==null?null:String(selection.turnId),generationId=selection?.generationId==null?null:String(selection.generationId),chatId=selection?.chatId==null?null:String(selection.chatId);
     let record=turnId?this.turns.get(turnId):null;
+    if(turnId&&!record)return null;
     if(!record&&generationId)record=[...this.turns.values()].find(row=>row.generationId===generationId&&(!chatId||row.chatId===chatId))??null;
     if(!record&&chatId){for(let index=this.turnOrder.length-1;index>=0;index--){const row=this.turns.get(this.turnOrder[index]);if(row?.chatId===chatId){record=row;break;}}}
     if(!record)return null;
-    if(chatId&&record.chatId!==chatId)return null;if(generationId&&record.generationId!==generationId)return null;
+    if(turnId&&record.turnId!==turnId)return null;if(chatId&&record.chatId!==chatId)return null;if(generationId&&record.generationId!==generationId)return null;
     if(selection?.correlationId!=null&&record.correlationId!==String(selection.correlationId))return null;
     if(selection?.sceneRevision!=null&&Number(record.sceneRevision)!==Number(selection.sceneRevision))return null;
     if(selection?.worldRevision!=null&&Number(record.worldRevision)!==Number(selection.worldRevision))return null;
@@ -636,7 +661,7 @@ export class Area52NativeBrain{
     return this.turnOrder.slice().reverse().map(id=>this.turns.get(id)).filter(Boolean).filter(row=>!chatId||row.chatId===chatId).slice(0,max).map(row=>({kind:'NativeBrainGenerationSummary',...this.#selection(row),state:row.state,executionLabel:row.executionLabel,sealId:row.published?.sealReceipt?.id??null,promptPlanId:row.delivery?.plan?.promptPlanId??null}));
   }
 
-  #readGeneration(generationId,selection={}){if(generationId==null)return null;const record=this.#recordForSelection({...selection,generationId});if(!record)return null;return clone({kind:'NativeBrainGenerationReadModel',...this.#selection(record),state:record.state,executionLabel:record.executionLabel,cognitiveChoice:record.published?.cognitiveChoiceReceipt??null,candidateEnvelope:record.published?.candidateEnvelope??null,identityResolution:this.core.entityIdentityReadModel(),graphTraversal:record.published?.graphTraversalReceipt??null,retrievalBudget:this.#uiRetrievalBudgetReceipt(record),rejectedEvidence:this.#uiRejectedEvidence(record),truth:record.published?.publicationAssessment??record.published?.assessment??null,gather:record.published?.gatherReceipt??null,contextSeal:record.published?.sealReceipt??null,promptPlan:record.delivery?.plan??null,loreSync:record.loreSync??null,memorySync:record.memorySync??null,learningReceipt:record.learningReceipt??null});}
+  #readGeneration(generationId,selection={}){if(generationId==null)return null;const record=this.#recordForSelection({...selection,generationId});if(!record)return null;return clone({kind:'NativeBrainGenerationReadModel',...this.#selection(record),state:record.state,executionLabel:record.executionLabel,cognitiveChoice:record.published?.cognitiveChoiceReceipt??null,candidateEnvelope:record.published?.candidateEnvelope??null,identityResolution:this.core.entityIdentityReadModel(),graphTraversal:record.published?.graphTraversalReceipt??null,retrievalBudget:this.#uiRetrievalBudgetReceipt(record),rejectedEvidence:this.#uiRejectedEvidence(record),truth:record.published?.publicationAssessment??record.published?.assessment??null,gather:record.published?.gatherReceipt??null,contextSeal:record.published?.sealReceipt??null,promptPlan:record.delivery?.plan??null,contextRetirement:record.contextRetirement??null,promptDeliveryReceipt:record.delivery?.receipt??null,loreSync:record.loreSync??null,memorySync:record.memorySync??null,learningReceipt:record.learningReceipt??null});}
 
   #notify(stage,record){
     if(!this.listeners.size||!record)return;const event=Object.freeze({kind:'NativeBrainReceiptUpdate',stage:String(stage),selection:this.#selection(record),rawPromptIncluded:false,rawResponseIncluded:false});

@@ -321,11 +321,12 @@ export class NativeSidecarSwarm{
       && Number(profile.currentLoad??0)+Number(reserved.get(profile.profileId)??0)<Number(profile.concurrencyCapacity??profile.maxConcurrency??1));
   }
 
-  async #executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint}){
+  async #executeAssigned(item,profile,{inputResolver,currentRevisionState,sealed,signal,checkpoint,layer=null,waveId=null}){
     const task=item.task,resourceId=profile.profileMetadata?.resourceId??null;
+    const selection=normalizeSwarmSelection(checkpoint.selection??checkpoint);
     emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_ASSIGNED,{
-      turnId:task.turnId,correlationId:task.correlationId,taskId:task.taskId,taskType:task.taskType,
-      providerProfileId:profile.profileId,providerId:profile.providerId,workerId:profile.workerId,resourceId,attempt:item.attempt,
+      ...selection,turnId:task.turnId,correlationId:task.correlationId,taskId:task.taskId,taskType:task.taskType,
+      providerProfileId:profile.profileId,providerId:profile.providerId,workerId:profile.workerId,resourceId,attempt:item.attempt,layer,waveId,
     });
     const started=this.now();
     const deadlineController=new AbortController();
@@ -345,10 +346,10 @@ export class NativeSidecarSwarm{
       else if(validation.freshness!==Freshness.FRESH||validation.failure?.code===FailureCode.STALE_RESULT)record=resultRecord(task,result,profile,NativeSwarmResultState.REJECTED_STALE,{failureCode:FailureCode.STALE_RESULT,attempt:item.attempt,stale:true});
       else if(!AUTHORITY_SAFE.has(String(result.authorityClass??'').toUpperCase()))record=resultRecord(task,result,profile,NativeSwarmResultState.REJECTED_INVALID,{failureCode:FailureCode.AUTHORITY_VIOLATION,attempt:item.attempt,invalid:true});
       else record=resultRecord(task,result,profile,NativeSwarmResultState.READY_FOR_CORE,{attempt:item.attempt,fallbackUsed:item.attempt>1});
-      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:record.fallbackUsed,resourceId:record.resourceId});
+      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,fallbackUsed:record.fallbackUsed,resourceId:record.resourceId,layer,waveId});
       if(record.fallbackUsed&&record.state===NativeSwarmResultState.READY_FOR_CORE)emitTelemetry(this.telemetry,TelemetryEvent.FALLBACK_USED,{
-        taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:item.attempt,
-        providerProfileId:profile.profileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,
+        ...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:item.attempt,
+        providerProfileId:profile.profileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,layer,waveId,
       });
       return{item,profile,record,retry:false};
     }catch(error){
@@ -359,7 +360,7 @@ export class NativeSidecarSwarm{
         startedAt:started,completedAt:this.now(),late:deadlineMiss,fallbackUsed:item.attempt>1,
       });
       const retry=!deadlineMiss&&retryable(code);
-      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs});
+      emitTelemetry(this.telemetry,TelemetryEvent.SWARM_TASK_RESULT,{...selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,state:record.state,providerId:record.providerId,workerId:record.workerId,failureCode:record.failureCode,latencyMs:record.latencyMs,resourceId:record.resourceId,layer,waveId});
       return{item,profile,record,retry};
     }finally{clearTimeout(timer);detach();}
   }

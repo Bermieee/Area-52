@@ -158,3 +158,35 @@ test('Worker 1 Scatter load probe measures eager pre-Seal queue pressure without
   console.log('WORKER1_SCATTER_LOAD_METRIC '+JSON.stringify({admitted:jobs.length,required:published.cohort.required.length,opportunistic:published.cohort.opportunistic.length,deferred:published.cohort.deferred.length,eagerPreSealQueued:initialQueued,layeredPreSealQueued:layered.counts.sealCritical,projectedPreSealQueueReduction:initialQueued-layered.counts.sealCritical,sealCriticalSetUnchanged:true,policyChanged:false}));
   host.native.close();
 });
+
+test('Worker 1 #262 real Scene retrieval need reconciles physical/result evidence but waits for explicit Scene owner admission',async()=>{
+  const brain=new Area52NativeBrain();
+  await brain.prepareTurn({chatId:'chat:scene-owner',turnId:'scene-owner:1',generationId:'gen:scene-owner:1',query:'Continue',scene:scene('hall',1),executionLabel:'DETERMINISTIC'});
+  const prepared=await brain.prepareTurn({chatId:'chat:scene-owner',turnId:'scene-owner:2',generationId:'gen:scene-owner:2',query:'Where are we now?',scene:scene('archive',2,{relationship:'PRECEDES'}),executionLabel:'DETERMINISTIC'});
+  const expected=brain.uiBindings().readExpectedWork({chatId:'chat:scene-owner',turnId:'scene-owner:2',generationId:'gen:scene-owner:2'});
+  const row=expected.items.find(item=>item.owner==='SCENE');assert.ok(row);assert.equal(row.status,'DUE');assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED));assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.RESULT_RETURNED));assert.ok(row.missingEvidence.includes('OWNER_ADMISSION'));
+  assert.ok(prepared.cognitiveChoice.admittedJobs.includes('RETRIEVAL'));
+});
+
+test('Worker 1 #262 real Lore revision signal registers its declared study obligation without inventing execution',()=>{
+  const brain=new Area52NativeBrain();
+  brain.acceptLoreRevisionChange({kind:'LoreSourceRevisionChanged',sourceId:'lore:owner:1',lorebookId:'book:1',uid:'7',sourceRevisionId:'lore:owner:1@2',contentHash:'hash:2',studyObligationId:'study:7',studyTrigger:'SOURCE_REVISION_CHANGED'});
+  const row=brain.listExpectedCognitiveWork().find(item=>item.expectedId==='lore-study:study:7');assert.ok(row);assert.equal(row.owner,'LORE');assert.equal(row.status,'DUE');assert.equal(row.reasonCode,'TASK_NOT_ADMITTED');assert.equal(row.evidenceStages.length,0);
+});
+
+test('Worker 1 #262 real Memory owner writeback completes only after returned ADMITTED owner receipt',async()=>{
+  const memory={contractVersion:'1.0.0',queryHistorian:()=>({nominations:[]}),drillDown:()=>[],admitExternalEvidenceMapping:()=>({kind:'MemoryExternalEvidenceMappingReceipt',status:'ADMITTED',receiptId:'memory:owner:admitted'})};
+  const brain=new Area52NativeBrain({memoryInterface:memory});
+  await brain.prepareTurn({chatId:'chat:memory-owner',turnId:'memory-owner:1',generationId:'gen:memory-owner:1',query:'Continue',scene:scene('memory'),executionLabel:'DETERMINISTIC'});
+  await brain.completeTurn({turnId:'memory-owner:1',response:'The scene continues.'});
+  const expected=brain.uiBindings().readExpectedWork({chatId:'chat:memory-owner',turnId:'memory-owner:1',generationId:'gen:memory-owner:1'}),row=expected.items.find(item=>item.owner==='MEMORY');
+  assert.ok(row);assert.equal(row.status,'DONE');assert.equal(row.reasonCode,'OWNER_ACCEPTED');assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.PHYSICAL_EXECUTION_STARTED));assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.RESULT_RETURNED));assert.ok(row.evidenceStages.some(e=>e.eventKind===CausalReceiptKind.OWNER_ADMISSION&&e.ownerAccepted===true));
+});
+
+test('Worker 1 #262 absent optional Memory owner is a finite skip and does not break native learning',async()=>{
+  const brain=new Area52NativeBrain();
+  await brain.prepareTurn({chatId:'chat:memory-native',turnId:'memory-native:1',generationId:'gen:memory-native:1',query:'Continue',scene:scene('memory-native'),executionLabel:'DETERMINISTIC'});
+  const learning=await brain.completeTurn({turnId:'memory-native:1',response:'Native learning remains available.'});assert.ok(learning.experienceId);
+  const expected=brain.uiBindings().readExpectedWork({chatId:'chat:memory-native',turnId:'memory-native:1',generationId:'gen:memory-native:1'}),row=expected.items.find(item=>item.owner==='MEMORY');
+  assert.ok(row);assert.equal(row.status,'SKIPPED_WITH_REASON');assert.equal(row.reasonCode,'OPTIONAL_RESOURCE_UNAVAILABLE');
+});

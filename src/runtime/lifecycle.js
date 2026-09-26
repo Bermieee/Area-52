@@ -1,5 +1,6 @@
 import { COGNITIVE_LAYERS, LIFECYCLE_STATUS, assertLayer, isForegroundLayer } from './constants.js';
 import { compareRevision, deepClone, makeSequenceId, normalizeCapabilities } from './utils.js';
+import { sanitizeObligationCause } from './obligation-cause.js';
 
 const OPEN = new Set([LIFECYCLE_STATUS.PENDING, LIFECYCLE_STATUS.ELIGIBLE]);
 
@@ -63,6 +64,7 @@ export class LifecycleCore {
       layer,
       owner: input.owner,
       producerId: input.producerId ?? null,
+      cause: sanitizeObligationCause(input.cause),
       resultContract: deepClone(input.resultContract ?? null),
       runtimeClass: input.runtimeClass ?? null,
       requiredCapabilities,

@@ -784,8 +784,13 @@ export class LoreReviewedMutationService {
 
   commit({proposalId, operatorDecisionId, ...scopeRequest} = {}) {
     const proposal = this._proposal(proposalId);
-    if (proposal.state === LoreMutationState.COMMITTED) return this._public(proposal, {replayed: true});
     this._assertRequestScope(proposal, scopeRequest);
+    if (proposal.state === LoreMutationState.COMMITTED) {
+      if (String(operatorDecisionId || '') !== proposal.approval?.operatorDecisionId) {
+        throw Object.assign(new Error('Commit approval identity does not match proposal approval'), {code: 'LORE_MUTATION_APPROVAL_MISMATCH'});
+      }
+      return this._public(proposal, {replayed: true});
+    }
     if (proposal.state !== LoreMutationState.APPROVED || !proposal.approval) {
       throw Object.assign(new Error('Explicit approved mutation proposal is required before commit'), {code: 'LORE_MUTATION_APPROVAL_REQUIRED'});
     }

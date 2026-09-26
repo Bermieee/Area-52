@@ -13,6 +13,8 @@ export * from './batch-engine.js';
 export * from './deep-cognition.js';
 export * from './sleep-runtime.js';
 export * from './obligation-producers.js';
+export * from './obligation-cause.js';
+export * from './obligation-reconciler.js';
 export * from './worker-director.js';
 export * from './runtime-host.js';
 

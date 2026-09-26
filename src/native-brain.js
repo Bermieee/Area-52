@@ -292,11 +292,7 @@ export class Area52NativeBrain{
     if(sceneSignal||scene)this.observeScene(chat,sceneSignal??scene);
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
-    this.ownerEvidence.clear();
-    // The Scene owner may carry a host revision that is not stored in the native SourceRegistry.
-    // Reset the external fence to this turn's accepted Scene revisions; retrieval channels merge
-    // their current owner revisions into the same fence instead of replacing the Scene evidence.
-    this.core.setExternalCurrentSourceRevisionRefs(sceneState.sourceRevisionRefs??[]);
+    this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
     const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
     this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
     this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});

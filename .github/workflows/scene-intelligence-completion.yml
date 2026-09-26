@@ -9,6 +9,7 @@ on:
       - 'src/deployment/owner-graph-adapters.js'
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
+      - 'tests/scene-completion-wave4-gaps.mjs'
       - 'docs/SCENE_*'
       - '.github/workflows/scene-intelligence-completion.yml'
   pull_request:
@@ -43,6 +44,8 @@ jobs:
         run: node --test tests/scene-completion-wave4.mjs
       - name: Scene completion stress
         run: node --test tests/scene-completion-wave4-stress.mjs
+      - name: Scene remaining-gap regressions
+        run: node --test tests/scene-completion-wave4-gaps.mjs
       - name: Preserve accepted Scene suites
         run: node --test tests/scene-*.mjs tests/scene-core-integration-wave10.mjs
       - name: Preserve shared Scene Jev seam
@@ -56,3 +59,4 @@ jobs:
           node --check src/deployment/owner-graph-adapters.js
           node --check tests/scene-completion-wave4.mjs
           node --check tests/scene-completion-wave4-stress.mjs
+          node --check tests/scene-completion-wave4-gaps.mjs

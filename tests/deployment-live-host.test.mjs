@@ -6,6 +6,8 @@ import {
   createDevelopmentDeploymentSillyTavernSession,
   extractDevelopmentDeploymentScene,
   persistSillyTavernOpenRouterSecret,
+  normalizeOpenRouterCredential,
+  createSillyTavernActiveOpenRouterAdapter,
 } from '../src/deployment/sillytavern-live.js';
 import { Area52NativeBrain } from '../src/native-brain.js';
 
@@ -114,6 +116,28 @@ test('OpenRouter key handoff writes only to SillyTavern server secret storage',a
   assert.deepEqual(calls[0].body,{key:'api_key_openrouter',value:'sk-or-secret-value',label:'Area-52 Primary Jev'});
   assert.equal(calls[0].headers['X-CSRF-Token'],'test');
   assert.doesNotMatch(JSON.stringify(receipt),/sk-or-secret-value/);
+});
+
+test('OpenRouter credential normalization strips common copy wrappers without retaining them',()=>{
+  assert.equal(normalizeOpenRouterCredential('  Bearer sk-or-v1-example  '),'sk-or-v1-example');
+  assert.equal(normalizeOpenRouterCredential('"sk-or-v1-example"'),'sk-or-v1-example');
+  assert.equal(normalizeOpenRouterCredential('`Bearer sk-or-v1-example`'),'sk-or-v1-example');
+});
+
+test('OpenRouter secret write reports SillyTavern authorization failures separately',async()=>{
+  const context={getRequestHeaders:()=>({'Content-Type':'application/json'}),fetch:async()=>({ok:false,status:401,async text(){return'Unauthorized';}})};
+  await assert.rejects(persistSillyTavernOpenRouterSecret(context,'sk-or-v1-example'),error=>error?.code==='SILLYTAVERN_SECRET_WRITE_UNAUTHORIZED'&&/SillyTavern rejected the OpenRouter secret write \(HTTP 401\)/.test(error.message));
+});
+
+test('Jev OpenRouter adapter pins the exact SillyTavern secret reference and separates host 401 from provider unauthorized',async()=>{
+  const calls=[],context={getRequestHeaders:()=>({'Content-Type':'application/json','X-CSRF-Token':'test'}),fetch:async(url,init)=>{const body=JSON.parse(init.body);calls.push({url,body});return{ok:true,status:200,async json(){return{choices:[{message:{content:'OK'}}]};}};}};
+  const adapter=createSillyTavernActiveOpenRouterAdapter({getContext:()=>context,providerId:'provider:jev',modelId:'provider/model',capabilities:['SEMANTIC_JUDGMENT'],getSecretId:()=> 'secret:jev-1'});
+  const probe=await adapter.probe();
+  assert.equal(probe.ok,true);assert.equal(calls[0].body.secret_id,'secret:jev-1');assert.equal(calls[0].body.chat_completion_source,'openrouter');
+  context.fetch=async()=>({ok:false,status:401,async json(){return{message:'Unauthorized'};}});
+  await assert.rejects(adapter.probe(),error=>error?.code==='SILLYTAVERN_PROXY_UNAUTHORIZED'&&/SillyTavern rejected the Jev proxy request/.test(error.message));
+  context.fetch=async()=>({ok:true,status:200,async json(){return{error:{message:'Unauthorized'}};}});
+  await assert.rejects(adapter.probe(),error=>error?.code==='PROVIDER_UNAUTHORIZED'&&/OpenRouter rejected the SillyTavern-stored API key/.test(error.message));
 });
 
 test('live adapter source contains no Ember fixture names or fixed-scenario rejection', () => {

@@ -980,7 +980,7 @@ function normalizePersistedConnectionProfile(input={},observed=null){
     maxConcurrency:Math.max(1,Number(source.concurrencyCapacity??source.maxConcurrency??input.maxConcurrency??input.concurrencyCapacity??1)||1),
     local:Boolean(source.local??input.local??false),credentialPreviouslyConfigured:Boolean(source.credentialConfigured??input.credentialPreviouslyConfigured??input.credentialConfigured??false),
     credentialManagedByHost:Boolean(source.credentialManagedByHost??input.credentialManagedByHost??false),
-    hostCredentialSource:text(source.hostCredentialSource??input.hostCredentialSource),connectionProfileName:text(source.connectionProfileName??input.connectionProfileName),
+    hostCredentialSource:text(source.hostCredentialSource??input.hostCredentialSource),hostSecretId:text(source.hostSecretId??input.hostSecretId),connectionProfileName:text(source.connectionProfileName??input.connectionProfileName),
     wasConnected:Boolean(source.connected??source.callable??input.wasConnected??false),
   };
 }
@@ -1006,7 +1006,7 @@ function normalizeResources(raw){
       ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,
       ownerAcceptanceSource:row.ownerAcceptanceSource??null,
       workerId:row.workerId??null,endpoint:text(row.endpoint),credentialConfigured:typeof row.credentialConfigured==='boolean'?row.credentialConfigured:null,
-      credentialManagedByHost:Boolean(row.credentialManagedByHost),hostCredentialSource:text(row.hostCredentialSource),connectionProfileName:text(row.connectionProfileName),
+      credentialManagedByHost:Boolean(row.credentialManagedByHost),hostCredentialSource:text(row.hostCredentialSource),hostSecretId:text(row.hostSecretId),connectionProfileName:text(row.connectionProfileName),
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
@@ -1046,6 +1046,7 @@ function normalizeWorker2ResourceConfig(input={}){
     const endpoint=text(input.endpoint);if(!endpoint){const e=new TypeError('OpenAI-compatible resource requires an endpoint.');e.code='RESOURCE_ENDPOINT_REQUIRED';throw e;}out.endpoint=endpoint;
     const apiKey=typeof input.apiKey==='string'?input.apiKey.trim():'';if(apiKey)out.apiKey=apiKey;
   }
+  if(input.hostSecretId)out.hostSecretId=String(input.hostSecretId);
   return out;
 }
 

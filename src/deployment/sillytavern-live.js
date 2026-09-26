@@ -24,8 +24,18 @@ function isSillyTavernOpenRouterRoute(context,config={}){
   }catch{return false;}
 }
 
+export function normalizeOpenRouterCredential(value){
+  let secret=clean(value);
+  for(let pass=0;pass<3;pass+=1){
+    const quoted=(secret.startsWith('"')&&secret.endsWith('"'))||(secret.startsWith("'")&&secret.endsWith("'"))||(secret.startsWith('`')&&secret.endsWith('`'));
+    if(quoted&&secret.length>=2)secret=clean(secret.slice(1,-1));
+    secret=clean(secret.replace(/^Bearer\s+/i,''));
+  }
+  return secret;
+}
+
 export async function persistSillyTavernOpenRouterSecret(context,value,{label='Area-52 Jev'}={}){
-  const secret=clean(value),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
+  const secret=normalizeOpenRouterCredential(value),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
   if(!secret)throw Object.assign(new TypeError('OpenRouter key is required'),{code:'RESOURCE_CREDENTIAL_REQUIRED'});
   if(typeof hostFetch!=='function'||typeof context?.getRequestHeaders!=='function')throw Object.assign(new Error('SillyTavern secret storage API is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
   let response;
@@ -39,19 +49,26 @@ export async function persistSillyTavernOpenRouterSecret(context,value,{label='A
   }
   if(!response?.ok){
     let detail='';try{detail=clean(await response.text());}catch{}
-    throw Object.assign(new Error('SillyTavern refused to save the OpenRouter key'+(response?.status?' (HTTP '+response.status+')':'')+(detail?': '+detail.slice(0,160):'')),{code:'RESOURCE_CREDENTIAL_SAVE_FAILED',status:Number(response?.status??0)});
+    const status=Number(response?.status??0),unauthorized=status===401||status===403;
+    const message=unauthorized
+      ?'SillyTavern rejected the OpenRouter secret write (HTTP '+status+'). The browser session is not authorized to update SillyTavern secrets.'
+      :'SillyTavern refused to save the OpenRouter key'+(status?' (HTTP '+status+')':'')+(detail?': '+detail.slice(0,160):'');
+    throw Object.assign(new Error(message),{code:unauthorized?'SILLYTAVERN_SECRET_WRITE_UNAUTHORIZED':'RESOURCE_CREDENTIAL_SAVE_FAILED',status});
   }
   let id=null;try{id=(await response.json())?.id??null;}catch{}
-  return Object.freeze({kind:'SillyTavernSecretWriteReceipt',stored:true,key:'api_key_openrouter',secretId:id?String(id):null,rawCredentialIncluded:false});
+  if(!id)throw Object.assign(new Error('SillyTavern accepted the OpenRouter key but did not return a secret reference.'),{code:'RESOURCE_CREDENTIAL_SAVE_FAILED'});
+  return Object.freeze({kind:'SillyTavernSecretWriteReceipt',stored:true,key:'api_key_openrouter',secretId:String(id),rawCredentialIncluded:false});
 }
 
-function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities=[]}={}){
+export function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities=[],getSecretId=null}={}){
   let selectedModel=clean(modelId);
   if(!selectedModel)throw new TypeError('OpenRouter model is required');
   const request=async(messages,{signal=null,maxOutputTokens=null,temperature=null}={})=>{
     const context=getContext(),hostFetch=typeof context?.fetch==='function'?context.fetch:globalThis.fetch;
     if(typeof hostFetch!=='function'||typeof context?.getRequestHeaders!=='function')throw Object.assign(new Error('SillyTavern authenticated host request API is unavailable'),{code:'PROVIDER_UNAVAILABLE'});
     const body={stream:false,messages,model:selectedModel,chat_completion_source:'openrouter'};
+    const secretId=clean(typeof getSecretId==='function'?getSecretId():'');
+    if(secretId)body.secret_id=secretId;
     if(Number.isFinite(Number(maxOutputTokens))&&Number(maxOutputTokens)>0)body.max_tokens=Math.trunc(Number(maxOutputTokens));
     if(temperature!=null&&Number.isFinite(Number(temperature)))body.temperature=Number(temperature);
     const startedAt=Date.now();
@@ -67,12 +84,28 @@ function createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId
     try{json=await response.json();}catch{try{plain=await response.text();}catch{}}
     if(!response?.ok||json?.error){
       const detail=clean(json?.error?.message??json?.message??plain);
-      const status=Number(response?.status??0);
+      const status=Number(response?.status??0),secretId=clean(typeof getSecretId==='function'?getSecretId():'');
+      const providerUnauthorized=Boolean(json?.error)&&/unauthori[sz]ed|invalid\s+(?:api\s+)?key|authentication|api\s+key/i.test(detail);
+      const hostUnauthorized=!response?.ok&&(status===401||status===403);
       const missingSecret=status===400&&!detail;
-      const message=missingSecret
-        ?'SillyTavern has no active OpenRouter key. Enter it once in the Jev connection card and choose Save OpenRouter key to SillyTavern.'
-        :'SillyTavern OpenRouter proxy rejected the request'+(status&&status!==200?' (HTTP '+status+')':'')+(detail?': '+detail.slice(0,240):'');
-      const code=missingSecret?'RESOURCE_CREDENTIAL_REQUIRED':status===401||status===403?'PROVIDER_UNAUTHORIZED':status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
+      const missingPinnedSecret=missingSecret&&Boolean(secretId);
+      let message,code;
+      if(hostUnauthorized){
+        message='SillyTavern rejected the Jev proxy request (HTTP '+status+'). This is a SillyTavern browser-session/authorization failure, not an OpenRouter model error.';
+        code='SILLYTAVERN_PROXY_UNAUTHORIZED';
+      }else if(providerUnauthorized){
+        message='OpenRouter rejected the SillyTavern-stored API key'+(detail?' ('+detail.slice(0,160)+')':'')+'. Re-enter a valid OpenRouter key; Area-52 will replace the pinned SillyTavern secret reference.';
+        code='PROVIDER_UNAUTHORIZED';
+      }else if(missingPinnedSecret){
+        message='The saved SillyTavern OpenRouter secret reference no longer resolves. Enter the OpenRouter key once to replace the stored secret reference.';
+        code='RESOURCE_CREDENTIAL_REQUIRED';
+      }else if(missingSecret){
+        message='SillyTavern has no OpenRouter key for this Jev connection. Enter it once in the Jev connection card and save it to SillyTavern.';
+        code='RESOURCE_CREDENTIAL_REQUIRED';
+      }else{
+        message='SillyTavern OpenRouter proxy rejected the request'+(status&&status!==200?' (HTTP '+status+')':'')+(detail?': '+detail.slice(0,240):'');
+        code=status===404?'MODEL_UNAVAILABLE':'PROVIDER_FAILURE';
+      }
       throw Object.assign(new Error(message),{code,status});
     }
     const content=typeof json?.choices?.[0]?.message?.content==='string'
@@ -912,28 +945,35 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(!jev)return config;
       const context=getContext();
       if(!isSillyTavernOpenRouterRoute(context,config))return config;
-      const suppliedSecret=clean(config.apiKey);
-      if(suppliedSecret)await persistSillyTavernOpenRouterSecret(context,suppliedSecret,{label:'Area-52 '+clean(config.displayName??'Primary Jev')});
       const resourceId=clean(config.resourceId)||('jev:'+clean(config.displayName??'primary-jev').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''));
+      const meta={source:'SILLYTAVERN_ACTIVE_SECRET',name:'SillyTavern OpenRouter secret',hostSecretId:clean(config.hostSecretId)||null};
+      const suppliedSecret=normalizeOpenRouterCredential(config.apiKey);
+      if(suppliedSecret){
+        const receipt=await persistSillyTavernOpenRouterSecret(context,suppliedSecret,{label:'Area-52 '+clean(config.displayName??'Primary Jev')});
+        meta.hostSecretId=receipt.secretId;
+      }
       const providerId=clean(config.providerId)||('provider:'+resourceId),modelId=clean(config.modelId);
-      const adapter=createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps});
-      session.hostManagedResourceProfiles.set(resourceId,{source:'SILLYTAVERN_ACTIVE_SECRET',name:'SillyTavern active OpenRouter secret'});
+      const adapter=createSillyTavernActiveOpenRouterAdapter({getContext,providerId,modelId,capabilities:caps,getSecretId:()=>meta.hostSecretId});
+      session.hostManagedResourceProfiles.set(resourceId,meta);
       const safe={...config};delete safe.apiKey;
       return{...safe,resourceId,providerId,modelId,adapter,credentialRequired:false,credentialManagedByHost:true,hostCredentialSource:'SILLYTAVERN_ACTIVE_SECRET',
-        connectionProfileName:'SillyTavern active OpenRouter secret',profileMetadata:{...(config.profileMetadata??{}),credentialOwner:'SILLYTAVERN_ACTIVE_SECRET'}};
+        hostSecretId:meta.hostSecretId,connectionProfileName:'SillyTavern OpenRouter secret',profileMetadata:{...(config.profileMetadata??{}),credentialOwner:'SILLYTAVERN_ACTIVE_SECRET'}};
     };
     const decorateRow=(row)=>{
       if(!row||typeof row!=='object')return row;
       const meta=session.hostManagedResourceProfiles.get(clean(row.resourceId));
-      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:meta.source,connectionProfileName:meta.name}:clone(row);
+      return meta?{...clone(row),credentialManagedByHost:true,hostCredentialSource:meta.source,hostSecretId:meta.hostSecretId,connectionProfileName:meta.name}:clone(row);
     };
     const actions=Object.freeze({
       ...host.actions,
       addResource:async(config)=>decorateRow(await host.actions.addResource(await decorateConfig(config))),
+      connectResource:async(resourceId)=>decorateRow(await host.actions.connectResource(resourceId)),
+      disconnectResource:async(resourceId)=>decorateRow(await host.actions.disconnectResource(resourceId)),
       setCredential:async(resourceId,credential)=>{
         const meta=session.hostManagedResourceProfiles.get(clean(resourceId));
         if(meta?.source!=='SILLYTAVERN_ACTIVE_SECRET')return host.actions.setCredential(resourceId,credential);
-        await persistSillyTavernOpenRouterSecret(getContext(),credential,{label:'Area-52 '+clean(host.read.resource(resourceId)?.displayName??'Primary Jev')});
+        const receipt=await persistSillyTavernOpenRouterSecret(getContext(),credential,{label:'Area-52 '+clean(host.read.resource(resourceId)?.displayName??'Primary Jev')});
+        meta.hostSecretId=receipt.secretId;
         return decorateRow(host.read.resource(resourceId));
       },
     });

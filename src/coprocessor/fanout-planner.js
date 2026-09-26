@@ -209,6 +209,9 @@ export class DynamicFanOutPlanner {
           location,
           inputRefs: structuredClone(inputRefs[role.roleId] ?? []),
           resourceConstraint: structuredClone(resourceConstraint),
+          scatterLayer: scatterLayerForRole(role.roleId, effectiveResultClass, role.placement),
+          scatterTrigger: signal.reasonCodes[0] ?? 'EXPECTED_VALUE_PLAN',
+          conditionalScatter: role.roleId === 'truth-precision',
         },
       }));
       costUsed += cost;
@@ -290,3 +293,9 @@ function budgetReceipt(foreground, opportunistic, background, cost, caps, deadli
 function finiteCap(value, fallback) { const n = Number(value ?? fallback); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback; }
 function clamp(value) { const n = Number(value); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0; }
 function uniqueStrings(values) { return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))]; }
+function scatterLayerForRole(roleId,resultClass,placement) {
+  if(resultClass===ResultClass.DEFERRED||placement===Placement.DEEP)return 'DEEP';
+  if(roleId==='truth-precision')return 'PRECISION';
+  if(roleId==='historian'||roleId==='graph-walker')return 'EVIDENCE_EXPANSION';
+  return 'HOT_EXACT';
+}

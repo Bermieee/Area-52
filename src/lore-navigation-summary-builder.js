@@ -234,10 +234,26 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
   }
   const sourceRevisionSet = sourceRows.map((row) => row.sourceRevisionId).sort();
   const childSummaries = [];
+  const childEvidence = new Map();
   for (const childScopeId of scope.childScopeIds) {
     const child = registry.current(childScopeId);
     if (!child) return {ok: false, failure: NavigationFailure.CHILD_SUMMARY_FAILED, childScopeId};
+    const resolved = registry.resolveEvidenceRefs(child.criticalEvidenceRefs || [], {
+      limit: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
+    });
+    if (resolved.status === 'LIMIT_EXCEEDED') {
+      return {ok: false, failure: NavigationFailure.EVIDENCE_REF_LIMIT, childScopeId};
+    }
+    if (resolved.status === 'DEGRADED') {
+      return {
+        ok: false,
+        failure: NavigationFailure.EVIDENCE_REF_MISSING,
+        childScopeId,
+        missingEvidenceRefs: resolved.missingEvidenceRefs,
+      };
+    }
     childSummaries.push(child);
+    childEvidence.set(child.id, resolved.evidence);
   }
   const childSummaryDependencies = childSummaries
     .map((row) => ({
@@ -251,13 +267,23 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
 
   const evidenceById = new Map();
   if (!scope.childScopeIds.length) {
-    for (const source of sourceRows) for (const row of source.evidence) evidenceById.set(criticalKey(row), row);
+    for (const source of sourceRows) {
+      const refs = registry.registerEvidence(source.evidence);
+      for (let index = 0; index < source.evidence.length; index += 1) {
+        const row = {...deepClone(source.evidence[index]), evidenceRef: refs[index]};
+        evidenceById.set(criticalKey(row), row);
+      }
+    }
   } else {
     for (const child of childSummaries) {
-      for (const row of child.criticalEvidence || []) evidenceById.set(criticalKey(row), deepClone(row));
+      for (const row of childEvidence.get(child.id) || []) evidenceById.set(criticalKey(row), deepClone(row));
     }
   }
   const criticalEvidence = [...evidenceById.values()].sort((a, b) => a.evidenceId.localeCompare(b.evidenceId));
+  if (criticalEvidence.length > LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary) {
+    return {ok: false, failure: NavigationFailure.EVIDENCE_REF_LIMIT};
+  }
+  const criticalEvidenceRefs = [...new Set(criticalEvidence.map((row) => row.evidenceRef).filter(Boolean))];
   const navigationStatements = [];
 
   if (!scope.childScopeIds.length) {
@@ -289,7 +315,7 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
         statementId: 'statement:' + stableHash(scope.id + '|child|' + child.id),
         text: child.targetLabel + ': ' + firstLine.slice(0, 260),
         sourceRevisionRefs: [...child.sourceRevisionSet],
-        evidenceRefs: (child.criticalEvidence || []).slice(0, 16).map((row) => row.evidenceId),
+        evidenceRefs: (childEvidence.get(child.id) || []).slice(0, 16).map((row) => row.evidenceId),
         childSummaryRef: child.id,
         critical: false,
       });
@@ -319,6 +345,7 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null}) {
     childSummaryDependencies,
     childSummaries,
     criticalEvidence,
+    criticalEvidenceRefs,
     allowedStatements: [...deduped.values()].sort((a, b) => Number(b.critical) - Number(a.critical) || a.statementId.localeCompare(b.statementId)),
   };
 }
@@ -577,7 +604,7 @@ export class LoreNavigationSummaryBuilder {
       sourceRevisionSet: request.sourceRevisionSet,
       childSummaryDependencies: request.childSummaryDependencies,
       content: draft.content,
-      criticalEvidence: request.criticalEvidence,
+      criticalEvidenceRefs: request.criticalEvidenceRefs,
       provenance: {
         kind: 'NavigationSummaryProvenance',
         targetScopeId: scope.id,

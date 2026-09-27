@@ -52,7 +52,9 @@ jobs:
       - name: Selected-turn diagnostics regressions
         run: node --test tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs
       - name: Operator diagnostics workspace regressions
-        run: node --test --test-name-pattern="Brain activity distinguishes|local evidence journal|Settings is a labeled product workspace|Diagnostics|Home stays concise|Inspect details keeps unavailable|Lore keeps controls first|Lore workspace uses SillyTavern selection|Lore selected-book discovery|Connections cards use panel-width responsive tracks|Connections renders separate Jev Sidecar and Vectoring slots|Connections model input stays editable|Connections preserves independent" tests/wave13-operator-ui.test.mjs
+        run: node --test --test-name-pattern="Brain activity distinguishes|local evidence journal|Settings is a labeled product workspace|Diagnostics|Home stays concise|Inspect details keeps unavailable|Lore keeps controls first|Lore workspace uses SillyTavern selection|Lore selected-book discovery|Connections cards use panel-width responsive tracks|Connections preserves independent" tests/wave13-operator-ui.test.mjs
+      - name: Core shell regressions
+        run: node --test tests/ui-core.test.mjs
       - name: Preserve client-load repair contracts
         run: node --test tests/client-repair-wave2.test.mjs
       - name: Host and operator stress

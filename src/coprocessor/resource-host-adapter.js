@@ -16,6 +16,7 @@ export function createCoprocessorResourceHost({connections=null,swarm=null,plann
       discoverModels:(config,opts)=>registry.discoverModels(config,opts),
       refreshModels:(resourceId,opts)=>registry.refreshResourceModels(resourceId,opts),
       setCredential:(resourceId,credential)=>registry.setResourceCredential(resourceId,credential),
+      setEndpoint:(resourceId,endpoint)=>registry.setResourceEndpoint(resourceId,endpoint),
       clearCredential:(resourceId,opts)=>registry.clearResourceCredential(resourceId,opts),
       revokeCredential:(resourceId,opts)=>registry.revokeResourceCredential(resourceId,opts),
       selectModel:(resourceId,modelId)=>registry.selectResourceModel(resourceId,modelId),

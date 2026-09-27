@@ -255,6 +255,29 @@ export class CoprocessorResourceConnections{
 
   revokeResourceCredential(resourceId,options={}){return this.clearResourceCredential(resourceId,options);}
 
+  setResourceEndpoint(resourceId,endpoint){
+    const row=this.#row(resourceId);
+    if(row.kind!==ResourceKind.OPENAI_COMPATIBLE)throw new TypeError('endpoint changes require an OpenAI-compatible resource');
+    const value=validatedEndpoint(endpoint);
+    if(row.endpoint===safeEndpoint(value))return this.readResource(resourceId);
+    if(new URL(value).origin!==new URL(row.endpoint).origin)throw new TypeError('endpoint changes across hosts require a new resource and credential');
+    const identity=classifyProviderIdentity(value,row.kind);
+    if(identity.family!==row.providerIdentity.family||isLocalEndpoint(value)!==row.local)throw new TypeError('endpoint changes across provider families or local/remote boundaries require a new resource');
+    if(row.activeExecutions>0||row.state===ResourceConnectionState.CONNECTING||row.modelDiscovery?.state===ResourceModelDiscoveryState.LOADING)throw new Error('endpoint cannot change during an active request');
+    const adapter=this.adapters.get(row.providerId);
+    if(!(adapter instanceof OpenAICompatibleProviderAdapter))throw new TypeError('resource adapter does not support endpoint changes');
+    for(const controller of this.controllers.get(resourceId)??[])if(!controller.signal.aborted)controller.abort('endpoint-changed');
+    this.controllers.delete(resourceId);
+    adapter.endpoint=value;row.endpoint=safeEndpoint(value);row.providerIdentity=identity;
+    row.modelDiscovery=createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode:row.transportMode});
+    row.modelSelectionMode='CONFIGURED_UNQUALIFIED';row.qualificationEvidence=null;
+    this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.CONFIGURED,reason:'Endpoint changed; authenticated qualification is required.'});
+    this.#diagnostic(row,'ENDPOINT_UPDATED','Resource endpoint updated; qualification invalidated.');
+    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_CONFIGURED,this.#telemetryRow(row));
+    this.#notify('RESOURCE_CONFIGURED',row);
+    return this.readResource(resourceId);
+  }
+
   selectResourceModel(resourceId,modelId){
     const row=this.#row(resourceId);const value=req(modelId,'modelId');
     const discovery=row.modelDiscovery??createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode:row.transportMode});

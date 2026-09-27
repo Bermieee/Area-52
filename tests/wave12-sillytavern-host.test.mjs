@@ -98,6 +98,24 @@ test('SillyTavern selected Lorebook discovery preserves editor identity and exac
   assert.deepEqual(result.discovery,{kind:'SillyTavernLorebookDiscoveryReceipt',contractVersion:1,source:'SILLYTAVERN_WORLD_INFO_EDITOR',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:2,chatId:'chat:moon',exactAuthoredSource:true});
 });
 
+test('Wave 12 installed host bindings preserve the generation profiling operator contract',()=>{
+  let enabled=false;
+  const selection={chatId:'chat:profile-host',turnId:'turn:profile-host',generationId:'gen:profile-host',correlationId:'corr:profile-host'};
+  const source={
+    readSelection:()=>({...selection}),
+    readSelectedTurnReceipt:()=>({kind:'NativeBrainSelectedTurnReceipt',...selection,performance:{stages:[]}}),
+    readNativeGenerationPerformance:()=>({kind:'NativeGenerationDetailedPerformanceProfile',...selection}),
+    setDetailedGenerationProfiling:(value)=>{enabled=Boolean(value);return enabled;},
+    loadDiagnostics:()=>({generationProfiling:{detailedEnabled:enabled,retainedProfiles:0},bounds:{nativePerformance:12}}),
+  };
+  const bound=createWave12SillyTavernHostBindings({getContext:()=>({chatId:selection.chatId}),hostBindings:source});
+  for(const name of ['readSelectedTurnReceipt','readNativeGenerationPerformance','setDetailedGenerationProfiling','loadDiagnostics'])assert.equal(typeof bound.hostBindings[name],'function',name);
+  assert.equal(bound.hostBindings.loadDiagnostics().generationProfiling.detailedEnabled,false);
+  assert.equal(bound.hostBindings.setDetailedGenerationProfiling(true),true);
+  assert.equal(bound.hostBindings.loadDiagnostics().generationProfiling.detailedEnabled,true);
+  bound.destroy();
+});
+
 test('SillyTavern host bindings preserve Worker 4 Lore operator service ownership',()=>{
   const service={operatorInterface(){return{kind:'LoreStudyOperatorHost',read:{status:()=>({entries:[],counts:{}})},actions:{acceptLorebook(){},runLoreStudy(){}}};}};
   const bound=createWave12SillyTavernHostBindings({getContext:()=>({chatId:'chat:lore'}),hostBindings:{loreIntelligenceService:service}});

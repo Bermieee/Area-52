@@ -112,13 +112,15 @@ function candidateEdges({providerId,owner,sourceKind,rows,maxEdges=128}){
 
 export function createLoreOwnerGraphProvider(loreInterface){
   if(typeof loreInterface?.query!=='function')return null;
+  let queryRevisionSet=null;
   return Object.freeze({
     providerId:'LORE_OWNER_GRAPH',
     owner:'LORE_INTELLIGENCE',
     semanticsVersion:'LORE_OWNER_GRAPH_V1',
     metadata:{sourceKind:'LORE_OWNER',authority:'REFERENCE_ONLY'},
-    isRevisionCurrent:(revisionId)=>currentLoreRevisionSet(loreInterface).has(String(revisionId)),
+    isRevisionCurrent:(revisionId)=>(queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(String(revisionId)),
     query(request={}){
+      queryRevisionSet=null;
       try{
         const packet=loreInterface.query({query:String(request.query??''),intent:'AUTO'});
         return {
@@ -133,13 +135,15 @@ export function createLoreOwnerGraphProvider(loreInterface){
 export function createMemoryOwnerGraphProvider(memoryInterface){
   const adapters=memoryInterface?.adapters??memoryInterface;
   if(typeof adapters?.queryHistorian!=='function')return null;
+  let queryRevisionSet=null;
   return Object.freeze({
     providerId:'MEMORY_OWNER_GRAPH',
     owner:'MEMORY_TEMPORAL',
     semanticsVersion:'MEMORY_OWNER_GRAPH_V1',
     metadata:{sourceKind:'MEMORY_OWNER',authority:'REFERENCE_ONLY'},
-    isRevisionCurrent:(revisionId)=>currentMemoryRevisionSet(memoryInterface).has(String(revisionId)),
+    isRevisionCurrent:(revisionId)=>(queryRevisionSet??=currentMemoryRevisionSet(memoryInterface)).has(String(revisionId)),
     query(request={}){
+      queryRevisionSet=null;
       try{
         const result=adapters.queryHistorian({
           query:String(request.query??''),
@@ -147,6 +151,7 @@ export function createMemoryOwnerGraphProvider(memoryInterface){
           limits:{maxCandidates:Math.max(1,Math.min(Number(request.maxCandidates)||32,64))},
         });
         const current=currentMemoryRevisionSet(memoryInterface);
+        queryRevisionSet=current;
         const edges=candidateEdges({providerId:'MEMORY_OWNER_GRAPH',owner:'MEMORY_TEMPORAL',sourceKind:'MEMORY',rows:result?.nominations,maxEdges:request.maxEdges});
         for(const edge of edges)edge.dependencyRevisionRefs=edge.dependencyRevisionRefs.filter(ref=>current.has(String(ref)));
         return {
@@ -160,6 +165,7 @@ export function createMemoryOwnerGraphProvider(memoryInterface){
 
 export function createSceneOwnerGraphProvider(sceneRuntime){
   if(!sceneRuntime?.graph?.exportState)return null;
+  let queryRevisionSet=null;
   const temporalStatusFor=(row)=>{
     if(row?.temporalStatus)return String(row.temporalStatus).toUpperCase();
     if(String(row?.edgeType??'')==='SCENE_FLASHBACK')return'HISTORICAL';
@@ -172,8 +178,9 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
     owner:'SCENE_LIFECYCLE',
     semanticsVersion:'SCENE_OWNER_GRAPH_V1',
     metadata:{sourceKind:'SCENE_OWNER',authority:'REFERENCE_ONLY'},
-    isRevisionCurrent:(revisionId)=>currentSceneRevisionSet(sceneRuntime).has(String(revisionId)),
+    isRevisionCurrent:(revisionId)=>(queryRevisionSet??=currentSceneRevisionSet(sceneRuntime)).has(String(revisionId)),
     query(request={}){
+      queryRevisionSet=null;
       const maxEdges=Math.max(1,Math.min(Number(request.maxEdges)||128,256));
       try{
         const state=sceneRuntime.graph.exportState();

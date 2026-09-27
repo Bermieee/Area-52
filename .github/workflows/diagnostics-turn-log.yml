@@ -9,6 +9,11 @@ on:
     paths:
       - 'src/ui-core/demo-visibility.js'
       - 'src/ui-core/turn-log-diagnostics.js'
+      - 'src/ui-core/wave13-operator-adapters.js'
+      - 'src/deployment/sillytavern-live.js'
+      - 'src/ui-core/wave12-sillytavern-host.js'
+      - 'tests/worker3-generation-profiling-ui.test.mjs'
+      - 'tests/wave12-sillytavern-host.test.mjs'
       - 'styles/ui-core-wave13.css'
       - 'styles/ui-core-wave6.css'
       - 'styles/ui-core.css'
@@ -50,22 +55,27 @@ jobs:
           echo "Actual:   $(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
       - name: Selected-turn diagnostics regressions
-        run: node --test tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs
+        run: node --test tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs tests/worker3-generation-profiling-ui.test.mjs
       - name: Operator diagnostics workspace regressions
         run: node --test --test-name-pattern="Brain activity distinguishes|local evidence journal|Settings is a labeled product workspace|Diagnostics|Home stays concise|Inspect details keeps unavailable|Lore keeps controls first|Lore workspace uses SillyTavern selection|Lore selected-book discovery|Connections cards use panel-width responsive tracks|Connections preserves independent" tests/wave13-operator-ui.test.mjs
       - name: Core shell regressions
         run: node --test tests/ui-core.test.mjs
       - name: Preserve client-load repair contracts
         run: node --test tests/client-repair-wave2.test.mjs
-      - name: Host and operator stress
-        run: node --test tests/wave12-sillytavern-host-stress.mjs tests/wave13-operator-ui-stress.mjs
+      - name: Host forwarding and operator stress
+        run: node --test tests/wave12-sillytavern-host.test.mjs tests/wave12-sillytavern-host-stress.mjs tests/wave13-operator-ui-stress.mjs
       - name: Browser-facing imports
         run: |
-          node --input-type=module -e "await import('./src/ui-core/demo-visibility.js'); await import('./src/ui-core/turn-log-diagnostics.js'); await import('./src/ui-core/wave6-runtime.js'); await import('./src/ui-core/index.js');"
+          node --input-type=module -e "await import('./src/ui-core/demo-visibility.js'); await import('./src/ui-core/turn-log-diagnostics.js'); await import('./src/ui-core/wave13-operator-adapters.js'); await import('./src/ui-core/wave12-sillytavern-host.js'); await import('./src/deployment/sillytavern-live.js'); await import('./src/ui-core/wave6-runtime.js'); await import('./src/ui-core/index.js');"
       - name: Changed-surface syntax
         run: |
           node --check src/ui-core/demo-visibility.js
           node --check src/ui-core/turn-log-diagnostics.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check src/ui-core/wave12-sillytavern-host.js
+          node --check src/deployment/sillytavern-live.js
+          node --check tests/worker3-generation-profiling-ui.test.mjs
+          node --check tests/wave12-sillytavern-host.test.mjs
           node --check src/ui-core/shell.js
           node --check src/ui-core/wave6-front-face.js
           node --check src/ui-core/wave13-operator-surfaces.js

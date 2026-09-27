@@ -10,11 +10,18 @@ on:
       - 'src/adaptive-context-sections.js'
       - 'src/prompt-presentation.js'
       - 'src/native-brain.js'
+      - 'src/generation-publication.js'
+      - 'src/result-bus.js'
+      - 'src/coprocessor/openrouter-jev-decisions.js'
+      - 'src/ui-core/demo-visibility.js'
       - 'src/deployment/sillytavern-live.js'
       - 'src/runtime/**'
       - 'tests/worker1-brain-lifecycle-causal-wave.mjs'
       - 'tests/worker1-context-trust-delivery.mjs'
       - 'tests/worker1-brain-context-delivery-completion.mjs'
+      - 'tests/worker1-generation-performance-wiring.mjs'
+      - 'tests/openrouter-jev-decisions.test.mjs'
+      - 'scripts/worker1-generation-performance-benchmark.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
       - '.github/workflows/worker1-brain-causal-wave.yml'
   pull_request:
@@ -31,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -39,13 +46,21 @@ jobs:
       - name: Record exact tested head
         run: |
           echo "TESTED_HEAD=$(git rev-parse HEAD)"
-          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Brain lifecycle and causal acceptance
         run: node --test tests/worker1-brain-lifecycle-causal-wave.mjs
       - name: Provider presentation and context trust
         run: node --test tests/worker1-context-trust-delivery.mjs
       - name: Brain context delivery completion
         run: node --test tests/worker1-brain-context-delivery-completion.mjs
+      - name: Generation performance and causal wiring
+        run: node --test tests/worker1-generation-performance-wiring.mjs
+      - name: Qualification probe contract
+        run: node --test tests/openrouter-jev-decisions.test.mjs
+      - name: Demo telemetry regression
+        run: node --test tests/demo-visibility.test.mjs
+      - name: Generation performance benchmark
+        run: node scripts/worker1-generation-performance-benchmark.mjs
       - name: Preserve Cognitive Choice Wave 9
         run: node --test tests/cognitive-choice-wave9.mjs
       - name: Preserve native one-resource path
@@ -66,12 +81,18 @@ jobs:
           node --check src/adaptive-context-sections.js &&
           node --check src/prompt-presentation.js &&
           node --check src/native-brain.js &&
+          node --check src/generation-publication.js &&
+          node --check src/result-bus.js &&
+          node --check src/coprocessor/openrouter-jev-decisions.js &&
+          node --check src/ui-core/demo-visibility.js &&
           node --check src/deployment/sillytavern-live.js &&
           node --check src/runtime/causal-receipts.js &&
           node --check src/runtime/obligation-reconciler.js &&
           node --check src/runtime/worker-director.js &&
           node --check tests/worker1-brain-lifecycle-causal-wave.mjs &&
-          node --check tests/worker1-brain-context-delivery-completion.mjs
+          node --check tests/worker1-brain-context-delivery-completion.mjs &&
+          node --check tests/worker1-generation-performance-wiring.mjs &&
+          node --check scripts/worker1-generation-performance-benchmark.mjs
       - name: Browser-facing imports
         run: >-
           node -e "globalThis.Buffer=undefined;

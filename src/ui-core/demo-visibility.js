@@ -291,15 +291,17 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
   }
 
   for(const row of diag.resources?.rows??[]){
-    if(!row.physicalExecutionAttempted&&!row.lastExecution)continue;
+    const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
+    const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
+    if(qualificationProbe||(!row.physicalExecutionAttempted&&!row.lastExecution))continue;
     const succeeded=Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
     out.push(entry({
       type:'RESOURCE_ATTEMPT',status:succeeded?'SUCCEEDED':'FAILED',title:'Physical resource attempt',
       summary:String(row.displayName??row.id??'Resource')+' '+(succeeded?'completed a physical execution attempt.':'reported a physical execution failure.'),
-      detail:'This evidence comes from the resource execution read model, not connection or configuration state.',
+      detail:'This evidence comes from the resource execution read model, not connection or configuration state. QUALIFICATION_PROBE traffic is excluded from cognitive execution.',
       receiptRef:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,selection,at,
       identitySuffix:String(row.id??'resource')+':'+String(row.lastExecution?.at??row.lastExecution?.completedAt??row.lastExecution?.status??succeeded),
-      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,succeeded,latencyMs:finite(row.lastExecution?.latencyMs)},
+      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,executionPurpose,succeeded,latencyMs:finite(row.lastExecution?.latencyMs)},
     }));
   }
 
@@ -308,12 +310,14 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
   if(optionalRows.length){
     const jevReason=technicalReason(path.jev?.reasonCode??path.jev?.reason??path.jev?.outcome??path.jev?.state);
     const lifecycleRows=optionalRows.map(row=>{
-      const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=Boolean(row.physicalExecutionSucceeded||row.lastExecution?.status==='SUCCESS');
-      const returned=typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null;
+      const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
+      const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
+      const attempted=!qualificationProbe&&Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=attempted&&Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
+      const returned=attempted?(typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null):null;
       const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
-      const kind=String(row.kind??'').toUpperCase(),skipReason=kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
+      const kind=String(row.kind??'').toUpperCase(),skipReason=qualificationProbe?'QUALIFICATION_PROBE':kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
       const ownerAcceptanceState=typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE';
-      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
+      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,executionPurpose,qualificationProbe,measurementClass:row.measurementClass??null};
     });
     out.push(entry({
       type:'OPTIONAL_RESOURCE_LIFECYCLE',status:'RECORDED',title:'Optional resource lifecycle',
@@ -499,14 +503,17 @@ function readModelEvidence(value,inspection,stage,selectedRefs,selection,overrid
 }
 function optionalResourceEvidence(row,stage,selectedRefs,selection){
   if(!row)return null;
-  const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution);
-  const returned=typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null;
-  const accepted=typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null;
-  const status=accepted===true?'OWNER_ACCEPTED':returned===true?'RETURNED':attempted?'ATTEMPTED':row.callable?'QUALIFIED':'CONFIGURED';
-  return{status,receiptId:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,parentReceiptId:row.lastExecution?.parentReceiptId??null,
-    durationMs:finite(row.lastExecution?.latencyMs),ownerAccepted:accepted,lifecycleState:status,configured:true,qualified:Boolean(row.callable),physicalAttempt:attempted,returned,
+  const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
+  const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
+  const attempted=!qualificationProbe&&Boolean(row.physicalExecutionAttempted||row.lastExecution);
+  const returned=attempted?(typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null):null;
+  const accepted=attempted&&typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null;
+  const status=qualificationProbe?'QUALIFIED_PROBE':accepted===true?'OWNER_ACCEPTED':returned===true?'RETURNED':attempted?'ATTEMPTED':row.callable?'QUALIFIED':'CONFIGURED';
+  return{status,receiptId:qualificationProbe?null:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,parentReceiptId:qualificationProbe?null:row.lastExecution?.parentReceiptId??null,
+    durationMs:qualificationProbe?null:finite(row.lastExecution?.latencyMs),ownerAccepted:accepted,lifecycleState:status,configured:true,qualified:Boolean(row.callable),physicalAttempt:attempted,returned,
+    executionPurpose,qualificationProbe,
     sourceRevisionRefs:[...(selectedRefs??[])].slice(0,32),worldRevision:numberOrNull(selection?.worldRevision),sceneRevision:numberOrNull(selection?.sceneRevision),
-    evidenceKind:'optional-resource:'+stage,reasonCode:technicalReason(row.skipReason??row.lastFailure?.code??row.lastExecution?.reasonCode)};
+    evidenceKind:'optional-resource:'+stage,reasonCode:qualificationProbe?'QUALIFICATION_PROBE':technicalReason(row.skipReason??row.lastFailure?.code??row.lastExecution?.reasonCode)};
 }
 
 function expectedWorkJournalEntry(expectedWork,selection,at){

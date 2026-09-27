@@ -73,13 +73,13 @@ export class RetrievalChannelRegistry{
     const nominations=[],unavailableChannels=[],degradedChannels=[],errors=[],channelReceipts=[],skippedChannels=[];
     const started=now(),budget=latencyBudget(context);
     for(const row of rows.sort((a,b)=>a.descriptor.channelId.localeCompare(b.descriptor.channelId))){
-      if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health});continue;}
+      if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health,elapsedMs:0,attemptedIntents:0,failedIntents:0});continue;}
       const id=row.descriptor.channelId;
       if(!row.available||[RetrievalChannelHealth.UNAVAILABLE,RetrievalChannelHealth.ERROR].includes(row.health)){
-        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0,reason:row.descriptor.metadata?.unavailableReason??row.lastError??'CHANNEL_UNAVAILABLE',fallbackChannelIds:uniq(row.descriptor.metadata?.fallbackChannelIds??[]),capabilities:[...(row.descriptor.capabilities??[])]});continue;
+        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0,reason:row.descriptor.metadata?.unavailableReason??row.lastError??'CHANNEL_UNAVAILABLE',fallbackChannelIds:uniq(row.descriptor.metadata?.fallbackChannelIds??[]),capabilities:[...(row.descriptor.capabilities??[])],elapsedMs:0,attemptedIntents:0,failedIntents:0});continue;
       }
       if([RetrievalChannelHealth.DEGRADED,RetrievalChannelHealth.STALE].includes(row.health))degradedChannels.push(id);
-      let count=0,status='OK';
+      let count=0,status='OK',attemptedIntents=0,failedIntents=0;const channelStarted=now();
       for(const intent of intents){
         if(budget!==null&&now()-started>=budget){
           skippedChannels.push(id);degradedChannels.push(id);
@@ -87,6 +87,7 @@ export class RetrievalChannelRegistry{
           break;
         }
         if(!this.supportsIntent(row.descriptor,intent.intentKind??intent.kind??'GENERAL'))continue;
+        attemptedIntents+=1;
         try{
           const value=await row.provider.retrieve(frozen(intent),frozen(context));
           const result=Array.isArray(value)?value:value?.nominations??[];
@@ -94,11 +95,11 @@ export class RetrievalChannelRegistry{
           const limited=result.slice(0,row.descriptor.maxCandidates);
           nominations.push(...limited);count+=limited.length;row.retrievals+=1;
         }catch(error){
-          row.failures+=1;row.lastError=String(error?.message??error);status='ERROR';degradedChannels.push(id);
+          row.failures+=1;failedIntents+=1;row.lastError=String(error?.message??error);status='ERROR';degradedChannels.push(id);
           errors.push({channelId:id,intentId:intent.intentId??null,code:error?.code??'CHANNEL_RETRIEVAL_FAILED',message:String(error?.message??error)});
         }
       }
-      channelReceipts.push({channelId:id,status,nominationCount:count,health:row.health});
+      channelReceipts.push({channelId:id,status,nominationCount:count,health:row.health,elapsedMs:Math.max(0,now()-channelStarted),attemptedIntents,failedIntents});
     }
     const elapsedMs=Math.max(0,now()-started);
     return frozen({nominations,unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),errors,channelReceipts,budgetReceipt:{kind:'RetrievalLatencyBudgetReceipt',latencyBudgetMs:budget,elapsedMs,skippedChannels:uniq(skippedChannels),budgetExceeded:budget!==null&&elapsedMs>=budget}});
@@ -109,13 +110,13 @@ export class RetrievalChannelRegistry{
     const nominations=[],unavailableChannels=[],degradedChannels=[],errors=[],channelReceipts=[],skippedChannels=[];
     const started=now(),budget=latencyBudget(context);
     for(const row of rows.sort((a,b)=>a.descriptor.channelId.localeCompare(b.descriptor.channelId))){
-      if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health});continue;}
+      if(budget!==null&&now()-started>=budget){const id=row.descriptor.channelId;skippedChannels.push(id);degradedChannels.push(id);channelReceipts.push({channelId:id,status:'SKIPPED_LATENCY_BUDGET',nominationCount:0,health:row.health,elapsedMs:0,attemptedIntents:0,failedIntents:0});continue;}
       const id=row.descriptor.channelId;
       if(!row.available||[RetrievalChannelHealth.UNAVAILABLE,RetrievalChannelHealth.ERROR].includes(row.health)){
-        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0,reason:row.descriptor.metadata?.unavailableReason??row.lastError??'CHANNEL_UNAVAILABLE',fallbackChannelIds:uniq(row.descriptor.metadata?.fallbackChannelIds??[]),capabilities:[...(row.descriptor.capabilities??[])]});continue;
+        unavailableChannels.push(id);channelReceipts.push({channelId:id,status:'UNAVAILABLE',nominationCount:0,reason:row.descriptor.metadata?.unavailableReason??row.lastError??'CHANNEL_UNAVAILABLE',fallbackChannelIds:uniq(row.descriptor.metadata?.fallbackChannelIds??[]),capabilities:[...(row.descriptor.capabilities??[])],elapsedMs:0,attemptedIntents:0,failedIntents:0});continue;
       }
       if([RetrievalChannelHealth.DEGRADED,RetrievalChannelHealth.STALE].includes(row.health))degradedChannels.push(id);
-      let count=0,status='OK';
+      let count=0,status='OK',attemptedIntents=0,failedIntents=0;const channelStarted=now();
       for(const intent of intents){
         if(budget!==null&&now()-started>=budget){
           skippedChannels.push(id);degradedChannels.push(id);
@@ -123,6 +124,7 @@ export class RetrievalChannelRegistry{
           break;
         }
         if(!this.supportsIntent(row.descriptor,intent.intentKind??intent.kind??'GENERAL'))continue;
+        attemptedIntents+=1;
         try{
           const value=row.provider.retrieve(frozen(intent),frozen(context));
           if(value&&typeof value.then==='function')throw new CandidateBusContractError('CHANNEL_ASYNC_IN_SYNC_PATH','channel '+id+' returned a Promise on sync retrieval path');
@@ -131,11 +133,11 @@ export class RetrievalChannelRegistry{
           const limited=result.slice(0,row.descriptor.maxCandidates);
           nominations.push(...limited);count+=limited.length;row.retrievals+=1;
         }catch(error){
-          row.failures+=1;row.lastError=String(error?.message??error);status='ERROR';degradedChannels.push(id);
+          row.failures+=1;failedIntents+=1;row.lastError=String(error?.message??error);status='ERROR';degradedChannels.push(id);
           errors.push({channelId:id,intentId:intent.intentId??null,code:error?.code??'CHANNEL_RETRIEVAL_FAILED',message:String(error?.message??error)});
         }
       }
-      channelReceipts.push({channelId:id,status,nominationCount:count,health:row.health});
+      channelReceipts.push({channelId:id,status,nominationCount:count,health:row.health,elapsedMs:Math.max(0,now()-channelStarted),attemptedIntents,failedIntents});
     }
     const elapsedMs=Math.max(0,now()-started);
     return frozen({nominations,unavailableChannels:uniq(unavailableChannels),degradedChannels:uniq(degradedChannels),errors,channelReceipts,budgetReceipt:{kind:'RetrievalLatencyBudgetReceipt',latencyBudgetMs:budget,elapsedMs,skippedChannels:uniq(skippedChannels),budgetExceeded:budget!==null&&elapsedMs>=budget}});

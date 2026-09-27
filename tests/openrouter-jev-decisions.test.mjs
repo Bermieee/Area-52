@@ -58,11 +58,12 @@ test('qualification probes the dedicated key then performs a real typed Noul Dec
   });
   const probe=await adapter.probe();
   assert.equal(probe.ok,true);assert.equal(probe.transportMode,'DECISIONS');assert.equal(probe.decisionProtocol,OPENROUTER_JEV_PROTOCOL);
-  assert.equal(probe.qualificationPrimitive,'noul');assert.equal(probe.physicalExecution,true);
+  assert.equal(probe.qualificationPrimitive,'noul');assert.equal(probe.purpose,'QUALIFICATION_PROBE');assert.equal(probe.cognitiveExecution,false);assert.equal(probe.physicalExecution,true);
   assert.equal(calls.length,2);assert.equal(calls[0].url,OPENROUTER_KEY_ENDPOINT);assert.equal(calls[0].method,'GET');
   assert.equal(calls[1].url,OPENROUTER_DECISIONS_ENDPOINT);assert.equal(calls[1].method,'POST');
   assert.equal(calls[1].body.model,'typesafe/jev-1.13');
   assert.deepEqual(Object.keys(calls[1].body).sort(),['model','questions','state']);
+  assert.equal(calls[1].body.state.purpose,'QUALIFICATION_PROBE');
   assert.equal(calls[1].body.questions.reachable.type,'noul');
   assert.equal('messages' in calls[1].body,false);assert.equal('stream' in calls[1].body,false);assert.equal('chat_completion_source' in calls[1].body,false);
   assert.equal(calls[1].headers.Authorization,'Bearer sk-or-live');

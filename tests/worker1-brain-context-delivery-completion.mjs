@@ -118,7 +118,7 @@ test('DETERMINISTIC: provider response identity mismatch cannot learn into a sea
 test('ASSEMBLED_HOST_REQUEST: exact rendered roles, sections, seal identity, response receipt, and bounded payload retention',async()=>{
   const {context,listeners,sillyTavern}=makeHost();
   const nativeBrain=new Area52NativeBrain();
-  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,detailedGenerationProfiling:true});
   session.start();
   pushUser(context,'At Neutral Hall, inspect the sealed gate.');
   await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
@@ -150,6 +150,14 @@ test('ASSEMBLED_HOST_REQUEST: exact rendered roles, sections, seal identity, res
   assert.equal(completed.phases.providerResponse.generationId,selection.generationId);
   assert.equal(completed.phases.providerResponse.contextSealId,before.contextSealId);
   assert.equal(ui.readGeneration({generationId:selection.generationId,...selection}).state,'LEARNED');
+  const detailed=session.loadDiagnostics().generationProfiling.latest;
+  assert.equal(detailed.kind,'NativeGenerationDetailedPerformanceProfile');
+  assert.equal(detailed.generationId,selection.generationId);
+  assert.equal(typeof detailed.deltas.diagnosticsUiRefreshCount,'number');
+  assert.equal(typeof detailed.deltas.diagnosticsUiRefreshTotalMs,'number');
+  assert.ok(detailed.deltas.heapBytes===null||Number.isFinite(detailed.deltas.heapBytes));
+  assert.ok(detailed.deltas.longTaskCount===null||Number.isFinite(detailed.deltas.longTaskCount));
+  assert.equal(detailed.rawPromptIncluded,false);assert.equal(detailed.storyTextIncluded,false);assert.equal(detailed.credentialsIncluded,false);assert.equal(detailed.hiddenReasoningIncluded,false);
   session.destroy();
 });
 
@@ -185,6 +193,32 @@ test('DETERMINISTIC: overflow and unknown-profile fallback are explicit inspecta
   assert.equal(fallback.presentationRouting.fallbackUsed,true);
   assert.equal(fallback.plan.modelProfileId,'GENERIC_SAFE');
   assert.equal(fallback.receipt.presentation.fallbackUsed,true);
+});
+
+test('ASSEMBLED_HOST_REQUEST: late provider result after source edit cannot learn into the invalidated sealed generation',async()=>{
+  const {context,listeners,sillyTavern}=makeHost();
+  const nativeBrain=new Area52NativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();
+  const userIndex=pushUser(context,'Inspect the gate before the late response.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  const selection=nativeBrain.uiBindings().readSelection({chatId:context.chatId});
+  const request={chat:[{role:'system',content:'SillyTavern host policy'},{role:'user',content:context.chat[userIndex].mes}],dryRun:false,requestId:'host-request:late'};
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(request)));
+  assert.equal(nativeBrain.uiBindings().readPromptDeliveryReceipt(selection).phases.hostRequest.status,'OBSERVED_MATCH');
+
+  context.chat[userIndex].mes='Inspect the gate after the source edit.';
+  await Promise.all([...listeners.get('message_edited')].map(fn=>fn(userIndex)));
+  assert.equal(session.exportEvidence().nativeBrainIntegration.pendingCount,0);
+  assert.ok(session.exportEvidence().nativeBrainIntegration.rejections.some(row=>row.code==='HOST_MESSAGE_EDITED_INVALIDATED_PENDING_GENERATION'));
+
+  const lateAssistantIndex=pushAssistant(context,'This is the late provider result for the invalidated request.');
+  await Promise.all([...listeners.get('message_received')].map(fn=>fn(lateAssistantIndex)));
+  const record=nativeBrain.readTurn(selection.turnId);
+  assert.equal(record.state,'SEALED_FOR_GENERATION');
+  assert.equal(record.learningReceipt??null,null);
+  assert.equal(nativeBrain.uiBindings().readPromptDeliveryReceipt(selection).phases.providerResponse.status,'NOT_RECEIVED');
+  session.destroy();
 });
 
 test('ASSEMBLED_HOST_REQUEST: chat switch invalidates a sealed pending generation before host delivery',async()=>{

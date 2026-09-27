@@ -162,7 +162,7 @@ export class CoprocessorResourceConnections{
       qualifiedCapabilities:kind===ResourceKind.DETERMINISTIC_LOCAL?[...routableCapabilities]:[],
       qualificationEvidence:kind===ResourceKind.DETERMINISTIC_LOCAL?deepFreeze({qualified:true,modelListed:null,transportProbe:'LOCAL_DETERMINISTIC',discoveryState:'UNSUPPORTED',contextLength:null,maxOutputTokens:null,inputModalities:[],outputModalities:[],supportedParameters:[],actualModelId:modelId,actualProvider:'LOCAL_DETERMINISTIC'}):null,
       modelDiscovery:createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode}),
-      diagnostics:[],
+      diagnostics:[],executionHistory:[],
     };
     this.resources.set(resourceId,row);
     this.privateConfig.set(resourceId,sanitizePrivateConfig({...input,credentialRequired}));
@@ -373,7 +373,7 @@ export class CoprocessorResourceConnections{
     }
   }
 
-  async executeEmbedding(resourceId,{input,signal=null,dimensions=null,inputType=null,encodingFormat='float'}={}){
+  async executeEmbedding(resourceId,{input,signal=null,dimensions=null,inputType=null,encodingFormat='float',origin=null}={}){
     const row=this.#row(resourceId);
     if(row.transportMode!==ProviderTransportMode.EMBEDDINGS)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Resource is not configured for embeddings transport',{providerId:row.providerId});
     if(!this.#isExecutable(row)||!row.selectedModelQualified)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Embedding resource is not connected and qualified',{providerId:row.providerId});
@@ -381,22 +381,24 @@ export class CoprocessorResourceConnections{
     const adapter=this.adapters.get(row.providerId);if(typeof adapter?.embed!=='function')throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Resource adapter does not expose embeddings creation',{providerId:row.providerId});
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
-    const started=this.now();
+    const started=this.now(),executionId='vector-execution:'+row.resourceId+':'+(++this.sequence),executionOrigin=normalizeVectorOrigin(origin);
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'VECTORING',requestPurpose:'COGNITIVE_EXECUTION',taskId:null,taskType:'EMBEDDING',physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(this.profiles.get(row.providerProfileId))});
     try{
       const execution=await adapter.embed(input,{signal:controller.signal,timeoutMs:this.privateConfig.get(row.resourceId)?.timeoutMs,dimensions,inputType,encodingFormat});
       const latency=Math.max(0,this.now()-started);const profile=this.profiles.get(row.providerProfileId);
       const usageReceipt=normalizeProviderUsageReceipt({usage:execution.usage??{},providerProfileId:row.providerProfileId,capability:Capability.EMBED,latencyMs:execution.latencyMs,pricing:profile?.costMetadata});
       row.actualModelId=execution.modelId??row.actualModelId??row.modelId;row.actualProvider=execution.metadata?.actualProvider??row.actualProvider;
-      row.lastExecution={status:'SUCCESS',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:latency,providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,actualModelId:row.actualModelId,actualProvider:row.actualProvider,vectorCount:execution.vectors.length,dimensions:execution.dimensions};
+      row.lastExecution={executionId,...executionOrigin,status:'SUCCESS',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:latency,providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,actualModelId:row.actualModelId,actualProvider:row.actualProvider,vectorCount:execution.vectors.length,dimensions:execution.dimensions};
+      row.executionHistory.push(row.lastExecution);if(row.executionHistory.length>64)row.executionHistory.splice(0,row.executionHistory.length-64);
       this.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:this.now()});
       emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'SUCCESS',latencyMs:latency,vectorCount:execution.vectors.length,dimensions:execution.dimensions,actualModelId:row.actualModelId,actualProvider:row.actualProvider});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'SUCCESS',latencyMs:latency,workerId:row.workerId,providerId:row.providerId});
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_INVOKED,{providerId:row.providerId,modelId:row.actualModelId,taskClass:'EMBEDDING',executionLatency:execution.latencyMs,validationLatency:0,attempt:1,measurementClass:row.measurementClass});
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_USAGE,{providerId:row.providerId,providerProfileId:row.providerProfileId,measurementClass:row.measurementClass,usageReceipt});
-      return deepFreeze({kind:'ResourceEmbeddingResult',resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,workerId:row.workerId,requestedModelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,providerRequestId:execution.metadata?.requestId??null,requestPurpose:'COGNITIVE_EXECUTION',embeddings:execution.vectors,vectorCount:execution.vectors.length,dimensions:execution.dimensions,usageReceipt,latencyMs:execution.latencyMs,measurementClass:row.measurementClass,authority:'NONE'});
+      return deepFreeze({kind:'ResourceEmbeddingResult',executionId,resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,workerId:row.workerId,requestedModelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,providerRequestId:execution.metadata?.requestId??null,requestPurpose:'COGNITIVE_EXECUTION',embeddings:execution.vectors,vectorCount:execution.vectors.length,dimensions:execution.dimensions,usageReceipt,latencyMs:execution.latencyMs,measurementClass:row.measurementClass,authority:'NONE'});
     }catch(error){
-      row.lastExecution={status:'FAIL',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
+      row.lastExecution={executionId,...executionOrigin,status:'FAIL',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
+      row.executionHistory.push(row.lastExecution);if(row.executionHistory.length>64)row.executionHistory.splice(0,row.executionHistory.length-64);
       this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Embedding provider qualification is no longer valid.'),unavailable:true});
       emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});throw error;
@@ -549,7 +551,7 @@ export class CoprocessorResourceConnections{
       qualification:deepFreeze({qualified:Boolean(row.selectedModelQualified),qualifiedAt:row.qualifiedAt,modelSelectionMode:row.modelSelectionMode,evidence:clone(row.qualificationEvidence)}),
       physicalExecutionAttempted,physicalExecutionSucceeded,ownerAccepted:null,ownerAcceptanceSource:'OWNER_RECEIPT_REQUIRED',
       health:health.health,availability:profile?.availability??'UNAVAILABLE',currentLoad:profile?.currentLoad??row.activeExecutions,
-      lastTest:clone(row.lastTest),lastExecution:clone(row.lastExecution),lastFailure:clone(row.lastFailure),diagnostics:deepFreeze(row.diagnostics.map(clone)),
+      lastTest:clone(row.lastTest),lastExecution:clone(row.lastExecution),executionHistory:deepFreeze(row.executionHistory.map(clone)),lastFailure:clone(row.lastFailure),diagnostics:deepFreeze(row.diagnostics.map(clone)),
       callable,authority:'NONE',truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     });
   }
@@ -724,6 +726,15 @@ function validatedEndpoint(value){
 }
 function safeEndpoint(value){
   if(value==null)return null;try{const url=new URL(String(value));return url.protocol+'//'+url.host+url.pathname.replace(/\/+$/,'');}catch{return String(value).replace(/[?#].*$/,'').slice(0,512);}
+}
+function normalizeVectorOrigin(origin){
+  const value=origin&&typeof origin==='object'?origin:{};
+  const bounded=x=>typeof x==='string'&&x.trim()?x.trim().slice(0,240):null;
+  const selection=value.selection&&typeof value.selection==='object'?value.selection:{};
+  const operation=['EMBED_QUERY','EMBED_ARTIFACT'].includes(value.operation)?value.operation:'UNSPECIFIED';
+  return{operation,executionPurpose:operation==='EMBED_QUERY'?'MEMORY_QUERY':operation==='EMBED_ARTIFACT'?'MEMORY_ARTIFACT_INDEX':'COGNITIVE_EXECUTION',
+    selection:{chatId:bounded(selection.chatId),turnId:operation==='EMBED_QUERY'?bounded(selection.turnId):null,generationId:operation==='EMBED_QUERY'?bounded(selection.generationId):null,correlationId:operation==='EMBED_QUERY'?bounded(selection.correlationId):null},
+    workId:operation==='EMBED_ARTIFACT'?bounded(value.workId):null,artifactId:operation==='EMBED_ARTIFACT'?bounded(value.artifactId):null,artifactRevision:operation==='EMBED_ARTIFACT'&&Number.isInteger(Number(value.artifactRevision))?Number(value.artifactRevision):null};
 }
 function safeMessage(value){return String(value??'').replace(/Bearer\s+[^\s]+/gi,'Bearer [REDACTED]').replace(/api[_-]?key\s*[:=]\s*[^\s,;]+/gi,'apiKey=[REDACTED]').slice(0,600);}
 function safeDetails(value){const out={};for(const[k,v]of Object.entries(value??{}).slice(0,16)){if(/key|token|secret|prompt|response|payload|message/i.test(k))continue;if(v==null||typeof v==='number'||typeof v==='boolean')out[k]=v;else if(typeof v==='string')out[k]=v.slice(0,240);}return Object.freeze(out);}

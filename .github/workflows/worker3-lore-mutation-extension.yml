@@ -1,0 +1,68 @@
+name: Worker 3 Lore Mutation Extension
+
+on:
+  push:
+    branches:
+      - Development-Client-Repair-3-Lore-Mutation-Extension
+  pull_request:
+    branches:
+      - Development-Client-Repair-3-Lore-Review
+  workflow_dispatch:
+
+concurrency:
+  group: worker3-lore-mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  focused-lore-mutation-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact Worker 3 head and stack base
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          echo "TARGET_BASE=Development-Client-Repair-3-Lore-Review"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Worker 3 reviewed mutation UI behavior
+        run: node --test tests/worker3-lore-review-ui.test.mjs
+      - name: Retained Lore owner UI regressions
+        run: >
+          node --test
+          --test-name-pattern='Worker 4 v2 lifecycle gates Settlement|Worker 4 Wave 6 authoring contract stays review-only|Worker 4 Lore intelligence service is consumed'
+          tests/wave13-operator-ui.test.mjs
+      - name: Browser-facing imports and focused syntax
+        run: |
+          node --input-type=module -e "await import('./src/ui-core/lore-review-workflow.js'); await import('./src/ui-core/lore-authoring-review-ui.js'); await import('./src/ui-core/wave13-operator-adapters.js'); await import('./src/ui-core/wave13-operator-surfaces.js');"
+          node --check src/ui-core/lore-review-workflow.js
+          node --check src/ui-core/lore-authoring-review-ui.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check src/ui-core/wave13-operator-surfaces.js
+          node --check tests/worker3-lore-review-ui.test.mjs
+          node --check tests/worker3-lore-mutation-owner-integration.test.mjs
+      - name: Overlay exact Worker 4 PR 261 dependency
+        env:
+          WORKER4_SHA: da54ca06c70374e9271244a9258782e49bc60a44
+        run: |
+          git fetch origin "$WORKER4_SHA" --depth=1
+          test "$(git rev-parse FETCH_HEAD)" = "$WORKER4_SHA"
+          for path in             src/lore-authoring-contracts.js             src/lore-authoring-service.js             src/lore-reviewed-mutation.js             src/lore-semantic-authoring.js             src/lore-semantic-impact-planner.js             src/lore-study-engine.js             tests/worker4-lore-authoring-owner.test.mjs
+          do
+            git show "$WORKER4_SHA:$path" > "$path"
+          done
+      - name: Real PR 261 owner contract assembled with Worker 3 UI adapter
+        run: node --test tests/worker3-lore-mutation-owner-integration.test.mjs
+      - name: Focused Worker 4 mutation owner contract
+        run: >
+          node --test
+          --test-name-pattern='reviewed mutation CREATE UPDATE DELETE TREE_ASSIGN|reviewed mutation MERGE SPLIT MOVE|rejected duplicate and stale reviewed proposals|LoreAuthoringService publishes bounded Worker 3 mutation read/action contract|multi-write failure compensates'
+          tests/worker4-lore-authoring-owner.test.mjs

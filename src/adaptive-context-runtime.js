@@ -26,7 +26,7 @@ export class ContextDeliveryEngine extends PromptPlanner{
     if(!planned.ok)return{...planned,presentationRouting:routing};
     const rendered=this.render({plan:planned.plan,profile:planned.profile});
     if(!rendered.ok)return{...planned,...rendered,presentationRouting:routing,ok:false};
-    const receipt=createCorePromptDeliveryReceipt({plan:planned.plan,rendered:rendered.rendered,routing,sealedPacket:input?.sealedPacket??null});
+    const receipt=createCorePromptDeliveryReceipt({plan:planned.plan,rendered:rendered.rendered,routing,sealedPacket:input?.sealedPacket??null,identity:{chatId:input?.chatId??null,correlationId:input?.correlationId??null,worldRevision:input?.worldRevision??null,sceneRevision:input?.sceneRevision??null}});
     return{...planned,...rendered,presentationRouting:routing,receipt,ok:true,status:DeliveryStatus.READY};
   }
   attachObservedHostEvidence(receipt,evidence={}){return attachObservedHostPromptEvidence(receipt,evidence);}

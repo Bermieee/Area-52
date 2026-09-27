@@ -69,6 +69,10 @@ export class LoreHierarchyRetrievalSystem {
     return this.retrievalIndex.drillDown(nomination);
   }
 
+  drillEvidence(summaryOrId, {offset = 0, limit = 64} = {}) {
+    return this.summaryRegistry.evidenceForSummary(summaryOrId, {offset, limit});
+  }
+
   scope(scopeId) {
     return hierarchyScopeMap(this.hierarchy).get(scopeId) || null;
   }
@@ -86,6 +90,7 @@ export class LoreHierarchyRetrievalSystem {
       excludedSources: this.hierarchy?.excludedSourceCount || 0,
       build: this.builder.status(this.hierarchy),
       summaries: this.summaryRegistry.status(),
+      evidence: this.summaryRegistry.evidenceRegistry.status(),
       retrieval: this.retrievalIndex.status(),
       sourceDrillbackAvailable: true,
       authorityGranted: false,
@@ -95,13 +100,14 @@ export class LoreHierarchyRetrievalSystem {
     };
   }
 
-  snapshot() {
+  snapshot({compact = false} = {}) {
     return {
       kind: 'LoreHierarchyRetrievalSystemSnapshot',
       hierarchy: deepClone(this.hierarchy),
       summaryRegistry: this.summaryRegistry.snapshot(),
-      builder: this.builder.snapshot(),
-      retrievalIndex: this.retrievalIndex.snapshot(),
+      builder: this.builder.snapshot({includeCompletedSessions: !compact}),
+      retrievalIndex: this.retrievalIndex.snapshot({includeRecords: !compact}),
+      compactDerivedState: Boolean(compact),
     };
   }
 
@@ -115,6 +121,16 @@ export class LoreHierarchyRetrievalSystem {
       provider: summaryProvider || new DeterministicNavigationSummaryProvider(),
       snapshot: snapshot?.builder || null,
     });
+    if (
+      this.hierarchy
+      && (snapshot?.compactDerivedState === true || snapshot?.retrievalIndex?.recordsIncluded === false)
+    ) {
+      this.retrievalIndex.build({
+        runtime: this.runtime,
+        hierarchy: this.hierarchy,
+        summaryRegistry: this.summaryRegistry,
+      });
+    }
   }
 
   static fromSnapshot({runtime, snapshot, summaryProvider = null}) {

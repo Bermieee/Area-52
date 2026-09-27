@@ -86,6 +86,41 @@ export function worker4UnacceptedLorebook() {
   };
 }
 
+export function worker4TemporalLorebook({chatId = WORKER4_SELECTED_CHAT} = {}) {
+  return {
+    id: 'worker4-temporal-lore',
+    title: 'Worker 4 Temporal Lore',
+    discovery: {
+      kind: 'SillyTavernLorebookDiscoveryReceipt',
+      contractVersion: 1,
+      source: 'SILLYTAVERN_WORLD_INFO_EDITOR',
+      lorebookId: 'worker4-temporal-lore',
+      title: 'Worker 4 Temporal Lore',
+      entryCount: 3,
+      chatId,
+      exactAuthoredSource: true,
+    },
+    fullSnapshot: true,
+    entries: [
+      {
+        uid: 'current-tavern',
+        content: 'The Ember Tavern later burned.',
+        metadata: {title: 'Tavern Fire', treePath: ['History'], order: 1},
+      },
+      {
+        uid: 'historical-blade',
+        content: 'The Sun Blade was destroyed in the Ember Tavern fire.',
+        metadata: {title: 'Historical Blade Fate', treePath: ['History', 'Artifacts'], order: 2},
+      },
+      {
+        uid: 'ambiguous-blade',
+        content: 'A witness reports the Sun Blade was removed before the fire.',
+        metadata: {title: 'Ambiguous Blade Fate', treePath: ['History', 'Unresolved'], order: 3},
+      },
+    ],
+  };
+}
+
 export const WORKER1_LORE_ELIGIBILITY_EXPECTATIONS = Object.freeze({
   eligible: {
     chatId: WORKER4_SELECTED_CHAT,

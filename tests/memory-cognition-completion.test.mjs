@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {Area52NativeBrain} from '../src/native-brain.js';
 import {MemoryTemporalProducer} from '../src/memory-temporal-producer.js';
 import {createMemoryIntegrationSurface} from '../src/memory-integration-surface.js';
+import {DevelopmentDeploymentBrain} from '../src/deployment/brain.js';
 
 function scene(sceneId,sceneRevision,{location=null,activeCast=[],relationship=null}={}){
   return{
@@ -247,4 +248,37 @@ test('Memory cognition: bounded post-turn work survives reload and resumes witho
   await brain.runtimeDirector.drain({maxCycles:128});
   assert.equal(brain.readTurn('resume-memory:1').memoryPostTurn.episodeId,episodeId);
   assert.equal(memory.experienceStore.episodeHistory('brain-turn:chat:resume-memory:resume-memory:1').length,1);
+});
+
+
+test('Memory cognition: deployment Memory owner snapshot restores durable episodes',async()=>{
+  const deploymentA=new DevelopmentDeploymentBrain();
+  const brain=new Area52NativeBrain({memoryInterface:deploymentA.memorySurface});
+  await brain.prepareTurn({
+    chatId:'chat:deployment-memory',turnId:'deployment-memory:A',generationId:'gen:deployment-memory:A',
+    query:'Continue.',intent:'CURRENT',
+    scene:scene('archive-room',1,{location:'Archive Room',activeCast:['Tess']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  const learned=await brain.completeTurn({
+    turnId:'deployment-memory:A',
+    response:'Tess stores the ivory ledger in the lower archive drawer.',
+    knownBy:['Tess'],
+  });
+  assert.equal(learned.memoryPostTurn?.status,'COMPLETED');
+  const ownerSnapshot=deploymentA.snapshotMemoryOwner();
+  assert.equal(ownerSnapshot.kind,'MemoryTemporalProducerSnapshot');
+
+  const deploymentB=new DevelopmentDeploymentBrain({memoryOwnerSnapshot:ownerSnapshot});
+  const restored=deploymentB.memory.experienceStore.currentEpisodes({freshOnly:true});
+  assert.equal(restored.length,1);
+  assert.equal(restored[0].turnId,'deployment-memory:A');
+  assert.match(JSON.stringify(deploymentB.memory.experienceStore.exactDrillback(restored[0].id)),/ivory ledger/i);
+  const historian=deploymentB.memory.queryHistorian({
+    query:'Where is the ivory ledger?',
+    mode:'EXPLICIT_HISTORY',
+    selection:{chatId:'chat:deployment-memory',turnId:'deployment-memory:B',generationId:'gen:deployment-memory:B'},
+  });
+  assert.ok((historian.nominations??[]).length>=1);
+  assert.match(JSON.stringify(historian.nominations),/ivory ledger/i);
 });

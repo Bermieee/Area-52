@@ -90,6 +90,11 @@ test('#113 production Scene publication reaches Event Spine and preserves the re
   assert.ok(receipt.coreReceipts.some(row=>row.eventType===SceneEventType.LOCATION_CHANGED));
   assert.ok(receipt.eventSpineReceipts.some(row=>row.eventType===SceneEventType.LOCATION_CHANGED&&row.status==='ACCEPTED'));
   assert.equal(receipt.evidence.generationId,'gen:identity');
+  const diagnostics=brain.diagnostics();
+  assert.ok(diagnostics.sceneEvents.publishedAccepted>=1);
+  assert.equal(diagnostics.sceneEvents.publishedRejected,0);
+  assert.equal(diagnostics.sceneEvents.authorityGranted,false);
+  assert.equal(diagnostics.sceneEvents.canonicalMutationAuthority,false);
 });
 
 test('#113 all card events publish through the real production Event Spine',()=>{
@@ -249,6 +254,9 @@ test('#113 owner obligation guard rejects foreign-chat, stale revision/source, a
   assert.ok(rejections.some(row=>row.reasonCode==='SCENE_EVENT_STALE_SCENE_REVISION'));
   assert.ok(rejections.some(row=>row.reasonCode==='SCENE_EVENT_STALE_SOURCE'));
   assert.ok(rejections.some(row=>row.reasonCode==='SCENE_EVENT_POST_SEAL'));
+  const diagnostics=brain.diagnostics();
+  assert.ok(diagnostics.sceneEvents.obligationsRejected>=4);
+  assert.equal(diagnostics.sceneEvents.authorityGranted,false);
 });
 
 test('#113 owner can explicitly declare no work without scheduling an obligation',()=>{

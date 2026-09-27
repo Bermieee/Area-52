@@ -301,7 +301,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   commandActions.append(
     makeBadge(d,status.label,status.token),
     createButton(d,{label:'Export Diagnostics JSON',scope,size:'sm',variant:'primary',onPress:()=>model.downloadDiagnosticsJson({selection:s,document:d})}),
-    createButton(d,{label:'Export ZIP',scope,size:'sm',variant:'secondary',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),
+    createButton(d,{label:'Export Full Diagnostics ZIP',scope,size:'sm',variant:'secondary',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),
     createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}),
   );
   command.append(commandTitle,commandIdentity,commandActions);root.append(command);

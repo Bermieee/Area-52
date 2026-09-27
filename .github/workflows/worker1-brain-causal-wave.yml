@@ -125,6 +125,7 @@ jobs:
           node --check src/runtime/obligation-reconciler.js &&
           node --check src/runtime/worker-director.js &&
           node --check src/runtime/event-spine.js &&
+          node --check src/runtime/obligation-producers.js &&
           node --check tests/worker1-brain-lifecycle-causal-wave.mjs &&
           node --check tests/worker1-brain-context-delivery-completion.mjs &&
           node --check tests/worker1-generation-performance-wiring.mjs &&
@@ -150,5 +151,6 @@ jobs:
           import('./src/coprocessor/scene-signal-adapter.js'),
           import('./src/coprocessor/fanout-planner.js'),
           import('./src/runtime/event-spine.js'),
+          import('./src/runtime/obligation-producers.js'),
           import('./src/runtime/index.js')
           ]).then(()=>console.log('WORKER1 BRAIN CAUSAL IMPORT PASS'))"

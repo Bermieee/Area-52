@@ -287,7 +287,10 @@ export class CoprocessorResourceConnections{
       row.connectedAt=this.now();row.disconnectedAt=null;row.selectedModelQualified=true;row.qualifiedAt=this.now();row.actualModelId=probe?.modelId??row.modelId;row.actualProvider=probe?.actualProvider??null;
       const discovered=(row.modelDiscovery?.models??[]).find(model=>model.id===row.modelId)??null;
       row.qualifiedCapabilities=[...row.routableCapabilities];
-      row.qualificationEvidence=qualificationEvidence(discovered,probe?.discoveryState??row.modelDiscovery?.state,row.transportMode,{qualified:true,actualModelId:row.actualModelId,actualProvider:row.actualProvider});
+      row.qualificationEvidence=deepFreeze({
+        ...qualificationEvidence(discovered,probe?.discoveryState??row.modelDiscovery?.state,row.transportMode,{qualified:true,actualModelId:row.actualModelId,actualProvider:row.actualProvider}),
+        requestPurpose:'QUALIFICATION_PROBE',providerRequestId:probe?.providerRequestId??null,
+      });
       this.profiles.applyQualification(row.providerProfileId,{
         maxContextTokens:discovered?.contextLength,maxOutputTokens:discovered?.maxOutputTokens,
         profileMetadata:{qualification:{resourceId:row.resourceId,qualifiedAt:row.qualifiedAt,modelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,discoveryState:row.qualificationEvidence.discoveryState}},
@@ -330,7 +333,7 @@ export class CoprocessorResourceConnections{
         if(row.credentialRequired&&!row.credentialConfigured)throw new ProviderInvocationError(FailureCode.CREDENTIAL_REQUIRED,'A session credential is required before testing this resource',{providerId:row.providerId});
         const adapter=this.adapters.get(row.providerId);const probe=await adapter.probe({signal,timeoutMs:this.privateConfig.get(row.resourceId)?.healthTimeoutMs});
         row.selectedModelQualified=true;row.qualifiedAt=this.now();row.actualModelId=probe?.modelId??row.modelId;row.actualProvider=probe?.actualProvider??null;
-        result={kind:'ResourceProbeResult',ok:true,latencyMs:finiteOrNull(probe?.latencyMs),modelAvailable:probe?.modelAvailable??null,measurementClass:row.measurementClass,transportMode:row.transportMode,actualModelId:row.actualModelId,actualProvider:row.actualProvider};
+        result={kind:'ResourceProbeResult',ok:true,latencyMs:finiteOrNull(probe?.latencyMs),modelAvailable:probe?.modelAvailable??null,measurementClass:row.measurementClass,transportMode:row.transportMode,actualModelId:row.actualModelId,actualProvider:row.actualProvider,requestPurpose:'QUALIFICATION_PROBE',providerRequestId:probe?.providerRequestId??null};
       }
       row.lastTest={status:'PASS',mode:String(mode).toUpperCase(),at:this.now(),latencyMs:Math.max(0,this.now()-started),failureCode:null};
       this.#diagnostic(row,'TEST_PASSED','Resource test passed.',{mode:row.lastTest.mode,latencyMs:row.lastTest.latencyMs});
@@ -356,7 +359,7 @@ export class CoprocessorResourceConnections{
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now();
-    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(this.profiles.get(row.providerProfileId))});
+    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'VECTORING',requestPurpose:'COGNITIVE_EXECUTION',taskId:null,taskType:'EMBEDDING',physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(this.profiles.get(row.providerProfileId))});
     try{
       const execution=await adapter.embed(input,{signal:controller.signal,timeoutMs:this.privateConfig.get(row.resourceId)?.timeoutMs,dimensions,inputType,encodingFormat});
       const latency=Math.max(0,this.now()-started);const profile=this.profiles.get(row.providerProfileId);
@@ -368,7 +371,7 @@ export class CoprocessorResourceConnections{
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'SUCCESS',latencyMs:latency,workerId:row.workerId,providerId:row.providerId});
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_INVOKED,{providerId:row.providerId,modelId:row.actualModelId,taskClass:'EMBEDDING',executionLatency:execution.latencyMs,validationLatency:0,attempt:1,measurementClass:row.measurementClass});
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_USAGE,{providerId:row.providerId,providerProfileId:row.providerProfileId,measurementClass:row.measurementClass,usageReceipt});
-      return deepFreeze({kind:'ResourceEmbeddingResult',resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,workerId:row.workerId,requestedModelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,embeddings:execution.vectors,vectorCount:execution.vectors.length,dimensions:execution.dimensions,usageReceipt,latencyMs:execution.latencyMs,measurementClass:row.measurementClass,authority:'NONE'});
+      return deepFreeze({kind:'ResourceEmbeddingResult',resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,workerId:row.workerId,requestedModelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,providerRequestId:execution.metadata?.requestId??null,requestPurpose:'COGNITIVE_EXECUTION',embeddings:execution.vectors,vectorCount:execution.vectors.length,dimensions:execution.dimensions,usageReceipt,latencyMs:execution.latencyMs,measurementClass:row.measurementClass,authority:'NONE'});
     }catch(error){
       row.lastExecution={status:'FAIL',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
       this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Embedding provider qualification is no longer valid.'),unavailable:true});
@@ -416,7 +419,7 @@ export class CoprocessorResourceConnections{
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now();
-    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'SIDECAR',taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(profile)});
+    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'SIDECAR',requestPurpose:'COGNITIVE_EXECUTION',taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(profile)});
     try{
       const result=await this.executionLayer.execute(task,{input,attempt,signal:controller.signal,maxCostClass,profileId:row.providerProfileId,leaseHeld:true});
       const latency=Math.max(0,this.now()-started);row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:task.taskType,at:this.now(),latencyMs:latency,providerId:result.providerId,workerId:result.workerId,measurementClass:row.measurementClass,actualModelId:result.modelId??null,actualProvider:result.providerMetadata?.actualProvider??null};

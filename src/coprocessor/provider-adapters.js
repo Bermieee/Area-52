@@ -132,6 +132,7 @@ export class OpenAICompatibleProviderAdapter {
       ok:true,providerId:this.providerId,modelId:qualification.modelId??this.modelId,latencyMs:Date.now()-startedAt,
       modelAvailable,discoveryState:discovery.state,measurementClass:this.measurementClass,
       capabilities:Object.freeze([...this.capabilities]),transportMode:this.transportMode,actualProvider:qualification.actualProvider??null,
+      requestPurpose:'QUALIFICATION_PROBE',providerRequestId:qualification.requestId??null,
     });
   }
   async invoke(task,input,{signal=null,timeoutMs=this.timeoutMs,maxOutputTokens=null,temperature=null}={}){
@@ -187,9 +188,10 @@ export class OpenAICompatibleProviderAdapter {
     }catch(error){throw normalizeTransportError(error,{providerId:this.providerId,operation:'embedding'});}
   }
   async #qualificationChat({signal,timeoutMs}){
-    // Keep the qualification request intentionally minimal. Some otherwise valid
-    // OpenAI-compatible/reasoning models reject temperature/max_tokens variants.
-    const body={model:this.modelId,messages:[
+    // Qualification proves connectivity/model callability only. Keep it tiny and
+    // hard-cap output so it cannot be mistaken for cognitive execution or consume
+    // reasoning-model output budgets merely because the prompt says "briefly".
+    const body={model:this.modelId,max_tokens:16,messages:[
       {role:'user',content:'Area-52 connection qualification. Reply briefly.'},
     ]};
     const response=await providerFetch(this.fetchImpl,`${this.endpoint}/chat/completions`,{
@@ -200,7 +202,7 @@ export class OpenAICompatibleProviderAdapter {
     const choice=Array.isArray(json?.choices)?json.choices[0]:null;
     const hasCompletionChoice=Boolean(choice&&typeof choice==='object'&&(choice.message&&typeof choice.message==='object'||typeof choice.text==='string'));
     if(!hasCompletionChoice)throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'chat qualification response did not contain a completion choice',{providerId:this.providerId});
-    return{modelId:typeof json?.model==='string'&&json.model?json.model:this.modelId,actualProvider:safeProviderName(json?.provider)};
+    return{modelId:typeof json?.model==='string'&&json.model?json.model:this.modelId,actualProvider:safeProviderName(json?.provider),requestId:response.headers?.get?.('x-request-id')??null};
   }
   async #qualificationEmbedding({signal,timeoutMs}){
     const response=await providerFetch(this.fetchImpl,`${this.endpoint}/embeddings`,{
@@ -209,7 +211,7 @@ export class OpenAICompatibleProviderAdapter {
     if(!response?.ok)throw httpError(Number(response?.status??0),{providerId:this.providerId,operation:'embedding qualification'});
     const json=await parseProviderJson(response,this.providerId,'embedding qualification');
     if(!Array.isArray(json?.data?.[0]?.embedding)||!json.data[0].embedding.length)throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'embedding qualification response did not contain a vector',{providerId:this.providerId});
-    return{modelId:typeof json?.model==='string'&&json.model?json.model:this.modelId,actualProvider:safeProviderName(json?.provider)};
+    return{modelId:typeof json?.model==='string'&&json.model?json.model:this.modelId,actualProvider:safeProviderName(json?.provider),requestId:response.headers?.get?.('x-request-id')??null};
   }
   #requestHeaders(extra={}){
     const headers={...this.headers,...extra};if(this.#apiKey)headers.authorization='Bearer '+this.#apiKey;return headers;

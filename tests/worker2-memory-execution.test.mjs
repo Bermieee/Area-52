@@ -219,14 +219,14 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
   const weakened=memory.recordCausalHypothesis({hypothesisId:'hyp:alarm-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:[alarm.eventId],effectEventRef:gate.eventId,relationType:'CAUSES',
     statement:'The alarm may have triggered the gate closure.',supportEvidenceRefs:[first.id],contradictionEvidenceRefs:[second.id],identityRevisionRefs:['identity:Ari@r1','identity:gate@r3'],
     confidence:.4,status:'WEAKENED',sourceReliability:'PARTIAL',perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
-  assert.equal(memory.causalEvents.hypothesisHistory(h1.hypothesisId).length,2);
+  assert.equal(memory.causalEvents.hypothesisVersions(h1.hypothesisId).length,2);
   assert.equal(memory.causalEvents.hypotheses.get(h1.id).state,'HISTORICAL');
   assert.equal(weakened.status,'WEAKENED');
 
   const resolved=memory.recordCausalHypothesis({hypothesisId:'hyp:operator-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:['event:operator'],effectEventRef:gate.eventId,relationType:'ENABLES',
     statement:'An operator may have independently triggered the gate closure.',supportEvidenceRefs:[second.id],identityRevisionRefs:['identity:operator@r1','identity:gate@r3'],
     confidence:.99,status:'RESOLVED',ownerDecisionRef:'truth:decision:operator-gate',sourceReliability:'CORROBORATED',perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
-  assert.equal(memory.causalEvents.hypothesisHistory(h2.hypothesisId).length,2);
+  assert.equal(memory.causalEvents.hypothesisVersions(h2.hypothesisId).length,2);
   assert.equal(resolved.authorityClass,'UNRESOLVED');
   assert.equal(resolved.canonicalMutationAuthority,false);
   assert.equal(resolved.ownerDecisionRef,'truth:decision:operator-gate');
@@ -297,12 +297,12 @@ test('Worker 2: hierarchical summary query cost is measured on a long-story shap
   while(memory.summaryStatus().pendingWorkUnits&&guard++<80)memory.runSummaryCompaction({maxUnits:16});
   assert.equal(memory.summaryStatus().pendingWorkUnits,0);
 
-  const profile=memory.profileHierarchyQuery({query:'signal-archive continuity',resolutionHint:'SCENE',maxCandidates:8},{iterations:8,warmup:2});
+  const profile=memory.profileHierarchyQuery({query:'signal-archive',resolutionHint:'SCENE',maxCandidates:8},{iterations:8,warmup:2});
   assert.equal(profile.status,'MEASURED');
   assert.ok(profile.before.artifactsExamined>profile.afterIndexedCold.artifactsExamined);
   assert.ok(profile.afterWarmCache.cacheEntries>=1);
 
-  const result=memory.queryHistorian({query:'signal-archive continuity',resolutionHint:'SCENE',selection:{chatId:'chat:long-story'}});
+  const result=memory.queryHistorian({query:'signal-archive',resolutionHint:'SCENE',selection:{chatId:'chat:long-story'}});
   assert.ok(result.nominations.length>=1);
   const exact=memory.drillDown(result.nominations[0],{selection:{chatId:'chat:long-story'}});
   assert.ok(exact.some(row=>row.id==='long-story:e17'));

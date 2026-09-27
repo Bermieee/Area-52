@@ -306,7 +306,10 @@ test('relationship-only selected turn consumes existing Graph Walker provider ca
     graphTraversal:{maxDepth:1,maxNodes:16,maxEdges:32,maxCandidates:8},budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
   });
   const graphRows=channelCandidates(prepared.candidateEnvelope,'ZZ_NATIVE_GRAPH_WALKER');
+  const relationshipIntent=prepared.retrievalIntents.find(row=>row.metadata?.sceneIntentKind==='RELATIONSHIP_CONTEXT');
+  assert.ok(relationshipIntent);
   assert.ok(graphRows.some(candidate=>(candidate.graphMetadata??[]).some(meta=>meta.edgeMeaning==='ALLY_OF')));
+  assert.ok(graphRows.some(candidate=>(candidate.graphMetadata??[]).some(meta=>meta.edgeMeaning==='ALLY_OF')&&(candidate.retrievalIntentIds??[]).includes(relationshipIntent.intentId)));
   assert.equal(graphRows.some(candidate=>candidate.authority?.truth===true),false);
 });
 

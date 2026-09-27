@@ -94,7 +94,15 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   assert.ok(prepared.contextRetirement.decisions.every(row=>['RETIRE_FROM_ACTIVE_PROMPT','KEEP_RAW'].includes(row.action)));
   assert.equal(prepared.contextRetirement.sceneTransition.rawDialogueDeletionAuthority,false);
   assert.equal(prepared.contextRetirement.sceneTransition.promptInclusionAuthority,false);
-  assert.equal(prepared.contextRetirement.sceneTransition.compactPreviousSceneSummary,handoff.continuity.compactPriorSceneSummary);
+  assert.equal(prepared.contextRetirement.sceneTransition.compactSummaryAvailable,true);
+  assert.equal(prepared.contextRetirement.rawNarrativeIncluded,false);
+  assert.equal(prepared.contextRetirement.storyTextIncluded,false);
+  assert.equal(prepared.contextRetirement.retainedMessages,undefined);
+  assert.ok(Array.isArray(prepared.contextRetirement.retainedMessageRefs));
+  const safeRetirementJson=JSON.stringify(prepared.contextRetirement);
+  assert.equal(safeRetirementJson.includes('prior 1'),false);
+  assert.equal(safeRetirementJson.includes(handoff.continuity.compactPriorSceneSummary),false);
+  assert.equal(JSON.stringify(prepared.sceneOwnerReceipt).includes(handoff.continuity.compactPriorSceneSummary),false);
   assert.ok(JSON.stringify(prepared.promptPlan).includes(handoff.continuity.compactPriorSceneSummary),'Core-approved compact Scene continuity must remain available to the prompt planner');
 });
 
@@ -219,6 +227,12 @@ test('installed SillyTavern native path carries handoff into Core retirement wit
   assert.equal(pending.contextRetirement.sceneTransition?.eligibilityDecisionOwner,'CORE_CONTEXT_POLICY');
   assert.ok(pending.contextRetirement.sceneTransition?.episodeRef);
   assert.ok(pending.contextRetirement.retireEligibleMessageIds.length>0);
+  assert.equal(pending.contextRetirement.rawNarrativeIncluded,false);
+  assert.equal(pending.contextRetirement.storyTextIncluded,false);
+  assert.equal(pending.contextRetirement.retainedMessages,undefined);
+  const pendingJson=JSON.stringify(pending);
+  assert.equal(pendingJson.includes('At North Gallery, Mara waits near marker one.'),false,'installed receipt must not retain raw story text');
+  assert.equal(pendingJson.includes('North Gallery | Mara'),false,'installed receipt must not retain compact continuity story text');
   assert.deepEqual(context.chat.slice(0,rawBefore.length).map(row=>row.mes),rawBefore,'host transcript must remain untouched');
 
   session.destroy();

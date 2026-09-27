@@ -279,6 +279,7 @@ export class MemoryExperienceStore {
     const sources=uniqStrings([
       ...sourceRevisionRefs,
       ...support.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
+      ...contradictions.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...eps.flatMap((id)=>this.episodes.get(id)?.sourceRevisionRefs??[]),
     ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
     for (const sourceRevisionId of sources) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
@@ -367,7 +368,7 @@ export class MemoryExperienceStore {
     for (const reflection of this.reflections.values()) {
       if (reflection.state!=='CURRENT') continue;
       const episodeFresh=reflection.episodeRefs.every((id)=>this.episodes.get(id)?.freshness==='FRESH');
-      const evidenceFresh=reflection.supportEvidenceRefs.every((id)=>this.graph.evidenceFresh(id));
+      const evidenceFresh=[...reflection.supportEvidenceRefs,...reflection.contradictionEvidenceRefs].every((id)=>this.graph.evidenceFresh(id));
       const sourceFresh=freshBySources(this.graph,reflection.sourceRevisionRefs);
       if (!(episodeFresh&&evidenceFresh&&sourceFresh)) {
         reflection.freshness='STALE';

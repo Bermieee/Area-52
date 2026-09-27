@@ -321,6 +321,20 @@ export class Wave13LoreAuthoringUIAdapter{
     this.settlementFn=fn(this.host?.read,['settlement']);
     this.worker1ReceiptsFn=fn(this.host?.read,['worker1Receipts']);
     this.worker3ContractFn=fn(this.host?.read,['worker3AuthoringContract']);
+    this.adaptiveNavigationFn=fn(this.host?.read,['adaptiveNavigation','readAdaptiveNavigation']);
+    this.rebuildAffectedNavigationFn=fn(this.host?.actions,['rebuildAffectedNavigation']);
+
+    // Worker 4 PR #261 / LoreAuthoringOperatorContract@2 mutationExtensionVersion:1.
+    this.mutationProposalFn=fn(this.host?.read,['mutationProposal']);
+    this.mutationQueueFn=fn(this.host?.read,['mutationQueue']);
+    this.semanticImpactPreviewFn=fn(this.host?.read,['semanticImpactPreview']);
+    this.mutationAuditFn=fn(this.host?.read,['mutationAudit']);
+    this.createMutationProposalFn=fn(this.host?.actions,['createMutationProposal']);
+    this.approveMutationProposalFn=fn(this.host?.actions,['approveMutationProposal']);
+    this.rejectMutationProposalFn=fn(this.host?.actions,['rejectMutationProposal']);
+    this.commitMutationProposalFn=fn(this.host?.actions,['commitMutationProposal']);
+    this.restoreMutationProposalFn=fn(this.host?.actions,['restoreMutationProposal']);
+
     this.startTreeBuildFn=fn(this.host?.actions,['startTreeBuild']);
     this.startMergeBuildFn=fn(this.host?.actions,['startMergeBuild']);
     this.resumeBuildFn=fn(this.host?.actions,['resumeAuthoringBuild']);
@@ -330,16 +344,33 @@ export class Wave13LoreAuthoringUIAdapter{
     this.approveFinalPreviewFn=fn(this.host?.actions,['approveFinalPreview']);
     this.applySettlementFn=fn(this.host?.actions,['applySettlement']);
     this.restoreSettlementFn=fn(this.host?.actions,['restoreSettlement']);
-    this.last={discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null,progress:null,draft:null,finalPreview:null,settlement:null,worker1Receipts:null};
+    this.last={
+      discovery:null,reviewStates:null,invalidation:null,edit:null,tree:null,merge:null,navigation:null,navigationRebuild:null,
+      progress:null,draft:null,finalPreview:null,settlement:null,worker1Receipts:null,
+      mutationProposal:null,mutationQueue:null,semanticImpact:null,mutationAudit:null,mutationAction:null,
+    };
   }
   capabilities(){
     const v2=Number(this.host?.contractVersion??0)>=2;
+    const mutationExtensionVersion=Number(this.host?.mutationExtensionVersion??0);
     const lifecycle=v2&&Boolean(this.progressFn&&this.draftReviewFn&&this.finalPreviewFn&&this.startTreeBuildFn&&this.resumeBuildFn&&this.recordDecisionFn&&this.computeFinalPreviewFn&&this.approveFinalPreviewFn);
+    const mutationCreate=mutationExtensionVersion>=1&&Boolean(this.createMutationProposalFn);
+    const mutationApprove=mutationExtensionVersion>=1&&Boolean(this.approveMutationProposalFn);
+    const mutationReject=mutationExtensionVersion>=1&&Boolean(this.rejectMutationProposalFn);
+    const mutationCommit=mutationExtensionVersion>=1&&Boolean(this.commitMutationProposalFn);
+    const mutationRestore=mutationExtensionVersion>=1&&Boolean(this.restoreMutationProposalFn);
+    const mutationProposal=mutationExtensionVersion>=1&&Boolean(this.mutationProposalFn);
+    const mutationQueue=mutationExtensionVersion>=1&&Boolean(this.mutationQueueFn);
+    const mutationAudit=mutationExtensionVersion>=1&&Boolean(this.mutationAuditFn);
+    const semanticImpactPreview=mutationExtensionVersion>=1&&Boolean(this.semanticImpactPreviewFn);
+    const reviewedMutation=mutationExtensionVersion>=1&&mutationCreate&&mutationApprove&&mutationReject&&mutationCommit&&mutationRestore&&mutationProposal&&mutationQueue&&mutationAudit;
     return deepFreeze({
       discovery:Boolean(this.discoveryFn),reviewStates:Boolean(this.reviewStatesFn),invalidation:Boolean(this.invalidationFn),
       previewEdit:Boolean(this.previewEditFn),tree:Boolean(this.treeFn),merge:Boolean(this.mergeFn),
       lifecycle,mergeLifecycle:lifecycle&&Boolean(this.startMergeBuildFn),reclassify:lifecycle&&Boolean(this.reclassifyFn),settlement:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
       restoration:lifecycle&&Boolean(this.restoreSettlementFn),worker1Receipts:Boolean(this.worker1ReceiptsFn),
+      adaptiveNavigation:Boolean(this.adaptiveNavigationFn),incrementalNavigationRebuild:Boolean(this.rebuildAffectedNavigationFn),
+      mutationExtensionVersion,reviewedMutation,mutationCreate,mutationApprove,mutationReject,mutationCommit,mutationRestore,mutationProposal,mutationQueue,mutationAudit,semanticImpactPreview,
       destructiveApply:lifecycle&&Boolean(this.settlementFn&&this.applySettlementFn),
     });
   }
@@ -373,6 +404,19 @@ export class Wave13LoreAuthoringUIAdapter{
   settlement(request){const result=this.#invoke(this.settlementFn,request,'LORE_AUTHORING_SETTLEMENT_READ_UNAVAILABLE');this.last.settlement=cloneSafe(result);return cloneSafe(result);}
   worker1Receipts(request){const result=this.#invoke(this.worker1ReceiptsFn,request,'LORE_AUTHORING_WORKER1_RECEIPTS_UNAVAILABLE');this.last.worker1Receipts=cloneSafe(result);return cloneSafe(result);}
   worker3Contract(){return this.#invoke(this.worker3ContractFn,{},'LORE_AUTHORING_WORKER3_CONTRACT_UNAVAILABLE');}
+  adaptiveNavigation(request={}){const result=this.#invoke(this.adaptiveNavigationFn,request,'LORE_AUTHORING_ADAPTIVE_NAVIGATION_UNAVAILABLE');this.last.navigation=cloneSafe(result);return cloneSafe(result);}
+  rebuildAffectedNavigation(request){const result=this.#invoke(this.rebuildAffectedNavigationFn,request,'LORE_AUTHORING_NAVIGATION_REBUILD_UNAVAILABLE');this.last.navigationRebuild=cloneSafe(result);return cloneSafe(result);}
+
+  mutationProposal(request){const result=this.#invoke(this.mutationProposalFn,request,'LORE_MUTATION_PROPOSAL_READ_UNAVAILABLE');this.last.mutationProposal=cloneSafe(result);return cloneSafe(result);}
+  mutationQueue(request={}){const result=this.#invoke(this.mutationQueueFn,request,'LORE_MUTATION_QUEUE_READ_UNAVAILABLE');this.last.mutationQueue=cloneSafe(result);return cloneSafe(result);}
+  semanticImpactPreview(request={}){const result=this.#invoke(this.semanticImpactPreviewFn,request,'LORE_MUTATION_SEMANTIC_IMPACT_UNAVAILABLE');this.last.semanticImpact=cloneSafe(result);return cloneSafe(result);}
+  mutationAudit(request){const result=this.#invoke(this.mutationAuditFn,request,'LORE_MUTATION_AUDIT_READ_UNAVAILABLE');this.last.mutationAudit=cloneSafe(result);return cloneSafe(result);}
+  createMutationProposal(request){return this.#mutationAction('CREATE_MUTATION_PROPOSAL',this.createMutationProposalFn,request,'LORE_MUTATION_CREATE_UNAVAILABLE');}
+  approveMutationProposal(request){return this.#mutationAction('APPROVE_MUTATION_PROPOSAL',this.approveMutationProposalFn,request,'LORE_MUTATION_APPROVE_UNAVAILABLE');}
+  rejectMutationProposal(request){return this.#mutationAction('REJECT_MUTATION_PROPOSAL',this.rejectMutationProposalFn,request,'LORE_MUTATION_REJECT_UNAVAILABLE');}
+  commitMutationProposal(request){return this.#mutationAction('COMMIT_MUTATION_PROPOSAL',this.commitMutationProposalFn,request,'LORE_MUTATION_COMMIT_UNAVAILABLE');}
+  restoreMutationProposal(request){return this.#mutationAction('RESTORE_MUTATION_PROPOSAL',this.restoreMutationProposalFn,request,'LORE_MUTATION_RESTORE_UNAVAILABLE');}
+
   startTreeBuild(request){return this.#lifecycleAction('START_TREE_BUILD',this.startTreeBuildFn,request,'LORE_AUTHORING_START_TREE_UNAVAILABLE');}
   startMergeBuild(request){return this.#lifecycleAction('START_MERGE_BUILD',this.startMergeBuildFn,request,'LORE_AUTHORING_START_MERGE_UNAVAILABLE');}
   resumeBuild(request){return this.#lifecycleAction('RESUME_BUILD',this.resumeBuildFn,request,'LORE_AUTHORING_RESUME_UNAVAILABLE');}
@@ -382,6 +426,11 @@ export class Wave13LoreAuthoringUIAdapter{
   approveFinalPreview(request){return this.#lifecycleAction('APPROVE_FINAL_PREVIEW',this.approveFinalPreviewFn,request,'LORE_AUTHORING_APPROVAL_UNAVAILABLE');}
   applySettlement(request){return this.#lifecycleAction('APPLY_SETTLEMENT',this.applySettlementFn,request,'LORE_AUTHORING_SETTLEMENT_UNAVAILABLE');}
   restoreSettlement(request){return this.#lifecycleAction('RESTORE_SETTLEMENT',this.restoreSettlementFn,request,'LORE_AUTHORING_RESTORE_UNAVAILABLE');}
+  #mutationAction(type,action,payload,code){
+    const result=this.#invoke(action,payload,code);
+    const remember=(value)=>{this.last.mutationAction={type,result:cloneSafe(value)};if(value?.ok&&value?.value?.proposalId)this.last.mutationProposal=cloneSafe(value);this.last.mutationQueue=null;this.last.mutationAudit=null;return value;};
+    return result&&typeof result.then==='function'?result.then(remember):remember(result);
+  }
   #lifecycleAction(type,action,payload,code){const result=this.#invoke(action,payload,code);if(result&&typeof result.then==='function')return result.then(value=>{this.last.progress=null;this.last.draft=null;this.last.finalPreview=null;this.last.settlement=null;return value;});this.last.progress=null;this.last.draft=null;this.last.finalPreview=null;this.last.settlement=null;return result;}
   snapshot(){return deepFreeze({kind:'Wave13LoreAuthoringSnapshot',capabilities:this.capabilities(),last:cloneSafe(this.last)});}
   #invoke(action,payload,code){
@@ -785,8 +834,22 @@ export class Wave13OperationalStatusAdapter{
 
 
 export class Wave13DiagnosticsCenterAdapter{
-  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={}}={}){
-    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;
+  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={},uiLoadTrace=null}={}){
+    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;this.uiLoadTrace=uiLoadTrace;
+  }
+  readJournalEvidence(){
+    const selection=cloneSafe(this.live?.selection?.()??{});
+    const resourceRead=safeRead(()=>this.resources?.read?.(),null),rows=resourceRead?.data?.resources??[];
+    const liveDiagnostics=safeRead(()=>this.live?.diagnostics?.(),null);
+    return deepFreeze({
+      kind:'Wave13JournalEvidence',selection,
+      host:{liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
+      resources:{rows:rows.slice(0,32).map(row=>deepFreeze({
+        id:row.id,displayName:row.displayName,kind:row.kind,physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted),
+        physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded),ownerAccepted:row.ownerAccepted??null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,
+        reasonCode:row.reasonCode,reason:row.reason,lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+      }))},
+    });
   }
   read(){
     const operations=safeRead(()=>this.operations?.read?.(),null);
@@ -857,7 +920,7 @@ export class Wave13DiagnosticsCenterAdapter{
         })),
       },
       cognition:{
-        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,jev:jev?deepFreeze({
+        source:cloneSafe(cognitionRead?.source??null),errors:cloneSafe(cognitionRead?.errors??{}),jobs,scatterTelemetry:cloneSafe(scatter?.layeredTelemetry??null),jev:jev?deepFreeze({
           state:jev.state??null,outcome:jev.outcome??null,invoked:jev.invoked??null,reason:jev.reason??null,reasonCodes:[...(jev.reasonCodes??[])].slice(0,12),
           resourceId:jev.resourceId??null,provider:jev.provider??jev.providerId??null,model:jev.model??jev.modelId??null,
           serviceStatus:jev.serviceStatus??null,admission:cloneSafe(jev.admission??null),
@@ -872,7 +935,7 @@ export class Wave13DiagnosticsCenterAdapter{
         counts:cloneSafe(memoryRead?.data?.counts??null),freshness:cloneSafe(memoryRead?.data?.freshness??null),
         retrievalStatus:memoryRead?.data?.retrieval?.status??null,revision:memoryRead?.data?.revision??null,
       },
-      telemetry:{resourceEvents,rawPromptTelemetry:false},
+      telemetry:{resourceEvents,uiLoad:this.uiLoadTrace?.snapshot?.()??null,rawPromptTelemetry:false},
       wiring:{
         controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),discoverModels:Boolean(resourceCaps.discoverModels),refreshModels:Boolean(resourceCaps.refreshModels),selectModel:Boolean(resourceCaps.selectModel),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
         jev:{expectedCapabilities:['SEMANTIC_JUDGMENT'],lane:lanes.find(x=>x.kind==='JEV')},

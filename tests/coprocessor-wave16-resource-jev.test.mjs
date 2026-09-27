@@ -51,7 +51,7 @@ async function startProvider(){
       calls.chat++;let raw='';for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw||'{}');lastChatBody=structuredClone(body);
       if(body.model!=='story-chat'&&body.model!=='alternate-chat'){res.writeHead(404,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'model missing'}}));return;}
       if(mode==='strict-qualification'){
-        if('temperature' in body||'max_tokens' in body||'max_completion_tokens' in body||body.messages?.length!==1||body.messages?.[0]?.role!=='user'){
+        if('temperature' in body||body.max_tokens!==16||'max_completion_tokens' in body||body.messages?.length!==1||body.messages?.[0]?.role!=='user'){
           res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'qualification request used unsupported optional parameters'}}));return;
         }
         res.writeHead(200,{'content-type':'application/json','x-request-id':'fixture-reasoning'});
@@ -158,6 +158,9 @@ test('Wave16 chat qualification accepts minimal reasoning-style completion respo
     assert.equal(ready.callable,true);
     assert.equal(ready.actualModelId,'story-chat');
     assert.equal(ready.actualProvider,'fixture-reasoning-upstream');
+    assert.equal(ready.qualification.evidence.requestPurpose,'QUALIFICATION_PROBE');
+    assert.equal(ready.qualification.evidence.providerRequestId,'fixture-reasoning');
+    assert.equal(provider.calls().lastChatBody.max_tokens,16);
     assert.ok(provider.calls().chat>=1);
   }finally{await provider.close();}
 });
@@ -198,6 +201,7 @@ test('Wave16 vector resource uses embeddings transport and never labels chat out
     row=await registry.connectResource('vector');assert.equal(row.callable,true);assert.deepEqual(row.activeCapabilities,[Capability.EMBED]);
     const result=await registry.executeEmbedding('vector',{input:['first passage','second passage']});
     assert.equal(result.vectorCount,2);assert.equal(result.dimensions,3);assert.equal(result.actualModelId,'story-embed');assert.equal(result.actualProvider,'fixture-embedding-upstream');
+    assert.equal(result.requestPurpose,'COGNITIVE_EXECUTION');assert.equal(result.providerRequestId,'fixture-embed');
     assert.equal(result.usageReceipt.cost.status,'MEASURED');assert.equal(provider.calls().chat,0);assert.ok(provider.calls().embeddings>=2);
     await assert.rejects(()=>registry.executeTask(graphTask('not-vector-chat'),{input:graphInput()}),error=>error?.code==='CAPABILITY_UNAVAILABLE');
   }finally{await provider.close();}

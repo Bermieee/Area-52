@@ -58,6 +58,10 @@ export function evidenceBelongsToChat(evidence,selection){
   return id.chatId===s.chatId;
 }
 
+function selectionHasGenerationIdentity(selection){
+  return Boolean(selection?.turnId||selection?.generationId||selection?.correlationId);
+}
+
 export function evidenceBelongsToSelection(evidence,selection){
   const s=normalizeMemorySelection(selection);
   if(!evidenceBelongsToChat(evidence,s))return false;
@@ -65,7 +69,11 @@ export function evidenceBelongsToSelection(evidence,selection){
   for(const key of ['turnId','generationId','correlationId']){
     if(s[key]!=null&&id[key]!==s[key])return false;
   }
-  if(s.sourceRevisionRefs.length&&!s.sourceRevisionRefs.includes(evidence.sourceRevisionId))return false;
+  // A selected generation is created before its assistant source revision exists.
+  // Generation identity is therefore the authoritative fence for post-turn Memory
+  // artifacts. sourceRevisionRefs remains an allow-list only for source-scoped
+  // reads that do not carry turn/generation/correlation identity.
+  if(!selectionHasGenerationIdentity(s)&&s.sourceRevisionRefs.length&&!s.sourceRevisionRefs.includes(evidence.sourceRevisionId))return false;
   return true;
 }
 
@@ -259,13 +267,17 @@ export class MemoryUiReadModelProducer{
     }
 
     const chatIndex=this.evidenceIndexByChat.get(selection.chatId)??[];
-    const selectionIsGenerationScoped=Boolean(selection.turnId||selection.generationId||selection.correlationId||selection.sourceRevisionRefs.length);
+    const generationIdentityScoped=selectionHasGenerationIdentity(selection);
+    const selectionIsGenerationScoped=Boolean(generationIdentityScoped||selection.sourceRevisionRefs.length);
     const selectedIndex=selectionIsGenerationScoped
       ? chatIndex.filter((row)=>{
           for(const key of ['turnId','generationId','correlationId']){
             if(selection[key]!=null&&row[key]!==selection[key])return false;
           }
-          if(selection.sourceRevisionRefs.length&&!selection.sourceRevisionRefs.includes(row.sourceRevisionId))return false;
+          // Pre-generation sourceRevisionRefs cannot include the assistant
+          // revision admitted after provider return. Do not let that stale
+          // pre-generation fence hide exact evidence for the same generation.
+          if(!generationIdentityScoped&&selection.sourceRevisionRefs.length&&!selection.sourceRevisionRefs.includes(row.sourceRevisionId))return false;
           return true;
         })
       : chatIndex;

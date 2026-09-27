@@ -382,6 +382,10 @@ export class Area52NativeBrain{
       });
     }
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
+    // Dense Memory is optional and bounded to one query embedding. The synchronous
+    // owner channel consumes only the cached nomination result; provider failure
+    // leaves sparse/graph/Memory retrieval fully available.
+    const memoryDensePrime=await this.ownerMemoryChannel.prime({intentId:'memory-dense:'+turn,query:q,intentKind:intent,perspective:perspectiveConstraint},{query:q,selection:ownerSelection});
 
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
@@ -455,7 +459,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       retrievalQualityReceipt:published.retrievalQualityReceipt??null,
       correctiveRetrievalReceipt:published.correctiveRetrievalReceipt??null,
@@ -1001,6 +1005,11 @@ export class Area52NativeBrain{
             producerStatus:proposed?.status??null,
             ownerReview:clone(ownerReview),
             providerAttempted:Boolean(proposed?.providerAttempted),
+            sidecarExecution:proposed?.executionReceipt?clone({
+              ...proposed.executionReceipt,
+              ownerDecision:ownerReview?.status??proposed?.status??'DEFERRED',
+              ownerAccepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),
+            }):null,
             rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
             authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
           };

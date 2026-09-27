@@ -12,6 +12,9 @@ import {MemoryExperienceStore} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';
 import {MemorySummaryHierarchy} from './memory-summary-hierarchy.js';
 import {MemoryExternalEvidenceBridge} from './memory-evidence-bridge.js';
+import {MemoryPlasticityManager} from './memory-plasticity.js';
+import {MemoryCausalEventStore} from './memory-causal-events.js';
+import {MemoryVectorIndex} from './memory-vector-index.js';
 import {
   MemoryUiReadModelProducer,
   evidenceBelongsToChat,
@@ -35,7 +38,10 @@ export class MemoryTemporalProducer {
     this.historian=historian??new MemoryHistorianIndex({graph,experienceStore:this.experienceStore});
     this.summaryHierarchy=summaryHierarchy??new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore});
     this.evidenceBridge=evidenceBridge??new MemoryExternalEvidenceBridge({graph:this.graph});
+    this.plasticity=new MemoryPlasticityManager({graph:this.graph});
+    this.causalEvents=new MemoryCausalEventStore({graph:this.graph});
     this.uiReadModel=uiReadModel??new MemoryUiReadModelProducer({producer:this});
+    this.vectorIndex=new MemoryVectorIndex({producer:this});
     this.diagnostics=[];
     this.consolidationProposalReviews=new Map();
     if (snapshot) this.restore(snapshot);
@@ -206,6 +212,7 @@ export class MemoryTemporalProducer {
   publishEpisode(input) {
     const episode=this.experienceStore.publishEpisode(input);
     this.summaryHierarchy.onEpisodePublished(episode);
+    this.plasticity.observeArtifact(episode);
     return episode;
   }
 
@@ -272,6 +279,8 @@ export class MemoryTemporalProducer {
     });
     const compaction=this.runSummaryCompaction({maxUnits:3});
     this.historian.build();
+    const historianRecord=[...this.historian.records.values()].find((row)=>row.artifactId===episode.id&&Number(row.artifactRevision)===Number(episode.revision))??null;
+    const vectorWork=this.vectorIndex.enqueueArtifact({artifactId:episode.id,artifactRevision:episode.revision,chatId,sourceRevisionRefs:episode.sourceRevisionRefs,historianRecordRef:historianRecord?.id??null});
     const receipt={
       kind:'MemoryCompletedTurnAdmissionReceipt',contractVersion:'1.0.0',
       status:priorId===episode.id?'REPLAYED':'COMPLETED',reasonCode:null,
@@ -280,7 +289,7 @@ export class MemoryTemporalProducer {
       episodeId:episode.id,episodeLogicalId:episode.logicalId,episodeRevision:episode.revision,
       exactSourceDrillback:this.experienceStore.exactDrillback(episode.id).length>0,
       summaryScopeRefs:hierarchy.scopeRefs,summaryPublishedArtifactIds:[...(compaction.publishedArtifactIds??[])],
-      reflectionReceipts,
+      reflectionReceipts,vectorWorkId:vectorWork.workId,
       rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
@@ -587,6 +596,7 @@ export class MemoryTemporalProducer {
     const reflection=this.experienceStore.reflectionFromGreenRoomProposal(proposal,options);
     this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
+    this.plasticity.observeArtifact(reflection);
     this.notifyUi('MEMORY_REFLECTION_PUBLISHED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
     return reflection;
   }
@@ -595,6 +605,7 @@ export class MemoryTemporalProducer {
     const reflection=this.experienceStore.reviseReflection(input);
     this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
+    this.plasticity.observeArtifact(reflection);
     this.notifyUi('MEMORY_REFLECTION_REVISED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
     return reflection;
   }
@@ -604,6 +615,9 @@ export class MemoryTemporalProducer {
     const greenRoomResult=this.greenRoom.expire({invalidatedSourceRevisionRefs:[sourceRevisionId]});
     const derived=this.experienceStore.refreshFreshness();
     const hierarchy=this.summaryHierarchy.invalidateSourceRevision(sourceRevisionId,options);
+    const plasticity=this.plasticity.invalidateSourceRevision(sourceRevisionId,options);
+    const causal=this.causalEvents.invalidateSourceRevision(sourceRevisionId);
+    this.vectorIndex.invalidateSourceRevision(sourceRevisionId);
     this.historian.build();
     const receipt={
       kind:'MemoryDependencyInvalidationReceipt',
@@ -614,6 +628,9 @@ export class MemoryTemporalProducer {
       staleReflectionIds:derived.staleReflections,
       staleSummaryArtifactIds:hierarchy.staleArtifactIds,
       affectedSummaryScopeRefs:hierarchy.affectedScopeRefs,
+      plasticityAffectedArtifactIds:plasticity.affectedArtifactIds,
+      causalAffectedEventIds:causal.affectedEvents,
+      causalAffectedHypothesisIds:causal.affectedHypotheses,
       memoryRevisionRefs:this.memoryRevisionRefs(),
       unrelatedMemoryMutation:false,
     };
@@ -638,22 +655,32 @@ export class MemoryTemporalProducer {
         : null;
       const fencedRequest=allowedEvidenceIds==null?request??{}:{...(request??{}),allowedEvidenceIds};
       const raw=this.summaryHierarchy.queryHistorian(fencedRequest,(baseRequest)=>this.historian.query(baseRequest));
-      let result=raw;
-      if (selection.chatId) {
-        const nominations=(raw.nominations??[]).filter((nomination)=>this.nominationBelongsToChat(nomination,selection));
-        result={
-          ...raw,
-          nominations,
-          diagnostics:{
-            ...(raw.diagnostics??{}),
-            selectionFiltered:true,
-            selectedChatId:selection.chatId,
-            selectionFilteredOut:Math.max(0,(raw.nominations??[]).length-nominations.length),
-            returned:nominations.length,
-          },
-        };
-        this.uiReadModel.recordRetrieval(selection,request,result);
+      const causal=this.causalEvents.query(fencedRequest);
+      const dense=this.vectorIndex.cachedNominations(fencedRequest);
+      const combined=[...(raw.nominations??[]),...(causal.nominations??[]),...dense];
+      const unique=new Map();
+      for(const nomination of combined){
+        const key=nomination.artifactRef?.artifactId??nomination.candidateId;
+        if(!this.plasticity.retrievable(key,nomination.artifactRevision))continue;
+        const baseRank=Math.max(0,Math.min(1,Number(nomination.normalizedRank??0)));
+        const plasticityPriority=this.plasticity.nominationPriority(key,nomination.artifactRevision);
+        const adjusted={...nomination,normalizedRank:baseRank*plasticityPriority,
+          rankSignals:{...(nomination.rankSignals??{}),prePlasticityRank:baseRank,plasticityPriority},
+          metadata:{...(nomination.metadata??{}),plasticityPriority,retrievalFeedbackIsEvidence:false}};
+        const prior=unique.get(key);
+        if(!prior||Number(adjusted.normalizedRank??0)>Number(prior.normalizedRank??0))unique.set(key,adjusted);
       }
+      let nominations=[...unique.values()].sort((a,b)=>Number(b.normalizedRank??0)-Number(a.normalizedRank??0)).slice(0,Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(request?.maxCandidates??MEMORY_LIMITS.maxHistorianCandidates)||MEMORY_LIMITS.maxHistorianCandidates)));
+      if(selection.chatId)nominations=nominations.filter((nomination)=>this.nominationBelongsToChat(nomination,selection));
+      this.plasticity.recordCoRetrieval({artifactRefs:nominations.map((nomination)=>({artifactId:nomination.artifactRef?.artifactId??nomination.candidateId,artifactRevision:nomination.artifactRevision??1})),reasonCode:'HISTORIAN_CO_RETRIEVAL'});
+      for(const nomination of nominations)this.plasticity.recordRetrievalUse({artifactId:nomination.artifactRef?.artifactId,artifactRevision:nomination.artifactRevision});
+      const result={
+        ...raw,nominations,
+        diagnostics:{...(raw.diagnostics??{}),selectionFiltered:Boolean(selection.chatId),selectedChatId:selection.chatId??null,
+          selectionFilteredOut:Math.max(0,combined.length-nominations.length),returned:nominations.length,
+          causalCandidates:causal.nominations?.length??0,denseCandidates:dense.length,denseExecution:dense.length?'USED':'NOT_PRIMED'},
+      };
+      if(selection.chatId)this.uiReadModel.recordRetrieval(selection,request,result);
       return result;
     } catch (error) {
       this.pushDiagnostic({kind:'MemoryHistorianDegraded',reason:error?.message??String(error)});
@@ -817,8 +844,9 @@ export class MemoryTemporalProducer {
   }
 
   drillDown(nominationOrRecordRef,options={}) {
-    const summary=this.summaryHierarchy.drillDown(nominationOrRecordRef);
-    const rows=summary.length?summary:this.historian.drillDown(nominationOrRecordRef);
+    const causal=this.causalEvents.drillDown(nominationOrRecordRef);
+    const summary=causal.length?[]:this.summaryHierarchy.drillDown(nominationOrRecordRef);
+    const rows=causal.length?causal:(summary.length?summary:this.historian.drillDown(nominationOrRecordRef));
     const perspective=options.perspectiveConstraint
       ??(typeof nominationOrRecordRef==='object'?nominationOrRecordRef?.metadata?.perspective:null)
       ??{scope:'WORLD'};
@@ -840,6 +868,10 @@ export class MemoryTemporalProducer {
 
   runSummaryCompaction(options={}) {
     const result=this.summaryHierarchy.runCompaction(options);
+    for(const id of result.publishedArtifactIds??[]){
+      const artifact=[...this.summaryHierarchy.artifacts.values()].find((row)=>row.id===id);
+      if(artifact)this.plasticity.observeArtifact(artifact);
+    }
     if((result.publishedArtifactIds??[]).length)this.uiReadModel.notify('MEMORY_SUMMARY_UPDATED',{},{
       artifactIds:result.publishedArtifactIds,
       pendingWorkUnits:result.pendingWorkUnits,
@@ -867,8 +899,20 @@ export class MemoryTemporalProducer {
     return this.summaryHierarchy.status();
   }
 
+  recordEventMemory(input){const event=this.causalEvents.recordEvent(input);this.plasticity.observeArtifact(event);return event;}
+  recordCausalHypothesis(input){const hypothesis=this.causalEvents.recordHypothesis(input);this.plasticity.observeArtifact(hypothesis);return hypothesis;}
+  invalidateCausalIdentityRevision(identityRevisionId){return this.causalEvents.invalidateIdentityRevision(identityRevisionId);}
+  attachVectorExecutor(executor=null){return this.vectorIndex.attachExecutor(executor);}
+  runVectorMaintenance(options={}){return this.vectorIndex.runMaintenance(options);}
+  primeDenseHistorian(request={}){return this.vectorIndex.primeQuery(request);}
+  recordRetrievalUse(input={}){return this.plasticity.recordRetrievalUse(input);}
+  recordCoRetrieval(input={}){return this.plasticity.recordCoRetrieval(input);}
+  recoverDerivedArtifact(input={}){return this.plasticity.recoverArtifact(input);}
+  proposeDerivedReorganization(input={}){return this.plasticity.proposeReorganization(input);}
+  runReconsolidation(options={}){return this.plasticity.reconsolidate(options);}
+
   memoryRevisionRefs() {
-    return [...this.historian.memoryRevisionRefs(),this.summaryHierarchy.revisionRef(),this.evidenceBridge.revisionRef()].sort();
+    return [...this.historian.memoryRevisionRefs(),this.summaryHierarchy.revisionRef(),this.evidenceBridge.revisionRef(),this.plasticity.revisionRef(),this.causalEvents.revisionRef(),this.vectorIndex.revisionRef()].sort();
   }
 
   startConsolidation(jobs=[],options={}) {
@@ -891,6 +935,8 @@ export class MemoryTemporalProducer {
         ?this.runSummaryCompaction({maxUnits:affectedSummaryScopeRefs.length})
         :null;
       this.historian.build();
+      for(const id of result.publishedArtifactIds??[]){const artifact=this.experienceStore.artifact(id);if(artifact)this.plasticity.observeArtifact(artifact);}
+      this.plasticity.reconsolidate({maxUnits:Math.max(1,Math.min(8,result.publishedArtifactIds?.length??1))});
       this.notifyUi('MEMORY_CONSOLIDATION_PUBLISHED',evidenceRefs,{
         sessionId,publishedArtifactIds:result.publishedArtifactIds,
         affectedSummaryScopeRefs,summaryRefreshState:summaryRefresh?.state??null,
@@ -973,6 +1019,9 @@ export class MemoryTemporalProducer {
         'SELECTION_AWARE_UI_READ_MODEL',
         'MEMORY_READ_SUBSCRIBE',
         'SNAPSHOT_RELOAD',
+        'SUPPORT_AWARE_PLASTICITY',
+        'CAUSAL_EVENT_HYPOTHESES',
+        'REVISIONED_DENSE_VECTOR_RETRIEVAL',
       ],
       bounds:deepClone(MEMORY_LIMITS),
       ownership:{
@@ -999,6 +1048,9 @@ export class MemoryTemporalProducer {
         evidenceBridge:'MemoryExternalEvidenceMapping v1.0.0 + MemoryCoreSettlementAdapterReceipt v1.0.0',
         ui:'MemoryUiReadModel v1.0.0 + MemoryUiProducer v1.0.0',
         consolidation:'MemoryConsolidationWorkUnit v1.0.0',
+        plasticity:'MemoryPlasticity v1.0.0',
+        causalEvent:'MemoryCausalEvent v1.0.0',
+        vector:'MemoryVectorIndex v1.0.0',
       },
     };
   }
@@ -1017,6 +1069,9 @@ export class MemoryTemporalProducer {
       historian:this.historian.status(),
       summaryHierarchy:this.summaryHierarchy.status(),
       evidenceBridge:this.evidenceBridge.status(),
+      plasticity:this.plasticity.status(),
+      causalEvents:this.causalEvents.status(),
+      vectorIndex:this.vectorIndex.status(),
       uiReadModel:{
         contractVersion:'1.0.0',
         retrievalHistory:this.uiReadModel.retrievalHistory.length,
@@ -1042,6 +1097,9 @@ export class MemoryTemporalProducer {
       historian:this.historian.snapshot(),
       summaryHierarchy:this.summaryHierarchy.snapshot(),
       evidenceBridge:this.evidenceBridge.snapshot(),
+      plasticity:this.plasticity.snapshot(),
+      causalEvents:this.causalEvents.snapshot(),
+      vectorIndex:this.vectorIndex.snapshot(),
       uiReadModel:this.uiReadModel.snapshot(),
       diagnostics:deepClone(this.diagnostics),
       consolidationProposalReviews:[...this.consolidationProposalReviews.entries()].map(([id,row])=>[id,deepClone(row)]),
@@ -1055,7 +1113,10 @@ export class MemoryTemporalProducer {
     this.historian=new MemoryHistorianIndex({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.historian??null});
     this.summaryHierarchy=new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.summaryHierarchy??null});
     this.evidenceBridge=new MemoryExternalEvidenceBridge({graph:this.graph,snapshot:snapshot?.evidenceBridge??null});
+    this.plasticity=new MemoryPlasticityManager({graph:this.graph,snapshot:snapshot?.plasticity??null});
+    this.causalEvents=new MemoryCausalEventStore({graph:this.graph,snapshot:snapshot?.causalEvents??null});
     this.uiReadModel=new MemoryUiReadModelProducer({producer:this,snapshot:snapshot?.uiReadModel??null});
+    this.vectorIndex=new MemoryVectorIndex({producer:this,snapshot:snapshot?.vectorIndex??null});
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
     this.consolidationProposalReviews=new Map((snapshot?.consolidationProposalReviews??[]).map(([id,row])=>[id,deepClone(row)]));
   }

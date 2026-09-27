@@ -129,9 +129,9 @@ test('ambiguous Sun Blade turn invokes bounded Jev through Runtime and preserves
   assert.equal(result.jevProposal.mutationAuthority, false);
   assert.equal(result.jevProposal.requiresOwnerPolicy, true);
   assert.equal(result.jevOwnerAdmission.kind, 'JevOwnerAdmissionReceipt');
-  assert.equal(result.jevOwnerAdmission.status, 'PENDING_OWNER_CONTRACT');
+  assert.equal(result.jevOwnerAdmission.status, 'REVIEWED');
   assert.equal(result.jevOwnerAdmission.accepted, false);
-  assert.equal(result.jevOwnerAdmission.ownerDecision, 'PENDING');
+  assert.equal(result.jevOwnerAdmission.ownerDecision, 'UNRESOLVED');
   assert.equal(brain.hostBindings().readJev(result.selection).ownerAdmission.accepted, false);
   assert.equal(result.published.cognitiveChoiceReceipt.jev.considered, true);
   assert.equal(result.published.cognitiveChoiceReceipt.jev.abstained, true);

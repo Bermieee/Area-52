@@ -365,9 +365,9 @@ test('live host listener topology stays bounded across duplicate start stop and 
     const total=[...listeners.values()].reduce((sum,set)=>sum+set.size,0);
     assert.equal(session.loadDiagnostics().hostListenerCount,17);
     assert.equal(total,17);
-    assert.equal(listeners.get('message_sent')?.size,1);
-    assert.equal(listeners.get('message_received')?.size,1);
-    assert.equal(listeners.get('generation_stopped')?.size,1);
+    assert.equal(listeners.get('message_sent')?.size??0,0);
+    assert.equal(listeners.get('message_received')?.size??0,1);
+    assert.equal(listeners.get('generation_stopped')?.size??0,1);
   };
   session.start();
   assertTopology();

@@ -282,3 +282,63 @@ test('Memory cognition: deployment Memory owner snapshot restores durable episod
   assert.ok((historian.nominations??[]).length>=1);
   assert.match(JSON.stringify(historian.nominations),/ivory ledger/i);
 });
+
+
+test('Memory cognition: correcting supporting evidence revises the inferred reflection and rebuilds dependent summaries',async()=>{
+  const memory=new MemoryTemporalProducer();
+  const surface=createMemoryIntegrationSurface(memory);
+  const brain=new Area52NativeBrain({memoryInterface:surface});
+  const reflection={
+    reflectionKey:'vale:checks-beacon',
+    statement:'Vale may habitually check the harbor beacon before departing.',
+    subjectRefs:['Vale'],
+    confidence:.72,
+  };
+
+  for(const [index,response] of [
+    [1,'Vale checks the harbor beacon before leaving the north pier.'],
+    [2,'Vale checks the harbor beacon again before leaving the south pier.'],
+  ]){
+    await brain.prepareTurn({
+      chatId:'chat:reflection-correction',turnId:'reflection-correction:'+index,generationId:'gen:reflection-correction:'+index,
+      query:'Continue.',intent:'CURRENT',
+      scene:scene('pier-'+index,index,{location:'Harbor',activeCast:['Vale'],relationship:index===1?null:'PRECEDES'}),
+      executionLabel:'DETERMINISTIC',
+    });
+    await brain.completeTurn({
+      turnId:'reflection-correction:'+index,
+      response,
+      knownBy:['Vale'],
+      reflections:[{...reflection,polarity:'SUPPORT'}],
+    });
+  }
+
+  const before=memory.experienceStore.currentReflections()[0];
+  assert.equal(before.truthStatus,'INFERRED');
+  const beforeConfidence=before.confidence;
+  const sessionRef='SESSION:brain:chat:reflection-correction';
+  const summaryBefore=memory.summaryHierarchy.currentArtifact(sessionRef,{freshOnly:true});
+  assert.ok(summaryBefore);
+
+  const corrected=brain.correctTurn({
+    turnId:'reflection-correction:2',
+    response:'Correction: Vale leaves the south pier without checking the harbor beacon.',
+    knownBy:['Vale'],
+    reflections:[{...reflection,polarity:'CONTRADICT'}],
+  });
+  assert.equal(corrected.memoryPostTurn?.status,'COMPLETED');
+
+  const after=memory.experienceStore.currentReflections()[0];
+  assert.equal(after.authorityClass,'INFERRED');
+  assert.ok(after.confidence<beforeConfidence);
+  assert.ok(['CONTESTED','UNRESOLVED'].includes(after.resolutionStatus));
+  assert.ok(after.contradictionEvidenceRefs.length>=1);
+  assert.equal(memory.experienceStore.reflectionHistory('vale:checks-beacon').length,2);
+
+  const summaryAfter=memory.summaryHierarchy.currentArtifact(sessionRef,{freshOnly:true});
+  assert.ok(summaryAfter);
+  assert.notEqual(summaryAfter.id,summaryBefore.id);
+  assert.match(JSON.stringify(memory.experienceStore.exactDrillback(
+    memory.experienceStore.currentEpisodes().find(row=>row.turnId==='reflection-correction:2').id
+  )),/without checking the harbor beacon/i);
+});

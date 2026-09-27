@@ -76,7 +76,15 @@ export class GenerationPublicationPipeline {
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
     })??null;
 
-    const resolvedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}]);
+    const requestedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}]);
+    const resolvedRetrievalIntents=requestedRetrievalIntents.map((row,index)=>({
+      ...structuredClone(row),
+      intentId:row?.intentId??row?.id??('intent:publication:'+index+':'+stableHash({
+        query:row?.query??query,kind:row?.kind??row?.intentKind??intent,
+        entityRefs:uniq(row?.entityRefs??effectiveAnchorEntityIds),
+        relationshipRefs:uniq(row?.relationshipRefs??[]),artifactRefs:uniq(row?.artifactRefs??[]),
+      },{length:12})),
+    }));
     let primary=[],primaryEnvelope=null,correctiveEnvelope=null,candidates=[];
     let assessment=null,publicationAssessment=null;
     let corrective={executed:false,terminated:true,candidates:[],failed:false,error:null,action:null,correctivePasses:0,maxCorrectiveAttempts:1};

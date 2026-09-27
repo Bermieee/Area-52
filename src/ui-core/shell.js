@@ -34,16 +34,13 @@ export class ApplicationShell {
 
     const nav = element(doc, 'nav', { className: 'a52-shell__nav', attrs: { 'aria-label': 'Workspaces' } });
     const workspace = element(doc, 'main', { className: 'a52-shell__workspace', attrs: { id: 'a52-workspace', tabindex: '-1' } });
-    const inspectorLayer = element(doc, 'aside', { className: 'a52-shell__inspector-layer', attrs: { 'aria-label': 'Contextual inspector', 'aria-hidden': 'true' }, dataset: { open: 'false' } });
-    const inspectorBar = element(doc, 'div', { className: 'a52-shell__inspector-bar' });
-    const inspectorTitle = element(doc, 'strong', { text: 'Inspector' });
-    const inspectorClose = element(doc, 'button', { className: 'a52-shell__inspector-close', text: 'Close', attrs: { type: 'button', 'aria-label': 'Close inspector' } });
-    const inspectorHost = element(doc, 'div', { className: 'a52-shell__inspector' });
-    inspectorBar.append(inspectorTitle, inspectorClose); inspectorLayer.append(inspectorBar, inspectorHost);
+    // Keep a detached inspector host for legacy inspection data/rendering contracts.
+    // It is intentionally never mounted into the visible shell.
+    const inspectorHost = element(doc, 'div', { className: 'a52-shell__inspector a52-shell__inspector--detached', attrs: { 'aria-hidden': 'true' } });
     const strip = element(doc, 'footer', { className: 'a52-shell__activity', attrs: { 'aria-live': 'polite' }, text: 'Runtime idle' });
     const toastHost = element(doc, 'div', { className: 'a52-shell__toasts' });
-    this.root.replaceChildren(header, nav, workspace, inspectorLayer, strip, toastHost);
-    this.nodes = { header, brand, brainState, search, nav, workspace, inspectorLayer, inspectorBar, inspectorClose, inspectorHost, strip, toastHost };
+    this.root.replaceChildren(header, nav, workspace, strip, toastHost);
+    this.nodes = { header, brand, brainState, search, nav, workspace, inspectorHost, strip, toastHost };
 
     this.scope.add(this.workspaceRegistry.subscribe?.((change) => this.syncWorkspaceNav(change)));
     this.syncWorkspaceNav();
@@ -51,21 +48,8 @@ export class ApplicationShell {
     this.scope.listen(search, 'keydown', (event) => {
       if (event.key === 'Escape') { search.value = ''; workspace.focus(); }
     });
-    const closeInspector = () => {
-      this.inspector.clear();
-      inspectorLayer.dataset.open = 'false';
-      inspectorLayer.setAttribute('aria-hidden', 'true');
-      workspace.focus?.();
-    };
-    this.scope.listen(inspectorClose, 'click', closeInspector);
     this.scope.listen(doc, 'keydown', (event) => {
-      if (event.key === 'Escape' && inspectorLayer.dataset.open === 'true') { event.preventDefault(); closeInspector(); return; }
       if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(doc.activeElement?.tagName)) { event.preventDefault(); search.focus(); }
-    });
-    this.scope.subscribe(this.signals, Signals.UI_INSPECT_SELECTION_CHANGED, ({ payload }) => {
-      const open = Boolean(payload?.object);
-      inspectorLayer.dataset.open = String(open);
-      inspectorLayer.setAttribute('aria-hidden', String(!open));
     });
     this.scope.subscribe(this.signals, Signals.COGNITIVE_MODE_CHANGED, ({ payload }) => { brainState.textContent = `Brain State · ${payload.mode ?? 'READY'}`; });
     this.scope.subscribe(this.signals, Signals.UI_RUNTIME_ACTIVITY, ({ payload }) => { strip.textContent = payload.message ?? 'Runtime activity'; });

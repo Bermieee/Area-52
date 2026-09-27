@@ -174,7 +174,7 @@ test('episode repair is revision-fenced, preserves prior derived refs, and publi
     expectedSceneRevision:closed.revision,sourceRevisionRefs:[first.evidence.sourceRevisionId],
     evidenceRefs:['operator:episode-repair'],events:[{eventId:'repair:event'}],
   });
-  assert.equal(repaired.status,'NO_WORK');
+  assert.equal(repaired.status,'OBSERVED');
   assert.equal(repaired.operator.operationStatus,'REPAIRED');
   assert.equal(repaired.operatorResult.status,'REPAIRED');
   assert.ok(repaired.operatorResult.replacesEpisodeRefs.length>=1);

@@ -42,8 +42,8 @@ export class MemoryPlasticityManager{
     const rows=[...this.records.values()].filter(r=>r.current&&r.eligibleForReconsolidation).sort((a,b)=>a.updatedSequence-b.updatedSequence).slice(0,limit);
     const outcomes=[];
     for(const row of rows){
-      const support=row.supportEvidenceRefs.map(id=>this.graph.evidenceRecord(id)).filter(ev=>ev&&this.graph.evidenceFresh(id));
-      const contradictions=row.contradictionEvidenceRefs.map(id=>this.graph.evidenceRecord(id)).filter(ev=>ev&&this.graph.evidenceFresh(id));
+      const support=row.supportEvidenceRefs.map(id=>this.graph.evidenceRecord(id)).filter(ev=>ev&&this.graph.evidenceFresh(ev.id));
+      const contradictions=row.contradictionEvidenceRefs.map(id=>this.graph.evidenceRecord(id)).filter(ev=>ev&&this.graph.evidenceFresh(ev.id));
       const independent=new Set(support.map(ev=>ev.sourceRevisionId).filter(Boolean)).size;
       const opposed=new Set(contradictions.map(ev=>ev.sourceRevisionId).filter(Boolean)).size;
       const priorStrength=row.strength,priorMaturity=row.maturity,priorResidency=row.residency;

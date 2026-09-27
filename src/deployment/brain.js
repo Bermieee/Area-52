@@ -20,6 +20,7 @@ import { SceneStateExtractor } from '../scene/scene-state-extractor.js';
 import { SceneEventPublisher } from '../scene/event-publisher.js';
 import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
+import { SceneJevOwnerAdjudicator, SceneOwnerDecision } from '../scene/jev-owner.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { CausalReasonCode } from '../runtime/causal-receipts.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
@@ -437,6 +438,7 @@ export class DevelopmentDeploymentBrain {
         },
       },
     });
+    this.sceneJevOwner = new SceneJevOwnerAdjudicator({ service: this.jev.service });
     this.runtimeResults = [];
     this.turns = new Map();
     this.listeners = new Set();
@@ -681,12 +683,98 @@ export class DevelopmentDeploymentBrain {
     this.#retainSceneObservationReceipt(receipt);
     return{
       kind:'SceneObservationWorkResult',status:'RETURNED',proposal,
-      boundarySignals:clone(workerResult.payload?.boundarySignals??{}),executionReceipt:receipt,
+      boundarySignals:clone(workerResult.payload?.boundarySignals??{}),ambiguities:clone(workerResult.payload?.ambiguities??[]),executionReceipt:receipt,
     };
   }
 
-  admitSceneObservationProposal({
+  async adjudicateSceneObservationAmbiguity({
     work,hostEvent,currentSelection=true,turnSealed=false,
+  }={}){
+    const proposal=work?.proposal,execution=work?.executionReceipt??null;
+    const ambiguity=Array.isArray(work?.ambiguities)?work.ambiguities[0]??null:null;
+    const selected=()=>typeof currentSelection==='function'?Boolean(currentSelection()):Boolean(currentSelection);
+    const sealed=()=>typeof turnSealed==='function'?Boolean(turnSealed()):Boolean(turnSealed);
+    const finish=(status,reasonCode,extra={})=>{
+      const receipt={
+        kind:'DeploymentSceneJevAdvisoryReceipt',contractVersion:1,status,reasonCode,
+        chatId:execution?.chatId??null,turnId:execution?.turnId??null,generationId:execution?.generationId??null,correlationId:execution?.correlationId??null,
+        workId:execution?.workId??null,sourceRevisionId:execution?.sourceRevisionId??null,
+        sceneId:proposal?.sceneId??null,sceneRevision:proposal?.baseRevision??execution?.sceneRevision??null,
+        ambiguityId:ambiguity?.ambiguityId??null,decisionKind:ambiguity?.decisionKind??null,field:ambiguity?.field??null,
+        alternativeCount:Array.isArray(ambiguity?.alternatives)?ambiguity.alternatives.length:0,
+        accepted:status==='ADVISED',unresolved:status!=='ADVISED',
+        authority:'ADVISORY',authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,
+        rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+        ...clone(extra),
+      };
+      this.#retainSceneObservationReceipt(receipt);
+      return receipt;
+    };
+    if(!proposal||proposal.kind!=='SceneObservationProposal'||!ambiguity)return finish('SKIPPED','SCENE_JEV_NO_BOUNDED_AMBIGUITY');
+    if(!selected())return finish('UNRESOLVED','SCENE_JEV_SELECTION_SUPERSEDED',{stale:true});
+    const phase=execution?.phase??'FOREGROUND_USER';
+    if(phase!=='POST_RESPONSE'&&sealed())return finish('UNRESOLVED','SCENE_JEV_LATE_AFTER_SEAL',{late:true});
+    if(!this.jevAvailable)return finish('UNRESOLVED','JEV_SERVICE_UNAVAILABLE',{degraded:true});
+    const current=this.scene.registry.current(proposal.sceneId);
+    if(!current||Number(current.revision)!==Number(proposal.baseRevision))return finish('UNRESOLVED','SCENE_JEV_STALE_REVISION',{stale:true});
+    const hostSource=String(hostEvent?.sourceRevisionId??'').trim();
+    if(!hostSource||!(proposal.sourceRevisionRefs??[]).includes(hostSource)||!(proposal.evidenceRefs??[]).includes(hostSource))return finish('UNRESOLVED','SCENE_JEV_SOURCE_FENCE_MISMATCH',{invalid:true});
+    const alternatives=Array.isArray(ambiguity.alternatives)?ambiguity.alternatives:[];
+    if(alternatives.length<2||alternatives.length>4)return finish('UNRESOLVED','SCENE_JEV_INVALID_ALTERNATIVES',{invalid:true});
+    const optionIds=new Set(alternatives.map(row=>String(row.optionId)));
+    const now=Date.now();
+    const freshnessToken=['scene',proposal.sceneId,proposal.baseRevision,hostSource,ambiguity.ambiguityId].join(':');
+    const input={
+      domain:JevDomain.SCENE,decisionKind:String(ambiguity.decisionKind),
+      decisionId:['scene-jev',execution?.generationId??execution?.turnId??'unknown',ambiguity.ambiguityId].join(':'),
+      turnId:String(execution?.turnId??'scene-turn'),taskId:['task',execution?.workId??execution?.turnId??'scene','jev',ambiguity.ambiguityId].join(':'),
+      correlationId:String(execution?.correlationId??('corr:'+(execution?.turnId??'scene'))),causationId:execution?.workId??null,
+      owner:'SCENE_OWNER',
+      options:alternatives.map(row=>({
+        optionId:String(row.optionId),label:String(row.label??row.optionId).slice(0,160),
+        evidenceRefs:[hostSource],provenanceRefs:[hostSource],
+        payload:{field:String(ambiguity.field),candidateValue:clone(row.value),candidateConfidence:Number(row.confidence??0)},
+      })),
+      evidence:[{evidenceId:hostSource,sourceRef:hostSource,summary:'Bounded Scene ambiguity evidence.',provenanceRefs:[hostSource],revision:proposal.baseRevision,available:true,stale:false}],
+      provenanceRefs:[hostSource],sourceRevisionSet:[hostSource],worldRevision:this.core.graph.revision,
+      sceneRevision:proposal.baseRevision,characterStateRevision:0,ownerRevision:proposal.baseRevision,
+      freshnessToken,deadline:now+1200,softDeadline:now+900,maxRetries:0,
+      adapterMetadata:{sceneId:proposal.sceneId,field:String(ambiguity.field),sourceRevisionId:hostSource},
+    };
+    let review;
+    try{
+      review=await this.sceneJevOwner.adjudicate(input,{
+        currentScene:current,
+        currentRevisionState:{
+          sourceRevisionSet:[hostSource],worldRevision:input.worldRevision,sceneRevision:proposal.baseRevision,characterStateRevision:0,
+          domainRevisions:{scene:proposal.baseRevision,owner:proposal.baseRevision},freshnessToken,
+        },
+        validateProposal:(jevProposal,ownerScene)=>(
+          selected()
+          &&(phase==='POST_RESPONSE'||!sealed())
+          &&Number(ownerScene?.revision)===Number(proposal.baseRevision)
+          &&optionIds.has(String(jevProposal?.proposedOutcome??''))
+        ),
+      });
+    }catch(error){
+      return finish('UNRESOLVED','JEV_EXECUTION_UNAVAILABLE',{degraded:true,errorCode:String(error?.code??'JEV_EXECUTION_UNAVAILABLE')});
+    }
+    const currentAfter=this.scene.registry.current(proposal.sceneId);
+    if(!selected())return finish('UNRESOLVED','SCENE_JEV_SELECTION_SUPERSEDED',{stale:true,ownerReview:clone(review)});
+    if(phase!=='POST_RESPONSE'&&sealed())return finish('UNRESOLVED','SCENE_JEV_LATE_AFTER_SEAL',{late:true,ownerReview:clone(review)});
+    if(!currentAfter||Number(currentAfter.revision)!==Number(proposal.baseRevision))return finish('UNRESOLVED','SCENE_JEV_STALE_REVISION',{stale:true,ownerReview:clone(review)});
+    if(review?.ownerDecision!==SceneOwnerDecision.ACCEPTED)return finish('UNRESOLVED',review?.reasonCode??'JEV_UNRESOLVED',{ownerReview:clone(review)});
+    const chosen=alternatives.find(row=>String(row.optionId)===String(review?.proposal?.proposedOutcome??''))??null;
+    if(!chosen)return finish('UNRESOLVED','SCENE_JEV_OWNER_RESULT_INVALID',{invalid:true,ownerReview:clone(review)});
+    return finish('ADVISED','SCENE_JEV_OWNER_ADVISED',{
+      ownerReview:clone(review),selectedOptionId:String(chosen.optionId),
+      selectedAlternative:{optionId:String(chosen.optionId),label:String(chosen.label??chosen.optionId).slice(0,160),value:clone(chosen.value),confidence:Number(chosen.confidence??0)},
+      remainingAmbiguityCount:Math.max(0,(work.ambiguities?.length??1)-1),
+    });
+  }
+
+  admitSceneObservationProposal({
+    work,hostEvent,currentSelection=true,turnSealed=false,jevAdvice=null,
   }={}){
     const proposal=work?.proposal,execution=work?.executionReceipt??null;
     const taskId=execution?.workId??null;
@@ -705,11 +793,33 @@ export class DevelopmentDeploymentBrain {
     if(Number(current.revision)!==Number(proposal.baseRevision))return reject('SCENE_PROPOSAL_STALE_REVISION',{stale:true});
     const hostSource=String(hostEvent?.sourceRevisionId??'').trim();
     if(!hostSource||!(proposal.sourceRevisionRefs??[]).includes(hostSource)||!(proposal.evidenceRefs??[]).includes(hostSource))return reject('SCENE_PROPOSAL_SOURCE_FENCE_MISMATCH',{invalid:true});
+    const fields=clone(proposal.fields??{});
+    let appliedJevAdvice=null;
+    if(jevAdvice?.accepted===true){
+      const ambiguity=(work?.ambiguities??[]).find(row=>row?.ambiguityId===jevAdvice?.ambiguityId)??null;
+      if(!ambiguity||Number(jevAdvice?.sceneRevision)!==Number(proposal.baseRevision)||String(jevAdvice?.sourceRevisionId??'')!==hostSource)return reject('SCENE_JEV_ADVICE_FENCE_MISMATCH',{stale:true});
+      const selectedAlternative=jevAdvice?.selectedAlternative??null;
+      if(!selectedAlternative)return reject('SCENE_JEV_ADVICE_INVALID',{invalid:true});
+      const existing=fields[ambiguity.field]??null;
+      if(existing&&!['UNRESOLVED','UNKNOWN'].includes(String(existing.observationClass??'')))return reject('SCENE_JEV_CONFLICTS_WITH_SUPPORTED_OBSERVATION',{invalid:true});
+      fields[ambiguity.field]=createFieldState({
+        value:clone(selectedAlternative.value),revision:current.revision+1,evidenceRefs:[hostSource],
+        observationClass:ObservationClass.INFERRED,confidence:Math.max(0,Math.min(.95,Number(selectedAlternative.confidence??0))),
+        provenance:[hostSource,'jev-advisory:'+String(jevAdvice.ambiguityId)],
+      });
+      appliedJevAdvice={
+        ambiguityId:String(jevAdvice.ambiguityId),decisionKind:String(jevAdvice.decisionKind??ambiguity.decisionKind),
+        field:String(ambiguity.field),selectedOptionId:String(jevAdvice.selectedOptionId??selectedAlternative.optionId),
+        sceneRevision:proposal.baseRevision,sourceRevisionId:hostSource,authority:'ADVISORY',settlementAuthority:false,
+      };
+    }
     let ownerReceipt;
     try{
       ownerReceipt=this.ingestSceneHostEvent(hostEvent,{extract:()=>({
-        fields:clone(proposal.fields??{}),boundarySignals:clone(work?.boundarySignals??{}),
+        fields,boundarySignals:clone(work?.boundarySignals??{}),
       })});
+      if(appliedJevAdvice)ownerReceipt={...ownerReceipt,jevAdvisory:appliedJevAdvice};
+
     }catch(error){
       return reject(error?.code??'SCENE_OWNER_REJECTED_PROPOSAL',{invalid:true});
     }
@@ -1418,7 +1528,7 @@ export class DevelopmentDeploymentBrain {
 
   #sceneObservationExecutionReceipt({
     task,admission,status,reasonCode,attempted,returned,workerResult,sourceRevisionId,sceneRevision,parentWorkId,
-    fieldNames=[],invalid=false,
+    fieldNames=[],ambiguityCount=0,invalid=false,
   }={}){
     const profileId=workerResult?.workerId
       ? admission?.plan?.capabilityAdmission?.candidates?.find(row=>row.sourceWorkerId===workerResult.workerId)?.profileId??admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null
@@ -1434,7 +1544,7 @@ export class DevelopmentDeploymentBrain {
       resultId:workerResult?.resultId??null,resourceId:resource?.resourceId??null,providerProfileId:profileId,
       providerId:workerResult?.providerId??resource?.providerId??null,workerId:workerResult?.workerId??resource?.workerId??null,modelId:workerResult?.modelId??resource?.actualModelId??resource?.modelId??null,
       latencyMs:Number.isFinite(Number(workerResult?.latency))?Number(workerResult.latency):null,
-      fieldNames:[...new Set(fieldNames)].sort().slice(0,16),
+      fieldNames:[...new Set(fieldNames)].sort().slice(0,16),ambiguityCount:Math.max(0,Math.min(4,Number(ambiguityCount)||0)),
       rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,
     };

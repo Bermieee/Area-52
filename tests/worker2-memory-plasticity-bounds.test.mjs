@@ -22,6 +22,21 @@ test('Worker 2: hierarchical summary plasticity uses summary lineage bounds with
   assert.equal(summary.evidenceRefs.length,count);
   assert.equal(summary.sourceRevisionRefs.length,count);
 
+  const split=memory.proposeDerivedReorganization({
+    operation:'SPLIT',
+    artifactRefs:[{artifactId:'summary:wide',artifactRevision:1}],
+    targetKeys:['summary:wide:a','summary:wide:b'],
+  });
+  assert.equal(split.status,'PROPOSED');
+  assert.equal(split.sourceRevisionRefCount,count);
+  assert.equal(split.sourceRevisionRefs.length,128);
+  assert.equal(split.sourceRevisionRefsTruncated,true);
+  assert.equal(split.evidenceRefCount,count);
+  assert.equal(split.evidenceRefs.length,count);
+  assert.equal(split.evidenceRefsTruncated,false);
+  assert.equal(split.ownerAdmissionRequired,true);
+  assert.equal(split.canonicalMutationAuthority,false);
+
   assert.throws(()=>memory.plasticity.observeArtifact({
     id:'reflection:too-wide',
     revision:1,

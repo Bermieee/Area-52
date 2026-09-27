@@ -485,7 +485,7 @@ export class MemoryTemporalProducer {
     const receipt={
       kind:'MemoryConsolidationBundleReviewReceipt',contractVersion:'1.0.0',
       bundleId:bundle.bundleId??null,unitId:bundle.unitId??null,
-      status:results.some((row)=>row.status==='COMPLETED')?'COMPLETED':results.some((row)=>row.status==='FAILED')?'FAILED':results.some((row)=>row.status==='DEFERRED')?'DEFERRED':'SKIPPED',
+      status:results.some((row)=>row.status==='COMPLETED')?'COMPLETED':results.some((row)=>row.status==='FAILED')?'FAILED':results.some((row)=>row.status==='DEFERRED')?'DEFERRED':results.some((row)=>row.status==='STALE')?'STALE':results.some((row)=>row.status==='REPLAYED')?'REPLAYED':'SKIPPED',
       results:deepClone(results),
       rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,

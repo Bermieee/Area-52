@@ -1134,9 +1134,9 @@ export class Area52NativeBrain{
     const next={
       stage:String(row.stage??'UNKNOWN'),wallMs:Number.isFinite(wall)?Math.max(0,wall):null,queueWaitMs:Number.isFinite(queue)?Math.max(0,queue):0,
       inputCount:Math.max(0,Number(row.inputCount)||0),outputCount:Math.max(0,Number(row.outputCount)||0),
-      inputBytes:Number.isFinite(Number(row.inputBytes))?Math.max(0,Number(row.inputBytes)):null,outputBytes:Number.isFinite(Number(row.outputBytes))?Math.max(0,Number(row.outputBytes)):null,
+      inputBytes:row.inputBytes!=null&&Number.isFinite(Number(row.inputBytes))?Math.max(0,Number(row.inputBytes)):null,outputBytes:row.outputBytes!=null&&Number.isFinite(Number(row.outputBytes))?Math.max(0,Number(row.outputBytes)):null,
       inputSizeClass:row.inputSizeClass??null,outputSizeClass:row.outputSizeClass??null,
-      retainedObjectCount:Math.max(0,Number(row.retainedObjectCount)||0),retainedBytes:Number.isFinite(Number(row.retainedBytes))?Math.max(0,Number(row.retainedBytes)):null,
+      retainedObjectCount:Math.max(0,Number(row.retainedObjectCount)||0),retainedBytes:row.retainedBytes!=null&&Number.isFinite(Number(row.retainedBytes))?Math.max(0,Number(row.retainedBytes)):null,
       outcome:String(row.outcome??'RECORDED'),
     };
     record.performance.stages=[...(record.performance.stages??[]).filter(stage=>stage.stage!==next.stage),next].slice(-24);

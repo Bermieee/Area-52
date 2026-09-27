@@ -46,12 +46,12 @@ export class GenerationPublicationPipeline {
   publish({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,perspectiveConstraint=null,
-    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
+    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,retrievalIntents=null,
   }){
     const fingerprint=stableHash({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
       precisionAvailable:Boolean(precisionAvailable),activeThreads,channelIds:channelIds?uniq(channelIds):null,perspectiveConstraint,
-      candidateBudget,latencyBudgetMs,graphTraversal,
+      candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,
     },{length:24});
     const replay=this.publishedTurns.get(String(turnId));
     if(replay){
@@ -76,6 +76,7 @@ export class GenerationPublicationPipeline {
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
     })??null;
 
+    const resolvedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}]);
     let primary=[],primaryEnvelope=null,correctiveEnvelope=null,candidates=[];
     let assessment=null,publicationAssessment=null;
     let corrective={executed:false,terminated:true,candidates:[],failed:false,error:null};
@@ -84,7 +85,7 @@ export class GenerationPublicationPipeline {
     if(choiceSession?.hotOnly){
       publicationAssessment=emptyAssessment({turnId,query,intent,reason:'long-term retrieval and Truth were skipped because Hot Cognition satisfied the turn'});
     }else{
-      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,channelIds,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}],metadata:{sceneId:sceneTrace?.sceneId??null,sceneRevision,sceneIntegrationReceiptId:sceneTrace?.lastReceiptId??null}});
+      primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,channelIds,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:resolvedRetrievalIntents,metadata:{sceneId:sceneTrace?.sceneId??null,sceneRevision,sceneIntegrationReceiptId:sceneTrace?.lastReceiptId??null}});
       this.choice?.observeRetrieval?.(choiceSession,primaryEnvelope,{phase:'PRIMARY'});
       primary=primaryEnvelope.candidates.filter(candidate=>candidate.freshness===CandidateFreshness.FRESH);
       for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
@@ -249,6 +250,7 @@ export class GenerationPublicationPipeline {
       candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,hotFreshnessReceipt,
       hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,
+      retrievalIntents:structuredClone(resolvedRetrievalIntents),
       retrievalBudgetReceipt:primaryEnvelope?.metadata?.retrievalBudgetReceipt??null,
       graphTraversalReceipt:primaryEnvelope?.metadata?.graphTraversalReceipt??null,duplicate:false,
     };

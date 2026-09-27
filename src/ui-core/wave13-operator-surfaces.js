@@ -75,7 +75,11 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.previewEdit')return loreAuthoring.previewEditImpact(action.payload??{});
       if(action.type==='wave13.loreAuthoring.proposeTree')return loreAuthoring.proposeTree(action.payload??{});
       if(action.type==='wave13.loreAuthoring.previewMerge')return loreAuthoring.previewMerge(action.payload??{});
-      if(action.type==='wave13.loreAuthoring.startSourceMutationBuild')return loreAuthoring.startSourceMutationBuild(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.createMutationProposal')return loreAuthoring.createMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.approveMutationProposal')return loreAuthoring.approveMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.rejectMutationProposal')return loreAuthoring.rejectMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.commitMutationProposal')return loreAuthoring.commitMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.restoreMutationProposal')return loreAuthoring.restoreMutationProposal(action.payload??{});
       if(action.type==='wave13.loreAuthoring.rebuildAffectedNavigation')return loreAuthoring.rebuildAffectedNavigation(action.payload??{});
       if(action.type==='wave13.loreAuthoring.startTreeBuild')return loreAuthoring.startTreeBuild(action.payload??{});
       if(action.type==='wave13.loreAuthoring.startMergeBuild')return loreAuthoring.startMergeBuild(action.payload??{});
@@ -88,7 +92,7 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.restoreSettlement')return loreAuthoring.restoreSettlement(action.payload??{});
       throw new Error('Unsupported Wave 13 Lore authoring action');
     }));
-    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.startSourceMutationBuild','wave13.loreAuthoring.rebuildAffectedNavigation','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
+    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.createMutationProposal','wave13.loreAuthoring.approveMutationProposal','wave13.loreAuthoring.rejectMutationProposal','wave13.loreAuthoring.commitMutationProposal','wave13.loreAuthoring.restoreMutationProposal','wave13.loreAuthoring.rebuildAffectedNavigation','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
       releases.push(actionRouter.registerAction(type,{subsystem:'wave13-lore-authoring'}));
     }
   }

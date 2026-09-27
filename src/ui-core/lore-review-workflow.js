@@ -5,15 +5,25 @@ const PROPOSAL_KINDS=Object.freeze([
 export const LoreReviewProposalKind=Object.freeze(Object.fromEntries(PROPOSAL_KINDS.map(value=>[value,value])));
 export const LoreReviewDecision=Object.freeze({APPROVE:'APPROVE',REJECT:'REJECT',DEFER:'DEFER'});
 export const LoreReviewOwnerPath=Object.freeze({
-  SOURCE_MUTATION:'SOURCE_MUTATION',
+  REVIEWED_MUTATION:'REVIEWED_MUTATION',
   TREE_REVIEW:'TREE_REVIEW',
   MERGE_REVIEW:'MERGE_REVIEW',
   OWNER_CONTRACT_MISSING:'OWNER_CONTRACT_MISSING',
+});
+export const LoreMutationOwnerOperation=Object.freeze({
+  CREATE_ENTRY:'CREATE',
+  UPDATE_ENTRY:'UPDATE',
+  DELETE_ENTRY:'DELETE',
+  MERGE_ENTRIES:'MERGE',
+  SPLIT_ENTRY:'SPLIT',
+  MOVE_ENTRY:'MOVE',
+  PLACE_ENTRY:'TREE_ASSIGN',
 });
 
 const text=(value,max=240)=>value==null?null:String(value).slice(0,max);
 const list=(value,max=32)=>Array.isArray(value)?value.slice(0,max):[];
 const uniq=(value,max=32)=>[...new Set(list(value,max*2).filter(x=>x!=null).map(String))].slice(0,max);
+const clone=(value)=>value==null?value:(typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value)));
 const treePath=(value)=>{
   if(Array.isArray(value))return value.filter(Boolean).map(String).slice(0,12);
   if(typeof value==='string')return value.split(/[\\/>]+/).map(x=>x.trim()).filter(Boolean).slice(0,12);
@@ -93,14 +103,24 @@ export function buildHumanLoreTree(entries,{maxNodes=160}={}){
 export function createLoreReviewProposal(input={}){
   const proposalKind=String(input.proposalKind??input.action??'').toUpperCase();
   if(!PROPOSAL_KINDS.includes(proposalKind))throw new TypeError('Unsupported Lore proposal kind: '+proposalKind);
+  const localFence=list(input.sourceRevisionFence,16).map(row=>Object.freeze({
+    sourceId:text(row?.sourceId,220),sourceRevisionId:text(row?.sourceRevisionId,220),contentHash:text(row?.contentHash,220),
+  })).filter(row=>row.sourceId);
+  const outputs=list(input.outputs,8).map(row=>Object.freeze({
+    lorebookId:text(row?.lorebookId??input.lorebookId,180),uid:text(row?.uid,180),title:titleOf(row),
+    content:contentOf(row,1600),treePath:Object.freeze(treePath(row?.treePath??row?.metadata?.treePath)),
+    metadata:Object.freeze(clone(row?.metadata??{})),
+  }));
   const payload={
-    kind:'LoreUiReviewProposal',contractVersion:1,
-    proposalId:text(input.proposalId??['ui-lore',proposalKind,input.lorebookId,input.sourceId,input.uid,Date.now()].filter(Boolean).join(':'),220),
+    kind:'LoreUiReviewProposal',contractVersion:2,
+    proposalId:text(input.proposalId??['ui-lore',proposalKind,input.lorebookId,input.sourceId,input.uid,input.targetUid,Date.now()].filter(Boolean).join(':'),260),
     proposalKind,lorebookId:text(input.lorebookId,180),sourceId:text(input.sourceId,220),baseSourceRevisionId:text(input.baseSourceRevisionId,220),uid:text(input.uid,180),
-    targetSourceIds:Object.freeze(uniq(input.targetSourceIds,16)),targetTreePath:Object.freeze(treePath(input.targetTreePath)),
+    targetUid:text(input.targetUid??input.uid,180),targetSourceIds:Object.freeze(uniq(input.targetSourceIds,16)),targetTreePath:Object.freeze(treePath(input.targetTreePath)),
     title:text(input.title,180),content:contentOf(input,1600),reason:text(input.reason,600),
+    sourceMetadata:Object.freeze(clone(input.sourceMetadata??{})),targetMetadata:Object.freeze(clone(input.targetMetadata??{})),
+    outputs:Object.freeze(outputs),sourceRevisionFence:Object.freeze(localFence),
     evidenceSourceIds:Object.freeze(uniq(input.evidenceSourceIds,32)),provenanceRefs:Object.freeze(uniq(input.provenanceRefs,32)),
-    scope:text(input.scope,220),temporalState:text(input.temporalState,100),contradictionState:text(input.contradictionState,100),
+    scope:text(input.scope,220),scopeMode:text(input.scopeMode,80),temporalState:text(input.temporalState,100),contradictionState:text(input.contradictionState,100),
     before:boundedPreview(input.before),after:boundedPreview(input.after),
     mutationAuthority:false,commitState:'DRAFT_NOT_SUBMITTED',operatorDecision:null,
   };
@@ -109,20 +129,73 @@ export function createLoreReviewProposal(input={}){
 
 export function proposalOwnerPath(proposal,capabilities={}){
   const kind=String(proposal?.proposalKind??proposal?.action??'').toUpperCase();
-  if(['CREATE_ENTRY','UPDATE_ENTRY','DELETE_ENTRY'].includes(kind))return capabilities.sourceMutation?LoreReviewOwnerPath.SOURCE_MUTATION:LoreReviewOwnerPath.OWNER_CONTRACT_MISSING;
-  if(['MOVE_ENTRY','PLACE_ENTRY'].includes(kind))return capabilities.lifecycle&&capabilities.tree?LoreReviewOwnerPath.TREE_REVIEW:LoreReviewOwnerPath.OWNER_CONTRACT_MISSING;
-  if(kind==='MERGE_ENTRIES')return capabilities.mergeLifecycle?LoreReviewOwnerPath.MERGE_REVIEW:LoreReviewOwnerPath.OWNER_CONTRACT_MISSING;
+  if(PROPOSAL_KINDS.includes(kind))return capabilities.reviewedMutation||Number(capabilities.mutationExtensionVersion??0)>=1?LoreReviewOwnerPath.REVIEWED_MUTATION:LoreReviewOwnerPath.OWNER_CONTRACT_MISSING;
   return LoreReviewOwnerPath.OWNER_CONTRACT_MISSING;
 }
 
-export function toOwnerSourceMutationProposal(proposal){
+export function toOwnerMutationRequest(proposal,{chatId=null,scopeMode=null}={}){
   const kind=String(proposal?.proposalKind??'').toUpperCase();
-  if(!['CREATE_ENTRY','UPDATE_ENTRY','DELETE_ENTRY'].includes(kind))throw new TypeError(kind+' is not published by Worker 4 source-mutation contract');
-  const out={action:kind,evidenceSourceIds:[...(proposal.evidenceSourceIds??[])]};
-  if(kind==='CREATE_ENTRY'){out.lorebookId=proposal.lorebookId;out.uid=proposal.uid;out.content=proposal.content;out.metadata={title:proposal.title??proposal.uid,treePath:[...(proposal.targetTreePath??[])]};}
-  else{out.sourceId=proposal.sourceId;if(kind==='UPDATE_ENTRY'){out.content=proposal.content;out.metadata={title:proposal.title??null,treePath:[...(proposal.targetTreePath??[])]};}else out.reason=proposal.reason??'operator-reviewed deletion proposal';}
-  if(proposal.baseSourceRevisionId)out.expectedSourceRevisionId=proposal.baseSourceRevisionId;
-  return Object.freeze(out);
+  const operation=LoreMutationOwnerOperation[kind];
+  if(!operation)throw new TypeError(kind+' is not supported by Worker 4 mutationExtensionVersion:1');
+  const resolvedScope=scopeMode??proposal?.scopeMode??null;
+  const scope=resolvedScope==='GLOBAL_OPERATOR'
+    ?{scopeMode:'GLOBAL_OPERATOR'}
+    :{chatId:text(chatId??proposal?.scope,220)};
+  if(!scope.chatId&&!scope.scopeMode)throw new TypeError('Exact chatId is required unless scopeMode=GLOBAL_OPERATOR is explicitly selected.');
+  const request={operation,...scope,evidenceRefs:uniq(proposal?.provenanceRefs,64),origin:{kind:'OPERATOR_UI',uiProposalId:text(proposal?.proposalId,260)}};
+  const metadata=(fallback={})=>({
+    ...clone(fallback??{}),
+    ...(proposal?.title?{title:proposal.title}:{}),
+    ...(proposal?.targetTreePath?.length?{treePath:[...proposal.targetTreePath]}:{}),
+  });
+  if(kind==='CREATE_ENTRY'){
+    const uid=required(proposal?.targetUid??proposal?.uid,'CREATE target UID');
+    request.target={lorebookId:required(proposal?.lorebookId,'CREATE Lorebook'),uid,content:requiredContent(proposal?.content,'CREATE exact authored content'),metadata:metadata(proposal?.targetMetadata)};
+  }else if(kind==='UPDATE_ENTRY'){
+    request.sourceId=required(proposal?.sourceId,'UPDATE source');
+    request.after={content:requiredContent(proposal?.content,'UPDATE exact authored content'),metadata:metadata(Object.keys(proposal?.sourceMetadata??{}).length?proposal.sourceMetadata:proposal?.targetMetadata)};
+  }else if(kind==='DELETE_ENTRY'){
+    request.sourceId=required(proposal?.sourceId,'DELETE source');
+  }else if(kind==='MERGE_ENTRIES'){
+    const ids=uniq([proposal?.sourceId,...(proposal?.targetSourceIds??[])],16);
+    if(ids.length<2)throw new TypeError('MERGE requires at least two current source IDs.');
+    request.sourceIds=ids;
+    request.target={lorebookId:required(proposal?.lorebookId,'MERGE target Lorebook'),uid:required(proposal?.targetUid,'MERGE target UID'),content:requiredContent(proposal?.content,'MERGE exact output content'),metadata:metadata(proposal?.targetMetadata)};
+  }else if(kind==='SPLIT_ENTRY'){
+    request.sourceId=required(proposal?.sourceId,'SPLIT source');
+    if((proposal?.outputs??[]).length<2)throw new TypeError('SPLIT requires at least two exact operator-supplied outputs.');
+    request.outputs=proposal.outputs.map((row,index)=>({
+      lorebookId:required(row?.lorebookId??proposal?.lorebookId,'SPLIT output '+String(index+1)+' Lorebook'),
+      uid:required(row?.uid,'SPLIT output '+String(index+1)+' UID'),
+      content:requiredContent(row?.content,'SPLIT output '+String(index+1)+' exact content'),
+      metadata:{...clone(row?.metadata??{}),...(row?.title?{title:row.title}:{}),...(row?.treePath?.length?{treePath:[...row.treePath]}:{})},
+    }));
+  }else if(kind==='MOVE_ENTRY'){
+    request.sourceId=required(proposal?.sourceId,'MOVE source');
+    request.target={lorebookId:required(proposal?.lorebookId,'MOVE target Lorebook'),uid:required(proposal?.targetUid,'MOVE target UID'),metadata:metadata(Object.keys(proposal?.sourceMetadata??{}).length?proposal.sourceMetadata:proposal?.targetMetadata)};
+  }else if(kind==='PLACE_ENTRY'){
+    request.sourceId=required(proposal?.sourceId,'TREE_ASSIGN source');
+    if(!proposal?.targetTreePath?.length)throw new TypeError('TREE_ASSIGN requires a target human-tree path.');
+    request.treePath=[...proposal.targetTreePath];
+  }
+  return Object.freeze(request);
+}
+
+// Compatibility export for older Worker 3 tests/callers. The UI no longer uses a source-session seam.
+export function toOwnerSourceMutationProposal(proposal,options={}){
+  return toOwnerMutationRequest(proposal,options);
+}
+
+export function compareMutationFences(localProposal,ownerProposal){
+  const local=list(localProposal?.sourceRevisionFence,32);
+  const owner=list(ownerProposal?.sourceRevisionFence,32);
+  const localMap=new Map(local.map(row=>[String(row?.sourceId??''),String(row?.sourceRevisionId??'')]));
+  const changed=owner.filter(row=>{
+    const expected=localMap.get(String(row?.sourceId??''));
+    return expected&&expected!==String(row?.sourceRevisionId??'');
+  }).map(row=>({sourceId:row.sourceId,localSourceRevisionId:localMap.get(String(row.sourceId)),ownerSourceRevisionId:row.sourceRevisionId}));
+  const missing=local.filter(row=>!owner.some(x=>String(x?.sourceId)===String(row?.sourceId))).map(row=>row.sourceId);
+  return Object.freeze({kind:'LoreMutationFenceComparison',matches:changed.length===0&&missing.length===0,changed:Object.freeze(changed),missing:Object.freeze(missing)});
 }
 
 export function summarizeLoreReviewAction(action,{contentLimit=900}={}){
@@ -148,11 +221,24 @@ export function loreRestudyProgress(read){
   const studying=Number(counts.STUDYING??entries.filter(x=>String(x.operatorState).toUpperCase()==='STUDYING').length)||0;
   const ready=Number(counts.READY??entries.filter(x=>String(x.operatorState).toUpperCase()==='READY').length)||0;
   const failed=Number(counts.FAILED??entries.filter(x=>String(x.operatorState).toUpperCase()==='FAILED').length)||0;
+  const removed=Number(counts.REMOVED??entries.filter(x=>String(x.operatorState).toUpperCase()==='REMOVED').length)||0;
   const stale=entries.filter(x=>String(x.freshness??'').toUpperCase().includes('STALE')).length;
-  const total=Math.max(entries.length,accepted+studying+ready+failed);
-  return Object.freeze({kind:'LoreRestudyProgress',accepted,studying,ready,failed,stale,total,complete:total>0&&ready===total&&failed===0&&studying===0&&accepted===0});
+  const total=Math.max(entries.length,accepted+studying+ready+failed+removed);
+  return Object.freeze({kind:'LoreRestudyProgress',accepted,studying,ready,failed,removed,stale,total,complete:total>0&&ready+removed===total&&failed===0&&studying===0&&accepted===0});
 }
 
+export function mutationRestudyProgress(ownerProposal,read){
+  const ids=uniq(ownerProposal?.state==='RESTORED'?(ownerProposal?.restoration?.studyObligationIds??ownerProposal?.studyObligationIds):ownerProposal?.studyObligationIds,64),data=read?.data??read??{},entries=Array.isArray(data.entries)?data.entries:[];
+  if(!ids.length)return Object.freeze({kind:'LoreMutationRestudyProgress',state:'NO_EVIDENCE',obligationIds:[],matched:0,missing:0,accepted:0,studying:0,ready:0,failed:0,removed:0,complete:false});
+  const wanted=new Set(ids),rows=entries.filter(row=>wanted.has(String(row?.studyObligationId??'')));
+  const observedIds=new Set(rows.map(row=>String(row?.studyObligationId??'')));
+  const count=(state)=>rows.filter(row=>String(row?.operatorState??'').toUpperCase()===state).length;
+  const missing=ids.filter(id=>!observedIds.has(id)).length,accepted=count('ACCEPTED'),studying=count('STUDYING'),ready=count('READY'),failed=count('FAILED'),removed=count('REMOVED');
+  return Object.freeze({kind:'LoreMutationRestudyProgress',state:missing?'PARTIAL_RECEIPTS':failed?'FAILED':accepted||studying?'IN_PROGRESS':'READY',obligationIds:Object.freeze(ids),matched:rows.length,missing,accepted,studying,ready,failed,removed,complete:missing===0&&failed===0&&accepted===0&&studying===0&&ready+removed===ids.length});
+}
+
+function required(value,label){const v=value==null?'':String(value).trim();if(!v)throw new TypeError(label+' is required.');return v;}
+function requiredContent(value,label){if(typeof value!=='string'||!value.trim())throw new TypeError(label+' is required.');return value;}
 function boundedPreview(value,max=1200){
   if(value==null)return null;
   if(typeof value==='string')return Object.freeze({text:text(value,max)});

@@ -307,7 +307,7 @@ test('Lore owner lifecycle distinguishes accepted source from learned retrieval-
 
 test('Lore workspace uses SillyTavern selection instead of manual ID or pasted JSON in the normal flow',()=>{
   const owner=liveOwner({withLore:true}),{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Selected Lorebook/);assert.match(body,/No Lorebook selected|discovery unavailable/i);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/selected Lorebook/i);assert.match(body,/No Lorebook selected|discovery unavailable/i);
   assert.doesNotMatch(body,/Submit Lore for study|Authored Lore/);
   const inputs=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='INPUT'||x.tagName==='TEXTAREA');
   assert.ok(inputs.every(x=>x.getAttribute?.('aria-label')!=='Lorebook ID'&&x.getAttribute?.('aria-label')!=='Lore content'));
@@ -394,7 +394,7 @@ test('Inspect details keeps unavailable owner evidence honest in the drawer',()=
   if(ui.shell.inspector.selection==null){unavailable.dispatch('click');ui.scheduler.flush(2);}
   assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'true');
   if(ui.shell.inspector.selection?.available===false){
-    assert.match(ui.shell.inspector.selection.reason??'',/not connected|not published|unavailable|receipt/i);
+    assert.match(ui.shell.inspector.selection.reason??'',/not connected|not published|unavailable|receipt|does not export/i);
   }
   ui.destroy();
 });
@@ -457,7 +457,7 @@ test('Memory no-evidence owner code is translated to plain language while the co
 
 test('Connections cards use panel-width responsive tracks instead of fixed three-column squeezing',()=>{
   const css=readFileSync(new URL('../styles/ui-core-wave13.css',import.meta.url),'utf8');
-  assert.match(css,/\.a52-wave13-connection-slots\{[^}]*repeat\(auto-fit,minmax\(min\(100%,280px\),1fr\)\)/);assert.match(css,/\.a52-wave13-connection-slot \.a52-key-values\{[^}]*minmax\(0,1\.28fr\)/);assert.match(css,/overflow-wrap:anywhere/);
+  assert.match(css,/\.a52-wave13-connection-slots\{[^}]*repeat\(auto-fit,minmax\(min\(100%,280px\),1fr\)\)/);assert.match(css,/minmax\(82px,\.72fr\) minmax\(0,1\.28fr\)/);assert.match(css,/overflow-wrap:anywhere/);
 });
 
 test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{

@@ -6,6 +6,7 @@ import {
   createChannelNomination,
   createRetrievalChannelDescriptor,
 } from './candidate-bus-contracts.js';
+import {KnowledgeAuthorityOrigin,KnowledgeSourceClass,KnowledgeTemporalStatus,createKnowledgeEvidence} from './knowledge-evidence.js';
 import {InMemoryRetrievalIndexAdapter} from './retrieval-index-adapters.js';
 import {RetrievalIndexLifecycleManager} from './retrieval-index-lifecycle.js';
 import {
@@ -170,8 +171,12 @@ export class ProductionSparseRetrievalChannel{
     adapterId='PRODUCTION_SPARSE_EXACT',
     maxArtifacts=512,
     maxCandidates=32,
+    evidenceSink=null,
+    revisionGuard=null,
   }={}){
     this.channelId=String(channelId);
+    this.evidenceSink=typeof evidenceSink==='function'?evidenceSink:()=>{};
+    this.revisionGuard=typeof revisionGuard==='function'?revisionGuard:null;
     this.maxArtifacts=Math.max(1,Math.min(2048,Math.trunc(Number(maxArtifacts)||512)));
     this.maxCandidates=Math.max(1,Math.min(64,Math.trunc(Number(maxCandidates)||32)));
     this.adapter=new ProductionSparseIndexAdapter({adapterId});
@@ -329,6 +334,17 @@ export class ProductionSparseRetrievalChannel{
     const maxScore=Math.max(...fresh.map((row)=>Number(row.score)||0),1);
     return fresh.slice(0,this.maxCandidates).map((row,index)=>{
       const rep=row.representation;
+      const evidenceId='owner-sparse-evidence:'+rep.sourceRevision;
+      const evidence=createKnowledgeEvidence({
+        evidenceId,evidenceIdentity:'lore-source:'+rep.sourceId,
+        artifactRef:{artifactId:rep.ownerArtifactId,artifactType:rep.metadata?.artifactType??'LORE_SOURCE_SPARSE',revision:rep.ownerArtifactRevision},
+        sourceClass:KnowledgeSourceClass.SOURCE_LORE,authorityClass:'SOURCE_CANON',authorityOrigin:KnowledgeAuthorityOrigin.SOURCE,
+        temporalStatus:KnowledgeTemporalStatus.CURRENT,sourceRevisionRefs:[rep.sourceRevision],dependencyRevisionRefs:rep.dependencyInvalidators,
+        provenanceRefs:uniq([rep.sourceRevision,...(rep.provenanceRefs??[])]),
+        loreRef:{sourceId:rep.sourceId,lorebookId:rep.metadata?.lorebookId??null,uid:rep.metadata?.uid??null,sourceRevisionId:rep.sourceRevision},
+        extensions:{representationText:rep.representationText,exactSourceDrillback:true,owner:'LORE',sparseExecution:row.rankSignals?.sparseExecution??'LEXICAL_FALLBACK'},
+      });
+      this.evidenceSink(evidence);
       return createChannelNomination({
         nominationId:this.channelId+':'+String(intent?.intentId??'intent')+':'+rep.representationId,
         channelId:this.channelId,
@@ -348,7 +364,7 @@ export class ProductionSparseRetrievalChannel{
         truthStatusHint:rep.truthStatusHint,
         temporalHints:[{status:rep.truthStatusHint}],
         provenance:(rep.provenanceRefs??[]).map((ref)=>({ref})),
-        evidenceRefs:uniq([rep.sourceRevision,...(rep.provenanceRefs??[])]),
+        evidenceRefs:[evidenceId],
         dependencyRevisions:rep.dependencyInvalidators,
         freshness:CandidateFreshness.FRESH,
         representationRef:rep.representationId,
@@ -356,7 +372,7 @@ export class ProductionSparseRetrievalChannel{
         representationText:rep.representationText,
         metadata:{
           ...(clone(rep.metadata??{})),
-          owner:'LORE',
+          owner:'LORE',knowledgeEvidenceId:evidenceId,
           ownerSourceId:rep.sourceId,
           ownerSourceRevisionId:rep.sourceRevision,
           exactSourceDrillback:true,
@@ -399,6 +415,12 @@ export class ProductionSparseRetrievalChannel{
     catch(error){return{ok:false,failure:{sourceId,reason:error?.code??error?.message??'OWNER_SOURCE_REVISION_FAILED'}};}
     if(!revision||String(revision.id??'')!==String(entry.sourceRevisionId??'')||revision.state==='REMOVED'||typeof revision.exactContent!=='string'){
       return{ok:false,failure:{sourceId,reason:'OWNER_CURRENT_REVISION_MISMATCH',expectedRevisionId:entry.sourceRevisionId??null,actualRevisionId:revision?.id??null}};
+    }
+    if(this.revisionGuard){
+      let guard;
+      try{guard=this.revisionGuard({sourceId,sourceRevisionId:String(revision.id),exactAuthoredText:String(revision.exactContent),ownerRevision:clone(revision)});}
+      catch(error){return{ok:false,failure:{sourceId,reason:error?.code??error?.message??'BRAIN_REVISION_GUARD_FAILED'}};}
+      if(guard===false||guard?.admit===false)return{ok:false,failure:{sourceId,reason:guard?.reason??'BRAIN_REVISION_GUARD_REJECTED'}};
     }
     const artifactId=this.#artifactId(sourceId);
     const fields=sparseFields({sourceId,lorebookId:entry.lorebookId,uid:entry.uid,revision});

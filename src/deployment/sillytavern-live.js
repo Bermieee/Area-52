@@ -669,21 +669,25 @@ export class DevelopmentDeploymentSillyTavernSession {
     const lastUserIndex=eventData.chat.map(row=>String(row?.role??'')).lastIndexOf('user'),insertAt=lastUserIndex>=0?lastUserIndex:eventData.chat.length;
     eventData.chat.splice(insertAt,0,...exactMessages);
     const requestPayloadDigest=shortHash(JSON.stringify(exactMessages));
-    let observedReceipt=null;
-    try{
-      observedReceipt=this.nativeBrain.recordObservedHostPromptEvidence(pending.turnId,{
-        host:'SILLYTAVERN',hostObserved:true,live:true,chatId,turnId:pending.turnId,generationId:pending.generationId,
-        contextSealId:pending.contextSealId,requestId:eventData.requestId??eventData.id??null,
-        sealedPacketHash:rendered.sealedPacketHash??null,observedRoles:exactMessages.map(row=>row.role),
-        observedSections:(rendered.messageMap??[]).map(row=>({slot:row.slot,sectionIdentity:row.sectionIdentity??null,providerRole:row.providerRole??null,sourceRevisionIds:[...(row.sourceRevisionIds??[])],semanticManifestIdentity:row.semanticManifestIdentity??null})),
-        promptFingerprint:requestPayloadDigest,capturedAt:Date.now(),
-      });
-      if(observedReceipt?.phases?.hostRequest?.status!=='OBSERVED_MATCH')throw new Error('HOST_DELIVERY_OBSERVATION_MISMATCH');
-    }catch(error){
-      eventData.chat.splice(insertAt,exactMessages.length);
-      throw error;
+    let observedReceipt=null,ownerDeliveryReceiptRecorded=false;
+    if(typeof this.nativeBrain?.recordObservedHostPromptEvidence==='function'){
+      try{
+        observedReceipt=this.nativeBrain.recordObservedHostPromptEvidence(pending.turnId,{
+          host:'SILLYTAVERN',hostObserved:true,live:true,chatId,turnId:pending.turnId,generationId:pending.generationId,
+          contextSealId:pending.contextSealId,requestId:eventData.requestId??eventData.id??null,
+          sealedPacketHash:rendered.sealedPacketHash??null,observedRoles:exactMessages.map(row=>row.role),
+          observedSections:(rendered.messageMap??[]).map(row=>({slot:row.slot,sectionIdentity:row.sectionIdentity??null,providerRole:row.providerRole??null,sourceRevisionIds:[...(row.sourceRevisionIds??[])],semanticManifestIdentity:row.semanticManifestIdentity??null})),
+          promptFingerprint:requestPayloadDigest,capturedAt:Date.now(),
+        });
+        if(observedReceipt?.phases?.hostRequest?.status!=='OBSERVED_MATCH')throw new Error('HOST_DELIVERY_OBSERVATION_MISMATCH');
+        ownerDeliveryReceiptRecorded=true;
+      }catch(error){
+        eventData.chat.splice(insertAt,exactMessages.length);
+        throw error;
+      }
     }
-    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestPayloadDigest,renderedMessageCount:exactMessages.length,requestHook:'CHAT_COMPLETION_PROMPT_READY',deliveryReceiptStatus:observedReceipt?.status??null,deliveryReceiptContractVersion:observedReceipt?.contractVersion??null};
+    const deliveryReceiptStatus=ownerDeliveryReceiptRecorded?(observedReceipt?.status??'OBSERVED_MATCH'):'HOST_OBSERVED_OWNER_RECEIPT_UNAVAILABLE';
+    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestPayloadDigest,renderedMessageCount:exactMessages.length,requestHook:'CHAT_COMPLETION_PROMPT_READY',deliveryReceiptStatus,deliveryReceiptContractVersion:observedReceipt?.contractVersion??null,ownerDeliveryReceiptRecorded};
     this.nativePending.set(chatId,updated);this.nativePayloads.delete(chatId);this.nativeHistory.push(clone(updated));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
     this.#notify();return clone(updated);
   }

@@ -703,6 +703,15 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
     }
   }
 
+  const trace=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:real-consolidation',turnId:'real-consolidation:2',generationId:'gen:real-consolidation:2'});
+  assert.equal(trace.producers.memory.status,'ADMITTED');
+  assert.equal(trace.producers.memory.metadata.stageSemantics,'EXACT_EVIDENCE_MAPPING_ONLY');
+  assert.equal(trace.producers.memoryEpisode.status,'COMPLETED');
+  assert.equal(trace.producers.memoryEpisode.ownerAccepted,true);
+  assert.equal(trace.producers.memoryConsolidation.status,'COMPLETED');
+  assert.equal(trace.producers.memoryConsolidation.ownerAccepted,true);
+  assert.equal(trace.producers.memoryConsolidation.metadata.providerAttempted,true);
+
   const reflection=deployment.memory.experienceStore.currentReflections()[0];
   assert.ok(reflection);
   assert.equal(reflection.reflectionKey,'reflection:sera:compass-check');

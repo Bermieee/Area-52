@@ -508,7 +508,7 @@ export class Area52NativeBrain{
       }));
       memoryPostTurn=accept({
         chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,
-        sceneId:record.sceneId??null,sceneRevision:record.sceneRevision,worldRevision:this.core.graph.revision,
+        sceneId:record.sceneId??null,sceneRevision:record.sceneRevision,worldRevision:record.worldRevision,
         contextSealId:record.published?.sealReceipt?.id??null,sourceRevisionId:corrected.sourceRevisionId,
         ownerArtifactRef,externalEvidenceRef:ownerArtifactRef.artifactId,reflectionCandidates,
       });

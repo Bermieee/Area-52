@@ -123,6 +123,29 @@ test('flashback and resume preserve conceptual Scene identity and finalize only 
   assert.equal(brain.core.sceneTransitionContext('resume-chat')?.toSceneRef.sceneId,presentId);
 });
 
+test('parallel and interruption cuts suspend prior Scenes without falsely finalizing Episodes',()=>{
+  for(const [relationship,label] of [[SceneRelationship.PARALLEL_TO,'parallel'],[SceneRelationship.INTERRUPTS,'interrupt']]){
+    const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+    const start=ingest(brain,event(HostActivity.USER_SEND,`${label}-start`,'At North Gallery, Mara waits.',{chatId:`${label}-chat`}));
+    const priorId=start.sceneId,episodesBefore=brain.scene.episodeCompiler.list().length;
+    const transition=brain.scene.transitionManager.transition({
+      decision:{status:'CONFIRMED',candidateId:`${label}-candidate`,sceneId:priorId,boundaryType:'EXPLICIT_BREAK',confidence:1,evidenceRefs:[`${label}:evidence`]},
+      fromSceneId:priorId,relationship,evidenceRefs:[`${label}:evidence`],sourceRevisionRefs:[start.evidence.sourceRevisionId],
+      sourceRange:{start:`${label}-cut`,end:`${label}-cut`},destinationHints:{locationRefs:['East Terrace']},
+    });
+    assert.equal(transition.status,'COMPLETE');
+    assert.equal(transition.relationship,relationship);
+    assert.equal(transition.episodeRef,null,'suspended prior Scene must not be finalized into an Episode');
+    assert.equal(transition.handoff?.continuity?.episodeRef??null,null);
+    assert.equal(brain.scene.episodeCompiler.list().length,episodesBefore);
+    assert.equal(brain.scene.registry.current(priorId).lifecycle,'SUSPENDED');
+    const priorFrame=brain.scene.stack.frames.find(row=>row.sceneId===priorId);
+    assert.equal(priorFrame?.suspended,true);
+    assert.equal(priorFrame?.resumable,true);
+    assert.notEqual(brain.scene.stack.activeSceneId,priorId);
+  }
+});
+
 test('duplicate confirmed transition is idempotent for Episode, invalidation, handoff, and prefetch',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   const first=ingest(brain,event(HostActivity.USER_SEND,'dup-1','At North Gallery, Mara waits.',{chatId:'dup-chat'}));
@@ -155,6 +178,20 @@ test('source edit invalidates only dependent handoff and stale handoff cannot re
   const retry=brain.core.consumeSceneTransitionHandoff(moved.transitionHandoff,{chatNamespace:'stale-chat'});
   assert.equal(retry.status,'STALE');
   assert.ok(brain.scene.narrativeFeed.findSourceRevision('stale-chat',original.evidence.sourceRevisionId));
+});
+
+test('source edit invalidates only the handoff that depends on the replaced revision',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  ingest(brain,event(HostActivity.USER_SEND,'dep-a1','At North Gallery, Mara waits.',{chatId:'dep-a',messageId:'shared-a',messageRevision:1}));
+  const movedA=ingest(brain,event(HostActivity.USER_SEND,'dep-a2','We arrive at South Courtyard.',{chatId:'dep-a'}));
+  ingest(brain,event(HostActivity.USER_SEND,'dep-b1','At West Hall, Eris waits.',{chatId:'dep-b',messageId:'shared-b',messageRevision:1}));
+  const movedB=ingest(brain,event(HostActivity.USER_SEND,'dep-b2','We arrive at East Terrace.',{chatId:'dep-b'}));
+
+  const edit=ingest(brain,event(HostActivity.EDIT,'dep-a-edit','At North Gallery, Mara waits quietly.',{chatId:'dep-a',messageId:'shared-a',messageRevision:2}));
+  assert.ok(edit.invalidatedTransitionHandoffs.some(row=>row.handoffId===movedA.transitionHandoff.handoffId&&row.status==='INVALIDATED'));
+  const handoffs=brain.scene.transitionManager.listHandoffs();
+  assert.equal(handoffs.find(row=>row.handoffId===movedA.transitionHandoff.handoffId)?.status,'INVALIDATED');
+  assert.equal(handoffs.find(row=>row.handoffId===movedB.transitionHandoff.handoffId)?.status,'ACTIVE','unrelated handoff must remain active');
 });
 
 test('late handoff for a superseded destination Scene is excluded as stale',()=>{

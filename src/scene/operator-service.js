@@ -56,6 +56,10 @@ export class SceneOperatorService{
     if(chatId&&ownerChat&&String(chatId)!==String(ownerChat)){
       return{ok:false,status:'UNAVAILABLE',reason:'SCENE_CHAT_MISMATCH',scene:current,staleSourceRevisionRefs:[]};
     }
+    const activeChatId=String(this.runtime.narrativeFeed?.activeChatId??'').trim();
+    if(chatId&&activeChatId&&String(chatId)!==activeChatId){
+      return{ok:false,status:'UNAVAILABLE',reason:'CHAT_SELECTION_STALE',scene:current,staleSourceRevisionRefs:[]};
+    }
     const resolvedChat=String(chatId??ownerChat??'').trim();
     const refs=uniq(sourceRevisionRefs,128);
     if(resolvedChat&&refs.length&&typeof this.runtime.narrativeFeed?.currentEvidence==='function'){

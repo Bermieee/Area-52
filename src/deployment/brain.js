@@ -20,6 +20,7 @@ import { SceneStateExtractor } from '../scene/scene-state-extractor.js';
 import { SceneEventPublisher } from '../scene/event-publisher.js';
 import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
+import { SceneEventType } from '../scene/lifecycle-contracts.js';
 import { SceneJevOwnerAdjudicator, SceneOwnerDecision } from '../scene/jev-owner.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { CausalReasonCode } from '../runtime/causal-receipts.js';
@@ -55,6 +56,13 @@ const sceneCausalAdmissionReason=(reasonCode,accepted)=>{
   return CausalReasonCode.OWNER_REJECTED;
 };
 const unsupportedDeterministicStudy = (error) => /^RuleBasedStudyAdapter has no deterministic extractor for:/.test(String(error?.message ?? error));
+const SCENE_CURRENT_OBLIGATION_EVENT_TYPES=new Set([
+  SceneEventType.SCENE_STATE_DELTA,SceneEventType.LOCATION_CHANGED,SceneEventType.TIME_SHIFT_DETECTED,
+  SceneEventType.ACTIVE_CAST_CHANGED,SceneEventType.RELATIONSHIP_SIGNAL,SceneEventType.SCENE_BOUNDARY_CANDIDATE,
+  SceneEventType.SCENE_BOUNDARY_CONFIRMED,SceneEventType.SCENE_CLOSED,SceneEventType.SCENE_OPENED,
+  SceneEventType.VIBE_CHANGED,SceneEventType.PREFETCH_RECOMMENDED,SceneEventType.OBJECT_TRANSITION,
+]);
+
 
 function field(value, revision, evidenceRef, observationClass = ObservationClass.OBSERVED, confidence = 1) {
   return createFieldState({
@@ -333,12 +341,15 @@ export class DevelopmentDeploymentBrain {
     }
     this.loreSettlementEvents = clone(loreOwnerSnapshot?.settlementEvents ?? []);
     this.sceneOwnerTimeline = [];
+    this.sceneEventSpineReceipts = [];
+    this.sceneEventObligationReceipts = [];
     const sceneTimelineSink = (type) => (value) => {
       this.sceneOwnerTimeline.push({ type, value: clone(value) });
       if (this.sceneOwnerTimeline.length > 256) this.sceneOwnerTimeline.splice(0, this.sceneOwnerTimeline.length - 256);
     };
+    const sceneTimelineEventSink=sceneTimelineSink('EVENT');
     this.scene = new SceneLifecycleRuntime({
-      publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
+      publisher: new SceneEventPublisher({ sink: sceneTimelineEventSink }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
     });
     this.sceneObservationExtractor = new SceneStateExtractor({ agent: 'area52-cognitive-resource' });
@@ -472,6 +483,23 @@ export class DevelopmentDeploymentBrain {
       resultSink: (result) => this.runtimeResults.push(clone(result)),
     });
     this.runtime = new CognitiveRuntimeHost({ director: this.runtimeDirector });
+    this.scene.publisher.registerWithRuntimeRegistry(this.runtimeDirector.eventTypes);
+    const sceneRuntimeSink=this.scene.publisher.runtimeSink(this.runtimeDirector.events);
+    this.scene.publisher.sink=(event)=>{
+      sceneTimelineEventSink(event);
+      try{
+        const runtimeEvent=sceneRuntimeSink(event);
+        this.#retainSceneEventSpineReceipt({
+          status:'ACCEPTED',reasonCode:'EVENT_SPINE_ACCEPTED',event,runtimeEvent,
+        });
+        return runtimeEvent;
+      }catch(error){
+        this.#retainSceneEventSpineReceipt({
+          status:'REJECTED',reasonCode:String(error?.code??'EVENT_SPINE_REJECTED'),event,errorMessage:String(error?.message??error).slice(0,240),
+        });
+        return null;
+      }
+    };
     const adapter = { invoke: (ctx) => this.#invokeRuntime(ctx) };
     for (let i = 0; i < resourceCount; i += 1) this.runtime.registerExecutionResource({ worker: runtimeWorker('area52-local-' + (i + 1)), adapter });
     this.core.registerJevAdapter({
@@ -839,8 +867,123 @@ export class DevelopmentDeploymentBrain {
     const n=Math.max(1,Math.min(128,Number(limit)||64));return clone(this.sceneObservationReceipts.slice(-n));
   }
 
+  #retainSceneEventSpineReceipt(input={}){
+    const event=input.event??null,runtimeEvent=input.runtimeEvent??null;
+    const receipt=Object.freeze({
+      kind:'DeploymentSceneEventSpineReceipt',contractVersion:1,
+      status:String(input.status??'REJECTED'),reasonCode:String(input.reasonCode??'EVENT_SPINE_UNKNOWN'),
+      eventId:event?.eventId??runtimeEvent?.eventId??null,eventType:event?.eventType??runtimeEvent?.eventType??null,
+      chatId:event?.chatId??runtimeEvent?.chatId??null,turnId:event?.turnId??runtimeEvent?.turnId??null,
+      generationId:event?.generationId??runtimeEvent?.generationId??null,correlationId:event?.correlationId??runtimeEvent?.correlationId??null,
+      causationId:event?.causationId??runtimeEvent?.causationId??null,sceneId:event?.sceneId??runtimeEvent?.sceneId??null,
+      sceneRevision:event?.sceneRevision??runtimeEvent?.sceneRevision??null,
+      sourceRevisionRefs:uniq(event?.sourceRevisionSet??Object.keys(runtimeEvent?.sourceRevisions??{})),
+      dedupeKey:event?.dedupeKey??runtimeEvent?.dedupeKey??null,
+      runtimeSequence:runtimeEvent?.createdSequence??null,errorMessage:input.errorMessage??null,
+      authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+    this.sceneEventSpineReceipts.push(clone(receipt));
+    if(this.sceneEventSpineReceipts.length>256)this.sceneEventSpineReceipts.splice(0,this.sceneEventSpineReceipts.length-256);
+    return receipt;
+  }
+
+  #retainSceneEventObligationReceipt(input={}){
+    const event=input.event??null,admission=input.admission??null;
+    const receipt=Object.freeze({
+      kind:'DeploymentSceneEventObligationReceipt',contractVersion:1,
+      status:String(input.status??'REJECTED'),reasonCode:String(input.reasonCode??'SCENE_EVENT_OBLIGATION_REJECTED'),
+      producerId:input.producerId??null,eventId:event?.eventId??null,eventType:event?.eventType??null,
+      chatId:event?.chatId??null,turnId:event?.turnId??null,generationId:event?.generationId??null,
+      correlationId:event?.correlationId??null,sceneId:event?.sceneId??null,sceneRevision:event?.sceneRevision??null,
+      sourceRevisionRefs:uniq(event?.revisionFences?.sourceRevisionIds??Object.keys(event?.sourceRevisions??{})),
+      taskId:admission?.task?.taskId??null,deduped:Boolean(admission?.deduped),coalesced:Boolean(admission?.coalesced),
+      authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+    this.sceneEventObligationReceipts.push(clone(receipt));
+    if(this.sceneEventObligationReceipts.length>256)this.sceneEventObligationReceipts.splice(0,this.sceneEventObligationReceipts.length-256);
+    return receipt;
+  }
+
+  #sceneEventObligationGuard(event,{allowPostSeal=false}={}){
+    if(event?.producer!=='SCENE_INTELLIGENCE')return{accepted:false,reasonCode:'SCENE_EVENT_PRODUCER_MISMATCH'};
+    if(!event?.chatId)return{accepted:false,reasonCode:'SCENE_EVENT_CHAT_ID_MISSING'};
+    const activeChat=String(this.core.hotCognition?.activeChatNamespace??this.scene.narrativeFeed.activeChatId??'');
+    if(activeChat&&String(event.chatId)!==activeChat)return{accepted:false,reasonCode:'SCENE_EVENT_FOREIGN_CHAT'};
+    if(event.turnId&&!allowPostSeal&&this.core.publication.seal.isTurnSealed(event.turnId))return{accepted:false,reasonCode:'SCENE_EVENT_POST_SEAL'};
+    const refs=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
+    const currentSources=new Set(this.scene.narrativeFeed.currentEvidence(String(event.chatId)).map(row=>String(row.sourceRevisionId)));
+    if(refs.length&&refs.some(ref=>!currentSources.has(String(ref))))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SOURCE'};
+    if(SCENE_CURRENT_OBLIGATION_EVENT_TYPES.has(event.eventType)){
+      const current=this.scene.registry.current(String(event.sceneId??''));
+      if(!current||Number(current.revision)!==Number(event.sceneRevision))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SCENE_REVISION'};
+    }
+    return{accepted:true,reasonCode:'SCENE_EVENT_CURRENT'};
+  }
+
+  bindSceneEventObligationOwner({producer,eventTypes,mapEvent,executorFactory,allowPostSeal=false}={}){
+    const producerId=String(producer?.producerId??'').trim();
+    if(!producerId)throw new TypeError('Scene event obligation owner requires producer.producerId');
+    if(typeof mapEvent!=='function')throw new TypeError('Scene event obligation owner requires mapEvent');
+    if(typeof executorFactory!=='function')throw new TypeError('Scene event obligation owner requires executorFactory');
+    if(!this.runtime.producers.list().some(row=>row.producerId===producerId))this.runtime.registerProducer(producer);
+    const types=uniq(eventTypes??[]);
+    if(!types.length)throw new TypeError('Scene event obligation owner requires eventTypes');
+    for(const eventType of types)if(!Object.values(SceneEventType).includes(eventType))throw new TypeError('Unsupported Scene event obligation type: '+eventType);
+    const releases=types.map(eventType=>this.runtimeDirector.events.subscribe(eventType,(event)=>{
+      const guard=this.#sceneEventObligationGuard(event,{allowPostSeal});
+      if(!guard.accepted){
+        this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode:guard.reasonCode,producerId,event});
+        return;
+      }
+      let request;
+      try{request=mapEvent(clone(event));}
+      catch(error){
+        this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode:'SCENE_EVENT_OWNER_MAP_FAILED',producerId,event});
+        return;
+      }
+      if(!request){
+        this.#retainSceneEventObligationReceipt({status:'SKIPPED',reasonCode:'SCENE_EVENT_OWNER_DECLARED_NO_WORK',producerId,event});
+        return;
+      }
+      const sourceRevisionIds=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
+      const ownerRequest={
+        ...clone(request),
+        sceneRevision:request.sceneRevision??event.sceneRevision,
+        sourceRevisions:request.sourceRevisions??clone(event.sourceRevisions??{}),
+        sourceRevisionIds:request.sourceRevisionIds??sourceRevisionIds,
+        dedupeKey:request.dedupeKey??['scene-event',producerId,event.eventId].join(':'),
+        cause:{...clone(request.cause??{}),eventId:event.eventId,eventType:event.eventType,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,causationId:event.causationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision},
+      };
+      try{
+        const executor=executorFactory(clone(event),clone(ownerRequest));
+        const admission=this.runtime.producers.produce(producerId,ownerRequest,executor);
+        this.#retainSceneEventObligationReceipt({
+          status:admission?.accepted===false?'REJECTED':admission?.deduped?'DEDUPED':admission?.coalesced?'COALESCED':'ADMITTED',
+          reasonCode:admission?.accepted===false?String(admission?.reason??'SCENE_EVENT_OBLIGATION_REJECTED'):'SCENE_EVENT_OWNER_ADMITTED',
+          producerId,event,admission,
+        });
+      }catch(error){
+        this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode:String(error?.code??'SCENE_EVENT_OBLIGATION_FAILED'),producerId,event});
+      }
+    }));
+    return()=>{for(const release of releases)try{release();}catch{}};
+  }
+
+  readSceneEventSpineReceipts({limit=64}={}){
+    const n=Math.max(1,Math.min(256,Number(limit)||64));
+    return clone(this.sceneEventSpineReceipts.slice(-n));
+  }
+
+  readSceneEventObligationReceipts({limit=64}={}){
+    const n=Math.max(1,Math.min(256,Number(limit)||64));
+    return clone(this.sceneEventObligationReceipts.slice(-n));
+  }
+
   ingestSceneHostEvent(input = {}, { extract = null } = {}) {
     const start = this.sceneOwnerTimeline.length;
+    const spineStart=this.sceneEventSpineReceipts.length,obligationStart=this.sceneEventObligationReceipts.length;
+    const requestedChatId=String(input?.chatId??'').trim();
+    if(requestedChatId&&this.core.hotCognition.activeChatNamespace!==requestedChatId)this.core.activateHotCognitionChat(requestedChatId);
     let extracted = null;
     const wrappedExtract = typeof extract === 'function'
       ? (e, scene) => { extracted = extract(e, scene) ?? {}; return extracted; }
@@ -893,6 +1036,7 @@ export class DevelopmentDeploymentBrain {
         messageId: evidence.messageId ?? null,
         messageRevision: evidence.messageRevision ?? null,
         turnId: evidence.turnId ?? null,
+        generationId: evidence.generationId ?? null,
         correlationId: evidence.correlationId ?? null,
         causationId: evidence.causationId ?? null,
         sourceRevisionId: evidence.sourceRevisionId ?? null,
@@ -915,6 +1059,8 @@ export class DevelopmentDeploymentBrain {
       eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
       invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),
       coreReceipts,
+      eventSpineReceipts:clone(this.sceneEventSpineReceipts.slice(spineStart)),
+      eventObligationReceipts:clone(this.sceneEventObligationReceipts.slice(obligationStart)),
       signalReceipt: signalReceipt ? {
         status: signalReceipt.status ?? null,
         coreHandling: signalReceipt.coreHandling ?? null,

@@ -476,7 +476,7 @@ export class Area52NativeBrain{
     return clone(latest.learningReceipt);
   }
 
-  correctTurn({turnId,response,observations=[],knownBy=[]}={}){
+  correctTurn({turnId,response,observations=[],knownBy=[],reflections=[]}={}){
     const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record?.experience)throw new Error('Turn has no learned narrative source: '+id);
     const prior=this.knowledge.currentRecordForSource(record.experience.sourceId);if(!prior)throw new Error('Narrative source is not current: '+id);
     const corrected=this.knowledge.correctSource(record.experience.sourceId,req(response,'response'),{
@@ -494,11 +494,32 @@ export class Area52NativeBrain{
       knownBy:uniq(knownBy),publicToAll:false,
     });
     const memoryWriteback=this.#writeBackMemoryEvidence(record,corrected,{knownBy,exactContent:response,priorExperience:prior});
+    let memoryPostTurn=null;
+    const accept=this.memoryInterface?.acceptCompletedTurn??this.memoryInterface?.adapters?.acceptCompletedTurn;
+    if(typeof accept==='function'&&['ADMITTED','REPLAYED'].includes(String(memoryWriteback?.status??'').toUpperCase())){
+      const ownerArtifactRef=this.#memoryOwnerArtifactRef(record,corrected);
+      const reflectionCandidates=(reflections??[]).slice(0,8).map((item,index)=>({
+        reflectionKey:item?.reflectionKey??item?.semantic?.reflectionKey??null,
+        statement:String(item?.statement??''),
+        subjectRefs:uniq(item?.subjectRefs??item?.semantic?.subjectRefs??[]).slice(0,32),
+        confidence:item?.confidence??0.5,
+        polarity:item?.polarity??(item?.contradiction===true?'CONTRADICT':'SUPPORT'),
+        index,
+      }));
+      memoryPostTurn=accept({
+        chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,
+        sceneId:record.sceneId??null,sceneRevision:record.sceneRevision,worldRevision:this.core.graph.revision,
+        contextSealId:record.published?.sealReceipt?.id??null,sourceRevisionId:corrected.sourceRevisionId,
+        ownerArtifactRef,externalEvidenceRef:ownerArtifactRef.artifactId,reflectionCandidates,
+      });
+      if(memoryPostTurn&&typeof memoryPostTurn.then==='function')throw new Error('MEMORY_ASYNC_CORRECTION_ADMISSION_UNSUPPORTED_IN_SYNC_CORRECTION');
+    }
     const settlements=observations.map((row,index)=>this.#settleObservation(record,corrected,row,index));
     const memorySettlementReceipts=this.#mirrorSettlementsToMemory(record,corrected,settlements);
-    record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.state='LEARNED';
+    record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.memoryPostTurn=clone(memoryPostTurn);record.state='LEARNED';
+    if(record.learningReceipt)record.learningReceipt={...record.learningReceipt,sourceRevisionId:corrected.sourceRevisionId,memoryWriteback:clone(memoryWriteback),memoryPostTurn:clone(memoryPostTurn),memorySettlementReceipts:clone(memorySettlementReceipts)};
     this.#notify('TURN_CORRECTED',record);
-    return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,memoryWriteback,memorySettlementReceipts,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
+    return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,memoryWriteback,memoryPostTurn,memorySettlementReceipts,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
   }
 
   subscribe(listener){

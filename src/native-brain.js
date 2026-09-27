@@ -12,6 +12,8 @@ import {
   KnowledgeTemporalStatus,
 } from './knowledge-evidence.js';
 import {LoreOwnerRetrievalChannel,MemoryOwnerRetrievalChannel,OWNER_KNOWLEDGE_CHANNELS} from './owner-knowledge-channels.js';
+import {ProductionSparseRetrievalChannel} from './production-sparse-retrieval.js';
+import {SceneQueryPlanner} from './scene/scene-query-planner.js';
 import {NativeKnowledgeStore} from './native-knowledge-store.js';
 import {NativeLearningFeedback} from './native-learning-feedback.js';
 import {
@@ -45,7 +47,7 @@ function sceneSignalFrom(input,chatId){
     provenance:uniq(input.provenance??[]),
     location:clone(input.location??null),narrativeTime:clone(input.narrativeTime??null),
     activeCast:clone(input.activeCast??[]),castObservations:clone(input.castObservations??[]),
-    activeThreads:clone(input.activeThreads??[]),objects:clone(input.objects??input.immediateObjects??[]),
+    activeThreads:clone(input.activeThreads??[]),activeRelationships:clone(input.activeRelationships??[]),objects:clone(input.objects??input.immediateObjects??[]),
     objectObservations:clone(input.objectObservations??[]),uncertainFields:clone(input.uncertainFields??[]),
     conflictSignals:clone(input.conflictSignals??[]),boundaryState:clone(input.boundaryState??{status:'STABLE'}),
     sceneRelationship:input.sceneRelationship??null,transitionType:input.transitionType??null,
@@ -99,9 +101,14 @@ export class Area52NativeBrain{
     this.contextRetirement=new NativeContextRetirementPolicy({isSourceRevisionCurrent:(ref)=>this.core.isSourceRevisionCurrent(ref)});
     this.knowledge=new NativeKnowledgeStore({registry:this.core.registry,snapshot:snapshot?.knowledge??null});
     this.ownerEvidence=new Map();
+    this.sceneQueryPlanner=new SceneQueryPlanner();
     this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));
     this.rejectedLoreRevisionIds=new Set(clone(snapshot?.rejectedLoreRevisionIds??[]));
     this.loreInterface=null;this.memoryInterface=null;
+    this.ownerSparseChannel=new ProductionSparseRetrievalChannel({
+      evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
+      revisionGuard:(source)=>this.#admitLoreOwnerRevision(source),
+    });
     this.ownerLoreChannel=new LoreOwnerRetrievalChannel({
       getInterface:()=>this.loreInterface,
       evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
@@ -147,9 +154,14 @@ export class Area52NativeBrain{
   }
 
   #registerKnowledgeChannels(){
-    for(const id of ['NATIVE_LORE','NATIVE_MEMORY',OWNER_KNOWLEDGE_CHANNELS.LORE,OWNER_KNOWLEDGE_CHANNELS.MEMORY])this.core.retrieval.unregisterChannel(id);
-    if(this.loreInterface)this.core.registerRetrievalChannel(this.ownerLoreChannel);
-    else this.core.registerRetrievalChannel(this.knowledge.channel('LORE',{channelId:'NATIVE_LORE',rankBias:(id)=>this.feedback.biasFor(id)}));
+    for(const id of ['NATIVE_LORE','NATIVE_MEMORY','OWNER_SPARSE_EXACT',OWNER_KNOWLEDGE_CHANNELS.LORE,OWNER_KNOWLEDGE_CHANNELS.MEMORY])this.core.retrieval.unregisterChannel(id);
+    if(this.loreInterface){
+      this.core.registerRetrievalChannel(this.ownerLoreChannel);
+      if(typeof this.loreInterface.status==='function'&&typeof this.loreInterface.sourceRevision==='function')this.core.registerRetrievalChannel(this.ownerSparseChannel);
+    }else{
+      this.ownerSparseChannel.clearScope('LORE_OWNER_NOT_ATTACHED');
+      this.core.registerRetrievalChannel(this.knowledge.channel('LORE',{channelId:'NATIVE_LORE',rankBias:(id)=>this.feedback.biasFor(id)}));
+    }
     if(this.memoryInterface)this.core.registerRetrievalChannel(this.ownerMemoryChannel);
     else this.core.registerRetrievalChannel(this.knowledge.channel('MEMORY',{channelId:'NATIVE_MEMORY',rankBias:(id)=>this.feedback.biasFor(id)}));
   }
@@ -158,6 +170,7 @@ export class Area52NativeBrain{
     if(loreInterface!==null&&typeof loreInterface?.query!=='function')throw new TypeError('Lore interface must expose query(request)');
     if(loreInterface?.contractVersion!=null&&Number(loreInterface.contractVersion)!==1)throw new Error('Unsupported Lore Brain interface contract version: '+loreInterface.contractVersion);
     this.loreInterface=loreInterface;
+    if(!loreInterface)this.ownerSparseChannel.clearScope('LORE_OWNER_NOT_ATTACHED');
     this.#registerKnowledgeChannels();
     return{kind:'NativeBrainLoreInterfaceReceipt',attached:Boolean(loreInterface),contractVersion:loreInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
@@ -214,11 +227,12 @@ export class Area52NativeBrain{
     const distrusted=new Set([previousSourceRevisionId,previousTrust?.trustedSourceRevisionId,previousTrust?.pendingSourceRevisionId].filter(Boolean));
     this.core.setExternalCurrentSourceRevisionRefs(this.core.externalCurrentSourceRevisionIds().filter(ref=>!distrusted.has(ref)));
     const identityInvalidation=previousSourceRevisionId?this.core.invalidateEntityIdentityRevision(previousSourceRevisionId,{reason:sourceState==='REMOVED'?'LORE_SOURCE_REMOVED':'LORE_SOURCE_REVISION_CHANGED'}):{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:null,affectedEntityIds:[],retiredAliases:[],retiredLinks:[],historyPreserved:true,unrelatedIdentityMutation:false};
+    const sparseRetrieval=this.ownerSparseChannel.acceptLoreRevisionChange(event,this.loreInterface);
     return{
       kind:'NativeBrainLoreRevisionInvalidationReceipt',contractVersion:1,status:'INVALIDATED',sourceId,lorebookId,uid,
       previousSourceRevisionId,sourceRevisionId,sourceState,settlementId:event.settlementId??null,operationKind:event.operationKind??null,restoration:Boolean(event.restoration),
       checkedChats:uniq(checkedChats),invalidatedChats:uniq(invalidatedChats),
-      nextRevisionTrusted:false,nextRevisionRequiresOwnerRetrieval:sourceState!=='REMOVED',revisionTrustStatus:sourceState==='REMOVED'?'REMOVED':'PENDING_EXACT_RETRIEVAL',identityInvalidation,
+      nextRevisionTrusted:sparseRetrieval?.status==='REINDEXED',nextRevisionRequiresOwnerRetrieval:sourceState!=='REMOVED'&&sparseRetrieval?.status!=='REINDEXED',revisionTrustStatus:this.loreRevisionTrust.get(sourceId)?.status??(sourceState==='REMOVED'?'REMOVED':'PENDING_EXACT_RETRIEVAL'),identityInvalidation,sparseRetrieval,
       authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealAuthority:false,
     };
   }
@@ -329,13 +343,17 @@ export class Area52NativeBrain{
     const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
     this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
     this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
+    const sparseRetrievalReceipt=this.loreInterface
+      ?this.ownerSparseChannel.hydrateLoreOwner(this.loreInterface,{chatId:chat})
+      :this.ownerSparseChannel.clearScope('LORE_OWNER_NOT_ATTACHED');
+    const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
 
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
     const published=this.core.publishGenerationContext({
       turnId:turn,turnRevision:sequence,correlationId:corr,query:q,intent,
       anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,precisionAvailable,
-      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,
+      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,
     });
     this.#recordSceneExpectedWork({chatId:chat,turnId:turn,generationId:generation,correlationId:corr,turnRevision:sequence,sceneState,published});
     const contextRetirement=activeContext?this.contextRetirement.evaluate({chatId:chat,...clone(activeContext)}):null;
@@ -376,7 +394,8 @@ export class Area52NativeBrain{
         signalReceipt:clone(sceneSignalAdmission?.receipt??null),
         authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
       },
-      retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal)},
+      retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal),retrievalIntents:clone(retrievalIntents)},
+      sparseRetrievalReceipt:clone(sparseRetrievalReceipt),
       published:clone(published),delivery:clone(delivery),contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       state:'SEALED_FOR_GENERATION',
     };
@@ -384,7 +403,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,
@@ -393,6 +412,36 @@ export class Area52NativeBrain{
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });
+  }
+
+  #selectedTurnRetrievalIntents({chatId,query,intent='CURRENT',perspectiveConstraint=null,anchorEntityIds=[],graphTraversal=null}={}){
+    const fallback=[{kind:intent,query,entityRefs:uniq(anchorEntityIds),perspective:clone(perspectiveConstraint),metadata:graphTraversal?{graphTraversal:clone(graphTraversal)}:{}}];
+    const signal=this.sceneSignals.get(String(chatId));
+    if(!signal?.sceneId||!Number(signal.sceneRevision))return fallback;
+    try{
+      const scene={
+        sceneId:String(signal.sceneId),revision:Number(signal.sceneRevision),sourceRevisionRefs:uniq(signal.sourceRevisionRefs??[]),provenance:uniq(signal.provenance??[]),
+        fields:{
+          location:{value:clone(signal.location??null)},activeCast:{value:clone(signal.activeCast??[])},activeThreads:{value:clone(signal.activeThreads??[])},
+          activeRelationships:{value:clone(signal.activeRelationships??[])},immediateObjects:{value:clone(signal.objects??[])},atmosphere:{value:clone(signal.atmosphere??{})},
+        },
+      };
+      const plan=this.sceneQueryPlanner.plan({scene,userInput:query,intent});
+      const rows=(plan?.intents??[]).map((row)=>({
+        intentId:row.intentId,
+        kind:row.intentKind==='DIRECT_QUERY'?'AUTO':row.intentKind,
+        query:row.query??query,
+        entityRefs:uniq([...(row.entityRefs??[]),...(row.objectRefs??[]),...anchorEntityIds]),
+        relationshipRefs:uniq(row.relationshipRefs??[]),
+        artifactRefs:uniq(row.objectRefs??[]),
+        temporalConstraint:null,
+        perspective:clone(perspectiveConstraint),
+        metadata:{sceneIntentKind:row.intentKind,locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
+      }));
+      return rows.length?rows:fallback;
+    }catch{
+      return fallback;
+    }
   }
 
   async runTurn(input,{generate=null,completeOptions={}}={}){

@@ -299,7 +299,7 @@ async function applyNativeScene(brain, {
   const currentSelection=()=>typeof selectionGuard==='function'?Boolean(selectionGuard()):true;
   const sealed=()=>typeof turnSealed==='function'?Boolean(turnSealed()):false;
   if(!currentSelection()){
-    const signal=prior??(sourceRevisionId?brain.ensureScene({chatId,sourceRevisionId:ownerSourceRevisionId??sourceRevisionId}):null);
+    const signal=prior??null;
     return{
       kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'REJECTED',noWorkReason:'SCENE_SELECTION_SUPERSEDED',
       chatId,sceneId:signal?.sceneId??null,sceneRevision:signal?.sceneRevision??null,sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],

@@ -787,7 +787,37 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
-    const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
+    let postResponseScene=null;
+    try{
+      const assistantMessageForScene={...assistant,role:'assistant'};
+      const assistantSource=registerNarrativeSource(this.brain,{chatId,message:assistantMessageForScene});
+      const assistantSceneVersion=this.#sceneHostVersion(chatId,assistantMessageForScene,{activity:HostActivity.ASSISTANT_GENERATION_COMPLETE});
+      const assistantIdentity=sourceIdentity(chatId,assistantMessageForScene);
+      postResponseScene=await applyNativeScene(this.brain,{
+        chatId,message:assistantMessageForScene,sourceRevisionId:assistantSource.sourceRevisionId,
+        activity:HostActivity.ASSISTANT_GENERATION_COMPLETE,messageRevision:assistantSceneVersion.messageRevision,
+        turnId:pending.turnId,generationId:pending.generationId,phase:'POST_RESPONSE',
+        selectionGuard:()=>{
+          try{
+            const current=this.getContext(),currentAssistant=assistantMessage(current,assistant.index);
+            return clean(current.chatId)===chatId&&Boolean(currentAssistant)&&sourceIdentity(chatId,{...currentAssistant,role:'assistant'}).digest===assistantIdentity.digest;
+          }catch{return false;}
+        },
+        turnSealed:()=>true,
+      });
+      if(postResponseScene?.signal&&typeof this.nativeBrain?.observeScene==='function')this.nativeBrain.observeScene(chatId,postResponseScene.signal);
+    }catch(error){
+      pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'POST_RESPONSE_SCENE_OBSERVATION'},SESSION_BOUNDS.errors);
+    }
+    const completed={
+      ...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),
+      learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null},
+      postResponseScene:postResponseScene?{
+        status:postResponseScene.status??null,reason:postResponseScene.reason??null,sceneId:postResponseScene.sceneId??postResponseScene.signal?.sceneId??null,
+        sceneRevision:postResponseScene.sceneRevision??postResponseScene.signal?.sceneRevision??null,changedFields:[...(postResponseScene.changedFields??[])].slice(0,16),
+        semanticObservation:clone(postResponseScene.semanticObservation??null),rawNarrativeIncluded:false,
+      }:null,
+    };
     const profileEnd=this.#generationProfileSample();
     if(run.profileStart||run.profileAfterInsertion||profileEnd){
       const start=run.profileStart,end=profileEnd;

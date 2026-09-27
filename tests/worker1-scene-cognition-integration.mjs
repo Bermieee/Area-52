@@ -142,6 +142,7 @@ test('installed native host semantically observes prose the generic fallback can
     sillyTavern,document:null,mountUi:false,nativeBrain,
     initialLorebook:{
       id:'scene-cognition-lore',title:'Scene cognition Lore',
+      discovery:{kind:'DeploymentLiveFixture',stableId:'scene-cognition-lore',exactAuthoredSource:true},
       entries:[
         {uid:'greyharbor-observatory',content:'Greyharbor Observatory receives courier signals through a red flare above the glass dome.',metadata:{title:'Greyharbor Observatory',at:1,treePath:['Places','Observatory']}},
         {uid:'brass-key',content:'The brass key is carried by Mira during courier meetings.',metadata:{title:'Brass key',at:2,treePath:['Objects','Key']}},
@@ -237,7 +238,9 @@ test('installed native host with no compatible Scene resource stays truthful and
   assert.equal(semantic?.attempted,false);
   assert.equal(semantic?.returned,false);
   assert.equal(selected.sceneFlow?.semanticObservation?.ownerAdmission??null,null);
-  assert.equal(session.brain.scene.registry.current(turn.sceneId).revision,1);
+  const noProviderOwnerScene=session.brain.scene.registry.current(turn.sceneId);
+  assert.equal(noProviderOwnerScene.fields.location.observationClass,'UNKNOWN');
+  assert.deepEqual(noProviderOwnerScene.fields.activeCast.value,[]);
 
   session.destroy();
 });

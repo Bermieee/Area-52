@@ -84,7 +84,7 @@ export class SelectedTurnLogModel{
   exportDiagnostics({selection=null}={}){
     const selected=normalizeSelection(selection??this.selectionProvider?.()??{});
     const retainedEvidence=this.journal?.exportEvidence?.({selection:null})??null;
-    const operational=safeDiagnosticsRead(this.diagnostics);
+    const operational=operationalForSelection(safeDiagnosticsRead(this.diagnostics),selected);
     const selectedTurn=this.exportMetadata({selection:selected});
     const timeline=buildMasterTimeline(retainedEvidence);
     const errors=collectDiagnosticErrors(operational,timeline);
@@ -662,6 +662,12 @@ function renderRow(d,row,{model,selection,scope,inspect}={}){
 
 function safeDiagnosticsRead(provider){
   try{return provider?.read?.()??null;}catch(error){return{kind:'Area52DiagnosticsUnavailable',error:{code:error?.code??'DIAGNOSTICS_READ_FAILED',message:safeText(error?.message??error,512)}};}
+}
+function operationalForSelection(operational,selection){
+  if(!operational?.vectoringTrace)return operational;
+  const trace=operational.vectoringTrace;
+  const exact=row=>row?.chatId===selection.chatId&&row?.turnId===selection.turnId&&row?.generationId===selection.generationId;
+  return {...operational,vectoringTrace:{...trace,selectedTurn:(trace.selectedTurn??[]).filter(exact)}};
 }
 function safeGraphRead(provider,selection){
   try{return provider?.read?.(selection)??null;}catch(error){return{kind:'SelectedTurnGraphVisibilityReadModel',state:'UNAVAILABLE',selection:normalizeSelection(selection),reason:safeText(error?.message??error,512),errors:[{code:error?.code??'GRAPH_VISIBILITY_READ_FAILED'}],safety:{metadataOnly:true,rawPrompt:false,rawLoreBodies:false,rawMemoryBodies:false,hiddenReasoning:false,mutationAuthority:false}};}

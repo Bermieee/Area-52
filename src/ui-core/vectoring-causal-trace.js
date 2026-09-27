@@ -7,7 +7,13 @@ export function projectVectoringCausalTrace({resources=[],memoryReceipts=[],sele
     .flatMap(row=>(row.executionHistory??[]).slice(-64).map(attempt=>({resourceId:row.id??row.resourceId??null,...attempt})))
     .sort((a,b)=>Number(a.at??0)-Number(b.at??0)).slice(-64);
   const project=attempt=>{
-    const owner=owners.get(String(attempt.executionId))??null;
+    const linked=owners.get(String(attempt.executionId))??null;
+    const sameQuery=attempt.operation==='EMBED_QUERY'&&linked?.kind==='MemoryVectorQueryReceipt'&&
+      linked.selection?.chatId===attempt.selection?.chatId&&linked.selection?.turnId===attempt.selection?.turnId&&
+      linked.selection?.generationId===attempt.selection?.generationId;
+    const sameWork=attempt.operation==='EMBED_ARTIFACT'&&linked?.kind==='MemoryVectorWorkReceipt'&&
+      linked.workId===attempt.workId;
+    const owner=sameQuery||sameWork?linked:null;
     return Object.freeze({
       executionId:attempt.executionId??null,resourceId:attempt.resourceId,operation:attempt.operation??'UNSPECIFIED',
       status:attempt.status??'UNKNOWN',at:attempt.at??null,latencyMs:attempt.latencyMs??null,
@@ -18,7 +24,8 @@ export function projectVectoringCausalTrace({resources=[],memoryReceipts=[],sele
       workId:attempt.operation==='EMBED_ARTIFACT'?attempt.workId??null:null,
       memoryStatus:owner?.status??'NO_EVIDENCE',memoryDecision:owner?.ownerDecision??'NO_EVIDENCE',
       memoryDestination:owner?.ownerDestination??null,candidateCount:owner?.candidateCount??null,
-      nomination:owner?.candidateCount>0?'OWNER_CANDIDATES_AVAILABLE':'NO_EVIDENCE',
+      nomination:owner?.candidateCount>0?'DENSE_SCORED_HITS_ONLY':'NO_EVIDENCE',
+      downstreamLineage:'NOT_PUBLISHED',
       truth:'NO_EVIDENCE',gather:'NO_EVIDENCE',contextSeal:'NO_EVIDENCE',hostObservation:'NO_EVIDENCE',
     });
   };

@@ -101,6 +101,7 @@ export class CoprocessorResourceConnections{
     this.controllers=new Map();
     this.subscribers=new Set();
     this.sequence=0;
+    this.executionSessionId=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
     this.executionLayer=new SpecialistExecutionLayer({profiles:this.profiles,adapters:this.adapters,telemetry:this.telemetry});
   }
 
@@ -381,7 +382,7 @@ export class CoprocessorResourceConnections{
     const adapter=this.adapters.get(row.providerId);if(typeof adapter?.embed!=='function')throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Resource adapter does not expose embeddings creation',{providerId:row.providerId});
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
-    const started=this.now(),executionId='vector-execution:'+row.resourceId+':'+(++this.sequence),executionOrigin=normalizeVectorOrigin(origin);
+    const started=this.now(),executionId='vector-execution:'+this.executionSessionId+':'+row.resourceId+':'+(++this.sequence),executionOrigin=normalizeVectorOrigin(origin);
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'VECTORING',requestPurpose:'COGNITIVE_EXECUTION',taskId:null,taskType:'EMBEDDING',physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(this.profiles.get(row.providerProfileId))});
     try{
       const execution=await adapter.embed(input,{signal:controller.signal,timeoutMs:this.privateConfig.get(row.resourceId)?.timeoutMs,dimensions,inputType,encodingFormat});

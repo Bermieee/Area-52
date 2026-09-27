@@ -6,6 +6,7 @@ import {MemoryVectorIndex} from '../src/memory-vector-index.js';
 import {Wave13DiagnosticsCenterAdapter} from '../src/ui-core/wave13-operator-adapters.js';
 import {DemoEvidenceJournal} from '../src/ui-core/demo-visibility.js';
 import {SelectedTurnLogModel} from '../src/ui-core/turn-log-diagnostics.js';
+import {DevelopmentDeploymentBrain} from '../src/deployment/brain.js';
 
 const selection={chatId:'chat:one',turnId:'turn:one',generationId:'gen:one',correlationId:'corr:one'};
 const response=(body)=>({ok:true,status:200,headers:{get:()=>null},json:async()=>body,text:async()=>JSON.stringify(body)});
@@ -89,6 +90,19 @@ test('resource execution history remains bounded to the latest 64 metadata rows'
   assert.equal(rows.length,64);assert.equal(rows[0].workId,'work:6');assert.equal(rows.at(-1).workId,'work:69');
 });
 
+test('assembled deployment connects a Memory query execution to its owner receipt',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1});
+  brain.resourceConnections.fetchImpl=async(url,init={})=>init.method==='GET'?response({data:[]}):response({model:'embedding-model',data:[{index:0,embedding:[.1,.2,.3]}]});
+  const config={resourceId:'vector:assembled',kind:ResourceKind.OPENAI_COMPATIBLE,endpoint:'https://openrouter.ai/api/v1',modelId:'embedding-model',apiKey:'test-only',capabilities:[Capability.EMBED],transportMode:ProviderTransportMode.EMBEDDINGS};
+  brain.resourceConnections.addResource(config);await brain.resourceConnections.connectResource(config.resourceId);
+  const owner=await brain.memory.primeDenseHistorian({query:'SECRET_QUERY',selection});
+  const execution=brain.resourceConnections.readResource(config.resourceId).executionHistory.at(-1);
+  assert.equal(execution.operation,'EMBED_QUERY');assert.equal(execution.selection.generationId,'gen:one');
+  assert.equal(owner.executionId,execution.executionId);
+  assert.equal(brain.hostBindings().readMemoryVectorReceipts().at(-1).executionId,execution.executionId);
+  assert.equal(JSON.stringify(brain.hostBindings().readMemoryVectorReceipts()).includes('SECRET_QUERY'),false);
+});
+
 test('Diagnostics Center separates exact query evidence from background and foreign-generation work',()=>{
   const query={executionId:'exec:query',operation:'EMBED_QUERY',selection,status:'SUCCESS',latencyMs:17,dimensions:1536,at:100,input:'SECRET_QUERY'};
   const foreign={executionId:'exec:foreign',operation:'EMBED_QUERY',selection:{...selection,generationId:'gen:other'},status:'SUCCESS',at:101};
@@ -101,9 +115,13 @@ test('Diagnostics Center separates exact query evidence from background and fore
   assert.deepEqual(diagnostics.vectoringTrace.background.map(x=>x.executionId),['exec:index']);
   assert.equal(diagnostics.vectoringTrace.selectedTurn[0].memoryDecision,'ACCEPTED_FOR_HISTORIAN_NOMINATION');
   assert.equal(diagnostics.vectoringTrace.selectedTurn[0].candidateCount,2);
+  assert.equal(diagnostics.vectoringTrace.selectedTurn[0].nomination,'DENSE_SCORED_HITS_ONLY');
   assert.equal(diagnostics.vectoringTrace.selectedTurn[0].gather,'NO_EVIDENCE');
   const exportJson=JSON.stringify(new SelectedTurnLogModel({selectionProvider:()=>selection,diagnostics:{read:()=>diagnostics}}).exportUnifiedDiagnostics());
   assert.ok(exportJson.includes('exec:query'));assert.ok(exportJson.includes('exec:index'));
+  const historicalExport=new SelectedTurnLogModel({selectionProvider:()=>selection,diagnostics:{read:()=>diagnostics}}).exportUnifiedDiagnostics({selection:{...selection,generationId:'gen:historical'}});
+  assert.deepEqual(historicalExport.resources.vectoringTrace.selectedTurn,[]);
+  assert.deepEqual(historicalExport.rawOperationalSnapshot.vectoringTrace.selectedTurn,[]);
   assert.equal(exportJson.includes('SECRET_QUERY'),false);
   const storage=new Map(),journal=new DemoEvidenceJournal({storage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},now:()=>200});
   const recorded=journal.recordSnapshot({selection,operations:{selection,pipeline:{}},diagnostics:{resources:{rows:[{id:'vector',kind:'VECTORING',displayName:'Vectoring',lastExecution:background,physicalExecutionAttempted:true,physicalExecutionSucceeded:true}]}}});

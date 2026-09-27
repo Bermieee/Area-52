@@ -525,23 +525,31 @@ test('Memory consolidation work is bounded, reloadable and fenced away from an a
   const surface=createMemoryIntegrationSurface(producer);
   const selection=identity('chat:sable-isles','turn:9','gen:9','corr:9');
   const ev=producer.appendEvidence({
-    id:'sable:habit:1',sourceId:'sable:habit',sourceRevisionId:'sable:habit@r1',
+    id:'sable:habit:1',sourceId:'sable:habit:1',sourceRevisionId:'sable:habit:1@r1',
     exactContent:'Nara checked the tide compass before entering the reef channel.',
     kind:'EXPERIENCE',occurredAt:9,worldRevision:9,participants:['Nara'],knownBy:['Nara'],
     metadata:{...selection},provenance:['sable-habit'],
   });
+  const ev2=producer.appendEvidence({
+    id:'sable:habit:2',sourceId:'sable:habit:2',sourceRevisionId:'sable:habit:2@r1',
+    exactContent:'Later Nara checked the tide compass again before crossing a storm channel.',
+    kind:'EXPERIENCE',occurredAt:10,worldRevision:10,participants:['Nara'],knownBy:['Nara'],
+    metadata:{...selection,turnId:'turn:9b',generationId:'gen:9b'},provenance:['sable-habit'],
+  });
+  const ep1=producer.publishEpisode({logicalId:'sable:habit:episode:1',chatId:selection.chatId,turnId:selection.turnId,generationId:selection.generationId,sourceRevisionRefs:[ev.sourceRevisionId],evidenceRefs:[ev.id],summary:ev.exactContent});
+  const ep2=producer.publishEpisode({logicalId:'sable:habit:episode:2',chatId:selection.chatId,turnId:'turn:9b',generationId:'gen:9b',sourceRevisionRefs:[ev2.sourceRevisionId],evidenceRefs:[ev2.id],summary:ev2.exactContent});
   const session=surface.adapters.startConsolidation([{
     type:'REFLECTION',
     input:{
       reflectionKey:'sable:nara:tide-check',
       statement:'Nara may habitually verify tide conditions before difficult crossings.',
-      subjectRefs:['Nara'],supportEvidenceRefs:[ev.id],contradictionEvidenceRefs:[],
-      episodeRefs:[],sourceRevisionRefs:[ev.sourceRevisionId],confidence:0.62,action:'REINFORCE',
+      subjectRefs:['Nara'],supportEvidenceRefs:[ev.id,ev2.id],contradictionEvidenceRefs:[],
+      episodeRefs:[ep1.id,ep2.id],sourceRevisionRefs:[ev.sourceRevisionId,ev2.sourceRevisionId],confidence:0.62,action:'REINFORCE',
       provenance:['wave4-sleep'],
     },
   }],{
     selection,generationFence:{...selection,contextSealId:'seal:gen:9'},
-    sourceRevisionRefs:[ev.sourceRevisionId],worldRevision:9,sceneRevision:null,
+    sourceRevisionRefs:[ev.sourceRevisionId,ev2.sourceRevisionId],worldRevision:10,sceneRevision:null,
   });
   const units=surface.adapters.consolidationWorkUnits(session.id,{maxUnits:32});
   assert.equal(units.length,1);

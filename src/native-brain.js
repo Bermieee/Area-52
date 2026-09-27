@@ -13,6 +13,7 @@ import {
 } from './knowledge-evidence.js';
 import {LoreOwnerRetrievalChannel,MemoryOwnerRetrievalChannel,OWNER_KNOWLEDGE_CHANNELS} from './owner-knowledge-channels.js';
 import {ProductionSparseRetrievalChannel} from './production-sparse-retrieval.js';
+import {RetrievalChannelHealth} from './candidate-bus-contracts.js';
 import {SceneQueryPlanner} from './scene/scene-query-planner.js';
 import {NativeKnowledgeStore} from './native-knowledge-store.js';
 import {NativeLearningFeedback} from './native-learning-feedback.js';
@@ -346,6 +347,22 @@ export class Area52NativeBrain{
     const sparseRetrievalReceipt=this.loreInterface
       ?this.ownerSparseChannel.hydrateLoreOwner(this.loreInterface,{chatId:chat,query:q})
       :this.ownerSparseChannel.clearScope('LORE_OWNER_NOT_ATTACHED');
+    const sparseRegistryRow=this.core.retrieval.channelRegistry?.lookup?.('OWNER_SPARSE_EXACT')??null;
+    if(sparseRegistryRow){
+      const sparseUnavailable=sparseRetrievalReceipt.status==='UNAVAILABLE';
+      const sparseHealth=sparseUnavailable
+        ?RetrievalChannelHealth.UNAVAILABLE
+        :sparseRetrievalReceipt.status==='PARTIAL'
+          ?RetrievalChannelHealth.DEGRADED
+          :RetrievalChannelHealth.HEALTHY;
+      this.core.retrieval.channelRegistry.setHealth('OWNER_SPARSE_EXACT',{
+        health:sparseHealth,
+        available:!sparseUnavailable,
+        currentIndexRevision:this.ownerSparseChannel.adapter?.indexVersion??null,
+        stale:false,
+        reason:sparseUnavailable?sparseRetrievalReceipt.reason:null,
+      });
+    }
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
 
     const sequence=++this.turnSequence;

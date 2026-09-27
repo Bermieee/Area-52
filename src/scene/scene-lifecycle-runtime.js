@@ -65,13 +65,13 @@ export class SceneLifecycleRuntime{
     const f=scene.fields;
     const entityRefs=(f.activeCast?.value??[]).filter((x)=>x?.state==='PRESENT').map((x)=>x.characterId).filter(Boolean);
     const locationRefs=[f.location?.value?.location??f.location?.value].filter((x)=>typeof x==='string'&&x.length);
-    const threadRefs=(f.activeThreads?.value??[]).filter((x)=>typeof x==='string');
+    const threadRefs=threadIds(f.activeThreads?.value??[]);
     const changed=delta.changedFields??{};
     if(changed.location)this.#publishRecommendation(scene,evidence,{trigger:'LOCATION_CHANGED',entityRefs,locationRefs,threadRefs,priority:'HIGH'});
     if(changed.activeCast)this.#publishRecommendation(scene,evidence,{trigger:'ACTIVE_CAST_CHANGED',entityRefs,locationRefs,threadRefs,priority:'NORMAL'});
     if(changed.activeThreads){
-      const before=new Set(fieldArray(changed.activeThreads.before));
-      const activated=fieldArray(changed.activeThreads.after).filter((x)=>typeof x==='string'&&!before.has(x));
+      const before=new Set(threadIds(fieldArray(changed.activeThreads.before)));
+      const activated=threadIds(fieldArray(changed.activeThreads.after)).filter((x)=>!before.has(x));
       if(activated.length)this.#publishRecommendation(scene,evidence,{trigger:'THREAD_ACTIVATED',entityRefs,locationRefs,threadRefs:activated,priority:'NORMAL'});
     }
   }
@@ -102,7 +102,7 @@ export class SceneLifecycleRuntime{
     for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
-    const extracted=extract(evidence,current)??{};const fields=extracted.fields??extracted;
+    const extracted=extract(evidence,current)??{};const fields=extractSceneFields(extracted);
     const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];
     const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(current,evidence,likelyNextIntents):[];
     let boundary=null,transition=null,observed=null;
@@ -151,3 +151,10 @@ export class SceneLifecycleRuntime{
 }
 
 function fieldArray(state){const value=state&&typeof state==='object'&&Object.prototype.hasOwnProperty.call(state,'value')?state.value:state;return Array.isArray(value)?value:[];}
+function threadIds(values){return [...new Set((values??[]).map((row)=>typeof row==='string'?row:row?.threadId??row?.id??null).filter(Boolean).map(String))];}
+function extractSceneFields(extracted){
+  if(extracted?.fields&&typeof extracted.fields==='object'&&!Array.isArray(extracted.fields))return extracted.fields;
+  const controlKeys=['boundarySignals','prefetchIntents','relationship','resumeSceneId','allowWhenRefreshRequired','explicit','extractionPolicy'];
+  if(controlKeys.some((key)=>Object.prototype.hasOwnProperty.call(extracted??{},key)))return{};
+  return extracted&&typeof extracted==='object'&&!Array.isArray(extracted)?extracted:{};
+}

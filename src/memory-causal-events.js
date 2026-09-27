@@ -18,7 +18,7 @@ export class MemoryCausalEventStore{
     this.hypotheses=new Map();this.hypothesisHistory=new Map();this.currentHypothesis=new Map();this.sequence=0;
     if(snapshot)this.restore(snapshot);
   }
-  recordEvent({eventId,description,evidenceRefs=[],sourceRevisionRefs=[],identityRevisionRefs=[],entityRefs=[],occurredAt=null,temporalOrderRefs=[],perspective={scope:'WORLD'},provenance=[]}={}){
+  recordEvent({eventId,description,evidenceRefs=[],sourceRevisionRefs=[],identityRevisionRefs=[],entityRefs=[],stateTransitionRefs=[],occurredAt=null,temporalOrderRefs=[],perspective={scope:'WORLD'},provenance=[]}={}){
     const logical=String(eventId??'').trim();if(!logical)throw new TypeError('eventId required');
     const evidence=uniqStrings(evidenceRefs,128);if(!evidence.length)throw new TypeError('event evidenceRefs required');
     for(const id of evidence)if(!this.graph.evidenceRecord(id))throw new Error('MEMORY_EVENT_EVIDENCE_UNKNOWN:'+id);
@@ -26,11 +26,11 @@ export class MemoryCausalEventStore{
     const identities=uniqStrings(identityRevisionRefs,64);
     const temporal=deepClone((temporalOrderRefs??[]).slice(0,64)).map(x=>({relation:TEMPORAL_RELATIONS.has(String(x?.relation).toUpperCase())?String(x.relation).toUpperCase():'PRECEDES',eventRef:String(x?.eventRef??'')})).filter(x=>x.eventRef);
     const history=this.eventHistory.get(logical)??[],revision=history.length+1;
-    const fingerprint=stableHash(stableStringify({logical,description,evidence,sources,identities,entityRefs,occurredAt,temporal,perspective}));
+    const fingerprint=stableHash(stableStringify({logical,description,evidence,sources,identities,entityRefs,stateTransitionRefs,occurredAt,temporal,perspective}));
     const priorId=this.currentEvent.get(logical),prior=priorId?this.events.get(priorId):null;if(prior?.fingerprint===fingerprint)return deepClone(prior);
     const id='memory-event:'+stableHash(logical+'|'+revision+'|'+fingerprint);if(prior){prior.state='HISTORICAL';prior.freshness='STALE';prior.replacedBy=id;}
     const row={kind:'MemoryEvent',artifactType:'EVENT_MEMORY',id,eventId:logical,revision,description:String(description??'').trim(),evidenceRefs:evidence,sourceRevisionRefs:sources,identityRevisionRefs:identities,
-      entityRefs:uniqStrings(entityRefs,64),occurredAt,temporalOrderRefs:temporal,
+      entityRefs:uniqStrings(entityRefs,64),stateTransitionRefs:uniqStrings(stateTransitionRefs,64),occurredAt,temporalOrderRefs:temporal,
       perspective:deepClone(perspective),provenance:deepClone(provenance).slice(0,64),authorityClass:AuthorityClass.OBSERVED,truthStatusHint:KnowledgeStatus.HISTORICAL,
       state:'CURRENT',freshness:sources.every(x=>this.graph.isSourceRevisionActive(x))?'FRESH':'STALE',identityFreshness:'FRESH',createdSequence:++this.sequence,fingerprint,causalClaim:false,
       chronologyDoesNotImplyCausality:true,canonicalMutationAuthority:false,settlementAuthority:false};
@@ -87,7 +87,7 @@ export class MemoryCausalEventStore{
         truthStatusHint:hypothesis?row.truthStatusHint:KnowledgeStatus.HISTORICAL,provenance:row.provenance,evidenceRefs:row.evidenceRefs,dependencyRevisions:[...row.sourceRevisionRefs,...(row.identityRevisionRefs??[]),row.id],
         representationRef:'memory-causal-record:'+row.id,representationRevision:row.revision,representationText:hypothesis?row.statement:row.description,
         metadata:{historianChannel:channel,causalMemory:true,perspective:deepClone(row.perspective),hypothesisSetId:hypothesis?row.hypothesisSetId:null,hypothesisStatus:hypothesis?row.status:null,
-          relationType:hypothesis?row.relationType:null,temporalApplicability:hypothesis?deepClone(row.temporalApplicability):null,temporalOrderRefs:hypothesis?[]:deepClone(row.temporalOrderRefs),
+          relationType:hypothesis?row.relationType:null,temporalApplicability:hypothesis?deepClone(row.temporalApplicability):null,temporalOrderRefs:hypothesis?[]:deepClone(row.temporalOrderRefs),stateTransitionRefs:hypothesis?[]:[...(row.stateTransitionRefs??[])],
           identityRevisionRefs:[...(row.identityRevisionRefs??[])],derivationPath:hypothesis?deepClone(row.derivationPath):[],sourceReliability:hypothesis?row.sourceReliability:null,ownerDecisionRef:hypothesis?row.ownerDecisionRef:null,
           chronologyDoesNotImplyCausality:true,confidenceGrantsCanon:false,repetitionGrantsCanon:false,exactSourceDrillback:true,settlementAuthority:false,contextSealAuthority:false},
       });

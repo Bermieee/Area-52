@@ -1,0 +1,18 @@
+Wave17 browser authorization/test failures never leave a false connected claim
+Wave17 current Worker3 vector flow selects real embeddings transport and denied discovery stays unconnected
+Wave19 selected-turn cognition read model separates configured, connected, physical execution and owner acceptance without leaking prompts or credentials
+\#124 capability negotiation enforces version, resource, health, latency, context, concurrency, foreground/background and fallback without provider authority
+Wave 3 provider output claiming owner authority is rejected before Result Bus eligibility
+real ContinuousConsolidationWorker executes provider-neutral cognition and returns proposal-only Memory handoff
+completed valid consolidation slice survives sibling provider failure
+Consolidation golden: checkpoint, yield/resume, revision invalidation and duplicate replay preserve lineage
+Combined cognition golden: HOT Green Room assists current generation while DEEP consolidation remains background
+Wave 8 focused stress stays bounded, idempotent, revision-safe and non-authoritative
+Wave 9 mixed adapter stress remains bounded, replay-safe, stale-safe, isolated and non-authoritative
+assembled host exposes Wave 7 owner lifecycle while Worker 3 UI remains explicitly preview-only
+DETERMINISTIC: small and large delivery budgets preserve protected truth/source identity while optional lore is omitted without authority promotion
+Connections renders separate Jev Sidecar and Vectoring slots and locks owner-configured resources
+Connections model input stays editable and discovered models are suggestions rather than a whitelist
+Memory workspace renders owner-backed hierarchical compaction and keeps derived summaries non-authoritative
+Lore workspace shows Worker 4 multi-resolution and hierarchical summaries as derived non-source artifacts
+Settlement Engine exposes the complete Wave 2 decision vocabulary deterministically

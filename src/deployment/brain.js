@@ -929,42 +929,39 @@ export class DevelopmentDeploymentBrain {
     const types=uniq(eventTypes??[]);
     if(!types.length)throw new TypeError('Scene event obligation owner requires eventTypes');
     for(const eventType of types)if(!Object.values(SceneEventType).includes(eventType))throw new TypeError('Unsupported Scene event obligation type: '+eventType);
-    const releases=types.map(eventType=>this.runtimeDirector.events.subscribe(eventType,(event)=>{
-      const guard=this.#sceneEventObligationGuard(event,{allowPostSeal});
-      if(!guard.accepted){
-        this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode:guard.reasonCode,producerId,event});
-        return;
-      }
-      let request;
-      try{request=mapEvent(clone(event));}
-      catch(error){
-        this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode:'SCENE_EVENT_OWNER_MAP_FAILED',producerId,event});
-        return;
-      }
-      if(!request){
-        this.#retainSceneEventObligationReceipt({status:'SKIPPED',reasonCode:'SCENE_EVENT_OWNER_DECLARED_NO_WORK',producerId,event});
-        return;
-      }
-      const sourceRevisionIds=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
-      const ownerRequest={
-        ...clone(request),
-        sceneRevision:request.sceneRevision??event.sceneRevision,
-        sourceRevisions:request.sourceRevisions??clone(event.sourceRevisions??{}),
-        sourceRevisionIds:request.sourceRevisionIds??sourceRevisionIds,
-        dedupeKey:request.dedupeKey??['scene-event',producerId,event.eventId].join(':'),
-        cause:{...clone(request.cause??{}),eventId:event.eventId,eventType:event.eventType,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,causationId:event.causationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision},
-      };
-      try{
-        const executor=executorFactory(clone(event),clone(ownerRequest));
-        const admission=this.runtime.producers.produce(producerId,ownerRequest,executor);
+    const releases=types.map(eventType=>this.runtime.producers.bindEvent({
+      eventType,producerId,
+      guardEvent:(event)=>this.#sceneEventObligationGuard(event,{allowPostSeal}),
+      mapEvent:(event)=>{
+        const request=mapEvent(clone(event));
+        if(!request)return null;
+        const sourceRevisionIds=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
+        return{
+          ...clone(request),
+          sceneRevision:request.sceneRevision??event.sceneRevision,
+          sourceRevisions:request.sourceRevisions??clone(event.sourceRevisions??{}),
+          sourceRevisionIds:request.sourceRevisionIds??sourceRevisionIds,
+          dedupeKey:request.dedupeKey??['scene-event',producerId,event.eventId].join(':'),
+          cause:{...clone(request.cause??{}),eventId:event.eventId,eventType:event.eventType,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,causationId:event.causationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision},
+        };
+      },
+      executorFactory:(event,request)=>executorFactory(clone(event),clone(request)),
+      onDisposition:(entry)=>{
+        const reasonCode=entry.status==='SKIPPED'&&entry.reasonCode==='OWNER_DECLARED_NO_WORK'
+          ?'SCENE_EVENT_OWNER_DECLARED_NO_WORK'
+          :entry.status==='ADMITTED'||entry.status==='DEDUPED'||entry.status==='COALESCED'
+            ?'SCENE_EVENT_OWNER_ADMITTED'
+            :String(entry.reasonCode??'SCENE_EVENT_OBLIGATION_REJECTED');
         this.#retainSceneEventObligationReceipt({
-          status:admission?.accepted===false?'REJECTED':admission?.deduped?'DEDUPED':admission?.coalesced?'COALESCED':'ADMITTED',
-          reasonCode:admission?.accepted===false?String(admission?.reason??'SCENE_EVENT_OBLIGATION_REJECTED'):'SCENE_EVENT_OWNER_ADMITTED',
-          producerId,event,admission,
+          status:entry.status,reasonCode,producerId,event:entry.event,admission:entry.admission,
         });
-      }catch(error){
-        this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode:String(error?.code??'SCENE_EVENT_OBLIGATION_FAILED'),producerId,event});
-      }
+        this.runtimeDirector.telemetry.emit('SCENE_EVENT_OBLIGATION_DISPOSITION',{
+          producerId,eventId:entry.event?.eventId??null,eventType:entry.event?.eventType??eventType,
+          status:entry.status,reasonCode,chatId:entry.event?.chatId??null,turnId:entry.event?.turnId??null,
+          generationId:entry.event?.generationId??null,sceneId:entry.event?.sceneId??null,sceneRevision:entry.event?.sceneRevision??null,
+          taskId:entry.admission?.task?.taskId??null,authorityGranted:false,canonicalMutation:false,
+        });
+      },
     }));
     return()=>{for(const release of releases)try{release();}catch{}};
   }

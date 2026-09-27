@@ -79,7 +79,7 @@ export class GenerationPublicationPipeline {
     const resolvedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}]);
     let primary=[],primaryEnvelope=null,correctiveEnvelope=null,candidates=[];
     let assessment=null,publicationAssessment=null;
-    let corrective={executed:false,terminated:true,candidates:[],failed:false,error:null};
+    let corrective={executed:false,terminated:true,candidates:[],failed:false,error:null,action:null,correctivePasses:0,maxCorrectiveAttempts:1};
     let precisionResults=[],precisionFailed=false;
 
     if(choiceSession?.hotOnly){
@@ -96,11 +96,12 @@ export class GenerationPublicationPipeline {
       candidates=this.#freshForegroundCandidates(turnId);
       assessment=this.truth.assess(candidates,{
         query,intent,worldRevision,sceneRevision,attempt:0,maxCorrectiveAttempts:1,
+        retrievalIntents:resolvedRetrievalIntents,candidateEnvelope:primaryEnvelope,
       });
       this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:Boolean(assessment.correctiveRequest)});
 
       if(assessment.correctiveRequest){
-        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds:effectiveAnchorEntityIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal});
+        corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds:effectiveAnchorEntityIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:resolvedRetrievalIntents,channelIds});
         if(corrective.executed&&!corrective.failed){
           correctiveEnvelope=this.core.retrieval.lastEnvelope??null;
           if(correctiveEnvelope)this.choice?.observeRetrieval?.(choiceSession,correctiveEnvelope,{phase:'CORRECTIVE'});
@@ -115,6 +116,7 @@ export class GenerationPublicationPipeline {
         candidates=this.#freshForegroundCandidates(turnId);
         assessment=this.truth.assess(candidates,{
           query,intent,worldRevision,sceneRevision,attempt:1,maxCorrectiveAttempts:1,allowHistoricalSupport:true,
+          retrievalIntents:resolvedRetrievalIntents,candidateEnvelope:correctiveEnvelope??primaryEnvelope,
         });
         this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:false,correctionFailed:Boolean(corrective.failed)});
         this.choice?.noteCorrectionLimit?.(choiceSession);
@@ -205,7 +207,7 @@ export class GenerationPublicationPipeline {
     }
 
     const turnResults=this.resultBus.results({turnId});
-    const candidateToResult=new Map(turnResults.map(x=>[x.result.payload?.candidateId,x]));
+    const candidateToResult=new Map(turnResults.filter(x=>x.result.resultType==='RETRIEVAL_CANDIDATE').map(x=>[x.result.payload?.candidateId,x]));
     const admittedCandidateIds=uniq([
       ...(publicationAssessment?.admittedCandidateIds??[]),...(publicationAssessment?.supportCandidateIds??[]),
     ]);
@@ -219,6 +221,7 @@ export class GenerationPublicationPipeline {
       kind:'GenerationGatherReceipt',turnId,correlationId,sceneId:sceneTrace?.sceneId??this.sceneId,sceneRevision,
       sourceRevisionRefs:uniq(sceneTrace?.sourceRevisionRefs??[]),provenanceRefs:uniq(sceneTrace?.provenanceRefs??[]),
       foregroundResultIds:uniq(turnResults.filter(x=>x.route.effectiveDestination===ResultDestination.FOREGROUND&&x.route.freshness==='FRESH').map(x=>x.result.id)),
+      admittedCandidateIds:[...admittedCandidateIds],
       admittedResultIds:[...admittedResultIds],staleResultIds:[...staleResultIds],rejectedResultIds:[...rejectedResultIds],
       cognitiveNeeds:structuredClone(sceneTrace?.cognitiveNeeds??[]),deadline,closedForForeground:true,authorityGranted:false,canonicalMutationAuthority:false,
     };
@@ -237,6 +240,27 @@ export class GenerationPublicationPipeline {
     });
     if(hotSnapshot)this.core.hotCognition?.noteGenerationSeal?.({turnId,sealReceipt:sealed.receipt,snapshot:hotSnapshot});
 
+    const truthByCandidate=new Map((assessment?.truthResults??[]).map((row)=>[row.candidateId,row]));
+    const candidateTraceReceipt={
+      kind:'SelectedTurnCandidateTraceReceipt',turnId,correlationId,
+      rows:(candidates??[]).map((candidate)=>{
+        const truth=truthByCandidate.get(candidate.candidateId)??null;
+        const result=candidateToResult.get(candidate.candidateId)?.result??null;
+        return{
+          candidateId:candidate.candidateId,
+          evidenceRefs:uniq(candidate.evidenceRefs??[]),
+          sourceRevisionRefs:uniq(candidate.sourceRevisionRefs??[]),
+          nominationChannels:uniq((candidate.channelNominations??[]).map((row)=>row.channelId)),
+          truthClassification:truth?.classification??null,
+          truthUsable:Boolean(truth?.usableForIntent),
+          resultId:result?.id??null,
+          gathered:Boolean(result?.id&&admittedResultIds.includes(result.id)),
+          sealed:Boolean(result?.id&&sealed.receipt.admittedResultIds.includes(result.id)),
+        };
+      }).sort((a,b)=>a.candidateId.localeCompare(b.candidateId)),
+      hostDeliveryInferred:false,authorityGranted:false,admissionAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+
     const finalRoutes=this.resultBus.results({turnId});
     const cognitiveChoiceReceipt=this.choice?.finalize?.(choiceSession,{
       assessment,publicationAssessment,corrective,packet:sealed.packet,sealReceipt:sealed.receipt,resultRoutes:finalRoutes,
@@ -251,6 +275,19 @@ export class GenerationPublicationPipeline {
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,hotFreshnessReceipt,
       hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,
       retrievalIntents:structuredClone(resolvedRetrievalIntents),
+      retrievalQualityReceipt:structuredClone(assessment?.retrievalQuality??null),
+      correctiveRetrievalReceipt:{
+        kind:'SelectedTurnCorrectiveRetrievalReceipt',
+        action:corrective?.action??assessment?.retrievalQuality?.correctiveAction??null,
+        executed:Boolean(corrective?.executed),
+        failed:Boolean(corrective?.failed),
+        terminated:Boolean(corrective?.terminated),
+        correctivePasses:Number(corrective?.correctivePasses??0),
+        maxCorrectiveAttempts:Number(corrective?.maxCorrectiveAttempts??1),
+        error:corrective?.error??null,
+        authorityGranted:false,truthAuthorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
+      },
+      candidateTraceReceipt,
       retrievalBudgetReceipt:primaryEnvelope?.metadata?.retrievalBudgetReceipt??null,
       graphTraversalReceipt:primaryEnvelope?.metadata?.graphTraversalReceipt??null,duplicate:false,
     };

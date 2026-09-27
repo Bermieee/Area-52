@@ -73,7 +73,7 @@ function modeStatus(mode){if(mode===ProductDataMode.LIVE)return'ready';if(mode==
 function normalize(value){
   const mode=MODES.has(value.frontFaceMode)?value.frontFaceMode:DEFAULTS.frontFaceMode;
   const density=DENSITIES.has(value.frontFaceDensity)?value.frontFaceDensity:DEFAULTS.frontFaceDensity;
-  const width=Math.max(360,Math.min(960,Number(value.frontFaceWidth)||DEFAULTS.frontFaceWidth));
+  const width=Math.max(360,Math.min(1440,Number(value.frontFaceWidth)||DEFAULTS.frontFaceWidth));
   const inspectorWidth=Math.max(240,Math.min(560,Number(value.inspectorWidth)||DEFAULTS.inspectorWidth));
   return{frontFaceMode:mode,frontFaceWidth:width,frontFaceDensity:density,inspectorVisible:Boolean(value.inspectorVisible),inspectorWidth,lastProductWorkspace:String(value.lastProductWorkspace||'home')};
 }

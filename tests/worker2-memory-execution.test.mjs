@@ -187,9 +187,10 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
     occurredAt:2,worldRevision:2,sceneRevision:2,participants:['Ari'],knownBy:['Ari'],metadata:{chatId:'chat:causal',turnId:'causal:2',generationId:'gen:causal:2'},provenance:['worker2'],
   });
   const alarm=memory.recordEventMemory({eventId:'event:alarm',description:'The bridge alarm sounds.',evidenceRefs:[first.id],identityRevisionRefs:['identity:Ari@r1'],entityRefs:['bridge-alarm'],perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
-  const gate=memory.recordEventMemory({eventId:'event:gate',description:'The gate closes.',evidenceRefs:[second.id],identityRevisionRefs:['identity:gate@r3'],entityRefs:['gate'],temporalOrderRefs:[{relation:'FOLLOWS',eventRef:alarm.eventId}]});
+  const gate=memory.recordEventMemory({eventId:'event:gate',description:'The gate closes.',evidenceRefs:[second.id],identityRevisionRefs:['identity:gate@r3'],entityRefs:['gate'],stateTransitionRefs:['transition:gate:open-to-closed@r2'],temporalOrderRefs:[{relation:'FOLLOWS',eventRef:alarm.eventId}]});
   assert.equal(gate.temporalOrderRefs[0].relation,'FOLLOWS');
   assert.equal(gate.causalClaim,false);
+  assert.deepEqual(gate.stateTransitionRefs,['transition:gate:open-to-closed@r2']);
 
   const h1=memory.recordCausalHypothesis({hypothesisId:'hyp:alarm-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:[alarm.eventId],effectEventRef:gate.eventId,relationType:'CAUSES',
     statement:'The alarm may have triggered the gate closure.',supportEvidenceRefs:[first.id,second.id],identityRevisionRefs:['identity:Ari@r1','identity:gate@r3'],confidence:.99,
@@ -211,6 +212,8 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
   assert.equal(hypotheses.length,2);
   assert.ok(hypotheses.every(row=>row.truthStatusHint==='UNRESOLVED'));
   assert.ok(hypotheses.every(row=>row.metadata?.chronologyDoesNotImplyCausality===true));
+  const gateNomination=query.nominations.find(row=>row.artifactRef?.artifactId===gate.id);
+  assert.ok(gateNomination?.metadata?.stateTransitionRefs?.includes('transition:gate:open-to-closed@r2'));
   assert.ok(memory.drillDown(hypotheses[0],{selection:{chatId:'chat:causal'}}).length>=1);
 
   const weakened=memory.recordCausalHypothesis({hypothesisId:'hyp:alarm-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:[alarm.eventId],effectEventRef:gate.eventId,relationType:'CAUSES',

@@ -6,6 +6,7 @@ import { WorkspaceRegistry } from '../src/ui-core/registry.js';
 import { ResourceScope } from '../src/ui-core/lifecycle.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
+function allNodesForDiagnostics(node){return[node,...(node?.children??[]).flatMap(allNodesForDiagnostics)];}
 function memoryStorage(){
   const map=new Map();
   return{map,getItem:key=>map.get(key)??null,setItem:(key,value)=>map.set(key,String(value)),removeItem:key=>map.delete(key)};
@@ -217,6 +218,20 @@ test('workspace answers the selected-turn drilldown in human-readable labels ins
   scope.cleanup();mounted.release();
 });
 
+
+test('Diagnostics command center exposes flagship widgets and wide workspace metadata',()=>{
+  let now=1700000550000;
+  const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});
+  journal.recordSnapshot(snapshot());
+  const registry=new WorkspaceRegistry(),mounted=installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider:()=>baseSelection});
+  const entry=registry.get('turn-log');
+  assert.equal(entry.preferredWidth,1180);
+  const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
+  entry.render(host,{scope,refresh:()=>{}});
+  const visible=allNodesForDiagnostics(host).map(node=>node.textContent??'').join(' ');
+  for(const label of ['Area-52 Diagnostics Command Center','Generation Flight Recorder','Browser Load Attribution','Brain / Producer Activity','Needs Attention','Runtime Pulse','Context Delivery','Knowledge Pulse','Recent Diagnostic Events','Deep inspection'])assert.match(visible,new RegExp(label.replace(/[.*+?^$()|[\\]\\]/g,'\\test('Diagnostics aggregates retained history and current operational telemetry into one safe export bundle',()=>{')));
+  scope.cleanup();mounted.release();
+});
 
 test('Diagnostics aggregates retained history and current operational telemetry into one safe export bundle',()=>{
   let now=1700000600000;

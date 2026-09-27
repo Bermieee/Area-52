@@ -973,7 +973,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       twoUnrelatedStories: stories.filter((row) => row.ready).length >= 2,
       promptDeliveryObserved: this.turnEvidence.some((row) => row.delivery?.promptInjection?.succeeded === true),
       sealedContextObserved: this.turnEvidence.some((row) => row.delivery?.sealVerified === true),
-      genericScenePolicyObserved: this.turnEvidence.some((row) => row.scene?.extractionPolicy === 'GENERIC_HOST_EVIDENCE_ONLY'),
+      genericScenePolicyObserved: this.turnEvidence.some((row) => READY_SCENE_EXTRACTION_POLICIES.has(row.scene?.extractionPolicy)),
     };
     const executionReady = Object.values(liveTurnChecks).every(Boolean);
     const operatorReady = this.operatorReview.promptInspectorConfirmed

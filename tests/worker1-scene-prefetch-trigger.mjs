@@ -116,6 +116,8 @@ test('#112 explicit travel destination is intent-only and does not mutate curren
   assert.equal(receipt.status,'NO_WORK');
   assert.equal(receipt.eventTypes.includes(SceneEventType.PREFETCH_RECOMMENDED),true);
   assert.deepEqual(scenePrefetchIntentsFromNarrative('We should head to Sunken Archive next.')[0].locationRefs,['Sunken Archive']);
+  assert.deepEqual(scenePrefetchIntentsFromNarrative("We're heading to Crystal Harbor next.")[0].locationRefs,['Crystal Harbor']);
+  assert.deepEqual(scenePrefetchIntentsFromNarrative('We travel to South Courtyard.'),[],'current movement is Scene state evidence, not likely-next intent');
 });
 
 test('#112 confirmed strong boundary transition publishes destination warming on the new Scene',()=>{

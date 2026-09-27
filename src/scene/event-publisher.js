@@ -4,10 +4,10 @@ const clone=(v)=>structuredClone(v);
 const immutable=(value)=>{if(value&&typeof value==='object'){for(const item of Object.values(value))immutable(item);if(!Object.isFrozen(value))Object.freeze(value);}return value;};
 export class SceneEventPublisher{
   constructor({sink=null,maxDedupe=512}={}){this.sink=sink;this.maxDedupe=maxDedupe;this.sequence=0;this.dedupe=new Map();}
-  publish({eventType,sceneId,sceneRevision,sourceRevisionRefs=[],payload={},correlationId=null,causationId=null,turnId=null,dedupeKey=null,eventId=null}){
+  publish({eventType,sceneId,sceneRevision,sourceRevisionRefs=[],payload={},chatId=null,correlationId=null,causationId=null,turnId=null,generationId=null,dedupeKey=null,eventId=null}){
     if(!Object.values(SceneEventType).includes(eventType))throw new TypeError(`unsupported Scene event ${eventType}`);
     const key=dedupeKey?`${eventType}:${dedupeKey}`:null;if(key&&this.dedupe.has(key))return immutable(clone(this.dedupe.get(key)));
-    const sequence=++this.sequence;const event=immutable(createSceneEventEnvelope({eventId:eventId??`scene-event:${sequence}`,eventType,sceneId,sceneRevision,sourceRevisionRefs,payload,correlationId,causationId,turnId,sequence,dedupeKey,createdAt:sequence}));
+    const sequence=++this.sequence;const event=immutable(createSceneEventEnvelope({eventId:eventId??`scene-event:${sequence}`,eventType,sceneId,sceneRevision,sourceRevisionRefs,payload,chatId,correlationId,causationId,turnId,generationId,sequence,dedupeKey,createdAt:sequence}));
     const validation=this.validateCompatibility(event);if(!validation.ok){const error=new Error(`Scene event rejected: ${validation.code}`);error.code=validation.code;throw error;}
     if(key){this.dedupe.set(key,event);while(this.dedupe.size>this.maxDedupe)this.dedupe.delete(this.dedupe.keys().next().value);}
     this.sink?.(event);return immutable(clone(event));
@@ -29,5 +29,5 @@ export class SceneEventPublisher{
   registerWithCoreRegistry(registry){if(!registry?.registerType)throw new TypeError('Core EventTypeRegistry-compatible registerType() is required');return this.coreDescriptors().map((d)=>registry.registerType({eventType:d.eventType,eventVersion:d.eventVersion,owner:d.owner,validatePayload:(payload,event)=>this.validateCompatibility({...event,payload}).ok}));}
   runtimeSink(spine){if(!spine?.emit)throw new TypeError('Runtime EventSpine-compatible emit() is required');return (event)=>{const args=this.runtimeEmitArgs(event);return spine.emit(args.eventType,args.payload,args.meta);};}
   isFresh(event,currentSceneRevision){return event.sceneRevision===currentSceneRevision;}
-  runtimeEmitArgs(event){return {eventType:event.eventType,payload:clone(event.payload),meta:{eventId:event.eventId,schemaVersion:event.schemaVersion,producer:event.producer,causationId:event.causationId,correlationId:event.correlationId,turnId:event.turnId,sceneRevision:event.sceneRevision,sourceRevisions:event.sourceRevisions,revisionFences:clone(event.revisionFences),dedupeKey:event.dedupeKey,createdAt:event.createdAt}};}
+  runtimeEmitArgs(event){return {eventType:event.eventType,payload:clone(event.payload),meta:{eventId:event.eventId,schemaVersion:event.schemaVersion,producer:event.producer,chatId:event.chatId,generationId:event.generationId,causationId:event.causationId,correlationId:event.correlationId,turnId:event.turnId,sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisions:event.sourceRevisions,revisionFences:clone(event.revisionFences),dedupeKey:event.dedupeKey,createdAt:event.createdAt}};}
 }

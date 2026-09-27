@@ -7,7 +7,7 @@ import {
   HostActivity,ObservationClass,SceneEventType,createFieldState,scenePrefetchIntentsFromNarrative,
 } from '../src/scene/index.js';
 import {
-  Capability,DynamicFanOutPlanner,ResultClass,createTurnEnvelope,plannerInputFromScene,
+  Capability,DynamicFanOutPlanner,NativeSidecarSwarm,ResultClass,createTurnEnvelope,plannerInputFromScene,
 } from '../src/coprocessor/index.js';
 
 const event=(activity,id,content,extra={})=>({
@@ -41,6 +41,20 @@ function turnFor(input,id='prefetch-plan',sourceRevisionSet=input.sourceRevision
     sourceRevisionSet:[...(sourceRevisionSet??[])],
     worldRevision:1,sceneRevision:input.sceneRevision,characterStateRevision:1,createdAt:0,
   });
+}
+
+function swarmConnections({capabilities=[Capability.RETRIEVAL,Capability.LONG_CONTEXT]}={}){
+  const profile={
+    profileId:'profile:prefetch',providerId:'provider:prefetch',workerId:'worker:prefetch',modelId:'model:prefetch',
+    capabilities:[...capabilities],available:true,availability:'AVAILABLE',providerHealth:'HEALTHY',health:'HEALTHY',
+    currentLoad:0,concurrencyCapacity:1,latencyClass:'LOW',
+  };
+  return{
+    readModel:()=>({activeCapabilities:[...capabilities],readyResourceCount:1}),
+    profiles:{list:()=>[profile]},
+    executeTask:async()=>{throw new Error('planning proof must not physically execute a worker');},
+    createJevProviderExecutor:()=>null,
+  };
 }
 
 test('#112 confirmed location change publishes a high-priority speculative recommendation',()=>{
@@ -192,22 +206,23 @@ test('#112 production contract route reaches Dynamic Fan-Out consideration witho
   assert.ok(travelRecommendation.sourceRevisionSet.every(ref=>sceneInput.sourceRevisionSet.includes(ref)));
 
   const turn=turnFor(sceneInput,'prefetch-route');
-  const planner=new DynamicFanOutPlanner();
-  const accepted=planner.plan({turnEvent:turn,...plannerInput,text:'Okay.'});
-  assert.equal(accepted.inputSignals.freshPrefetchRecommendationCount,plannerInput.prefetchRecommendations.length);
-  const historian=accepted.nominations.find(row=>row.roleId==='historian');
+  const swarm=new NativeSidecarSwarm({connections:swarmConnections()});
+  const accepted=swarm.prepareTurn({turnEvent:turn,plannerInput:{...plannerInput,text:'Okay.'}});
+  assert.equal(accepted.fanOutPlan.inputSignals.freshPrefetchRecommendationCount,plannerInput.prefetchRecommendations.length);
+  const historian=accepted.fanOutPlan.nominations.find(row=>row.roleId==='historian');
   assert.ok(historian);
   assert.equal(historian.resultClass,ResultClass.OPPORTUNISTIC);
   assert.ok(historian.reasonCodes.includes('SCENE_PREFETCH_RECOMMENDATION'));
   assert.equal(historian.canonicalAuthority,false);
+  assert.ok(accepted.checkpoint.pendingTasks.some(task=>task.metadata.roleId==='historian'));
+  assert.equal(accepted.choiceProposal.options.find(row=>row.roleId==='historian')?.disposition,'NOMINATED');
 
-  const denied=planner.plan({
-    turnEvent:turn,...plannerInput,text:'Okay.',
-    availableCapabilities:[Capability.GRAPH],
-  });
-  assert.equal(denied.inputSignals.freshPrefetchRecommendationCount,plannerInput.prefetchRecommendations.length);
-  assert.equal(denied.tasks.some(task=>task.metadata.roleId==='historian'),false,'Dynamic Fan-Out retains execution choice');
+  const deniedSwarm=new NativeSidecarSwarm({connections:swarmConnections({capabilities:[Capability.GRAPH]})});
+  const denied=deniedSwarm.prepareTurn({turnEvent:turn,plannerInput:{...plannerInput,text:'Okay.'}});
+  assert.equal(denied.fanOutPlan.inputSignals.freshPrefetchRecommendationCount,plannerInput.prefetchRecommendations.length);
+  assert.equal(denied.checkpoint.pendingTasks.some(task=>task.metadata.roleId==='historian'),false,'Dynamic Fan-Out retains execution choice');
 
+  const planner=new DynamicFanOutPlanner();
   const staleTurn=turnFor(sceneInput,'prefetch-stale',['src:not-current']);
   const stale=planner.plan({turnEvent:staleTurn,...plannerInput,text:'Okay.'});
   assert.equal(stale.inputSignals.freshPrefetchRecommendationCount,0);

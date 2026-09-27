@@ -50,6 +50,9 @@ test('advanced scanner production receipt recovers a missed character and object
   assert.ok(receipt.eventTypes.includes(SceneEventType.ACTIVE_CAST_CHANGED));
   assert.ok(receipt.eventTypes.includes(SceneEventType.OBJECT_TRANSITION));
   assert.ok(receipt.eventTypes.includes(SceneEventType.PREFETCH_RECOMMENDED));
+  assert.ok(receipt.operatorResult.publication.sourceRevisionRefs.includes(initial.evidence.sourceRevisionId));
+  assert.equal(receipt.operatorResult.publication.sourceRevisionRefs.includes('operator:recover:1'),false);
+  assert.ok(receipt.operatorResult.publication.evidenceRefs.includes('operator:recover:1'));
   assert.ok(receipt.signal.activeCast.some(row=>row.characterId==='Eris'&&row.state==='PRESENT'));
   assert.ok(receipt.signal.objects.some(row=>row.objectId==='brass-key'));
   assert.equal(receipt.authorityGranted,false);

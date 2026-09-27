@@ -157,10 +157,16 @@ export class SceneLifecycleRuntime{
             locationRefs:[fields.location?.value?.location??fields.location?.value].filter(Boolean),
             threadRefs:(fields.activeThreads?.value??[]).filter((row)=>typeof row==='string'),
           };
+          const priorSourceRefs=new Set((current.sourceRevisionRefs??[]).map(String));
+          const recentTailRefs=(this.narrativeFeed.currentEvidence(evidence.chatId)??[])
+            .filter(row=>priorSourceRefs.has(String(row.sourceRevisionId)))
+            .sort((x,y)=>Number(x.sequence??0)-Number(y.sequence??0))
+            .slice(-2)
+            .map(row=>row.sourceRevisionId);
           transition=this.transitionManager.transition({
             decision:boundary.decision,fromSceneId:current.sceneId,nextSceneId,relationship,
             evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],
-            sourceRange:{start:evidence.messageId,end:evidence.messageId},destinationHints,destinationFields:fields,
+            sourceRange:{start:evidence.messageId,end:evidence.messageId},recentTailRefs,destinationHints,destinationFields:fields,
             allowDestinationRefresh:Boolean(extracted.allowWhenRefreshRequired),expectedSceneRevision:current.revision,
             turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
           });

@@ -14,6 +14,8 @@ const emptyAssessment=({turnId,query,intent,reason})=>createTruthAssessment({
   id:`truth-assessment:skipped:${turnId}`,query,intent,confidence:'LOW',truthResults:[],correctiveRequest:null,
   reason,admittedCandidateIds:[],supportCandidateIds:[],
 });
+const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
+const sizeClass=(count)=>{const n=Math.max(0,Number(count)||0);return n===0?'EMPTY':n<=8?'SMALL':n<=64?'MEDIUM':n<=256?'LARGE':'XL';};
 
 export class GenerationPublicationPipeline {
   constructor({core,sceneRevision=0,cognitiveChoice=null,maxPublishedTurns=64}){
@@ -60,8 +62,25 @@ export class GenerationPublicationPipeline {
       return{...replay.output,cognitiveChoiceReceipt:receipt,duplicate:true};
     }
 
+    const stageRows=[];
+    const recordStage=(stage,started,{queueWaitMs=0,inputCount=0,outputCount=0,inputBytes=null,outputBytes=null,retainedObjectCount=0,retainedBytes=null,outcome='COMPLETED'}={})=>{
+      stageRows.push({
+        stage,wallMs:Math.max(0,perfNow()-started),queueWaitMs:Math.max(0,Number(queueWaitMs)||0),
+        inputCount:Math.max(0,Number(inputCount)||0),outputCount:Math.max(0,Number(outputCount)||0),
+        inputBytes:inputBytes!=null&&Number.isFinite(Number(inputBytes))?Math.max(0,Number(inputBytes)):null,
+        outputBytes:outputBytes!=null&&Number.isFinite(Number(outputBytes))?Math.max(0,Number(outputBytes)):null,
+        inputSizeClass:sizeClass(inputCount),outputSizeClass:sizeClass(outputCount),
+        retainedObjectCount:Math.max(0,Number(retainedObjectCount)||0),
+        retainedBytes:retainedBytes!=null&&Number.isFinite(Number(retainedBytes))?Math.max(0,Number(retainedBytes)):null,
+        outcome:String(outcome),
+      });
+    };
+    const hotStarted=perfNow();
     const rawHotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
+    recordStage('HOT_COGNITION',hotStarted,{inputCount:rawHotSnapshot?1:0,outputCount:rawHotSnapshot?1:0,retainedObjectCount:rawHotSnapshot?1:0,outcome:rawHotSnapshot?'SNAPSHOT_AVAILABLE':'NO_MEANINGFUL_HOT_STATE'});
+    const sceneStarted=perfNow();
     const sceneTrace=this.core.sceneIntegration?.publicationTrace?.(rawHotSnapshot?.chatNamespace)??null;
+    recordStage('SCENE',sceneStarted,{inputCount:rawHotSnapshot?1:0,outputCount:sceneTrace?1:0,retainedObjectCount:sceneTrace?1:0,outcome:sceneTrace?'SCENE_TRACE_AVAILABLE':'NO_SCENE_TRACE'});
     if(sceneTrace?.sceneId)this.setSceneRevision(sceneTrace.sceneRevision,{sceneId:sceneTrace.sceneId});
     else if(rawHotSnapshot?.sceneId)this.setSceneRevision(rawHotSnapshot.sceneRevision,{sceneId:rawHotSnapshot.sceneId});
     else if(rawHotSnapshot?.sceneRevision&&rawHotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=rawHotSnapshot.sceneRevision;
@@ -71,10 +90,12 @@ export class GenerationPublicationPipeline {
     const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
     const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot,{perspectiveConstraint}):null;
+    const choiceStarted=perfNow();
     const choiceSession=this.choice?.begin?.({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
     })??null;
+    recordStage('COGNITIVE_CHOICE',choiceStarted,{inputCount:1,outputCount:choiceSession?1:0,retainedObjectCount:choiceSession?1:0,outcome:choiceSession?.hotOnly?'HOT_SUFFICIENT':choiceSession?'CHOICE_ADMITTED':'CHOICE_UNAVAILABLE'});
 
     const requestedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:{...(graphTraversal?{graphTraversal}:{}),publicationFallbackIntent:true}}]);
     const resolvedRetrievalIntents=requestedRetrievalIntents.map((row,index)=>({
@@ -93,7 +114,10 @@ export class GenerationPublicationPipeline {
     if(choiceSession?.hotOnly){
       publicationAssessment=emptyAssessment({turnId,query,intent,reason:'long-term retrieval and Truth were skipped because Hot Cognition satisfied the turn'});
     }else{
+      const retrievalStarted=perfNow();
       primaryEnvelope=this.core.retrieval.retrieveEnvelope(query,{intent,anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,channelIds,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:resolvedRetrievalIntents,metadata:{sceneId:sceneTrace?.sceneId??null,sceneRevision,sceneIntegrationReceiptId:sceneTrace?.lastReceiptId??null}});
+      recordStage('RETRIEVAL_CHANNELS',retrievalStarted,{inputCount:resolvedRetrievalIntents.length,inputBytes:utf8ByteLength(query),outputCount:primaryEnvelope?.candidates?.length??0,retainedObjectCount:primaryEnvelope?.candidates?.length??0,outcome:primaryEnvelope?.candidates?.length?'NOMINATIONS_RETURNED':'NO_NOMINATIONS'});
+      const candidateBusStarted=perfNow();
       this.choice?.observeRetrieval?.(choiceSession,primaryEnvelope,{phase:'PRIMARY'});
       primary=primaryEnvelope.candidates.filter(candidate=>candidate.freshness===CandidateFreshness.FRESH);
       for(const candidate of primary)this.resultBus.receiveCandidate(candidate,{
@@ -102,13 +126,17 @@ export class GenerationPublicationPipeline {
       });
 
       candidates=this.#freshForegroundCandidates(turnId);
+      recordStage('CANDIDATE_BUS',candidateBusStarted,{inputCount:primaryEnvelope?.candidates?.length??0,outputCount:candidates.length,retainedObjectCount:candidates.length,outcome:'FRESH_FOREGROUND_MATERIALIZED'});
+      const truthStarted=perfNow();
       assessment=this.truth.assess(candidates,{
         query,intent,worldRevision,sceneRevision,attempt:0,maxCorrectiveAttempts:1,
         retrievalIntents:resolvedRetrievalIntents,candidateEnvelope:primaryEnvelope,
       });
+      recordStage('TRUTH',truthStarted,{inputCount:candidates.length,outputCount:assessment?.truthResults?.length??0,retainedObjectCount:assessment?.truthResults?.length??0,outcome:assessment?.confidence??'UNKNOWN'});
       this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:Boolean(assessment.correctiveRequest)});
 
       if(assessment.correctiveRequest){
+        const correctiveStarted=perfNow();
         corrective=this.truth.executeCorrective(assessment,{retrieval:this.core.retrieval,anchorEntityIds:effectiveAnchorEntityIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents:resolvedRetrievalIntents,channelIds});
         if(corrective.executed&&!corrective.failed){
           correctiveEnvelope=this.core.retrieval.lastEnvelope??null;
@@ -128,6 +156,9 @@ export class GenerationPublicationPipeline {
         });
         this.choice?.observeQuality?.(choiceSession,assessment.confidence,{correctiveRequested:false,correctionFailed:Boolean(corrective.failed)});
         this.choice?.noteCorrectionLimit?.(choiceSession);
+        recordStage('CORRECTIVE_RETRIEVAL',correctiveStarted,{inputCount:1,outputCount:corrective?.candidates?.length??0,retainedObjectCount:corrective?.candidates?.length??0,outcome:corrective?.failed?'FAILED':corrective?.executed?'EXECUTED':'SKIPPED'});
+      }else{
+        const skippedAt=perfNow();recordStage('CORRECTIVE_RETRIEVAL',skippedAt,{outcome:'NOT_REQUESTED'});
       }
 
       publicationAssessment=assessment.confidence==='LOW'
@@ -142,6 +173,7 @@ export class GenerationPublicationPipeline {
         quality:assessment.confidence,precisionAvailable,
       })??{invoked:Boolean(precisionAvailable),required:true,fallback:!precisionAvailable};
 
+      const precisionStarted=perfNow();
       if(precisionDecision.invoked){
         try{precisionResults=this.precision.rank(candidates,{query,intent,worldRevision,sceneRevision});}
         catch(error){precisionFailed=true;precisionResults=[];}
@@ -160,17 +192,21 @@ export class GenerationPublicationPipeline {
           destination:ResultDestination.FOREGROUND,payload:precisionResult,timing:{latencyMs:precisionResult.latencyMs},
         }));
       }
+      recordStage('PRECISION',precisionStarted,{inputCount:candidates.length,outputCount:precisionResults.length,retainedObjectCount:precisionResults.length,outcome:precisionFailed?'FAILED':precisionDecision.invoked?'EXECUTED':'SKIPPED'});
+    }
+    if(choiceSession?.hotOnly){
+      const skippedAt=perfNow();
+      for(const stage of ['RETRIEVAL_CHANNELS','CANDIDATE_BUS','TRUTH','CORRECTIVE_RETRIEVAL','PRECISION'])recordStage(stage,skippedAt,{outcome:'SKIPPED_HOT_SUFFICIENT'});
     }
 
-    const usablePrecision=this.resultBus.foreground(turnId)
-      .filter(x=>x.result.resultType==='PRECISION_RESULT')
-      .map(x=>x.result.payload);
+    const usablePrecision=this.resultBus.foregroundPayloads(turnId,{resultType:'PRECISION_RESULT'});
     const lowAbstention=assessment?.confidence==='LOW';
     const admittedKnowledgeCandidateIds=new Set([
       ...(publicationAssessment?.admittedCandidateIds??[]),
       ...(publicationAssessment?.supportCandidateIds??[]),
     ]);
     const precisionByCandidate=new Map(usablePrecision.map(row=>[row.candidateId,row]));
+    const materializationStarted=perfNow();
     const admittedKnowledgeEvidence=(lowAbstention||choiceSession?.hotOnly?[]:candidates)
       .filter(candidate=>admittedKnowledgeCandidateIds.has(candidate.candidateId))
       .map(candidate=>{
@@ -193,7 +229,9 @@ export class GenerationPublicationPipeline {
           },
         };
       }).filter(Boolean);
+    recordStage('KNOWLEDGE_MATERIALIZATION',materializationStarted,{inputCount:candidates.length,outputCount:admittedKnowledgeEvidence.length,retainedObjectCount:admittedKnowledgeEvidence.length,outcome:lowAbstention?'TRUTH_LOW_ABSTENTION':choiceSession?.hotOnly?'HOT_ONLY':'ADMITTED_OWNER_EVIDENCE_MATERIALIZED'});
     const unknownSlots=lowAbstention||choiceSession?.hotOnly?[]:this.#unknownSlots(query,intent,effectiveAnchorEntityIds);
+    const compilerStarted=perfNow();
     let compiled=this.compiler.compile({
       query,intent,truthAssessment:publicationAssessment,precisionResults:usablePrecision,budgetBytes,unknownSlots,
       rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,knowledgeEvidence:admittedKnowledgeEvidence,
@@ -213,7 +251,9 @@ export class GenerationPublicationPipeline {
       packet.id=String(packet.id)+':scene:'+stableHash({sceneId:sceneTrace.sceneId,sceneRevision:sceneTrace.sceneRevision,invalidationEpoch:sceneTrace.contextInvalidationEpoch,receipt:sceneTrace.lastReceiptId},{length:16});
       compiled={...compiled,packet,receipt:{...compiled.receipt,id:'compiler-receipt:'+packet.id,packetId:packet.id,compiledBytes:utf8ByteLength(JSON.stringify(packet)),reason:compiled.receipt.reason+'; native Scene integration trace '+sceneTrace.sceneId+'@'+sceneTrace.sceneRevision+' attached'}};
     }
+    recordStage('CONTEXT_COMPILER',compilerStarted,{inputCount:(publicationAssessment?.truthResults??[]).length,outputCount:(compiled.packet?.current?.length??0)+(compiled.packet?.historical?.length??0)+(compiled.packet?.unresolved?.length??0)+(compiled.packet?.relevantLore?.length??0)+(compiled.packet?.episodicMemory?.length??0),inputBytes:compiled.receipt?.rawBytes??null,outputBytes:compiled.receipt?.compiledBytes??null,retainedObjectCount:1,retainedBytes:compiled.receipt?.compiledBytes??null,outcome:compiled.receipt?.fallbackUsed?'RICH_FALLBACK':'COMPACT'});
 
+    const gatherStarted=perfNow();
     const turnResults=this.resultBus.results({turnId});
     const candidateToResult=new Map(turnResults.filter(x=>x.result.resultType==='RETRIEVAL_CANDIDATE').map(x=>[x.result.payload?.candidateId,x]));
     const admittedCandidateIds=uniq([
@@ -233,6 +273,7 @@ export class GenerationPublicationPipeline {
       admittedResultIds:[...admittedResultIds],staleResultIds:[...staleResultIds],rejectedResultIds:[...rejectedResultIds],
       cognitiveNeeds:structuredClone(sceneTrace?.cognitiveNeeds??[]),deadline,closedForForeground:true,authorityGranted:false,canonicalMutationAuthority:false,
     };
+    recordStage('GATHER',gatherStarted,{inputCount:turnResults.length,outputCount:admittedResultIds.length,retainedObjectCount:admittedResultIds.length,outcome:admittedResultIds.length?'RESULTS_ADMITTED':'NO_RESULTS_ADMITTED'});
 
     let fallbackState=SealFallbackState.NONE;
     const precisionState=choiceSession?.precision??{};
@@ -241,11 +282,13 @@ export class GenerationPublicationPipeline {
     if(corrective.failed&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_FAILED;
     else if(corrective.executed&&corrective.terminated&&assessment?.confidence==='MIXED'&&fallbackState===SealFallbackState.NONE)fallbackState=SealFallbackState.CORRECTIVE_EXHAUSTED;
 
+    const sealStarted=perfNow();
     const sealed=this.seal.seal({
       turnId,correlationId,packet:compiled.packet,sourceRevisionIds:compiled.packet.dependencies,
       worldRevision,sceneRevision,admittedResultIds,rejectedResultIds,staleResultIds,
       fallbackState,deadline,sealedAt,dependencies:compiled.packet.dependencies,
     });
+    recordStage('CONTEXT_SEAL',sealStarted,{inputCount:admittedResultIds.length,outputCount:sealed.receipt?.admittedResultIds?.length??0,outputBytes:compiled.receipt?.compiledBytes??null,retainedObjectCount:1,retainedBytes:compiled.receipt?.compiledBytes??null,outcome:sealed.receipt?.sealedState?'SEALED':'SEALED_RECEIPT_CREATED'});
     if(hotSnapshot)this.core.hotCognition?.noteGenerationSeal?.({turnId,sealReceipt:sealed.receipt,snapshot:hotSnapshot});
 
     const truthByCandidate=new Map((assessment?.truthResults??[]).map((row)=>[row.candidateId,row]));
@@ -269,13 +312,25 @@ export class GenerationPublicationPipeline {
       hostDeliveryInferred:false,authorityGranted:false,admissionAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
 
-    const finalRoutes=this.resultBus.results({turnId});
+    const finalRoutes=turnResults;
     const cognitiveChoiceReceipt=this.choice?.finalize?.(choiceSession,{
       assessment,publicationAssessment,corrective,packet:sealed.packet,sealReceipt:sealed.receipt,resultRoutes:finalRoutes,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,
     })??null;
     if(sceneTrace)this.core.sceneIntegration?.noteSeal?.({chatNamespace:rawHotSnapshot?.chatNamespace,sealReceipt:sealed.receipt});
 
+    const performanceReceipt={
+      kind:'GenerationStagePerformanceReceipt',contractVersion:1,turnId,correlationId,worldRevision,sceneRevision,
+      stages:stageRows.slice(0,24),
+      counts:{
+        retrievalCandidates:primaryEnvelope?.candidates?.length??0,freshCandidates:candidates.length,
+        truthResults:assessment?.truthResults?.length??0,precisionResults:usablePrecision.length,
+        gatheredResults:admittedResultIds.length,sealedResults:sealed.receipt?.admittedResultIds?.length??0,
+      },
+      sizes:{queryBytes:utf8ByteLength(query),compilerRawBytes:compiled.receipt?.rawBytes??null,compiledPacketBytes:compiled.receipt?.compiledBytes??null},
+      retained:{resultRouteCount:finalRoutes.length,candidateCount:candidates.length,knowledgeEvidenceCount:admittedKnowledgeEvidence.length,sealedPacketBytes:compiled.receipt?.compiledBytes??null},
+      detailedProfiling:false,rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+    };
     const output={
       worldRevision,sceneRevision,primaryCandidates:primary,candidates,assessment,publicationAssessment,corrective,
       precisionResults:usablePrecision,precisionFailed,compilerReceipt:compiled.receipt,packet:sealed.packet,sealReceipt:sealed.receipt,
@@ -295,7 +350,7 @@ export class GenerationPublicationPipeline {
         error:corrective?.error??null,
         authorityGranted:false,truthAuthorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
       },
-      candidateTraceReceipt,
+      candidateTraceReceipt,performanceReceipt,
       retrievalBudgetReceipt:primaryEnvelope?.metadata?.retrievalBudgetReceipt??null,
       graphTraversalReceipt:primaryEnvelope?.metadata?.graphTraversalReceipt??null,duplicate:false,
     };
@@ -310,10 +365,9 @@ export class GenerationPublicationPipeline {
   }
 
   #freshForegroundCandidates(turnId){
-    const rows=this.resultBus.foreground(turnId);
+    const rows=this.resultBus.foregroundPayloads(turnId,{resultType:'RETRIEVAL_CANDIDATE'});
     const merged=new Map();
-    for(const row of rows){
-      const candidate=row.result.payload;
+    for(const candidate of rows){
       if(candidate?.candidateId)merged.set(candidate.candidateId,candidate);
     }
     return[...merged.values()].sort((a,b)=>a.candidateId.localeCompare(b.candidateId));

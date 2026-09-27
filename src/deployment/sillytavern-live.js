@@ -15,7 +15,7 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
-const SESSION_BOUNDS=Object.freeze({turnEvidence:32,processed:32,loreIngestion:32,errors:64});
+const SESSION_BOUNDS=Object.freeze({turnEvidence:32,processed:32,loreIngestion:32,errors:64,nativePerformance:12});
 const pushBounded=(list,value,limit)=>{list.push(value);if(list.length>limit)list.splice(0,list.length-limit);return value;};
 const safeDiagnosticMessage=(error)=>{
   let value=String(error?.code??error?.message??error??'UNKNOWN_ERROR');
@@ -23,6 +23,7 @@ const safeDiagnosticMessage=(error)=>{
   return value.slice(0,512);
 };
 const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
+const utf8Bytes=(value)=>{const text=String(value??'');if(typeof TextEncoder==='function')return new TextEncoder().encode(text).length;return unescape(encodeURIComponent(text)).length;};
 
 export function createJevDecisionResourceHostBridge(host,{fetchImpl=globalThis.fetch}={}){
   if(!host?.actions||!host?.read)return host;
@@ -460,6 +461,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     ownerBindings = {},
     memoryOwnerSnapshot = null,
     persistNativeBrain = null,
+    detailedGenerationProfiling = false,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
@@ -473,6 +475,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeRuns = new Map();
     this.nativeHistory = [];
     this.nativeRejections = [];
+    this.nativePerformance = [];
+    this.detailedGenerationProfiling=Boolean(detailedGenerationProfiling);
     this.nativeLoreRevisionEvents = [];
     this.routedLoreRevisionKeys = new Set();
     this.nativeOwnerAttachments = {lore:null,memory:null,memoryConsolidation:null,graphProviders:[]};
@@ -571,6 +575,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     return clone(receipt);
   }
 
+  uiBindings(){return this.#uiHostBindings();}
+
+  setDetailedGenerationProfiling(enabled=true){this.detailedGenerationProfiling=Boolean(enabled);return this.detailedGenerationProfiling;}
+
   mount() {
     if (this.uiHost) return this.uiHost;
     this.uiHost = mountWave12SillyTavernInterface({
@@ -638,7 +646,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
-    const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null};
+    const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted:perfNow(),profileStart:this.#generationProfileSample(),profileAfterInsertion:null};
     this.nativeRuns.set(chatId,run);
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
       chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,executionLabel:'LIVE_SILLYTAVERN',
@@ -648,7 +656,8 @@ export class DevelopmentDeploymentSillyTavernSession {
         if(!seal?.sealedState)throw new Error('Native Brain did not publish a sealed Context Seal before the model request');
         if(!rendered)throw new Error('Native Brain runTurn did not publish prepared.rendered for the model request');
         this.nativePayloads.set(chatId,clone(rendered));
-        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
+        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??null,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
+        if(typeof this.nativeBrain?.recordHostObservationEvidence==='function')this.nativeBrain.recordHostObservationEvidence(turnId,{eventId:'host-preparation:'+generationId,chatId,turnId,generationId,correlationId:pending.correlationId,sceneRevision:pending.sceneRevision,sourceRevisionRefs:pending.sceneSourceRevisionRefs,durationMs:Math.max(0,perfNow()-run.hostPrepareStarted),capturedAt:Date.now()});
         this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
         this.#beginOptionalGeneration(pending);
         readySettled=true;readyResolve(clone(pending));this.#notify();
@@ -659,6 +668,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   injectNativeModelRequest(eventData={}){
+    const insertionStarted=perfNow();
     const context=this.getContext(),chatId=clean(context.chatId),pending=this.nativePending.get(chatId),rendered=this.nativePayloads.get(chatId);
     if(!pending||!rendered)return null;
     if(pending.requestInjectedAt)return clone(pending);
@@ -669,7 +679,9 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(unsupportedRole)throw new Error('UNSUPPORTED_PROVIDER_MESSAGE_ROLE:'+unsupportedRole);
     const lastUserIndex=eventData.chat.map(row=>String(row?.role??'')).lastIndexOf('user'),insertAt=lastUserIndex>=0?lastUserIndex:eventData.chat.length;
     eventData.chat.splice(insertAt,0,...exactMessages);
-    const requestPayloadDigest=shortHash(JSON.stringify(exactMessages));
+    const area52PayloadJson=JSON.stringify(exactMessages),requestPayloadDigest=shortHash(area52PayloadJson),area52InputBytes=utf8Bytes(area52PayloadJson);
+    const insertionDurationMs=Math.max(0,perfNow()-insertionStarted),hostMessageCount=eventData.chat.length;
+    const run=this.nativeRuns.get(chatId);if(run)run.profileAfterInsertion=this.#generationProfileSample();
     let observedReceipt=null,ownerDeliveryReceiptRecorded=false;
     if(typeof this.nativeBrain?.recordObservedHostPromptEvidence==='function'){
       try{
@@ -679,6 +691,7 @@ export class DevelopmentDeploymentSillyTavernSession {
           sealedPacketHash:rendered.sealedPacketHash??null,observedRoles:exactMessages.map(row=>row.role),
           observedSections:(rendered.messageMap??[]).map(row=>({slot:row.slot,sectionIdentity:row.sectionIdentity??null,providerRole:row.providerRole??null,sourceRevisionIds:[...(row.sourceRevisionIds??[])],semanticManifestIdentity:row.semanticManifestIdentity??null})),
           promptFingerprint:requestPayloadDigest,capturedAt:Date.now(),
+          insertionDurationMs,area52InputBytes,area52MessageCount:exactMessages.length,hostMessageCount,
         });
         if(observedReceipt?.phases?.hostRequest?.status!=='OBSERVED_MATCH')throw new Error('HOST_DELIVERY_OBSERVATION_MISMATCH');
         ownerDeliveryReceiptRecorded=true;
@@ -688,7 +701,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       }
     }
     const deliveryReceiptStatus=ownerDeliveryReceiptRecorded?(observedReceipt?.status??'OBSERVED_MATCH'):'HOST_OBSERVED_OWNER_RECEIPT_UNAVAILABLE';
-    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestPayloadDigest,renderedMessageCount:exactMessages.length,requestHook:'CHAT_COMPLETION_PROMPT_READY',deliveryReceiptStatus,deliveryReceiptContractVersion:observedReceipt?.contractVersion??null,ownerDeliveryReceiptRecorded};
+    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestId:eventData.requestId??eventData.id??null,requestPayloadDigest,renderedMessageCount:exactMessages.length,area52InputBytes,requestHook:'CHAT_COMPLETION_PROMPT_READY',deliveryReceiptStatus,deliveryReceiptContractVersion:observedReceipt?.contractVersion??null,ownerDeliveryReceiptRecorded};
     this.nativePending.set(chatId,updated);this.nativePayloads.delete(chatId);this.nativeHistory.push(clone(updated));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
     this.#notify();return clone(updated);
   }
@@ -706,12 +719,31 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!assistant)throw new Error('SillyTavern assistant response is unavailable for native Brain completion');
     if(assistant.index<=pending.userMessageIndex)throw new Error('Assistant completion does not follow the prepared user message');
     const run=this.nativeRuns.get(chatId);if(!run)throw new Error('Native Brain runTurn callback is unavailable for the pending generation');
+    const providerLatencyMs=Math.max(0,Date.now()-Number(pending.requestInjectedAt??Date.now()));
+    if(typeof this.nativeBrain?.recordProviderResponsePerformance==='function')this.nativeBrain.recordProviderResponsePerformance(pending.turnId,{chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,providerLatencyMs,capturedAt:Date.now()});
     run.responseResolve(assistant.text);
     const outcome=await run.runPromise;
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
     const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
+    const profileEnd=this.#generationProfileSample();
+    if(run.profileStart||run.profileAfterInsertion||profileEnd){
+      const start=run.profileStart,end=profileEnd;
+      const delta=(a,b)=>Number.isFinite(Number(a))&&Number.isFinite(Number(b))?Number(b)-Number(a):null;
+      pushBounded(this.nativePerformance,{
+        kind:'NativeGenerationDetailedPerformanceProfile',chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,
+        start,afterInsertion:run.profileAfterInsertion,end:profileEnd,providerLatencyMs,
+        deltas:{
+          heapBytes:delta(start?.heapBytes,end?.heapBytes),
+          longTaskCount:delta(start?.longTaskCount,end?.longTaskCount),
+          longTaskTotalMs:delta(start?.longTaskTotalMs,end?.longTaskTotalMs),
+          diagnosticsUiRefreshCount:delta(start?.diagnosticsUiRefreshCount,end?.diagnosticsUiRefreshCount),
+          diagnosticsUiRefreshTotalMs:delta(start?.diagnosticsUiRefreshTotalMs,end?.diagnosticsUiRefreshTotalMs),
+        },
+        rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      },SESSION_BOUNDS.nativePerformance);
+    }
     this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
     this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
@@ -1035,9 +1067,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     base.readHostDeliveryReceipt=(selection={})=>this.#readHostDeliveryReceipt(selection);
+    base.readNativeGenerationPerformance=(selection={})=>this.#readNativeGenerationPerformance(selection);
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
-    const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readPromptPlan','readContextReceipt','readSelectedTurnReceipt','listGenerations','readGeneration'];
+    const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readWorldGraphReferences','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readExpectedWork','readPromptPlan','readContextRetirement','readPromptDeliveryReceipt','readContextReceipt','readSelectedTurnReceipt','listGenerations','readGeneration'];
     const merged={...base};
 
     const resourceHost=merged.resourceHost??merged.coprocessorResourceHost??null;
@@ -1113,13 +1146,22 @@ export class DevelopmentDeploymentSillyTavernSession {
         sceneFences:{...(owner.sceneFences??{}),sceneReadModelMatchesSelection:sceneReadMatches},
         delivery:{...(owner.delivery??{}),hostObserved},
         hostDeliveryReceiptId:host?.receiptId??null,
+        hostDetailedProfile:this.#readNativeGenerationPerformance(owner),
       };
     };
     const baseSubscribe=base.subscribe,nativeSubscribe=native?.subscribe;
     merged.subscribe=(listener)=>{const releases=[];if(typeof baseSubscribe==='function')releases.push(baseSubscribe(listener));if(typeof nativeSubscribe==='function')releases.push(nativeSubscribe(listener));return()=>{for(const release of releases)try{release?.();}catch{}};};
     merged.readNativeBrainHostLifecycle=base.readNativeBrainHostLifecycle;
     merged.readHostDeliveryReceipt=base.readHostDeliveryReceipt;
+    merged.readNativeGenerationPerformance=base.readNativeGenerationPerformance;
     return merged;
+  }
+
+  #readNativeGenerationPerformance(selection={}){
+    const generationId=clean(selection?.generationId),chatId=clean(selection?.chatId),turnId=clean(selection?.turnId);
+    if(!generationId)return null;
+    const row=[...this.nativePerformance].reverse().find(item=>item?.generationId===generationId&&(!chatId||item.chatId===chatId)&&(!turnId||item.turnId===turnId))??null;
+    return row?clone(row):null;
   }
 
   #readHostDeliveryReceipt(selection={}){
@@ -1254,9 +1296,23 @@ export class DevelopmentDeploymentSillyTavernSession {
       notification:{requested:this.loadMetrics.notifyRequested,delivered:this.loadMetrics.notifyDelivered,coalesced:this.loadMetrics.notifyCoalesced,lastMs:this.loadMetrics.lastNotifyMs,maxMs:this.loadMetrics.notifyMaxMs,totalMs:this.loadMetrics.notifyTotalMs},
       longTasks:{supported:Boolean(globalThis.PerformanceObserver?.supportedEntryTypes?.includes?.('longtask')),count:this.loadMetrics.longTaskCount,totalMs:this.loadMetrics.longTaskTotalMs,maxMs:this.loadMetrics.longTaskMaxMs},
       heap:{supported:Number.isFinite(Number(globalThis.performance?.memory?.usedJSHeapSize)),minBytes:this.loadMetrics.heapMinBytes,maxBytes:this.loadMetrics.heapMaxBytes,lastBytes:this.loadMetrics.heapLastBytes},
-      retained:{turnEvidence:this.turnEvidence.length,processed:this.processed.size,hostNarrativeEvents:this.hostNarrativeEvents.length,nativeHistory:this.nativeHistory.length,nativeRejections:this.nativeRejections.length,nativeDeliveryPayloads:this.nativePayloads.size,loreIngestion:this.loreIngestion.length,errors:this.errors.length,optionalGenerations:this.optionalGenerationActive.size},
+      retained:{turnEvidence:this.turnEvidence.length,processed:this.processed.size,hostNarrativeEvents:this.hostNarrativeEvents.length,nativeHistory:this.nativeHistory.length,nativeRejections:this.nativeRejections.length,nativePerformance:this.nativePerformance.length,nativeDeliveryPayloads:this.nativePayloads.size,loreIngestion:this.loreIngestion.length,errors:this.errors.length,optionalGenerations:this.optionalGenerationActive.size},
+      generationProfiling:{detailedEnabled:this.detailedGenerationProfiling,retainedProfiles:this.nativePerformance.length,latest:this.nativePerformance.at(-1)??null},
       bounds:clone(SESSION_BOUNDS),rawPromptCaptured:false,storyTextCaptured:false,credentialsCaptured:false,hiddenReasoningCaptured:false,
     });
+  }
+
+  #generationProfileSample(){
+    if(!this.detailedGenerationProfiling)return null;
+    const heap=Number(globalThis.performance?.memory?.usedJSHeapSize);
+    return{
+      at:Date.now(),heapBytes:Number.isFinite(heap)?heap:null,
+      longTaskCount:this.loadMetrics.longTaskCount,longTaskTotalMs:this.loadMetrics.longTaskTotalMs,longTaskMaxMs:this.loadMetrics.longTaskMaxMs,
+      diagnosticsUiRefreshCount:this.loadMetrics.notifyDelivered,
+      diagnosticsUiRefreshTotalMs:this.loadMetrics.notifyTotalMs,
+      diagnosticsUiRefreshMaxMs:this.loadMetrics.notifyMaxMs,
+      diagnosticsUiRefreshLastMs:this.loadMetrics.lastNotifyMs,
+    };
   }
 
   #startLoadObserver(){

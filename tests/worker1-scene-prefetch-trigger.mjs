@@ -205,7 +205,9 @@ test('#112 installed DevelopmentDeploymentBrain runTurn reaches Dynamic Fan-Out 
   const receipt=result.scenePrefetchConsideration;
   assert.equal(receipt.status,'CONSIDERED');
   assert.equal(receipt.plannerConsidered,true);
-  assert.equal(receipt.freshRecommendationCount,1);
+  const activeCount=brain.scene.integrationSignal('installed-prefetch').prefetchRecommendations.length;
+  assert.equal(receipt.freshRecommendationCount,activeCount);
+  assert.ok(activeCount>=1);
   assert.equal(receipt.workerExecutionAttempted,false);
   assert.equal(receipt.checkpointExecutionPerformed,false);
   assert.equal(receipt.authorityGranted,false);

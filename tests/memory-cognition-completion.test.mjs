@@ -5,6 +5,10 @@ import {Area52NativeBrain} from '../src/native-brain.js';
 import {MemoryTemporalProducer} from '../src/memory-temporal-producer.js';
 import {createMemoryIntegrationSurface} from '../src/memory-integration-surface.js';
 import {DevelopmentDeploymentBrain} from '../src/deployment/brain.js';
+import {
+  ConsolidationProposalKind,createConsolidationProposalBundle,createMemoryOwnerHandoff,
+} from '../src/coprocessor/continuous-consolidation.js';
+import {admitConsolidationBundleToMemoryOwner} from '../src/coprocessor/owner-integration.js';
 
 function scene(sceneId,sceneRevision,{location=null,activeCast=[],relationship=null}={}){
   return{
@@ -341,4 +345,77 @@ test('Memory cognition: correcting supporting evidence revises the inferred refl
   assert.match(JSON.stringify(memory.experienceStore.exactDrillback(
     memory.experienceStore.currentEpisodes().find(row=>row.turnId==='reflection-correction:2').id
   )),/without checking the harbor beacon/i);
+});
+
+
+test('Memory cognition: validated Continuous Consolidation reflection evidence is owner-gated by repeated fresh episodes',async()=>{
+  const memory=new MemoryTemporalProducer();
+  const surface=createMemoryIntegrationSurface(memory);
+  const brain=new Area52NativeBrain({memoryInterface:surface});
+
+  for(const [index,response] of [
+    [1,'Rin checks the western gate latch before leaving the courtyard.'],
+    [2,'Rin checks the western gate latch again before departing at dusk.'],
+  ]){
+    await brain.prepareTurn({
+      chatId:'chat:consolidation-owner',turnId:'consolidation-owner:'+index,generationId:'gen:consolidation-owner:'+index,
+      query:'Continue.',intent:'CURRENT',
+      scene:scene('courtyard-'+index,index,{location:'Courtyard',activeCast:['Rin'],relationship:index===1?null:'PRECEDES'}),
+      executionLabel:'DETERMINISTIC',
+    });
+    const learned=await brain.completeTurn({turnId:'consolidation-owner:'+index,response,knownBy:['Rin']});
+    assert.equal(learned.memoryPostTurn?.status,'COMPLETED');
+  }
+
+  const episodes=memory.experienceStore.currentEpisodes({freshOnly:true}).filter(row=>row.chatId==='chat:consolidation-owner');
+  assert.equal(episodes.length,2);
+  const ref=(episode)=>({
+    kind:'ArtifactReference',artifactId:episode.id,artifactType:'MemoryEpisode',owner:'MEMORY',
+    revision:episode.revision,storageDomain:'episodes',provenanceRef:'memory:'+episode.id,
+  });
+  const sourceRevisionSet=[...new Set(episodes.flatMap(row=>row.sourceRevisionRefs))].sort();
+  const proposal=(refs)=>({
+    proposalKind:ConsolidationProposalKind.REFLECTION_EVIDENCE,
+    semanticIdentity:'reflection:rin:checks-western-gate',
+    sourceArtifactRefs:refs,
+    confidence:.91,
+    authority:'INFERRED',
+    payload:{
+      directObservations:refs.map(row=>row.artifactId),
+      repeatedPatterns:['Rin repeatedly checks the western gate latch before departing.'],
+      inferredInterpretations:['Rin may habitually verify the western gate latch before departure.'],
+      contradictingEvidence:[],
+      uncertainty:'MEDIUM',
+    },
+  });
+  const makeBundle=(refs,id)=>createConsolidationProposalBundle({
+    kind:'ConsolidationProposalBundle',unitId:id,sourceRevisionSet,
+    proposals:[proposal(refs)],authority:'UNRESOLVED',
+  },{
+    unitId:id,sourceArtifactRefs:refs,sourceRevisionSet,worldRevision:2,sceneRevision:2,characterStateRevision:0,
+  });
+
+  const single=makeBundle([ref(episodes[0])],'unit:memory-owner-single');
+  const singleReceipt=admitConsolidationBundleToMemoryOwner({
+    bundle:single,handoff:createMemoryOwnerHandoff(single),memoryOwner:surface,
+    selection:{chatId:'chat:consolidation-owner',turnId:'consolidation-owner:2',generationId:'gen:consolidation-owner:2',worldRevision:2,sceneRevision:2},
+  });
+  assert.equal(singleReceipt.ownerAccepted,false);
+  assert.equal(singleReceipt.results[0].reasonCode,'MEMORY_REFLECTION_REPETITION_INSUFFICIENT');
+  assert.equal(memory.experienceStore.currentReflections().length,0);
+
+  const repeated=makeBundle(episodes.map(ref),'unit:memory-owner-repeated');
+  const repeatedReceipt=admitConsolidationBundleToMemoryOwner({
+    bundle:repeated,handoff:createMemoryOwnerHandoff(repeated),memoryOwner:surface,
+    selection:{chatId:'chat:consolidation-owner',turnId:'consolidation-owner:2',generationId:'gen:consolidation-owner:2',worldRevision:2,sceneRevision:2},
+  });
+  assert.equal(repeatedReceipt.status,'COMPLETED');
+  assert.equal(repeatedReceipt.ownerAccepted,true);
+  const reflection=memory.experienceStore.currentReflections()[0];
+  assert.equal(reflection.authorityClass,'INFERRED');
+  assert.equal(reflection.worldTruthAuthority,false);
+  assert.equal(reflection.settlementAuthority,false);
+  assert.equal(reflection.reflectionKey,'reflection:rin:checks-western-gate');
+  assert.equal(reflection.episodeRefs.length,2);
+  assert.match(reflection.statement,/habitually verify the western gate latch/i);
 });

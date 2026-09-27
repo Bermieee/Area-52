@@ -89,6 +89,9 @@ test('Worker 2: Turn A vectorizes durably, reload survives, and Turn B paraphras
   assert.equal(preparedB.memoryDensePrime?.requestPurpose,'COGNITIVE_EXECUTION');
   assert.match(preparedB.memoryDensePrime?.providerRequestId,/^vector:req:/);
   assert.equal(preparedB.memorySync?.densePrime?.status,'READY');
+  assert.ok(Number.isFinite(preparedB.memoryDensePrime?.foregroundBlockedMs));
+  assert.ok(preparedB.memoryDensePrime.foregroundBlockedMs<=preparedB.memoryDensePrime.foregroundBudgetMs);
+  console.log('WORKER2_FOREGROUND_DENSE_METRIC '+JSON.stringify({foregroundBlockedMs:preparedB.memoryDensePrime.foregroundBlockedMs,foregroundBudgetMs:preparedB.memoryDensePrime.foregroundBudgetMs,providerLatencyMs:preparedB.memoryDensePrime.providerLatencyMs}));
 
   const memoryCandidates=(preparedB.candidateEnvelope?.candidates??[]).filter(candidate=>(candidate.channelNominations??[]).some(row=>row.channelId==='OWNER_MEMORY'));
   assert.ok(memoryCandidates.length>=1);

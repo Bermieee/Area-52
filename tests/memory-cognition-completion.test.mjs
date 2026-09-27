@@ -211,7 +211,7 @@ test('Memory cognition: source correction revises one logical episode and only i
   assert.notEqual(targetAfter.sourceRevisionRefs[0],targetBefore.sourceRevisionRefs[0]);
   assert.match(JSON.stringify(memory.experienceStore.exactDrillback(targetAfter.id)),/south cabinet/i);
   assert.equal(memory.experienceStore.episodeHistory(targetAfter.logicalId).length,2);
-  assert.ok(memory.summaryHierarchy.summaryHistory('SCENE:brain:chat:target:target-scene').length>targetHistoryBefore);
+  assert.ok(memory.summaryHistory('SCENE:brain:chat:target:target-scene').length>targetHistoryBefore);
 
   const unrelatedAfter=memory.summaryHierarchy.currentArtifact(unrelatedScope,{freshOnly:true});
   assert.equal(unrelatedAfter.id,unrelatedBefore.id);

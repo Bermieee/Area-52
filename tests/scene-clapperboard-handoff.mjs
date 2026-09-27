@@ -48,7 +48,9 @@ test('real close-open production path finalizes Episode, invalidates working con
   assert.equal(moved.transitionHandoff?.kind,'SceneTransitionContextHandoff');
   assert.equal(moved.transitionHandoff?.continuity?.episodeRef?.artifactId,moved.transition.episodeRef.artifactId);
   assert.equal(moved.transitionHandoff?.rawDialogueDeletionAuthority,false);
-  assert.ok((moved.transitionHandoff?.continuity?.recentTailRefs??[]).length<=2);
+  const recentTailRefs=moved.transitionHandoff?.continuity?.recentTailRefs??[];
+  assert.ok(recentTailRefs.length>0&&recentTailRefs.length<=2);
+  assert.ok(recentTailRefs.every(ref=>sourceRefs.includes(ref)),'recent tail must point at actual prior-Scene evidence');
   assert.ok(moved.eventTypes.includes(SceneEventType.SCENE_CLOSED));
   assert.ok(moved.eventTypes.includes(SceneEventType.SCENE_OPENED));
   assert.ok(moved.eventTypes.includes(SceneEventType.PREFETCH_RECOMMENDED));

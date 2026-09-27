@@ -458,6 +458,7 @@ export class Wave13ResourceControlAdapter{
     this.disconnectFn=fn(bindings,['disconnectResource','unmountResource'])??fn(this.host?.actions,['disconnectResource']);
     this.testFn=fn(bindings,['testResource','probeResource','testConnection'])??fn(this.host?.actions,['testResource']);
     this.setCredentialFn=fn(bindings,['setCredential','setResourceCredential'])??fn(this.host?.actions,['setCredential']);
+    this.setEndpointFn=fn(bindings,['setEndpoint','setResourceEndpoint'])??fn(this.host?.actions,['setEndpoint']);
     this.clearCredentialFn=fn(bindings,['clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential'])??fn(this.host?.actions,['clearCredential','revokeCredential']);
     this.subscribeFn=fn(bindings,['subscribeResources','subscribeResourceStatus'])??(typeof this.host?.subscribe==='function'?this.host.subscribe.bind(this.host):null);
     this.lastAction=null;this.lastError=null;this.tests=new Map();
@@ -576,6 +577,15 @@ export class Wave13ResourceControlAdapter{
         const requestedId=resourceId(hydrated);
         const existing=this.read().data.resources.find(row=>(requestedId&&row.id===requestedId)||(role&&row.kind===role));
         if(existing){
+          const desired=normalizeWorker2ResourceConfig(hydrated);
+          if(desired.endpoint&&desired.endpoint!==existing.endpoint){
+            if(!this.setEndpointFn){const e=new Error('Resource endpoint update action is not exported by the host assembly.');e.code='RESOURCE_ENDPOINT_UPDATE_UNAVAILABLE';throw e;}
+            await this.setEndpointFn(existing.id,desired.endpoint);
+          }
+          if(desired.modelId&&desired.modelId!==existing.modelId){
+            if(!this.selectModelFn){const e=new Error('Resource model update action is not exported by the host assembly.');e.code='RESOURCE_MODEL_UPDATE_UNAVAILABLE';throw e;}
+            await this.selectModelFn(existing.id,desired.modelId);
+          }
           if(credential&&this.setCredentialFn&&(Boolean(explicitCredential)||existing.credentialConfigured!==true))await this.setCredentialFn(existing.id,credential);
           result=await this.connectFn(existing.id);this.#saveProfile(hydrated,result??existing,{force:true});
         }else{

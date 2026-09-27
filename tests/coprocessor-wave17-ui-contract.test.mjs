@@ -79,3 +79,23 @@ test('Wave17 current Worker3 vector flow selects real embeddings transport and d
   assert.equal(denied.state,'UNAUTHORIZED');assert.equal(denied.manualModelEntryAllowed,false);
   assert.equal(ui.read().data.resources.some(x=>x.displayName==='Primary Sidecar'&&x.connected),false);
 });
+
+test('saving a corrected Vectoring endpoint rebinds the live resource before qualification',async()=>{
+  const calls=[];
+  const fetchImpl=async(url,init={})=>{
+    const path=new URL(String(url)).pathname,method=String(init.method??'GET').toUpperCase();
+    calls.push(method+' '+path);
+    if(method==='GET')throw new TypeError('Failed to fetch');
+    if(method==='POST'&&path==='/api/v1/embeddings')return response({model:'openai/text-embedding-3-small',data:[{embedding:[.1,.2,.3]}]});
+    return response({error:{message:'incorrect embeddings path'}},404);
+  };
+  const host=createCoprocessorResourceHost({fetchImpl}),ui=new Wave13ResourceControlAdapter({bindings:{resourceHost:host}});
+  const config={role:'VECTORING',displayName:'Primary Vectoring',transportKind:'OPENAI_COMPATIBLE',
+    modelId:'openai/text-embedding-3-small',apiKey:'test-only',capabilities:[Capability.RETRIEVAL,Capability.EMBED],local:false};
+  const old=await ui.connect({...config,endpoint:'https://openrouter.ai/api/v1/embeddings'});
+  assert.equal(old.state,'UNAVAILABLE');
+  const corrected=await ui.connect({...config,endpoint:'https://openrouter.ai/api/v1'});
+  assert.equal(corrected.state,'READY');
+  assert.equal(corrected.endpoint,'https://openrouter.ai/api/v1');
+  assert.ok(calls.includes('POST /api/v1/embeddings'));
+});

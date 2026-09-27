@@ -229,7 +229,8 @@ test('Diagnostics command center exposes flagship widgets and wide workspace met
   const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
   entry.render(host,{scope,refresh:()=>{}});
   const visible=allNodesForDiagnostics(host).map(node=>node.textContent??'').join(' ');
-  for(const label of ['Area-52 Diagnostics Command Center','Generation Flight Recorder','Browser Load Attribution','Brain / Producer Activity','Needs Attention','Runtime Pulse','Context Delivery','Knowledge Pulse','Recent Diagnostic Events','Deep inspection'])assert.match(visible,new RegExp(label.replace(/[.*+?^$()|[\\]\\]/g,'\\test('Diagnostics aggregates retained history and current operational telemetry into one safe export bundle',()=>{')));
+  for(const label of ['Area-52 Diagnostics Command Center','Generation Flight Recorder','Browser Load Attribution','Brain / Producer Activity','Needs Attention','Runtime Pulse','Context Delivery','Knowledge Pulse','Recent Diagnostic Events','Deep inspection'])assert.ok(visible.includes(label),label);
+
   scope.cleanup();mounted.release();
 });
 

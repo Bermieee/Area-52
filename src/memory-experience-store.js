@@ -100,6 +100,7 @@ export class MemoryExperienceStore {
     sceneEpisodeRef=null,
     graphReferenceSet=null,
     provenance=[],
+    reflectionSignals=[],
     admissionSource='MEMORY_DIRECT',
   }={}) {
     requiredString(logicalId,'episode.logicalId');
@@ -117,7 +118,7 @@ export class MemoryExperienceStore {
     const publicationFingerprint=stableHash(stableStringify({
       logicalId,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,unresolvedExternal,mappings,
       bridgeResolutionStatus,bridgeReasons,participants,knownBy,significance,timeStart,timeEnd,summary,
-      sceneEpisodeRef,graphReferenceSet,admissionSource,
+      sceneEpisodeRef,graphReferenceSet,reflectionSignals,admissionSource,
     }));
     const prior=currentRevisionFor(this.episodeHistoryByLogical,this.currentEpisodeByLogical,logicalId,this.episodes);
     if (prior&&prior.publicationFingerprint===publicationFingerprint) return deepClone(prior);
@@ -158,6 +159,10 @@ export class MemoryExperienceStore {
       sceneEpisodeRef:deepClone(sceneEpisodeRef),
       graphReferenceSet:deepClone(graphReferenceSet),
       provenance:deepClone(provenance),
+      reflectionSignals:deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
+        reflectionKey:String(row?.reflectionKey??row?.key??''),
+        polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
+      })).filter((row)=>row.reflectionKey),
       admissionSource,
       state:'CURRENT',
       freshness:(freshBySources(this.graph,sources)

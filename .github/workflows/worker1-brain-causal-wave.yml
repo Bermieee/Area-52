@@ -21,6 +21,7 @@ on:
       - 'src/scene/prefetch-trigger.js'
       - 'src/scene/scene-lifecycle-runtime.js'
       - 'src/scene/transition-manager.js'
+      - 'src/scene/scene-integration-view.js'
       - 'src/coprocessor/scene-signal-adapter.js'
       - 'src/coprocessor/speculative-warmer.js'
       - 'src/coprocessor/fanout-planner.js'
@@ -107,6 +108,7 @@ jobs:
           node --check src/scene/prefetch-trigger.js &&
           node --check src/scene/scene-lifecycle-runtime.js &&
           node --check src/scene/transition-manager.js &&
+          node --check src/scene/scene-integration-view.js &&
           node --check src/coprocessor/scene-signal-adapter.js &&
           node --check src/coprocessor/speculative-warmer.js &&
           node --check src/coprocessor/fanout-planner.js &&
@@ -130,6 +132,7 @@ jobs:
           import('./src/coprocessor/scene-observation-specialist.js'),
           import('./src/scene/prefetch-trigger.js'),
           import('./src/scene/scene-lifecycle-runtime.js'),
+          import('./src/scene/scene-integration-view.js'),
           import('./src/coprocessor/scene-signal-adapter.js'),
           import('./src/coprocessor/fanout-planner.js'),
           import('./src/runtime/index.js')

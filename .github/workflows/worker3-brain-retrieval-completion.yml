@@ -1,0 +1,53 @@
+name: Worker 3 Brain Retrieval Completion
+
+on:
+  push:
+    branches: [Development-Worker-3]
+    paths:
+      - 'src/production-sparse-retrieval.js'
+      - 'src/native-brain.js'
+      - 'src/generation-publication.js'
+      - 'src/truth-publication-gate.js'
+      - 'tests/worker3-brain-retrieval-completion.mjs'
+      - '.github/workflows/worker3-brain-retrieval-completion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Worker 3 focused retrieval completion
+        run: node --test tests/worker3-brain-retrieval-completion.mjs
+      - name: Relevant accepted regressions
+        run: >-
+          node --test
+          tests/worker1-sensory-hot-closure.mjs
+          tests/native-brain-identity-retrieval.mjs
+          tests/candidate-bus-wave8.mjs
+          tests/cognitive-choice-wave9.mjs
+          tests/wave6-integration.mjs
+      - name: Syntax
+        run: npm run check
+      - name: Browser-facing imports
+        run: >-
+          node -e "globalThis.Buffer=undefined;
+          Promise.all([
+          import('./src/native-brain.js'),
+          import('./src/generation-publication.js'),
+          import('./src/truth-publication-gate.js')
+          ]).then(()=>console.log('WORKER3 RETRIEVAL IMPORT PASS'))"

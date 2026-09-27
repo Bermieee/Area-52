@@ -76,7 +76,7 @@ export class GenerationPublicationPipeline {
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
     })??null;
 
-    const requestedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:graphTraversal?{graphTraversal}:{}}]);
+    const requestedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:{...(graphTraversal?{graphTraversal}:{}),publicationFallbackIntent:true}}]);
     const resolvedRetrievalIntents=requestedRetrievalIntents.map((row,index)=>({
       ...structuredClone(row),
       intentId:row?.intentId??row?.id??('intent:publication:'+index+':'+stableHash({

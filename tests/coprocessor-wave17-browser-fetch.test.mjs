@@ -62,6 +62,24 @@ function header(headers,name){
   return key?headers[key]:null;
 }
 
+test('full OpenRouter embeddings URL is used once for qualification and execution',async()=>{
+  const calls=[];
+  const fetchImpl=async(url,init={})=>{
+    const href=String(url);calls.push(href);
+    if(href==='https://openrouter.ai/api/v1/embeddings/models')return response({data:[]});
+    if(href==='https://openrouter.ai/api/v1/embeddings')return response({model:'openai/text-embedding-3-small',data:[{index:0,embedding:[.1,.2,.3]}]});
+    throw new TypeError('Failed to fetch');
+  };
+  const registry=new CoprocessorResourceConnections({fetchImpl});
+  registry.addResource({resourceId:'vector',kind:ResourceKind.OPENAI_COMPATIBLE,
+    endpoint:'https://openrouter.ai/api/v1/embeddings',modelId:'openai/text-embedding-3-small',apiKey:'test-only',
+    capabilities:[Capability.EMBED,Capability.RETRIEVAL],transportMode:ProviderTransportMode.EMBEDDINGS});
+  const result=await registry.connectResource('vector');
+  assert.equal(result.state,ResourceConnectionState.READY);
+  assert.ok(calls.includes('https://openrouter.ai/api/v1/embeddings'));
+  assert.equal(calls.some(href=>href.includes('/embeddings/embeddings')),false);
+});
+
 test('Wave17 native Window.fetch receiver survives discovery, connect/test and chat execution',async()=>{
   const windowFetch=installWindowBoundFetch();
   try{

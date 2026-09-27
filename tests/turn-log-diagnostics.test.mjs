@@ -271,11 +271,11 @@ test('Diagnostics aggregates retained history and current operational telemetry 
   assert.equal(unified.manifest.bounded,true);
   assert.equal(unified.selection.turnId,second.turnId);
   assert.equal(unified.summary.retainedTurns,2);
-  assert.equal(unified.generationPerformance,unified.rawOperationalSnapshot.generationPerformance);
-  assert.equal(unified.brain.pipeline,unified.rawOperationalSnapshot.pipeline);
-  assert.equal(unified.runtime,unified.rawOperationalSnapshot.runtime);
-  assert.equal(unified.resources.resources,unified.rawOperationalSnapshot.resources);
-  assert.equal(unified.knowledge.lore,unified.rawOperationalSnapshot.lore);
+  assert.deepEqual(unified.generationPerformance,unified.rawOperationalSnapshot.generationPerformance);
+  assert.deepEqual(unified.brain.pipeline,unified.rawOperationalSnapshot.pipeline);
+  assert.deepEqual(unified.runtime,unified.rawOperationalSnapshot.runtime);
+  assert.deepEqual(unified.resources.resources,unified.rawOperationalSnapshot.resources);
+  assert.deepEqual(unified.knowledge.lore,unified.rawOperationalSnapshot.lore);
   assert.equal(unified.eventTimeline.length,exported.timeline.length);
   assert.equal(unified.bounds.retentionBounded,true);
   assert.equal(unified.safety.providerBodies,false);

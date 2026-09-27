@@ -2,7 +2,7 @@ name: Worker 1 Identity Temporal Closure
 
 on:
   push:
-    branches: [Development-Nexus]
+    branches: [Development-Worker-1]
   pull_request:
     branches: [main]
     paths:
@@ -69,6 +69,5 @@ jobs:
           import('./src/cognitive-core.js'),
           import('./src/native-brain.js')
           ]).then(()=>console.log('WORKER1 CLOSURE IMPORT PASS'))"
-      - name: Native identity and graph regression baseline comparison
-        continue-on-error: true
+      - name: Native identity and graph regression
         run: node --test tests/native-brain-identity-retrieval.mjs

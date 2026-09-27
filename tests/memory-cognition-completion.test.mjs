@@ -208,3 +208,43 @@ test('Memory cognition: source correction revises one logical episode and only i
   const unrelatedAfter=memory.summaryHierarchy.currentArtifact(unrelatedScope,{freshOnly:true});
   assert.equal(unrelatedAfter.id,unrelatedBefore.id);
 });
+
+
+test('Memory cognition: bounded post-turn work survives reload and resumes without duplicate episode publication',async()=>{
+  let memory=new MemoryTemporalProducer();
+  let surface=createMemoryIntegrationSurface(memory);
+  let brain=new Area52NativeBrain({memoryInterface:surface});
+
+  await brain.prepareTurn({
+    chatId:'chat:resume-memory',turnId:'resume-memory:1',generationId:'gen:resume-memory:1',
+    query:'Continue.',intent:'CURRENT',
+    scene:scene('resume-dock',1,{location:'Resume Dock',activeCast:['Sol']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  const learned=await brain.completeTurn({
+    turnId:'resume-memory:1',
+    response:'Sol leaves the copper token beneath the third dock lantern.',
+    knownBy:['Sol'],
+    autoDrain:false,
+  });
+  assert.ok(learned.memoryRuntimeTaskId);
+  assert.equal(brain.readTurn('resume-memory:1').memoryPostTurn??null,null);
+  assert.equal(memory.experienceStore.currentEpisodes().length,0);
+
+  const brainSnapshot=brain.snapshot();
+  const memorySnapshot=memory.snapshot();
+  memory=MemoryTemporalProducer.fromSnapshot(memorySnapshot);
+  surface=createMemoryIntegrationSurface(memory);
+  brain=Area52NativeBrain.fromSnapshot(brainSnapshot,{memoryInterface:surface});
+
+  await brain.runtimeDirector.drain({maxCycles:128});
+  const resumed=brain.readTurn('resume-memory:1').memoryPostTurn;
+  assert.equal(resumed?.status,'COMPLETED');
+  assert.ok(resumed?.episodeId);
+  assert.equal(memory.experienceStore.currentEpisodes().filter(row=>row.logicalId==='brain-turn:chat:resume-memory:resume-memory:1').length,1);
+
+  const episodeId=resumed.episodeId;
+  await brain.runtimeDirector.drain({maxCycles:128});
+  assert.equal(brain.readTurn('resume-memory:1').memoryPostTurn.episodeId,episodeId);
+  assert.equal(memory.experienceStore.episodeHistory('brain-turn:chat:resume-memory:resume-memory:1').length,1);
+});

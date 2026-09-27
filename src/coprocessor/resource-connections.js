@@ -400,6 +400,7 @@ export class CoprocessorResourceConnections{
       row.lastExecution={executionId,...executionOrigin,status:'FAIL',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
       row.executionHistory.push(row.lastExecution);if(row.executionHistory.length>64)row.executionHistory.splice(0,row.executionHistory.length-64);
       this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Embedding provider qualification is no longer valid.'),unavailable:true});
+      if(error&&typeof error==='object')error.executionId=executionId;
       emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});throw error;
     }finally{

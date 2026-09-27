@@ -945,7 +945,27 @@ export class DevelopmentDeploymentBrain {
           cause:{...clone(request.cause??{}),eventId:event.eventId,eventType:event.eventType,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,causationId:event.causationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision},
         };
       },
-      executorFactory:(event,request)=>executorFactory(clone(event),clone(request)),
+      executorFactory:(event,request)=>{
+        const ownerExecutor=executorFactory(clone(event),clone(request));
+        if(typeof ownerExecutor?.execute!=='function')throw new TypeError('Scene event owner executor must expose execute()');
+        return{
+          ...ownerExecutor,
+          execute:async(context={})=>{
+            const guard=this.#sceneEventObligationGuard(event,{allowPostSeal});
+            if(!guard.accepted){
+              const reasonCode=guard.reasonCode+':BEFORE_EXECUTION';
+              this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode,producerId,event});
+              this.runtimeDirector.telemetry.emit('SCENE_EVENT_OBLIGATION_DISPOSITION',{
+                producerId,eventId:event.eventId,eventType:event.eventType,status:'REJECTED',reasonCode,
+                chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision,
+                taskId:context?.task?.taskId??null,authorityGranted:false,canonicalMutation:false,
+              });
+              const error=new Error(reasonCode);error.code=reasonCode;throw error;
+            }
+            return ownerExecutor.execute(context);
+          },
+        };
+      },
       onDisposition:(entry)=>{
         const reasonCode=entry.status==='SKIPPED'&&entry.reasonCode==='OWNER_DECLARED_NO_WORK'
           ?'SCENE_EVENT_OWNER_DECLARED_NO_WORK'

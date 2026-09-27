@@ -213,7 +213,7 @@ test('Brain activity distinguishes PromptPlan from host delivery and post-respon
   assert.equal(pipeline.deliveryReceipt,true);assert.match(body,/SillyTavern.*observed|Generation delivery/i);
   learned=true;ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);pipeline=ui.operator.operations.read().pipeline;body=textOf(ui.shell.nodes.workspace);
   assert.equal(pipeline.learningReceipt,true);assert.match(body,/recorded post-response learning|Learning receipt recorded/i);
-  ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWorkspace('settings');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
+  ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.selectWorkspace('turn-log');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(4);
   const diagnostics=ui.operator.diagnostics.read(),advanced=textOf(ui.shell.nodes.workspace);
   assert.equal(diagnostics.generationInspection.identityResolution.counts.entities,1);assert.equal(diagnostics.generationInspection.graphTraversal.counts.visitedNodeIds,2);assert.equal(diagnostics.generationInspection.rejectedEvidence.count,1);
   assert.match(advanced,/Owner generation inspection/);assert.match(advanced,/Rejected evidence 1 rejected/);
@@ -422,8 +422,8 @@ test('local evidence journal survives UI reload with the same browser storage an
   const before=first.ui.operator.evidenceJournal.readTurn(selection);assert.ok(before);assert.ok(before.entries.length>0);first.ui.destroy();
   const second=mount(owner,{storage});second.ui.scheduler.flush(2);
   const after=second.ui.operator.evidenceJournal.readTurn(selection);assert.ok(after);assert.equal(after.key,before.key);assert.ok(after.entries.length>=before.entries.length);
-  second.ui.shell.selectWorkspace('settings');second.ui.scheduler.flush(3);
-  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Local evidence journal/);assert.match(body,/Export selected turn evidence/);
+  second.ui.shell.selectWorkspace('turn-log');second.ui.scheduler.flush(3);
+  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Area 52 Diagnostics/);assert.match(body,/Export Full Diagnostics/);assert.match(body,/Retention \/ safety/);
   const exported=second.ui.operator.evidenceJournal.exportEvidence({selection});assert.equal(exported.turns.length,1);assert.equal(exported.safety.rawPromptsPersisted,false);
   second.ui.destroy();
 });
@@ -568,11 +568,11 @@ test('each product workspace keeps an independent scroll position while the pane
 
 test('Settings is a labeled product workspace with explicit display controls',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Resize/);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Resize/);assert.match(body,/Open Diagnostics/);
   ui.destroy();
 });
 
-test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and three resource lanes',async()=>{
+test('Diagnostics workspace centralizes prompt-safe owner telemetry and three resource lanes',async()=>{
   const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
   const{ui}=mount(owner);
   for(const config of [
@@ -581,10 +581,9 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
     {role:'VECTORING',resourceId:'vector:diag',endpoint:'http://127.0.0.1:8082',modelId:'vector-model',capabilities:[]},
   ])assert.equal((await ui.actionRouter.route({type:'wave13.resource.connect',payload:config})).ok,true);
   for(const row of ui.operator.resources.read().data.resources)assert.equal((await ui.actionRouter.route({type:'wave13.resource.test',target:row})).ok,true);
-  ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);
+  ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(2);
   let body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/Diagnostics Center/);assert.match(body,/Jev \/ Sidecar \/ Vectoring wiring/);assert.match(body,/Current turn activity/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/not a complete forensic transaction timeline/i);assert.match(body,/raw prompts, story\/lore bodies, credentials, keys, and hidden reasoning are excluded/i);
-  assert.doesNotMatch(body,/jev:diag|sidecar:diag|vector:diag/);
+  assert.match(body,/Area 52 Diagnostics/);assert.match(body,/Resources \/ connections \/ provider calls/);assert.match(body,/Current resources/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/Unified retained event timeline/);assert.match(body,/Raw operational snapshot/);
   ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/jev:diag/);assert.match(body,/sidecar:diag/);assert.match(body,/vector:diag/);
   const snap=ui.operator.diagnostics.read();
@@ -600,9 +599,9 @@ test('Settings Diagnostics Center centralizes prompt-safe owner telemetry and th
 test('Diagnostics drilldown shows six owner jobs and native turn resource without inventing per-job assignment',()=>{
   const owner=liveOwner(),selection=owner.bindings.readSelection(),jobs=['CONTEXT_COMPILER','CONTEXT_SEAL','GATHER','PRECISION','RETRIEVAL','TRUTH'].map((jobId,index)=>({jobId,sequence:index+1,status:'EXECUTED',owner:'COGNITIVE_CORE'}));
   owner.bindings.readScatter=()=>({kind:'RuntimeTurnReceipt',jobs,admittedJobCount:6,resourceCount:1,resourceIds:['native-brain-local-cpu'],executionComplete:true,...selection});
-  const{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const body=textOf(ui.shell.nodes.workspace);for(const id of ['CONTEXT_COMPILER','CONTEXT_SEAL','GATHER','PRECISION','RETRIEVAL','TRUTH'])assert.match(body,new RegExp(id));
-  assert.match(body,/native-brain-local-cpu/);assert.match(body,/Per-job resource not published/);assert.match(body,/Prompt delivery proof levels/);assert.match(body,/No host-observed injection evidence/);
+  assert.match(body,/native-brain-local-cpu/);assert.match(body,/Runtime \/ lifecycle \/ jobs/);assert.match(body,/Unified retained event timeline/);assert.match(body,/Raw operational snapshot/);
   ui.destroy();
 });
 
@@ -612,15 +611,15 @@ test('Diagnostics exposes safe foreign source-fence identity while keeping the f
   owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',sealId:'seal:foreign',sealed:true,admittedResultIds:[],...selection,sourceRevisionRefs:[foreign]});
   const{ui}=mount(owner);const snap=ui.operator.diagnostics.read();
   assert.equal(snap.cognition.errors.choice.code,'LIVE_RECEIPT_STALE');assert.deepEqual(snap.cognition.errors.choice.foreignSourceRevisionRefs,[foreign]);assert.equal(snap.cognition.jobs.length,1);
-  ui.shell.selectWorkspace('settings');ui.scheduler.flush(2);const body=textOf(ui.shell.nodes.workspace);
+  ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(2);const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Outside selected source fence/);assert.match(body,/deadbeef@1/);assert.match(body,/LIVE_RECEIPT_STALE/);
   ui.destroy();
 });
 
-test('Diagnostics Center follows chat switches and rejects stale turn telemetry',()=>{
+test('Diagnostics workspace follows chat switches and rejects stale turn telemetry',()=>{
   const owner=liveOwner(),oldSelection=owner.bindings.readSelection(),staleScatter=scatter(oldSelection);
   owner.bindings.readScatter=()=>staleScatter;
-  const{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(1);
   owner.switchStory({chatId:'chat:diagnostics-new',turnId:'turn:diagnostics-new',generationId:'gen:diagnostics-new',location:'Copper Basin'});ui.scheduler.flush(2);
   const snap=ui.operator.diagnostics.read(),operations=ui.operator.operations.read();
   assert.equal(snap.selection.chatId,'chat:diagnostics-new');assert.equal(snap.selection.turnId,'turn:diagnostics-new');

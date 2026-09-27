@@ -658,21 +658,26 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
           owner:ref.owner,revision:ref.revision,storageDomain:ref.storageDomain,provenanceRef:ref.provenanceRef,
         }));
         return{
-          kind:'ConsolidationProposalBundle',
-          unitId:input.data.taskSlice.unitId,
-          sourceRevisionSet:[...input.data.taskSlice.sourceRevisionSet],
-          proposals:[{
-            proposalKind:ConsolidationProposalKind.REFLECTION_EVIDENCE,
-            semanticIdentity:'reflection:sera:compass-check',
-            sourceArtifactRefs:refs,confidence:.79,authority:'INFERRED',
-            payload:{
-              directObservations:refs.map(row=>row.artifactId),
-              repeatedPatterns:['Sera repeatedly checks the brass compass before sailing.'],
-              inferredInterpretations:['Sera may habitually verify the brass compass before sailing.'],
-              contradictingEvidence:[],
-            },
-          }],
-          authority:'UNRESOLVED',
+          payload:{
+            kind:'ConsolidationProposalBundle',
+            unitId:input.data.taskSlice.unitId,
+            sourceRevisionSet:[...input.data.taskSlice.sourceRevisionSet],
+            proposals:[{
+              proposalKind:ConsolidationProposalKind.REFLECTION_EVIDENCE,
+              semanticIdentity:'reflection:sera:compass-check',
+              sourceArtifactRefs:refs,confidence:.79,authority:'INFERRED',
+              payload:{
+                directObservations:refs.map(row=>row.artifactId),
+                repeatedPatterns:['Sera repeatedly checks the brass compass before sailing.'],
+                inferredInterpretations:['Sera may habitually verify the brass compass before sailing.'],
+                contradictingEvidence:[],
+              },
+            }],
+            authority:'UNRESOLVED',
+          },
+          metadata:{requestId:'sidecar:req:memory-consolidation-fixture'},
+          latencyMs:3,
+          usage:{prompt_tokens:37,completion_tokens:19},
         };
       },
   });
@@ -705,6 +710,8 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.requestPurpose,'COGNITIVE_EXECUTION');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.dispatchStatus,'DISPATCHED');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.returnStatus,'RETURNED');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.providerRequestId,'sidecar:req:memory-consolidation-fixture');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.providerLatencyMs,3);
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerDestination,'MEMORY_OWNER_REVIEW');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerDecision,'COMPLETED');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerAccepted,true);

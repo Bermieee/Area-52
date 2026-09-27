@@ -135,6 +135,52 @@ function sealed(){
   return{p,seal,row:seal.seal({turnId:'turn:worker1',correlationId:'corr:worker1',packet:p,sourceRevisionIds:p.dependencies,worldRevision:2,sceneRevision:3})};
 }
 
+function lorePressureSeal(){
+  const relevantLore=Array.from({length:6},(_,index)=>{
+    const revision='lore:pressure:r'+(index+1);
+    return{
+      id:'context-evidence:lore-pressure-'+(index+1),evidenceId:'lore-pressure-'+(index+1),sourceClass:'SOURCE_LORE',
+      a:'SOURCE_CANON',temporalStatus:'CURRENT',cf:1,hardRule:false,
+      text:'Relevant Lore '+(index+1)+': '+('bounded canonical detail '.repeat(28)),
+      artifactRef:{sourceId:'lore-pressure-'+(index+1)},sourceRevisionRefs:[revision],dependencyRevisionRefs:[],provenanceRefs:[revision],
+    };
+  });
+  const current={id:'fact:pressure-current',e:'scene',p:'state',v:'active',a:'SETTLED',t:'CURRENT'};
+  const dependencies=relevantLore.map(row=>row.sourceRevisionRefs[0]);
+  const provenanceIndex=Object.fromEntries(relevantLore.map(row=>[row.id,[...row.sourceRevisionRefs]]));
+  const packet={kind:'GenerationContextPacket',id:'packet:lore-pressure',intent:'CURRENT',current:[current],historical:[],unresolved:[],relevantLore,episodicMemory:[],activeThreads:[],dependencies,provenanceIndex};
+  const seal=new GenerationContextSeal(),row=seal.seal({turnId:'turn:lore-pressure',correlationId:'corr:lore-pressure',packet,sourceRevisionIds:dependencies,worldRevision:3,sceneRevision:4});
+  return{packet,row};
+}
+
+test('DETERMINISTIC: finite prompt budget admits a bounded Relevant Lore prefix and honestly defers the remainder',()=>{
+  const {packet,row}=lorePressureSeal(),engine=new ContextDeliveryEngine(),common={
+    sealedPacket:row.packet,sealReceipt:row.receipt,generationId:'gen:lore-pressure',turnId:'turn:lore-pressure',
+    modelProfileId:'CACHE_STABLE',userInput:'What matters from the established lore right now?',
+  };
+  const partial=engine.deliver({...common,budgetTokens:1024});
+  assert.equal(partial.ok,true);
+  const lore=partial.plan.sections.find(section=>section.slot==='RELEVANT_LORE');
+  assert.ok(lore&&lore.representation!=='OMITTED','some relevant Lore should fit without raising the finite budget');
+  assert.ok(lore.content.length>0&&lore.content.length<packet.relevantLore.length,'Lore admission must be bounded rather than all-or-nothing');
+  assert.ok(partial.rendered.messageMap.some(row=>row.slot==='RELEVANT_LORE'),'admitted Lore must reach the rendered host payload');
+  const remainder=partial.plan.deferred.find(row=>row.slot==='RELEVANT_LORE'&&row.partial===true);
+  assert.equal(remainder?.reason,'OPTIONAL_SECTION_PARTIAL_REMAINDER_EXCEEDS_BUDGET');
+  assert.equal(remainder?.admittedEntryCount,lore.content.length);
+  assert.equal(remainder?.deferredEntryCount,packet.relevantLore.length-lore.content.length);
+  assert.deepEqual(lore.sourceRevisionIds,[...lore.sourceRevisionIds].sort());
+  for(const ref of lore.sourceRevisionIds)assert.ok(partial.plan.sourceRevisionDependencies.includes(ref),'included Lore must retain its source-revision dependency');
+  for(const ref of packet.dependencies)assert.ok(partial.plan.sourceRevisionDependencies.includes(ref),'the sealed dependency fence must remain complete');
+
+  const impossible=engine.deliver({...common,budgetTokens:384});
+  assert.equal(impossible.ok,true);
+  const impossibleLore=impossible.plan.sections.find(section=>section.slot==='RELEVANT_LORE');
+  assert.equal(impossibleLore?.representation,'OMITTED');
+  const deferral=impossible.plan.deferred.find(row=>row.slot==='RELEVANT_LORE'&&row.partial!==true);
+  assert.equal(deferral?.reason,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET');
+  assert.equal(impossible.rendered.messageMap.some(row=>row.slot==='RELEVANT_LORE'),false);
+});
+
 test('DETERMINISTIC: presentation profiles preserve one sealed semantic identity and remain host-evidence honest',()=>{
   const {p,row,seal}=sealed();
   const engine=new ContextDeliveryEngine();

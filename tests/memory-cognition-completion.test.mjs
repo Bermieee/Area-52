@@ -619,5 +619,5 @@ test('Memory cognition: an admitted episode can checkpoint before L3 consolidati
   assert.equal(resumed.memoryConsolidation?.reasonCode,'TEST_PROVIDER_UNAVAILABLE');
   const runtime=brain.runtimeDirector.ledger.list().find(row=>row.obligation?.taskType==='MEMORY_CONSOLIDATION_PROPOSAL');
   assert.ok(runtime);
-  assert.equal(runtime.lifecycleStatus,'satisfied');
+  assert.equal(runtime.lifecycleStatus,'SATISFIED');
 });

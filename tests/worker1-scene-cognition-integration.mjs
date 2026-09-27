@@ -182,7 +182,15 @@ test('installed native host semantically observes prose the generic fallback can
 
   const channelReceipts=turn.published?.candidateEnvelope?.metadata?.channelReceipts??[];
   assert.ok(channelReceipts.reduce((n,row)=>n+Number(row.nominationCount??0),0)>0,'Scene-derived intents plus owner Lore must produce nominations');
-  assert.ok((turn.published?.gatherReceipt?.admittedResultIds??[]).length>0,'owner-backed retrieval must reach Gather admission');
+  assert.ok(
+    (turn.published?.gatherReceipt?.admittedResultIds??[]).length>0,
+    'owner-backed retrieval must reach Gather admission: '+JSON.stringify({
+      channelReceipts:turn.published?.candidateEnvelope?.metadata?.channelReceipts??[],
+      truth:turn.published?.assessment??null,
+      routes:(turn.published?.resultRoutes??[]).map(row=>({id:row?.result?.id??null,route:row?.route??null})),
+      gather:turn.published?.gatherReceipt??null,
+    }),
+  );
 
   const selected=session.uiBindings().readSelectedTurnReceipt(selection);
   const semantic=selected.sceneFlow?.semanticObservation;
@@ -240,7 +248,7 @@ test('installed native host with no compatible Scene resource stays truthful and
   assert.equal(selected.sceneFlow?.semanticObservation?.ownerAdmission??null,null);
   const noProviderOwnerScene=session.brain.scene.registry.current(turn.sceneId);
   assert.equal(noProviderOwnerScene.fields.location.observationClass,'UNKNOWN');
-  assert.deepEqual(noProviderOwnerScene.fields.activeCast.value,[]);
+  assert.equal(noProviderOwnerScene.fields.activeCast.value,null);
 
   session.destroy();
 });

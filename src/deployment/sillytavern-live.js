@@ -1,5 +1,6 @@
 import { CastPresence, ObservationClass, createFieldState } from '../scene/contracts.js';
 import { HostActivity, SceneRelationship } from '../scene/lifecycle-contracts.js';
+import { scenePrefetchIntentsFromNarrative } from '../scene/prefetch-trigger.js';
 import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 import {
@@ -160,6 +161,7 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   const boundarySignals = {};
   let relationship = null;
   let resumeSceneId = null;
+  const prefetchIntents=scenePrefetchIntentsFromNarrative(raw);
 
   const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
     ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
@@ -219,8 +221,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   if(explicitBreak)boundarySignals.explicitBreak=1;
 
   return {
-    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0,
+    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0 || prefetchIntents.length > 0,
     fields,
+    prefetchIntents,
     sourceText: raw,
     boundarySignals:Object.keys(boundarySignals).length?boundarySignals:null,
     relationship,

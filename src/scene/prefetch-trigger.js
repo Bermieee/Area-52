@@ -9,28 +9,36 @@ export function scenePrefetchIntentsFromNarrative(text){
   const raw=String(text??'').trim();
   if(!raw)return[];
   const subject=String.raw`(?:we|i|they|he|she|you|[\p{Lu}][\p{L}\p{N}'’_-]*)`;
-  const lead=String.raw`(?:(?:will|should|must|need\s+to|plan\s+to|intend\s+to|want\s+to|are\s+going\s+to|am\s+going\s+to|is\s+going\s+to)\s+)?`;
   const verb=String.raw`(?:head|travel|journey|go|move|return|set\s+out)`;
+  const progressiveVerb=String.raw`(?:heading|travell?ing|journeying|going|moving|returning|setting\s+out)`;
   const destination=String.raw`([^,.!?;:\n]{1,120}?)`;
   const stop=String.raw`(?=\s+(?:next|soon|later|tomorrow|today|tonight)\b|[,.!?;:\n]|$)`;
-  const re=new RegExp(String.raw`\b${subject}\s+${lead}${verb}\s+(?:for|to|toward|towards)\s+(?:the\s+)?${destination}${stop}`,'giu');
+  const toward=String.raw`(?:for|to|toward|towards)`;
+  const plannedLead=String.raw`(?:will|should|must|need\s+to|needs\s+to|plan\s+to|plans\s+to|intend\s+to|intends\s+to|want\s+to|wants\s+to|(?:am|are|is)\s+going\s+to)`;
+  const patterns=[
+    new RegExp(String.raw`\b${subject}\s+${plannedLead}\s+${verb}\s+${toward}\s+(?:the\s+)?${destination}${stop}`,'giu'),
+    new RegExp(String.raw`\b${subject}(?:\s+(?:am|are|is)|(?:'m|'re|'s|’m|’re|’s))\s+${progressiveVerb}\s+${toward}\s+(?:the\s+)?${destination}${stop}`,'giu'),
+    new RegExp(String.raw`\blet(?:'|’)s\s+${verb}\s+${toward}\s+(?:the\s+)?${destination}${stop}`,'giu'),
+  ];
   const out=[],seen=new Set();
-  for(const match of raw.matchAll(re)){
-    const value=String(match[1]??'').replace(/\s+/g,' ').trim();
-    if(!value||value.length>120)continue;
-    const key=value.toLocaleLowerCase();
-    if(seen.has(key))continue;
-    seen.add(key);
-    out.push(Object.freeze({
-      intentKind:ScenePrefetchIntentKind.EXPLICIT_TRAVEL_DESTINATION,
-      locationRefs:Object.freeze([value]),
-      entityRefs:Object.freeze([]),
-      threadRefs:Object.freeze([]),
-      sceneRefs:Object.freeze([]),
-      priority:'HIGH',
-      authority:'NONE',
-    }));
-    if(out.length>=4)break;
+  for(const re of patterns){
+    for(const match of raw.matchAll(re)){
+      const value=String(match[1]??'').replace(/\s+/g,' ').trim();
+      if(!value||value.length>120)continue;
+      const key=value.toLocaleLowerCase();
+      if(seen.has(key))continue;
+      seen.add(key);
+      out.push(Object.freeze({
+        intentKind:ScenePrefetchIntentKind.EXPLICIT_TRAVEL_DESTINATION,
+        locationRefs:Object.freeze([value]),
+        entityRefs:Object.freeze([]),
+        threadRefs:Object.freeze([]),
+        sceneRefs:Object.freeze([]),
+        priority:'HIGH',
+        authority:'NONE',
+      }));
+      if(out.length>=4)return Object.freeze(out);
+    }
   }
   return Object.freeze(out);
 }

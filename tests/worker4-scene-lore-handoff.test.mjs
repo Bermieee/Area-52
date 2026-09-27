@@ -189,6 +189,25 @@ test('assembled Scene owner receipt produces revision-fenced Lore candidates wit
   assert.equal(result.rawLoreIncluded, false);
 });
 
+test('Brain carries a Scene Lore handoff through its candidate channel before Context Seal', async () => {
+  const brain = new DevelopmentDeploymentBrain({resourceCount: 1, jevAvailable: false});
+  brain.ingestLorebook(sceneLoreBook());
+  const receipt = ingest(brain, event(HostActivity.USER_SEND, 'connected', 'At North Gallery, Mara enters.'));
+  const record = await brain.runTurn({
+    chatId: 'chat:scene-lore',
+    turnId: 'turn:connected',
+    generationId: 'generation:connected',
+    query: 'At North Gallery, Mara enters.',
+    mode: 'retrieval',
+    sceneReceipt: receipt,
+  });
+  assert.equal(record.sceneLoreHandoff.status, SceneLoreHandoffStatus.SYNCED);
+  assert.ok(record.sceneLoreHandoff.candidateCount > 0);
+  assert.ok(record.sceneLoreAdmittedCount > 0);
+  assert.ok(record.delivery.plan?.contextSealId);
+  assert.equal(record.sceneLoreHandoff.contextSealAuthority, false);
+});
+
 test('quiet Scene turn produces NO_WORK and performs no Lore retrieval', async () => {
   const brain = new DevelopmentDeploymentBrain({resourceCount: 1, jevAvailable: false});
   brain.ingestLorebook(sceneLoreBook());

@@ -16,6 +16,8 @@ import { createMemoryIntegrationSurface } from '../memory-integration-surface.js
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
 import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
+import { SceneEventPublisher } from '../scene/event-publisher.js';
+import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
@@ -122,6 +124,29 @@ class RuntimePreparedLoreChannel {
     });
     this.prepared.set(String(query), prepared);
     return prepared;
+  }
+
+  admitSceneCandidates(query, handoff) {
+    const original = this.prepared.get(String(query));
+    if (!original || handoff?.status !== 'SYNCED') return 0;
+    const allowed = new Set((handoff.candidates ?? []).map((row) => `${row.sourceId}|${row.sourceRevisionId}`));
+    const admitted = [];
+    for (const request of handoff.need?.queries ?? []) {
+      const result = this.loreSystem.query({ query: request.query, intent: 'NARROW' });
+      for (const lane of result.nominations ?? []) {
+        const drill = this.loreSystem.drillDown(lane);
+        if (!drill.length || !drill.every((row) => allowed.has(`${row.sourceId}|${row.sourceRevisionId}`))) continue;
+        const nomination = this.#toCoreNomination(lane);
+        if (!nomination) continue;
+        nomination.metadata.sceneLoreNeedId = handoff.need.needId;
+        nomination.metadata.sceneLoreQueryId = request.queryId;
+        admitted.push(nomination);
+      }
+    }
+    const byId = new Map(original.nominations.map((row) => [row.nominationId, row]));
+    for (const row of admitted) byId.set(row.nominationId, row);
+    this.prepared.set(String(query), Object.freeze({ ...original, nominations: [...byId.values()] }));
+    return admitted.length;
   }
 
   retrieve(intent, context = {}) {
@@ -289,7 +314,15 @@ export class DevelopmentDeploymentBrain {
       this.loreAuthoring = new LoreAuthoringService({ intelligence: this.loreIntelligence });
     }
     this.loreSettlementEvents = clone(loreOwnerSnapshot?.settlementEvents ?? []);
-    this.scene = new SceneLifecycleRuntime();
+    this.sceneOwnerTimeline = [];
+    const sceneTimelineSink = (type) => (value) => {
+      this.sceneOwnerTimeline.push({ type, value: clone(value) });
+      if (this.sceneOwnerTimeline.length > 256) this.sceneOwnerTimeline.splice(0, this.sceneOwnerTimeline.length - 256);
+    };
+    this.scene = new SceneLifecycleRuntime({
+      publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
+      contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
+    });
     this.memory = new MemoryTemporalProducer();
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
@@ -518,6 +551,99 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
+  ingestSceneHostEvent(input = {}, { extract = null } = {}) {
+    const start = this.sceneOwnerTimeline.length;
+    let extracted = null;
+    const wrappedExtract = typeof extract === 'function'
+      ? (e, scene) => { extracted = extract(e, scene) ?? {}; return extracted; }
+      : null;
+    const outcome = this.scene.ingestHostEvent(input, { extract: wrappedExtract });
+    const evidence = outcome?.evidence ?? null;
+    const chatId = String(evidence?.chatId ?? input?.chatId ?? '').trim();
+    const timeline = this.sceneOwnerTimeline.slice(start).map((row) => clone(row));
+    const coreReceipts = [];
+    if (chatId) {
+      if (this.core.hotCognition.activeChatNamespace !== chatId) this.core.activateHotCognitionChat(chatId);
+      for (const row of timeline) {
+        const receipt = row.type === 'INVALIDATION'
+          ? this.core.consumeSceneContextInvalidation(row.value, { chatNamespace: chatId })
+          : this.core.consumeCognitiveEvent(row.value, { chatNamespace: chatId });
+        coreReceipts.push({
+          type: row.type,
+          ref: row.value?.eventId ?? row.value?.invalidationId ?? null,
+          eventType: row.value?.eventType ?? null,
+          status: receipt?.status ?? null,
+          coreHandling: receipt?.coreHandling ?? null,
+          reason: receipt?.reason ?? receipt?.reasonCode ?? null,
+        });
+      }
+    }
+    const signal = chatId ? this.scene.integrationSignal(chatId) : null;
+    const signalReceipt = signal ? this.core.consumeSceneSignal(signal, { chatNamespace: chatId }) : null;
+    const changedFields = Object.keys(outcome?.delta?.changedFields ?? {}).sort();
+    const eventRows = timeline.filter((row) => row.type === 'EVENT');
+    const invalidationRows = timeline.filter((row) => row.type === 'INVALIDATION');
+    const invalidatedSourceRevisionRefs = [...new Set([
+      ...(evidence?.invalidates ?? []),
+      evidence?.replacesRevisionId,
+    ].filter(Boolean).map(String))].sort();
+    const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
+    const boundaryStatus = outcome?.boundary?.decision?.status ?? null;
+    const status = changedFields.length || outcome?.transition ? 'OBSERVED' : 'NO_WORK';
+    const boundaryCueObserved = Boolean(extracted?.boundarySignals && Object.keys(extracted.boundarySignals).length);
+    const noWorkReason = status === 'NO_WORK'
+      ? (boundaryCueObserved && boundaryStatus !== 'CONFIRMED' ? 'BOUNDARY_NOT_CONFIRMED' : 'NO_EXPLICIT_SCENE_CHANGE')
+      : null;
+    return clone({
+      kind: 'DeploymentSceneOwnerReceipt',
+      contractVersion: 1,
+      status,
+      noWorkReason,
+      evidence: evidence ? {
+        activity: evidence.activity ?? null,
+        chatId: evidence.chatId ?? null,
+        messageId: evidence.messageId ?? null,
+        messageRevision: evidence.messageRevision ?? null,
+        turnId: evidence.turnId ?? null,
+        correlationId: evidence.correlationId ?? null,
+        causationId: evidence.causationId ?? null,
+        sourceRevisionId: evidence.sourceRevisionId ?? null,
+        replacesRevisionId: evidence.replacesRevisionId ?? null,
+        invalidates: [...(evidence.invalidates ?? [])],
+        current: Boolean(evidence.current),
+      } : null,
+      chatId,
+      sceneId: signal?.sceneId ?? outcome?.scene?.sceneId ?? null,
+      sceneRevision: signal?.sceneRevision ?? outcome?.scene?.revision ?? null,
+      sourceRevisionRefs,
+      invalidatedSourceRevisionRefs,
+      changedFields,
+      delta: clone(outcome?.delta ?? null),
+      dispatchTimeline: clone(timeline),
+      boundary: clone(outcome?.boundary ?? null),
+      boundarySignals: clone(extracted?.boundarySignals ?? null),
+      transition: clone(outcome?.transition ?? null),
+      eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
+      eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
+      invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),
+      coreReceipts,
+      signalReceipt: signalReceipt ? {
+        status: signalReceipt.status ?? null,
+        coreHandling: signalReceipt.coreHandling ?? null,
+        reason: signalReceipt.reason ?? signalReceipt.reasonCode ?? null,
+      } : null,
+      signal,
+      prefetchRecommendations: clone(signal?.prefetchRecommendations ?? []),
+      authority: 'DESCRIPTIVE',
+      authorityGranted: false,
+      canonicalMutationAuthority: false,
+      settlementAuthority: false,
+      contextSealAuthority: false,
+      contextSealBypass: false,
+      rawNarrativeIncluded: false,
+    });
+  }
+
   async runSceneLoreHandoff({ sceneReceipt, chatId = null, turnId = null, generationId } = {}) {
     const result = await this.sceneLoreHandoff.retrieve({ sceneReceipt, chatId, turnId, generationId });
     this.#emit({ type: 'SCENE_LORE_HANDOFF', result: clone(result) });
@@ -544,6 +670,7 @@ export class DevelopmentDeploymentBrain {
     intent = 'CURRENT',
     mode = 'retrieval',
     anchorEntityIds = [],
+    sceneReceipt = null,
   } = {}) {
     if (!turnId || !generationId || !query) throw new TypeError('turnId, generationId and query are required');
     const sceneSignal = this.scene.integrationSignal(String(chatId));
@@ -590,6 +717,13 @@ export class DevelopmentDeploymentBrain {
     const publishedRuntime = this.runtime.publishTurn(turn, jobs);
     const foreground = await this.runtime.native.awaitForeground(turn.turnId);
     await this.runtimeDirector.drain();
+
+    const sceneLore = sceneReceipt && mode !== 'simple'
+      ? await this.runSceneLoreHandoff({ sceneReceipt, chatId, turnId, generationId })
+      : null;
+    const sceneLoreAdmittedCount = sceneLore?.status === 'SYNCED'
+      ? this.loreChannel.admitSceneCandidates(query, sceneLore)
+      : 0;
 
     const published = this.core.publishGenerationContext({
       turnId: turn.turnId,
@@ -664,6 +798,8 @@ export class DevelopmentDeploymentBrain {
         externalServiceRequired: false,
       },
       planning,
+      sceneLoreHandoff: sceneLore,
+      sceneLoreAdmittedCount,
       jevProposal: this.pendingJev.get(turn.turnId) ?? null,
       jevOwnerAdmission: this.pendingJevAdmission.get(turn.turnId) ?? null,
       jevExecution: this.jevExecution.get(turn.turnId) ?? null,

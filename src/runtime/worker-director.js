@@ -10,6 +10,7 @@ import { ResourceGovernor } from './resource-governor.js';
 import { LayeredScheduler } from './scheduler.js';
 import { RuntimeTelemetry } from './telemetry.js';
 import { WorkLedger } from './work-ledger.js';
+import {CausalLifecycleState,CausalReasonCode,CausalReceiptKind,createCausalReceipt} from './causal-receipts.js';
 
 export class WorkerDirector {
   constructor({
@@ -48,6 +49,7 @@ export class WorkerDirector {
         const record = this.ledger.get(taskId);
         const type = reason.startsWith('required-dependency:') ? 'DEPENDENCY_BLOCKED' : 'WORK_BLOCKED';
         this.telemetry.emit(type, { taskId, reason, layer: record?.obligation.layer ?? null });
+        this.#recordCausal(taskId,{kind:CausalReceiptKind.WORK_BLOCKED,lifecycleState:CausalLifecycleState.BLOCKED,reasonCode:CausalReasonCode.DEPENDENCY_BLOCKED});
         this.events.emit(EVENT_TYPES.WORK_BLOCKED, { reason }, this.#eventMeta(taskId));
       },
       onDegraded: (taskId, degradation) => {
@@ -120,6 +122,7 @@ export class WorkerDirector {
       return admission;
     }
     const taskId = admission.task.taskId;
+    if (!admission.deduped && !admission.coalesced) this.#recordCausal(taskId,{kind:CausalReceiptKind.OBLIGATION_ADMITTED,lifecycleState:CausalLifecycleState.ADMITTED,reasonCode:CausalReasonCode.OWNER_EXPECTED_WORK});
     if (admission.coalesced) {
       this.batch.append(taskId, units);
       return admission;
@@ -150,11 +153,22 @@ export class WorkerDirector {
     this.lifecycle.cancel(taskId, reason);
     if (!this.active.has(taskId)) this.ledger.setExecution(taskId, EXECUTION_STATUS.FAILED, reason);
     this.telemetry.emit('WORK_CANCELLED', { taskId, reason });
+    this.#recordCausal(taskId,{kind:CausalReceiptKind.WORK_FAILED,lifecycleState:CausalLifecycleState.FAILED,reasonCode:CausalReasonCode.CANCELLED});
     return true;
   }
 
   publishResultReady(envelope) {
     const safe = structuredClone({ ...envelope, authorityGranted: false, canonicalMutation: false, settlementPerformed: false });
+    if (safe.taskId && this.ledger.get(safe.taskId)) {
+      const late = safe.late===true || safe.lateState==='AFTER_SEAL';
+      const failed = safe.executionOutcome==='FAILED';
+      this.#recordCausal(safe.taskId,{
+        kind:late?CausalReceiptKind.RESULT_LATE:failed?CausalReceiptKind.WORK_FAILED:CausalReceiptKind.RESULT_RETURNED,
+        lifecycleState:late?CausalLifecycleState.LATE:failed?CausalLifecycleState.FAILED:CausalLifecycleState.RETURNED,
+        reasonCode:late?CausalReasonCode.LATE_RESULT:failed?this.#failureReason(safe.providerFailure?.code):CausalReasonCode.RESULT_RETURNED,
+        durationMs:safe.timing?.providerLatencyMs??null,
+      });
+    }
     this.telemetry.emit('RUNTIME_RESULT_READY', safe);
     if (this.resultSink) {
       try {
@@ -165,6 +179,23 @@ export class WorkerDirector {
       }
     }
     return safe;
+  }
+
+  recordOwnerAdmission(taskId,{accepted,receiptId=null,parentReceiptId=null,reasonCode=null,consumerId=null,durationMs=null}={}) {
+    if(typeof accepted!=='boolean')throw new TypeError('recordOwnerAdmission requires accepted boolean');
+    return this.#recordCausal(taskId,{
+      kind:accepted?CausalReceiptKind.OWNER_ADMISSION:CausalReceiptKind.OWNER_REJECTED,
+      lifecycleState:accepted?CausalLifecycleState.ACCEPTED:CausalLifecycleState.FAILED,
+      reasonCode:reasonCode??(accepted?CausalReasonCode.OWNER_ACCEPTED:CausalReasonCode.OWNER_REJECTED),
+      parentReceiptId,consumerId,ownerAccepted:accepted,durationMs,metadata:{ownerReceiptId:receiptId==null?null:String(receiptId)},
+    });
+  }
+
+  recordSettlementReceipt(taskId,{receiptId=null,parentReceiptId=null,consumerId=null,durationMs=null}={}) {
+    return this.#recordCausal(taskId,{
+      kind:CausalReceiptKind.SETTLEMENT,lifecycleState:CausalLifecycleState.SETTLED,reasonCode:CausalReasonCode.SETTLED,
+      parentReceiptId,consumerId,ownerAccepted:true,durationMs,metadata:{settlementReceiptId:receiptId==null?null:String(receiptId)},
+    });
   }
 
   recoverTask(taskId) {
@@ -281,6 +312,11 @@ export class WorkerDirector {
         executionStatus: record.executionStatus,
         layer: record.obligation.layer,
         degradation: structuredClone(record.degradation),
+        owner: record.obligation.owner,
+        producerId: record.obligation.producerId ?? null,
+        taskType: record.obligation.taskType,
+        cause: structuredClone(record.obligation.cause ?? null),
+        causalReceipts: structuredClone((record.causalReceipts ?? []).slice(-32)),
       })),
       queueDepth: this.scheduler.depthByLayer(),
       resources: this.governor.snapshot(),
@@ -310,6 +346,7 @@ export class WorkerDirector {
       const resumed = this.resumePending.delete(record.taskId) || record.startedCount > 0;
       this.ledger.setExecution(record.taskId, EXECUTION_STATUS.ACTIVE, resumed ? 'resumed' : 'started');
       this.active.set(record.taskId, { taskId: record.taskId, workerId: worker.workerId, worker, lease, executor, negotiation });
+      this.#recordCausal(record.taskId,{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,lifecycleState:CausalLifecycleState.RUNNING,reasonCode:CausalReasonCode.PHYSICAL_EXECUTION_STARTED,workerId:worker.workerId});
       const eventType = resumed ? EVENT_TYPES.WORK_RESUMED : EVENT_TYPES.WORK_STARTED;
       this.events.emit(eventType, { workerId: worker.workerId }, this.#eventMeta(record.taskId));
       this.telemetry.emit(eventType, {
@@ -349,6 +386,7 @@ export class WorkerDirector {
       if ([LIFECYCLE_STATUS.PENDING, LIFECYCLE_STATUS.ELIGIBLE].includes(latest?.lifecycleStatus)) this.lifecycle.supersede(assignment.taskId, 'superseded-during-execution');
       this.#releaseAssignment(assignment.taskId);
       this.telemetry.emit('STALE_RESULT_DROPPED', { taskId: assignment.taskId, status: outcome.status });
+      this.#recordCausal(assignment.taskId,{kind:CausalReceiptKind.RESULT_STALE,lifecycleState:CausalLifecycleState.STALE,reasonCode:CausalReasonCode.STALE_RESULT});
     } else if (outcome.status === 'commit-uncertain') {
       this.#releaseAssignment(assignment.taskId);
       this.telemetry.emit('WORK_RECOVERING', { taskId: assignment.taskId, recoveryState: 'commit-reconciliation-required' });
@@ -398,8 +436,8 @@ export class WorkerDirector {
   }
 
   #completionEnvelope(record) {
-    const payload = record.obligation.payload ?? {};
-    const turnId = payload.turnId ?? null;
+    const payload = record.obligation.payload ?? {}, cause = record.obligation.cause ?? {};
+    const turnId = payload.turnId ?? cause.turnId ?? null;
     const late = Boolean(turnId && this.isTurnSealed(turnId));
     const receipt = record.resultReceipts.at(-1)?.external ?? null;
     const providerProvenance = receipt?.providerExecution ?? (record.negotiation ? {
@@ -414,13 +452,15 @@ export class WorkerDirector {
       owner: record.obligation.owner,
       producerId: record.obligation.producerId,
       runtimeClass: record.obligation.runtimeClass,
+      chatId: payload.chatId ?? cause.chatId ?? null,
       turnId,
-      correlationId: payload.correlationId ?? null,
-      causationId: payload.causationId ?? null,
+      generationId: payload.generationId ?? cause.generationId ?? null,
+      correlationId: payload.correlationId ?? cause.correlationId ?? null,
+      causationId: payload.causationId ?? cause.eventId ?? null,
       sourceRevisions: structuredClone(record.obligation.sourceRevisions ?? {}),
-      sourceRevisionIds: [...(record.obligation.sourceRevisionIds ?? [])],
-      worldRevision: record.obligation.worldRevision ?? null,
-      sceneRevision: record.obligation.sceneRevision ?? null,
+      sourceRevisionIds: [...((record.obligation.sourceRevisionIds?.length?record.obligation.sourceRevisionIds:cause.sourceRevisionRefs) ?? [])],
+      worldRevision: record.obligation.worldRevision ?? cause.worldRevision ?? null,
+      sceneRevision: record.obligation.sceneRevision ?? cause.sceneRevision ?? null,
       characterStateRevision: payload.characterStateRevision ?? null,
       freshnessToken: payload.freshnessToken ?? null,
       resultClass: payload.resultClass ?? record.obligation.resultContract?.resultClass ?? null,
@@ -443,8 +483,8 @@ export class WorkerDirector {
   }
 
   #failureEnvelope(record, outcome, assignment) {
-    const payload = record.obligation.payload ?? {};
-    const turnId = payload.turnId ?? null;
+    const payload = record.obligation.payload ?? {}, cause = record.obligation.cause ?? {};
+    const turnId = payload.turnId ?? cause.turnId ?? null;
     const late = Boolean(turnId && this.isTurnSealed(turnId));
     return {
       taskId: record.taskId,
@@ -452,13 +492,15 @@ export class WorkerDirector {
       owner: record.obligation.owner,
       producerId: record.obligation.producerId,
       runtimeClass: record.obligation.runtimeClass,
+      chatId: payload.chatId ?? cause.chatId ?? null,
       turnId,
-      correlationId: payload.correlationId ?? null,
-      causationId: payload.causationId ?? null,
+      generationId: payload.generationId ?? cause.generationId ?? null,
+      correlationId: payload.correlationId ?? cause.correlationId ?? null,
+      causationId: payload.causationId ?? cause.eventId ?? null,
       sourceRevisions: structuredClone(record.obligation.sourceRevisions ?? {}),
-      sourceRevisionIds: [...(record.obligation.sourceRevisionIds ?? [])],
-      worldRevision: record.obligation.worldRevision ?? null,
-      sceneRevision: record.obligation.sceneRevision ?? null,
+      sourceRevisionIds: [...((record.obligation.sourceRevisionIds?.length?record.obligation.sourceRevisionIds:cause.sourceRevisionRefs) ?? [])],
+      worldRevision: record.obligation.worldRevision ?? cause.worldRevision ?? null,
+      sceneRevision: record.obligation.sceneRevision ?? cause.sceneRevision ?? null,
       freshnessToken: payload.freshnessToken ?? null,
       resultClass: payload.resultClass ?? record.obligation.resultContract?.resultClass ?? null,
       requestedDestination: record.obligation.resultContract?.requestedDestination ?? null,
@@ -496,6 +538,25 @@ export class WorkerDirector {
     }
   }
 
+  #failureReason(code) {
+    if(code==='PROVIDER_UNAVAILABLE')return CausalReasonCode.PROVIDER_UNAVAILABLE;
+    if(code==='PROVIDER_TIMEOUT')return CausalReasonCode.PROVIDER_TIMEOUT;
+    return CausalReasonCode.TASK_FAILED;
+  }
+
+  #recordCausal(taskId,{kind,lifecycleState,reasonCode,parentReceiptId=null,consumerId=null,workerId=null,durationMs=null,ownerAccepted=null,metadata={}}={}) {
+    const record=this.ledger.get(taskId);if(!record)return null;
+    const prior=(record.causalReceipts??[]).at(-1)??null;
+    const receipt=createCausalReceipt({
+      id:'causal:'+taskId+':'+String(this.ledger.sequence+1)+':'+kind,kind,lifecycleState,reasonCode,
+      taskId,taskType:record.obligation.taskType,owner:record.obligation.owner,producerId:record.obligation.producerId??record.obligation.cause?.producerId??null,
+      consumerId:consumerId??record.obligation.cause?.consumerId??null,parentReceiptId:parentReceiptId??prior?.id??record.obligation.cause?.parentReceiptId??null,
+      workerId,durationMs,ownerAccepted,cause:record.obligation.cause??{},metadata,
+    });
+    if(this.ledger.recordCausalReceipt(taskId,receipt))this.telemetry.emit('CAUSAL_OWNER_RECEIPT',receipt);
+    return receipt;
+  }
+
   #eventMeta(taskId) {
     const record = this.ledger.get(taskId);
     return {
@@ -509,9 +570,12 @@ export class WorkerDirector {
       },
       worldRevision: record?.obligation.worldRevision ?? null,
       sceneRevision: record?.obligation.sceneRevision ?? null,
-      correlationId: record?.obligation.payload?.correlationId ?? null,
+      correlationId: record?.obligation.cause?.correlationId ?? record?.obligation.payload?.correlationId ?? null,
       causationId: record?.obligation.payload?.causationId ?? null,
-      turnId: record?.obligation.payload?.turnId ?? null,
+      parentReceiptId: record?.obligation.cause?.parentReceiptId ?? null,
+      chatId: record?.obligation.cause?.chatId ?? record?.obligation.payload?.chatId ?? null,
+      turnId: record?.obligation.cause?.turnId ?? record?.obligation.payload?.turnId ?? null,
+      generationId: record?.obligation.cause?.generationId ?? record?.obligation.payload?.generationId ?? null,
     };
   }
 

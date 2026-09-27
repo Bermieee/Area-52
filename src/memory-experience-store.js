@@ -459,6 +459,7 @@ export class MemoryExperienceStore {
       publishedArtifactIds:[],
       failures:[],
       outcomes:[],
+      reflectionEligibilityPolicy:String(options.reflectionEligibilityPolicy??'LEGACY_DIRECT'),
       checkpoint:null,
       inputRevisionFence,
       generationFence,
@@ -545,18 +546,24 @@ export class MemoryExperienceStore {
       const job=session.jobs[session.cursor];
       try {
         if (job.type!=='REFLECTION') throw new Error('MEMORY_CONSOLIDATION_JOB_UNSUPPORTED:'+String(job.type));
-        const eligibility=this.reflectionEligibility(job.input??{});
-        if(!eligibility.eligible){
-          session.outcomes.push({cursor:session.cursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
+        if(session.reflectionEligibilityPolicy==='REPEATED_EXPERIENCE_REQUIRED'){
+          const eligibility=this.reflectionEligibility(job.input??{});
+          if(!eligibility.eligible){
+            session.outcomes.push({cursor:session.cursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
+          }else{
+            const artifact=this.reviseReflection({
+              ...(job.input??{}),
+              confidence:eligibility.confidence,
+              action:eligibility.action,
+              truthStatus:eligibility.truthStatus,
+              resolutionStatus:eligibility.resolutionStatus,
+              episodeRefs:eligibility.supportEpisodeIds,
+            });
+            if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
+            session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+          }
         }else{
-          const artifact=this.reviseReflection({
-            ...(job.input??{}),
-            confidence:eligibility.confidence,
-            action:eligibility.action,
-            truthStatus:eligibility.truthStatus,
-            resolutionStatus:eligibility.resolutionStatus,
-            episodeRefs:eligibility.supportEpisodeIds,
-          });
+          const artifact=this.reviseReflection(job.input??{});
           if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
           session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
         }

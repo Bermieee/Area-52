@@ -39,6 +39,8 @@ import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coproc
 const CHANNEL_ID = 'NATIVE_LORE_RUNTIME';
 const uniq = (values) => [...new Set((values ?? []).filter(Boolean).map(String))].sort();
 const clone = (value) => value == null ? value : structuredClone(value);
+const payloadSizeClass=(n)=>n<512?'XS':n<2048?'S':n<8192?'M':n<32768?'L':'XL';
+const heapSample=()=>Number(globalThis.performance?.memory?.usedJSHeapSize??0)||null;
 const unsupportedDeterministicStudy = (error) => /^RuleBasedStudyAdapter has no deterministic extractor for:/.test(String(error?.message ?? error));
 
 function field(value, revision, evidenceRef, observationClass = ObservationClass.OBSERVED, confidence = 1) {
@@ -949,8 +951,9 @@ export class DevelopmentDeploymentBrain {
       executionLayer:this.resourceConnections.executionLayer,
       telemetry:this.coprocessorTelemetry,
     });
+    const sidecarQueuedAt=Date.now(),heapBefore=heapSample();let dispatchedPayloadCharacters=0;
     worker.enqueue(unit);
-    const currentRevisionSet={sourceRevisionSet,worldRevision,sceneRevision,characterStateRevision:0};
+    const currentRevisionSet={sourceRevisionSet,worldRevision,sceneRevision,characterStateRevision:0},sidecarDispatchedAt=Date.now();
     const result=await worker.processUnit(unit.unitId,{
       currentRevisionSet,turnId,correlationId,
       inputResolver:async(storedUnit)=>({
@@ -959,6 +962,7 @@ export class DevelopmentDeploymentBrain {
           const episode=episodes.find((row)=>row.id===ref.artifactId);
           const exact=episode?this.memory.experienceStore.exactDrillback(episode.id):[];
           const excerpt=exact.map((row)=>String(row?.exactContent??row?.content??'')).filter(Boolean).join('\n').slice(0,2400);
+          dispatchedPayloadCharacters+=excerpt.length;
           return {ref,excerpt,structuredFacts:[],provenanceRef:'memory-drillback:'+ref.artifactId};
         }),
         semanticGoals:['reflection-evidence','cross-episode-links','episode-summary'],
@@ -979,7 +983,10 @@ export class DevelopmentDeploymentBrain {
       providerId:workerResult?.providerId??null,modelId:workerResult?.modelId??null,returnStatus:'RETURNED',
       ownerDestination:'MEMORY_OWNER_REVIEW',gatherDestination:'NOT_ELIGIBLE_POST_TURN',sealDestination:'NOT_ELIGIBLE_POST_TURN',
       usageReceipt:clone(workerResult?.providerMetadata?.usageReceipt??null),providerLatencyMs:workerResult?.latency??null,
-      payloadBodyRetained:false,hiddenReasoningRetained:false,canonicalMutation:false,settlementAuthority:false,
+      queueWaitMs:Math.max(0,sidecarDispatchedAt-sidecarQueuedAt),foregroundBlockedMs:0,
+      usageClass:workerResult?.providerMetadata?.usageReceipt?.measurementClass??workerResult?.providerMetadata?.measurementClass??null,
+      costClass:workerResult?.providerMetadata?.usageReceipt?.cost?.status??null,payloadSizeClass:payloadSizeClass(dispatchedPayloadCharacters),
+      heapBefore,heapAfter:heapSample(),payloadBodyRetained:false,hiddenReasoningRetained:false,canonicalMutation:false,settlementAuthority:false,
     });
     this.resourceOwnerReceipts.push(clone(executionReceipt));
     return Object.freeze({

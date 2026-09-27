@@ -27,3 +27,10 @@ test('installed entry auto-starts the SillyTavern turn bridge instead of requiri
   assert.ok(startAt > createAt, 'installed session must start immediately after creation');
   assert.ok(renderAt > startAt, 'initial installed evidence must be rendered after the live event bridge is active');
 });
+
+test('installed entry does not mount the development acceptance harness into SillyTavern', () => {
+  const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /hostRoot\(\)\.appendChild\(root\)/);
+  assert.doesNotMatch(source, /root\.innerHTML\s*=/);
+  assert.match(source, /document\.getElementById\?\.\(ROOT_ID\)\?\.remove/);
+});

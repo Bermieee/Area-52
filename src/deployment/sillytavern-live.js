@@ -360,10 +360,10 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   if (!chatId) throw new Error('SillyTavern chatId is unavailable');
   const chosenMode = mode ?? classifyDevelopmentDeploymentTurn(message.text);
   const source = registerNarrativeSource(brain, { chatId, message });
-  const scene = applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId });
   const turnSuffix = source.messageKey + ':' + source.digest + ':' + chosenMode;
   const turnId = 'live:' + chatId + ':' + turnSuffix;
   const generationId = 'live-gen:' + chatId + ':' + source.messageKey + ':' + source.digest;
+  const scene = applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId, turnId });
 
   const result = await brain.runTurn({
     chatId,
@@ -371,6 +371,7 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
     generationId,
     query: message.text,
     mode: chosenMode,
+    sceneReceipt: scene,
   });
   const promptInjection = inject ? await injectPrompt(context, result) : { supported: true, succeeded: true, reason: 'DEGRADED_CONTROL_NO_MAIN_INJECTION' };
   const selection = result.selection;
@@ -593,8 +594,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(!before||!requestReady||!received)throw new Error('Native Brain live integration requires GENERATION_AFTER_COMMANDS, CHAT_COMPLETION_PROMPT_READY, and MESSAGE_RECEIVED events');
       const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_PREPARE'},SESSION_BOUNDS.errors);this.#notify();}};
       const requestHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeModelRequest(eventData);}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_MODEL_REQUEST'},SESSION_BOUNDS.errors);this.#notify();}};
-      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_COMPLETE'},SESSION_BOUNDS.errors);this.#notify();}};
-      const stoppedHandler=()=>{this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
+      const receivedHandler=async(index)=>{this.#recordHostNarrativeEvent('MESSAGE_RECEIVED',[index]);try{await this.completeNativeGeneration({messageIndex:index});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_COMPLETE'},SESSION_BOUNDS.errors);this.#notify();}};
+      const stoppedHandler=(...args)=>{this.#recordHostNarrativeEvent('GENERATION_STOPPED',args);this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
       context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
@@ -602,11 +603,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     }else{
       const eventName=context.eventTypes?.MESSAGE_SENT??context.event_types?.MESSAGE_SENT;
       if(!eventName)throw new Error('No supported SillyTavern pre-generation event is available');
-      const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
+      const handler=async(...args)=>{this.#recordHostNarrativeEvent('MESSAGE_SENT',args);try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
       context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
     }
     const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'];
     for(const key of observedHostEvents){
+      if (key === 'MESSAGE_SENT' || (this.nativeBrain && ['MESSAGE_RECEIVED','GENERATION_STOPPED'].includes(key))) continue;
       const eventName=context.eventTypes?.[key]??context.event_types?.[key];
       if(!eventName)continue;
       const observer=(...args)=>this.#recordHostNarrativeEvent(key,args);

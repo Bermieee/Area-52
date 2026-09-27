@@ -96,7 +96,7 @@ export class ClapperboardTransitionManager{
     const nextScene=nextRecord.snapshots.at(-1);
     let prefetch=null;
     if(this.prefetchTrigger){
-      prefetch=this.prefetchTrigger.recommend({sceneId:nextScene.sceneId,sceneRevision:nextScene.revision,trigger:`TRANSITION_${relationship}`,sceneRefs:[fromSceneId,target],entityRefs:destinationHints.entityRefs??[],locationRefs:destinationHints.locationRefs??[],threadRefs:destinationHints.threadRefs??[],priority:'HIGH',evidenceRefs,sourceRevisionRefs});
+      prefetch=this.prefetchTrigger.recommend({sceneId:nextScene.sceneId,sceneRevision:nextScene.revision,trigger:`STRONG_BOUNDARY_TRANSITION:${relationship}`,sceneRefs:[fromSceneId,target],entityRefs:destinationHints.entityRefs??[],locationRefs:destinationHints.locationRefs??[],threadRefs:destinationHints.threadRefs??[],priority:'HIGH',evidenceRefs,sourceRevisionRefs});
       this.#publish(SceneEventType.PREFETCH_RECOMMENDED,nextScene,sourceRevisionRefs,{recommendation:prefetch},{dedupeKey:prefetch.recommendationId,correlationId,causationId,turnId});
     }
     const status=partial?TransitionStatus.EPISODE_PENDING:TransitionStatus.COMPLETE;

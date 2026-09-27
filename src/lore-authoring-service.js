@@ -4,6 +4,7 @@ import {
   LoreOperatorDecision,
   LoreReviewState,
   LoreSettlementState,
+  LoreMutationOperation,
   normalizeLoreAuthoringError,
   safeOperatorResult,
   sourceRevisionIdentity,
@@ -12,9 +13,10 @@ import {LoreSemanticCompiler} from './lore-semantic-authoring.js';
 import {LoreStructurePlanner} from './lore-structure-planner.js';
 import {LoreMergePreviewer} from './lore-merge-preview.js';
 import {LoreAuthoringLifecycle} from './lore-authoring-lifecycle.js';
+import {LoreReviewedMutationService} from './lore-reviewed-mutation.js';
 
 export class LoreAuthoringService {
-  constructor({intelligence, lifecycleSnapshot = null} = {}) {
+  constructor({intelligence, lifecycleSnapshot = null, mutationSnapshot = null} = {}) {
     if (!intelligence) throw new TypeError('LoreAuthoringService requires LoreIntelligenceService');
     this.intelligence = intelligence;
     this.semantic = new LoreSemanticCompiler({intelligence});
@@ -26,6 +28,11 @@ export class LoreAuthoringService {
       structure: this.structure,
       merge: this.merge,
       snapshot: lifecycleSnapshot,
+    });
+    this.mutations = new LoreReviewedMutationService({
+      intelligence,
+      impactPlanner: this.semantic.impactPlanner,
+      snapshot: mutationSnapshot,
     });
   }
 
@@ -67,6 +74,78 @@ export class LoreAuthoringService {
 
   semanticChangeReport(request) {
     return this.semantic.semanticChangeReport(request);
+  }
+
+  semanticImpactPreview(request = {}) {
+    if (typeof request?.content === 'string') return this.semantic.previewEdit(request);
+    return this.semantic.semanticImpactPlan(request);
+  }
+
+  createMutationProposal(request = {}) {
+    return this.mutations.createProposal(request);
+  }
+
+  approveMutationProposal(request = {}) {
+    return this.mutations.approve(request);
+  }
+
+  rejectMutationProposal(request = {}) {
+    return this.mutations.reject(request);
+  }
+
+  commitMutationProposal(request = {}) {
+    return this.mutations.commit(request);
+  }
+
+  restoreMutationProposal(request = {}) {
+    return this.mutations.restore(request);
+  }
+
+  mutationProposal({proposalId} = {}) {
+    return this.mutations.read(proposalId);
+  }
+
+  mutationQueue(request = {}) {
+    const limit = Math.max(1, Math.min(64, Math.trunc(Number(request?.limit) || 32)));
+    const items = this.mutations.list({...request, limit});
+    return {
+      kind: 'LoreMutationQueueReadModel',
+      contractVersion: 1,
+      items,
+      itemCount: items.length,
+      bounds: {limit},
+      rawReconstructionIncluded: false,
+      uiImplementationOwner: 'Worker 3',
+    };
+  }
+
+  mutationAudit({proposalId} = {}) {
+    const audit = this.mutations.audit({proposalId});
+    const reconstruction = audit.reconstruction || {sources: []};
+    return {
+      kind: 'LoreMutationAuditReadModel',
+      contractVersion: 1,
+      proposalId: audit.proposalId,
+      operationFingerprint: audit.operationFingerprint,
+      events: deepClone(audit.events || []).slice(-64),
+      eventCountTotal: (audit.events || []).length,
+      reconstruction: {
+        kind: reconstruction.kind || 'LoreMutationReconstructionReceipt',
+        sources: (reconstruction.sources || []).slice(0, 64).map((row) => ({
+          sourceId: row.sourceId,
+          existed: Boolean(row.existed),
+          lorebookId: row.lorebookId ?? null,
+          uid: row.uid ?? null,
+          sourceRevisionId: row.sourceRevisionId ?? null,
+          state: row.state ?? null,
+          exactContentLength: row.exactContent == null ? 0 : String(row.exactContent).length,
+          treePath: Array.isArray(row.metadata?.treePath) ? [...row.metadata.treePath].slice(0, 24) : [],
+        })),
+        appendOnlyRestoration: Boolean(reconstruction.appendOnlyRestoration),
+      },
+      rawReconstructionIncluded: false,
+      bounds: {maxEvents: 64, maxSources: 64, maxTreeDepth: 24},
+    };
   }
 
   treeProposal(request = {}) {
@@ -255,6 +334,7 @@ export class LoreAuthoringService {
     return {
       kind: 'LoreAuthoringOperatorContract',
       contractVersion: 2,
+      mutationExtensionVersion: 1,
       readModels: {
         sourceDiscoveryIdentity: 'LoreSourceDiscoverySurface',
         progress: 'LoreAuthoringProgressReadModel',
@@ -262,6 +342,10 @@ export class LoreAuthoringService {
         finalPreview: 'LoreFinalPreview',
         settlement: 'LoreSettlementReadModel',
         worker1Receipts: 'LoreWorker1SettlementReceipts',
+        mutationProposal: 'LoreMutationProposal',
+        mutationQueue: 'LoreMutationQueueReadModel',
+        semanticImpactPreview: 'LoreSemanticImpactPlan | LoreEditImpactPreview',
+        mutationAudit: 'LoreMutationAuditReadModel',
       },
       actions: [
         'startTreeBuild',
@@ -273,14 +357,23 @@ export class LoreAuthoringService {
         'approveFinalPreview',
         'applySettlement',
         'restoreSettlement',
+        'createMutationProposal',
+        'approveMutationProposal',
+        'rejectMutationProposal',
+        'commitMutationProposal',
+        'restoreMutationProposal',
       ],
+      mutationOperations: Object.values(LoreMutationOperation),
       explicitOperatorDecisionRequired: true,
       finalPreviewApprovalRequired: true,
+      mutationCommitRevalidationRequired: true,
       stalePreviewReturnsToDraftReview: true,
       checkpointResumeSupported: true,
       restorationSupported: true,
       safeErrors: true,
       uiImplementationOwner: 'Worker 3',
+      backendOwnsRendering: false,
+      rawMutationReconstructionExposedToUi: false,
       integrationStatus: 'BACKEND_CONTRACT_ONLY_NOT_WORKER3_WIRED',
     };
   }
@@ -297,6 +390,10 @@ export class LoreAuthoringService {
       finalPreview: safe((request) => this.lifecycle.finalPreview(request)),
       settlement: safe((request) => this.settlementReadModel(request)),
       worker1Receipts: safe((request) => this.worker1SettlementReceipts(request)),
+      mutationProposal: safe((request) => this.mutationProposal(request || {})),
+      mutationQueue: safe((request = {}) => this.mutationQueue(request)),
+      semanticImpactPreview: safe((request = {}) => this.semanticImpactPreview(request)),
+      mutationAudit: safe((request) => this.mutationAudit(request || {})),
     });
     const actions = Object.freeze({
       previewEditImpact: safe((request) => this.editImpactPreview(request)),
@@ -312,10 +409,16 @@ export class LoreAuthoringService {
       approveFinalPreview: safe((request) => this.approveFinalPreview(request)),
       applySettlement: safe((request) => this.applySettlement(request)),
       restoreSettlement: safe((request) => this.restoreSettlement(request)),
+      createMutationProposal: safe((request = {}) => this.createMutationProposal(request)),
+      approveMutationProposal: safe((request = {}) => this.approveMutationProposal(request)),
+      rejectMutationProposal: safe((request = {}) => this.rejectMutationProposal(request)),
+      commitMutationProposal: safe((request = {}) => this.commitMutationProposal(request)),
+      restoreMutationProposal: safe((request = {}) => this.restoreMutationProposal(request)),
     });
     return Object.freeze({
       kind: 'LoreAuthoringOperatorContract',
       contractVersion: 2,
+      mutationExtensionVersion: 1,
       read,
       actions,
       destructiveMergeApply: null,
@@ -329,8 +432,9 @@ export class LoreAuthoringService {
   snapshot() {
     return {
       kind: 'LoreAuthoringServiceSnapshot',
-      contractVersion: 1,
+      contractVersion: 2,
       lifecycle: this.lifecycle.snapshot(),
+      mutations: this.mutations.snapshot(),
     };
   }
 
@@ -341,6 +445,7 @@ export class LoreAuthoringService {
     return new LoreAuthoringService({
       intelligence,
       lifecycleSnapshot: snapshot.lifecycle,
+      mutationSnapshot: snapshot.mutations || null,
     });
   }
 }

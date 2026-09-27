@@ -295,7 +295,7 @@ async function applyNativeScene(brain, {
   const hostEvent={
     activity,chatId,
     hostEventId:hostEventId??['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':'),
-    messageId:identity.messageKey,messageRevision,turnId:resolvedTurnId,
+    messageId:identity.messageKey,messageRevision,turnId:resolvedTurnId,generationId:resolvedGenerationId,
     correlationId:'corr:'+resolvedTurnId,sourceRevisionId:ownerSourceRevisionId,
     content:message.text,role:message.role??(activity===HostActivity.USER_SEND?'user':'assistant'),
   };

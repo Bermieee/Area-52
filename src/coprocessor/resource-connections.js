@@ -596,7 +596,7 @@ export function projectCognitiveTaskContract(task){
 
 function qualificationEvidence(model,discoveryState,transportMode,{qualified=false,actualModelId=null,actualProvider=null}={}){
   return deepFreeze({
-    qualified:Boolean(qualified),modelListed:model?true:discoveryState===ResourceModelDiscoveryState.UNSUPPORTED?null:false,
+    qualified:Boolean(qualified),modelListed:model?true:[ResourceModelDiscoveryState.UNSUPPORTED,ResourceModelDiscoveryState.UNREACHABLE,ProviderModelDiscoveryState.UNREACHABLE].includes(discoveryState)?null:false,
     discoveryState:discoveryState??null,transportMode,transportProbe:qualified?'PASS':'PENDING',
     contextLength:finiteOrNull(model?.contextLength),maxOutputTokens:finiteOrNull(model?.maxOutputTokens),
     inputModalities:[...(model?.inputModalities??[])],outputModalities:[...(model?.outputModalities??[])],

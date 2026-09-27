@@ -10,6 +10,7 @@ export const ProviderModelDiscoveryState=Object.freeze({
   READY:'READY',
   EMPTY:'EMPTY',
   UNSUPPORTED:'UNSUPPORTED',
+  UNREACHABLE:'UNREACHABLE',
 });
 
 export class ProviderInvocationError extends Error {
@@ -121,7 +122,13 @@ export class OpenAICompatibleProviderAdapter {
   async probe({signal=null,timeoutMs=this.timeoutMs}={}){
     const startedAt=Date.now();let discovery;
     try{discovery=await this.discoverModels({signal,timeoutMs});}
-    catch(error){throw error;}
+    catch(error){
+      // Embedding-model discovery is advisory. Some providers expose the
+      // authenticated POST endpoint to browsers but block discovery preflight.
+      // The selected model still must pass the authenticated embedding probe.
+      if(this.transportMode!==ProviderTransportMode.EMBEDDINGS||error?.code!==FailureCode.PROVIDER_UNAVAILABLE)throw error;
+      discovery={supported:false,models:[],state:ProviderModelDiscoveryState.UNREACHABLE};
+    }
     const modelAvailable=discovery.supported?discovery.models.some((row)=>row.id===this.modelId):null;
     // Discovery is advisory: providers may omit callable models from /models. The
     // selected ID is qualified by an authenticated execution probe below.

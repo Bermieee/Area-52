@@ -901,6 +901,7 @@ export class MemoryTemporalProducer {
 
   recordEventMemory(input){const event=this.causalEvents.recordEvent(input);this.plasticity.observeArtifact(event);return event;}
   recordCausalHypothesis(input){const hypothesis=this.causalEvents.recordHypothesis(input);this.plasticity.observeArtifact(hypothesis);return hypothesis;}
+  invalidateCausalIdentityRevision(identityRevisionId){return this.causalEvents.invalidateIdentityRevision(identityRevisionId);}
   attachVectorExecutor(executor=null){return this.vectorIndex.attachExecutor(executor);}
   runVectorMaintenance(options={}){return this.vectorIndex.runMaintenance(options);}
   primeDenseHistorian(request={}){return this.vectorIndex.primeQuery(request);}

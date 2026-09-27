@@ -113,8 +113,9 @@ test('Wave19 selected-turn cognition read model separates configured, connected,
   telemetry.emit(TelemetryEvent.FALLBACK_USED,{...identity,taskId:'task:wave19',resourceId:'beta'});
   telemetry.emit(TelemetryEvent.RESOURCE_EXECUTION,{...identity,taskId:'task:wave19',resourceId:'beta',providerProfileId:'profile:beta',providerId:'provider:beta',status:'SUCCESS',latencyMs:31});
   telemetry.emit(TelemetryEvent.RESULT_ROUTED,{...identity,taskId:'task:wave19',destination:'FOREGROUND'});
-  telemetry.emit(TelemetryEvent.TASK_STARTED,{chatId:'other-chat',turnId:'other-turn',taskId:'foreign-task',placement:'DEEP',resultClass:'REQUIRED'});
-  const ownerReceipt={kind:'NativeSidecarSwarmOwnerHandoffReceipt',turnId:identity.turnId,correlationId:identity.correlationId,ownerAdmissionPerformed:true,
+  telemetry.emit(TelemetryEvent.RESOURCE_EXECUTION,{chatId:identity.chatId,turnId:identity.turnId,generationId:'gen:foreign',correlationId:identity.correlationId,taskId:'task:foreign-execution',resourceId:'alpha',providerProfileId:'profile:alpha',providerId:'provider:alpha',status:'SUCCESS',latencyMs:9});
+  telemetry.emit(TelemetryEvent.TASK_STARTED,{chatId:'other-chat',turnId:'other-turn',generationId:'gen:other',correlationId:'corr:other',taskId:'foreign-task',placement:'DEEP',resultClass:'REQUIRED'});
+  const ownerReceipt={kind:'NativeSidecarSwarmOwnerHandoffReceipt',...identity,ownerAdmissionPerformed:true,
     admissions:[{taskId:'task:wave19',resultId:'result:wave19',resourceId:'beta',providerProfileId:'profile:beta',providerId:'provider:beta',workerId:'worker:beta',acceptedByOwner:true,destination:'FOREGROUND'}],
     ownerGather:{rawPrompt:'MUST NOT LEAK'},apiKey:'MUST NOT LEAK'};
   const reader=createCognitionUiReadModelReader({telemetry,resourceConnections:registry,ownerReceipts:()=>[ownerReceipt]});
@@ -125,7 +126,8 @@ test('Wave19 selected-turn cognition read model separates configured, connected,
   assert.equal(task.retries,1);assert.equal(task.fallbacks,1);assert.equal(task.physicallyExecuted,true);assert.equal(task.ownerAccepted,true);
   assert.deepEqual(task.batchProgress,{source:'TELEMETRY',batchId:'batch:wave19',completedSlices:2,totalSlices:4,progress:.5});
   const beta=read.resources.find(x=>x.resourceId==='beta');assert.ok(beta);assert.equal(beta.configured,true);assert.equal(beta.connected,true);assert.equal(beta.physicalExecutionAttempted,true);assert.equal(beta.ownerAccepted,true);
-  assert.equal(read.lifecycle.configured,2);assert.equal(read.lifecycle.connected,2);assert.equal(read.lifecycle.ownerAccepted,1);
+  const alpha=read.resources.find(x=>x.resourceId==='alpha');assert.ok(alpha);assert.equal(alpha.physicalExecutionAttempted,false);assert.equal(alpha.ownerAccepted,false);
+  assert.equal(read.lifecycle.configured,2);assert.equal(read.lifecycle.connected,2);assert.equal(read.lifecycle.physicallyExecuted,1);assert.equal(read.lifecycle.ownerAccepted,1);
   assert.equal(read.rawPromptIncluded,false);assert.equal(read.credentialIncluded,false);
   const publicText=JSON.stringify({read,events:telemetry.list()});
   for(const secret of ['DO NOT LEAK','MUST NOT LEAK','alpha-session-secret','beta-session-secret'])assert.equal(publicText.includes(secret),false,secret);

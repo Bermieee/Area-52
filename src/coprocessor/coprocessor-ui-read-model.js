@@ -72,8 +72,9 @@ export function projectCognitionUiState({
   const resourceRows=(Array.isArray(resources)?resources:resources?.resources??[]).map(row=>{
     const resourceId=nullable(row?.resourceId??row?.id);
     const execution=resourceId?resourceEvidence.get(resourceId):null;
-    const physicalAttempted=Boolean(row?.physicalExecutionAttempted??execution?.attempted??row?.lastExecution);
-    const physicalSucceeded=Boolean(row?.physicalExecutionSucceeded??execution?.succeeded??row?.lastExecution?.status==='SUCCESS');
+    const selectedIdentity=Object.values(selection).some(value=>value!=null);
+    const physicalAttempted=Boolean(execution?.attempted||(!selectedIdentity&&(row?.physicalExecutionAttempted||row?.lastExecution)));
+    const physicalSucceeded=Boolean(execution?.succeeded||(!selectedIdentity&&(row?.physicalExecutionSucceeded||row?.lastExecution?.status==='SUCCESS')));
     return freeze({
       resourceId,displayName:nullable(row?.displayName??row?.name),state:nullable(row?.state),health:nullable(row?.health),
       configured:row?.configured!==false,connected:Boolean(row?.connected??row?.callable),
@@ -273,7 +274,8 @@ function projectOwnerReceipts(receipts,selection){
 function matchesSelection(value,selection){
   for(const key of ['chatId','turnId','generationId','correlationId']){
     const expected=selection[key],actual=value?.[key]??value?.selection?.[key]??value?.metadata?.[key];
-    if(expected!=null&&actual!=null&&String(expected)!==String(actual))return false;
+    if(expected==null)continue;
+    if(actual==null||String(expected)!==String(actual))return false;
   }
   return true;
 }

@@ -156,6 +156,15 @@ test('#113 owner-declared Scene obligation executes once and duplicate event doe
   assert.equal(admittedBefore.length,1);
   const admittedTaskId=admittedBefore[0].taskId;
   assert.ok(admittedTaskId);
+  const admittedRecord=brain.runtimeDirector.ledger.get(admittedTaskId);
+  assert.equal(admittedRecord.obligation.cause.eventId,location.eventId);
+  assert.equal(admittedRecord.obligation.cause.chatId,location.chatId);
+  assert.equal(admittedRecord.obligation.cause.turnId,location.turnId);
+  assert.equal(admittedRecord.obligation.cause.generationId,location.generationId);
+  assert.equal(admittedRecord.obligation.cause.correlationId,location.correlationId);
+  assert.equal(admittedRecord.obligation.cause.sceneId,location.sceneId);
+  assert.equal(admittedRecord.obligation.sceneRevision,location.sceneRevision);
+  assert.deepEqual(admittedRecord.obligation.sourceRevisionIds,location.sourceRevisionSet);
   await brain.runtimeDirector.drain();
   const executed=brain.runtimeDirector.ledger.get(admittedTaskId);
   assert.equal(executed.lifecycleStatus,'SATISFIED');

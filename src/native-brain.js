@@ -435,11 +435,13 @@ export class Area52NativeBrain{
         kind:row.intentKind==='DIRECT_QUERY'?'AUTO':row.intentKind,
         query:row.query??query,
         entityRefs:uniq([...(row.entityRefs??[]),...(row.objectRefs??[]),...anchorEntityIds]),
-        relationshipRefs:uniq(row.relationshipRefs??[]),
+        // Scene planner relationshipRefs are relationship identities, not graph edge-class filters.
+        // Preserve them as planner metadata so Graph Walker does not interpret IDs as allowedEdgeMeanings.
+        relationshipRefs:[],
         artifactRefs:uniq(row.objectRefs??[]),
         temporalConstraint:null,
         perspective:clone(perspectiveConstraint),
-        metadata:{sceneIntentKind:row.intentKind,locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
+        metadata:{sceneIntentKind:row.intentKind,sceneRelationshipRefs:uniq(row.relationshipRefs??[]),locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
       }));
       return rows.length?rows:fallback;
     }catch{

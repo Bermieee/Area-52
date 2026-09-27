@@ -215,6 +215,18 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   if(!brainStages.children?.length)brainStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
   brain.body.append(brainStages);
   if(snapshot.brainDecision)brain.body.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
+  const generationInspection=operational?.generationInspection??null;
+  if(generationInspection){
+    const identity=generationInspection.identityResolution,graph=generationInspection.graphTraversal,budget=generationInspection.retrievalBudget,rejected=generationInspection.rejectedEvidence;
+    brain.body.append(element(d,'strong',{text:'Owner generation inspection'}),createKeyValue(d,[
+      {key:'Source revision fence',value:String(generationInspection.sourceRevisionFenceCount??0)+' revisions'},
+      {key:'Identity resolution',value:diagnosticReceiptSummary(identity)},
+      {key:'Graph traversal',value:diagnosticReceiptSummary(graph)},
+      {key:'Retrieval budget',value:diagnosticReceiptSummary(budget)},
+      {key:'Rejected evidence',value:rejected?String(rejected.count??0)+' rejected'+(rejected.reasonCode?' · '+rejected.reasonCode:''):'No owner rejection receipt'},
+      {key:'Lore / Memory sync',value:[generationInspection.loreSync?.status??generationInspection.loreSync?.kind??'Lore not published',generationInspection.memorySync?.status??generationInspection.memorySync?.kind??'Memory not published'].join(' · ')},
+    ]));
+  }
   root.append(brain.root);
 
   const runtime=diagnosticSection(d,'Runtime / lifecycle / jobs',{count:String(snapshot.summary?.logicalJobs??0)+' jobs'});
@@ -241,6 +253,29 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   resources.body.append(lanes);
   const provider=operational?.coprocessor?.summary?.providerCalls??{},resourceTelemetry=operational?.coprocessor?.summary?.resourceTelemetry??{};
   resources.body.append(createKeyValue(d,[{key:'Provider calls invoked / failed',value:(provider.invoked??0)+' / '+(provider.failed??0)},{key:'Resource tests pass / fail',value:(resourceTelemetry.testsPassed??0)+' / '+(resourceTelemetry.testsFailed??0)},{key:'Executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)}]));
+  const resourceRows=operational?.resources?.rows??[];
+  if(resourceRows.length){
+    const currentResources=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const row of resourceRows.slice(0,40)){
+      const state=row.state??row.health??'UNKNOWN',detail=[
+        row.displayName&&row.displayName!==row.id?row.displayName:null,
+        row.health?'health '+row.health:null,
+        row.availability?'availability '+row.availability:null,
+        row.lastExecution?.status?'last execution '+row.lastExecution.status:null,
+      ].filter(Boolean).join(' · ')||'Owner resource state published.';
+      currentResources.append(compactStatusRow(d,row.displayName??row.id??row.resourceId??row.kind??'Resource',state,detail,stageDiagnosticToken(state),inspect?()=>inspect({kind:'area52-diagnostic-resource',id:row.id??row.resourceId??row.displayName??'resource',title:(row.displayName??row.id??row.resourceId??'Resource')+' detail',payload:sanitize(row)}):null,scope));
+    }
+    resources.body.append(element(d,'strong',{text:'Current resources'}),currentResources);
+  }
+  const resourceEvents=operational?.telemetry?.resourceEvents??[];
+  if(resourceEvents.length){
+    const eventList=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const event of resourceEvents.slice(0,40)){
+      const eventName=event.displayName??event.resourceId??'Resource';
+      eventList.append(compactStatusRow(d,eventName,event.code??'EVENT',event.message??'Owner resource event published.',stageDiagnosticToken(event.code),inspect?()=>inspect({kind:'area52-diagnostic-resource-event',id:String(event.sequence??event.code??eventName),title:eventName+' · '+String(event.code??'event'),payload:sanitize(event)}):null,scope));
+    }
+    resources.body.append(element(d,'strong',{text:'Recent owner resource telemetry'}),eventList);
+  }
   root.append(resources.root);
 
   const knowledge=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'});
@@ -286,6 +321,11 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   if(!timeline.rows.length)timelineList.append(emptyDiagnosticRow(d,snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate diagnostics.'));
   for(const row of timeline.rows)timelineList.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));
   timelineSection.body.append(timelineList);root.append(timelineSection.root);
+
+  const raw=diagnosticSection(d,'Raw operational snapshot',{count:operational?'sanitized':'NO EVIDENCE'});
+  if(operational)raw.body.append(element(d,'pre',{className:'a52-context-packet',text:JSON.stringify(sanitize(operational),null,2),attrs:{'aria-label':'Sanitized raw operational diagnostics snapshot'}}));
+  else raw.body.append(emptyDiagnosticRow(d,'No operational Diagnostics snapshot is currently published.'));
+  root.append(raw.root);
 
   const retention=diagnosticSection(d,'Retention / safety',{count:String(snapshot.retention?.entryCount??0)+' entries'});
   const retained=snapshot.retention??{};
@@ -342,6 +382,11 @@ function compactStatusRow(d,name,status,detail,token='historical',onInspect=null
 }
 function emptyDiagnosticRow(d,textValue){return element(d,'div',{className:'a52-diagnostics-empty',text:textValue});}
 function stageDiagnosticToken(value){const x=String(value??'').toUpperCase();if(/FAIL|ERROR|DEGRADED|UNAVAILABLE|DISCONNECTED/.test(x))return'warning';if(/LIVE|READY|COMPLETE|CONNECTED|SEALED/.test(x))return'ready';return'historical';}
+function diagnosticReceiptSummary(receipt){
+  if(!receipt)return'Not published';
+  const counts=receipt.counts&&typeof receipt.counts==='object'?Object.entries(receipt.counts).map(([key,value])=>label(key)+' '+value).join(' · '):'';
+  return[receipt.kind??'receipt',receipt.status??receipt.reasonCode??'published',counts].filter(Boolean).join(' · ');
+}
 function diagnosticLoadMetric(row){
   if(!row)return'NO_EVIDENCE';
   const count=Number(row.count??row.samples??0),avg=Number(row.averageMs??row.avgMs??0),max=Number(row.maxMs??0);

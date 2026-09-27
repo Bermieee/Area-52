@@ -128,12 +128,40 @@ test('ambiguous Sun Blade turn invokes bounded Jev through Runtime and preserves
   assert.equal(result.jevProposal.abstained, true);
   assert.equal(result.jevProposal.mutationAuthority, false);
   assert.equal(result.jevProposal.requiresOwnerPolicy, true);
+  assert.equal(result.jevOwnerAdmission.kind, 'JevOwnerAdmissionReceipt');
+  assert.equal(result.jevOwnerAdmission.status, 'PENDING_OWNER_CONTRACT');
+  assert.equal(result.jevOwnerAdmission.accepted, false);
+  assert.equal(result.jevOwnerAdmission.ownerDecision, 'PENDING');
+  assert.equal(brain.hostBindings().readJev(result.selection).ownerAdmission.accepted, false);
   assert.equal(result.published.cognitiveChoiceReceipt.jev.considered, true);
   assert.equal(result.published.cognitiveChoiceReceipt.jev.abstained, true);
   const unresolved = brain.core.graph.unresolvedClaims().filter((row) => JSON.stringify(row).toLowerCase().includes('sun-blade'));
   assert.ok(unresolved.length >= 1);
   assert.ok(result.published.packet.unresolved.length >= 1);
   assert.equal(result.delivery.ok, true);
+});
+
+test('an abstaining Jev result cannot be owner-accepted by an injected Lore reviewer', async () => {
+  let reviewCalls = 0;
+  const { brain } = seeded({
+    loreJevOwnerReview: () => {
+      reviewCalls += 1;
+      return { decision: 'ACCEPTED', settlementPerformed: true, canonicalMutation: true };
+    },
+  });
+  const result = await brain.runTurn({
+    chatId: 'chat:ember',
+    turnId: 'turn:jev-owner-guard',
+    generationId: 'gen:jev-owner-guard',
+    query: 'What happened to the Sun Blade?',
+    mode: 'ambiguous',
+  });
+  assert.equal(reviewCalls, 0);
+  assert.equal(result.jevOwnerAdmission.ownerDecision, 'UNRESOLVED');
+  assert.equal(result.jevOwnerAdmission.accepted, false);
+  assert.equal(result.jevOwnerAdmission.settlementPerformed, false);
+  assert.equal(result.jevOwnerAdmission.canonicalMutation, false);
+  assert.equal(result.published.cognitiveChoiceReceipt.jev.abstained, true);
 });
 
 test('missing optional Jev degrades safely while Truth, Gather, Seal and PromptPlan remain usable', async () => {

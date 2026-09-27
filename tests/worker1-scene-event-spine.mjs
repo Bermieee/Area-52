@@ -153,6 +153,9 @@ test('#113 owner-declared Scene obligation executes once and duplicate event doe
     mapEvent:(event)=>({
       payload:{sceneEventId:event.eventId},
       units:[{id:'unit:'+event.eventId,payload:null}],
+      sceneRevision:999,
+      sourceRevisionIds:['owner-must-not-replace-scene-fence'],
+      sourceRevisions:{'owner-must-not-replace-scene-fence':999},
     }),
     executorFactory:()=>ownerExecutor(),
   });

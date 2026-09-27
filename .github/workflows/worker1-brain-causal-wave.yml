@@ -51,8 +51,7 @@ jobs:
           node --test
           --test-name-pattern="quiet continuation|native one-resource path|Jev #211"
           tests/native-brain-identity-retrieval.mjs
-      - name: Known Adaptive Context 4096 inherited failure
-        continue-on-error: true
+      - name: Adaptive Context 4096 regression
         run: >-
           node --test
           --test-name-pattern="small and large delivery budgets"

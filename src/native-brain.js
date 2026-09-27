@@ -55,7 +55,7 @@ function sceneSignalFrom(input,chatId){
     sceneRelationship:input.sceneRelationship??null,transitionType:input.transitionType??null,
     previousSceneRef:clone(input.previousSceneRef??null),resumedSceneRef:clone(input.resumedSceneRef??null),
     episodeRefs:clone(input.episodeRefs??[]),prefetchRecommendations:clone(input.prefetchRecommendations??[]),
-    objectTransitionRefs:clone(input.objectTransitionRefs??[]),
+    objectTransitionRefs:clone(input.objectTransitionRefs??[]),atmosphereContribution:clone(input.atmosphereContribution??null),
     health:clone(input.health??{status:'healthy',reasons:[]}),
     diagnosticRefs:clone(input.diagnosticRefs??{}),
     authority:'DESCRIPTIVE',authorityGranted:false,settlementAuthority:false,
@@ -478,11 +478,12 @@ export class Area52NativeBrain{
     const signal=this.sceneSignals.get(String(chatId));
     if(!signal?.sceneId||!Number(signal.sceneRevision))return fallback;
     try{
+      const atmosphereContribution=signal.atmosphereContribution?.status==='AVAILABLE'?signal.atmosphereContribution:null;
       const scene={
         sceneId:String(signal.sceneId),revision:Number(signal.sceneRevision),sourceRevisionRefs:uniq(signal.sourceRevisionRefs??[]),provenance:uniq(signal.provenance??[]),
         fields:{
           location:{value:clone(signal.location??null)},activeCast:{value:clone(signal.activeCast??[])},activeThreads:{value:clone(signal.activeThreads??[])},
-          activeRelationships:{value:clone(signal.activeRelationships??[])},immediateObjects:{value:clone(signal.objects??[])},atmosphere:{value:clone(signal.atmosphere??{})},
+          activeRelationships:{value:clone(signal.activeRelationships??[])},immediateObjects:{value:clone(signal.objects??[])},atmosphere:{value:clone(atmosphereContribution?.dimensions??{})},
         },
       };
       const plan=this.sceneQueryPlanner.plan({scene,userInput:query,intent});
@@ -497,7 +498,7 @@ export class Area52NativeBrain{
         artifactRefs:uniq(row.objectRefs??[]),
         temporalConstraint:null,
         perspective:clone(perspectiveConstraint),
-        metadata:{sceneIntentKind:row.intentKind,sceneRelationshipRefs:uniq(row.relationshipRefs??[]),locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
+        metadata:{sceneIntentKind:row.intentKind,sceneRelationshipRefs:uniq(row.relationshipRefs??[]),locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),atmosphereContributionStatus:signal.atmosphereContribution?.status??'UNAVAILABLE',...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
       }));
       return rows.length?rows:fallback;
     }catch{

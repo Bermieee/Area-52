@@ -25,6 +25,7 @@ import {
   WorkerDirector,
 } from './runtime/index.js';
 import {stableHash} from './browser-runtime-utils.js';
+import {createSceneUiReadModelFromIntegrationState} from './scene/scene-ui-read-model.js';
 import {NativeContextRetirementPolicy,contextRetirementContract} from './context-retirement-policy.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
@@ -504,7 +505,7 @@ export class Area52NativeBrain{
     return Object.freeze({
       readSelection:({chatId}={})=>this.#selectionForChat(chatId),
       subscribe:(listener)=>this.subscribe(listener),
-      readScene:(selection={})=>this.#readStage(selection,record=>this.core.sceneIntegrationSnapshot(record.chatId)),
+      readScene:(selection={})=>this.#readStage(selection,record=>createSceneUiReadModelFromIntegrationState(this.core.sceneIntegrationSnapshot(record.chatId))),
       readHotCognition:(selection={})=>this.#readStage(selection,record=>this.core.hotCognitionSnapshot(record.chatId)),
       readCognitiveChoice:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt??null),
       readScatter:(selection={})=>this.#readStage(selection,record=>this.#uiScatterReceipt(record)),

@@ -56,7 +56,8 @@ function coverageForMessage(message,coverage,chatId,isSourceRevisionCurrent=null
 function sceneCoverageFromHandoff(handoff,messages,chatId){
   if(!handoff||handoff.kind!=='SceneTransitionContextHandoff'||handoff.status!=='ACTIVE')return[];
   const continuity=handoff.continuity??{},episodeRef=continuity.episodeRef??null;
-  if(!episodeRef)return[];
+  const compactSummary=String(continuity.compactPriorSceneSummary??'').trim();
+  if(!episodeRef||!compactSummary)return[];
   const sourceRevisionRefs=uniq(continuity.sourceRevisionRefs??[]);
   if(!sourceRevisionRefs.length)return[];
   const sourceSet=new Set(sourceRevisionRefs),tail=new Set(uniq(continuity.recentTailRefs??[]));
@@ -67,7 +68,7 @@ function sceneCoverageFromHandoff(handoff,messages,chatId){
     sourceRevisionRefs,coveredSourceRevisionRefs:sourceRevisionRefs,
     provenanceRefs:uniq([...(handoff.evidenceRefs??[]),episodeRef.artifactId??episodeRef.id].filter(Boolean)),
     coversMessageIds,
-    retrievalProbe:{status:'PASS',chatId,sourceRevisionRefs,artifactRef:clone(episodeRef)},
+    retrievalProbe:{status:'PASS',mode:'DIRECT_SCENE_HANDOFF',chatId,sourceRevisionRefs,artifactRef:clone(episodeRef),summaryAvailable:true},
     sceneHandoffId:handoff.handoffId,
   }];
 }
@@ -115,8 +116,10 @@ export class NativeContextRetirementPolicy{
     const transition=sceneHandoff?{
       kind:'ContextSceneTransitionCarry',
       previousSceneId:sceneHandoff.fromSceneRef?.sceneId??null,destinationSceneId:sceneHandoff.toSceneRef?.sceneId??null,relationship:sceneHandoff.relationship??null,
+      handoffId:sceneHandoff.handoffId??null,
       episodeRef:clone(sceneHandoff.continuity?.episodeRef??null),
       compactPreviousSceneSummary:String(sceneHandoff.continuity?.compactPriorSceneSummary??'').slice(0,1600),
+      sourceRevisionRefs:uniq(sceneHandoff.continuity?.sourceRevisionRefs??[]),
       recentTailRefs:uniq(sceneHandoff.continuity?.recentTailRefs??[]),
       retainedRecentTailMessageIds:decisions.filter(row=>row.reasons.includes('SCENE_TRANSITION_RECENT_TAIL')).map(row=>row.messageId),
       prefetchDestination:Boolean(sceneHandoff.toSceneRef?.sceneId),prefetchHints:uniq([...(sceneHandoff.destinationPrefetch?.entityRefs??[]),...(sceneHandoff.destinationPrefetch?.locationRefs??[]),...(sceneHandoff.destinationPrefetch?.threadRefs??[])]),

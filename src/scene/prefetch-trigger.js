@@ -80,7 +80,6 @@ function semanticKey(value){
   const row={
     sceneId:String(value.sceneId??''),sceneRevision:Number(value.sceneRevision??0),trigger:String(value.trigger??''),
     entityRefs:uniq(value.entityRefs),locationRefs:uniq(value.locationRefs),threadRefs:uniq(value.threadRefs),sceneRefs:uniq(value.sceneRefs),
-    sourceRevisionSet:uniq(value.sourceRevisionSet??value.sourceRevisionRefs??[]),
   };
   return JSON.stringify(row);
 }

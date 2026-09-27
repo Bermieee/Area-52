@@ -18,7 +18,9 @@ export const SUPPORTED_SCENE_EVENTS = Object.freeze([
 export function adaptScenePublicSignals(input = {}) {
   if (!input || typeof input !== 'object') throw new TypeError('Scene public signal artifact is required');
   return Object.freeze({
+    sceneId: input.sceneId ?? null,
     sceneRevision: finiteOrNull(input.sceneRevision),
+    sourceRevisionSet: Object.freeze([...(input.sourceRevisionSet ?? input.sourceRevisionRefs ?? [])].filter(Boolean).map(String).sort()),
     sceneEntities: Object.freeze(entityRefs(input)),
     activeCast: Object.freeze([...(input.activeCast ?? [])]),
     location: structuredClone(input.location ?? null),

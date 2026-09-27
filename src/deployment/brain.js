@@ -948,9 +948,9 @@ export class DevelopmentDeploymentBrain {
         const sourceRevisionIds=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
         return{
           ...clone(request),
-          sceneRevision:request.sceneRevision??event.sceneRevision,
-          sourceRevisions:request.sourceRevisions??clone(event.sourceRevisions??{}),
-          sourceRevisionIds:request.sourceRevisionIds??sourceRevisionIds,
+          sceneRevision:event.sceneRevision,
+          sourceRevisions:clone(event.sourceRevisions??{}),
+          sourceRevisionIds,
           dedupeKey:request.dedupeKey??['scene-event',producerId,event.eventId].join(':'),
           cause:{...clone(request.cause??{}),eventId:event.eventId,eventType:event.eventType,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,causationId:event.causationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision},
         };

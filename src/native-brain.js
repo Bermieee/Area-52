@@ -441,10 +441,9 @@ export class Area52NativeBrain{
       knownBy:uniq(knownBy),publicToAll:false,
     });
     const memoryExpectedId=this.#declareMemoryExpectedWork(record,experience);
+    if(memoryExpectedId)this.obligationReconciler.recordEvidence(memoryExpectedId,{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'NATIVE_BRAIN',consumerId:'MEMORY',metadata:{operation:'admitExternalEvidenceMapping'}});
     const memoryWriteback=this.#writeBackMemoryEvidence(record,experience,{knownBy,exactContent:text});
-    if(memoryExpectedId&&['ADMITTED','REPLAYED'].includes(String(memoryWriteback?.status??'').toUpperCase())){
-      this.obligationReconciler.recordEvidence(memoryExpectedId,{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'NATIVE_BRAIN',consumerId:'MEMORY',metadata:{operation:'completed-turn-nearline-admission'}});
-    }else this.#recordMemoryExpectedResult(memoryExpectedId,{kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:memoryWriteback?.reason??memoryWriteback?.status??'MEMORY_EVIDENCE_MAPPING_FAILED'});
+    this.#recordMemoryExpectedResult(memoryExpectedId,memoryWriteback);
 
     const settlements=[];
     for(let index=0;index<observations.length;index++)settlements.push(this.#settleObservation(record,experience,observations[index],index));
@@ -722,15 +721,9 @@ export class Area52NativeBrain{
 
   #scheduleMemoryPostTurn(record,experience,memoryWriteback,{knownBy=[],reflections=[],memoryExpectedId=null}={}){
     const accept=this.memoryInterface?.acceptCompletedTurn??this.memoryInterface?.adapters?.acceptCompletedTurn;
-    if(!this.memoryInterface||typeof accept!=='function'){
-      this.#recordMemoryExpectedResult(memoryExpectedId,{kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:'MEMORY_COMPLETED_TURN_OWNER_UNAVAILABLE'});
-      return null;
-    }
+    if(!this.memoryInterface||typeof accept!=='function')return null;
     const mapping=memoryWriteback?.ownerReceipt??null;
-    if(!['ADMITTED','REPLAYED'].includes(String(memoryWriteback?.status??'').toUpperCase())||!mapping?.memoryEvidenceId){
-      this.#recordMemoryExpectedResult(memoryExpectedId,{kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:memoryWriteback?.reason??memoryWriteback?.status??'MEMORY_EVIDENCE_MAPPING_FAILED'});
-      return null;
-    }
+    if(!['ADMITTED','REPLAYED'].includes(String(memoryWriteback?.status??'').toUpperCase())||!mapping?.memoryEvidenceId)return null;
     const ownerArtifactRef=this.#memoryOwnerArtifactRef(record,experience);
     const reflectionCandidates=(reflections??[]).slice(0,8).map((item,index)=>({
       reflectionKey:item?.reflectionKey??item?.semantic?.reflectionKey??null,
@@ -779,7 +772,6 @@ export class Area52NativeBrain{
             if(receipt&&typeof receipt.then==='function')receipt=await receipt;
           }catch(error){receipt={kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:error?.code??error?.message??String(error)};}
           const record=this.turns.get(String(item.turnId));if(record)record.memoryPostTurn=clone(receipt);
-          this.#recordMemoryExpectedResult(item.expectedId,receipt);
           if(record&&['COMPLETED','REPLAYED'].includes(String(receipt?.status??'').toUpperCase())){
             const consolidationTask=this.#scheduleMemoryConsolidation(record,receipt);
             record.memoryConsolidationRuntimeTaskId=consolidationTask?.task?.taskId??record.memoryConsolidationRuntimeTaskId??null;
@@ -1265,10 +1257,10 @@ export class Area52NativeBrain{
   #recordMemoryExpectedResult(expectedId,receipt){
     if(!expectedId)return null;
     const status=String(receipt?.status??'UNKNOWN').toUpperCase();
-    if(['COMPLETED','REPLAYED'].includes(status)&&receipt?.episodeId){
-      const returned=this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',metadata:{status,ownerReceiptKind:receipt.kind??null,episodeId:receipt.episodeId}});
-      this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.OWNER_ADMISSION,producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:returned.id,ownerAccepted:true,metadata:{status,ownerReceiptKind:receipt.kind??null,episodeId:receipt.episodeId}});
-    }else if(['SKIPPED','NO_EVIDENCE'].includes(status))return this.obligationReconciler.reconcile(expectedId,{admit:false});
+    if(['ADMITTED','REPLAYED'].includes(status)&&receipt?.ownerReceipt){
+      const returned=this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',metadata:{status,ownerReceiptKind:receipt.ownerReceipt.kind??null}});
+      this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.OWNER_ADMISSION,producerId:'MEMORY',consumerId:'COGNITIVE_STATE',parentReceiptId:returned.id,ownerAccepted:true,metadata:{status,ownerReceiptKind:receipt.ownerReceipt.kind??null}});
+    }else if(['ADMITTED','REPLAYED','NO_EVIDENCE','SKIPPED'].includes(status))return this.obligationReconciler.reconcile(expectedId,{admit:false});
     else this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.WORK_FAILED,producerId:'MEMORY',consumerId:'NATIVE_BRAIN',reasonCode:status==='UNSUPPORTED'?CausalReasonCode.EXECUTOR_UNAVAILABLE:CausalReasonCode.TASK_FAILED,metadata:{status,reason:receipt?.reasonCode??receipt?.reason??null}});
     return this.obligationReconciler.reconcile(expectedId,{admit:false});
   }

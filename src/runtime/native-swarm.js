@@ -29,6 +29,8 @@ function normalizeTurnEnvelope(input = {}) {
     eventVersion: String(input.eventVersion ?? input.schemaVersion ?? '1.0'),
     causationId: input.causationId == null ? null : requiredString(input.causationId, 'causationId'),
     correlationId: requiredString(input.correlationId ?? `corr:${turnId}`, 'correlationId'),
+    chatId: input.chatId == null ? null : requiredString(input.chatId, 'chatId'),
+    generationId: input.generationId == null ? null : requiredString(input.generationId, 'generationId'),
     taskId: input.taskId == null ? null : requiredString(input.taskId, 'taskId'),
     sourceRevisionSet,
     worldRevision: finite(input.worldRevision, 0),
@@ -57,6 +59,9 @@ function normalizeJob(job, turn) {
   if (turnId !== turn.turnId) throw new TypeError(`Cognitive job ${taskId} turnId does not match TURN_EVENT`);
   const correlationId = requiredString(job.correlationId ?? turn.correlationId, 'job.correlationId');
   if (correlationId !== turn.correlationId) throw new TypeError(`Cognitive job ${taskId} correlationId does not match TURN_EVENT`);
+  const chatId=job.chatId??turn.chatId??null,generationId=job.generationId??turn.generationId??null;
+  if(turn.chatId!=null&&chatId!=null&&String(chatId)!==String(turn.chatId))throw new TypeError(`Cognitive job ${taskId} chatId does not match TURN_EVENT`);
+  if(turn.generationId!=null&&generationId!=null&&String(generationId)!==String(turn.generationId))throw new TypeError(`Cognitive job ${taskId} generationId does not match TURN_EVENT`);
   const sourceRevisionSet = [...new Set(job.sourceRevisionSet ?? job.inputRevisionSet?.sourceRevisionSet ?? turn.sourceRevisionSet ?? [])].sort();
   const hardDeadline = finite(job.hardDeadline, finite(turn.deadline, 0));
   const softDeadline = finite(job.softDeadline, hardDeadline);
@@ -68,6 +73,8 @@ function normalizeJob(job, turn) {
     taskType: requiredString(job.taskType, 'job.taskType'),
     turnId,
     correlationId,
+    chatId:chatId==null?null:String(chatId),
+    generationId:generationId==null?null:String(generationId),
     causationId: job.causationId ?? turn.eventId,
     cognitiveLayer: requiredString(job.cognitiveLayer ?? turn.cognitiveLayer ?? 'L1', 'job.cognitiveLayer'),
     resultClass,
@@ -88,6 +95,29 @@ function normalizeJob(job, turn) {
   });
 }
 
+export function planLayeredScatter(admittedJobs = [], { foregroundDependencyTaskIds = [] } = {}) {
+  if (!Array.isArray(admittedJobs)) throw new TypeError('admittedJobs must be an array');
+  const foregroundDependencies = new Set((foregroundDependencyTaskIds ?? []).map(String));
+  const sealCritical = [], conditional = [], postSeal = [];
+  for (const raw of admittedJobs) {
+    if (!raw || typeof raw !== 'object') throw new TypeError('layered Scatter jobs must be objects');
+    const taskId = requiredString(raw.taskId, 'job.taskId');
+    const resultClass = raw.resultClass ?? RuntimeResultClass.REQUIRED;
+    if (!RESULT_CLASSES.has(resultClass)) throw new TypeError(`Unsupported resultClass: ${resultClass}`);
+    const foregroundDependency = foregroundDependencies.has(taskId) || raw.metadata?.foregroundDependency === true || raw.foregroundDependency === true;
+    const row = immutableCopy({taskId,taskType:raw.taskType??null,resultClass,foregroundDependency});
+    if (resultClass === RuntimeResultClass.REQUIRED || foregroundDependency) sealCritical.push(row);
+    else if (resultClass === RuntimeResultClass.OPPORTUNISTIC) conditional.push(row);
+    else postSeal.push(row);
+  }
+  return immutableCopy({
+    kind:'LayeredScatterPlan',contractVersion:1,
+    sealCritical,conditional,postSeal,
+    counts:{total:admittedJobs.length,sealCritical:sealCritical.length,conditional:conditional.length,postSeal:postSeal.length},
+    policyBasis:'RESULT_CLASS_AND_DECLARED_FOREGROUND_DEPENDENCY',jobCountIgnored:true,schedulingActivated:false,
+    conditionalGate:'OWNER_OR_QUALITY_SIGNAL_REQUIRED',postSealGate:'CONTEXT_SEALED',
+  });
+}
 function basePriority(job) {
   const byClass = {
     [RuntimeResultClass.REQUIRED]: 10,
@@ -123,6 +153,11 @@ export class NativeTurnRuntime {
     return this.providers.registerResource(resource);
   }
 
+  layeredScatterPlan(admittedJobs = [], options = {}) {
+    return planLayeredScatter(admittedJobs, options);
+  }
+
+
   setExecutionResourceAvailability(workerId, available) {
     return this.providers.setAvailability(workerId, available);
   }
@@ -142,7 +177,9 @@ export class NativeTurnRuntime {
       producer: 'COGNITIVE_COPROCESSOR',
       causationId: turn.causationId,
       correlationId: turn.correlationId,
+      chatId: turn.chatId,
       turnId: turn.turnId,
+      generationId: turn.generationId,
       taskId: turn.taskId,
       revisionFences: {
         sourceRevisionIds: turn.sourceRevisionSet,
@@ -281,8 +318,11 @@ export class NativeTurnRuntime {
         outputSchema: structuredClone(job.outputSchema),
         authorityGranted: false,
       },
+      cause:{eventType:turn.eventType,eventId:turn.eventId,correlationId:job.correlationId,producerId:job.producerId??job.metadata?.producerId??'COGNITIVE_COPROCESSOR',consumerId:'RUNTIME_CORE',ownerId:job.owner??job.metadata?.owner??job.taskType,chatId:job.chatId,turnId:job.turnId,generationId:job.generationId,sourceRevisionRefs:job.sourceRevisionSet,worldRevision:job.worldRevision,sceneRevision:job.sceneRevision},
       payload: {
+        chatId:job.chatId,
         turnId: job.turnId,
+        generationId:job.generationId,
         correlationId: job.correlationId,
         causationId: job.causationId,
         freshnessToken,

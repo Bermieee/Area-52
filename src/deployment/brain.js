@@ -18,6 +18,7 @@ import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
 import { SceneEventPublisher } from '../scene/event-publisher.js';
 import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
+import { SceneOperatorService } from '../scene/operator-service.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
@@ -328,6 +329,7 @@ export class DevelopmentDeploymentBrain {
       publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
     });
+    this.sceneOperator = new SceneOperatorService({ runtime: this.scene });
     this.memory = new MemoryTemporalProducer({ snapshot: memoryOwnerSnapshot });
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
@@ -671,6 +673,106 @@ export class DevelopmentDeploymentBrain {
       contextSealAuthority: false,
       contextSealBypass: false,
       rawNarrativeIncluded: false,
+    });
+  }
+
+  runSceneOperatorAction(input = {}) {
+    const action=String(input.action??'').trim().toUpperCase();
+    const chatId=String(input.chatId??'').trim();
+    const currentSceneId=chatId?this.scene.chatScenes.get(chatId)??null:null;
+    const sceneId=String(input.sceneId??currentSceneId??'').trim()||null;
+    const start=this.sceneOwnerTimeline.length;
+    const unavailable=(reason,error=null)=>clone({
+      kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'UNAVAILABLE',noWorkReason:reason,
+      operator:{action,operationStatus:'UNAVAILABLE',reason,error:error?String(error?.message??error).slice(0,400):null},
+      chatId,sceneId,sceneRevision:sceneId?this.scene.registry.current(sceneId)?.revision??null:null,
+      sourceRevisionRefs:[],invalidatedSourceRevisionRefs:[],changedFields:[],delta:null,dispatchTimeline:[],
+      boundary:null,boundarySignals:null,transition:null,eventIds:[],eventTypes:[],invalidationIds:[],
+      coreReceipts:[],signalReceipt:null,signal:chatId?this.scene.integrationSignal(chatId):null,prefetchRecommendations:[],
+      changeSummary:null,authority:'DESCRIPTIVE',authorityGranted:false,canonicalMutationAuthority:false,
+      settlementAuthority:false,contextSealAuthority:false,contextSealBypass:false,rawNarrativeIncluded:false,
+    });
+    if(!action)return unavailable('SCENE_OPERATOR_ACTION_REQUIRED');
+    const methods={
+      RESCAN:'rescan',REBUILD:'rebuild',CORRECT:'correct',
+      RECOVER_MISSED_ENTITIES:'recoverMissedEntities',CARRYOVER:'applyCarryover',
+      MERGE_SPLIT_PROPOSE:'proposeMergeSplit',MERGE_SPLIT_REVIEW:'reviewMergeSplit',
+      EPISODE_REPAIR:'repairEpisode',COMPARE:'compare',CONTINUITY_GAPS:'detectContinuityGaps',
+    };
+    const method=methods[action];
+    if(!method||typeof this.sceneOperator?.[method]!=='function')return unavailable('SCENE_OPERATOR_ACTION_UNSUPPORTED');
+    if(!sceneId&&!['MERGE_SPLIT_PROPOSE','MERGE_SPLIT_REVIEW'].includes(action))return unavailable('SCENE_OPERATOR_SCENE_UNAVAILABLE');
+
+    let result;
+    try{
+      const args={...input};
+      delete args.action;
+      if(sceneId&&!args.sceneId&&action!=='CARRYOVER')args.sceneId=sceneId;
+      if(action==='CARRYOVER'){
+        args.toSceneId=String(args.toSceneId??sceneId??'').trim();
+        args.fromSceneId=String(args.fromSceneId??'').trim();
+        if(!args.fromSceneId||!args.toSceneId)return unavailable('SCENE_CARRYOVER_SCENE_REFS_REQUIRED');
+      }
+      result=this.sceneOperator[method](args);
+    }catch(error){
+      return unavailable('SCENE_OPERATOR_INPUT_UNAVAILABLE',error);
+    }
+
+    const timeline=this.sceneOwnerTimeline.slice(start).map((row)=>clone(row));
+    const coreReceipts=[];
+    if(chatId){
+      if(this.core.hotCognition.activeChatNamespace!==chatId)this.core.activateHotCognitionChat(chatId);
+      for(const row of timeline){
+        const receipt=row.type==='INVALIDATION'
+          ?this.core.consumeSceneContextInvalidation(row.value,{chatNamespace:chatId})
+          :this.core.consumeCognitiveEvent(row.value,{chatNamespace:chatId});
+        coreReceipts.push({
+          type:row.type,ref:row.value?.eventId??row.value?.invalidationId??null,
+          eventType:row.value?.eventType??null,status:receipt?.status??null,
+          coreHandling:receipt?.coreHandling??null,reason:receipt?.reason??receipt?.reasonCode??null,
+        });
+      }
+    }
+    const signal=chatId?this.scene.integrationSignal(chatId):null;
+    const signalReceipt=signal&&chatId?this.core.consumeSceneSignal(signal,{chatNamespace:chatId}):null;
+    const eventRows=timeline.filter((row)=>row.type==='EVENT');
+    const invalidationRows=timeline.filter((row)=>row.type==='INVALIDATION');
+    const changedFields=[...new Set(result?.changeSummary?.changedFields??Object.keys(result?.delta?.changedFields??{}))].sort();
+    const sourceRevisionRefs=[...new Set([
+      ...(signal?.sourceRevisionRefs??signal?.sourceRevisionSet??[]),
+      ...(result?.changeSummary?.why?.sourceRevisionRefs??[]),
+      ...(input.sourceRevisionRefs??[]),
+    ].filter(Boolean).map(String))].sort();
+    const operationStatus=result?.status??(result?.applied?'APPLIED':'NO_CHANGE');
+    const status=result?.applied||operationStatus==='REPAIRED'?'OBSERVED'
+      :operationStatus==='STALE'?'STALE'
+      :operationStatus==='UNAVAILABLE'?'UNAVAILABLE'
+      :'NO_WORK';
+    return clone({
+      kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status,
+      noWorkReason:status==='NO_WORK'?(result?.reason??operationStatus):status==='UNAVAILABLE'?(result?.reason??operationStatus):null,
+      operator:{
+        action,operationStatus,operation:result?.operation??action,
+        reviewDecision:result?.ownerDecision??null,reviewRequired:Boolean(result?.reviewRequired),
+        mutationApplied:Boolean(result?.mutationApplied??result?.applied),
+        automaticSimilarityDecision:Boolean(result?.automaticSimilarityDecision),
+        resultKind:result?.kind??null,
+      },
+      evidence:null,chatId,
+      sceneId:signal?.sceneId??result?.sceneId??sceneId,
+      sceneRevision:signal?.sceneRevision??result?.sceneRevision??result?.scene?.revision??null,
+      sourceRevisionRefs,invalidatedSourceRevisionRefs:[],
+      changedFields,delta:clone(result?.delta??null),changeSummary:clone(result?.changeSummary??null),
+      operatorResult:clone(result),dispatchTimeline:clone(timeline),
+      boundary:null,boundarySignals:null,transition:null,
+      eventIds:eventRows.map((row)=>row.value?.eventId).filter(Boolean),
+      eventTypes:[...new Set(eventRows.map((row)=>row.value?.eventType).filter(Boolean))],
+      invalidationIds:invalidationRows.map((row)=>row.value?.invalidationId).filter(Boolean),
+      coreReceipts,
+      signalReceipt:signalReceipt?{status:signalReceipt.status??null,coreHandling:signalReceipt.coreHandling??null,reason:signalReceipt.reason??signalReceipt.reasonCode??null}:null,
+      signal,prefetchRecommendations:clone(signal?.prefetchRecommendations??[]),
+      authority:'DESCRIPTIVE',authorityGranted:false,canonicalMutationAuthority:false,
+      settlementAuthority:false,contextSealAuthority:false,contextSealBypass:false,rawNarrativeIncluded:false,
     });
   }
 

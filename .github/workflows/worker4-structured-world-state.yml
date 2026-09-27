@@ -47,8 +47,10 @@ jobs:
         run: node --test tests/worker4-structured-world-state-graph.mjs
       - name: Selected-turn graph UI acceptance
         run: node --test tests/worker4-selected-turn-graph-ui.test.mjs
-      - name: Worker 3 shared UI regressions
-        run: node --test tests/worker3-brain-decision-visibility.test.mjs tests/worker3-brain-trace-ui.test.mjs tests/wave13-operator-ui.test.mjs
+      - name: Worker 3 shared Brain and Diagnostics regressions
+        run: |
+          node --test tests/worker3-brain-decision-visibility.test.mjs tests/worker3-brain-trace-ui.test.mjs
+          node --test --test-name-pattern='selected chat with no active turn|selected-turn Runtime scatter|Brain activity distinguishes|Brain operations distinguish|intentional JEV_NOT_REQUIRED|generic selected-turn inspector|activity feed is bottom-right|regeneration rebases|Diagnostics workspace centralizes|Diagnostics drilldown shows|Diagnostics exposes safe foreign|Diagnostics workspace follows chat switches|Worker 4 operator lifecycle states' tests/wave13-operator-ui.test.mjs
       - name: Native graph and identity regression
         run: |
           node --test --test-name-pattern='cross-source entity identity|graph walker|graph traversal candidate|Worker 4 v2 removal' tests/native-brain-identity-retrieval.mjs

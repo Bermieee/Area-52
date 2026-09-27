@@ -40,6 +40,7 @@ export function createMemoryIntegrationSurface(producer) {
       admitExternalEvidenceMapping:(input)=>producer.admitExternalEvidenceMapping(input),
       invalidateExternalEvidenceMapping:(input)=>producer.invalidateExternalEvidenceMapping(input),
       acceptCompletedTurn:(input)=>producer.acceptCompletedTurn(input),
+      reviewConsolidationBundle:(input)=>producer.reviewConsolidationBundle(input),
       acceptSceneOwnerEvent:(event,options={})=>producer.acceptSceneOwnerEvent(event,options),
       acceptSceneExperience:(proposal,options={})=>producer.ingestSceneExperience(proposal,options),
       acceptGreenRoomBatch:(batch,options={})=>producer.ingestGreenRoomBatch(batch,options),
@@ -74,6 +75,11 @@ export function createMemoryIntegrationSurface(producer) {
         seam:'BRAIN_POST_TURN_MEMORY',
         status:'DIRECT_COMPATIBLE',
         behavior:'After the exact Core narrative mapping is admitted, Runtime may call acceptCompletedTurn with identity/revision references only. Memory materializes the durable episode, evaluates bounded reflection eligibility, incrementally refreshes scene/session/arc summary scopes, and rebuilds Historian without receiving raw chat through Runtime telemetry.',
+      },
+      {
+        seam:'CONTINUOUS_CONSOLIDATION_MEMORY_REVIEW',
+        status:'OWNER_CONTRACT_READY',
+        behavior:'Validated proposal-only ConsolidationProposalBundle + MemoryConsolidationProposalHandoff may be reviewed by Memory. REFLECTION_EVIDENCE is admitted only when its source ArtifactReferences resolve to fresh Memory episodes and repetition/contradiction eligibility passes; proposal confidence never grants canonical or settlement authority.',
       },
       {
         seam:'CORE_SETTLEMENT_EVIDENCE',

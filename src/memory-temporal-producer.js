@@ -742,6 +742,33 @@ export class MemoryTemporalProducer {
       const evidenceRefs=result.publishedArtifactIds.flatMap((id)=>this.experienceStore.artifact(id)?.supportEvidenceRefs??[]);
       this.notifyUi('MEMORY_CONSOLIDATION_PUBLISHED',evidenceRefs,{sessionId,publishedArtifactIds:result.publishedArtifactIds});
     }
+    const outcomes=result.outcomes??[],failures=result.failures??[];
+    let status='COMPLETED';
+    if(result.state==='PARKED_AFTER_SEAL'||result.state==='CHECKPOINTED')status='DEFERRED';
+    else if(result.state==='STALE')status='STALE';
+    else if(failures.length)status='FAILED';
+    else if(outcomes.length&&outcomes.every((row)=>row.status==='SKIPPED'))status='SKIPPED';
+    const diagnostic={
+      kind:'MemoryConsolidationDiagnosticReceipt',contractVersion:'1.0.0',sessionId:result.id,status,state:result.state,
+      processedCursor:result.cursor,totalJobs:result.jobs?.length??0,publishedCount:result.publishedArtifactIds?.length??0,
+      outcomeCounts:{
+        completed:outcomes.filter((row)=>row.status==='COMPLETED').length,
+        deferred:outcomes.filter((row)=>row.status==='DEFERRED').length,
+        skipped:outcomes.filter((row)=>row.status==='SKIPPED').length,
+        stale:outcomes.filter((row)=>row.status==='STALE').length,
+        failed:outcomes.filter((row)=>row.status==='FAILED').length+failures.length,
+      },
+      reasonCodes:[...new Set([
+        result.lateDisposition?.reasonCode,
+        ...outcomes.map((row)=>row.reasonCode),
+        ...failures.map((row)=>row.code),
+      ].filter(Boolean).map(String))].slice(0,16),
+      generationFence:deepClone(result.generationFence??null),
+      inputRevisionToken:result.inputRevisionFence?.revisionToken??null,
+      rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+    this.pushDiagnostic(diagnostic);
     return result;
   }
 

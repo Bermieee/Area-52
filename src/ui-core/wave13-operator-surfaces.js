@@ -512,7 +512,15 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
   }
   const inspector=createButton(d,{label:state.inspectorVisible?'Hide inspector':'Show inspector',scope,size:'sm',onPress:()=>{frontFacePresentation?.setInspector?.(!frontFacePresentation.get().inspectorVisible);refresh?.();}});
   displayActions.append(inspector);display.append(displayActions);root.append(display);
-  if(diagnostics)root.append(renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,inspect,navigate,detailLevel:productAdapter?.getDetailLevel?.()}));
+  if(diagnostics){
+    const diagnosticsLink=element(d,'section',{className:'a52-wave13-settings__group'});
+    diagnosticsLink.append(
+      element(d,'strong',{text:'Diagnostics'}),
+      element(d,'p',{className:'a52-muted',text:'Operational telemetry, selected-turn evidence, Brain decisions, resources, Lore/Memory, performance, and the unified event timeline now live in the dedicated Diagnostics workspace.'}),
+      createButton(d,{label:'Open Diagnostics',scope,size:'sm',variant:'primary',onPress:()=>navigate?.('turn-log')})
+    );
+    root.append(diagnosticsLink);
+  }
   host.append(root);
 }
 

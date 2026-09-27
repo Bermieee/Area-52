@@ -305,7 +305,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
     {key:'Activity feed render',value:diagnosticLoadMetric(categories.UI_ACTIVITY_FEED_RENDER)},{key:'Workspace refresh',value:diagnosticLoadMetric(categories.UI_WORKSPACE_REFRESH)},{key:'Capture total',value:diagnosticLoadMetric(categories.UI_CAPTURE_TOTAL)},
   ]));root.append(performance.root);
 
-  const timelineSection=diagnosticSection(d,'Unified retained event timeline',{open:true,count:String(timeline.matchingRows)+' matching'});
+  const timelineSection=diagnosticSection(d,'Event timeline · all retained evidence',{open:true,count:String(timeline.matchingRows)+' matching'});
   const controls=element(d,'div',{className:'a52-diagnostics-toolbar'});
   const timeSelect=selectControl(d,'Time',filters.time,[['ALL','All retained'],['1M','Last 1 minute'],['5M','Last 5 minutes'],['15M','Last 15 minutes']]);
   const catSelect=selectControl(d,'Category',filters.category,[['ALL','All categories'],...timeline.availableCategories.map(x=>[x,x])]);

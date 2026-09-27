@@ -143,3 +143,6 @@ button.a52-card:hover{border-color:var(--a52-border-strong);transform:translateY
   *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}
   button.a52-card:hover{transform:none}
 }
+
+/* Inspector is intentionally removed from the visible Area-52 shell. Keep this hard stop so stale/hot-reloaded shell markup cannot surface it. */
+.a52-shell__inspector-layer,.a52-shell__inspector{display:none!important}

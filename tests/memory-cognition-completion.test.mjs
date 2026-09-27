@@ -10,7 +10,7 @@ import {
 } from '../src/coprocessor/continuous-consolidation.js';
 import {admitConsolidationBundleToMemoryOwner} from '../src/coprocessor/owner-integration.js';
 import {
-  Capability,DeterministicProviderAdapter,Placement,
+  Capability,ResourceKind,
 } from '../src/coprocessor/index.js';
 
 function scene(sceneId,sceneRevision,{location=null,activeCast=[],relationship=null}={}){
@@ -196,7 +196,7 @@ test('Memory cognition: source correction revises one logical episode and only i
   const targetBefore=memory.experienceStore.currentEpisodes().find(row=>row.chatId==='chat:target');
   const unrelatedScope='SCENE:brain:chat:other:other-scene';
   const unrelatedBefore=memory.summaryHierarchy.currentArtifact(unrelatedScope,{freshOnly:true});
-  const targetHistoryBefore=memory.summaryHierarchy.summaryHistory('SCENE:brain:chat:target:target-scene').length;
+  const targetHistoryBefore=memory.summaryHistory('SCENE:brain:chat:target:target-scene').length;
 
   const correction=brain.correctTurn({
     turnId:'target:1',
@@ -615,7 +615,9 @@ test('Memory cognition: an admitted episode can checkpoint before L3 consolidati
     response:'Mara places the brass marker beside the dock clock.',
     knownBy:['Mara'],autoDrain:false,
   });
-  await brain.runtimeDirector.drain({maxCycles:1});
+  for(let cycle=0;cycle<16&&!brain.readTurn('l3-resume:1')?.memoryPostTurn;cycle+=1){
+    await brain.runtimeDirector.runCycle();
+  }
   const afterEpisode=brain.readTurn('l3-resume:1');
   assert.equal(afterEpisode.memoryPostTurn?.status,'COMPLETED');
   assert.ok(afterEpisode.memoryConsolidationRuntimeTaskId);
@@ -640,23 +642,21 @@ test('Memory cognition: an admitted episode can checkpoint before L3 consolidati
 
 test('Memory cognition: deployment Continuous Consolidation producer closes real turn-to-reflection path',async()=>{
   const deployment=new DevelopmentDeploymentBrain();
-  deployment.resourceConnections.profiles.register({
-    profileId:'memory-consolidation-test-profile',
+  deployment.resourceConnections.addResource({
+    resourceId:'memory-consolidation-test-resource',
+    providerProfileId:'memory-consolidation-test-profile',
     workerId:'memory-consolidation-test-worker',
     providerId:'memory-consolidation-test-provider',
+    kind:ResourceKind.DETERMINISTIC_LOCAL,
+    modelId:'memory-consolidation-test-model',
     capabilities:[Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
-    foregroundEligible:false,backgroundEligible:true,placements:[Placement.DEEP],supportedLayers:['L3'],
-  });
-  deployment.resourceConnections.adapters.register(new DeterministicProviderAdapter({
-    providerId:'memory-consolidation-test-provider',
-    capabilities:[Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
-    handlers:{
-      CONSOLIDATION:async({input})=>{
+    foregroundEligible:false,backgroundEligible:true,supportedLayers:['L3'],placements:['DEEP'],
+    handler:async({input})=>{
         const refs=(input.data.sourceReferences??[]).map(ref=>({
           kind:'ArtifactReference',artifactId:ref.artifactId,artifactType:ref.artifactType,
           owner:ref.owner,revision:ref.revision,storageDomain:ref.storageDomain,provenanceRef:ref.provenanceRef,
         }));
-        return{payload:{
+        return{
           kind:'ConsolidationProposalBundle',
           unitId:input.data.taskSlice.unitId,
           sourceRevisionSet:[...input.data.taskSlice.sourceRevisionSet],
@@ -672,10 +672,11 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
             },
           }],
           authority:'UNRESOLVED',
-        }};
+        };
       },
-    },
-  }));
+  });
+  const connected=await deployment.resourceConnections.connectResource('memory-consolidation-test-resource');
+  assert.equal(connected.state,'READY');
 
   const bindings=deployment.hostBindings();
   const brain=new Area52NativeBrain({

@@ -132,6 +132,7 @@ export class SelectedTurnLogModel{
       runtime:op.runtime??null,
       resources:{
         resources:op.resources??null,
+        vectoringTrace:op.vectoringTrace??null,
         wiring:op.wiring??null,
         coprocessor:op.coprocessor??null,
       },
@@ -503,6 +504,21 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
       currentResources.append(compactStatusRow(d,row.displayName??row.id??row.resourceId??row.kind??'Resource',resourceState,detail,stageDiagnosticToken(resourceState),inspect?()=>inspect({kind:'area52-diagnostic-resource',id:row.id??row.resourceId??row.displayName??'resource',title:(row.displayName??row.id??row.resourceId??'Resource')+' detail',payload:sanitize(row)}):null,scope));
     }
     resources.body.append(element(d,'strong',{text:'Current resources'}),currentResources);
+  }
+  const vectorTrace=operational?.vectoringTrace??null;
+  resources.body.append(element(d,'strong',{text:'Vectoring causal trace'}));
+  for(const [title,records] of [['Selected-turn Memory queries',vectorTrace?.selectedTurn??[]],['Background Memory indexing',vectorTrace?.background??[]]]){
+    resources.body.append(element(d,'span',{className:'a52-eyebrow',text:title}));
+    if(!records.length){resources.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — no matching execution receipt.'));continue;}
+    const list=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const row of records.slice(-12)){
+      const detail=[row.latencyMs==null?null:diagnosticMs(row.latencyMs),
+        'Memory '+row.memoryDecision,row.candidateCount==null?null:row.candidateCount+' candidate(s)',
+        row.operation==='EMBED_QUERY'?'Gather '+row.gather:'Indexed work '+(row.workId??'unknown')].filter(Boolean).join(' · ');
+      list.append(compactStatusRow(d,row.operation==='EMBED_QUERY'?'Memory query':'Memory artifact index',row.status,detail,stageDiagnosticToken(row.status),
+        inspect?()=>inspect({kind:'area52-vectoring-trace',id:row.executionId??'vectoring',title:'Vectoring · '+row.operation,payload:row}):null,scope));
+    }
+    resources.body.append(list);
   }
   const resourceEvents=operational?.telemetry?.resourceEvents??[];
   if(resourceEvents.length){

@@ -64,7 +64,20 @@ test('DETERMINISTIC: real Native Brain selected turn renders GraphTraversalRecei
   assert.equal(model.selection.generationId,selection.generationId);
   assert.equal(model.state,'READY');
   assert.ok(model.owners.some(row=>row.owner==='LORE_INTELLIGENCE'&&row.providerId==='LIVE_GRAPH_OWNER'));
-  assert.ok(model.relationships.some(row=>row.edgeId==='edge:fresh'&&row.edgeMeaning==='KNOWN_ROUTE'));
+  assert.ok(
+    model.relationships.some(row=>row.edgeId==='edge:fresh'&&row.edgeMeaning==='KNOWN_ROUTE'),
+    JSON.stringify({
+      traversal:{
+        traversedEdgeCount:prepared.graphTraversalReceipt?.traversedEdgeCount??null,
+        nominationCount:prepared.graphTraversalReceipt?.nominationCount??null,
+        providers:prepared.graphTraversalReceipt?.providers??[],
+        referenceSummary:(prepared.graphTraversalReceipt?.referenceSummary??[]).map(row=>({edgeId:row.edgeId,providerId:row.providerId,edgeMeaning:row.edgeMeaning,fromEntityId:row.fromEntityId,toEntityId:row.toEntityId})),
+        staleRejected:prepared.graphTraversalReceipt?.staleRejected??[],
+      },
+      uiRelationships:model.relationships.map(row=>({edgeId:row.edgeId,providerId:row.providerId,edgeMeaning:row.edgeMeaning})),
+      referenceEdges:model.referenceEdges.map(row=>({edgeId:row.edgeId,providerId:row.providerId,edgeMeaning:row.edgeMeaning})),
+    })
+  );
   assert.ok(model.staleRejected.some(row=>row.edgeId==='edge:stale'&&row.reason==='OWNER_GRAPH_SOURCE_REVISION_STALE'));
   assert.equal(model.generationTraversal.evidenceClass,'GENERATION_TIME_RECEIPT');
   assert.equal(model.worldReferenceRead.evidenceClass,'ON_DEMAND_SELECTED_TURN_REFERENCE_READ');

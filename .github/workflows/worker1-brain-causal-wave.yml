@@ -77,6 +77,11 @@ jobs:
         run: node --test tests/worker1-scene-prefetch-trigger.mjs
       - name: Scene Event Spine #113
         run: node --test tests/worker1-scene-event-spine.mjs
+      - name: Preserve Runtime owner event binding
+        run: >-
+          node --test
+          --test-name-pattern="external producer can host L2 post-turn work from GENERATION_COMPLETED"
+          tests/runtime-wave2.mjs
       - name: Qualification probe contract
         run: node --test tests/openrouter-jev-decisions.test.mjs
       - name: Demo telemetry regression

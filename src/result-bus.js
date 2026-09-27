@@ -111,6 +111,23 @@ export class ResultBus {
     return out.sort((a,b)=>a.route.sequence-b.route.sequence);
   }
 
+  payloads({destination=null,freshness=null,turnId=null,resultType=null}={}){
+    const out=[];
+    for(const[id,result]of this.#results){
+      const route=this.#routes.get(id);
+      if(destination&&route.effectiveDestination!==destination)continue;
+      if(freshness&&route.freshness!==freshness)continue;
+      if(turnId&&result.turnId!==turnId)continue;
+      if(resultType&&result.resultType!==resultType)continue;
+      out.push({sequence:route.sequence,payload:clone(result.payload)});
+    }
+    return out.sort((a,b)=>a.sequence-b.sequence).map(row=>row.payload);
+  }
+
+  foregroundPayloads(turnId,{resultType=null}={}){
+    return this.payloads({destination:ResultDestination.FOREGROUND,freshness:ResultFreshness.FRESH,turnId,resultType});
+  }
+
   foreground(turnId){
     return this.results({destination:ResultDestination.FOREGROUND,turnId}).filter(x=>x.route.freshness===ResultFreshness.FRESH);
   }

@@ -161,11 +161,9 @@ test('#112 chat change cancels warming intent from the previously selected Scene
 test('#112 quiet continuation publishes no new prefetch work',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   ingest(brain,event(HostActivity.USER_SEND,'quiet0','At North Gallery, Mara waits.'));
-  const before=brain.scene.publisher.recent({limit:64}).filter(row=>row.eventType===SceneEventType.PREFETCH_RECOMMENDED).length;
   const receipt=ingest(brain,event(HostActivity.USER_SEND,'quiet1','Mara waits quietly.'));
-  const after=brain.scene.publisher.recent({limit:64}).filter(row=>row.eventType===SceneEventType.PREFETCH_RECOMMENDED).length;
   assert.equal(receipt.status,'NO_WORK');
-  assert.equal(after,before);
+  assert.equal(receipt.eventTypes.includes(SceneEventType.PREFETCH_RECOMMENDED),false);
 });
 
 test('#112 production contract route reaches Dynamic Fan-Out consideration without Scene execution authority',()=>{

@@ -1,7 +1,7 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
 
-export const DEMO_EVIDENCE_JOURNAL_VERSION='1.4.0';
+export const DEMO_EVIDENCE_JOURNAL_VERSION='1.5.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
 const STAGES=['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'];
 
@@ -31,9 +31,16 @@ export class DemoEvidenceJournal{
     if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
     const state=this.#load(),key=selectionKey(identity),at=this.now();
     let turn=state.turns.find(row=>row.key===key),changed=false;
-    if(!turn){
+    if(turn&&selectionFenceConflict(turn.selection,identity)){
+      const index=state.turns.indexOf(turn);
+      turn={key,selection:identity,firstSeenAt:at,lastUpdatedAt:at,entries:[],replacedRevisionFence:true};
+      state.turns[index]=turn;changed=true;
+    }else if(!turn){
       turn={key,selection:identity,firstSeenAt:at,lastUpdatedAt:at,entries:[]};
       state.turns.push(turn);changed=true;
+    }else{
+      const merged=mergeSelectionFence(turn.selection,identity);
+      if(JSON.stringify(merged)!==JSON.stringify(turn.selection)){turn.selection=merged;changed=true;}
     }
     const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,ownerReceipt,at});
     const entryIndex=new Map(turn.entries.map((row,index)=>[row.identityKey,index]));
@@ -45,11 +52,13 @@ export class DemoEvidenceJournal{
       }else{entryIndex.set(entry.identityKey,turn.entries.length);turn.entries.push(entry);changed=true;}
     }
     turn.entries.sort((a,b)=>Number(a.at??0)-Number(b.at??0));
-    if(turn.entries.length>this.maxEntriesPerTurn){turn.entries.splice(0,turn.entries.length-this.maxEntriesPerTurn);changed=true;}
+    if(turn.entries.length>this.maxEntriesPerTurn){
+      turn.entries=pruneEntriesPreservingDelivery(turn.entries,this.maxEntriesPerTurn);changed=true;
+    }
     if(!changed){this.skippedWriteCount+=1;this.lastRecordChanged=false;return clone(turn);}
     turn.lastUpdatedAt=at;
     state.turns.sort((a,b)=>Number(a.lastUpdatedAt??0)-Number(b.lastUpdatedAt??0));
-    if(state.turns.length>this.maxTurns)state.turns.splice(0,state.turns.length-this.maxTurns);
+    if(state.turns.length>this.maxTurns)state.turns=pruneTurnsPreservingDelivery(state.turns,this.maxTurns);
     state.updatedAt=at;
     this.#save(state);this.revision+=1;this.lastRecordChanged=true;
     return clone(turn);
@@ -59,14 +68,14 @@ export class DemoEvidenceJournal{
     const identity=normalizeSelection(selection);
     if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
     const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
-    return turn?clone(turn):null;
+    return turn&&selectionFenceCompatible(turn.selection,identity)?clone(turn):null;
   }
 
   listEntries(selection={}, {limit=64}={}){
     const identity=normalizeSelection(selection);
     if(!identity.chatId||!identity.turnId||!identity.generationId)return[];
     const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
-    if(!turn)return[];
+    if(!turn||!selectionFenceCompatible(turn.selection,identity))return[];
     return clone(turn.entries.slice(-Math.max(1,Number(limit)||64)));
   }
 
@@ -74,6 +83,7 @@ export class DemoEvidenceJournal{
     const identity=normalizeSelection(selection);
     if(!identity.chatId||!identity.turnId||!identity.generationId||entryId==null)return null;
     const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
+    if(!turn||!selectionFenceCompatible(turn.selection,identity))return null;
     const row=turn?.entries?.find(item=>item.id===String(entryId));
     return row?clone(row):null;
   }
@@ -85,7 +95,7 @@ export class DemoEvidenceJournal{
       available:this.lastError==null,persistent:this.storageKind!=='MEMORY_FALLBACK',storageKind:this.storageKind,
       turnCount,entryCount,maxTurns:this.maxTurns,maxEntriesPerTurn:this.maxEntriesPerTurn,maxStoredBytes:this.maxStoredBytes,
       serializedBytes:this.lastSerializedBytes,storageLoads:this.storageLoadCount,writes:this.writeCount,skippedRedundantWrites:this.skippedWriteCount,revision:this.revision,lastRecordChanged:this.lastRecordChanged,
-      metadataOnly:true,updatedAt:state.updatedAt??null,
+      metadataOnly:true,criticalDeliveryProtected:true,revisionFenceAware:true,updatedAt:state.updatedAt??null,
       lastError:this.lastError?String(this.lastError?.message??this.lastError):null,
     };
   }
@@ -94,7 +104,7 @@ export class DemoEvidenceJournal{
     const state=this.#load();
     const identity=selection?normalizeSelection(selection):null;
     const turns=identity?.chatId&&identity?.turnId&&identity?.generationId
-      ? state.turns.filter(row=>row.key===selectionKey(identity))
+      ? state.turns.filter(row=>row.key===selectionKey(identity)&&selectionFenceCompatible(row.selection,identity))
       : state.turns;
     return {
       kind:'Area52DemoEvidenceExport',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,exportedAt:this.now(),
@@ -227,13 +237,17 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
     out.push(entry({
       type:'READ_ERROR',subtype:stage,status:'READ_FAILED',title:label(stage)+' selected-turn read blocked',
       summary:'Selected-turn '+label(stage)+' read was blocked: '+code+'.',
-      detail:liveReadError.message??'The owner reader rejected the selected-turn receipt.',
+      detail:'The owner reader rejected the selected-turn receipt. Raw error payload omitted [REDACTED] by metadata-only telemetry policy.',
       selection,at,identitySuffix:[stage,code,selection.worldRevision??'',selection.sceneRevision??'',selection.sourceRevisionRefs.join(',')].join(':'),
       metadata:{stage,code,worldRevision:selection.worldRevision,sceneRevision:selection.sceneRevision,sourceRevisionRefs:[...selection.sourceRevisionRefs]},
     }));
   }
 
-  if(ownerReceipt)out.push(...deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations:op,diagnostics:diag,promptPlan:pp,at}));
+  if(ownerReceipt){
+    out.push(...deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations:op,diagnostics:diag,promptPlan:pp,at}));
+    const expected=expectedWorkJournalEntry(ownerReceipt?.expectedWork,selection,at);
+    if(expected)out.push(expected);
+  }
 
   if(scatter){
     const jobs=scatter.jobs??[],ids=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];
@@ -247,9 +261,9 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
   }
 
   const runtimeOwner=inspections.runtime?.payload?.receipt??inspections.runtime?.payload??null;
-  const ownerJobs=Array.isArray(runtimeOwner?.jobs)?runtimeOwner.jobs:[];
+  const ownerJobs=Array.isArray(runtimeOwner?.jobs)?runtimeOwner.jobs:Array.isArray(scatter?.jobs)?scatter.jobs:[];
   if(ownerJobs.length){
-    const nativeIds=[...new Set((runtimeOwner?.resourceIds??[]).filter(Boolean).map(String))];
+    const nativeIds=[...new Set(((runtimeOwner?.resourceIds??scatter?.resourceIds)??[]).filter(Boolean).map(String))];
     const optionalByJob=new Map((scatter?.jobs??[]).map(row=>[String(row.jobId??row.taskId??''),row]));
     const gatherRows=Array.isArray(path.gather?.results)?path.gather.results:[],sealedIds=new Set(path.seal?.effectiveAdmittedResultIds??path.seal?.admittedResultIds??[]);
     const auditJobs=ownerJobs.slice(0,32).map(job=>{
@@ -259,6 +273,8 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
         jobId:jobId||null,sequence:finite(job.sequence),owner:job.owner??null,reasonCode:technicalReason(job.reasonCode??job.reason??(job.owner?'OWNER_'+String(job.owner):null)),
         assignedNativeResourceId:job.resourceId??(nativeIds.length===1?nativeIds[0]:null),assignedOptionalResourceId:optional?.resourceId??null,
         startAt:finite(job.startedAt??job.startAt),endAt:finite(job.completedAt??job.endAt),outcome:job.status??job.state??null,
+        physicalExecutionEvidence:job.physicalExecutionEvidence??null,resultReturned:typeof job.resultReturned==='boolean'?job.resultReturned:results.length>0,
+        ownerAccepted:typeof job.ownerAccepted==='boolean'?job.ownerAccepted:null,taskIds:[...(job.taskIds??[])].slice(0,16),
         providerAttempted:results.some(row=>Boolean(row.providerAttempted)),resultIds:results.map(row=>row.resultId).filter(Boolean),
         gatherAdmissions:results.map(row=>({resultId:row.resultId??null,status:row.status??null,accepted:Boolean(row.accepted),resourceId:row.resourceId??null})),
         contextSealResultIds:results.map(row=>row.resultId).filter(id=>id&&sealedIds.has(id)),
@@ -293,9 +309,11 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
     const jevReason=technicalReason(path.jev?.reasonCode??path.jev?.reason??path.jev?.outcome??path.jev?.state);
     const lifecycleRows=optionalRows.map(row=>{
       const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=Boolean(row.physicalExecutionSucceeded||row.lastExecution?.status==='SUCCESS');
+      const returned=typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null;
       const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
       const kind=String(row.kind??'').toUpperCase(),skipReason=kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
-      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
+      const ownerAcceptanceState=typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE';
+      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
     });
     out.push(entry({
       type:'OPTIONAL_RESOURCE_LIFECYCLE',status:'RECORDED',title:'Optional resource lifecycle',
@@ -346,6 +364,15 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
       detail:'Host delivery is separate from PromptPlan and Context Seal. Only the host receipt can prove request-payload injection.',
       receiptRef:hostDelivery.receiptId??hostDelivery.generationId??null,selection,at,identitySuffix:hostDelivery.receiptId??String(hostDelivery.state??'host'),
       metadata:{state:hostDelivery.state??null,promptPlanId:hostDelivery.promptPlanId??null,contextSealId:hostDelivery.contextSealId??null,preparedAt:finite(hostDelivery.preparedAt),requestInjectedAt:finite(hostDelivery.requestInjectedAt),completedAt:finite(hostDelivery.completedAt),requestHook:hostDelivery.requestHook??null,renderedPayloadDigest:hostDelivery.renderedPayloadDigest??null,requestPayloadDigest:hostDelivery.requestPayloadDigest??null,renderedMessageCount:finite(hostDelivery.renderedMessageCount),promptInjected:Boolean(hostDelivery.promptInjected??hostDelivery.requestInjectedAt),hostObserved:Boolean(hostDelivery.hostObserved??hostDelivery.requestInjectedAt),responseCompleted:Boolean(hostDelivery.responseCompleted??hostDelivery.completedAt),abortCode:hostDelivery.abortCode??null},
+    }));
+  }else if(String(ownerReceipt?.delivery?.hostObserved?.state??'').toUpperCase()==='OBSERVED'){
+    const observed=ownerReceipt.delivery.hostObserved;
+    out.push(entry({
+      type:'HOST_DELIVERY',status:'OBSERVED',title:'Observed host delivery',
+      summary:'The Brain owner receipt records matching host-boundary delivery evidence for this generation.',
+      detail:'Observed delivery is retained exactly as owner evidence. Response completion is not inferred without a richer SillyTavern host receipt.',
+      receiptRef:observed.requestId??ownerReceipt?.producers?.delivery?.id??null,selection,at,identitySuffix:observed.requestId??'owner-observed',
+      metadata:{state:'OBSERVED',requestId:observed.requestId??null,matching:observed.matching??null,live:observed.live??null,observedRoles:[...(observed.observedRoles??[])].slice(0,16),responseCompleted:null},
     }));
   }
 
@@ -447,16 +474,19 @@ function deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations
       receiptRef,selection,at,identitySuffix:[def.id,receiptRef??'none',status,reasonCode].join(':'),
       metadata:{stage:def.id,producer:def.producer,consumer:def.consumer,edgeClass:'EXPECTED_OWNER_BOUNDARY',reasonCode,parentReceiptId,
         durationMs:evidence?.durationMs??null,ownerAccepted:evidence?.ownerAccepted??null,lifecycleState:evidence?.lifecycleState??status,
+        configured:evidence?.configured??null,qualified:evidence?.qualified??null,physicalAttempt:evidence?.physicalAttempt??null,returned:evidence?.returned??null,
         worldRevision:evidence?.worldRevision??selection.worldRevision??null,sceneRevision:evidence?.sceneRevision??selection.sceneRevision??null,
         sourceRevisionRefs:[...(evidence?.sourceRevisionRefs??selectedRefs??[])].slice(0,32),correlationId:selection.correlationId??null,evidenceKind:evidence?.evidenceKind??null,phase:def.phase},
     });
   });
 }
 function ownerEvidence(value,stage,selectedRefs,selection){
+  const meta=value?.metadata??{};
   return{status:String(value?.lifecycleState??value?.state??value?.status??'PUBLISHED').toUpperCase(),receiptId:value?.id??value?.receiptId??value?.promptPlanId??null,
     parentReceiptId:value?.parentReceiptId??value?.parentId??null,durationMs:finite(value?.durationMs),ownerAccepted:typeof value?.ownerAccepted==='boolean'?value.ownerAccepted:null,
     lifecycleState:value?.lifecycleState??value?.state??value?.status??'PUBLISHED',sourceRevisionRefs:[...(value?.sourceRevisionRefs??selectedRefs??[])].slice(0,32),
     worldRevision:numberOrNull(value?.worldRevision??selection?.worldRevision),sceneRevision:numberOrNull(value?.sceneRevision??value?.revision??selection?.sceneRevision),
+    configured:booleanOrNull(meta.configured),qualified:booleanOrNull(meta.qualified),physicalAttempt:booleanOrNull(meta.physicalAttempt),returned:booleanOrNull(meta.returned),
     evidenceKind:value?.kind??('owner:'+stage),reasonCode:technicalReason(value?.reasonCode??value?.reason)};
 }
 function readModelEvidence(value,inspection,stage,selectedRefs,selection,overrides={}){
@@ -469,12 +499,39 @@ function readModelEvidence(value,inspection,stage,selectedRefs,selection,overrid
 }
 function optionalResourceEvidence(row,stage,selectedRefs,selection){
   if(!row)return null;
-  const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution),returned=Boolean(row.physicalExecutionReturned??row.lastExecution?.status),accepted=row.ownerAccepted===true;
-  const status=accepted?'OWNER_ACCEPTED':returned?'RETURNED':attempted?'ATTEMPTED':row.callable?'QUALIFIED':'CONFIGURED';
+  const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution);
+  const returned=typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null;
+  const accepted=typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null;
+  const status=accepted===true?'OWNER_ACCEPTED':returned===true?'RETURNED':attempted?'ATTEMPTED':row.callable?'QUALIFIED':'CONFIGURED';
   return{status,receiptId:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,parentReceiptId:row.lastExecution?.parentReceiptId??null,
-    durationMs:finite(row.lastExecution?.latencyMs),ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,lifecycleState:status,
+    durationMs:finite(row.lastExecution?.latencyMs),ownerAccepted:accepted,lifecycleState:status,configured:true,qualified:Boolean(row.callable),physicalAttempt:attempted,returned,
     sourceRevisionRefs:[...(selectedRefs??[])].slice(0,32),worldRevision:numberOrNull(selection?.worldRevision),sceneRevision:numberOrNull(selection?.sceneRevision),
     evidenceKind:'optional-resource:'+stage,reasonCode:technicalReason(row.skipReason??row.lastFailure?.code??row.lastExecution?.reasonCode)};
+}
+
+function expectedWorkJournalEntry(expectedWork,selection,at){
+  const items=Array.isArray(expectedWork?.items)?expectedWork.items.slice(0,64).map(projectExpectedWork):[];
+  if(!items.length)return null;
+  const counts={DONE:0,DUE:0,BLOCKED:0,FAILED:0,SKIPPED_WITH_REASON:0,DEFERRED:0,STALE:0,LATE:0};
+  for(const row of items)counts[row.status]=(counts[row.status]??0)+1;
+  const unresolved=items.filter(row=>row.status!=='DONE'&&row.status!=='SKIPPED_WITH_REASON').length;
+  return entry({type:'OBLIGATION_RECONCILIATION',status:unresolved?'OPEN':'RECONCILED',title:'Expected cognitive work',
+    summary:items.length+' expected owner step'+(items.length===1?'':'s')+' · '+counts.DONE+' done · '+counts.BLOCKED+' blocked · '+counts.FAILED+' failed · '+counts.SKIPPED_WITH_REASON+' skipped.',
+    detail:'Owner-declared expected work is reconciled only against explicit causal evidence. Missing execution, result, owner admission, or Settlement stays visible.',
+    selection,at,identitySuffix:'selected-turn-expected-work',metadata:{counts,items}});
+}
+function projectExpectedWork(row={}){
+  const cause=row.cause??{};
+  return{expectedId:safeDiagnosticText(row.expectedId??'',256),owner:safeDiagnosticText(row.owner??'',128),ownerSignalId:safeDiagnosticText(row.ownerSignalId??'',256),
+    status:technicalReason(row.status)??'UNKNOWN',reasonCode:technicalReason(row.reasonCode)??'NO_EVIDENCE',taskId:row.taskId==null?null:safeDiagnosticText(row.taskId,256),
+    lifecycleStatus:technicalReason(row.lifecycleStatus),executionStatus:technicalReason(row.executionStatus),missingEvidence:(row.missingEvidence??[]).map(technicalReason).filter(Boolean).slice(0,16),
+    blockedBy:(row.blockedBy??[]).map(value=>safeDiagnosticText(value,256)).slice(0,16),eventType:technicalReason(cause.eventType),producer:safeDiagnosticText(cause.producerId??'',128)||null,
+    consumer:safeDiagnosticText(cause.consumerId??'',128)||null,correlationId:safeDiagnosticText(cause.correlationId??'',256)||null,worldRevision:numberOrNull(cause.worldRevision),
+    sceneRevision:numberOrNull(cause.sceneRevision),sourceRevisionRefs:[...(cause.sourceRevisionRefs??[])].map(value=>safeDiagnosticText(value,256)).slice(0,32),
+    evidenceStages:(row.evidenceStages??[]).slice(-32).map(evidence=>({id:safeDiagnosticText(evidence.id??'',256),eventKind:technicalReason(evidence.eventKind),
+      lifecycleState:technicalReason(evidence.lifecycleState),reasonCode:technicalReason(evidence.reasonCode),producerId:safeDiagnosticText(evidence.producerId??'',128)||null,
+      consumerId:safeDiagnosticText(evidence.consumerId??'',128)||null,parentReceiptId:safeDiagnosticText(evidence.parentReceiptId??'',256)||null,
+      ownerAccepted:typeof evidence.ownerAccepted==='boolean'?evidence.ownerAccepted:null,durationMs:finite(evidence.durationMs)}))};
 }
 
 function producerDetail(id,path,pipeline,row){
@@ -508,11 +565,12 @@ function emptyState(){return{kind:'Area52DemoEvidenceJournal',contractVersion:DE
 function sumCounts(value={}){return Object.values(value??{}).reduce((sum,row)=>sum+(Number(row)||0),0);}
 function finite(value){const n=Number(value);return Number.isFinite(n)?n:null;}
 function numberOrNull(value){const n=Number(value);return value==null||!Number.isFinite(n)?null:n;}
+function booleanOrNull(value){return typeof value==='boolean'?value:null;}
 function text(value){const x=value==null?'':String(value).trim();return x||null;}
 function label(value){return String(value??'producer').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
 function filePart(value){return String(value??'').replace(/[^a-z0-9._-]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,80)||'unknown';}
 function technicalReason(value){const x=value==null?'':String(value).trim().toUpperCase();return /^[A-Z0-9_:-]{1,128}$/.test(x)?x:null;}
-const BLOCKED_METADATA_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
+const BLOCKED_METADATA_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','loretext','content','contentbody','response','rawresponse','providerresponse','responsebody','messages','reasoning','hiddenreasoning','chainofthought','apikey','authorization','credential','credentials','password','secret','accesstoken','refreshtoken']);
 function safeDiagnosticText(value,limit=2048){
   let out=String(value??'');
   out=out.replace(/(\bBearer\s+)[A-Za-z0-9._~+/=-]+/gi,'$1[REDACTED]');
@@ -522,7 +580,7 @@ function safeDiagnosticText(value,limit=2048){
 }
 function sanitizeMetadata(value,depth=0,key=''){
   if(depth>7)return'[depth-clipped]';
-  const normalized=String(key??'').toLowerCase();
+  const normalized=String(key??'').toLowerCase().replace(/[^a-z0-9]/g,'');
   if(BLOCKED_METADATA_KEYS.has(normalized))return'[REDACTED]';
   if(value==null||typeof value==='number'||typeof value==='boolean')return value;
   if(typeof value==='string')return safeDiagnosticText(value);
@@ -532,10 +590,52 @@ function sanitizeMetadata(value,depth=0,key=''){
 }
 function boundedJournalJson(state,maxBytes){
   let json=JSON.stringify(state);
-  while(json.length>maxBytes&&state.turns.length>1){state.turns.shift();json=JSON.stringify(state);}
-  while(json.length>maxBytes&&state.turns.length===1&&(state.turns[0].entries?.length??0)>4){
-    const entries=state.turns[0].entries,drop=Math.max(1,Math.ceil(entries.length/4));entries.splice(0,drop);json=JSON.stringify(state);
+  while(json.length>maxBytes&&state.turns.length>1){
+    const protectedIndex=latestDeliveryTurnIndex(state.turns),dropIndex=state.turns.findIndex((_,index)=>index!==protectedIndex);
+    state.turns.splice(dropIndex<0?0:dropIndex,1);json=JSON.stringify(state);
   }
+  while(json.length>maxBytes&&state.turns.length===1&&(state.turns[0].entries?.length??0)>1){
+    const entries=state.turns[0].entries,protectedIndex=latestDeliveryEntryIndex(entries),dropIndex=entries.findIndex((_,index)=>index!==protectedIndex);
+    entries.splice(dropIndex<0?0:dropIndex,1);json=JSON.stringify(state);
+  }
+  if(json.length>maxBytes&&state.turns.length===1&&(state.turns[0].entries?.length??0)===1){
+    state.turns[0].entries[0]=compactCriticalEntry(state.turns[0].entries[0]);json=JSON.stringify(state);
+  }
+  if(json.length>maxBytes){state.turns=[];state.updatedAt=state.updatedAt??null;json=JSON.stringify(state);}
   return json;
+}
+function isDeliveryEntry(row){return row?.type==='HOST_DELIVERY'||(row?.type==='OWNER_EDGE'&&row?.subtype==='delivery');}
+function latestDeliveryEntryIndex(entries=[]){for(let i=entries.length-1;i>=0;i--)if(isDeliveryEntry(entries[i]))return i;return-1;}
+function latestDeliveryTurnIndex(turns=[]){let chosen=-1,best=-Infinity;for(let i=0;i<turns.length;i++){for(const row of turns[i]?.entries??[]){if(isDeliveryEntry(row)&&Number(row.at??0)>=best){best=Number(row.at??0);chosen=i;}}}return chosen;}
+function pruneEntriesPreservingDelivery(entries=[],limit=64){
+  if(entries.length<=limit)return entries;
+  const start=Math.max(0,entries.length-limit),keep=new Set(entries.slice(start).map(row=>row.identityKey));
+  const protectedIndex=latestDeliveryEntryIndex(entries),protectedRow=protectedIndex>=0?entries[protectedIndex]:null;
+  if(protectedRow&&!keep.has(protectedRow.identityKey)){
+    const removable=entries.slice(start).find(row=>!isDeliveryEntry(row))??entries[start];
+    keep.delete(removable.identityKey);keep.add(protectedRow.identityKey);
+  }
+  return entries.filter(row=>keep.has(row.identityKey));
+}
+function pruneTurnsPreservingDelivery(turns=[],limit=48){
+  if(turns.length<=limit)return turns;
+  const start=Math.max(0,turns.length-limit),keep=new Set(turns.slice(start).map(row=>row.key)),protectedIndex=latestDeliveryTurnIndex(turns),protectedTurn=protectedIndex>=0?turns[protectedIndex]:null;
+  if(protectedTurn&&!keep.has(protectedTurn.key)){
+    const removable=turns.slice(start).find(row=>latestDeliveryEntryIndex(row.entries??[])<0)??turns[start];
+    keep.delete(removable.key);keep.add(protectedTurn.key);
+  }
+  return turns.filter(row=>keep.has(row.key));
+}
+function compactCriticalEntry(row){
+  return{kind:row?.kind??'Area52DemoEvidenceEntry',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,id:row?.id??'delivery',identityKey:row?.identityKey??row?.id??'delivery',type:row?.type??'HOST_DELIVERY',subtype:row?.subtype??null,status:row?.status??'UNKNOWN',title:safeDiagnosticText(row?.title??'Delivery',128),summary:safeDiagnosticText(row?.summary??'Latest delivery evidence retained.',256),detail:'Detail compacted by byte retention policy.',receiptRef:row?.receiptRef??null,selection:normalizeSelection(row?.selection??{}),at:Number(row?.at??0),metadata:{reasonCode:technicalReason(row?.metadata?.reasonCode),state:safeDiagnosticText(row?.metadata?.state??'',64)},rawPromptIncluded:false,storyTextIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false};
+}
+function selectionFenceConflict(a={},b={}){
+  for(const key of ['correlationId','worldRevision','sceneRevision'])if(a?.[key]!=null&&b?.[key]!=null&&String(a[key])!==String(b[key]))return true;
+  const ar=[...(a?.sourceRevisionRefs??[])].map(String).sort(),br=[...(b?.sourceRevisionRefs??[])].map(String).sort();
+  return ar.length&&br.length&&JSON.stringify(ar)!==JSON.stringify(br);
+}
+function selectionFenceCompatible(stored={},requested={}){return !selectionFenceConflict(stored,requested);}
+function mergeSelectionFence(a={},b={}){
+  return{...normalizeSelection(a),...Object.fromEntries(Object.entries(normalizeSelection(b)).filter(([,value])=>value!=null&&(!Array.isArray(value)||value.length))),sourceRevisionRefs:[...new Set([...(a?.sourceRevisionRefs??[]),...(b?.sourceRevisionRefs??[])].map(String))].sort()};
 }
 function clone(value){if(value==null)return value;if(typeof structuredClone==='function')return structuredClone(value);return JSON.parse(JSON.stringify(value));}

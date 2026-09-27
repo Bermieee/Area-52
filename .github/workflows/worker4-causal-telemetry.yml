@@ -1,0 +1,40 @@
+name: Worker 4 causal telemetry
+
+on:
+  push:
+    branches: [Development-Worker-4]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/ui-core/demo-visibility.js'
+      - 'src/selected-turn-causal-report.js'
+      - 'tests/worker4-causal-telemetry-report.test.mjs'
+      - 'scripts/worker4-causal-telemetry-benchmark.mjs'
+      - 'docs/WORKER4_CAUSAL_TELEMETRY_REPORT_CONTRACT.md'
+      - '.github/workflows/worker4-causal-telemetry.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  causal-telemetry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax
+        run: |
+          node --check src/ui-core/demo-visibility.js
+          node --check src/selected-turn-causal-report.js
+          node --check tests/worker4-causal-telemetry-report.test.mjs
+          node --check scripts/worker4-causal-telemetry-benchmark.mjs
+      - name: Worker 4 causal telemetry contract
+        run: node --test tests/worker4-causal-telemetry-report.test.mjs
+      - name: Preserve bounded journal contract
+        run: node --test tests/demo-visibility.test.mjs
+      - name: Preserve Brain causal and runtime receipt contracts
+        run: node --test tests/worker1-brain-lifecycle-causal-wave.mjs tests/runtime-fabric.mjs
+      - name: Measure telemetry overhead
+        run: node scripts/worker4-causal-telemetry-benchmark.mjs

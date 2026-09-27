@@ -160,6 +160,8 @@ test('Worker 2: retrieval use enables bounded plasticity but adds no support or 
   assert.equal(strengthened.independentSupportCount,2);
   assert.equal(strengthened.authorityChanged,false);
   assert.equal(strengthened.retrievalUseCreatedSupport,false);
+  assert.equal(strengthened.maturityStage,'REFLECTION');
+  assert.equal(memory.plasticity.record(artifact.id).authorityClass,'INFERRED');
   const strongValue=strengthened.strength;
 
   memory.plasticity.observeArtifact({...artifact,contradictionEvidenceRefs:[evidence[2].id],sourceRevisionRefs:evidence.map(row=>row.sourceRevisionId)});
@@ -277,15 +279,22 @@ test('Worker 2: useful co-retrieval strengthens only a derived association, reje
 
   const splitProposal=memory.proposeDerivedReorganization({operation:'SPLIT',artifactRefs:[{artifactId:a.id,artifactRevision:1}],targetKeys:['derived:assoc:a:part-1','derived:assoc:a:part-2']});
   const mergeProposal=memory.proposeDerivedReorganization({operation:'MERGE',artifactRefs:[{artifactId:a.id,artifactRevision:1},{artifactId:b.id,artifactRevision:1}],targetKeys:['derived:assoc:merged']});
+  const promoteProposal=memory.proposeDerivedReorganization({operation:'PROMOTE_REPRESENTATION',artifactRefs:[{artifactId:a.id,artifactRevision:1}],targetKeys:['derived:assoc:a:durable']});
   assert.equal(splitProposal.canonicalMutationAuthority,false);
   assert.equal(mergeProposal.ownerAdmissionRequired,true);
+  assert.equal(promoteProposal.ownerAdmissionRequired,true);
+  assert.equal(promoteProposal.canonicalMutationAuthority,false);
   assert.equal(splitProposal.retrievalFeedbackIsEvidence,false);
 
   memory=MemoryTemporalProducer.fromSnapshot(memory.snapshot());
   const restoredAssociation=memory.plasticity.association(a.id,b.id,1,1);
   assert.ok(restoredAssociation);
   assert.equal(restoredAssociation.strength,associationOutcome.strength);
-  assert.equal(memory.plasticity.reorganizationProposals.length,2);
+  assert.equal(memory.plasticity.reorganizationProposals.length,3);
+  const resumedReconsolidation=memory.runReconsolidation({maxUnits:1});
+  assert.equal(resumedReconsolidation.processed,1);
+  assert.equal(resumedReconsolidation.rawEvidenceDeleted,false);
+  assert.equal(resumedReconsolidation.sourceHistoryDeleted,false);
 });
 
 test('Worker 2: hierarchical summary query cost is measured on a long-story shape and exact drillback remains intact',()=>{

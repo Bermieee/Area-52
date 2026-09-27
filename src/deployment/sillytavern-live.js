@@ -298,24 +298,48 @@ async function applyNativeScene(brain, {
   };
   const currentSelection=()=>typeof selectionGuard==='function'?Boolean(selectionGuard()):true;
   const sealed=()=>typeof turnSealed==='function'?Boolean(turnSealed()):false;
-  if(!currentSelection()){
+  const safeParsed=(value)=>{
+    const out=clone(value??{});
+    delete out.sourceText;
+    return out;
+  };
+  const superseded=(semantic=null)=>{
     const signal=prior??null;
     return{
       kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'REJECTED',noWorkReason:'SCENE_SELECTION_SUPERSEDED',
       chatId,sceneId:signal?.sceneId??null,sceneRevision:signal?.sceneRevision??null,sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],
       changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
-      semanticObservation:{status:'SKIPPED',reasonCode:'SCENE_SELECTION_SUPERSEDED',attempted:false,returned:false,ownerAdmitted:false,stale:true},
+      semanticObservation:semantic?{...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:'SCENE_PROPOSAL_SELECTION_SUPERSEDED',stale:true}:{status:'SKIPPED',reasonCode:'SCENE_SELECTION_SUPERSEDED',attempted:false,returned:false,ownerAdmitted:false,stale:true},
       parsed:{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'NO_SCENE_MUTATION_SUPERSEDED_SELECTION'},
       reason:'SCENE_SELECTION_SUPERSEDED',authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
     };
-  }
+  };
+  if(!currentSelection())return superseded();
 
+  // #213 deterministic path: inspect clear host evidence before scheduling any external Scene worker.
+  const previewScene=prior?.sceneId?brain.scene.registry.current(prior.sceneId):null;
+  const deterministicPreview=ownerSourceRevisionId?extractDevelopmentDeploymentScene(message.text,{
+    revision:(Number(previewScene?.revision??prior?.sceneRevision??1)||1)+1,
+    evidenceRef:ownerSourceRevisionId,currentScene:previewScene,sceneRuntime:brain.scene,
+  }):{explicit:false,fields:{},boundarySignals:null};
   let semantic=null,admission=null,receipt=null,parsed=null,jevAdvice=null;
-  if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
+  if(deterministicPreview?.explicit){
+    let ownerParsed=null;
+    receipt=brain.ingestSceneHostEvent(hostEvent,{
+      extract:(e,scene)=>{
+        ownerParsed=extractDevelopmentDeploymentScene(e.content,{
+          revision:scene.revision+1,evidenceRef:e.sourceRevisionId,currentScene:scene,sceneRuntime:brain.scene,
+        });
+        return ownerParsed;
+      },
+    });
+    parsed={...safeParsed(ownerParsed??deterministicPreview),extractionPolicy:'DETERMINISTIC_SCENE_OWNER'};
+  }else if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
     semantic=await brain.runSceneObservationWork({
       chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:'corr:'+resolvedTurnId,
       sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,
     });
+    if(!currentSelection())return superseded(semantic);
     const hasSemanticWork=semantic?.status==='RETURNED'&&(
       Object.keys(semantic?.proposal?.fields??{}).length>0||Object.keys(semantic?.boundarySignals??{}).length>0
     );
@@ -325,6 +349,7 @@ async function applyNativeScene(brain, {
         work:semantic,hostEvent,currentSelection,turnSealed,
       });
     }
+    if(!currentSelection())return superseded(semantic);
     if(hasSemanticWork||jevAdvice?.accepted===true){
       admission=brain.admitSceneObservationProposal({
         work:semantic,hostEvent,currentSelection:currentSelection(),turnSealed:sealed(),jevAdvice,
@@ -333,8 +358,9 @@ async function applyNativeScene(brain, {
       parsed={
         explicit:true,fields:clone(semantic.proposal?.fields??{}),boundarySignals:clone(semantic.boundarySignals??{}),
         relationship:null,resumeSceneId:null,allowWhenRefreshRequired:false,extractionPolicy:'SEMANTIC_COGNITIVE_RESOURCE',
+        ambiguityCount:Array.isArray(semantic.ambiguities)?Math.min(4,semantic.ambiguities.length):0,
       };
-      if(!admission?.accepted&&['SCENE_PROPOSAL_SELECTION_SUPERSEDED','SCENE_PROPOSAL_LATE_AFTER_SEAL','SCENE_PROPOSAL_STALE_REVISION'].includes(admission?.reasonCode)){
+      if(!admission?.accepted&&['SCENE_PROPOSAL_SELECTION_SUPERSEDED','SCENE_PROPOSAL_LATE_AFTER_SEAL','SCENE_PROPOSAL_STALE_REVISION','SCENE_PROPOSAL_SOURCE_FENCE_MISMATCH','SCENE_JEV_ADVICE_FENCE_MISMATCH'].includes(admission?.reasonCode)){
         const signal=prior??brain.scene.integrationSignal(chatId);
         return{
           ...(receipt??{}),kind:receipt?.kind??'DeploymentSceneOwnerReceipt',status:'REJECTED',noWorkReason:admission.reasonCode,
@@ -356,6 +382,18 @@ async function applyNativeScene(brain, {
   }
 
   if(!receipt){
+    if(!currentSelection())return superseded(semantic);
+    if(semantic&&phase!=='POST_RESPONSE'&&sealed()){
+      const signal=prior??brain.scene.integrationSignal(chatId);
+      return{
+        kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'REJECTED',noWorkReason:'SCENE_PROPOSAL_LATE_AFTER_SEAL',
+        chatId,sceneId:signal?.sceneId??semantic.proposal?.sceneId??null,sceneRevision:signal?.sceneRevision??semantic.proposal?.baseRevision??null,
+        sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
+        semanticObservation:{...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:'SCENE_PROPOSAL_LATE_AFTER_SEAL',late:true},
+        parsed:{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'NO_SCENE_MUTATION_LATE_RESULT'},
+        reason:'SCENE_PROPOSAL_LATE_AFTER_SEAL',authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
+      };
+    }
     let fallbackParsed=null;
     receipt=brain.ingestSceneHostEvent(hostEvent,{
       extract:(e,scene)=>{
@@ -365,7 +403,7 @@ async function applyNativeScene(brain, {
         return fallbackParsed;
       },
     });
-    parsed=fallbackParsed??{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'};
+    parsed=safeParsed(fallbackParsed??{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'});
   }
   const signal=receipt.signal??prior??(ownerSourceRevisionId?brain.ensureScene({chatId,sourceRevisionId:ownerSourceRevisionId}):sourceRevisionId?brain.ensureScene({chatId,sourceRevisionId}):null);
   const observed=receipt.status==='OBSERVED';
@@ -384,7 +422,7 @@ async function applyNativeScene(brain, {
     ...receipt,observed,initialized,parsed,signal,delta:receipt.delta??null,semanticObservation,
     extractionPolicy:parsed?.extractionPolicy??'GENERIC_HOST_EVIDENCE_ONLY',
     reason:observed
-      ? (receipt.transition?'HOST_SCENE_TRANSITION_OBSERVED':parsed?.extractionPolicy==='SEMANTIC_COGNITIVE_RESOURCE'?'SEMANTIC_SCENE_FIELDS_ADMITTED':'HOST_SCENE_FIELDS_OBSERVED')
+      ? (receipt.transition?'HOST_SCENE_TRANSITION_OBSERVED':parsed?.extractionPolicy==='SEMANTIC_COGNITIVE_RESOURCE'?'SEMANTIC_SCENE_FIELDS_ADMITTED':parsed?.extractionPolicy==='DETERMINISTIC_SCENE_OWNER'?'DETERMINISTIC_SCENE_FIELDS_ADMITTED':'HOST_SCENE_FIELDS_OBSERVED')
       : (initialized?'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS':receipt.noWorkReason??'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT'),
   };
 }

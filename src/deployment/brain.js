@@ -21,6 +21,7 @@ import { SceneEventPublisher } from '../scene/event-publisher.js';
 import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
+import { CausalReasonCode } from '../runtime/causal-receipts.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
 import { createCoprocessorResourceHost } from '../coprocessor/resource-host-adapter.js';
 import { CoprocessorResourceConnections } from '../coprocessor/resource-connections.js';
@@ -43,6 +44,13 @@ const uniq = (values) => [...new Set((values ?? []).filter(Boolean).map(String))
 const clone = (value) => value == null ? value : structuredClone(value);
 const payloadSizeClass=(n)=>n<512?'XS':n<2048?'S':n<8192?'M':n<32768?'L':'XL';
 const heapSample=()=>Number(globalThis.performance?.memory?.usedJSHeapSize??0)||null;
+const sceneCausalAdmissionReason=(reasonCode,accepted)=>{
+  if(accepted)return CausalReasonCode.OWNER_ACCEPTED;
+  if(reasonCode==='SCENE_PROPOSAL_STALE_REVISION')return CausalReasonCode.STALE_RESULT;
+  if(reasonCode==='SCENE_PROPOSAL_LATE_AFTER_SEAL')return CausalReasonCode.LATE_RESULT;
+  if(reasonCode==='SCENE_PROPOSAL_SELECTION_SUPERSEDED')return CausalReasonCode.SUPERSEDED;
+  return CausalReasonCode.OWNER_REJECTED;
+};
 const unsupportedDeterministicStudy = (error) => /^RuleBasedStudyAdapter has no deterministic extractor for:/.test(String(error?.message ?? error));
 
 function field(value, revision, evidenceRef, observationClass = ObservationClass.OBSERVED, confidence = 1) {
@@ -683,7 +691,7 @@ export class DevelopmentDeploymentBrain {
     const proposal=work?.proposal,execution=work?.executionReceipt??null;
     const taskId=execution?.workId??null;
     const reject=(reasonCode,{stale=false,late=false,invalid=false}={})=>{
-      if(taskId&&this.resourceDirector.ledger.get(taskId))this.resourceDirector.recordOwnerAdmission(taskId,{accepted:false,reasonCode,consumerId:'SCENE_OWNER'});
+      if(taskId&&this.resourceDirector.ledger.get(taskId))this.resourceDirector.recordOwnerAdmission(taskId,{accepted:false,reasonCode:sceneCausalAdmissionReason(reasonCode,false),consumerId:'SCENE_OWNER'});
       const receipt=this.#sceneObservationOwnerReceipt({execution,accepted:false,reasonCode,stale,late,invalid,ownerReceipt:null});
       this.#retainSceneObservationReceipt(receipt);this.resourceOwnerReceipts.push(clone(receipt));while(this.resourceOwnerReceipts.length>128)this.resourceOwnerReceipts.shift();
       return{kind:'SceneObservationAdmissionResult',accepted:false,reasonCode,ownerReceipt:null,receipt};
@@ -707,7 +715,7 @@ export class DevelopmentDeploymentBrain {
     }
     const accepted=ownerReceipt?.status==='OBSERVED';
     const reasonCode=accepted?'SCENE_OWNER_ADMITTED':ownerReceipt?.noWorkReason??'SCENE_OWNER_NO_CHANGE';
-    if(taskId&&this.resourceDirector.ledger.get(taskId))this.resourceDirector.recordOwnerAdmission(taskId,{accepted,reasonCode,consumerId:'SCENE_OWNER'});
+    if(taskId&&this.resourceDirector.ledger.get(taskId))this.resourceDirector.recordOwnerAdmission(taskId,{accepted,reasonCode:sceneCausalAdmissionReason(reasonCode,accepted),consumerId:'SCENE_OWNER'});
     const receipt=this.#sceneObservationOwnerReceipt({execution,accepted,reasonCode,ownerReceipt});
     this.#retainSceneObservationReceipt(receipt);this.resourceOwnerReceipts.push(clone(receipt));while(this.resourceOwnerReceipts.length>128)this.resourceOwnerReceipts.shift();
     return{kind:'SceneObservationAdmissionResult',accepted,reasonCode,ownerReceipt,receipt};

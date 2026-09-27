@@ -196,3 +196,145 @@ test('native Brain reindexes only the changed Lore sparse source and tombstones 
   });
   assert.equal(channelCandidates(postRemoval.candidateEnvelope,'OWNER_SPARSE_EXACT').length,0);
 });
+
+
+function minimalTurnScene(sceneId,sceneRevision){
+  return turnScene(sceneId,sceneRevision,{location:null,activeCast:[],activeThreads:[],objects:[],activeRelationships:[]});
+}
+function enableHierarchyOwnerPacket(owner,row){
+  owner.api.queryScoped=(request={})=>{
+    owner.state.queryCalls.push(structuredClone(request));
+    const revision=row.revision;
+    return{
+      kind:'LoreBrainRetrievalPacket',contractVersion:1,status:'ELIGIBLE',reason:'AUTHORIZED_CURRENT_RETRIEVAL_MATCH',
+      query:String(request.query??''),intent:String(request.intent??'AUTO'),retrievalIntentId:request.intentId??null,
+      indexRevision:'hierarchy-index:1',ontologyRevision:'hierarchy-ontology:1',
+      sourceRevisionFence:[revision.id],
+      nominations:[{
+        nomination:{
+          candidateId:'hierarchy:'+row.sourceId,normalizedRank:.92,
+          rankSignals:{hierarchy:.92,community:.88},truthStatusHint:'CURRENT',
+          temporalHints:[{status:'CURRENT'}],metadata:{resolution:'COMMUNITY',owner:'LORE'},
+        },
+        drillback:[{
+          sourceId:row.sourceId,lorebookId:row.lorebookId,uid:row.uid,sourceRevisionId:revision.id,
+          exactAuthoredText:revision.exactContent,representationRef:'hierarchy-source:'+revision.id,
+          truthStatusHint:'CURRENT',temporalHints:[{status:'CURRENT'}],provenance:[{ref:revision.id}],
+        }],
+      }],
+      candidateReceipts:[],exclusionReceipts:[],
+      storyScope:{chatId:String(request.chatId??''),state:'BOUND',acceptedForStudy:[{lorebookId:row.lorebookId}],readLorebookIds:[row.lorebookId]},
+    };
+  };
+}
+
+test('selected-turn retrieval quality HIGH proceeds and exact sparse lineage reaches Truth, Gather and Context Seal',async()=>{
+  const row=entry();
+  const owner=mutableLoreOwner([row]);
+  const brain=new Area52NativeBrain({loreInterface:owner.api});
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:a',turnId:'worker3:quality:high',generationId:'worker3:qualitygen:high',
+    query:'moon-key-77',scene:minimalTurnScene('worker3-quality-high',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.retrievalQualityReceipt.quality,'HIGH');
+  assert.equal(prepared.correctiveRetrievalReceipt.correctivePasses,0);
+  const sparse=channelCandidates(prepared.candidateEnvelope,'OWNER_SPARSE_EXACT')[0];
+  assert.ok(sparse);
+  const trace=prepared.candidateTraceReceipt.rows.find(row=>row.candidateId===sparse.candidateId);
+  assert.equal(trace.truthUsable,true);
+  assert.equal(trace.gathered,true);
+  assert.equal(trace.sealed,true);
+  assert.ok(trace.resultId);
+  assert.ok((prepared.gatherReceipt.admittedCandidateIds??[]).includes(sparse.candidateId));
+  assert.equal(prepared.candidateTraceReceipt.hostDeliveryInferred,false);
+});
+
+test('selected-turn retrieval quality MIXED performs exactly one bounded corrective pass',async()=>{
+  const brain=new Area52NativeBrain();
+  brain.acceptLore({
+    sourceId:'lore:mixed:omen',sourceType:'LORE_ENTRY',exactContent:'Moon Omen remains disputed.',
+    temporalStatus:'UNRESOLVED',metadata:{representationText:'Moon Omen remains disputed.'},
+  });
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:mixed',turnId:'worker3:quality:mixed',generationId:'worker3:qualitygen:mixed',
+    query:'Moon Omen disputed',scene:minimalTurnScene('worker3-quality-mixed',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.retrievalQualityReceipt.quality,'MIXED');
+  assert.equal(prepared.correctiveRetrievalReceipt.correctivePasses,1);
+  assert.equal(prepared.correctiveRetrievalReceipt.terminated,true);
+  assert.ok(['QUERY_REFORMULATION','SPARSE_RETRY','GRAPH_EXPANSION','ENTITY_CONSTRAINED_SEARCH','TEMPORAL_NARROWING'].includes(prepared.correctiveRetrievalReceipt.action));
+  assert.equal(prepared.correctiveRetrievalReceipt.maxCorrectiveAttempts,1);
+});
+
+test('selected-turn retrieval quality LOW abstains from long-term memory admission',async()=>{
+  const row=entry();
+  const owner=mutableLoreOwner([row]);
+  const brain=new Area52NativeBrain({loreInterface:owner.api});
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:a',turnId:'worker3:quality:low',generationId:'worker3:qualitygen:low',
+    query:'zzqv nonexistent memory target',anchorEntityIds:['missing:anchor'],
+    scene:minimalTurnScene('worker3-quality-low',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.retrievalQualityReceipt.quality,'LOW');
+  assert.equal(prepared.correctiveRetrievalReceipt.correctivePasses,0);
+  assert.deepEqual(prepared.gatherReceipt.admittedCandidateIds??[],[]);
+  assert.equal(prepared.retrievalQualityReceipt.allowLongTermMemory,false);
+});
+
+test('relationship-only selected turn consumes existing Graph Walker provider candidates without granting graph truth authority',async()=>{
+  const brain=new Area52NativeBrain();
+  const graphRevision='graph:relationship:r1';
+  brain.registerGraphProvider({
+    providerId:'WORKER4_RELATIONSHIP_GRAPH',owner:'WORKER4_GRAPH',semanticsVersion:'1',
+    isRevisionCurrent:(ref)=>ref===graphRevision,
+    query:()=>({providerRevision:'worker4-graph:1',edges:[{
+      edgeId:'rel:mara:lio',fromEntityId:'Mara',toEntityId:'Lio',edgeMeaning:'ALLY_OF',
+      sourceKind:'OWNER_GRAPH',temporalStatus:'CURRENT',authorityClass:'OBSERVED',
+      sourceRevisionRefs:[graphRevision],provenanceRefs:['worker4:rel:mara:lio'],
+      representationText:'Mara and Lio are current allies.',
+    }]}),
+  });
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:graph',turnId:'worker3:graph:1',generationId:'worker3:graphgen:1',
+    query:'How is Mara related to Lio?',anchorEntityIds:['Mara'],
+    scene:turnScene('worker3-graph',1,{location:null,activeCast:['Mara','Lio'],activeThreads:[],objects:[],activeRelationships:[{relationshipId:'rel:mara:lio'}]}),
+    graphTraversal:{maxDepth:1,maxNodes:16,maxEdges:32,maxCandidates:8},budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  const graphRows=channelCandidates(prepared.candidateEnvelope,'ZZ_NATIVE_GRAPH_WALKER');
+  assert.ok(graphRows.some(candidate=>(candidate.graphMetadata??[]).some(meta=>meta.edgeMeaning==='ALLY_OF')));
+  assert.equal(graphRows.some(candidate=>candidate.authority?.truth===true),false);
+});
+
+test('broad conceptual selected turn consumes existing owner Lore hierarchy nominations through the owner interface',async()=>{
+  const row=entry({content:'The Moon Key belongs to a long lunar relic tradition.'});
+  const owner=mutableLoreOwner([row]);
+  enableHierarchyOwnerPacket(owner,row);
+  const brain=new Area52NativeBrain({loreInterface:owner.api});
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:a',turnId:'worker3:broad:1',generationId:'worker3:broadgen:1',
+    query:'Give an overview of lunar relic traditions.',scene:minimalTurnScene('worker3-broad',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  const loreRows=channelCandidates(prepared.candidateEnvelope,'OWNER_LORE');
+  assert.ok(loreRows.length>0);
+  assert.ok(loreRows.some(candidate=>(candidate.channelNominations??[]).some(nomination=>Number(nomination.rankSignals?.hierarchy)>0)));
+  assert.ok(owner.state.queryCalls.some(call=>call.intent==='AUTO'));
+});
+
+test('paraphrase-only selected turn reports production dense capability unavailable and makes no dense-execution claim',async()=>{
+  const row=entry();
+  const owner=mutableLoreOwner([row]);
+  const brain=new Area52NativeBrain({loreInterface:owner.api});
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:a',turnId:'worker3:paraphrase:1',generationId:'worker3:paraphrasegen:1',
+    query:'ceremonial implement bound to a nocturnal satellite',scene:minimalTurnScene('worker3-paraphrase',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  const denseReceipt=(prepared.candidateEnvelope.metadata?.channelReceipts??[]).find(row=>row.channelId==='DENSE_EMBEDDINGS');
+  assert.equal(denseReceipt?.status,'UNAVAILABLE');
+  assert.equal(channelCandidates(prepared.candidateEnvelope,'DENSE_EMBEDDINGS').length,0);
+  assert.equal(prepared.retrievalQualityReceipt.productionDenseExecuted,false);
+});

@@ -35,6 +35,7 @@ const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
 const req=(value,name)=>{if(typeof value!=='string'||!value.trim())throw new TypeError(name+' must be a non-empty string');return value.trim();};
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
+const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
 
 function sceneSignalFrom(input,chatId){
   if(input?.kind==='SceneIntegrationSignal')return clone(input);
@@ -333,6 +334,7 @@ export class Area52NativeBrain{
     candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,
     executionLabel='LIVE_HOST',
   }={}){
+    const turnStarted=perfNow();
     const chat=req(chatId,'chatId'),turn=req(turnId,'turnId'),generation=req(generationId,'generationId'),q=req(query,'query');
     const corr=correlationId??('corr:'+turn);
     this.core.activateHotCognitionChat(chat,{reason:'TURN_RECEIVED'});
@@ -398,10 +400,12 @@ export class Area52NativeBrain{
       sourceRevisionIds:[...new Set(narrativeMessages.flatMap(row=>row.sourceRevisionRefs??[]))].sort(),role:'context',
       required:false,priority:8,metadata:{contextRetirementReceiptId:contextRetirement.receiptId,hostHistoryMutation:false},
     }]:[];
+    const deliveryStarted=perfNow();
     const delivery=this.core.deliverGenerationContext({
       published,chatId:chat,generationId,correlationId:corr,worldRevision:published.worldRevision,sceneRevision:sceneState.sceneRevision,
       modelProfileId,budgetTokens,systemPolicy,userInput:q,contributions,providerId,modelId,routeId,observedCacheBehavior,
     });
+    const deliveryWallMs=Math.max(0,perfNow()-deliveryStarted);
     if(!delivery?.ok)throw new Error('NATIVE_BRAIN_DELIVERY_FAILED:'+String(delivery?.status??delivery?.failure?.code??'UNKNOWN'));
     const retrievalSkipped=(published.cognitiveChoiceReceipt?.skippedJobs??[]).includes('RETRIEVAL');
     if(retrievalSkipped){const reason=(published.cognitiveChoiceReceipt?.reasonCodes??[]).includes('HOT_SUFFICIENT')?'HOT_SUFFICIENT':'COGNITIVE_CHOICE_SKIPPED_RETRIEVAL';this.ownerLoreChannel.finalizeSkipped(reason);this.ownerMemoryChannel.finalizeSkipped(reason);}
@@ -429,9 +433,23 @@ export class Area52NativeBrain{
       },
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal),retrievalIntents:clone(retrievalIntents)},
       sparseRetrievalReceipt:clone(sparseRetrievalReceipt),
-      published:clone(published),delivery:clone(delivery),contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
-      state:'SEALED_FOR_GENERATION',
+      published,delivery,contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
+      performance:{
+        kind:'NativeBrainGenerationPerformanceReceipt',contractVersion:1,
+        chatId:chat,turnId:turn,generationId:generation,correlationId:corr,sceneRevision:sceneState.sceneRevision,worldRevision:published.worldRevision,
+        stages:[
+          ...(published.performanceReceipt?.stages??[]),
+          {stage:'PROMPT_PLAN',wallMs:deliveryWallMs,queueWaitMs:0,inputCount:(published.sealReceipt?.admittedResultIds??[]).length,outputCount:(delivery.plan?.sections??[]).length,inputBytes:published.compilerReceipt?.compiledBytes??null,outputBytes:null,inputSizeClass:null,outputSizeClass:null,retainedObjectCount:(delivery.plan?.sections??[]).length,retainedBytes:null,outcome:delivery?.ok?'PLANNED':'FAILED'},
+        ].slice(0,24),
+        counts:{...(published.performanceReceipt?.counts??{}),promptSections:(delivery.plan?.sections??[]).length,deferredSections:(delivery.plan?.deferred??[]).length},
+        sizes:{...(published.performanceReceipt?.sizes??{}),promptPlanTokens:delivery.plan?.budget?.allocated??null,promptBudgetTokens:delivery.plan?.budget?.total??null},
+        retained:{...(published.performanceReceipt?.retained??{}),promptSections:(delivery.plan?.sections??[]).length},
+        detailedProfiling:false,rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      },
+      memoryReadDiagnosis:null,state:'SEALED_FOR_GENERATION',
     };
+    record.performance.stages.push({stage:'BRAIN_PREPARATION_TOTAL',wallMs:Math.max(0,perfNow()-turnStarted),queueWaitMs:0,inputCount:1,outputCount:1,inputBytes:null,outputBytes:null,inputSizeClass:null,outputSizeClass:null,retainedObjectCount:1,retainedBytes:null,outcome:'SEALED_FOR_GENERATION'});
+    record.performance.stages=record.performance.stages.slice(-24);
     this.#rememberTurn(record);
     this.#notify('TURN_PREPARED',record);
     return clone({
@@ -506,8 +524,12 @@ export class Area52NativeBrain{
       const mismatch=(responsePhase?.identityMismatch??[]).join(',')||'unknown';
       throw new Error('PROVIDER_RESPONSE_IDENTITY_MISMATCH:'+mismatch);
     }
-    record.delivery.receipt=clone(deliveryReceipt);this.#notify('PROVIDER_RESPONSE_RECEIVED',record);
+    record.delivery.receipt=clone(deliveryReceipt);
+    this.#appendPerformanceStage(record,{stage:'PROVIDER_RESPONSE',wallMs:typeof raw==='object'&&raw!==null?raw.providerLatencyMs:null,queueWaitMs:typeof raw==='object'&&raw!==null?raw.providerQueueWaitMs:0,inputCount:1,outputCount:1,outcome:'RECEIVED'});
+    this.#notify('PROVIDER_RESPONSE_RECEIVED',record);
+    const learningStarted=perfNow();
     const learning=await this.completeTurn({turnId:input.turnId,response,...completeOptions});
+    this.#appendPerformanceStage(record,{stage:'LEARNING',wallMs:Math.max(0,perfNow()-learningStarted),queueWaitMs:0,inputCount:1,outputCount:learning?1:0,outcome:learning?'COMPLETED':'NO_RECEIPT'});
     return{prepared,response,learning};
   }
 
@@ -636,7 +658,7 @@ export class Area52NativeBrain{
       readSelection:({chatId}={})=>this.#selectionForChat(chatId),
       subscribe:(listener)=>this.subscribe(listener),
       readScene:(selection={})=>this.#readStage(selection,record=>createSceneUiReadModelFromIntegrationState(this.core.sceneIntegrationSnapshot(record.chatId))),
-      readHotCognition:(selection={})=>this.#readStage(selection,record=>this.core.hotCognitionSnapshot(record.chatId)),
+      readHotCognition:(selection={})=>this.#readStage(selection,record=>this.#generationHotSnapshot(record)),
       readCognitiveChoice:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt??null),
       readScatter:(selection={})=>this.#readStage(selection,record=>this.#uiScatterReceipt(record)),
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
@@ -716,13 +738,16 @@ export class Area52NativeBrain{
       durationMs:Number.isFinite(Number(evidence.durationMs))?Math.max(0,Number(evidence.durationMs)):null,capturedAt:evidence.capturedAt??null,
       rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
     };
+    this.#appendPerformanceStage(record,{stage:'HOST_PREPARATION',wallMs:record.hostObservation.durationMs,queueWaitMs:0,inputCount:1,outputCount:1,outcome:'HOST_EVENT_PREPARED'});
     this.#notify('HOST_OBSERVATION_RECORDED',record);return clone(record.hostObservation);
   }
   recordObservedHostPromptEvidence(turnId,evidence={}){
     const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record)throw new Error('Unknown native Brain turn: '+id);
     const bounded={...clone(evidence),chatId:evidence.chatId??record.chatId,turnId:evidence.turnId??record.turnId,generationId:evidence.generationId??record.generationId,correlationId:evidence.correlationId??record.correlationId,contextSealId:evidence.contextSealId??record.delivery?.receipt?.contextSealId};
     for(const [name,expected] of [['chatId',record.chatId],['turnId',record.turnId],['generationId',record.generationId],['correlationId',record.correlationId]])if(bounded[name]!=null&&String(bounded[name])!==String(expected))throw new Error('HOST_DELIVERY_IDENTITY_MISMATCH:'+name);
-    const receipt=this.core.delivery.attachObservedHostEvidence(record.delivery?.receipt,bounded);record.delivery.receipt=clone(receipt);this.#notify('HOST_DELIVERY_EVIDENCE_RECORDED',record);return clone(receipt);
+    const receipt=this.core.delivery.attachObservedHostEvidence(record.delivery?.receipt,bounded);record.delivery.receipt=clone(receipt);
+    this.#appendPerformanceStage(record,{stage:'HOST_INSERTION',wallMs:bounded.insertionDurationMs,queueWaitMs:0,inputCount:Number(bounded.area52MessageCount??bounded.observedRoles?.length??0),outputCount:Number(bounded.hostMessageCount??0),inputBytes:bounded.area52InputBytes??null,outputBytes:null,retainedObjectCount:0,retainedBytes:0,outcome:receipt?.phases?.hostRequest?.status==='OBSERVED_MATCH'?'OBSERVED_MATCH':'OBSERVATION_REJECTED'});
+    this.#notify('HOST_DELIVERY_EVIDENCE_RECORDED',record);return clone(receipt);
   }
   identityReferences(entityIds=[],options={}){return this.core.entityIdentityReferences(entityIds,options);}
   temporalReferences(options={}){return this.core.temporalStateReferences(options);}
@@ -1093,6 +1118,31 @@ export class Area52NativeBrain{
     for(const listener of [...this.listeners])try{listener(event);}catch{}
   }
 
+  #generationHotSnapshot(record){
+    const sealed=this.core.hotCognition?.snapshotForTurn?.(record.turnId)??null;
+    if(!sealed?.snapshot)return null;
+    return{
+      ...clone(sealed.snapshot),
+      generationFence:{kind:'HotGenerationSourceFence',turnId:record.turnId,generationId:record.generationId,contextSealId:sealed.contextSealId??record.published?.sealReceipt?.id??null,sourceRevisionRefs:[...(record.sourceRevisionSet??[])],postResponseNarrativeExcluded:true},
+    };
+  }
+
+  #appendPerformanceStage(record,row={}){
+    if(!record)return null;
+    if(!record.performance)record.performance={kind:'NativeBrainGenerationPerformanceReceipt',contractVersion:1,chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,stages:[],counts:{},sizes:{},retained:{},detailedProfiling:false,rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false};
+    const wall=Number(row.wallMs),queue=Number(row.queueWaitMs);
+    const next={
+      stage:String(row.stage??'UNKNOWN'),wallMs:Number.isFinite(wall)?Math.max(0,wall):null,queueWaitMs:Number.isFinite(queue)?Math.max(0,queue):0,
+      inputCount:Math.max(0,Number(row.inputCount)||0),outputCount:Math.max(0,Number(row.outputCount)||0),
+      inputBytes:Number.isFinite(Number(row.inputBytes))?Math.max(0,Number(row.inputBytes)):null,outputBytes:Number.isFinite(Number(row.outputBytes))?Math.max(0,Number(row.outputBytes)):null,
+      inputSizeClass:row.inputSizeClass??null,outputSizeClass:row.outputSizeClass??null,
+      retainedObjectCount:Math.max(0,Number(row.retainedObjectCount)||0),retainedBytes:Number.isFinite(Number(row.retainedBytes))?Math.max(0,Number(row.retainedBytes)):null,
+      outcome:String(row.outcome??'RECORDED'),
+    };
+    record.performance.stages=[...(record.performance.stages??[]).filter(stage=>stage.stage!==next.stage),next].slice(-24);
+    return next;
+  }
+
   #selection(record){
     const sceneRefs=new Set(record.sceneSourceRevisionRefs??[]);
     const ownerSourceRevisionRefs=uniq(record.ownerSourceRevisionSet??(record.sourceRevisionSet??[]).filter(ref=>!sceneRefs.has(ref)&&!this.core.registry.getRevision(ref)));
@@ -1110,6 +1160,7 @@ export class Area52NativeBrain{
 
   #selectedTurnReceipt(record){
     const selection=this.#selection(record),hostObservation=record.hostObservation??null,scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
+    const learnedNarrativeRefs=uniq([record.experience?.sourceRevisionId,record.learningReceipt?.sourceRevisionId].filter(ref=>ref&&!selection.sourceRevisionRefs.includes(String(ref))));
     const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record),expectedWork=this.#expectedWorkReadModel(record);
     const candidate=record.published?.candidateEnvelope??null,truth=record.published?.publicationAssessment??record.published?.assessment??null;
     const stageId=(stage,value,explicit=null)=>!value?null:(explicit??value.receiptId??value.id??value.envelopeId??value.promptPlanId??('native:'+stage+':'+stableHash({turnId:record.turnId,stage,kind:value.kind??null},{length:20})));
@@ -1197,8 +1248,9 @@ export class Area52NativeBrain{
     const causalOwnerEvents=Object.entries(producers).map(([stage,event])=>({stage,...clone(event)})).slice(0,32);
     return{
       kind:'NativeBrainSelectedTurnReceipt',contractVersion:2,...selection,
-      sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length},
+      sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length,generationPreSealRefs:selectedRefs,postResponseLearnedNarrativeRefs:learnedNarrativeRefs,postResponseNarrativeExcludedFromGenerationFence:true},
       producers,causalOwnerEvents,expectedWork,sceneFlow,sceneFences,
+      performance:clone(record.performance??record.published?.performanceReceipt??null),
       counts:{
         admittedJobs:(choice?.admittedJobs??[]).length,skippedJobs:(choice?.skippedJobs??[]).length,
         admittedResults:(gather?.admittedResultIds??[]).length,staleResults:(gather?.staleResultIds??[]).length,rejectedResults:(gather?.rejectedResultIds??[]).length,
@@ -1316,11 +1368,30 @@ export class Area52NativeBrain{
   }
 
   #memoryReadModel(record,selection={}){
+    const expected=this.#selection(record),writeback=record.learningReceipt?.memoryWriteback??null,episode=record.learningReceipt?.memoryPostTurn??record.memoryPostTurn??null;
+    const writeStatus=String(writeback?.status??'NO_WRITE').toUpperCase(),episodeStatus=String(episode?.status??'NO_EPISODE').toUpperCase();
+    const writePresent=['ADMITTED','REPLAYED'].includes(writeStatus)||['ADMITTED','REPLAYED','COMPLETED'].includes(episodeStatus)||Boolean(episode?.episodeId);
+    const baseDiagnosis={writeState:writePresent?'WRITE_PRESENT':'WRITE_ABSENT',writeStatus,episodeStatus,ownerReceiptKind:writeback?.ownerReceipt?.kind??null};
     const read=this.memoryInterface?.readMemory??this.memoryInterface?.adapters?.readMemory;
     if(typeof read==='function'){
-      try{const value=read({...this.#selection(record),...clone(selection)});if(value&&typeof value.then!=='function')return value;}catch{}
-    }
-    return{kind:'NativeBrainMemoryStatus',...this.#selection(record),sync:clone(record.memorySync??null),fallbackStore:this.memoryInterface?null:this.knowledge.diagnostics(),authorityGranted:false};
+      try{
+        const value=read({...expected,...clone(selection)});
+        if(value&&typeof value.then!=='function'){
+          const fields=['chatId','turnId','generationId','correlationId','sceneRevision','worldRevision'];
+          const mismatchFields=fields.filter(name=>value?.[name]!=null&&expected?.[name]!=null&&String(value[name])!==String(expected[name]));
+          const diagnosis={...baseDiagnosis,state:mismatchFields.length?'READER_SELECTION_MISMATCH':writePresent?'WRITE_PRESENT_READER_AVAILABLE':'WRITE_ABSENT',reasonCode:mismatchFields.length?'MEMORY_READER_SELECTION_MISMATCH':writePresent?'MEMORY_WRITE_PRESENT_READER_AVAILABLE':'MEMORY_WRITE_ABSENT',mismatchFields};
+          record.memoryReadDiagnosis=diagnosis;
+          return{...clone(value),evidenceDiagnosis:clone(diagnosis)};
+        }
+        const diagnosis={...baseDiagnosis,state:writePresent?'WRITE_PRESENT_READER_EMPTY':'WRITE_ABSENT',reasonCode:writePresent?'MEMORY_WRITE_PRESENT_READER_RETURNED_NO_MODEL':'MEMORY_WRITE_ABSENT',mismatchFields:[]};
+        record.memoryReadDiagnosis=diagnosis;
+      }catch(error){
+        const code=String(error?.code??'MEMORY_READ_FAILED').slice(0,96),selectionMismatch=/SELECTION|STALE|FOREIGN|FENCE/.test(code.toUpperCase());
+        const diagnosis={...baseDiagnosis,state:selectionMismatch?'READER_SELECTION_MISMATCH':writePresent?'WRITE_PRESENT_READER_FAILED':'WRITE_ABSENT',reasonCode:selectionMismatch?'MEMORY_READER_SELECTION_MISMATCH':writePresent?'MEMORY_READER_FAILED_AFTER_WRITE':'MEMORY_WRITE_ABSENT',readerErrorCode:code,mismatchFields:[]};
+        record.memoryReadDiagnosis=diagnosis;
+      }
+    }else record.memoryReadDiagnosis={...baseDiagnosis,state:writePresent?'WRITE_PRESENT_READER_UNAVAILABLE':'WRITE_ABSENT',reasonCode:writePresent?'MEMORY_READER_UNAVAILABLE_AFTER_WRITE':'MEMORY_WRITE_ABSENT',mismatchFields:[]};
+    return{kind:'NativeBrainMemoryStatus',...expected,sync:clone(record.memorySync??null),fallbackStore:this.memoryInterface?null:this.knowledge.diagnostics(),evidenceDiagnosis:clone(record.memoryReadDiagnosis),authorityGranted:false};
   }
 
   #memoryOwnerArtifactRef(record,experience){

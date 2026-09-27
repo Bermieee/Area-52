@@ -236,6 +236,8 @@ test('provider timeout takes bounded required fallback and does not admit the la
   assert.ok(required.every(row=>row.state===NativeSwarmResultState.READY_FOR_CORE&&row.fallbackUsed));
   assert.ok(connections.stats().physical>=1);
   assert.ok(required.every(row=>row.providerId==='area52:deterministic-fallback'));
+  assert.ok(required.every(row=>row.ownerAdmissible===false));
+  assert.equal(result.contribution.resultsForOwner.length,0);
 });
 
 test('sealed foreground rejects returned provider work without fallback or late owner admission',async()=>{

@@ -260,9 +260,10 @@ export class CoprocessorResourceConnections{
     if(row.kind!==ResourceKind.OPENAI_COMPATIBLE)throw new TypeError('endpoint changes require an OpenAI-compatible resource');
     const value=validatedEndpoint(endpoint);
     if(row.endpoint===safeEndpoint(value))return this.readResource(resourceId);
+    if(new URL(value).origin!==new URL(row.endpoint).origin)throw new TypeError('endpoint changes across hosts require a new resource and credential');
     const identity=classifyProviderIdentity(value,row.kind);
     if(identity.family!==row.providerIdentity.family||isLocalEndpoint(value)!==row.local)throw new TypeError('endpoint changes across provider families or local/remote boundaries require a new resource');
-    if(row.activeExecutions>0)throw new Error('endpoint cannot change during an active execution');
+    if(row.activeExecutions>0||row.state===ResourceConnectionState.CONNECTING||row.modelDiscovery?.state===ResourceModelDiscoveryState.LOADING)throw new Error('endpoint cannot change during an active request');
     const adapter=this.adapters.get(row.providerId);
     if(!(adapter instanceof OpenAICompatibleProviderAdapter))throw new TypeError('resource adapter does not support endpoint changes');
     for(const controller of this.controllers.get(resourceId)??[])if(!controller.signal.aborted)controller.abort('endpoint-changed');

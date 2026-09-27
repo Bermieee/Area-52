@@ -286,6 +286,8 @@ test('selected-turn retrieval quality LOW abstains from long-term memory admissi
 
 test('relationship-only selected turn consumes existing Graph Walker provider candidates without granting graph truth authority',async()=>{
   const brain=new Area52NativeBrain();
+  brain.registerEntityIdentity({entityId:'Mara',canonicalLabel:'Mara',entityType:'PERSON',worldId:'worker3:world'});
+  brain.registerEntityIdentity({entityId:'Lio',canonicalLabel:'Lio',entityType:'PERSON',worldId:'worker3:world'});
   const graphRevision='graph:relationship:r1';
   brain.registerGraphProvider({
     providerId:'WORKER4_RELATIONSHIP_GRAPH',owner:'WORKER4_GRAPH',semanticsVersion:'1',

@@ -9,8 +9,8 @@ const SEVERITY_ORDER=['ERROR','WARN','OK','INFO'];
 const BLOCKED_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
 
 export class SelectedTurnLogModel{
-  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
-    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;
+  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,diagnostics=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
+    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;this.diagnostics=diagnostics??null;
     this.selectionProvider=typeof selectionProvider==='function'?selectionProvider:()=>({});
     this.now=typeof now==='function'?now:()=>Date.now();
     this.maxVisibleRows=Math.max(16,Math.min(256,Number(maxVisibleRows)||DEFAULT_MAX_VISIBLE));
@@ -43,6 +43,64 @@ export class SelectedTurnLogModel{
     const turn=this.journal?.readTurn?.(selected)??null;
     const row=buildTurnRows(turn,selected).map(stripPrivate).find(item=>item.id===rowId)??null;
     return row?detailPayload(this.journal,selected,row,this.maxDetailBytes):null;
+  }
+
+  readOperational(){
+    return safeDiagnosticsRead(this.diagnostics);
+  }
+
+  readTimeline({filters={}}={}){
+    const evidence=this.journal?.exportEvidence?.({selection:null})??{turns:[]};
+    const normalizedFilters=normalizeFilters(filters,this.now());
+    const allRows=[];
+    for(const turn of evidence.turns??[]){
+      const turnSelection=normalizeSelection(turn.selection??{});
+      for(const row of buildTurnRows(turn,turnSelection)){
+        const publicRow=stripPrivate(row);
+        allRows.push({...publicRow,selection:turnSelection,turnKey:turn.key??selectionKey(turnSelection)});
+      }
+    }
+    allRows.sort((a,b)=>numericTime(a.time??a.observedAt)-numericTime(b.time??b.observedAt)||String(a.id).localeCompare(String(b.id)));
+    const filtered=allRows.filter(row=>matchesFilters(row,normalizedFilters));
+    const truncated=filtered.length>this.maxVisibleRows;
+    const rows=boundedVisibleRows(filtered,this.maxVisibleRows);
+    return safeClone({
+      filters:normalizedFilters,rows,totalRows:allRows.length,matchingRows:filtered.length,visibleRows:rows.length,truncated,
+      availableCategories:CATEGORY_ORDER.filter(category=>allRows.some(row=>row.category===category)),
+      availableSeverities:SEVERITY_ORDER.filter(severity=>allRows.some(row=>row.severity===severity)),
+    });
+  }
+
+  exportDiagnostics({selection=null}={}){
+    const selected=normalizeSelection(selection??this.selectionProvider?.()??{});
+    const retainedEvidence=this.journal?.exportEvidence?.({selection:null})??null;
+    const operational=safeDiagnosticsRead(this.diagnostics);
+    const selectedTurn=this.exportMetadata({selection:selected});
+    const timeline=buildMasterTimeline(retainedEvidence);
+    const errors=collectDiagnosticErrors(operational,timeline);
+    return sanitize({
+      kind:'Area52DiagnosticsExport',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt:this.now(),
+      manifest:{
+        product:'Area-52',surface:'Diagnostics',selection:selected,
+        retainedTurns:retainedEvidence?.turns?.length??0,retainedTimelineEvents:timeline.length,
+        selectedTurnRows:selectedTurn?.rows?.length??0,errorCount:errors.length,
+      },
+      operationalSnapshot:operational,selectedTurn,retainedEvidence,timeline,errors,
+      safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
+    });
+  }
+
+  downloadFullDiagnostics({selection=null,document=globalThis.document??null,filename=null}={}){
+    const payload=this.exportDiagnostics({selection}),files=diagnosticsBundleFiles(payload),BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
+    if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',payload,files};
+    const stamp=fileTimestamp(payload.exportedAt),base='Area52-Diagnostics-'+stamp;
+    let blob,bundleFormat='zip',downloadName=filename??base+'.zip';
+    try{blob=createStoredZipBlob(files,BlobCtor);}
+    catch{bundleFormat='json';downloadName=filename??base+'.json';blob=new BlobCtor([JSON.stringify(payload,null,2)],{type:'application/json'});}
+    const url=URLApi.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=downloadName;a.style.display='none';document.body?.append?.(a);
+    try{a.click?.();}finally{a.remove?.();URLApi.revokeObjectURL?.(url);}
+    return{ok:true,filename:a.download,bundleFormat,payload,files};
   }
 
   exportMetadata({selection=null}={}){
@@ -115,9 +173,9 @@ export class SelectedTurnLogModel{
   }
 }
 
-export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
+export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,diagnostics=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
   if(!registry||!journal)return null;
-  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,maxVisibleRows});
+  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,diagnostics,maxVisibleRows});
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
@@ -131,192 +189,114 @@ export function buildSelectedTurnLog(turn,selection={}){
   return buildTurnRows(turn,normalizeSelection(selection)).map(stripPrivate);
 }
 
-function renderTurnLogWorkspace(host,{model,filters,scope,refresh,diagnostics,inspect}={}){
-  const d=host.ownerDocument,snapshot=model.read({filters}),live=safeDiagnosticsRead(diagnostics),root=element(d,'section',{className:'a52-stack a52-turn-log a52-diagnostics-workspace',attrs:{'aria-label':'Area-52 diagnostics'}});
-  const s=snapshot.selection??{},summary=snapshot.summary??{},health=diagnosticsHealth(live,snapshot);
+function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
+  const d=host.ownerDocument,snapshot=model.read({filters}),timeline=model.readTimeline({filters}),operational=model.readOperational(),s=snapshot.selection??{};
+  const root=element(d,'section',{className:'a52-stack a52-turn-log a52-diagnostics-console',attrs:{'aria-label':'Area 52 diagnostics console'}});
+  const hero=element(d,'header',{className:'a52-diagnostics-hero'});
+  const heroTitle=element(d,'div',{className:'a52-diagnostics-hero__title'});
+  heroTitle.append(element(d,'h1',{text:'Area 52 Diagnostics'}),element(d,'p',{className:'a52-muted',text:'One console for retained turn evidence, Brain activity, runtime work, resources, Lore / Memory, failures, and browser-side performance attribution.'}));
+  const status=diagnosticsStatus(snapshot,operational),heroActions=element(d,'div',{className:'a52-diagnostics-hero__actions'});
+  heroActions.append(makeBadge(d,status.label,status.token),createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}));
+  hero.append(heroTitle,heroActions);
+  const metrics=element(d,'div',{className:'a52-diagnostics-metrics'});
+  for(const [labelText,value] of diagnosticsMetrics(snapshot,timeline,operational))metrics.append(element(d,'div',{className:'a52-diagnostics-metric'},element(d,'span',{text:labelText}),element(d,'strong',{text:String(value)})));
+  hero.append(metrics);root.append(hero);
 
-  const hero=element(d,'section',{className:'a52-card a52-turn-log__hero'});
-  const heroHead=element(d,'div',{className:'a52-wave13-section-head'});
-  heroHead.append(element(d,'strong',{text:'Area-52 Diagnostics'}),makeBadge(d,health.label,health.status));
-  const heroActions=element(d,'div',{className:'a52-wave13-resource-actions'});
-  heroActions.append(createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',variant:'primary',onPress:()=>model.downloadDiagnosticsBundle({selection:s,operationalSnapshot:live,document:d})}));
-  if(refresh)heroActions.append(createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh()}));
-  heroHead.append(heroActions);
-  hero.append(heroHead,element(d,'p',{className:'a52-muted',text:'One read-only console for selected-turn evidence, Brain decisions, runtime/jobs, resources, Lore/Memory, delivery, failures, and UI performance. Missing evidence stays missing; the UI never reconstructs owner decisions from nearby activity.'}));
-  hero.append(createKeyValue(d,[
-    {key:'Chat',value:s.chatId??'No chat selected'},{key:'Turn',value:s.turnId??'Waiting for turn'},{key:'Generation',value:s.generationId??'Waiting for generation'},
-    {key:'Rows retained',value:snapshot.totalRows??0},{key:'Warnings / errors',value:health.issueCount},{key:'Last evidence update',value:snapshot.lastUpdatedAt?formatTime(snapshot.lastUpdatedAt):'Not retained'},
-  ]));
-  hero.append(element(d,'p',{className:'a52-muted',text:summary.explanation??'No selected-turn evidence is retained yet.'}));
-  root.append(hero);
-
-  const coordination=diagnosticSection(d,'Coordination snapshot',snapshot.current?'Selected turn correlated':'Waiting for selected turn',{status:snapshot.current?'ready':'historical',open:true});
+  const coordination=diagnosticSection(d,'Coordination / selected turn',{open:true,count:snapshot.current?'CURRENT':'WAITING'});
   coordination.body.append(createKeyValue(d,[
-    {key:'Correlation',value:s.correlationId??'unknown'},{key:'World / Scene revision',value:(s.worldRevision??'unknown')+' / '+(s.sceneRevision??'unknown')},
-    {key:'Source revision fence',value:s.sourceRevisionRefs?.length?s.sourceRevisionRefs.join(', '):'unknown'},
-    {key:'Causal owner edges',value:String(summary.ownerEvidenceEdges??0)+' evidenced / '+String(summary.missingOwnerEdges??0)+' no evidence'},
-    {key:'Live-binding reads / rejected',value:live?(String(live.host?.liveBinding?.reads??0)+' / '+String(live.host?.liveBinding?.rejected??0)):'No operational snapshot'},
-  ]));
+    {key:'Chat',value:s.chatId??'unknown'},{key:'Turn',value:s.turnId??'unknown'},{key:'Generation',value:s.generationId??'unknown'},{key:'Correlation',value:s.correlationId??'unknown'},
+    {key:'World / Scene revision',value:(s.worldRevision??'unknown')+' / '+(s.sceneRevision??'unknown')},{key:'Source revision fence',value:s.sourceRevisionRefs?.length?s.sourceRevisionRefs.join(', '):'unknown'},
+    {key:'Retained turns / entries',value:String(snapshot.retention?.turnCount??0)+' / '+String(snapshot.retention?.entryCount??0)},
+  ]),element(d,'p',{className:'a52-muted',text:snapshot.summary?.explanation??'No selected-turn evidence is retained yet.'}));
   root.append(coordination.root);
 
-  const brain=diagnosticSection(d,'Brain / cognition',snapshot.brainDecision?.state??'NO EVIDENCE',{status:snapshot.brainDecision&&snapshot.brainDecision.state!=='NO_EVIDENCE'?'ready':'historical'});
+  const brain=diagnosticSection(d,'Brain / producer activity',{count:String(operational?.producers?.stages?.length??0)+' stages'});
+  const brainStages=element(d,'div',{className:'a52-diagnostics-status-list'});
+  for(const row of operational?.producers?.stages??[])brainStages.append(compactStatusRow(d,row.label??label(row.id),row.state??'UNKNOWN',row.reason??row.errorCode??'Owner status published.',stageDiagnosticToken(row.state),inspect?()=>inspect({kind:'area52-diagnostic-stage',id:row.id,title:row.label??label(row.id),payload:operational?.producers?.inspections?.[row.id]??row}):null,scope));
+  if(!brainStages.children?.length)brainStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
+  brain.body.append(brainStages);
   if(snapshot.brainDecision)brain.body.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
-  else brain.body.append(emptyDiagnostic(d,'No Brain decision receipt','No exact selected-turn Brain decision evidence is retained.'));
-  const scatter=live?.cognition?.scatterTelemetry??[];
-  if(Array.isArray(scatter)&&scatter.length){
-    brain.body.append(element(d,'strong',{text:'Layered Scatter'}));
-    for(const wave of scatter.slice(0,12))brain.body.append(compactStatusRow(d,wave.waveId??'Wave','INFO',[
-      wave.trigger?'trigger '+wave.trigger:null,wave.durationMs!=null?wave.durationMs+' ms':null,wave.concurrency!=null?'concurrency '+wave.concurrency:null,
-      wave.jobs!=null?'jobs '+wave.jobs:null,wave.deferred!=null?'deferred '+wave.deferred:null,
-    ].filter(Boolean).join(' · ')||'Owner wave telemetry published.'));
-  }
   root.append(brain.root);
 
-  const runtime=live?.runtime?.summary??{},runtimeCounts=runtime.lifecycleCounts??{},copro=live?.coprocessor?.summary??{};
-  const runtimeSection=diagnosticSection(d,'Runtime / jobs',String(summary.logicalJobs??0)+' jobs · '+String(runtimeCounts.ACTIVE??0)+' active',{status:(runtimeCounts.FAILED??0)>0?'warning':'historical'});
-  runtimeSection.body.append(createKeyValue(d,[
-    {key:'Logical jobs',value:summary.logicalJobs??0},{key:'Native resources',value:summary.nativeResources??0},{key:'Optional provider attempts',value:summary.optionalAttempts??0},
-    {key:'Gather admitted',value:summary.gatherAdmitted??0},{key:'Rejected / late / stale',value:[summary.gatherRejected??0,summary.gatherLate??0,summary.gatherStale??0].join(' / ')},
-    {key:'Queue by layer',value:Object.entries(runtime.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},
-    {key:'Active / yielding',value:(runtimeCounts.ACTIVE??0)+' / '+(runtimeCounts.YIELDING??0)},{key:'Complete / failed',value:(runtimeCounts.COMPLETE??0)+' / '+(runtimeCounts.FAILED??0)},
-    {key:'Coprocessor events',value:copro.totalEvents??0},{key:'Retries',value:copro.retry??0},
+  const runtime=diagnosticSection(d,'Runtime / lifecycle / jobs',{count:String(snapshot.summary?.logicalJobs??0)+' jobs'});
+  const runtimeSummary=operational?.runtime?.summary??{},life=runtimeSummary.lifecycleCounts??{};
+  runtime.body.append(createKeyValue(d,[
+    {key:'Queued by layer',value:Object.entries(runtimeSummary.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},
+    {key:'Active / yielding',value:(life.ACTIVE??0)+' / '+(life.YIELDING??0)},{key:'Parked / recovering',value:(life.PARKED??0)+' / '+(life.RECOVERING??0)},
+    {key:'Complete / failed',value:(life.COMPLETE??0)+' / '+(life.FAILED??0)},{key:'Borrowed background leases',value:runtimeSummary.borrowedBackgroundLeases??'Not published'},
   ]));
-  const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job');
-  if(jobRows.length){
-    runtimeSection.body.append(element(d,'strong',{text:'Selected-turn jobs'}));
-    for(const row of jobRows.slice(0,24))runtimeSection.body.append(renderRow(d,row,{model,selection:s,scope,inspect}));
-  }else runtimeSection.body.append(emptyDiagnostic(d,'No owner-backed job audit','No selected-turn job audit is retained.'));
-  root.append(runtimeSection.root);
+  const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job'),jobList=element(d,'div',{className:'a52-diagnostics-timeline'});
+  for(const row of jobRows)jobList.append(renderRow(d,row,{model,selection:s,scope,inspect}));
+  if(!jobRows.length)jobList.append(emptyDiagnosticRow(d,'No owner-backed job audit is retained for this selected turn.'));
+  runtime.body.append(jobList);root.append(runtime.root);
 
-  const resourcesSection=diagnosticSection(d,'Resources / connections',resourceHeadline(live),{status:resourceHealthStatus(live)});
-  const wiringSpecs=[['Jev',live?.wiring?.jev],['Sidecar',live?.wiring?.sidecar],['Vectoring',live?.wiring?.vectoring]];
-  for(const [name,spec] of wiringSpecs){
-    const lane=spec?.lane??{},status=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
-    resourcesSection.body.append(compactStatusRow(d,name,status,[lane.configured??0,'configured ·',lane.connected??0,'connected ·',lane.attempted??0,'attempted ·',lane.succeeded??0,'succeeded'].join(' '),status==='CONNECTED'?'ready':status==='CONFIGURED'?'warning':'historical'));
+  const resources=diagnosticSection(d,'Resources / connections / provider calls',{count:String(operational?.resources?.rows?.length??0)+' configured'});
+  const lanes=element(d,'div',{className:'a52-diagnostics-lanes'});
+  for(const spec of [['Jev',operational?.wiring?.jev],['Sidecar',operational?.wiring?.sidecar],['Vectoring',operational?.wiring?.vectoring]]){
+    const lane=spec[1]?.lane??{},card=element(d,'article',{className:'a52-diagnostics-lane'});
+    const laneStatus=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
+    card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical')),
+      createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
+    lanes.append(card);
   }
-  const resourceEvents=live?.telemetry?.resourceEvents??[];
-  if(resourceEvents.length){
-    resourcesSection.body.append(element(d,'strong',{text:'Recent owner resource telemetry'}));
-    for(const event of resourceEvents.slice(0,16)){
-      const row=compactStatusRow(d,event.displayName??event.resourceId??'Resource',event.code??'EVENT',event.message??'',resourceEventStatus(event));
-      if(inspect)scope?.listen?.(row,'click',()=>inspect({kind:'area52-resource-diagnostic',id:String(event.sequence??event.code??'event'),title:(event.displayName??event.resourceId??'Resource')+' · '+(event.code??'event'),payload:event}));
-      resourcesSection.body.append(row);
-    }
-  }
-  root.append(resourcesSection.root);
+  resources.body.append(lanes);
+  const provider=operational?.coprocessor?.summary?.providerCalls??{},resourceTelemetry=operational?.coprocessor?.summary?.resourceTelemetry??{};
+  resources.body.append(createKeyValue(d,[{key:'Provider calls invoked / failed',value:(provider.invoked??0)+' / '+(provider.failed??0)},{key:'Resource tests pass / fail',value:(resourceTelemetry.testsPassed??0)+' / '+(resourceTelemetry.testsFailed??0)},{key:'Executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)}]));
+  root.append(resources.root);
 
-  const lore=live?.lore??{},memory=live?.memory??{},memoryCounts=memory.counts??{},memoryFresh=memory.freshness??{};
-  const knowledge=diagnosticSection(d,'Lore / retrieval / memory','Lore '+String(lore.retrievalReady??0)+' ready · Memory '+String(memoryCounts.exactEvidence??0)+' exact',{status:'historical'});
-  knowledge.body.append(element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[
-    {key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},
-    {key:'Due / active / invalid',value:[lore.lifecycle?.due??0,lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0,lore.lifecycle?.counts?.INVALID??0].join(' / ')},
-  ]),element(d,'strong',{text:'Memory'}),createKeyValue(d,[
-    {key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},
-    {key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},
-    {key:'Fresh / stale summaries',value:[memoryFresh.freshSummaries??0,memoryFresh.staleSummaries??0].join(' / ')},{key:'Retrieval status',value:memory.retrievalStatus??'No selected-turn retrieval receipt'},
-  ]));
-  root.append(knowledge.root);
+  const knowledge=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'});
+  const lore=operational?.lore??{},memory=operational?.memory??{},memoryCounts=memory.counts??{},fresh=memory.freshness??{};
+  knowledge.body.append(element(d,'div',{className:'a52-diagnostics-two-column'},
+    element(d,'div',{},element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}])),
+    element(d,'div',{},element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]))
+  ));root.append(knowledge.root);
 
-  const pipeline=live?.pipeline??{},producerStages=live?.producers?.stages??[];
-  const evidence=diagnosticSection(d,'Delivery / owner evidence',String(summary.promptPlanState??'NOT OBSERVED')+' → '+String(summary.hostDeliveryState??'NOT OBSERVED'),{status:(summary.readErrors??0)>0?'warning':summary.hostDeliveryState&&summary.hostDeliveryState!=='NOT OBSERVED'?'ready':'historical'});
-  evidence.body.append(createKeyValue(d,[
-    {key:'PromptPlan',value:summary.promptPlanState??'NOT OBSERVED'},{key:'Host delivery',value:summary.hostDeliveryState??'NOT OBSERVED'},{key:'Source-fence/read errors',value:summary.readErrors??0},
-    {key:'Registered producers',value:pipeline.registeredProducers??0},{key:'Execution receipt',value:pipeline.executionReceipt?'Published':'Not published'},
-    {key:'Gather receipt',value:pipeline.resultReceipt?'Published':'Not published'},{key:'Context Seal receipt',value:pipeline.admissionReceipt?'Published':'Not published'},
-  ]));
-  if(producerStages.length){
-    evidence.body.append(element(d,'strong',{text:'Producer receipts'}));
-    for(const row of producerStages)evidence.body.append(compactStatusRow(d,row.label??row.id,row.state??'UNAVAILABLE',row.reason??'No additional detail.',producerStateStatus(row.state)));
-  }
-  const cognitionErrors=Object.entries(live?.cognition?.errors??{});
+  const errorRows=timeline.rows.filter(row=>row.severity==='ERROR'||row.severity==='WARN'),errorCount=collectDiagnosticErrors(operational,[]).length+errorRows.length;
+  const errors=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});
+  const cognitionErrors=Object.entries(operational?.cognition?.errors??{});
   if(cognitionErrors.length){
-    evidence.body.append(element(d,'strong',{text:'Read / coherence issues'}));
-    for(const [name,error] of cognitionErrors)evidence.body.append(compactStatusRow(d,name,error?.code??'READ ISSUE',error?.message??'Unknown cognition read failure.','warning'));
+    const list=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const [name,error] of cognitionErrors)list.append(compactStatusRow(d,label(name),'READ ISSUE',error?.message??error?.code??'Unknown owner read issue.','warning',inspect?()=>inspect({kind:'area52-diagnostic-error',id:name,title:label(name)+' read issue',payload:error}):null,scope));
+    errors.body.append(list);
   }
-  root.append(evidence.root);
+  if(errorRows.length){const list=element(d,'div',{className:'a52-diagnostics-timeline'});for(const row of errorRows.slice(-24))list.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));errors.body.append(list);}
+  if(!cognitionErrors.length&&!errorRows.length)errors.body.append(emptyDiagnosticRow(d,'No retained warnings or errors match the current filters.'));
+  root.append(errors.root);
 
-  const uiLoad=live?.telemetry?.uiLoad??null,categories=uiLoad?.categories??{};
-  const performance=diagnosticSection(d,'Performance / UI attribution',uiLoad?'Bounded samples available':'NO EVIDENCE',{status:uiLoad?'ready':'historical'});
+  const performance=diagnosticSection(d,'Performance / browser UI attribution',{count:'timings'});
+  const uiLoad=operational?.telemetry?.uiLoad??null,categories=uiLoad?.categories??{};
   performance.body.append(createKeyValue(d,[
-    {key:'Host event invalidations',value:formatLoadMetric(categories.HOST_EVENT_INVALIDATION)},
-    {key:'Scatter / Gather owner read',value:formatLoadMetric(categories.OWNER_SCATTER_GATHER_READ)},
-    {key:'Journal diagnostics read',value:formatLoadMetric(categories.UI_JOURNAL_DIAGNOSTICS_READ)},
-    {key:'Journal processing',value:formatLoadMetric(categories.UI_JOURNAL_PROCESS)},
-    {key:'Activity feed render',value:formatLoadMetric(categories.UI_ACTIVITY_FEED_RENDER)},
-    {key:'Workspace refresh',value:formatLoadMetric(categories.UI_WORKSPACE_REFRESH)},
-    {key:'Capture total',value:formatLoadMetric(categories.UI_CAPTURE_TOTAL)},
-  ]));
-  performance.body.append(element(d,'p',{className:'a52-muted',text:'These are bounded in-browser attribution samples, not heap or Long Task profiling.'}));
-  root.append(performance.root);
+    {key:'Host event invalidations',value:diagnosticLoadMetric(categories.HOST_EVENT_INVALIDATION)},{key:'Scatter / Gather owner read',value:diagnosticLoadMetric(categories.OWNER_SCATTER_GATHER_READ)},
+    {key:'Journal diagnostics read',value:diagnosticLoadMetric(categories.UI_JOURNAL_DIAGNOSTICS_READ)},{key:'Journal processing',value:diagnosticLoadMetric(categories.UI_JOURNAL_PROCESS)},
+    {key:'Activity feed render',value:diagnosticLoadMetric(categories.UI_ACTIVITY_FEED_RENDER)},{key:'Workspace refresh',value:diagnosticLoadMetric(categories.UI_WORKSPACE_REFRESH)},{key:'Capture total',value:diagnosticLoadMetric(categories.UI_CAPTURE_TOTAL)},
+  ]));root.append(performance.root);
 
-  const timeline=element(d,'section',{className:'a52-card a52-turn-log__timeline',attrs:{'aria-label':'Diagnostics event timeline'}});
-  const timelineHead=element(d,'div',{className:'a52-wave13-section-head'});
-  timelineHead.append(element(d,'strong',{text:'Event timeline'}),makeBadge(d,String(snapshot.matchingRows??0)+' MATCHING','historical'));
-  timeline.append(timelineHead);
-  const controls=element(d,'div',{className:'a52-wave13-resource-actions'});
+  const timelineSection=diagnosticSection(d,'Unified retained event timeline',{open:true,count:String(timeline.matchingRows)+' matching'});
+  const controls=element(d,'div',{className:'a52-diagnostics-toolbar'});
   const timeSelect=selectControl(d,'Time',filters.time,[['ALL','All retained'],['1M','Last 1 minute'],['5M','Last 5 minutes'],['15M','Last 15 minutes']]);
-  const catSelect=selectControl(d,'Category',filters.category,[['ALL','All categories'],...snapshot.availableCategories.map(x=>[x,x])]);
-  const sevSelect=selectControl(d,'Severity',filters.severity,[['ALL','All severities'],...snapshot.availableSeverities.map(x=>[x,x])]);
-  const search=element(d,'input',{className:'a52-input',attrs:{type:'search',placeholder:'Search stage, reason, receipt, job, result…','aria-label':'Search diagnostics'}});search.value=filters.search??'';
+  const catSelect=selectControl(d,'Category',filters.category,[['ALL','All categories'],...timeline.availableCategories.map(x=>[x,x])]);
+  const sevSelect=selectControl(d,'Severity',filters.severity,[['ALL','All severities'],...timeline.availableSeverities.map(x=>[x,x])]);
+  const search=element(d,'input',{attrs:{type:'search',placeholder:'Search stages, reasons, receipts, jobs, resources…','aria-label':'Search diagnostics'}});search.value=filters.search??'';
   controls.append(timeSelect.wrap,catSelect.wrap,sevSelect.wrap,search);
   scope?.listen?.(timeSelect.input,'change',()=>{filters.time=timeSelect.input.value;refresh?.();});
   scope?.listen?.(catSelect.input,'change',()=>{filters.category=catSelect.input.value;refresh?.();});
   scope?.listen?.(sevSelect.input,'change',()=>{filters.severity=sevSelect.input.value;refresh?.();});
   scope?.listen?.(search,'change',()=>{filters.search=String(search.value??'').trim();refresh?.();});
-  timeline.append(controls,element(d,'p',{className:'a52-muted',text:snapshot.truncated?'Visible row cap reached; narrow filters or export the full Diagnostics bundle for the complete bounded retained set.':'Showing '+snapshot.visibleRows+' of '+snapshot.matchingRows+' matching rows.'}));
-  if(!snapshot.rows.length)timeline.append(emptyDiagnostic(d,'No retained events',snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate Diagnostics.'));
-  for(const row of snapshot.rows)timeline.append(renderRow(d,row,{model,selection:s,scope,inspect}));
-  root.append(timeline);
+  timelineSection.body.append(controls,element(d,'p',{className:'a52-muted',text:timeline.truncated?'Visible row cap reached. Narrow filters or use Export Full Diagnostics for the complete retained evidence set.':'Showing '+timeline.visibleRows+' of '+timeline.matchingRows+' matching rows across '+String(snapshot.retention?.turnCount??0)+' retained turn(s).'}));
+  const timelineList=element(d,'div',{className:'a52-diagnostics-timeline'});
+  if(!timeline.rows.length)timelineList.append(emptyDiagnosticRow(d,snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate diagnostics.'));
+  for(const row of timeline.rows)timelineList.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));
+  timelineSection.body.append(timelineList);root.append(timelineSection.root);
 
-  const retention=snapshot.retention??{};
-  const retained=diagnosticSection(d,'Retention / safety',String(retention.turnCount??0)+' turns · '+String(retention.entryCount??0)+' entries',{status:retention.available===false?'warning':'historical'});
-  retained.body.append(createKeyValue(d,[
-    {key:'Storage',value:retention.available===false?'DEGRADED: '+String(retention.lastError??'local storage unavailable'):String(retention.storageKind??'unknown')},
-    {key:'Retained turns / entries',value:String(retention.turnCount??0)+' / '+String(retention.entryCount??0)},{key:'Serialized bytes / ceiling',value:String(retention.serializedBytes??0)+' / '+String(retention.maxStoredBytes??'unknown')},
-    {key:'Storage writes / skipped redundant writes',value:String(retention.writes??0)+' / '+String(retention.skippedRedundantWrites??0)},{key:'Payload policy',value:'metadata only; no raw prompts, story/Lore bodies, credentials, or hidden reasoning'},
-  ]));
-  root.append(retained.root);
+  const retention=diagnosticSection(d,'Retention / safety',{count:String(snapshot.retention?.entryCount??0)+' entries'});
+  const retained=snapshot.retention??{};
+  retention.body.append(createKeyValue(d,[
+    {key:'Storage',value:retained.available===false?'DEGRADED: '+String(retained.lastError??'local storage unavailable'):String(retained.storageKind??'unknown')},
+    {key:'Retained turns / entries',value:String(retained.turnCount??0)+' / '+String(retained.entryCount??0)},{key:'Serialized bytes / ceiling',value:String(retained.serializedBytes??0)+' / '+String(retained.maxStoredBytes??'unknown')},
+    {key:'Writes / skipped redundant writes',value:String(retained.writes??0)+' / '+String(retained.skippedRedundantWrites??0)},{key:'Payload policy',value:'metadata only; no raw prompts, story/Lore bodies, credentials, or hidden reasoning'},
+  ]));root.append(retention.root);
   host.append(root);
 }
-
-function diagnosticSection(d,title,summary,{status='historical',open=false}={}){
-  const root=element(d,'details',{className:'a52-card a52-turn-log__section'});root.open=open;
-  const head=element(d,'summary',{className:'a52-wave13-section-head'});
-  head.append(element(d,'strong',{text:title}),element(d,'span',{className:'a52-muted',text:String(summary??'')}),makeBadge(d,status==='warning'?'ATTENTION':status==='ready'?'LIVE':'DETAIL',status));
-  const body=element(d,'div',{className:'a52-stack a52-turn-log__section-body'});root.append(head,body);return{root,body};
-}
-
-function compactStatusRow(d,title,status,summary,tone='historical'){
-  const row=element(d,'div',{className:'a52-wave13-flow-row a52-turn-log__compact-row'});
-  row.append(element(d,'strong',{text:String(title??'Diagnostic')}),makeBadge(d,String(status??'UNKNOWN'),tone),element(d,'span',{className:'a52-muted',text:String(summary??'')}));
-  return row;
-}
-
-function emptyDiagnostic(d,title,text){
-  const row=element(d,'div',{className:'a52-wave13-flow-row'});
-  row.append(element(d,'strong',{text:title}),element(d,'span',{className:'a52-muted',text:text}));return row;
-}
-
-function diagnosticsHealth(live,snapshot){
-  const producerFailures=Number(live?.producers?.failures??0),resourceIssues=(live?.resources?.rows??[]).filter(row=>['DEGRADED','UNAVAILABLE','COOLDOWN'].includes(String(row.state??row.health??'').toUpperCase())).length;
-  const readErrors=Number(snapshot?.summary?.readErrors??0),issueCount=producerFailures+resourceIssues+readErrors;
-  if(issueCount>0)return{label:'ATTENTION',status:'warning',issueCount};
-  if(!snapshot?.current)return{label:'WAITING',status:'historical',issueCount:0};
-  return{label:'LIVE',status:'ready',issueCount:0};
-}
-
-function safeDiagnosticsRead(diagnostics){
-  try{return diagnostics?.read?sanitize(diagnostics.read()):null;}catch(error){return sanitize({readError:{code:error?.code??'DIAGNOSTICS_READ_FAILED',message:error?.message??'Diagnostics owner read failed.'}});}
-}
-
-function resourceHeadline(live){
-  const rows=live?.resources?.rows??[],healthy=rows.filter(row=>['READY','CONNECTED','HEALTHY'].includes(String(row.state??row.health??'').toUpperCase())).length;
-  return healthy+' healthy / '+rows.length+' published';
-}
-function resourceHealthStatus(live){return(live?.resources?.rows??[]).some(row=>['DEGRADED','UNAVAILABLE','COOLDOWN'].includes(String(row.state??row.health??'').toUpperCase()))?'warning':'historical';}
-function resourceEventStatus(event){const code=String(event?.code??'').toUpperCase();return/FAIL|ERROR|DEGRADED|UNAVAILABLE|TIMEOUT/.test(code)?'warning':/PASS|READY|CONNECTED|SUCCESS|CONFIGURED/.test(code)?'ready':'historical';}
-function producerStateStatus(state){const value=String(state??'').toUpperCase();if(value==='LIVE'||value==='READY')return'ready';if(value==='DEGRADED'||value==='ERROR'||value==='FAILED')return'warning';return'historical';}
-function formatLoadMetric(value){if(!value)return'NO_EVIDENCE';const count=value.count??value.samples??0,avg=value.avgMs??value.averageMs??value.avg??null,max=value.maxMs??value.max??null;return String(count)+' samples'+(avg!=null?' · '+Number(avg).toFixed(2)+' ms avg':'')+(max!=null?' · '+Number(max).toFixed(2)+' ms max':'');}
 
 function renderRow(d,row,{model,selection,scope,inspect}={}){
   const details=element(d,'details',{className:'a52-wave13-flow-row a52-turn-log__row',dataset:{turnLogRow:row.id}}),summary=element(d,'summary',{className:'a52-inline-status'});
@@ -329,6 +309,106 @@ function renderRow(d,row,{model,selection,scope,inspect}={}){
     if(inspect)inspect({kind:'area52-diagnostic-event',id:row.id,title:row.stage,category:row.category,severity:row.severity,status:row.status,selection:{...selection},payload});
   });
   return details;
+}
+
+function safeDiagnosticsRead(provider){
+  try{return provider?.read?.()??null;}catch(error){return{kind:'Area52DiagnosticsUnavailable',error:{code:error?.code??'DIAGNOSTICS_READ_FAILED',message:safeText(error?.message??error,512)}};}
+}
+function diagnosticsStatus(snapshot,operational){
+  const cognitionErrors=Object.keys(operational?.cognition?.errors??{}).length;
+  const failures=Number(operational?.producers?.failures??0);
+  if(cognitionErrors||failures)return{label:'ATTENTION',token:'warning'};
+  if(!snapshot.current||operational?.host?.waitingForTurn)return{label:'WAITING',token:'historical'};
+  return{label:'LIVE',token:'ready'};
+}
+function diagnosticsMetrics(snapshot,timeline,operational){
+  const lanes=operational?.resources?.rows??[],errors=timeline.rows.filter(row=>row.severity==='ERROR').length,warnings=timeline.rows.filter(row=>row.severity==='WARN').length;
+  return[
+    ['Retained events',timeline.totalRows],['Visible',timeline.visibleRows],['Jobs',snapshot.summary?.logicalJobs??0],
+    ['Resources',lanes.length],['Errors / warnings',errors+' / '+warnings],['Lore / Memory',(operational?.lore?.accepted??0)+' / '+(operational?.memory?.counts?.exactEvidence??0)],
+  ];
+}
+function diagnosticSection(d,title,{open=false,count=null}={}){
+  const root=element(d,'details',{className:'a52-diagnostics-section'});root.open=Boolean(open);
+  const summary=element(d,'summary',{className:'a52-diagnostics-section__summary'});
+  summary.append(element(d,'strong',{text:title}));
+  if(count!=null)summary.append(element(d,'span',{className:'a52-muted',text:String(count)}));
+  const body=element(d,'div',{className:'a52-diagnostics-section__body'});root.append(summary,body);return{root,body};
+}
+function compactStatusRow(d,name,status,detail,token='historical',onInspect=null,scope=null){
+  const row=element(d,'div',{className:'a52-diagnostics-status-row'});
+  row.append(element(d,'strong',{text:name}),makeBadge(d,String(status??'UNKNOWN'),token),element(d,'span',{className:'a52-muted',text:String(detail??'No additional evidence published.')}));
+  if(onInspect)row.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:onInspect}));
+  return row;
+}
+function emptyDiagnosticRow(d,textValue){return element(d,'div',{className:'a52-diagnostics-empty',text:textValue});}
+function stageDiagnosticToken(value){const x=String(value??'').toUpperCase();if(/FAIL|ERROR|DEGRADED|UNAVAILABLE|DISCONNECTED/.test(x))return'warning';if(/LIVE|READY|COMPLETE|CONNECTED|SEALED/.test(x))return'ready';return'historical';}
+function diagnosticLoadMetric(row){
+  if(!row)return'NO_EVIDENCE';
+  const count=Number(row.count??row.samples??0),avg=Number(row.averageMs??row.avgMs??0),max=Number(row.maxMs??0);
+  return count+' samples · '+roundDiagnostic(avg)+' ms avg · '+roundDiagnostic(max)+' ms max';
+}
+function roundDiagnostic(value){const n=Number(value);return Number.isFinite(n)?Math.round(n*10)/10:0;}
+function buildMasterTimeline(evidence){
+  const out=[];
+  for(const turn of evidence?.turns??[]){
+    for(const entry of turn.entries??[])out.push({
+      id:entry.id,type:entry.type,subtype:entry.subtype??null,status:entry.status??null,title:entry.title??null,summary:entry.summary??null,detail:entry.detail??null,
+      at:entry.at??null,receiptRef:entry.receiptRef??null,selection:turn.selection??entry.selection??null,metadata:entry.metadata??null,
+    });
+  }
+  return out.sort((a,b)=>numericTime(a.at)-numericTime(b.at)||String(a.id??'').localeCompare(String(b.id??'')));
+}
+function collectDiagnosticErrors(operational,timeline=[]){
+  const out=[];
+  for(const [name,error] of Object.entries(operational?.cognition?.errors??{}))out.push({source:'COGNITION',name,error});
+  for(const row of timeline)if(/ERROR|FAIL|DEGRADED|ABORT|REJECT|INVALID/.test(String(row.status??'').toUpperCase())||String(row.type??'').toUpperCase()==='READ_ERROR')out.push({source:'TIMELINE',event:row});
+  return out;
+}
+function diagnosticsBundleFiles(payload){
+  const op=payload.operationalSnapshot??{},root='Area52-Diagnostics-'+fileTimestamp(payload.exportedAt)+'/';
+  const j=(value)=>JSON.stringify(value??null,null,2);
+  return[
+    {name:root+'README.txt',content:'Area 52 Diagnostics bundle\n\nThis archive contains bounded metadata-only diagnostics retained by the UI. Raw prompts, story/Lore bodies, credentials, keys, and hidden reasoning are intentionally excluded.\n'},
+    {name:root+'manifest.json',content:j({...payload.manifest,safety:payload.safety})},
+    {name:root+'timeline.json',content:j(payload.timeline)},
+    {name:root+'selected-turn.json',content:j(payload.selectedTurn)},
+    {name:root+'retained-evidence.json',content:j(payload.retainedEvidence)},
+    {name:root+'brain/brain.json',content:j({producers:op.producers,pipeline:op.pipeline,generationInspection:op.generationInspection})},
+    {name:root+'runtime/runtime.json',content:j(op.runtime)},
+    {name:root+'resources/resources.json',content:j({resources:op.resources,wiring:op.wiring,coprocessor:op.coprocessor})},
+    {name:root+'knowledge/lore-memory.json',content:j({lore:op.lore,memory:op.memory,cognition:op.cognition})},
+    {name:root+'performance/ui-load.json',content:j(op.telemetry?.uiLoad??null)},
+    {name:root+'errors/errors.json',content:j(payload.errors)},
+    {name:root+'operational-snapshot.json',content:j(op)},
+  ];
+}
+function createStoredZipBlob(files,BlobCtor){
+  const Encoder=globalThis.TextEncoder;if(typeof Encoder!=='function')throw new Error('TextEncoder unavailable');
+  const enc=new Encoder(),locals=[],centrals=[];let offset=0;
+  for(const file of files){
+    const name=enc.encode(String(file.name)),data=enc.encode(String(file.content??'')),crc=crc32(data);
+    const local=new Uint8Array(30+name.length),lv=new DataView(local.buffer);
+    lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(6,0,true);lv.setUint16(8,0,true);lv.setUint16(10,0,true);lv.setUint16(12,0,true);
+    lv.setUint32(14,crc,true);lv.setUint32(18,data.length,true);lv.setUint32(22,data.length,true);lv.setUint16(26,name.length,true);lv.setUint16(28,0,true);local.set(name,30);
+    locals.push(local,data);
+    const central=new Uint8Array(46+name.length),cv=new DataView(central.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0,true);cv.setUint16(10,0,true);cv.setUint16(12,0,true);cv.setUint16(14,0,true);
+    cv.setUint32(16,crc,true);cv.setUint32(20,data.length,true);cv.setUint32(24,data.length,true);cv.setUint16(28,name.length,true);cv.setUint16(30,0,true);cv.setUint16(32,0,true);cv.setUint16(34,0,true);cv.setUint16(36,0,true);cv.setUint32(38,0,true);cv.setUint32(42,offset,true);central.set(name,46);
+    centrals.push(central);offset+=local.length+data.length;
+  }
+  const centralSize=centrals.reduce((n,row)=>n+row.length,0),end=new Uint8Array(22),ev=new DataView(end.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(4,0,true);ev.setUint16(6,0,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);ev.setUint32(12,centralSize,true);ev.setUint32(16,offset,true);ev.setUint16(20,0,true);
+  return new BlobCtor([...locals,...centrals,end],{type:'application/zip'});
+}
+function crc32(bytes){
+  let crc=0xffffffff;
+  for(const byte of bytes){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^(0xedb88320&-(crc&1));}
+  return(crc^0xffffffff)>>>0;
+}
+function fileTimestamp(value){
+  const date=new Date(Number(value)||Date.now()),pad=(n)=>String(n).padStart(2,'0');
+  return date.getFullYear()+pad(date.getMonth()+1)+pad(date.getDate())+'-'+pad(date.getHours())+pad(date.getMinutes())+pad(date.getSeconds());
 }
 
 function buildTurnRows(turn,selection){

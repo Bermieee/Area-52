@@ -38,6 +38,8 @@ import { createOwnerGraphProviders } from './owner-graph-adapters.js';
 import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
 import { JevDomain } from '../coprocessor/jev-domain-adapter.js';
+import { NativeSidecarSwarm } from '../coprocessor/native-sidecar-swarm.js';
+import { plannerInputFromScene } from '../coprocessor/scene-signal-adapter.js';
 import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coprocessor/jev-lore-adapter.js';
 
 const CHANNEL_ID = 'NATIVE_LORE_RUNTIME';
@@ -348,6 +350,8 @@ export class DevelopmentDeploymentBrain {
     this.core.registerRetrievalChannel(this.loreChannel);
     this.coprocessorTelemetry = new CoprocessorTelemetry({ limit: 2000 });
     this.resourceConnections = new CoprocessorResourceConnections({ telemetry: this.coprocessorTelemetry });
+    this.scenePrefetchSwarm = new NativeSidecarSwarm({ connections: this.resourceConnections, telemetry: this.coprocessorTelemetry });
+    this.scenePrefetchConsiderations = [];
     this.resourceDirectorResults = [];
     this.resourceOwnerReceipts = [];
     this.resourceDirector = new WorkerDirector({
@@ -946,6 +950,56 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
+  #considerScenePrefetch({chatId,turn,query}={}){
+    const sceneInput=this.scene.fanOutInput(String(chatId));
+    const recommendations=sceneInput?.prefetchRecommendations??[];
+    if(!recommendations.length){
+      return Object.freeze({
+        kind:'DeploymentScenePrefetchConsiderationReceipt',contractVersion:1,status:'SKIPPED',reasonCode:'NO_ACTIVE_SCENE_PREFETCH_RECOMMENDATION',
+        chatId:String(chatId),turnId:turn?.turnId??null,correlationId:turn?.correlationId??null,
+        sceneId:sceneInput?.sceneId??null,sceneRevision:sceneInput?.sceneRevision??null,
+        recommendationIds:[],freshRecommendationCount:0,plannedTaskCount:0,nominatedRoles:[],
+        plannerConsidered:false,workerExecutionAttempted:false,authorityGranted:false,retrievalAuthority:false,truthAuthority:false,contextSealAuthority:false,
+      });
+    }
+    const plannerInput=plannerInputFromScene({publicSignals:sceneInput});
+    const considerationTurn=Object.freeze({
+      ...clone(turn),
+      sourceRevisionSet:uniq([...(turn?.sourceRevisionSet??[]),...(sceneInput.sourceRevisionSet??[])]),
+      sceneRevision:Number(sceneInput.sceneRevision??turn?.sceneRevision??0),
+    });
+    const prepared=this.scenePrefetchSwarm.prepareTurn({
+      turnEvent:considerationTurn,
+      plannerInput:{...plannerInput,text:String(query??''),trigger:'SCENE_PREFETCH_RECOMMENDATION'},
+    });
+    const recommendationIds=uniq(recommendations.map(row=>row.recommendationId));
+    const nominatedRoles=uniq((prepared.fanOutPlan?.nominations??[])
+      .filter(row=>(row.reasonCodes??[]).includes('SCENE_PREFETCH_RECOMMENDATION'))
+      .map(row=>row.roleId));
+    const plannedTaskCount=(prepared.checkpoint?.pendingTasks??[])
+      .filter(task=>(task.metadata?.reasonCodes??[]).includes('SCENE_PREFETCH_RECOMMENDATION')).length;
+    const receipt=Object.freeze({
+      kind:'DeploymentScenePrefetchConsiderationReceipt',contractVersion:1,status:'CONSIDERED',reasonCode:null,
+      chatId:String(chatId),turnId:turn?.turnId??null,correlationId:turn?.correlationId??null,
+      sceneId:sceneInput.sceneId??null,sceneRevision:sceneInput.sceneRevision??null,
+      sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),recommendationIds,
+      freshRecommendationCount:Number(prepared.fanOutPlan?.inputSignals?.freshPrefetchRecommendationCount??0),
+      rejectedRecommendationCount:Number(prepared.fanOutPlan?.inputSignals?.rejectedPrefetchRecommendationCount??0),
+      plannedTaskCount,nominatedRoles,
+      plannerConsidered:true,workerExecutionAttempted:false,checkpointExecutionPerformed:false,
+      authorityGranted:false,retrievalAuthority:false,truthAuthority:false,contextSealAuthority:false,canonicalMutation:false,settlementAuthority:false,
+    });
+    this.scenePrefetchConsiderations.push(clone(receipt));
+    if(this.scenePrefetchConsiderations.length>128)this.scenePrefetchConsiderations.splice(0,this.scenePrefetchConsiderations.length-128);
+    this.#emit({type:'SCENE_PREFETCH_CONSIDERED',receipt:clone(receipt)});
+    return receipt;
+  }
+
+  readScenePrefetchConsiderations({limit=32}={}){
+    const count=Math.max(1,Math.min(128,Number(limit)||32));
+    return this.scenePrefetchConsiderations.slice(-count).map(clone);
+  }
+
   async runTurn({
     chatId = 'chat:deployment',
     turnId,
@@ -979,6 +1033,7 @@ export class DevelopmentDeploymentBrain {
       deliveryAttempt: 1,
       dedupeKey: 'turn:' + turnId,
     };
+    const scenePrefetchConsideration=this.#considerScenePrefetch({chatId,turn,query});
 
     let planning = null;
     const jobs = [];
@@ -1074,6 +1129,7 @@ export class DevelopmentDeploymentBrain {
       runtimeResults: runtimeResultRows,
       scatter,
       scene: this.scene.uiReadModel(String(chatId)),
+      scenePrefetchConsideration: clone(scenePrefetchConsideration),
       loreStatus: {
         kind: 'DeploymentLoreStatus',
         ...this.loreSystem.diagnostics(),

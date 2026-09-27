@@ -14,6 +14,7 @@ on:
       - 'tests/scene-completion-wave4-gaps.mjs'
       - 'tests/scene-ft002-host-e2e.mjs'
       - 'tests/scene-advanced-scanner-ops.mjs'
+      - 'tests/scene-atmosphere-production.mjs'
       - 'tests/deployment-live-host.test.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
@@ -30,6 +31,7 @@ on:
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
+      - 'tests/scene-atmosphere-production.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
       - 'docs/SCENE_*'
@@ -62,6 +64,8 @@ jobs:
         run: node --test tests/scene-ft002-host-e2e.mjs
       - name: Advanced Scanner operator acceptance
         run: node --test tests/scene-advanced-scanner-ops.mjs
+      - name: Scene atmosphere production acceptance
+        run: node --test tests/scene-atmosphere-production.mjs
       - name: Assembled selected-turn Scene delivery seam
         run: node --test --test-name-pattern='real native Brain host event publishes Scene and sealed Context Delivery' tests/deployment-live-host.test.mjs
       - name: Scene research evaluation
@@ -95,5 +99,6 @@ jobs:
           node --check tests/scene-completion-wave4-gaps.mjs
           node --check tests/scene-ft002-host-e2e.mjs
           node --check tests/scene-advanced-scanner-ops.mjs
+          node --check tests/scene-atmosphere-production.mjs
           node --check tests/deployment-live-host.test.mjs
           node --check scripts/scene-research-evaluation.mjs

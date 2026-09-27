@@ -140,11 +140,13 @@ export function createWave6ProductInterface({
   const captureEvidence=()=>{
     if(!evidenceJournal||!operations)return null;
     const op=operations.read(),selection=op.selection??selectionProvider();
+    let ownerReceipt=null;
+    try{ownerReceipt=effectiveBridges.selectedTurn?.readReceipt?.(selection)??null;}catch{/* LiveReceiptBinding records the safe rejection for Diagnostics. */}
     const cognitionRead=cognition.read?.(selection)??null,diagnosticsRead=diagnostics?.read?.()??null,promptPlanRead=promptPlan.read?.(selection)??null;
-    const turn=evidenceJournal.recordSnapshot({selection,operations:op,diagnostics:diagnosticsRead,cognition:cognitionRead,promptPlan:promptPlanRead});
+    const turn=evidenceJournal.recordSnapshot({selection,operations:op,diagnostics:diagnosticsRead,cognition:cognitionRead,promptPlan:promptPlanRead,ownerReceipt});
     activityFeed?.render();return turn;
   };
-  const scheduleEvidenceCapture=()=>scheduler.invalidate('demo:evidence-capture',captureEvidence,{cost:'CHEAP'});
+  const scheduleEvidenceCapture=()=>evidenceJournal&&operations?scheduler.invalidate('demo:evidence-capture',captureEvidence,{cost:'CHEAP'}):false;
   let liveSelectionKey=null;
   const applyLiveSelection=(update=null,{initial=false}={})=>{
     const selection=liveReceiptBinding?.selection?.(update?.selection??{})??null;

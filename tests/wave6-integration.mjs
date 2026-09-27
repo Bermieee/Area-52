@@ -12,6 +12,7 @@ import {browserHostConformanceReport} from '../src/browser-host-conformance.js';
 
 test('Wave 6 shared-contract and integration rehearsal acceptance is green without live claims',()=>{
   const r=runWave6Acceptance();
+  console.log('WAVE6_EMBER_COMPAT_METRIC',JSON.stringify({facts:r.ember?.facts??null,deliveryStatus:r.ember?.delivery?.plan?.status??null,deliveryOk:r.ember?.delivery?.ok??null}));
   assert.equal(r.pass,true,JSON.stringify(r.metrics,null,2));
   assert.equal(r.gate.state,'BLOCKED');
   assert.equal(r.gate.phase2PromotionAllowed,false);

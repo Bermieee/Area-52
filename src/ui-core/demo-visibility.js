@@ -1,7 +1,7 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
 
-export const DEMO_EVIDENCE_JOURNAL_VERSION='1.3.0';
+export const DEMO_EVIDENCE_JOURNAL_VERSION='1.4.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
 const STAGES=['scene','runtime','coprocessor','choice','truth','jev','gather','seal','promptPlan','generation','learning'];
 
@@ -25,7 +25,7 @@ export class DemoEvidenceJournal{
     this.lastError=null;this.cachedState=null;this.lastSerializedBytes=0;this.writeCount=0;this.skippedWriteCount=0;this.storageLoadCount=0;
   }
 
-  recordSnapshot({selection={},operations=null,diagnostics=null,cognition=null,promptPlan=null}={}){
+  recordSnapshot({selection={},operations=null,diagnostics=null,cognition=null,promptPlan=null,ownerReceipt=null}={}){
     const identity=normalizeSelection(selection);
     if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
     const state=this.#load(),key=selectionKey(identity),at=this.now();
@@ -34,7 +34,7 @@ export class DemoEvidenceJournal{
       turn={key,selection:identity,firstSeenAt:at,lastUpdatedAt:at,entries:[]};
       state.turns.push(turn);changed=true;
     }
-    const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,at});
+    const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,ownerReceipt,at});
     for(const entry of entries){
       const index=turn.entries.findIndex(row=>row.identityKey===entry.identityKey);
       if(index>=0){
@@ -193,7 +193,7 @@ export class DemoActivityFeedController{
   #cancelTimer(){if(this.timer!=null&&this.clearTimer)this.clearTimer(this.timer);this.timer=null;}
 }
 
-function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at}){
+function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ownerReceipt,at}){
   const out=[],op=operations??{},diag=diagnostics??{},path=cognition?.data??cognition??{},pipeline=op.pipeline??{};
   const stages=new Map((op.stages??[]).map(row=>[row.id,row]));
   const inspections=op.inspections??{},scatter=path.scatter??null,gather=path.gather??null,seal=path.seal??null;
@@ -225,6 +225,8 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
       metadata:{stage,code,worldRevision:selection.worldRevision,sceneRevision:selection.sceneRevision,sourceRevisionRefs:[...selection.sourceRevisionRefs]},
     }));
   }
+
+  if(ownerReceipt)out.push(...deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations:op,diagnostics:diag,promptPlan:pp,at}));
 
   if(scatter){
     const jobs=scatter.jobs??[],ids=[...new Set(jobs.map(row=>row.resourceId).filter(Boolean))];
@@ -351,6 +353,121 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,at
     }));
   }
   return out;
+}
+
+
+const CAUSAL_OWNER_STAGES=Object.freeze([
+  {id:'hostObservation',label:'Host observation',producer:'SILLYTAVERN_HOST',consumer:'SCENE',phase:12},
+  {id:'scene',label:'Scene',producer:'SCENE',consumer:'HOT_COGNITION',phase:14},
+  {id:'hotCognition',label:'Hot Cognition',producer:'HOT_COGNITION',consumer:'COGNITIVE_CHOICE',phase:16},
+  {id:'cognitiveChoice',label:'Cognitive Choice',producer:'COGNITIVE_CHOICE',consumer:'RUNTIME',phase:18},
+  {id:'sensory',label:'Sensory / Retrieval',producer:'SENSORY_RETRIEVAL',consumer:'TRUTH',phase:22},
+  {id:'truth',label:'Truth',producer:'TRUTH',consumer:'GATHER',phase:24},
+  {id:'runtime',label:'Runtime jobs',producer:'RUNTIME',consumer:'WORKERS',phase:30},
+  {id:'jev',label:'Jev',producer:'JEV',consumer:'GATHER',phase:42},
+  {id:'sidecar',label:'Sidecar',producer:'SIDECAR',consumer:'GATHER',phase:44},
+  {id:'vectoring',label:'Vectoring',producer:'VECTORING',consumer:'GATHER',phase:46},
+  {id:'gather',label:'Gather',producer:'GATHER',consumer:'CONTEXT_SEAL',phase:70},
+  {id:'contextSeal',label:'Context Seal',producer:'CONTEXT_SEAL',consumer:'PROMPT_PLAN',phase:80},
+  {id:'promptPlan',label:'PromptPlan',producer:'PROMPT_PLAN',consumer:'CORE_RENDER',phase:90},
+  {id:'compiledDelivery',label:'Compiled / sealed delivery',producer:'CORE_RENDER',consumer:'SILLYTAVERN_HOST',phase:95},
+  {id:'delivery',label:'Observed host delivery',producer:'SILLYTAVERN_HOST',consumer:'MODEL_PROVIDER',phase:100},
+  {id:'learning',label:'Post-response learning',producer:'LEARNING',consumer:'MEMORY_LORE',phase:110},
+  {id:'memory',label:'Memory owner',producer:'MEMORY',consumer:'COGNITIVE_STATE',phase:112},
+  {id:'lore',label:'Lore owner',producer:'LORE',consumer:'COGNITIVE_STATE',phase:114},
+]);
+
+function deriveCausalOwnerEdges({selection,ownerReceipt,path,pipeline,operations,diagnostics,promptPlan,at}={}){
+  const producers=ownerReceipt?.producers??{},inspections=operations?.inspections??{},resources=diagnostics?.resources?.rows??[];
+  const resource=(kind)=>resources.find(row=>String(row?.kind??'').toUpperCase()===kind)??null;
+  const selectedRefs=ownerReceipt?.sourceRevisions?.selectedRefs??selection?.sourceRevisionRefs??[];
+  const evidenceFor=(stage)=>{
+    const owner=producers?.[stage]??null;
+    if(owner&&String(owner.status??'').toUpperCase()!=='UNAVAILABLE')return ownerEvidence(owner,stage,selectedRefs,selection);
+    if(stage==='hostObservation'){
+      const host=producers?.hostObservation??producers?.host??null;
+      return host&&String(host.status??'').toUpperCase()!=='UNAVAILABLE'?ownerEvidence(host,stage,selectedRefs,selection):null;
+    }
+    if(stage==='scene'&&path?.scene)return readModelEvidence(path.scene,inspections.scene,stage,selectedRefs,selection);
+    if(stage==='hotCognition'&&path?.hotCognition)return readModelEvidence(path.hotCognition,inspections.hotCognition,stage,selectedRefs,selection);
+    if(stage==='cognitiveChoice'&&path?.choice)return readModelEvidence(path.choice,inspections.choice,stage,selectedRefs,selection);
+    if(stage==='sensory'&&path?.sensory)return readModelEvidence(path.sensory,inspections.sensory,stage,selectedRefs,selection);
+    if(stage==='truth'&&path?.truth)return readModelEvidence(path.truth,inspections.truth,stage,selectedRefs,selection);
+    if(stage==='runtime'){
+      const receipt=inspections.runtime?.payload?.receipt??inspections.runtime?.payload??path?.scatter??null;
+      return receipt?readModelEvidence(receipt,inspections.runtime,stage,selectedRefs,selection):null;
+    }
+    if(stage==='jev'){
+      if(path?.jev)return readModelEvidence(path.jev,inspections.jev,stage,selectedRefs,selection,{reasonCode:technicalReason(path.jev?.reasonCode??path.jev?.reason??path.jev?.outcome)});
+      return optionalResourceEvidence(resource('JEV'),stage,selectedRefs,selection);
+    }
+    if(stage==='sidecar')return optionalResourceEvidence(resource('SIDECAR'),stage,selectedRefs,selection);
+    if(stage==='vectoring')return optionalResourceEvidence(resource('VECTORING'),stage,selectedRefs,selection);
+    if(stage==='gather'&&path?.gather)return readModelEvidence(path.gather,inspections.gather,stage,selectedRefs,selection);
+    if(stage==='contextSeal'&&path?.seal)return readModelEvidence(path.seal,inspections.seal,stage,selectedRefs,selection);
+    if(stage==='promptPlan'&&(promptPlan||path?.promptPlan))return readModelEvidence(promptPlan??path.promptPlan,inspections.promptPlan,stage,selectedRefs,selection);
+    if(stage==='compiledDelivery'){
+      const compiled=ownerReceipt?.delivery?.compiled;
+      return compiled&&String(compiled.state??'').toUpperCase()!=='UNAVAILABLE'?readModelEvidence(compiled,null,stage,selectedRefs,selection):null;
+    }
+    if(stage==='delivery'){
+      const observed=ownerReceipt?.delivery?.hostObserved??null;
+      if(observed&&String(observed.state??'').toUpperCase()==='OBSERVED')return readModelEvidence(observed,inspections.generation,stage,selectedRefs,selection);
+      const host=inspections.generation?.payload??null;
+      return host?.kind==='SillyTavernHostDeliveryReceipt'&&Boolean(host.hostObserved??host.requestInjectedAt)?readModelEvidence(host,inspections.generation,stage,selectedRefs,selection):null;
+    }
+    if(stage==='learning'&&pipeline?.learningReceipt)return readModelEvidence(inspections.learning?.payload??{kind:pipeline.learningKind??'LearningReceipt',status:'RECORDED'},inspections.learning,stage,selectedRefs,selection);
+    if(stage==='memory'&&inspections.memory?.available)return readModelEvidence(inspections.memory.payload??{},inspections.memory,stage,selectedRefs,selection);
+    if(stage==='lore'){
+      if(inspections.lore?.available)return readModelEvidence(inspections.lore.payload??{},inspections.lore,stage,selectedRefs,selection);
+      if(path?.lore)return readModelEvidence(path.lore,inspections.lore,stage,selectedRefs,selection);
+    }
+    return null;
+  };
+  return CAUSAL_OWNER_STAGES.map(def=>{
+    const evidence=evidenceFor(def.id),explicitUnavailable=producers?.[def.id]&&String(producers[def.id].status??'').toUpperCase()==='UNAVAILABLE'?producers[def.id]:null;
+    const deliveryUnavailable=def.id==='delivery'&&ownerReceipt?.delivery?.hostObserved&&String(ownerReceipt.delivery.hostObserved.state??'').toUpperCase()!=='OBSERVED'?ownerReceipt.delivery.hostObserved:null;
+    const compiledUnavailable=def.id==='compiledDelivery'&&ownerReceipt?.delivery?.compiled&&String(ownerReceipt.delivery.compiled.state??'').toUpperCase()==='UNAVAILABLE'?ownerReceipt.delivery.compiled:null;
+    const unavailable=explicitUnavailable??deliveryUnavailable??compiledUnavailable;
+    const status=evidence?.status??'NO_EVIDENCE',reasonCode=evidence?.reasonCode??technicalReason(unavailable?.reason)??'OWNER_STAGE_RECEIPT_NOT_PUBLISHED';
+    const receiptRef=evidence?.receiptId??null,parentReceiptId=evidence?.parentReceiptId??null;
+    const summary=evidence
+      ? def.producer+' → '+def.consumer+' published '+status+(receiptRef?' ('+receiptRef+')':'')+'.'
+      : 'Expected '+def.producer+' → '+def.consumer+': no owner evidence for this selected turn.';
+    return entry({
+      type:'OWNER_EDGE',subtype:def.id,status,title:'Causal edge · '+def.label,summary,
+      detail:evidence?'Backed by selected-turn owner evidence. Parent linkage stays unknown unless the owner publishes parentReceiptId.':'No execution or acceptance is inferred from configuration, connection, a plan, or another stage.',
+      receiptRef,selection,at,identitySuffix:[def.id,receiptRef??'none',status,reasonCode].join(':'),
+      metadata:{stage:def.id,producer:def.producer,consumer:def.consumer,edgeClass:'EXPECTED_OWNER_BOUNDARY',reasonCode,parentReceiptId,
+        durationMs:evidence?.durationMs??null,ownerAccepted:evidence?.ownerAccepted??null,lifecycleState:evidence?.lifecycleState??status,
+        worldRevision:evidence?.worldRevision??selection.worldRevision??null,sceneRevision:evidence?.sceneRevision??selection.sceneRevision??null,
+        sourceRevisionRefs:[...(evidence?.sourceRevisionRefs??selectedRefs??[])].slice(0,32),correlationId:selection.correlationId??null,evidenceKind:evidence?.evidenceKind??null,phase:def.phase},
+    });
+  });
+}
+function ownerEvidence(value,stage,selectedRefs,selection){
+  return{status:String(value?.lifecycleState??value?.state??value?.status??'PUBLISHED').toUpperCase(),receiptId:value?.id??value?.receiptId??value?.promptPlanId??null,
+    parentReceiptId:value?.parentReceiptId??value?.parentId??null,durationMs:finite(value?.durationMs),ownerAccepted:typeof value?.ownerAccepted==='boolean'?value.ownerAccepted:null,
+    lifecycleState:value?.lifecycleState??value?.state??value?.status??'PUBLISHED',sourceRevisionRefs:[...(value?.sourceRevisionRefs??selectedRefs??[])].slice(0,32),
+    worldRevision:numberOrNull(value?.worldRevision??selection?.worldRevision),sceneRevision:numberOrNull(value?.sceneRevision??value?.revision??selection?.sceneRevision),
+    evidenceKind:value?.kind??('owner:'+stage),reasonCode:technicalReason(value?.reasonCode??value?.reason)};
+}
+function readModelEvidence(value,inspection,stage,selectedRefs,selection,overrides={}){
+  return{status:String(overrides.status??value?.lifecycleState??value?.state??value?.status??(stage==='compiledDelivery'?'COMPILED_AND_SEALED':'PUBLISHED')).toUpperCase(),
+    receiptId:inspection?.receiptRef??value?.receiptId??value?.id??value?.promptPlanId??value?.sealId??value?.snapshotId??value?.envelopeId??null,
+    parentReceiptId:value?.parentReceiptId??value?.parentId??null,durationMs:finite(value?.durationMs),ownerAccepted:typeof value?.ownerAccepted==='boolean'?value.ownerAccepted:null,
+    lifecycleState:value?.lifecycleState??value?.state??value?.status??null,sourceRevisionRefs:[...(value?.sourceRevisionRefs??value?.sourceRevisionIds??selectedRefs??[])].slice(0,32),
+    worldRevision:numberOrNull(value?.worldRevision??selection?.worldRevision),sceneRevision:numberOrNull(value?.sceneRevision??value?.revision??selection?.sceneRevision),
+    evidenceKind:value?.kind??('read-model:'+stage),reasonCode:overrides.reasonCode??technicalReason(value?.reasonCode??value?.reason)};
+}
+function optionalResourceEvidence(row,stage,selectedRefs,selection){
+  if(!row)return null;
+  const attempted=Boolean(row.physicalExecutionAttempted||row.lastExecution),returned=Boolean(row.physicalExecutionReturned??row.lastExecution?.status),accepted=row.ownerAccepted===true;
+  const status=accepted?'OWNER_ACCEPTED':returned?'RETURNED':attempted?'ATTEMPTED':row.callable?'QUALIFIED':'CONFIGURED';
+  return{status,receiptId:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,parentReceiptId:row.lastExecution?.parentReceiptId??null,
+    durationMs:finite(row.lastExecution?.latencyMs),ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,lifecycleState:status,
+    sourceRevisionRefs:[...(selectedRefs??[])].slice(0,32),worldRevision:numberOrNull(selection?.worldRevision),sceneRevision:numberOrNull(selection?.sceneRevision),
+    evidenceKind:'optional-resource:'+stage,reasonCode:technicalReason(row.skipReason??row.lastFailure?.code??row.lastExecution?.reasonCode)};
 }
 
 function producerDetail(id,path,pipeline,row){

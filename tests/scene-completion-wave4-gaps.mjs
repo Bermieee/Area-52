@@ -147,14 +147,14 @@ test('SceneRAG-style benchmark compares semantic episodes against naive fixed ch
     {id:'turn:6',text:'Back in the Moonlit Vault, Mara uses the brass key on the sealed door.'},
   ];
   const semanticEpisodes=[
-    {episodeId:'tavern',sourceIds:['turn:1','turn:2'],summary:'Ember Tavern: Mara and Eris plan to search the old vault for the Sun Blade.',temporalKind:'CURRENT'},
-    {episodeId:'vault',sourceIds:['turn:3','turn:4','turn:6'],summary:'Moonlit Vault: Eris gives Mara the brass key; Mara later uses it on the sealed door.',temporalKind:'CURRENT'},
-    {episodeId:'harbor-flashback',sourceIds:['turn:5'],summary:'Historical flashback: Mara met Eris at the harbor years earlier.',temporalKind:'FLASHBACK'},
+    {episodeId:'tavern',sourceIds:['turn:1','turn:2'],summary:'Ember Tavern: Mara and Eris plan to search the old vault for the Sun Blade.',temporalKind:'CURRENT',neighborEpisodeIds:['vault']},
+    {episodeId:'vault',sourceIds:['turn:3','turn:4','turn:6'],summary:'Moonlit Vault: Eris gives Mara the brass key; Mara later uses it on the sealed door.',temporalKind:'CURRENT',neighborEpisodeIds:['tavern','harbor-flashback']},
+    {episodeId:'harbor-flashback',sourceIds:['turn:5'],summary:'Historical flashback: Mara met Eris at the harbor years earlier.',temporalKind:'FLASHBACK',neighborEpisodeIds:['vault']},
   ];
   const queries=[
     {query:'Who gave Mara the brass key and where?',expectedSourceIds:['turn:4']},
     {query:'Where did Mara meet Eris years earlier?',expectedSourceIds:['turn:5']},
-    {query:'What did Mara use on the sealed vault door?',expectedSourceIds:['turn:4','turn:6']},
+    {query:'What did Mara use on the sealed vault door?',expectedSourceIds:['turn:4','turn:6'],callback:true,expectedNeighborEpisodeIds:['tavern']},
   ];
   const report=benchmarkSceneEpisodeRetrieval({corpus,semanticEpisodes,queries,fixedChunkSize:2});
   assert.equal(report.kind,'SceneEpisodeRetrievalBenchmark');
@@ -163,4 +163,9 @@ test('SceneRAG-style benchmark compares semantic episodes against naive fixed ch
   assert.ok(report.semantic.temporalCorrectness>=report.fixed.temporalCorrectness);
   assert.ok(report.semantic.sourceTraceability>=report.fixed.sourceTraceability);
   assert.ok(report.semantic.rebuildScopeAfterSingleEdit<=report.fixed.rebuildScopeAfterSingleEdit);
+  assert.ok(report.semantic.boundaryCoherence>=report.fixed.boundaryCoherence);
+  assert.ok(report.semantic.retrievalPrecision>=report.fixed.retrievalPrecision);
+  assert.ok(report.semantic.retrievalRecall>=report.fixed.retrievalRecall);
+  assert.ok(report.semantic.callbackRecovery>=report.fixed.callbackRecovery);
+  assert.ok(report.semantic.graphMultiHopUsefulness>report.fixed.graphMultiHopUsefulness);
 });

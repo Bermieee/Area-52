@@ -35,7 +35,10 @@ function sourceClassFor(owner){
 }
 function evidenceAuthority(edge){
   const authority=normalizeKnowledgeAuthority(edge.authorityClass);
-  if(edge.sourceKind==='LORE_GRAPH'&&authority===AuthorityClass.SOURCE_CANON)return AuthorityClass.INFERRED;
+  const sourceClass=sourceClassFor(edge.owner);
+  if(sourceClass===KnowledgeSourceClass.DERIVED_REPRESENTATION&&[
+    AuthorityClass.SOURCE_CANON,AuthorityClass.OBSERVED,AuthorityClass.SETTLED,AuthorityClass.OPERATOR,
+  ].includes(authority))return AuthorityClass.INFERRED;
   return authority;
 }
 function authorityOrigin(edge,authority){
@@ -197,7 +200,7 @@ export class NativeGraphNeighborhoodRetriever{
           provenanceRefs:uniq([...edge.provenanceRefs,...edge.sourceRevisionRefs]),claimIds:edge.claimRefs,
           semantic:{subjectId:edge.fromEntityId,predicate:edge.edgeMeaning,value:edge.toEntityId,status:temporal},
           hardRule:Boolean(edge.hardRule),
-          extensions:{representationText:edgeText(edge),graphProvider:edge.providerId,graphOwner:edge.owner,edgeMeaning:edge.edgeMeaning,traversalPath:clone(row.path),sourceKind:edge.sourceKind,identityResolution:clone(edge.identityResolution),identityRevisionRefs:[...(edge.identityRevisionRefs??[])],drillbackRefs:clone(edge.drillbackRefs??[])},
+          extensions:{representationText:edgeText(edge),graphProvider:edge.providerId,graphOwner:edge.owner,edgeMeaning:edge.edgeMeaning,traversalPath:clone(row.path),sourceKind:edge.sourceKind,identityResolution:clone(edge.identityResolution),identityRevisionRefs:[...(edge.identityRevisionRefs??[])],drillbackRefs:clone(edge.drillbackRefs??[]),ownerSourceAuthorityClass:normalizeKnowledgeAuthority(edge.authorityClass)},
         });
         this.evidenceSink(evidence);
       }
@@ -212,7 +215,7 @@ export class NativeGraphNeighborhoodRetriever{
           graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,
           edgeId:edge.edgeId,fromEntityId:edge.fromEntityId,toEntityId:edge.toEntityId,distance:row.distance,traversalPath:clone(row.path),temporalStatus:temporal,
           revisionFence:{sourceRevisionRefs:[...edge.sourceRevisionRefs],identityRevisionRefs:[...(edge.identityRevisionRefs??[])],dependencyRevisionRefs:[...edge.dependencyRevisionRefs],worldRevision:edge.worldRevision,sceneRevision:edge.sceneRevision,providerRevision:edge.providerRevision??null},
-          identityResolution:clone(edge.identityResolution),semanticsVersion:edge.semanticsVersion??'1.0.0',drillbackRefs:clone(edge.drillbackRefs??[]),
+          identityResolution:clone(edge.identityResolution),semanticsVersion:edge.semanticsVersion??'1.0.0',drillbackRefs:clone(edge.drillbackRefs??[]),ownerSourceAuthorityClass:normalizeKnowledgeAuthority(edge.authorityClass),
         },
         temporalHints:[{status:temporal,temporal:clone(edge.temporal??null),perspective:clone(edge.perspective??null)}],
         authorityClass:authority,truthStatusHint:temporal,provenance:uniq(edge.provenanceRefs).map(ref=>({ref})),

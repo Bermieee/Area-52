@@ -282,6 +282,7 @@ export class Area52NativeBrain{
   entityIdentityContract(){return this.core.entityIdentityContract();}
   graphProviderInterfaceContract(){return this.core.graphProviderInterfaceContract();}
   graphWalkerDiagnostics(){return this.core.graphWalkerDiagnostics();}
+  worldGraphReferences(query,options={}){return this.core.worldGraphReferences(query,options);}
 
   observeScene(chatId,input){
     const id=req(chatId,'chatId'),signal=sceneSignalFrom(input,id);

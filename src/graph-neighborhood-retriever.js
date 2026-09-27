@@ -118,12 +118,48 @@ export class NativeGraphNeighborhoodRetriever{
       response:{
         shapes:['GraphEdge[]','{providerRevision?,edges:GraphEdge[]}'],
         edgeRequired:['from/fromEntityId','to/toEntityId','edgeMeaning/predicate','sourceRevisionRefs'],
-        edgePreserved:['edgeId','sourceKind','temporalStatus','temporal','authorityClass','identityRevisionRefs','dependencyRevisionRefs','provenanceRefs','evidenceRefs','claimRefs','eventRefs','relationshipRefs','artifactRef','artifactRevision','worldRevision','sceneRevision','providerRevision','representationText','perspective','hardRule'],
+        edgePreserved:['edgeId','sourceKind','temporalStatus','temporal','authorityClass','identityRevisionRefs','dependencyRevisionRefs','provenanceRefs','evidenceRefs','claimRefs','eventRefs','relationshipRefs','artifactRef','artifactRevision','worldRevision','sceneRevision','providerRevision','representationRef','drillbackRefs','perspective','hardRule'],
         revisionRules:{sourceRevisionRefsRequired:true,identityRevisionRefsValidatedWhenPresent:true,dependenciesMustBeCurrent:true,worldFenceCheckedWhenPresent:true,sceneFenceCheckedWhenPresent:true,staleRejectedBeforeCandidateBus:true},
         provenanceRules:{sourceRevisionRefsAreAlwaysCarriedAsProvenance:true,traversalPathAddedByCore:true,providerAndOwnerIdentityPreserved:true},
       },
       authority:{providerOwnsSourceSemantics:true,coreOwnsTraversal:true,graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false},
       lifecycle:{providerFunctionsPersistedByCore:false,reattachProviderAfterBrainRestore:true,optionalCoprocessorMayWrapSameContract:true,nativeForegroundPathRequiresNoCoprocessor:true},
+    });
+  }
+
+  referenceSet(intent,context={}){
+    const started=now(),request=this.#request(intent,context),edges=[],providerDiagnostics=[],staleEdges=[];
+    edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
+    for(const provider of [...this.providers.values()].sort((a,b)=>a.providerId.localeCompare(b.providerId)).slice(0,this.limits.maxProviders)){
+      if(request.latencyBudgetMs>=0&&now()-started>=request.latencyBudgetMs){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_LATENCY_BUDGET',edgeCount:0});continue;}
+      try{
+        const value=provider.query(clone({...request,kind:'CoreGraphQueryRequest',contractVersion:'1.0.0',graphMutationAuthority:false,truthAuthority:false,settlementAuthority:false}));
+        if(value&&typeof value.then==='function')throw new Error('GRAPH_PROVIDER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
+        const rows=Array.isArray(value)?value:(value?.edges??[]);
+        let admitted=0,rejected=0;
+        for(const raw of rows.slice(0,request.maxEdges)){
+          const normalized=this.#externalEdge({...raw,providerRevision:raw?.providerRevision??value?.providerRevision??null},provider,request);
+          if(normalized.stale){staleEdges.push({providerId:provider.providerId,edgeId:normalized.edgeId,sourceRevisionRefs:normalized.sourceRevisionRefs,identityRevisionRefs:normalized.identityRevisionRefs,reason:normalized.staleReason});rejected++;continue;}
+          edges.push(normalized);admitted++;
+        }
+        providerDiagnostics.push({providerId:provider.providerId,status:'OK',edgeCount:admitted,rejectedStale:rejected,providerRevision:value?.providerRevision??null});
+      }catch(error){providerDiagnostics.push({providerId:provider.providerId,status:'DEGRADED',edgeCount:0,error:String(error?.message??error)});}
+    }
+    const traversed=this.#walk(edges,request,started);
+    const entityIds=uniq(traversed.rows.flatMap(row=>[row.edge.fromEntityId,row.edge.toEntityId]));
+    const identityReferences=this.entityRegistry?.readReferences?.(entityIds,{limit:Math.min(128,request.maxNodes)})?.references??[];
+    const temporalReferences=this.temporalGraph?.readReferences?.({entityIds,limit:Math.min(128,request.maxEdges)})?.references??[];
+    return clone({
+      kind:'StructuredWorldStateReferenceSet',contractVersion:'1.0.0',
+      intentId:intent?.intentId??null,query:request.query,intentKind:request.intentKind,anchorEntityIds:[...request.anchorEntityIds],
+      revisionFence:{worldRevision:request.worldRevision,sceneRevision:request.sceneRevision,sourceRevisionSet:[...request.sourceRevisionSet]},
+      edges:traversed.rows.slice(0,request.maxCandidates).map(row=>this.#referenceEdge(row)),
+      identityReferences,temporalReferences,
+      providers:providerDiagnostics,staleRejected:staleEdges.slice(0,32),
+      boundedOut:{edges:traversed.boundedEdges,nodes:traversed.boundedNodes,candidates:traversed.boundedCandidates},
+      limits:{maxDepth:request.maxDepth,maxNodes:request.maxNodes,maxEdges:request.maxEdges,maxCandidates:request.maxCandidates,latencyBudgetMs:request.latencyBudgetMs},
+      authority:{graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false},
+      readOnly:true,rawSourceContentIncluded:false,
     });
   }
 
@@ -138,7 +174,7 @@ export class NativeGraphNeighborhoodRetriever{
         const rows=Array.isArray(value)?value:(value?.edges??[]);
         let admitted=0,rejected=0;
         for(const raw of rows.slice(0,request.maxEdges)){
-          const normalized=this.#externalEdge(raw,provider,request);
+          const normalized=this.#externalEdge({...raw,providerRevision:raw?.providerRevision??value?.providerRevision??null},provider,request);
           if(normalized.stale){staleEdges.push({providerId:provider.providerId,edgeId:normalized.edgeId,sourceRevisionRefs:normalized.sourceRevisionRefs,reason:normalized.staleReason});rejected++;continue;}
           edges.push(normalized);admitted++;
         }
@@ -161,7 +197,7 @@ export class NativeGraphNeighborhoodRetriever{
           provenanceRefs:uniq([...edge.provenanceRefs,...edge.sourceRevisionRefs]),claimIds:edge.claimRefs,
           semantic:{subjectId:edge.fromEntityId,predicate:edge.edgeMeaning,value:edge.toEntityId,status:temporal},
           hardRule:Boolean(edge.hardRule),
-          extensions:{representationText:edgeText(edge),graphProvider:edge.providerId,graphOwner:edge.owner,edgeMeaning:edge.edgeMeaning,traversalPath:clone(row.path),sourceKind:edge.sourceKind,identityResolution:clone(edge.identityResolution),identityRevisionRefs:[...(edge.identityRevisionRefs??[])]},
+          extensions:{representationText:edgeText(edge),graphProvider:edge.providerId,graphOwner:edge.owner,edgeMeaning:edge.edgeMeaning,traversalPath:clone(row.path),sourceKind:edge.sourceKind,identityResolution:clone(edge.identityResolution),identityRevisionRefs:[...(edge.identityRevisionRefs??[])],drillbackRefs:clone(edge.drillbackRefs??[])},
         });
         this.evidenceSink(evidence);
       }
@@ -176,7 +212,7 @@ export class NativeGraphNeighborhoodRetriever{
           graphProvider:edge.providerId,graphOwner:edge.owner,sourceKind:edge.sourceKind,edgeMeaning:edge.edgeMeaning,
           edgeId:edge.edgeId,fromEntityId:edge.fromEntityId,toEntityId:edge.toEntityId,distance:row.distance,traversalPath:clone(row.path),temporalStatus:temporal,
           revisionFence:{sourceRevisionRefs:[...edge.sourceRevisionRefs],identityRevisionRefs:[...(edge.identityRevisionRefs??[])],dependencyRevisionRefs:[...edge.dependencyRevisionRefs],worldRevision:edge.worldRevision,sceneRevision:edge.sceneRevision,providerRevision:edge.providerRevision??null},
-          identityResolution:clone(edge.identityResolution),semanticsVersion:edge.semanticsVersion??'1.0.0',
+          identityResolution:clone(edge.identityResolution),semanticsVersion:edge.semanticsVersion??'1.0.0',drillbackRefs:clone(edge.drillbackRefs??[]),
         },
         temporalHints:[{status:temporal,temporal:clone(edge.temporal??null),perspective:clone(edge.perspective??null)}],
         authorityClass:authority,truthStatusHint:temporal,provenance:uniq(edge.provenanceRefs).map(ref=>({ref})),
@@ -205,6 +241,7 @@ export class NativeGraphNeighborhoodRetriever{
       hotNeighborhoodIdentityRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.identityRevisionRefs)),
       hotNeighborhoodDependencyRevisionRefs:uniq(hotNeighborhood.flatMap(row=>row.dependencyRevisionRefs)),
       hotNeighborhoodSummary:hotNeighborhood,
+      referenceSummary:traversed.rows.slice(0,32).map(row=>this.#referenceEdge(row)),
       boundedOut:{edges:traversed.boundedEdges,nodes:traversed.boundedNodes,candidates:traversed.boundedCandidates},
       limits:{maxDepth:request.maxDepth,maxNodes:request.maxNodes,maxEdges:request.maxEdges,maxCandidates:request.maxCandidates,latencyBudgetMs:request.latencyBudgetMs},
       elapsedMs,latencyBudgetExceeded:elapsedMs>=request.latencyBudgetMs&&request.latencyBudgetMs>=0,
@@ -294,13 +331,28 @@ export class NativeGraphNeighborhoodRetriever{
       evidenceRefs:uniq(raw?.evidenceRefs??[]),claimRefs:uniq(raw?.claimRefs??[]),eventRefs:uniq(raw?.eventRefs??[]),relationshipRefs:uniq(raw?.relationshipRefs??[]),
       artifactRef:artifactRef(raw),artifactRevision:raw?.artifactRevision??raw?.artifactRef?.revision??1,worldRevision:raw?.worldRevision??request.worldRevision,sceneRevision:raw?.sceneRevision??request.sceneRevision,
       providerRevision:raw?.providerRevision??null,representationText:raw?.representationText??null,representationRef:raw?.representationRef??null,representationRevision:raw?.representationRevision??null,
-      evidenceIdentity:raw?.evidenceIdentity??null,perspective:clone(raw?.perspective??null),hardRule:Boolean(raw?.hardRule),providerWeight:Number(raw?.providerWeight??1),
+      evidenceIdentity:raw?.evidenceIdentity??null,perspective:clone(raw?.perspective??null),drillbackRefs:clone(raw?.drillbackRefs??[]).slice(0,32),hardRule:Boolean(raw?.hardRule),providerWeight:Number(raw?.providerWeight??1),
       identityResolution:{from:from.state,to:to.state,fromCandidateEntityIds:from.candidateEntityIds??[],toCandidateEntityIds:to.candidateEntityIds??[]},
       semanticsVersion:provider.semanticsVersion,stale,staleReason,
     };
   }
 
   #normalizeRef(ref,options){return this.entityRegistry?.normalizeRef?.(ref,options)??{entityId:typeof ref==='string'?ref:String(ref?.entityId??ref?.id??ref?.ref??''),resolved:false,state:'IDENTITY_REGISTRY_UNAVAILABLE'};}
+
+  #referenceEdge(row){
+    const edge=row.edge;
+    return {
+      providerId:edge.providerId,owner:edge.owner,sourceKind:edge.sourceKind,edgeId:edge.edgeId,
+      fromEntityId:edge.fromEntityId,toEntityId:edge.toEntityId,edgeMeaning:edge.edgeMeaning,
+      temporalStatus:status(edge.temporalStatus),temporal:clone(edge.temporal??null),authorityClass:edge.authorityClass,
+      sourceRevisionRefs:uniq(edge.sourceRevisionRefs??[]),identityRevisionRefs:uniq(edge.identityRevisionRefs??[]),dependencyRevisionRefs:uniq(edge.dependencyRevisionRefs??[]),
+      provenanceRefs:uniq(edge.provenanceRefs??[]),evidenceRefs:uniq(edge.evidenceRefs??[]),claimRefs:uniq(edge.claimRefs??[]),eventRefs:uniq(edge.eventRefs??[]),relationshipRefs:uniq(edge.relationshipRefs??[]),
+      artifactRef:artifactRef(edge),artifactRevision:edge.artifactRevision??1,providerRevision:edge.providerRevision??null,
+      representationRef:edge.representationRef??null,drillbackRefs:clone(edge.drillbackRefs??[]).slice(0,32),
+      distance:row.distance,traversalPath:clone(row.path),identityResolution:clone(edge.identityResolution),
+      semanticsVersion:edge.semanticsVersion??'1.0.0',readOnly:true,
+    };
+  }
 
   #walk(edges,request,started){
     // Preserve owner temporal semantics at the graph-admission boundary. CURRENT

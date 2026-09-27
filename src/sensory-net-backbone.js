@@ -51,6 +51,10 @@ export class SensoryNetBackbone{
   unregisterGraphProvider(providerId){return this.graphWalker.unregisterProvider(providerId);}
   graphProviderInterfaceContract(){return this.graphWalker.ownerInterfaceContract();}
   graphWalkerDiagnostics(){return this.graphWalker.diagnostics();}
+  graphReferenceSet(query,{intent='CURRENT',anchorEntityIds=[],worldRevision=this.graph?.revision??0,sceneRevision=0,latencyBudgetMs=100,graphTraversal=null,perspective=null}={}){
+    const retrievalIntent=createRetrievalIntent({intentId:'world-graph-ref:'+stableHash({query,intent,anchorEntityIds,worldRevision,sceneRevision},{length:16}),kind:intent,query,entityRefs:anchorEntityIds,perspective,metadata:graphTraversal?{graphTraversal}:{}});
+    return this.graphWalker.referenceSet(retrievalIntent,{query,anchorEntityIds:uniq(anchorEntityIds),worldRevision,sceneRevision,sourceRevisionSet:this.sourceRegistry?.activeRevisionIds?.()??[],latencyBudgetMs,graphTraversal});
+  }
   resolveKnowledgeEvidence(candidate){
     const evidenceId=candidate?.metadata?.knowledgeEvidenceId??candidate?.channelNominations?.map(row=>row?.metadata?.knowledgeEvidenceId).find(Boolean)??null;
     return evidenceId&&this.graphEvidence.has(String(evidenceId))?clone(this.graphEvidence.get(String(evidenceId))):null;

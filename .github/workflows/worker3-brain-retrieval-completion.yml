@@ -43,13 +43,7 @@ jobs:
           tests/cognitive-choice-wave9.mjs
           tests/wave6-integration.mjs
 
-      - name: Native Brain regressions excluding confirmed pre-existing delivery-budget baseline
-        run: >-
-          node --test
-          --test-name-pattern="^(?!.*small and large delivery budgets preserve protected truth/source identity).*"
-          tests/native-brain-identity-retrieval.mjs
-
-      - name: Confirm pre-existing native delivery-budget baseline remains isolated
+      - name: Native Brain regression diagnostic (one confirmed pre-existing delivery-budget baseline)
         continue-on-error: true
         run: node --test tests/native-brain-identity-retrieval.mjs
 

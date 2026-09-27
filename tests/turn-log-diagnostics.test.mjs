@@ -164,8 +164,33 @@ test('chat switch, regeneration, reload, bounded retention, failed storage, and 
   const registry=new WorkspaceRegistry();
   const mounted=installTurnLogDiagnosticsWorkspace(registry,{journal:reloaded,selectionProvider:()=>s2});
   assert.equal(registry.has('turn-log'),true);
+  assert.equal(registry.get('turn-log').title,'Diagnostics');
   mounted.release();
   assert.equal(registry.has('turn-log'),false);
+});
+
+
+test('full Diagnostics export bundles every retained UI evidence surface and sanitizes operational secrets',()=>{
+  let now=1700000450000;
+  const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});
+  journal.recordSnapshot(snapshot());
+  const model=new SelectedTurnLogModel({journal,selectionProvider:()=>baseSelection,now:()=>now});
+  const bundle=model.exportDiagnosticsBundle({operationalSnapshot:{
+    runtime:{summary:{lifecycleCounts:{ACTIVE:1,FAILED:0}}},
+    resources:{rows:[{id:'sidecar:one',state:'READY'}]},
+    secret:'sk-should-never-export',
+  }});
+  assert.equal(bundle.kind,'Area52DiagnosticsBundle');
+  const paths=bundle.files.map(file=>file.path);
+  assert.ok(paths.includes('manifest.json'));
+  assert.ok(paths.includes('selected-turn/diagnostics.json'));
+  assert.ok(paths.includes('selected-turn/timeline.jsonl'));
+  assert.ok(paths.includes('selected-turn/brain-decision.json'));
+  assert.ok(paths.includes('session/operational-snapshot.json'));
+  assert.ok(paths.includes('session/retention.json'));
+  const serialized=bundle.files.map(file=>file.content).join('\n');
+  assert.equal(serialized.includes('sk-should-never-export'),false);
+  assert.match(serialized,/\[REDACTED\]/);
 });
 
 
@@ -177,6 +202,8 @@ test('workspace answers the selected-turn drilldown in human-readable labels ins
   const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
   registry.get('turn-log').render(host,{scope,refresh:()=>{}});
   const all=(node)=>[node,...(node.children??[]).flatMap(all)],nodes=all(host),visible=nodes.map(node=>node.textContent??'').join(' ');
+  assert.match(visible,/Area-52 Diagnostics/);
+  assert.match(visible,/Event timeline/);
   assert.match(visible,/6 logical jobs/);
   assert.match(visible,/0 optional provider attempts/);
   assert.match(visible,/result:1 · job HOT → GATHER · Gather ADMITTED/);

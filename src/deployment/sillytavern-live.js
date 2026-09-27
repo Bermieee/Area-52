@@ -534,11 +534,17 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   };
 }
 
+const READY_SCENE_EXTRACTION_POLICIES=new Set([
+  'GENERIC_HOST_EVIDENCE_ONLY',
+  'DETERMINISTIC_SCENE_OWNER',
+  'SEMANTIC_COGNITIVE_RESOURCE',
+]);
+
 function liveTurnReady(row) {
   if (!row?.host?.chatId || !row?.selection?.turnId || !row?.selection?.generationId) return false;
   if (!row.delivery?.ok || !row.delivery?.sealVerified || !row.delivery?.promptInjection?.succeeded) return false;
   if (!row.cognition?.choice || !row.runtime) return false;
-  if (!row.scene?.sceneId || row.scene?.extractionPolicy !== 'GENERIC_HOST_EVIDENCE_ONLY') return false;
+  if (!row.scene?.sceneId || !READY_SCENE_EXTRACTION_POLICIES.has(row.scene?.extractionPolicy)) return false;
   return true;
 }
 

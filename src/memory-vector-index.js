@@ -14,7 +14,7 @@ export class MemoryVectorIndex{
   enqueueArtifact({artifactId,artifactRevision=1,chatId=null,sourceRevisionRefs=[],historianRecordRef=null}={}){
     const id=String(artifactId??'').trim();if(!id)throw new TypeError('artifactId required');
     const item={workId:'memory-vector:'+stableHash(id+'|'+artifactRevision+'|'+sourceRevisionRefs.join('|')),artifactId:id,artifactRevision:Number(artifactRevision)||1,chatId:chatId==null?null:String(chatId),
-      sourceRevisionRefs:[...new Set(sourceRevisionRefs.map(String))].sort(),historianRecordRef:historianRecordRef==null?null:String(historianRecordRef),attempts:0,enqueuedSequence:++this.sequence};
+      sourceRevisionRefs:[...new Set(sourceRevisionRefs.map(String))].sort(),historianRecordRef:historianRecordRef==null?null:String(historianRecordRef),attempts:0,enqueuedAt:Date.now(),enqueuedSequence:++this.sequence};
     if(!this.pending.some(x=>x.workId===item.workId)&&!this.vectors.has(id+'@'+item.artifactRevision))this.pending.push(item);
     if(this.pending.length>this.maxPending)this.pending.splice(0,this.pending.length-this.maxPending);return deepClone(item);
   }
@@ -37,7 +37,7 @@ export class MemoryVectorIndex{
         historianRecordRef:record.id,vector:[...result.embeddings[0]],providerRequestId:result.providerRequestId??null,providerId:result.providerId??null,modelId:result.actualModelId??result.modelId??null,acceptedSequence:++this.sequence});
       this.pending.shift();this.#trimVectors();outcomes.push(this.#record({kind:'MemoryVectorWorkReceipt',workId:item.workId,status:'ACCEPTED',reasonCode:null,requestPurpose:'COGNITIVE_EXECUTION',
         providerRequestId:result.providerRequestId??null,providerId:result.providerId??null,modelId:result.actualModelId??null,ownerDecision:'ACCEPTED',ownerDestination:'MEMORY_VECTOR_INDEX',
-        queueWaitMs:Math.max(0,dispatchedAt-cycleStarted),providerLatencyMs:result.latencyMs??null,usageClass:result.measurementClass??null,costClass:result.usageReceipt?.cost?.status??null,
+        queueWaitMs:Math.max(0,dispatchedAt-Number(item.enqueuedAt??cycleStarted)),providerLatencyMs:result.latencyMs??null,usageClass:result.measurementClass??null,costClass:result.usageReceipt?.cost?.status??null,
         payloadSizeClass:sizeClass(body.length),heapBefore,heapAfter:heapSample(),rawPayloadRetained:false}));
     }
     return{kind:'MemoryVectorMaintenanceReceipt',contractVersion:MEMORY_VECTOR_INDEX_VERSION,status:outcomes.some(x=>x.status==='UNAVAILABLE')?'UNAVAILABLE':'COMPLETED',processed:outcomes.length,outcomes,pending:this.pending.length,foregroundBlockedMs:0};
@@ -48,14 +48,14 @@ export class MemoryVectorIndex{
     let result;const started=Date.now();
     try{result=await this.executor({requestPurpose:'COGNITIVE_EXECUTION',operation:'EMBED_QUERY',input:q,chatId:selection?.chatId??null});}
     catch(error){return this.#record({kind:'MemoryVectorQueryReceipt',status:'UNAVAILABLE',reasonCode:String(error?.code??'VECTOR_PROVIDER_FAILURE'),requestPurpose:'COGNITIVE_EXECUTION'});}
-    if(result?.status==='UNAVAILABLE')return this.#record({kind:'MemoryVectorQueryReceipt',status:'UNAVAILABLE',reasonCode:result.reasonCode??'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION'});
+    if(result?.status==='UNAVAILABLE')return this.#record({kind:'MemoryVectorQueryReceipt',status:'UNAVAILABLE',reasonCode:result.reasonCode??'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:result.foregroundBudgetMs??null,foregroundBlockedMs:Math.max(0,Date.now()-started)});
     const vector=result?.embeddings?.[0];if(!Array.isArray(vector)||!vector.length)return this.#record({kind:'MemoryVectorQueryReceipt',status:'REJECTED',reasonCode:'VECTOR_QUERY_RESULT_INVALID',providerRequestId:result?.providerRequestId??null});
     const chat=String(selection?.chatId??''),scored=[];
     for(const entry of this.vectors.values()){if(chat&&entry.chatId&&entry.chatId!==chat)continue;if(!this.#fresh(entry.sourceRevisionRefs))continue;const score=cosine(vector,entry.vector);if(score==null)continue;scored.push({artifactId:entry.artifactId,artifactRevision:entry.artifactRevision,historianRecordRef:entry.historianRecordRef,score:(score+1)/2});}
     scored.sort((a,b)=>b.score-a.score||a.artifactId.localeCompare(b.artifactId));const selected=scored.slice(0,Math.max(1,Math.min(48,Number(maxCandidates)||12)));
     this.queryCache.set(this.#queryKey(q,selection),{selected,sequence:++this.sequence});if(this.queryCache.size>128){const oldest=[...this.queryCache.entries()].sort((a,b)=>a[1].sequence-b[1].sequence)[0];if(oldest)this.queryCache.delete(oldest[0]);}
     return this.#record({kind:'MemoryVectorQueryReceipt',status:'READY',requestPurpose:'COGNITIVE_EXECUTION',providerRequestId:result.providerRequestId??null,providerId:result.providerId??null,modelId:result.actualModelId??null,
-      providerLatencyMs:result.latencyMs??Math.max(0,Date.now()-started),candidateCount:selected.length,ownerDecision:'ACCEPTED_FOR_HISTORIAN_NOMINATION',ownerDestination:'HISTORIAN_DENSE_RETRIEVAL',queryHash:stableHash(q.toLowerCase()),rawQueryRetained:false});
+      providerLatencyMs:result.latencyMs??Math.max(0,Date.now()-started),foregroundBudgetMs:result.foregroundBudgetMs??1200,foregroundBlockedMs:Math.max(0,Date.now()-started),candidateCount:selected.length,ownerDecision:'ACCEPTED_FOR_HISTORIAN_NOMINATION',ownerDestination:'HISTORIAN_DENSE_RETRIEVAL',queryHash:stableHash(q.toLowerCase()),rawQueryRetained:false});
   }
   cachedNominations({query,selection={},retrievalIntentId=null,maxCandidates=12}={}){
     const cached=this.queryCache.get(this.#queryKey(String(query??'').trim(),selection));if(!cached)return[];const intentId=retrievalIntentId??('memory-dense-intent:'+stableHash(String(query).toLowerCase())),out=[];

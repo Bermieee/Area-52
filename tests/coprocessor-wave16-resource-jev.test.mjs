@@ -158,8 +158,8 @@ test('Wave16 chat qualification accepts minimal reasoning-style completion respo
     assert.equal(ready.callable,true);
     assert.equal(ready.actualModelId,'story-chat');
     assert.equal(ready.actualProvider,'fixture-reasoning-upstream');
-    assert.equal(ready.qualificationEvidence.requestPurpose,'QUALIFICATION_PROBE');
-    assert.equal(ready.qualificationEvidence.providerRequestId,'fixture-reasoning');
+    assert.equal(ready.qualification.evidence.requestPurpose,'QUALIFICATION_PROBE');
+    assert.equal(ready.qualification.evidence.providerRequestId,'fixture-reasoning');
     assert.equal(provider.calls().lastChatBody.max_tokens,16);
     assert.ok(provider.calls().chat>=1);
   }finally{await provider.close();}

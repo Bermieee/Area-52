@@ -364,8 +364,18 @@ export class DevelopmentDeploymentBrain {
     this.memory.attachVectorExecutor(async(request)=>{
       const resources=this.resourceConnections.readModel().resources??[];
       const vector=resources.find((row)=>row.transportMode==='EMBEDDINGS'&&row.callable===true&&row.selectedModelQualified===true);
-      if(!vector)return{status:'UNAVAILABLE',reasonCode:'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION'};
-      return this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input});
+      if(!vector)return{status:'UNAVAILABLE',reasonCode:'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:request.operation==='EMBED_QUERY'?1200:null};
+      const foreground=request.operation==='EMBED_QUERY';
+      const controller=foreground?new AbortController():null;
+      const timer=foreground?setTimeout(()=>controller.abort('MEMORY_VECTOR_QUERY_BUDGET_EXCEEDED'),1200):null;
+      try{
+        return await this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input,signal:controller?.signal??null});
+      }catch(error){
+        if(foreground&&controller.signal.aborted)return{status:'UNAVAILABLE',reasonCode:'VECTOR_QUERY_BUDGET_EXCEEDED',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:1200};
+        throw error;
+      }finally{
+        if(timer)clearTimeout(timer);
+      }
     });
     this.memory.subscribeMemory((event)=>{
       if(event?.type==='MEMORY_COMPLETED_TURN_ADMITTED')this.#scheduleMemoryVectorMaintenance('MEMORY_COMPLETED_TURN_ADMITTED');

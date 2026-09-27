@@ -209,3 +209,74 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
   assert.ok(!invalidation.causalAffectedEventIds.includes(gate.id));
   assert.equal(memory.causalEvents.events.get(gate.id).freshness,'FRESH');
 });
+
+
+test('Worker 2: useful co-retrieval strengthens only a derived association, rejection demotes nomination priority, and derived state is recoverable',()=>{
+  let memory=new MemoryTemporalProducer();
+  const evidence=[1,2,3].map(index=>memory.appendEvidence({
+    id:'plasticity-assoc:e'+index,sourceId:'plasticity-assoc:s'+index,sourceRevisionId:'plasticity-assoc:s'+index+'@r1',
+    exactContent:'Independent memory evidence '+index+'.',kind:'EXPERIENCE',occurredAt:index,worldRevision:index,sceneRevision:index,
+    participants:['Nara'],knownBy:['Nara'],metadata:{chatId:'chat:plasticity-assoc',turnId:'pa:'+index,generationId:'pa:g'+index},provenance:['worker2'],
+  }));
+  const a={id:'derived:assoc:a',revision:1,artifactType:'REFLECTION',authorityClass:'INFERRED',supportEvidenceRefs:[evidence[0].id,evidence[1].id],sourceRevisionRefs:[evidence[0].sourceRevisionId,evidence[1].sourceRevisionId]};
+  const b={id:'derived:assoc:b',revision:1,artifactType:'SUMMARY',authorityClass:'DERIVED',supportEvidenceRefs:[evidence[1].id,evidence[2].id],sourceRevisionRefs:[evidence[1].sourceRevisionId,evidence[2].sourceRevisionId]};
+  memory.plasticity.observeArtifact(a);memory.plasticity.observeArtifact(b);
+  for(let i=0;i<4;i++)memory.recordCoRetrieval({artifactRefs:[{artifactId:a.id,artifactRevision:1},{artifactId:b.id,artifactRevision:1}],acceptedArtifactIds:[a.id,b.id]});
+  const associationReceipt=memory.runReconsolidation({maxUnits:8});
+  const associationOutcome=associationReceipt.outcomes.find(row=>row.kind==='MemoryAssociationReconsolidationOutcome');
+  assert.ok(associationOutcome);
+  assert.ok(associationOutcome.strength>.2);
+  assert.equal(associationOutcome.retrievalUseCreatedSupport,false);
+  assert.equal(memory.plasticity.record(a.id).authorityClass,'INFERRED');
+
+  const priorityBefore=memory.plasticity.nominationPriority(b.id,1);
+  for(let i=0;i<5;i++)memory.recordRetrievalUse({artifactId:b.id,artifactRevision:1,rejected:true});
+  memory.runReconsolidation({maxUnits:8});
+  const priorityAfter=memory.plasticity.nominationPriority(b.id,1);
+  assert.ok(priorityAfter<priorityBefore);
+  assert.ok(memory.plasticity.record(b.id).residency==='DEMOTED'||memory.plasticity.record(b.id).residency==='EVICTED');
+  assert.equal(memory.graph.evidenceRecord(evidence[1].id).exactContent,'Independent memory evidence 2.');
+
+  const recovery=memory.recoverDerivedArtifact({artifactId:b.id,artifactRevision:1});
+  assert.equal(recovery.status,'RECOVERED');
+  assert.equal(memory.plasticity.record(b.id).residency,'ACTIVE');
+
+  const splitProposal=memory.proposeDerivedReorganization({operation:'SPLIT',artifactRefs:[{artifactId:a.id,artifactRevision:1}],targetKeys:['derived:assoc:a:part-1','derived:assoc:a:part-2']});
+  const mergeProposal=memory.proposeDerivedReorganization({operation:'MERGE',artifactRefs:[{artifactId:a.id,artifactRevision:1},{artifactId:b.id,artifactRevision:1}],targetKeys:['derived:assoc:merged']});
+  assert.equal(splitProposal.canonicalMutationAuthority,false);
+  assert.equal(mergeProposal.ownerAdmissionRequired,true);
+  assert.equal(splitProposal.retrievalFeedbackIsEvidence,false);
+
+  memory=MemoryTemporalProducer.fromSnapshot(memory.snapshot());
+  const restoredAssociation=memory.plasticity.association(a.id,b.id,1,1);
+  assert.ok(restoredAssociation);
+  assert.equal(restoredAssociation.strength,associationOutcome.strength);
+  assert.equal(memory.plasticity.reorganizationProposals.length,2);
+});
+
+test('Worker 2: hierarchical summary query cost is measured on a long-story shape and exact drillback remains intact',()=>{
+  const memory=new MemoryTemporalProducer();
+  for(let i=0;i<36;i++){
+    const marker=i===17?'signal-archive':'ordinary-thread';
+    const ev=memory.appendEvidence({
+      id:'long-story:e'+i,sourceId:'long-story:s'+i,sourceRevisionId:'long-story:s'+i+'@r1',
+      exactContent:'Scene '+i+' records '+marker+' continuity detail.',kind:'EXPERIENCE',occurredAt:i+1,worldRevision:i+1,sceneRevision:i+1,
+      participants:['Traveler'+i],knownBy:['Traveler'+i],metadata:{chatId:'chat:long-story',turnId:'ls:'+i,generationId:'ls:g'+i},provenance:['worker2-long-story'],
+    });
+    memory.defineSummaryScope({level:'SCENE',scopeId:'long-story-'+i,evidenceRefs:[ev.id],provenance:['worker2-long-story']});
+  }
+  let guard=0;
+  while(memory.summaryStatus().pendingWorkUnits&&guard++<80)memory.runSummaryCompaction({maxUnits:16});
+  assert.equal(memory.summaryStatus().pendingWorkUnits,0);
+
+  const profile=memory.profileHierarchyQuery({query:'signal-archive continuity',resolutionHint:'SCENE',maxCandidates:8},{iterations:8,warmup:2});
+  assert.equal(profile.status,'MEASURED');
+  assert.ok(profile.before.artifactsExamined>profile.afterIndexedCold.artifactsExamined);
+  assert.ok(profile.afterWarmCache.cacheEntries>=1);
+
+  const result=memory.queryHistorian({query:'signal-archive continuity',resolutionHint:'SCENE',selection:{chatId:'chat:long-story'}});
+  assert.ok(result.nominations.length>=1);
+  const exact=memory.drillDown(result.nominations[0],{selection:{chatId:'chat:long-story'}});
+  assert.ok(exact.some(row=>row.id==='long-story:e17'));
+  assert.equal(exact.find(row=>row.id==='long-story:e17').exactContent,'Scene 17 records signal-archive continuity detail.');
+});

@@ -662,11 +662,17 @@ export class MemoryTemporalProducer {
       for(const nomination of combined){
         const key=nomination.artifactRef?.artifactId??nomination.candidateId;
         if(!this.plasticity.retrievable(key,nomination.artifactRevision))continue;
+        const baseRank=Math.max(0,Math.min(1,Number(nomination.normalizedRank??0)));
+        const plasticityPriority=this.plasticity.nominationPriority(key,nomination.artifactRevision);
+        const adjusted={...nomination,normalizedRank:baseRank*plasticityPriority,
+          rankSignals:{...(nomination.rankSignals??{}),prePlasticityRank:baseRank,plasticityPriority},
+          metadata:{...(nomination.metadata??{}),plasticityPriority,retrievalFeedbackIsEvidence:false}};
         const prior=unique.get(key);
-        if(!prior||Number(nomination.normalizedRank??0)>Number(prior.normalizedRank??0))unique.set(key,nomination);
+        if(!prior||Number(adjusted.normalizedRank??0)>Number(prior.normalizedRank??0))unique.set(key,adjusted);
       }
       let nominations=[...unique.values()].sort((a,b)=>Number(b.normalizedRank??0)-Number(a.normalizedRank??0)).slice(0,Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(request?.maxCandidates??MEMORY_LIMITS.maxHistorianCandidates)||MEMORY_LIMITS.maxHistorianCandidates)));
       if(selection.chatId)nominations=nominations.filter((nomination)=>this.nominationBelongsToChat(nomination,selection));
+      this.plasticity.recordCoRetrieval({artifactRefs:nominations.map((nomination)=>({artifactId:nomination.artifactRef?.artifactId??nomination.candidateId,artifactRevision:nomination.artifactRevision??1})),reasonCode:'HISTORIAN_CO_RETRIEVAL'});
       for(const nomination of nominations)this.plasticity.recordRetrievalUse({artifactId:nomination.artifactRef?.artifactId,artifactRevision:nomination.artifactRevision});
       const result={
         ...raw,nominations,
@@ -899,6 +905,9 @@ export class MemoryTemporalProducer {
   runVectorMaintenance(options={}){return this.vectorIndex.runMaintenance(options);}
   primeDenseHistorian(request={}){return this.vectorIndex.primeQuery(request);}
   recordRetrievalUse(input={}){return this.plasticity.recordRetrievalUse(input);}
+  recordCoRetrieval(input={}){return this.plasticity.recordCoRetrieval(input);}
+  recoverDerivedArtifact(input={}){return this.plasticity.recoverArtifact(input);}
+  proposeDerivedReorganization(input={}){return this.plasticity.proposeReorganization(input);}
   runReconsolidation(options={}){return this.plasticity.reconsolidate(options);}
 
   memoryRevisionRefs() {

@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import process from 'node:process';
-import { chromium } from 'playwright';
 
 const args=Object.fromEntries(process.argv.slice(2).reduce((out,value,index,all)=>{
   if(value.startsWith('--'))out.push([value.slice(2),all[index+1]]);
   return out;
 },[]));
 const baseline=args.baseline,current=args.current;
-if(!baseline||!current)throw new Error('Usage: --baseline <path> --current <path>');
+if(!baseline||!current){
+  console.log('# SKIP worker3 browser load benchmark: explicit --baseline and --current are required');
+  process.exit(0);
+}
+const { chromium }=await import('playwright');
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function server(root,port){

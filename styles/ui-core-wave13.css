@@ -196,3 +196,6 @@
 @media(max-width:900px){.a52-diagnostics-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.a52-diagnostics-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}.a52-diagnostics-toolbar>input{grid-column:1/-1}.a52-diagnostics-status-row{grid-template-columns:minmax(90px,1fr) auto}.a52-diagnostics-status-row>span{grid-column:1/-1;white-space:normal}.a52-diagnostics-status-row>.a52-button{justify-self:start}}
 @media(max-width:680px){.a52-diagnostics-hero{grid-template-columns:1fr}.a52-diagnostics-hero__actions{justify-content:flex-start}.a52-diagnostics-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.a52-diagnostics-lanes,.a52-diagnostics-two-column,.a52-diagnostics-toolbar{grid-template-columns:1fr}.a52-diagnostics-toolbar>input{grid-column:auto}}
 @media(prefers-reduced-motion:reduce){.a52-diagnostics-section__summary::before{transition:none}}
+
+/* Inspector is intentionally removed from the visible Area-52 shell. Keep this hard stop so stale/hot-reloaded shell markup cannot surface it. */
+.a52-shell__inspector-layer,.a52-shell__inspector{display:none!important}

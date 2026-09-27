@@ -281,3 +281,27 @@ test('Worker 1 #263 NativeTurn Runtime propagates exact chat generation and revi
   assert.ok(record.causalReceipts.length>0);assert.ok(record.causalReceipts.every(row=>row.chatId==='chat:native'&&row.turnId==='turn:native'&&row.generationId==='gen:native'&&row.correlationId==='corr:native'));
   host.native.close();
 });
+
+
+test('Worker 1 #262 Worker 4 Lore study owner receipts reconcile completed checkpointed failed and replay idempotently',()=>{
+  const brain=new Area52NativeBrain();
+  const seed=(suffix)=>brain.acceptLoreRevisionChange({kind:'LoreSourceRevisionChanged',sourceId:'lore:owner:'+suffix,lorebookId:'book:owner',uid:suffix,sourceRevisionId:'lore:owner:'+suffix+'@2',contentHash:'hash:'+suffix,studyObligationId:'obligation:'+suffix,studyTrigger:'SOURCE_REVISION_CHANGED'});
+  seed('complete');seed('checkpoint');seed('failed');seed('stale');
+  const ownerReceipt={
+    kind:'LoreStudyRunReceipt',contractVersion:1,results:[
+      {obligation:{id:'obligation:complete',state:'COMPLETED',sourceId:'lore:owner:complete',sourceRevisionId:'lore:owner:complete@2',attempts:1},learnedRevision:{id:'learned:complete',sourceRevisionId:'lore:owner:complete@2'},checkpointed:false},
+      {obligation:{id:'obligation:checkpoint',state:'CHECKPOINTED',sourceId:'lore:owner:checkpoint',sourceRevisionId:'lore:owner:checkpoint@2',attempts:1},learnedRevision:null,checkpointed:true},
+      {obligation:{id:'obligation:failed',state:'FAILED',sourceId:'lore:owner:failed',sourceRevisionId:'lore:owner:failed@2',attempts:1,lastError:{code:'LORE_STUDY_EXECUTION_FAILED'}},learnedRevision:null,checkpointed:true,failed:true,error:{code:'LORE_STUDY_EXECUTION_FAILED'}},
+      {obligation:{id:'obligation:stale',state:'SUPERSEDED',sourceId:'lore:owner:stale',sourceRevisionId:'lore:owner:stale@2',attempts:1},learnedRevision:null,checkpointed:false},
+    ],
+  };
+  const first=brain.recordLoreStudyOwnerReceipt(ownerReceipt),byId=Object.fromEntries(first.results.map(row=>[row.expectedId,row]));
+  assert.equal(byId['lore-study:obligation:complete'].status,'DONE');assert.equal(byId['lore-study:obligation:complete'].reasonCode,'OWNER_ACCEPTED');
+  assert.equal(byId['lore-study:obligation:checkpoint'].status,'DUE');assert.ok(byId['lore-study:obligation:checkpoint'].missingEvidence.includes('OWNER_ADMISSION'));
+  assert.equal(byId['lore-study:obligation:failed'].status,'FAILED');assert.equal(byId['lore-study:obligation:stale'].status,'STALE');
+  const before=brain.obligationReconciler.snapshot().entries.map(row=>[row.declaration.expectedId,row.evidence.length]);
+  brain.recordLoreStudyOwnerReceipt(ownerReceipt);
+  const after=brain.obligationReconciler.snapshot().entries.map(row=>[row.declaration.expectedId,row.evidence.length]);
+  assert.deepEqual(after,before);
+  assert.equal(first.rawLoreIncluded,false);assert.equal(first.authorityGranted,false);assert.equal(first.canonicalMutationAuthority,false);
+});

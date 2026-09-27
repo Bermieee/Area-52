@@ -39,10 +39,13 @@ export class EventSpine {
       eventType,
       schemaVersion,
       producer: meta.producer ?? this.registry?.resolve(eventType, schemaVersion)?.producer ?? 'UNSPECIFIED',
+      chatId: meta.chatId ?? null,
       causationId: meta.causationId ?? null,
       correlationId: meta.correlationId ?? null,
       turnId: meta.turnId ?? null,
+      generationId: meta.generationId ?? null,
       taskId: meta.taskId ?? null,
+      sceneId: meta.sceneId ?? null,
       revisionFences: meta.revisionFences ?? {
         sourceRevisions: meta.sourceRevisions ?? {},
         worldRevision: meta.worldRevision ?? null,

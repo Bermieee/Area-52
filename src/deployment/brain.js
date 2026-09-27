@@ -968,10 +968,27 @@ export class DevelopmentDeploymentBrain {
       sourceRevisionSet:uniq([...(turn?.sourceRevisionSet??[]),...(sceneInput.sourceRevisionSet??[])]),
       sceneRevision:Number(sceneInput.sceneRevision??turn?.sceneRevision??0),
     });
-    const prepared=this.scenePrefetchSwarm.prepareTurn({
-      turnEvent:considerationTurn,
-      plannerInput:{...plannerInput,text:String(query??''),trigger:'SCENE_PREFETCH_RECOMMENDATION'},
-    });
+    let prepared;
+    try{
+      prepared=this.scenePrefetchSwarm.prepareTurn({
+        turnEvent:considerationTurn,
+        plannerInput:{...plannerInput,text:String(query??''),trigger:'SCENE_PREFETCH_RECOMMENDATION'},
+      });
+    }catch(error){
+      const receipt=Object.freeze({
+        kind:'DeploymentScenePrefetchConsiderationReceipt',contractVersion:1,status:'DEGRADED',reasonCode:String(error?.code??'SCENE_PREFETCH_PLANNER_UNAVAILABLE').slice(0,96),
+        chatId:String(chatId),turnId:turn?.turnId??null,correlationId:turn?.correlationId??null,
+        sceneId:sceneInput.sceneId??null,sceneRevision:sceneInput.sceneRevision??null,
+        sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),recommendationIds:uniq(recommendations.map(row=>row.recommendationId)),
+        freshRecommendationCount:0,rejectedRecommendationCount:recommendations.length,plannedTaskCount:0,nominatedRoles:[],
+        plannerConsidered:true,workerExecutionAttempted:false,checkpointExecutionPerformed:false,
+        authorityGranted:false,retrievalAuthority:false,truthAuthority:false,contextSealAuthority:false,canonicalMutation:false,settlementAuthority:false,
+      });
+      this.scenePrefetchConsiderations.push(clone(receipt));
+      if(this.scenePrefetchConsiderations.length>128)this.scenePrefetchConsiderations.splice(0,this.scenePrefetchConsiderations.length-128);
+      this.#emit({type:'SCENE_PREFETCH_CONSIDERED',receipt:clone(receipt)});
+      return receipt;
+    }
     const recommendationIds=uniq(recommendations.map(row=>row.recommendationId));
     const nominatedRoles=uniq((prepared.fanOutPlan?.nominations??[])
       .filter(row=>(row.reasonCodes??[]).includes('SCENE_PREFETCH_RECOMMENDATION'))

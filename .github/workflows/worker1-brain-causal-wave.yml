@@ -15,11 +15,15 @@ on:
       - 'src/coprocessor/openrouter-jev-decisions.js'
       - 'src/ui-core/demo-visibility.js'
       - 'src/deployment/sillytavern-live.js'
+      - 'src/deployment/brain.js'
+      - 'src/coprocessor/scene-observation-specialist.js'
+      - 'src/coprocessor/foreground-specialists.js'
       - 'src/runtime/**'
       - 'tests/worker1-brain-lifecycle-causal-wave.mjs'
       - 'tests/worker1-context-trust-delivery.mjs'
       - 'tests/worker1-brain-context-delivery-completion.mjs'
       - 'tests/worker1-generation-performance-wiring.mjs'
+      - 'tests/worker1-scene-cognition-integration.mjs'
       - 'tests/openrouter-jev-decisions.test.mjs'
       - 'scripts/worker1-generation-performance-benchmark.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
@@ -55,6 +59,8 @@ jobs:
         run: node --test tests/worker1-brain-context-delivery-completion.mjs
       - name: Generation performance and causal wiring
         run: node --test tests/worker1-generation-performance-wiring.mjs
+      - name: Scene cognition integration
+        run: node --test tests/worker1-scene-cognition-integration.mjs
       - name: Qualification probe contract
         run: node --test tests/openrouter-jev-decisions.test.mjs
       - name: Demo telemetry regression
@@ -86,12 +92,16 @@ jobs:
           node --check src/coprocessor/openrouter-jev-decisions.js &&
           node --check src/ui-core/demo-visibility.js &&
           node --check src/deployment/sillytavern-live.js &&
+          node --check src/deployment/brain.js &&
+          node --check src/coprocessor/scene-observation-specialist.js &&
+          node --check src/coprocessor/foreground-specialists.js &&
           node --check src/runtime/causal-receipts.js &&
           node --check src/runtime/obligation-reconciler.js &&
           node --check src/runtime/worker-director.js &&
           node --check tests/worker1-brain-lifecycle-causal-wave.mjs &&
           node --check tests/worker1-brain-context-delivery-completion.mjs &&
           node --check tests/worker1-generation-performance-wiring.mjs &&
+          node --check tests/worker1-scene-cognition-integration.mjs &&
           node --check scripts/worker1-generation-performance-benchmark.mjs
       - name: Browser-facing imports
         run: >-
@@ -101,5 +111,6 @@ jobs:
           import('./src/model-adapters.js'),
           import('./src/prompt-presentation.js'),
           import('./src/native-brain.js'),
+          import('./src/coprocessor/scene-observation-specialist.js'),
           import('./src/runtime/index.js')
           ]).then(()=>console.log('WORKER1 BRAIN CAUSAL IMPORT PASS'))"

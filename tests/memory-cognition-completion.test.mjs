@@ -419,3 +419,73 @@ test('Memory cognition: validated Continuous Consolidation reflection evidence i
   assert.equal(reflection.episodeRefs.length,2);
   assert.match(reflection.statement,/habitually verify the western gate latch/i);
 });
+
+
+test('Memory cognition: consolidation owner review accepts exact current Scene episode refs and rejects stale Scene revisions',async()=>{
+  const memory=new MemoryTemporalProducer();
+  const surface=createMemoryIntegrationSurface(memory);
+
+  const evidence=[];
+  for(const [i,text] of [
+    [1,'Kara checks the eastern bell before dawn patrol.'],
+    [2,'Kara checks the eastern bell before the next dawn patrol.'],
+  ]){
+    const ev=memory.appendEvidence({
+      id:'scene-owner-consolidation:e'+i,
+      sourceId:'scene-owner-consolidation:s'+i,
+      sourceRevisionId:'scene-owner-consolidation:s'+i+'@r1',
+      exactContent:text,kind:'EXPERIENCE',occurredAt:i,worldRevision:i,sceneRevision:i,
+      participants:['Kara'],knownBy:['Kara'],
+      metadata:{chatId:'chat:scene-owner-consolidation',turnId:'scene-owner:'+i,generationId:'gen:scene-owner:'+i},
+      provenance:['scene-owner-test'],
+    });
+    evidence.push(ev);
+    memory.publishEpisode({
+      logicalId:'scene-owner-episode:'+i,
+      chatId:'chat:scene-owner-consolidation',turnId:'scene-owner:'+i,generationId:'gen:scene-owner:'+i,
+      sceneId:'scene-owner-'+i,sceneRevision:i,sourceRevisionRefs:[ev.sourceRevisionId],evidenceRefs:[ev.id],
+      summary:text,
+      sceneEpisodeRef:{
+        kind:'ArtifactReference',artifactId:'scene-artifact:'+i,artifactType:'SceneEpisode',
+        owner:'SCENE_INTELLIGENCE',revision:i,sourceRevisionSet:[ev.sourceRevisionId],sceneRevision:i,
+      },
+    });
+  }
+
+  const episodes=memory.experienceStore.currentEpisodes({freshOnly:true});
+  const sceneRefs=episodes.map((episode)=>episode.sceneEpisodeRef);
+  const sourceRevisionSet=[...new Set(episodes.flatMap(row=>row.sourceRevisionRefs))].sort();
+  const makeBundle=(refs,id)=>createConsolidationProposalBundle({
+    unitId:id,sourceRevisionSet,proposals:[{
+      proposalKind:ConsolidationProposalKind.REFLECTION_EVIDENCE,
+      semanticIdentity:'reflection:kara:eastern-bell',
+      sourceArtifactRefs:refs,confidence:.8,authority:'INFERRED',
+      payload:{
+        directObservations:refs.map(row=>row.artifactId),
+        repeatedPatterns:['Kara repeatedly checks the eastern bell before dawn patrol.'],
+        inferredInterpretations:['Kara may habitually verify the eastern bell before dawn patrol.'],
+        contradictingEvidence:[],
+      },
+    }],
+  },{
+    unitId:id,sourceArtifactRefs:refs,sourceRevisionSet,worldRevision:2,sceneRevision:2,characterStateRevision:0,
+  });
+
+  const good=makeBundle(sceneRefs,'unit:scene-owner-good');
+  const goodReceipt=admitConsolidationBundleToMemoryOwner({
+    bundle:good,handoff:createMemoryOwnerHandoff(good),memoryOwner:surface,
+    selection:{chatId:'chat:scene-owner-consolidation',turnId:'scene-owner:2',generationId:'gen:scene-owner:2',worldRevision:2,sceneRevision:2},
+  });
+  assert.equal(goodReceipt.status,'COMPLETED');
+  assert.equal(goodReceipt.ownerAccepted,true);
+
+  const staleRefs=sceneRefs.map((row,index)=>index===1?{...row,revision:row.revision+1}:row);
+  const stale=makeBundle(staleRefs,'unit:scene-owner-stale');
+  const staleReceipt=admitConsolidationBundleToMemoryOwner({
+    bundle:stale,handoff:createMemoryOwnerHandoff(stale),memoryOwner:surface,
+    selection:{chatId:'chat:scene-owner-consolidation',turnId:'scene-owner:2',generationId:'gen:scene-owner:2',worldRevision:2,sceneRevision:2},
+  });
+  assert.equal(staleReceipt.ownerAccepted,false);
+  assert.equal(staleReceipt.results[0].status,'STALE');
+  assert.equal(staleReceipt.results[0].reasonCode,'MEMORY_CONSOLIDATION_SOURCE_EPISODE_REVISION_MISMATCH');
+});

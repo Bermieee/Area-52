@@ -125,7 +125,7 @@ test('#113 all card events publish through the real production Event Spine',()=>
   for(const eventType of REQUIRED_EVENTS)assert.ok(accepted.some(row=>row.eventType===eventType&&row.status==='ACCEPTED'),`no accepted #113 receipt for ${eventType}`);
 });
 
-test('#113 duplicate Scene event does not create duplicate owner work',()=>{
+test('#113 owner-declared Scene obligation executes once and duplicate event does not reschedule it',async()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   brain.bindSceneEventObligationOwner({
     producer:{
@@ -148,6 +148,12 @@ test('#113 duplicate Scene event does not create duplicate owner work',()=>{
   assert.ok(location);
   const admittedBefore=brain.readSceneEventObligationReceipts({limit:64}).filter(row=>row.eventId===location.eventId&&row.status==='ADMITTED');
   assert.equal(admittedBefore.length,1);
+  const admittedTaskId=admittedBefore[0].taskId;
+  assert.ok(admittedTaskId);
+  await brain.runtimeDirector.drain();
+  const executed=brain.runtimeDirector.ledger.get(admittedTaskId);
+  assert.equal(executed.lifecycleStatus,'SATISFIED');
+  assert.equal(executed.executionStatus,'COMPLETE');
   const ledgerBefore=brain.runtimeDirector.ledger.list().filter(row=>row.obligation?.producerId==='TEST_SCENE_OWNER').length;
 
   brain.scene.publisher.publish({

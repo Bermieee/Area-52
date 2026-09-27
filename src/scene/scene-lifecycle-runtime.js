@@ -17,11 +17,6 @@ import { AtmosphereTracker } from './atmosphere.js';
 const clone=(v)=>structuredClone(v);
 const relationForBoundary=(type)=>type===BoundaryType.FLASHBACK?SceneRelationship.FLASHBACK_OF:type===BoundaryType.PARALLEL?SceneRelationship.PARALLEL_TO:SceneRelationship.CONTINUES;
 const atmosphereDimensions=(input)=>input?.observationClass?clone(input.value??{}):clone(input?.dimensions??input?.value??input??{});
-const reinforcesAtmosphere=(prior,dimensions)=>{
-  if(prior?.observationClass!=='INFERRED')return false;
-  const names=Object.keys(dimensions??{});
-  return names.length>0&&names.every((name)=>Object.prototype.hasOwnProperty.call(prior.value??{},name));
-};
 
 export class SceneLifecycleRuntime{
   constructor({registry=new SceneRegistry(),stack=new SceneStack(),episodeCompiler=new SceneEpisodeCompiler(),graph=new SceneGraph(),publisher=new SceneEventPublisher(),prefetchTrigger=new ScenePrefetchTrigger(),narrativeFeed=new NarrativeFeedAdapter(),contextInvalidationPublisher=new SceneContextInvalidationPublisher(),atmosphereTracker=new AtmosphereTracker()}={}){
@@ -126,18 +121,27 @@ export class SceneLifecycleRuntime{
     let atmosphereDisposition='UNAVAILABLE';
     if(Object.prototype.hasOwnProperty.call(fields,'atmosphere')){
       const dimensions=atmosphereDimensions(fields.atmosphere);
-      const independentNarrativeChange=Object.keys(fields).some((name)=>name!=='atmosphere')||Boolean(extracted.boundarySignals&&Object.keys(extracted.boundarySignals).length);
       const generatedWording=String(evidence.role??'').toLowerCase()==='assistant';
-      if(generatedWording&&!independentNarrativeChange&&reinforcesAtmosphere(current.fields?.atmosphere,dimensions)){
+      const acceptedDimensions=generatedWording
+        ? Object.fromEntries(Object.entries(dimensions).filter(([,row])=>Boolean(row?.novelNarrativeEvidence)))
+        : dimensions;
+      if(generatedWording&&!Object.keys(acceptedDimensions).length){
         delete fields.atmosphere;
         atmosphereDisposition='REJECTED_RECURSIVE_GENERATED_WORDING';
       }else{
+        const sourceRef=evidence.sourceRevisionId;
         fields.atmosphere=this.atmosphereTracker.update({
           revision:current.revision+1,
-          evidenceRefs:[evidence.sourceRevisionId],
-          dimensions,
+          evidenceRefs:[sourceRef],
+          dimensions:acceptedDimensions,
+          metadata:{
+            sourceRole:evidence.role??null,
+            sourceActivity:evidence.activity??null,
+            generationDerivedEvidenceRefs:generatedWording?[sourceRef]:[],
+            novelNarrativeEvidenceRefs:generatedWording?[sourceRef]:[],
+          },
         });
-        atmosphereDisposition=fields.atmosphere.observationClass==='INFERRED'?'UPDATED':'UNAVAILABLE';
+        atmosphereDisposition=fields.atmosphere.observationClass==='INFERRED'?(generatedWording?'UPDATED_FROM_NOVEL_GENERATED_NARRATIVE':'UPDATED'):'UNAVAILABLE';
       }
     }
     let boundary=null,transition=null,observed=null;

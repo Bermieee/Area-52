@@ -16,7 +16,7 @@ function objectTransitionRefs(scene){
 }
 
 function atmosphereRef(scene){
-  const field=scene.fields?.atmosphere;if(!field||field.observationClass==='UNKNOWN')return null;
+  const field=scene.fields?.atmosphere;if(!field||field.observationClass!=='INFERRED')return null;
   return Object.freeze({kind:'SceneFieldReference',sceneId:scene.sceneId,sceneRevision:scene.revision,field:'atmosphere',observationClass:field.observationClass,evidenceRefs:[...(field.evidenceRefs??[])],canonical:false});
 }
 
@@ -44,7 +44,8 @@ export function buildSceneIntegrationSignal(runtime,chatId){
   const prefetch=runtime.prefetchTrigger.active({sceneId,sceneRevision:scene.revision});const objectRefs=objectTransitionRefs(scene);
   const prev=previousSceneRef(runtime,sceneId);const resumed=frame?.relationshipToPrior==='RESUMES'?{sceneId,sceneRevision:scene.revision}:null;
   const diag=diagnosticRefs(runtime,scene,recentEpisodeRefs,objectRefs);
-  const atmosphereContribution=atmospherePolicy.consume({atmosphere:scene.fields?.atmosphere,currentSceneRevision:scene.revision});
+  const generationDerivedEvidenceRefs=(runtime.narrativeFeed.currentEvidence(chatId)??[]).filter((row)=>String(row?.role??'').toLowerCase()==='assistant').map((row)=>row.sourceRevisionId).filter(Boolean);
+  const atmosphereContribution=atmospherePolicy.consume({atmosphere:scene.fields?.atmosphere,currentSceneRevision:scene.revision,generationDerivedEvidenceRefs});
   const health=scene.health??{status:(scene.unresolvedFields??[]).length?'degraded':'ready',reasons:(scene.unresolvedFields??[]).length?['UNRESOLVED_FIELDS']:[]};
   return createSceneIntegrationSignal({
     sceneId,sceneRevision:scene.revision,sourceRevisionRefs:scene.sourceRevisionRefs??[],

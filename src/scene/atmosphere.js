@@ -16,8 +16,8 @@ function normalizeDimension(input){
 
 export class AtmosphereTracker {
   constructor({ttlRevisions=2}={}){this.ttlRevisions=Math.max(1,Math.min(16,Number(ttlRevisions)||2));}
-  nextScene({ revision, evidenceRefs = [], dimensions = {} } = {}) { return this.update({ revision, evidenceRefs, dimensions }); }
-  update({ revision, evidenceRefs = [], dimensions = {} }) {
+  nextScene({ revision, evidenceRefs = [], dimensions = {}, metadata = {} } = {}) { return this.update({ revision, evidenceRefs, dimensions, metadata }); }
+  update({ revision, evidenceRefs = [], dimensions = {}, metadata = {} }) {
     const value = {};
     const sharedRefs=uniq(evidenceRefs);
     let minConfidence = 1;
@@ -37,6 +37,7 @@ export class AtmosphereTracker {
       observationClass:Object.keys(value).length?ObservationClass.INFERRED:ObservationClass.UNKNOWN,
       revision,
       metadata:{
+        ...structuredClone(metadata??{}),
         sceneScoped:true,
         canonical:false,
         dimensions:DIMENSIONS,

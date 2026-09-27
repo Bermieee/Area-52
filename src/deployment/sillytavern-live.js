@@ -151,20 +151,20 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
 }
 
 const ATMOSPHERE_CUES=Object.freeze({
-  tension:{pattern:/\b(?:tense|tension|strained|on edge)\b/i,score:.78,confidence:.82},
-  danger:{pattern:/\b(?:danger|dangerous|threat|threatening|peril|unsafe)\b/i,score:.82,confidence:.86},
-  intimacy:{pattern:/\b(?:intimate|intimacy|tender|tenderness|affectionate|affection)\b/i,score:.72,confidence:.78},
-  urgency:{pattern:/\b(?:urgent|urgency|hurry|hurried|immediately|no time to lose)\b/i,score:.82,confidence:.86},
-  uncertainty:{pattern:/\b(?:uncertain|uncertainty|unsure|unclear|ambiguous)\b/i,score:.70,confidence:.80},
-  humor:{pattern:/\b(?:humor|humorous|joke|jokes|laugh|laughs|laughter|amused)\b/i,score:.68,confidence:.78},
-  grief:{pattern:/\b(?:grief|grieving|grieve|mourn|mourns|mourning|sorrow|sorrowful)\b/i,score:.82,confidence:.86},
-  hostility:{pattern:/\b(?:hostile|hostility|snarl|snarls|threatens?|menacing)\b/i,score:.82,confidence:.86},
+  tension:{pattern:/\b(?:tense|tension|strained|on edge|standoff)\b/i,novelPattern:/\b(?:confronts?|corners?|draws? (?:a |the )?(?:blade|gun|weapon)|weapons? (?:are )?drawn)\b/i,score:.78,confidence:.82},
+  danger:{pattern:/\b(?:danger|dangerous|threat|threatening|peril|unsafe|attacks?|charges?|explodes?)\b/i,novelPattern:/\b(?:attacks?|charges?|threatens?|explodes?|weapon(?:s)? (?:is|are) drawn|blade flashes)\b/i,score:.82,confidence:.86},
+  intimacy:{pattern:/\b(?:intimate|intimacy|tender|tenderness|affectionate|affection|kisses?|embraces?|hugs?)\b/i,novelPattern:/\b(?:kisses?|embraces?|hugs?|holds? (?:him|her|them|each other) close)\b/i,score:.72,confidence:.78},
+  urgency:{pattern:/\b(?:urgent|urgency|hurry|hurried|immediately|no time to lose|deadline|countdown)\b/i,novelPattern:/\b(?:deadline|countdown|before it is too late|must (?:leave|go|escape) now|races? against time)\b/i,score:.82,confidence:.86},
+  uncertainty:{pattern:/\b(?:uncertain|uncertainty|unsure|unclear|ambiguous|cannot see|can't see)\b/i,novelPattern:/\b(?:loses? sight of|searches? blindly|cannot see|can't see|does not know whether)\b/i,score:.70,confidence:.80},
+  humor:{pattern:/\b(?:humor|humorous|joke|jokes|joked|laugh|laughs|laughed|laughter|chuckles?|amused)\b/i,novelPattern:/\b(?:laughs?|laughed|laughing|chuckles?|jokes?|joked)\b/i,score:.68,confidence:.78},
+  grief:{pattern:/\b(?:grief|grieving|grieve|mourn|mourns|mourning|sorrow|sorrowful|weeps?|sobs?)\b/i,novelPattern:/\b(?:mourns?|mourned|weeps?|wept|sobs?|sobbed|funeral)\b/i,score:.82,confidence:.86},
+  hostility:{pattern:/\b(?:hostile|hostility|snarl|snarls|threatens?|menacing|attacks?|glares?)\b/i,novelPattern:/\b(?:glares?|snarls?|threatens?|attacks?|swings? at|lunges? at)\b/i,score:.82,confidence:.86},
 });
 function extractAtmosphereDimensions(raw,evidenceRef){
   const dimensions={};
   for(const [name,cue] of Object.entries(ATMOSPHERE_CUES)){
     if(!cue.pattern.test(raw))continue;
-    dimensions[name]={score:cue.score,confidence:cue.confidence,evidenceRefs:[evidenceRef]};
+    dimensions[name]={score:cue.score,confidence:cue.confidence,evidenceRefs:[evidenceRef],novelNarrativeEvidence:Boolean(cue.novelPattern?.test(raw))};
   }
   return dimensions;
 }

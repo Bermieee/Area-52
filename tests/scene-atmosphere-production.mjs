@@ -98,6 +98,25 @@ test('quiet continuation and generated atmosphere wording do not amplify or refr
   assert.deepEqual(generated.signal.atmosphere.evidenceRefs,before.evidenceRefs);
   assert.equal(generated.signal.atmosphere.value.tension.score,before.value.tension.score);
   assert.equal(generated.signal.atmosphereContribution.status,'AVAILABLE');
+
+  const generatedWithUnrelatedSceneField=ingest(brain,hostEvent(
+    HostActivity.ASSISTANT_GENERATION_COMPLETE,
+    'quiet-4',
+    'At Ember Hall, the tense silence still lingers.',
+    {chatId:first.chatId,role:'assistant'},
+  ));
+  assert.equal(generatedWithUnrelatedSceneField.signal.atmosphere.revision,before.revision);
+  assert.deepEqual(generatedWithUnrelatedSceneField.signal.atmosphere.evidenceRefs,before.evidenceRefs);
+
+  const eventful=ingest(brain,hostEvent(
+    HostActivity.ASSISTANT_GENERATION_COMPLETE,
+    'quiet-5',
+    'Eris suddenly attacks Mara and snarls at her.',
+    {chatId:first.chatId,role:'assistant'},
+  ));
+  assert.ok(eventful.changedFields.includes('atmosphere'));
+  assert.ok(eventful.signal.atmosphere.metadata.novelNarrativeEvidenceRefs.includes(eventful.evidence.sourceRevisionId));
+  assert.equal(eventful.signal.atmosphereContribution.status,'AVAILABLE');
 });
 
 test('source correction invalidates prior atmosphere and expiry removes it from later retrieval priority',()=>{
@@ -115,21 +134,14 @@ test('source correction invalidates prior atmosphere and expiry removes it from 
   assert.ok(corrected.signal.atmosphere.metadata.previousEvidenceRefs.includes(oldSource));
 
   const expiringBrain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
-  const seeded=ingest(expiringBrain,hostEvent(HostActivity.USER_SEND,'expiry-1','At Room One, the room is dangerous.'));
-  let latest=seeded.signal;
+  const seeded=ingest(expiringBrain,hostEvent(HostActivity.USER_SEND,'expiry-1','At Room One, the room is dangerous.',{chatId:'scene-atmosphere-expiry'}));
+  let latest=seeded;
   for(const [index,location] of ['Room Two','Room Three','Room Four'].entries()){
-    latest=expiringBrain.observeScene({
-      chatId:seeded.chatId,
-      sourceRevisionId:`expiry-source:${index+2}`,
-      location,
-      activeCast:[],
-      activeThreads:[],
-      objects:[],
-    });
+    latest=ingest(expiringBrain,hostEvent(HostActivity.USER_SEND,`expiry-${index+2}`,`At ${location}, Mara waits quietly.`,{chatId:seeded.chatId}));
   }
-  assert.ok(latest.sceneRevision>seeded.signal.atmosphere.metadata.expiresAfterRevision);
-  assert.equal(latest.atmosphereContribution.status,'EXPIRED');
-  assert.deepEqual(latest.atmosphereContribution.dimensions,{});
+  assert.ok(latest.signal.sceneRevision>seeded.signal.atmosphere.metadata.expiresAfterRevision);
+  assert.equal(latest.signal.atmosphereContribution.status,'EXPIRED');
+  assert.deepEqual(latest.signal.atmosphereContribution.dimensions,{});
 });
 
 test('fresh bounded atmosphere can nominate threat retrieval while unavailable atmosphere leaves cognition functional',async()=>{

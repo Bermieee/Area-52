@@ -26,7 +26,7 @@ const ownerReceipt={
   delivery:{planned:{state:'PLANNED',promptPlanId:'bench:plan'},compiled:{state:'COMPILED_AND_SEALED',contextSealId:'bench:seal'},hostObserved:{state:'OBSERVED',requestId:'bench:request',matching:true,live:false,observedRoles:['system','user']}},
 };
 const cognition={data:{
-  scatter:{jobs:Array.from({length:8},(_,index)=>({jobId:'bench:job:'+index,status:index<4?'OWNER_ACCEPTED':'ADMITTED_LOGICAL',physicalExecutionEvidence:index<4?'EVIDENCE':'NO_EVIDENCE',resultReturned:index<4,ownerAccepted:index<4,taskIds:['bench:task:'+index]}),resourceIds:['native:cpu'],resourceCount:1},
+  scatter:{jobs:Array.from({length:8},(_,index)=>({jobId:'bench:job:'+index,status:index<4?'OWNER_ACCEPTED':'ADMITTED_LOGICAL',physicalExecutionEvidence:index<4?'EVIDENCE':'NO_EVIDENCE',resultReturned:index<4,ownerAccepted:index<4,taskIds:['bench:task:'+index]})),resourceIds:['native:cpu'],resourceCount:1},
   gather:{state:'COMPLETE',counts:{ADMITTED:4,LATE:1,STALE:1,REJECTED:1,INVALID:0},results:[
     {resultId:'bench:r:1',taskId:'bench:job:0',status:'ADMITTED',accepted:true,resourceId:'native:cpu'},
     {resultId:'bench:r:2',taskId:'bench:job:1',status:'ADMITTED',accepted:true,resourceId:'native:cpu'},

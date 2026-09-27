@@ -254,7 +254,7 @@ export class SceneOperatorService{
       payload:{episodeRef:clone(episode.artifactRef),repair:true,replacesEpisodeRefs:clone(replacedEpisodeRefs)},
       dedupeKey:`operator-episode-repair:${sceneId}:${scene.revision}:${uniq(evidenceRefs,16).join('+')||'manual'}`,
     })??null;
-    return Object.freeze({kind:'SceneEpisodeRepairReceipt',operation:'EPISODE_REPAIR',status:'REPAIRED',sceneId,sceneRevision:scene.revision,episode:clone(episode),episodeRef:clone(episode.artifactRef),replacesEpisodeRefs,evidenceRefs:uniq(evidenceRefs,64),eventId:event?.eventId??null,rawNarrativeDeleted:false,authority:'DERIVED_REPAIR',settlementAuthority:false,contextSealAuthority:false,memoryMutationAuthority:false});
+    return Object.freeze({kind:'SceneEpisodeRepairReceipt',operation:'EPISODE_REPAIR',status:'REPAIRED',sceneId,sceneRevision:scene.revision,episode:clone(episode),episodeRef:clone(episode.artifactRef),replacesEpisodeRefs:clone(replacedEpisodeRefs),evidenceRefs:uniq(evidenceRefs,64),eventId:event?.eventId??null,rawNarrativeDeleted:false,authority:'DERIVED_REPAIR',settlementAuthority:false,contextSealAuthority:false,memoryMutationAuthority:false});
   }
 
   carryover({sceneId}={}){

@@ -67,7 +67,7 @@ function validInvalidation(x){
 function validHandoff(x){
  if(!obj(x)||x.kind!=='SceneTransitionContextHandoff')return SceneCoreHandlingReason.MALFORMED;
  if(one(x.contractVersion)!=='1')return SceneCoreHandlingReason.CONTRACT_INCOMPATIBLE;
- if(authorityViolation(x)||x.promptInclusionAuthority===true||x.rawDialogueDeletionAuthority===true||x.contextSealAuthority===true)return SceneCoreHandlingReason.AUTHORITY_VIOLATION;
+ if(authorityViolation(x)||authorityViolation(x.continuity)||x.promptInclusionAuthority===true||x.rawDialogueDeletionAuthority===true||x.contextSealAuthority===true||x.continuity?.promptInclusionAuthority===true||x.continuity?.rawDialogueDeletionAuthority===true||x.continuity?.contextSealAuthority===true)return SceneCoreHandlingReason.AUTHORITY_VIOLATION;
  if(!obj(x.fromSceneRef)||!obj(x.toSceneRef)||!x.handoffId||!x.fromSceneRef.sceneId||!x.toSceneRef.sceneId||!Number.isInteger(Number(x.fromSceneRef.sceneRevision))||!Number.isInteger(Number(x.toSceneRef.sceneRevision)))return SceneCoreHandlingReason.MALFORMED;
  if(!['ACTIVE','INVALIDATED'].includes(String(x.status??'')))return SceneCoreHandlingReason.MALFORMED;
  return null;

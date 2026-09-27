@@ -34,3 +34,9 @@ test('installed entry does not mount the development acceptance harness into Sil
   assert.doesNotMatch(source, /root\.innerHTML\s*=/);
   assert.match(source, /document\.getElementById\?\.\(ROOT_ID\)\?\.remove/);
 });
+
+
+test('installed entry restores the persisted Memory owner snapshot when supplied by the host', () => {
+  const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+  assert.match(source, /memoryOwnerSnapshot:\s*globalThis\.Area52MemoryOwnerSnapshot\s*\?\?\s*null/);
+});

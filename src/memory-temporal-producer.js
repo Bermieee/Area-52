@@ -37,6 +37,7 @@ export class MemoryTemporalProducer {
     this.evidenceBridge=evidenceBridge??new MemoryExternalEvidenceBridge({graph:this.graph});
     this.uiReadModel=uiReadModel??new MemoryUiReadModelProducer({producer:this});
     this.diagnostics=[];
+    this.consolidationProposalReviews=new Map();
     if (snapshot) this.restore(snapshot);
   }
 
@@ -430,6 +431,11 @@ export class MemoryTemporalProducer {
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_EPISODE_REVISION_MISMATCH',artifactId:null,staleArtifactRefs:staleArtifactRefs.map((row)=>String(row?.artifactId??'')).filter(Boolean).slice(0,16)});
         continue;
       }
+      const priorReview=this.consolidationProposalReviews.get(proposalId);
+      if(priorReview){
+        results.push({...deepClone(priorReview),status:'REPLAYED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_REPLAY'});
+        continue;
+      }
       const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
       const rawContradictions=[...(proposal.payload?.contradictingEvidence??proposal.payload?.contradictionEvidenceRefs??[])].map(String).filter(Boolean);
       const contradictionEvidenceRefs=[...new Set(rawContradictions.flatMap(resolveEvidenceRef))].sort();
@@ -465,14 +471,16 @@ export class MemoryTemporalProducer {
       });
       const state=this.runConsolidation(session.id,{maxUnits:1});
       const outcome=state.outcomes?.at(-1)??null;
-      results.push({
+      const reviewed={
         proposalId,proposalKind:proposal.proposalKind,
         status:outcome?.status??(state.failures?.length?'FAILED':'DEFERRED'),
         reasonCode:outcome?.reasonCode??null,artifactId:outcome?.artifactId??null,
         reflectionKey:String(proposal.semanticIdentity??proposalId),
         supportEpisodeCount:supports.length,contradictionEvidenceCount:contradictionEvidenceRefs.length,
         authorityClass:'INFERRED',canonicalAuthority:false,
-      });
+      };
+      if(reviewed.status==='COMPLETED'&&reviewed.artifactId)this.consolidationProposalReviews.set(proposalId,deepClone(reviewed));
+      results.push(reviewed);
     }
     const receipt={
       kind:'MemoryConsolidationBundleReviewReceipt',contractVersion:'1.0.0',
@@ -1007,6 +1015,7 @@ export class MemoryTemporalProducer {
         subscribers:this.uiReadModel.listeners.size,
       },
       diagnostics:deepClone(this.diagnostics),
+      consolidationProposalReviews:[...this.consolidationProposalReviews.entries()].map(([id,row])=>[id,deepClone(row)]),
     };
   }
 
@@ -1039,6 +1048,7 @@ export class MemoryTemporalProducer {
     this.evidenceBridge=new MemoryExternalEvidenceBridge({graph:this.graph,snapshot:snapshot?.evidenceBridge??null});
     this.uiReadModel=new MemoryUiReadModelProducer({producer:this,snapshot:snapshot?.uiReadModel??null});
     this.diagnostics=deepClone(snapshot?.diagnostics??[]).slice(-MEMORY_LIMITS.maxDiagnostics);
+    this.consolidationProposalReviews=new Map((snapshot?.consolidationProposalReviews??[]).map(([id,row])=>[id,deepClone(row)]));
   }
 
   static fromSnapshot(snapshot) {

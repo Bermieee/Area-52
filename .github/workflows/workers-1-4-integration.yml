@@ -32,6 +32,7 @@ jobs:
 
       - name: Worker 2 Memory cognition acceptance
         run: |
+          node --test tests/worker2-memory-execution.test.mjs
           node --test tests/memory-cognition-completion.test.mjs
           node --test tests/memory-wave4.mjs
 

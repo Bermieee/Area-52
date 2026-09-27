@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - Development-Diagnostics-Turn-Log
+      - Development-Worker-3
     paths:
       - 'src/ui-core/demo-visibility.js'
       - 'src/ui-core/turn-log-diagnostics.js'

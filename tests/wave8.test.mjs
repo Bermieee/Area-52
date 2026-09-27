@@ -225,6 +225,16 @@ test('responsive WIDE COMPACT STACKED remain valid for Brain cognition workspace
   assert.equal(resolveResponsiveMode(1440),ResponsiveMode.WIDE);assert.equal(resolveResponsiveMode(900),ResponsiveMode.COMPACT);assert.equal(resolveResponsiveMode(600),ResponsiveMode.STACKED);
 });
 
+
+test('post-generation cognitive path uses stable panel-width grids instead of auto-fit repacking',async()=>{
+  const css=await readFile(new URL('../styles/ui-core-wave8.css',import.meta.url),'utf8');
+  assert.match(css,/\.a52-wave8-pipeline__flow\{[^}]*grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
+  assert.match(css,/\.a52-wave8-summary\{[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+  assert.match(css,/@container \(max-width:680px\)[\s\S]*?\.a52-wave8-pipeline__flow\{grid-template-columns:repeat\(4,minmax\(0,1fr\)\)\}/);
+  assert.match(css,/@container \(max-width:500px\)[\s\S]*?\.a52-wave8-pipeline__flow\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
+  assert.doesNotMatch(css,/\.a52-wave8-pipeline__flow\{[^}]*auto-fit/);
+});
+
 test('large candidate/result collections remain virtualizable instead of 10k DOM rows',()=>{
   const f=wave8LargeFixture(10000),r=fixtureAdapter(f).read();assert.equal(r.data.sensory.candidates.length,10000);assert.equal(r.data.gather.results.length,10000);
   const win=computeVirtualWindow({count:10000,itemSize:54,viewportSize:540,scrollOffset:270000,overscan:8});assert.ok(win.end-win.start<=26);

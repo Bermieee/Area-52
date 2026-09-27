@@ -12,7 +12,7 @@
     "loreAuthoringOwner": "da54ca06c70374e9271244a9258782e49bc60a44",
     "worker3Ui": "4462ef2d30ce8796eae77b7a52f43bb1d64040a1"
   },
-  "rule": "Only the listed reconciled blob digests are accepted in addition to each lane's original source/patch digests. Any later byte drift still fails verification.",
+  "rule": "Only the listed reconciled blob digests are accepted in addition to each lane's original source/patch digests. This overlay includes the post-merge #145 label compatibility cleanup; any later byte drift still fails verification.",
   "pathDigests": {
     "scripts/sidecar-jev-live-connection-smoke.mjs": "52ae216fdee0ff1248e7ac91f9db0c58d40323cd",
     "src/coprocessor/capability-negotiation.js": "383ff043150763189c716d7ff30842f331375b5b",
@@ -79,7 +79,7 @@
     "src/ui-core/wave6-production-adapters.js": "3787aa785a01bbb5e58efbb3ef6b2c280ba48d5a",
     "src/ui-core/wave6-runtime.js": "728ecec65f521e8952f1ea4c8697952a09405cad",
     "src/ui-core/wave7-explainability.js": "43e27af3c43460b59e63f644b276155548ae16c2",
-    "src/ui-core/wave7-workspaces.js": "fe88a5053c69b337249953d8e53e8f259109b89f",
+    "src/ui-core/wave7-workspaces.js": "33570a611227402a9166f2153c1160be2b0bbdf3",
     "src/ui-core/wave8-cognition.js": "3dce0ee07f35f6c85fb278ef28591e22d50b443f",
     "src/ui-core/wave8-production-adapters.js": "4df202febcf673fe16aa206e564902e26b60f64a",
     "src/ui-core/wave8-workspace.js": "714a7d4344b5019e0c276b4fa98747a2573f2493",

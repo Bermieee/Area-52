@@ -520,6 +520,32 @@ export class Area52NativeBrain{
   declareExpectedCognitiveWork(declaration,executor=null){return this.obligationReconciler.declare(declaration,executor);}
   reconcileExpectedCognitiveWork(expectedId,options={}){return this.obligationReconciler.reconcile(expectedId,options);}
   listExpectedCognitiveWork(){return this.obligationReconciler.list();}
+  recordLoreStudyOwnerReceipt(receipt={}){
+    if(!receipt||receipt.kind!=='LoreStudyRunReceipt'||!Array.isArray(receipt.results))throw new TypeError('LoreStudyRunReceipt with results is required');
+    const known=new Set(this.obligationReconciler.list().map(row=>row.expectedId)),results=[];
+    for(const row of receipt.results.slice(0,64)){
+      const obligation=row?.obligation??{},obligationId=obligation.id==null?null:String(obligation.id);
+      if(!obligationId){results.push({kind:'NativeBrainLoreStudyResultReconciliation',status:'IGNORED',reasonCode:'LORE_STUDY_OBLIGATION_ID_MISSING',authorityGranted:false});continue;}
+      const expectedId='lore-study:'+obligationId;
+      if(!known.has(expectedId)){results.push({kind:'NativeBrainLoreStudyResultReconciliation',expectedId,status:'NO_EXPECTED_WORK',reasonCode:'NO_EXPECTED_WORK',authorityGranted:false});continue;}
+      const state=String(obligation.state??'UNKNOWN').toUpperCase(),attempt=Math.max(0,Number(obligation.attempts??0)||0);
+      const metadata={ownerReceiptKind:'LoreStudyRunReceipt',obligationId,studyState:state,attempt,sourceId:obligation.sourceId??null,sourceRevisionId:obligation.sourceRevisionId??null,learnedRevisionId:row?.learnedRevision?.id??null,checkpointed:Boolean(row?.checkpointed),failed:Boolean(row?.failed),errorCode:row?.error?.code??obligation?.lastError?.code??null};
+      const receiptBase='lore-study-owner:'+stableHash({expectedId,state,attempt,sourceRevisionId:metadata.sourceRevisionId,learnedRevisionId:metadata.learnedRevisionId,checkpointed:metadata.checkpointed,failed:metadata.failed},{length:24});
+      const started=this.obligationReconciler.recordEvidence(expectedId,{id:receiptBase+':started',kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'LORE',consumerId:'RUNTIME_CORE',metadata});
+      if(state==='COMPLETED'){
+        const returned=this.obligationReconciler.recordEvidence(expectedId,{id:receiptBase+':returned',kind:CausalReceiptKind.RESULT_RETURNED,producerId:'LORE',consumerId:'NATIVE_BRAIN',parentReceiptId:started.id,metadata});
+        this.obligationReconciler.recordEvidence(expectedId,{id:receiptBase+':accepted',kind:CausalReceiptKind.OWNER_ADMISSION,producerId:'LORE',consumerId:'COGNITIVE_STATE',parentReceiptId:returned.id,ownerAccepted:true,metadata});
+      }else if(state==='SUPERSEDED'){
+        this.obligationReconciler.recordEvidence(expectedId,{id:receiptBase+':stale',kind:CausalReceiptKind.RESULT_STALE,producerId:'LORE',consumerId:'NATIVE_BRAIN',parentReceiptId:started.id,metadata});
+      }else if(state==='FAILED'||state==='INVALID'){
+        this.obligationReconciler.recordEvidence(expectedId,{id:receiptBase+':failed',kind:CausalReceiptKind.WORK_FAILED,producerId:'LORE',consumerId:'NATIVE_BRAIN',parentReceiptId:started.id,reasonCode:CausalReasonCode.TASK_FAILED,metadata});
+      }else{
+        this.obligationReconciler.recordEvidence(expectedId,{id:receiptBase+':returned',kind:CausalReceiptKind.RESULT_RETURNED,producerId:'LORE',consumerId:'NATIVE_BRAIN',parentReceiptId:started.id,metadata});
+      }
+      results.push(this.obligationReconciler.reconcile(expectedId,{admit:false}));
+    }
+    return{kind:'NativeBrainLoreStudyReconciliationReceipt',contractVersion:1,sourceReceiptKind:receipt.kind,results:clone(results),rawLoreIncluded:false,authorityGranted:false,canonicalMutationAuthority:false};
+  }
   recordHostObservationEvidence(turnId,evidence={}){
     const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record)throw new Error('Unknown native Brain turn: '+id);
     const mismatch=(name,expected,actual)=>actual!=null&&String(actual)!==String(expected)?name:null;

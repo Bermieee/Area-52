@@ -834,8 +834,19 @@ export class Wave13OperationalStatusAdapter{
 
 
 export class Wave13DiagnosticsCenterAdapter{
-  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={},uiLoadTrace=null,graphVisibility=null}={}){
-    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;this.uiLoadTrace=uiLoadTrace;this.graphVisibility=graphVisibility;
+  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={},uiLoadTrace=null,graphVisibility=null,hostBindings={}}={}){
+    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;this.uiLoadTrace=uiLoadTrace;this.graphVisibility=graphVisibility;this.hostBindings=hostBindings??{};
+  }
+  setGenerationProfiling(enabled=false){
+    const setter=fn(this.hostBindings,['setDetailedGenerationProfiling']);
+    if(!setter)return deepFreeze({ok:false,enabled:null,reason:'PROFILING_CONTROL_UNAVAILABLE',sessionScoped:true,persisted:false});
+    try{
+      const value=setter(Boolean(enabled));
+      if(value&&typeof value.then==='function')return deepFreeze({ok:false,enabled:null,reason:'ASYNC_PROFILING_CONTROL_UNSUPPORTED',sessionScoped:true,persisted:false});
+      return deepFreeze({ok:true,enabled:Boolean(value),reason:null,sessionScoped:true,persisted:false});
+    }catch(error){
+      return deepFreeze({ok:false,enabled:null,reason:String(error?.code??error?.message??'PROFILING_CONTROL_FAILED'),sessionScoped:true,persisted:false});
+    }
   }
   readJournalEvidence(){
     const selection=cloneSafe(this.live?.selection?.()??{});
@@ -861,6 +872,7 @@ export class Wave13DiagnosticsCenterAdapter{
     const runtimeRead=safeRead(()=>this.adapters.runtime?.read?.(selection)??this.adapters.runtime?.read?.(),null);
     const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
     const promptPlanRead=safeRead(()=>this.adapters.promptPlan?.read?.(selection)??this.adapters.promptPlan?.read?.(),null);
+    const generationPerformance=this.#generationPerformance(selection);
     const liveDiagnostics=safeRead(()=>this.live?.diagnostics?.(),null);
     const graphRead=safeRead(()=>this.graphVisibility?.read?.(selection),null);
     const resourceCaps=this.resources?.capabilities?.()??{};
@@ -938,12 +950,78 @@ export class Wave13DiagnosticsCenterAdapter{
         retrievalStatus:memoryRead?.data?.retrieval?.status??null,revision:memoryRead?.data?.revision??null,
       },
       telemetry:{resourceEvents,uiLoad:this.uiLoadTrace?.snapshot?.()??null,rawPromptTelemetry:false},
+      generationPerformance,
       wiring:{
         controls:{read:Boolean(resourceCaps.read),configure:Boolean(resourceCaps.configure),discoverModels:Boolean(resourceCaps.discoverModels),refreshModels:Boolean(resourceCaps.refreshModels),selectModel:Boolean(resourceCaps.selectModel),connect:Boolean(resourceCaps.connect),disconnect:Boolean(resourceCaps.disconnect),test:Boolean(resourceCaps.test),subscribe:Boolean(resourceCaps.subscribe)},
         jev:{expectedCapabilities:['SEMANTIC_JUDGMENT'],lane:lanes.find(x=>x.kind==='JEV')},
         sidecar:{expectedCapabilities:['STRUCTURED_EXTRACTION'],lane:lanes.find(x=>x.kind==='SIDECAR')},
         vectoring:{expectedCapabilities:['RETRIEVAL','EMBED','RERANK'],lane:lanes.find(x=>x.kind==='VECTORING')},
       },
+    });
+  }
+
+  #generationPerformance(selection={}){
+    const setter=fn(this.hostBindings,['setDetailedGenerationProfiling']),loadReader=fn(this.hostBindings,['loadDiagnostics']),detailReader=fn(this.hostBindings,['readNativeGenerationPerformance']),selectedReader=fn(this.hostBindings,['readSelectedTurnReceipt']);
+    let load=null,loadError=null;
+    if(loadReader)try{const value=loadReader();if(value&&typeof value.then!=='function')load=value;}catch(error){loadError=String(error?.code??error?.message??'LOAD_DIAGNOSTICS_FAILED');}
+    const profiling=load?.generationProfiling??{},heapSupported=load?.heap?.supported===true,longTaskSupported=load?.longTasks?.supported===true;
+    const exactSelection=Boolean(selection?.chatId&&selection?.turnId&&selection?.generationId);
+    let selected=null,detailed=null,selectionError=null;
+    if(exactSelection&&selectedReader)try{
+      const value=selectedReader(cloneSafe(selection));
+      if(value&&typeof value.then!=='function'){assertSelection(value,selection,'Generation performance selected turn');selected=value;}
+    }catch(error){selectionError=String(error?.code??error?.message??'SELECTED_TURN_PERFORMANCE_READ_FAILED');}
+    if(exactSelection&&detailReader)try{
+      const value=detailReader(cloneSafe(selection));
+      if(value&&typeof value.then!=='function'&&value!=null){assertSelection(value,selection,'Detailed generation performance');detailed=value;}
+    }catch(error){selectionError=selectionError??String(error?.code??error?.message??'DETAILED_PERFORMANCE_READ_FAILED');}
+    const finiteOrNull=(value)=>Number.isFinite(Number(value))?Number(value):null;
+    const brainStages=(selected?.performance?.stages??[]).slice(-24).map(row=>deepFreeze({
+      stage:String(row?.stage??'UNKNOWN'),wallMs:finiteOrNull(row?.wallMs),queueWaitMs:finiteOrNull(row?.queueWaitMs),
+      inputCount:finiteOrNull(row?.inputCount),outputCount:finiteOrNull(row?.outputCount),inputBytes:finiteOrNull(row?.inputBytes),outputBytes:finiteOrNull(row?.outputBytes),
+      retainedObjectCount:finiteOrNull(row?.retainedObjectCount),retainedBytes:finiteOrNull(row?.retainedBytes),outcome:row?.outcome==null?null:String(row.outcome),
+    }));
+    const safeSample=(sample)=>sample?deepFreeze({
+      at:finiteOrNull(sample.at),
+      heapBytes:heapSupported?finiteOrNull(sample.heapBytes):null,
+      longTaskCount:longTaskSupported?finiteOrNull(sample.longTaskCount):null,
+      longTaskTotalMs:longTaskSupported?finiteOrNull(sample.longTaskTotalMs):null,
+      longTaskMaxMs:longTaskSupported?finiteOrNull(sample.longTaskMaxMs):null,
+      diagnosticsUiRefreshCount:finiteOrNull(sample.diagnosticsUiRefreshCount),
+      diagnosticsUiRefreshTotalMs:finiteOrNull(sample.diagnosticsUiRefreshTotalMs),
+      diagnosticsUiRefreshMaxMs:finiteOrNull(sample.diagnosticsUiRefreshMaxMs),
+      diagnosticsUiRefreshLastMs:finiteOrNull(sample.diagnosticsUiRefreshLastMs),
+    }):null;
+    const delta=(before,after,key,supported=true)=>supported&&Number.isFinite(Number(before?.[key]))&&Number.isFinite(Number(after?.[key]))?Number(after[key])-Number(before[key]):null;
+    const phaseDelta=(before,after)=>deepFreeze({
+      heapBytes:delta(before,after,'heapBytes',heapSupported),
+      longTaskCount:delta(before,after,'longTaskCount',longTaskSupported),
+      longTaskTotalMs:delta(before,after,'longTaskTotalMs',longTaskSupported),
+      diagnosticsUiRefreshCount:delta(before,after,'diagnosticsUiRefreshCount'),
+      diagnosticsUiRefreshTotalMs:delta(before,after,'diagnosticsUiRefreshTotalMs'),
+    });
+    const start=safeSample(detailed?.start),afterInsertion=safeSample(detailed?.afterInsertion),end=safeSample(detailed?.end);
+    const safeDetailed=detailed?deepFreeze({
+      kind:'NativeGenerationDetailedPerformanceProfile',
+      chatId:detailed.chatId??null,turnId:detailed.turnId??null,generationId:detailed.generationId??null,correlationId:detailed.correlationId??null,
+      providerLatencyMs:finiteOrNull(detailed.providerLatencyMs),start,afterInsertion,end,
+      phases:{preGenerationToHostInsertion:phaseDelta(start,afterInsertion),hostInsertionToLearningComplete:phaseDelta(afterInsertion,end),overall:phaseDelta(start,end)},
+      deltas:{
+        heapBytes:heapSupported?finiteOrNull(detailed.deltas?.heapBytes):null,
+        longTaskCount:longTaskSupported?finiteOrNull(detailed.deltas?.longTaskCount):null,
+        longTaskTotalMs:longTaskSupported?finiteOrNull(detailed.deltas?.longTaskTotalMs):null,
+        diagnosticsUiRefreshCount:finiteOrNull(detailed.deltas?.diagnosticsUiRefreshCount),
+        diagnosticsUiRefreshTotalMs:finiteOrNull(detailed.deltas?.diagnosticsUiRefreshTotalMs),
+      },
+    }):null;
+    return deepFreeze({
+      kind:'Wave13GenerationPerformanceDiagnostics',selection:cloneSafe(selection),
+      control:{available:Boolean(setter&&loadReader&&detailReader),enabled:load?Boolean(profiling.detailedEnabled):null,sessionScoped:true,defaultOff:true,persisted:false},
+      retention:{retainedProfiles:Number(profiling.retainedProfiles??load?.retained?.nativePerformance??0)||0,maxProfiles:Number(load?.bounds?.nativePerformance??0)||null},
+      support:{heap:heapSupported?'SUPPORTED':'NO_EVIDENCE',longTasks:longTaskSupported?'SUPPORTED':'NO_EVIDENCE',diagnosticsUiRefresh:loadReader?'SUPPORTED':'NO_EVIDENCE'},
+      exactSelection,selectionError,loadError,brainStages,detailed:safeDetailed,
+      status:selectionError?'NO_EVIDENCE':safeDetailed?'DETAILED_AVAILABLE':brainStages.length?'BRAIN_TIMINGS_ONLY':'NO_EVIDENCE',
+      safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,providerBodies:false,credentials:false,hiddenReasoning:false},
     });
   }
 }

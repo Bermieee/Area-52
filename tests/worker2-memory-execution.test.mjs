@@ -183,17 +183,23 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
     id:'causal:e2',sourceId:'causal:s2',sourceRevisionId:'causal:s2@r1',exactContent:'The gate closes after the alarm.',kind:'EXPERIENCE',
     occurredAt:2,worldRevision:2,sceneRevision:2,participants:['Ari'],knownBy:['Ari'],metadata:{chatId:'chat:causal',turnId:'causal:2',generationId:'gen:causal:2'},provenance:['worker2'],
   });
-  const alarm=memory.recordEventMemory({eventId:'event:alarm',description:'The bridge alarm sounds.',evidenceRefs:[first.id],entityRefs:['bridge-alarm'],perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
-  const gate=memory.recordEventMemory({eventId:'event:gate',description:'The gate closes.',evidenceRefs:[second.id],entityRefs:['gate'],temporalOrderRefs:[{relation:'FOLLOWS',eventRef:alarm.eventId}]});
+  const alarm=memory.recordEventMemory({eventId:'event:alarm',description:'The bridge alarm sounds.',evidenceRefs:[first.id],identityRevisionRefs:['identity:Ari@r1'],entityRefs:['bridge-alarm'],perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
+  const gate=memory.recordEventMemory({eventId:'event:gate',description:'The gate closes.',evidenceRefs:[second.id],identityRevisionRefs:['identity:gate@r3'],entityRefs:['gate'],temporalOrderRefs:[{relation:'FOLLOWS',eventRef:alarm.eventId}]});
   assert.equal(gate.temporalOrderRefs[0].relation,'FOLLOWS');
   assert.equal(gate.causalClaim,false);
 
-  const h1=memory.recordCausalHypothesis({hypothesisId:'hyp:alarm-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:[alarm.eventId],effectEventRef:gate.eventId,
-    statement:'The alarm may have triggered the gate closure.',supportEvidenceRefs:[first.id,second.id],confidence:.99,perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
-  const h2=memory.recordCausalHypothesis({hypothesisId:'hyp:operator-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:['event:operator'],effectEventRef:gate.eventId,
-    statement:'An operator may have independently triggered the gate closure.',supportEvidenceRefs:[second.id],confidence:.92,perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
+  const h1=memory.recordCausalHypothesis({hypothesisId:'hyp:alarm-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:[alarm.eventId],effectEventRef:gate.eventId,relationType:'CAUSES',
+    statement:'The alarm may have triggered the gate closure.',supportEvidenceRefs:[first.id,second.id],identityRevisionRefs:['identity:Ari@r1','identity:gate@r3'],confidence:.99,
+    temporalApplicability:{after:alarm.eventId},derivationPath:[first.id,second.id],sourceReliability:'PARTIAL',perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
+  const h2=memory.recordCausalHypothesis({hypothesisId:'hyp:operator-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:['event:operator'],effectEventRef:gate.eventId,relationType:'ENABLES',
+    statement:'An operator may have independently triggered the gate closure.',supportEvidenceRefs:[second.id],identityRevisionRefs:['identity:operator@r1','identity:gate@r3'],confidence:.92,
+    sourceReliability:'UNVERIFIED',perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
   assert.equal(h1.status,'UNRESOLVED');
   assert.equal(h2.status,'UNRESOLVED');
+  assert.equal(h1.relationType,'CAUSES');
+  assert.equal(h2.relationType,'ENABLES');
+  assert.deepEqual(h1.identityRevisionRefs,['identity:Ari@r1','identity:gate@r3']);
+  assert.equal(h1.sourceReliability,'PARTIAL');
   assert.equal(h1.confidenceGrantsCanon,false);
   assert.equal(h2.repetitionGrantsCanon,false);
 
@@ -201,11 +207,27 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
   const hypotheses=query.nominations.filter(row=>row.metadata?.historianChannel==='UNRESOLVED_HYPOTHESIS');
   assert.equal(hypotheses.length,2);
   assert.ok(hypotheses.every(row=>row.truthStatusHint==='UNRESOLVED'));
+  assert.ok(hypotheses.every(row=>row.metadata?.chronologyDoesNotImplyCausality===true));
   assert.ok(memory.drillDown(hypotheses[0],{selection:{chatId:'chat:causal'}}).length>=1);
+
+  const weakened=memory.recordCausalHypothesis({hypothesisId:'hyp:alarm-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:[alarm.eventId],effectEventRef:gate.eventId,relationType:'CAUSES',
+    statement:'The alarm may have triggered the gate closure.',supportEvidenceRefs:[first.id],contradictionEvidenceRefs:[second.id],identityRevisionRefs:['identity:Ari@r1','identity:gate@r3'],
+    confidence:.4,status:'WEAKENED',sourceReliability:'PARTIAL',perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
+  assert.equal(memory.causalEvents.hypothesisHistory(h1.hypothesisId).length,2);
+  assert.equal(memory.causalEvents.hypotheses.get(h1.id).state,'HISTORICAL');
+  assert.equal(weakened.status,'WEAKENED');
+
+  const resolved=memory.recordCausalHypothesis({hypothesisId:'hyp:operator-triggered-gate',hypothesisSetId:'why:gate',causeEventRefs:['event:operator'],effectEventRef:gate.eventId,relationType:'ENABLES',
+    statement:'An operator may have independently triggered the gate closure.',supportEvidenceRefs:[second.id],identityRevisionRefs:['identity:operator@r1','identity:gate@r3'],
+    confidence:.99,status:'RESOLVED',ownerDecisionRef:'truth:decision:operator-gate',sourceReliability:'CORROBORATED',perspective:{scope:'CHARACTER_KNOWLEDGE',characterRef:'Ari'}});
+  assert.equal(memory.causalEvents.hypothesisHistory(h2.hypothesisId).length,2);
+  assert.equal(resolved.authorityClass,'UNRESOLVED');
+  assert.equal(resolved.canonicalMutationAuthority,false);
+  assert.equal(resolved.ownerDecisionRef,'truth:decision:operator-gate');
 
   const invalidation=memory.invalidateSourceRevision(first.sourceRevisionId,{reason:'CORRECTION'});
   assert.ok(invalidation.causalAffectedEventIds.includes(alarm.id));
-  assert.ok(invalidation.causalAffectedHypothesisIds.includes(h1.id));
+  assert.ok(invalidation.causalAffectedHypothesisIds.includes(weakened.id));
   assert.ok(!invalidation.causalAffectedEventIds.includes(gate.id));
   assert.equal(memory.causalEvents.events.get(gate.id).freshness,'FRESH');
 });

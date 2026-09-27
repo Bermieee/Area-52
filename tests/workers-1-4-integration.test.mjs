@@ -143,14 +143,25 @@ test('Workers 1-4 exact-head integration: turn A memory becomes turn B Memory + 
   assert.equal(prepared.sparseRetrievalReceipt?.status,'READY');
   assert.ok(prepared.graphTraversalReceipt?.nominationCount>=1);
 
+  const memoryTrace=prepared.candidateTraceReceipt.rows.find(row=>row.candidateId===memoryCandidates[0].candidateId);
+  assert.equal(memoryTrace?.truthUsable,true);
+  assert.equal(memoryTrace?.gathered,true);
+  assert.equal(memoryTrace?.sealed,true);
   const sparseTrace=prepared.candidateTraceReceipt.rows.find(row=>row.candidateId===sparseCandidates[0].candidateId);
   assert.equal(sparseTrace?.truthUsable,true);
   assert.equal(sparseTrace?.gathered,true);
   assert.equal(sparseTrace?.sealed,true);
   const graphTrace=prepared.candidateTraceReceipt.rows.find(row=>row.candidateId===graphCandidates[0].candidateId);
-  assert.equal(graphTrace?.truthUsable,true);
-  assert.equal(graphTrace?.gathered,true);
-  assert.equal(graphTrace?.sealed,true);
+  assert.ok(graphTrace,'graph nomination must have an explicit downstream candidate trace');
+  assert.equal(graphCandidates.some(candidate=>candidate.authority?.truth===true),false,
+    'graph proximity must not grant Truth authority');
+  assert.equal(typeof graphTrace.truthUsable,'boolean');
+  assert.equal(typeof graphTrace.gathered,'boolean');
+  assert.equal(typeof graphTrace.sealed,'boolean');
+  if(!graphTrace.truthUsable){
+    assert.equal(graphTrace.gathered,false);
+    assert.equal(graphTrace.sealed,false);
+  }
   assert.ok(prepared.gatherReceipt);
   assert.ok(prepared.contextSealReceipt?.sealedState);
   assert.ok(prepared.promptPlan);

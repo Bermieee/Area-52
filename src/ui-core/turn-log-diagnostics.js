@@ -328,6 +328,19 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
     {key:'Response / learning',value:diagnosticMs(stageMs('LEARNING'))},
     {key:'Exact detailed profile',value:detailed?'AVAILABLE':'NO_EVIDENCE'},
   ]));
+  const allRetrievalChannels=generationPerf?.retrievalChannels??[];
+  const retrievalChannels=allRetrievalChannels.slice().sort((a,b)=>(b.elapsedMs??0)-(a.elapsedMs??0)).slice(0,16);
+  const retrievalTotal=stageMs('RETRIEVAL_CHANNELS');
+  const attributedMs=allRetrievalChannels.reduce((sum,row)=>sum+(Number.isFinite(row.elapsedMs)?row.elapsedMs:0),0);
+  performance.body.append(element(d,'strong',{text:'Retrieval channels · slowest first'}),createKeyValue(d,[
+    {key:'Retrieval stage total',value:diagnosticMs(retrievalTotal)},
+    {key:'Outside measured channels',value:allRetrievalChannels.length&&retrievalTotal!=null?diagnosticMs(Math.max(0,retrievalTotal-attributedMs)):'NO_EVIDENCE'},
+  ]));
+  if(retrievalChannels.length)performance.body.append(createKeyValue(d,retrievalChannels.map(row=>({
+    key:row.channelId,
+    value:`${diagnosticMs(row.elapsedMs)} · ${row.status} · ${row.nominationCount??'NO_EVIDENCE'} nominations · ${row.attemptedIntents??'NO_EVIDENCE'} attempts · ${row.failedIntents??'NO_EVIDENCE'} failed`,
+  }))));
+  else performance.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — no per-channel retrieval timing was published for this generation.'));
   const overall=detailed?.deltas??{},preInsertion=detailed?.phases?.preGenerationToHostInsertion??{},afterInsertion=detailed?.phases?.hostInsertionToLearningComplete??{};
   performance.body.append(element(d,'strong',{text:'Browser measurements'}),createKeyValue(d,[
     {key:'Heap support',value:generationPerf?.support?.heap??'NO_EVIDENCE'},

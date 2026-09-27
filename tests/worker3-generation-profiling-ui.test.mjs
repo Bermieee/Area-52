@@ -23,6 +23,7 @@ function sessionBindings({heapSupported=true,longTaskSupported=true,foreignDetai
     kind:'NativeBrainSelectedTurnReceipt',...selection,
     performance:{
       kind:'NativeBrainGenerationPerformanceReceipt',...selection,
+      retrievalChannels:[{channelId:'SLOW_EMPTY',status:'OK',nominationCount:0,attemptedIntents:1,failedIntents:0,elapsedMs:61000,query:'PROFILE_SECRET_PROMPT_MUST_NOT_EXPORT'}],
       stages:[
         {stage:'BRAIN_PREPARATION_TOTAL',wallMs:31.5,queueWaitMs:0,inputCount:1,outputCount:1,outcome:'SEALED_FOR_GENERATION'},
         {stage:'HOST_PREPARATION',wallMs:4.25,queueWaitMs:0,inputCount:1,outputCount:1,outcome:'HOST_EVENT_PREPARED'},
@@ -88,6 +89,7 @@ test('Worker 3 generation profiler control is session-only, default-off, and rea
   assert.equal(read.exactSelection,true);
   assert.equal(read.status,'DETAILED_AVAILABLE');
   assert.equal(read.brainStages.find(row=>row.stage==='BRAIN_PREPARATION_TOTAL').wallMs,31.5);
+  assert.deepEqual(read.retrievalChannels,[{channelId:'SLOW_EMPTY',status:'OK',nominationCount:0,attemptedIntents:1,failedIntents:0,elapsedMs:61000}]);
   assert.equal(read.detailed.providerLatencyMs,915);
   assert.equal(read.retention.maxProfiles,12);
   assert.equal(adapter.setGenerationProfiling(true).ok,true);
@@ -130,6 +132,8 @@ test('Worker 3 Diagnostics switch is visible and exported profile stays bounded 
   assert.match(visible,/Provider wait/);
   assert.match(visible,/Response \/ learning/);
   assert.match(visible,/Diagnostics\/UI refresh/);
+  assert.match(visible,/Retrieval channels/);
+  assert.match(visible,/SLOW_EMPTY/);
   const toggle=nodes.find(node=>node.tagName==='BUTTON'&&/Turn profiling ON/.test(node.textContent??''));
   assert.ok(toggle);
   assert.equal(toggle.attributes?.role,'switch');
@@ -144,11 +148,13 @@ test('Worker 3 Diagnostics switch is visible and exported profile stays bounded 
   assert.equal(serialized.includes(session.secret),false);
   assert.equal(exported.operationalSnapshot.generationPerformance.brainStages.length,5);
   assert.equal(exported.operationalSnapshot.generationPerformance.detailed.providerLatencyMs,915);
+  assert.equal(exported.operationalSnapshot.generationPerformance.retrievalChannels[0].elapsedMs,61000);
   const download=model.downloadFullDiagnostics({document:null});
   assert.equal(download.ok,false);
   assert.ok(download.files.some(file=>file.path.endsWith('/performance/generation-profile.json')));
   const profileFile=download.files.find(file=>file.path.endsWith('/performance/generation-profile.json'));
   assert.equal(profileFile.content.includes(session.secret),false);
+  assert.equal(JSON.parse(profileFile.content).retrievalChannels[0].channelId,'SLOW_EMPTY');
   scope.cleanup();mounted.release();
 });
 

@@ -441,6 +441,7 @@ export class Area52NativeBrain{
           ...(published.performanceReceipt?.stages??[]),
           {stage:'PROMPT_PLAN',wallMs:deliveryWallMs,queueWaitMs:0,inputCount:(published.sealReceipt?.admittedResultIds??[]).length,outputCount:(delivery.plan?.sections??[]).length,inputBytes:published.compilerReceipt?.compiledBytes??null,outputBytes:null,inputSizeClass:null,outputSizeClass:null,retainedObjectCount:(delivery.plan?.sections??[]).length,retainedBytes:null,outcome:delivery?.ok?'PLANNED':'FAILED'},
         ].slice(0,24),
+        retrievalChannels:channelReceipts.slice(0,32).map(row=>({channelId:row.channelId,status:row.status,nominationCount:row.nominationCount,attemptedIntents:row.attemptedIntents,failedIntents:row.failedIntents,elapsedMs:row.elapsedMs})),
         counts:{...(published.performanceReceipt?.counts??{}),promptSections:(delivery.plan?.sections??[]).length,deferredSections:(delivery.plan?.deferred??[]).length},
         sizes:{...(published.performanceReceipt?.sizes??{}),promptPlanTokens:delivery.plan?.budget?.allocated??null,promptBudgetTokens:delivery.plan?.budget?.total??null},
         retained:{...(published.performanceReceipt?.retained??{}),promptSections:(delivery.plan?.sections??[]).length},

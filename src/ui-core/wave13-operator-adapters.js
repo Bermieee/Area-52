@@ -981,6 +981,11 @@ export class Wave13DiagnosticsCenterAdapter{
       inputCount:finiteOrNull(row?.inputCount),outputCount:finiteOrNull(row?.outputCount),inputBytes:finiteOrNull(row?.inputBytes),outputBytes:finiteOrNull(row?.outputBytes),
       retainedObjectCount:finiteOrNull(row?.retainedObjectCount),retainedBytes:finiteOrNull(row?.retainedBytes),outcome:row?.outcome==null?null:String(row.outcome),
     }));
+    const retrievalChannels=(selected?.performance?.retrievalChannels??[]).slice(0,32).map(row=>deepFreeze({
+      channelId:String(row?.channelId??'UNKNOWN'),status:String(row?.status??'UNKNOWN'),
+      nominationCount:finiteOrNull(row?.nominationCount),attemptedIntents:finiteOrNull(row?.attemptedIntents),
+      failedIntents:finiteOrNull(row?.failedIntents),elapsedMs:finiteOrNull(row?.elapsedMs),
+    }));
     const safeSample=(sample)=>sample?deepFreeze({
       at:finiteOrNull(sample.at),
       heapBytes:heapSupported?finiteOrNull(sample.heapBytes):null,
@@ -1019,7 +1024,7 @@ export class Wave13DiagnosticsCenterAdapter{
       control:{available:Boolean(setter&&loadReader&&detailReader),enabled:load?Boolean(profiling.detailedEnabled):null,sessionScoped:true,defaultOff:true,persisted:false},
       retention:{retainedProfiles:Number(profiling.retainedProfiles??load?.retained?.nativePerformance??0)||0,maxProfiles:Number(load?.bounds?.nativePerformance??0)||null},
       support:{heap:heapSupported?'SUPPORTED':'NO_EVIDENCE',longTasks:longTaskSupported?'SUPPORTED':'NO_EVIDENCE',diagnosticsUiRefresh:loadReader?'SUPPORTED':'NO_EVIDENCE'},
-      exactSelection,selectionError,loadError,brainStages,detailed:safeDetailed,
+      exactSelection,selectionError,loadError,brainStages,retrievalChannels,detailed:safeDetailed,
       status:selectionError?'NO_EVIDENCE':safeDetailed?'DETAILED_AVAILABLE':brainStages.length?'BRAIN_TIMINGS_ONLY':'NO_EVIDENCE',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,providerBodies:false,credentials:false,hiddenReasoning:false},
     });

@@ -229,6 +229,12 @@ test('native Brain hydrates owner sparse recall and sends bounded decomposed sce
   const denseReceipt=(prepared.candidateEnvelope.metadata?.channelReceipts??[]).find(row=>row.channelId==='DENSE_EMBEDDINGS');
   assert.equal(denseReceipt?.status,'UNAVAILABLE');
   assert.equal(channelCandidates(prepared.candidateEnvelope,'DENSE_EMBEDDINGS').length,0);
+  const selected=brain.uiBindings().readSelectedTurnReceipt(prepared.selection);
+  const sparseTiming=selected.performance.retrievalChannels.find(row=>row.channelId==='OWNER_SPARSE_EXACT');
+  assert.equal(sparseTiming.status,'OK');
+  assert.ok(sparseTiming.elapsedMs>=0);
+  assert.ok(sparseTiming.attemptedIntents>0);
+  assert.equal('query' in sparseTiming,false);
 });
 
 test('native Brain reindexes only the changed Lore sparse source and tombstones removal',async()=>{

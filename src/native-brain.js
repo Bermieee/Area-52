@@ -355,6 +355,7 @@ export class Area52NativeBrain{
         reason:receipt.reason??receipt.reasonCode??null,
       });
     }
+    const sceneSignalAdmission=(sceneSignal||scene)?this.observeScene(chat,sceneSignal??scene):null;
     const invalidatedHandoffs=sceneOwnerReceipt?.invalidatedTransitionHandoffs??sceneOwnerReceipt?.invalidatedHandoffs??[];
     for(const handoff of invalidatedHandoffs??[]){
       const receipt=this.core.consumeSceneTransitionHandoff(handoff,{chatNamespace:chat});
@@ -371,7 +372,6 @@ export class Area52NativeBrain{
         status:receipt.status??null,coreHandling:receipt.coreHandling??null,reason:receipt.reason??receipt.reasonCode??null,
       });
     }
-    const sceneSignalAdmission=(sceneSignal||scene)?this.observeScene(chat,sceneSignal??scene):null;
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
     this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);

@@ -291,7 +291,7 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, memoryOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
     if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
@@ -323,7 +323,7 @@ export class DevelopmentDeploymentBrain {
       publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
     });
-    this.memory = new MemoryTemporalProducer();
+    this.memory = new MemoryTemporalProducer({ snapshot: memoryOwnerSnapshot });
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
@@ -509,6 +509,10 @@ export class DevelopmentDeploymentBrain {
       authoring: this.loreAuthoring.snapshot(),
       settlementEvents: clone(this.loreSettlementEvents),
     };
+  }
+
+  snapshotMemoryOwner() {
+    return this.memory.snapshot();
   }
 
   ensureScene({ chatId, sourceRevisionId } = {}) {
@@ -971,6 +975,7 @@ export class DevelopmentDeploymentBrain {
       loreAuthoringHost,
       loreAuthoringOperator: loreAuthoringHost,
       snapshotLoreOwner: () => this.snapshotLoreOwner(),
+      snapshotMemoryOwner: () => this.snapshotMemoryOwner(),
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),

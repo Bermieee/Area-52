@@ -89,6 +89,33 @@ export class SceneLifecycleRuntime{
     return rows;
   }
 
+  #indexEpisodeGraph(episode){
+    if(!episode?.sceneId)return[];
+    const scene=this.registry.current(episode.sceneId);if(!scene)return[];
+    const refs=[],episodeRef=episode.artifactRef??null,sourceRevisionRefs=episode.sourceRevisionRefs??scene.sourceRevisionRefs??[];
+    this.graph.addScene({sceneId:episode.sceneId,episodeRef,revision:episode.sceneRevision,metadata:{episodeId:episode.episodeId,sourceRevisionRefs:[...sourceRevisionRefs]}});
+    for(const p of episode.participants??[]){const id=p.characterId??p.entityId;if(id)refs.push(this.graph.addMembership({sceneId:episode.sceneId,refId:id,kind:'ENTITY',evidenceRefs:p.evidenceRefs??scene.fields?.activeCast?.evidenceRefs??[],sourceRevisionRefs,provenance:[episode.episodeId],sceneRevision:episode.sceneRevision,episodeRef}));}
+    const objects=scene.fields?.immediateObjects?.value??[];
+    for(const o of objects){if(!o?.objectId)continue;refs.push(this.graph.addMembership({sceneId:episode.sceneId,refId:o.objectId,kind:'OBJECT',evidenceRefs:o.evidenceRefs??scene.fields?.immediateObjects?.evidenceRefs??[],sourceRevisionRefs,provenance:[episode.episodeId],sceneRevision:episode.sceneRevision,episodeRef,observedState:{state:o.state??null,holderId:o.holderId??null,containerId:o.containerId??null,observationClass:o.observationClass??scene.fields?.immediateObjects?.observationClass??'UNKNOWN',confidence:o.confidence??scene.fields?.immediateObjects?.confidence??0},temporalApplicability:{sceneId:episode.sceneId,sceneRevision:episode.sceneRevision,observedAtRevision:o.seenRevision??episode.sceneRevision,narrativeTime:clone(episode.narrativeTime?.value??null),sourceRevisionRefs:[...sourceRevisionRefs]}}));}
+    for(const thread of episode.threadsCarried??[]){const id=typeof thread==='string'?thread:thread?.threadId??thread?.id??JSON.stringify(thread);refs.push(this.graph.addMembership({sceneId:episode.sceneId,refId:id,kind:'THREAD',evidenceRefs:scene.fields?.activeThreads?.evidenceRefs??[],sourceRevisionRefs,provenance:[episode.episodeId],sceneRevision:episode.sceneRevision,episodeRef}));}
+    for(const event of episode.events??[]){const id=event?.eventId??event?.id;if(id)refs.push(this.graph.addMembership({sceneId:episode.sceneId,refId:id,kind:'EVENT',evidenceRefs:event.evidenceRefs??[],sourceRevisionRefs,provenance:[episode.episodeId],sceneRevision:episode.sceneRevision,episodeRef,temporalApplicability:clone(event.temporalApplicability??episode.narrativeTime?.value??null)}));}
+    return refs;
+  }
+
+  #admitGraphEvidenceLinks(scene,evidence,links=[],episodeRef=null){
+    const receipts=[];
+    for(const raw of (Array.isArray(links)?links:[]).slice(0,32)){
+      const relation=String(raw?.relation??'SUPPORTS').toUpperCase(),evidenceRefs=[...new Set((raw?.evidenceRefs??[]).filter(Boolean).map(String))];
+      if(raw?.ownerApproved!==true){receipts.push({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});continue;}
+      if(!evidenceRefs.length||!evidenceRefs.includes(String(evidence.sourceRevisionId))){receipts.push({status:'REJECTED',reasonCode:'SCENE_GRAPH_CURRENT_EVIDENCE_REQUIRED',relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});continue;}
+      try{
+        const edge=this.graph.addEvidenceLink({sceneId:scene.sceneId,sceneRevision:scene.revision,episodeRef,fromRef:raw.fromRef,toRef:raw.toRef,relation,evidenceRefs,sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[evidence.sourceRevisionId,...(raw.provenance??[])],derivedFrom:raw.derivedFrom??[],ownerApproved:true,supportStatus:raw.supportStatus??'SUPPORTED',interpretationId:raw.interpretationId??null,temporalApplicability:raw.temporalApplicability??{sceneId:scene.sceneId,sceneRevision:scene.revision}});
+        receipts.push({status:'ADMITTED',reasonCode:'SCENE_GRAPH_OWNER_LINK_ADMITTED',edgeId:edge.edgeId,relation,causal:Boolean(edge.causal),authorityClass:edge.authorityClass});
+      }catch(error){receipts.push({status:'REJECTED',reasonCode:String(error?.message??'SCENE_GRAPH_LINK_REJECTED'),relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});}
+    }
+    return receipts;
+  }
+
   ingestHostEvent(input,{extract=null}={}){
     const normalized=this.narrativeFeed.normalize(input);
     if(normalized.status!==HostEventStatus.ACCEPTED)return normalized;
@@ -99,11 +126,11 @@ export class SceneLifecycleRuntime{
       return {...normalized,scene:clone(scene),invalidatedPrefetch};
     }
     const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[],invalidationRefs=[...new Set([...(evidence.invalidates??[]),evidence.replacesRevisionId].filter(Boolean))];
-    for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
-    if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch};
+    const invalidatedGraph=[];for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedGraph.push(...this.graph.invalidateBySource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
+    if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
     const extracted=extract(evidence,current)??{};const fields=extractSceneFields(extracted);
-    const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];
+    const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];const graphEvidenceLinks=extracted.graphEvidenceLinks??[];
     const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(current,evidence,likelyNextIntents):[];
     let boundary=null,transition=null,observed=null;
     if(extracted.boundarySignals){
@@ -125,6 +152,7 @@ export class SceneLifecycleRuntime{
             allowDestinationRefresh:Boolean(extracted.allowWhenRefreshRequired),expectedSceneRevision:current.revision,
             chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,
           });
+          if(transition.episodeRef){const episode=this.episodeCompiler.get(transition.episodeRef.artifactId);if(episode)this.#indexEpisodeGraph(episode);}
           if(transition.toSceneId){
             this.chatScenes.set(evidence.chatId,transition.toSceneId);
             const nextScene=this.registry.current(transition.toSceneId);
@@ -141,7 +169,8 @@ export class SceneLifecycleRuntime{
         observed={scene:current,delta:null,applied:false,noChange:true};
       }
     }
-    return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
+    const graphEvidenceReceipts=this.#admitGraphEvidenceLinks(observed.scene,evidence,graphEvidenceLinks,transition?.episodeRef??null);
+    return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }
 
   integrationSignal(chatId){return buildSceneIntegrationSignal(this,chatId);}
@@ -154,7 +183,7 @@ function fieldArray(state){const value=state&&typeof state==='object'&&Object.pr
 function threadIds(values){return [...new Set((values??[]).map((row)=>typeof row==='string'?row:row?.threadId??row?.id??null).filter(Boolean).map(String))];}
 function extractSceneFields(extracted){
   if(extracted?.fields&&typeof extracted.fields==='object'&&!Array.isArray(extracted.fields))return extracted.fields;
-  const controlKeys=['boundarySignals','prefetchIntents','relationship','resumeSceneId','allowWhenRefreshRequired','explicit','extractionPolicy'];
+  const controlKeys=['boundarySignals','prefetchIntents','graphEvidenceLinks','relationship','resumeSceneId','allowWhenRefreshRequired','explicit','extractionPolicy'];
   if(controlKeys.some((key)=>Object.prototype.hasOwnProperty.call(extracted??{},key)))return{};
   return extracted&&typeof extracted==='object'&&!Array.isArray(extracted)?extracted:{};
 }

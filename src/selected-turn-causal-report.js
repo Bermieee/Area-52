@@ -104,7 +104,8 @@ function projectOptionalResources(entry){
   const rows=(entry?.metadata?.resources??[]).slice(0,24).map(row=>({
     id:text(row.id,256),kind:state(row.kind),state:state(row.state),configured:Boolean(row.configured),qualified:Boolean(row.qualifiedCallable),
     physicalAttempted:Boolean(row.attempted),returned:booleanOrNull(row.returned),succeeded:Boolean(row.succeeded),failed:Boolean(row.failed),
-    ownerAccepted:booleanOrNull(row.ownerAccepted),ownerAcceptanceSource:text(row.ownerAcceptanceSource,128),skipReason:reason(row.skipReason),measurementClass:reason(row.measurementClass),
+    ownerAcceptanceState:reason(row.ownerAcceptanceState)??(typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE'),
+    ownerAccepted:(reason(row.ownerAcceptanceState)==='NO_EVIDENCE'?null:booleanOrNull(row.ownerAccepted)),ownerAcceptanceSource:text(row.ownerAcceptanceSource,128),skipReason:reason(row.skipReason),measurementClass:reason(row.measurementClass),
   }));
   return{
     configuredCount:rows.filter(row=>row.configured).length,qualifiedCount:rows.filter(row=>row.qualified).length,physicalAttemptCount:rows.filter(row=>row.physicalAttempted).length,

@@ -312,7 +312,8 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
       const returned=typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null;
       const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
       const kind=String(row.kind??'').toUpperCase(),skipReason=kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
-      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:typeof row.ownerAccepted==='boolean'?row.ownerAccepted:null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
+      const ownerAcceptanceState=typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE';
+      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,measurementClass:row.measurementClass??null};
     });
     out.push(entry({
       type:'OPTIONAL_RESOURCE_LIFECYCLE',status:'RECORDED',title:'Optional resource lifecycle',

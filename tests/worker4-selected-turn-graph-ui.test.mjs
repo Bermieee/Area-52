@@ -73,6 +73,8 @@ test('DETERMINISTIC: real Native Brain selected turn renders GraphTraversalRecei
         providers:prepared.graphTraversalReceipt?.providers??[],
         referenceSummary:(prepared.graphTraversalReceipt?.referenceSummary??[]).map(row=>({edgeId:row.edgeId,providerId:row.providerId,edgeMeaning:row.edgeMeaning,fromEntityId:row.fromEntityId,toEntityId:row.toEntityId})),
         staleRejected:prepared.graphTraversalReceipt?.staleRejected??[],
+        channelReceipts:prepared.candidateEnvelope?.metadata?.channelReceipts??[],
+        channelErrors:prepared.candidateEnvelope?.metadata?.channelErrors??[],
       },
       uiRelationships:model.relationships.map(row=>({edgeId:row.edgeId,providerId:row.providerId,edgeMeaning:row.edgeMeaning})),
       referenceEdges:model.referenceEdges.map(row=>({edgeId:row.edgeId,providerId:row.providerId,edgeMeaning:row.edgeMeaning})),

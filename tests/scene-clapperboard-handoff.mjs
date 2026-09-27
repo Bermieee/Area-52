@@ -92,6 +92,8 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   assert.ok(prepared.contextRetirement.decisions.every(row=>['RETIRE_FROM_ACTIVE_PROMPT','KEEP_RAW'].includes(row.action)));
   assert.equal(prepared.contextRetirement.sceneTransition.rawDialogueDeletionAuthority,false);
   assert.equal(prepared.contextRetirement.sceneTransition.promptInclusionAuthority,false);
+  assert.equal(prepared.contextRetirement.sceneTransition.compactPreviousSceneSummary,handoff.continuity.compactPriorSceneSummary);
+  assert.ok(JSON.stringify(prepared.promptPlan).includes(handoff.continuity.compactPriorSceneSummary),'Core-approved compact Scene continuity must remain available to the prompt planner');
 });
 
 test('flashback and resume preserve conceptual Scene identity and finalize only the temporary Scene on resume',()=>{

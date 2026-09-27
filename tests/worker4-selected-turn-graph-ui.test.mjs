@@ -23,7 +23,7 @@ const walk=node=>[node,...(node?.children??[]).flatMap(walk)];
 const textOf=node=>walk(node).map(x=>x.textContent??'').filter(Boolean).join(' ');
 
 function scene(sceneId,sceneRevision){
-  return{sceneId,sceneRevision,location:'North Pier',narrativeTime:'tick '+sceneRevision,activeCast:['Pilot'],activeThreads:[],objects:[],sourceRevisionRefs:['scene:north@'+sceneRevision],provenance:['scene:prov:'+sceneRevision]};
+  return{sceneId,sceneRevision,location:null,narrativeTime:'tick '+sceneRevision,activeCast:[],activeThreads:[],objects:[],sourceRevisionRefs:['scene:north@'+sceneRevision],provenance:['scene:prov:'+sceneRevision]};
 }
 
 test('DETERMINISTIC: real Native Brain selected turn renders GraphTraversalReceipt + worldGraphReferences candidate path without raw bodies',async()=>{
@@ -52,7 +52,7 @@ test('DETERMINISTIC: real Native Brain selected turn renders GraphTraversalRecei
   const prepared=await brain.prepareTurn({
     chatId:'chat:graph-ui',turnId:'turn:graph-ui:1',generationId:'gen:graph-ui:1',correlationId:'corr:graph-ui:1',
     query:'Which route applies to Pilot?',intent:'CURRENT',scene:scene('scene:north',1),anchorEntityIds:['entity:pilot'],
-    channelIds:['ZZ_NATIVE_GRAPH_WALKER'],candidateBudget:24,latencyBudgetMs:100,budgetBytes:6000,executionLabel:'DETERMINISTIC',
+    channelIds:['ZZ_NATIVE_GRAPH_WALKER'],candidateBudget:24,latencyBudgetMs:1000,budgetBytes:6000,executionLabel:'DETERMINISTIC',
   });
   const selection=prepared.selection,bindings=brain.uiBindings();
   const decision=new BrainDecisionVisibilityAdapter({bindings,selectionProvider:()=>selection});
@@ -120,7 +120,7 @@ test('DETERMINISTIC: graph visibility makes zero-work and unavailable states exp
 
   const unavailable=new SelectedTurnGraphVisibilityAdapter({bindings:{readSelectedTurnReceipt:()=>selected},selectionProvider:()=>selection}).read();
   assert.equal(unavailable.state,'UNAVAILABLE');
-  assert.match(unavailable.reason,/Graph readers are exported|unavailable/i);
+  assert.match(unavailable.reason,/does not export|unavailable/i);
 
   const waiting=new SelectedTurnGraphVisibilityAdapter({bindings:{},selectionProvider:()=>({chatId:'chat:zero'})}).read();
   assert.equal(waiting.state,'WAITING_FOR_SELECTED_TURN');

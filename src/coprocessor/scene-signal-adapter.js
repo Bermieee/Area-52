@@ -110,6 +110,8 @@ export function plannerInputFromScene({ publicSignals = null, events = [], base 
     output.sceneOpened = Boolean(output.sceneOpened || patch.sceneOpened);
     output.majorTimeShift = Boolean(output.majorTimeShift || patch.majorTimeShift);
     if (patch.sceneRevision != null) output.sceneRevision = patch.sceneRevision;
+    if (patch.sceneId != null) output.sceneId = patch.sceneId;
+    if (patch.sourceRevisionSet?.length) output.sourceRevisionSet = unique([...(output.sourceRevisionSet ?? []), ...patch.sourceRevisionSet]).sort();
   }
   return deepFreeze(output);
 }

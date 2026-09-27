@@ -260,6 +260,41 @@ test('#113 owner obligation guard rejects foreign-chat, stale revision/source, a
   assert.equal(diagnostics.sceneEvents.authorityGranted,false);
 });
 
+test('#113 admitted event is fenced again before owner execution after a newer Scene revision',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const executedEventIds=[];
+  brain.bindSceneEventObligationOwner({
+    producer:{producerId:'EXECUTION_FENCED_SCENE_OWNER',obligationType:'SCENE_EVENT_REACTION',requestedLayer:'L2',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS]},
+    eventTypes:[SceneEventType.LOCATION_CHANGED],
+    mapEvent:(event)=>({payload:{sceneEventId:event.eventId},units:[{id:'unit:'+event.eventId,payload:null}]}),
+    executorFactory:(event)=>({
+      execute:async()=>{executedEventIds.push(event.eventId);return{value:'EXECUTED:'+event.eventId};},
+      validate:()=>true,
+      commit:({output}={})=>({value:output?.value??null,authorityGranted:false,canonicalMutation:false}),
+    }),
+  });
+
+  const first=ingestDeterministic(brain,hostEvent({id:'race1',content:'At North Gallery, Mara waits.',turnId:'turn:race1',generationId:'gen:race1'}));
+  const firstEvent=first.dispatchTimeline.find(row=>row.type==='EVENT'&&row.value?.eventType===SceneEventType.LOCATION_CHANGED)?.value;
+  assert.ok(firstEvent);
+  const firstAdmission=brain.readSceneEventObligationReceipts({limit:64}).find(row=>row.eventId===firstEvent.eventId&&row.status==='ADMITTED');
+  assert.ok(firstAdmission?.taskId);
+
+  const second=ingestDeterministic(brain,hostEvent({id:'race2',content:'At East Hall, Mara waits.',turnId:'turn:race2',generationId:'gen:race2'}));
+  const secondEvent=second.dispatchTimeline.find(row=>row.type==='EVENT'&&row.value?.eventType===SceneEventType.LOCATION_CHANGED)?.value;
+  assert.ok(secondEvent);
+  const secondAdmission=brain.readSceneEventObligationReceipts({limit:64}).find(row=>row.eventId===secondEvent.eventId&&row.status==='ADMITTED');
+  assert.ok(secondAdmission?.taskId);
+
+  await brain.runtimeDirector.drain();
+
+  assert.equal(executedEventIds.includes(firstEvent.eventId),false,'superseded Scene event must not reach owner executor');
+  assert.deepEqual(executedEventIds,[secondEvent.eventId]);
+  assert.equal(brain.runtimeDirector.ledger.get(firstAdmission.taskId).executionStatus,'FAILED');
+  assert.equal(brain.runtimeDirector.ledger.get(secondAdmission.taskId).lifecycleStatus,'SATISFIED');
+  assert.ok(brain.readSceneEventObligationReceipts({limit:128}).some(row=>row.eventId===firstEvent.eventId&&row.reasonCode==='SCENE_EVENT_STALE_SCENE_REVISION:BEFORE_EXECUTION'));
+});
+
 test('#113 owner can explicitly declare no work without scheduling an obligation',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   brain.bindSceneEventObligationOwner({

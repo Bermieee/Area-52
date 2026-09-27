@@ -134,6 +134,7 @@ function generationHero(d,x,source){
   const delivery=x.deliveryEvidence??{};
   head.append(sourceModeBadge(d,source),makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','observed'));
   card.append(head,element(d,'h2',{text:x.generationId??'Generation'}),createKeyValue(d,[
+    {key:'Available budget',value:`${number(budget.total)} tokens`},
     {key:'Core planned budget',value:`${number(budget.total)} total · ${number(budget.allocated)} allocated · ${number(budget.remaining)} remaining`},
     {key:'Compiled/sealed budget',value:`${number(compiled.total)} total · ${number(compiled.allocated)} compiled · ${number(compiled.remaining)} remaining`},
     {key:'Planned',value:delivery.planned?.state??'NO_EVIDENCE'},{key:'Compiled / sealed',value:delivery.compiled?.state??'NO_EVIDENCE'},{key:'Observed in host request',value:delivery.observed?.state??'NO_EVIDENCE'},

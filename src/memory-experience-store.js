@@ -223,7 +223,8 @@ export class MemoryExperienceStore {
     if(missingEvidence.length||staleEvidence.length){
       return {...base,status:'STALE',eligible:false,reasonCode:missingEvidence.length?'MEMORY_REFLECTION_EVIDENCE_MISSING':'MEMORY_REFLECTION_SUPPORT_STALE',missingEvidenceRefs:missingEvidence,staleEvidenceRefs:staleEvidence};
     }
-    if(supportLogicalIds.length<2){
+    const priorContradictionRevision=Boolean(prior&&contradictionLogicalIds.length>0&&supportLogicalIds.length>=1);
+    if(supportLogicalIds.length<2&&!priorContradictionRevision){
       return {...base,status:'SKIPPED',eligible:false,reasonCode:'MEMORY_REFLECTION_REPETITION_INSUFFICIENT',minimumSupportingEpisodes:2};
     }
     const supportCount=supportLogicalIds.length,contradictionCount=contradictionLogicalIds.length;

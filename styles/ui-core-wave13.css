@@ -123,6 +123,10 @@
 .a52-wave13-evidence-row{appearance:none;display:grid;grid-template-columns:minmax(90px,.8fr) minmax(130px,1.7fr) auto;gap:8px;align-items:center;width:100%;padding:7px 8px;border:1px solid var(--a52-border-soft);border-radius:8px;background:rgba(6,16,25,.45);color:var(--a52-text);text-align:left;cursor:pointer}
 .a52-wave13-evidence-row:hover,.a52-wave13-evidence-row:focus-visible{border-color:rgba(74,200,255,.55);background:rgba(74,200,255,.08);outline:2px solid rgba(74,200,255,.25);outline-offset:1px}
 .a52-wave13-fence-ref{display:block;margin-top:4px;overflow-wrap:anywhere;color:var(--a52-muted)}
+.a52-generation-profiler-control{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px 10px;align-items:center;padding:9px 10px;border:1px solid rgba(74,200,255,.22);border-radius:8px;background:rgba(4,14,23,.46)}
+.a52-generation-profiler-control>p{grid-column:1/-1;margin:0;font-size:.68rem;line-height:1.4}
+.a52-generation-profiler-control>.a52-button[role=switch]{min-width:132px}
+.a52-generation-profiler-control>.a52-button[aria-checked=true]{border-color:rgba(75,214,164,.52);box-shadow:0 0 0 1px rgba(75,214,164,.08) inset}
 
 
 @media(max-width:680px){

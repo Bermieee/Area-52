@@ -64,6 +64,17 @@ test('#113 registers every Scene event contract on the actual Runtime Event Spin
   }
 });
 
+test('#113 incompatible Scene Event Spine schema is rejected and reported through Runtime diagnostics',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  assert.throws(()=>brain.runtimeDirector.events.emit(
+    SceneEventType.LOCATION_CHANGED,
+    {field:'location',change:{}},
+    {schemaVersion:'9.0',producer:'SCENE_INTELLIGENCE',chatId:'event-spine-chat',sceneId:'scene:test',sceneRevision:1,dedupeKey:'invalid-schema'},
+  ),/Event rejected/);
+  const rejected=brain.runtimeDirector.telemetry.list({type:'EVENT_REJECTED'});
+  assert.ok(rejected.some(row=>row.eventType===SceneEventType.LOCATION_CHANGED&&row.schemaVersion==='9.0'));
+});
+
 test('#113 production Scene publication reaches Event Spine and preserves the retained Core timeline',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   const receipt=ingestDeterministic(brain,hostEvent({

@@ -62,6 +62,7 @@ export class DynamicFanOutPlanner {
 
   plan({
     turnEvent,
+    sceneId = null,
     text = '',
     queryIntent = null,
     sceneEntities = [],
@@ -91,7 +92,7 @@ export class DynamicFanOutPlanner {
     const normalized = String(text).trim().toLowerCase();
     const trivial = /^(ok|okay|thanks|thank you|got it|sure|yep|yes)[.! ]*$/.test(normalized);
     const rawPrefetch = Array.isArray(prefetchRecommendations) ? prefetchRecommendations : [];
-    const prefetch = currentPrefetchRecommendations(rawPrefetch,turnEvent);
+    const prefetch = currentPrefetchRecommendations(rawPrefetch,turnEvent,sceneId);
     const sceneUncertain = Array.isArray(uncertainSceneFields) ? uncertainSceneFields : [];
     const physical = /\b(where|location|inventory|item|object|weapon|equipment|find|looking|returns?|arrives?|leaves?|carried|left|placed|stored|moved|current state|physical state)\b/.test(normalized)
       || ['LOCATION', 'INVENTORY', 'PHYSICAL_STATE', 'CURRENT_STATE'].includes(queryIntent);
@@ -275,11 +276,12 @@ export class DynamicFanOutPlanner {
   }
 }
 
-function currentPrefetchRecommendations(values,turnEvent){
+function currentPrefetchRecommendations(values,turnEvent,sceneId=null){
   const currentSources=new Set((turnEvent?.sourceRevisionSet??[]).filter(Boolean).map(String));
   const revision=Number(turnEvent?.sceneRevision);
   return (values??[]).filter((row)=>{
     if(!row||String(row.status??'ACTIVE')!=='ACTIVE')return false;
+    if(sceneId!=null&&String(row.sceneId)!==String(sceneId))return false;
     if(Number(row.sceneRevision)!==revision)return false;
     if(Number(row.expiryRevision??row.sceneRevision)<revision)return false;
     const sourceRefs=[...(row.sourceRevisionSet??row.sourceRevisionRefs??[])].filter(Boolean).map(String);

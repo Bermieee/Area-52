@@ -39,6 +39,8 @@ export function createMemoryIntegrationSurface(producer) {
       applyMemoryNativeSettlement:(envelope)=>producer.applySettlement(envelope),
       admitExternalEvidenceMapping:(input)=>producer.admitExternalEvidenceMapping(input),
       invalidateExternalEvidenceMapping:(input)=>producer.invalidateExternalEvidenceMapping(input),
+      acceptCompletedTurn:(input)=>producer.acceptCompletedTurn(input),
+      reviewConsolidationBundle:(input)=>producer.reviewConsolidationBundle(input),
       acceptSceneOwnerEvent:(event,options={})=>producer.acceptSceneOwnerEvent(event,options),
       acceptSceneExperience:(proposal,options={})=>producer.ingestSceneExperience(proposal,options),
       acceptGreenRoomBatch:(batch,options={})=>producer.ingestGreenRoomBatch(batch,options),
@@ -68,6 +70,16 @@ export function createMemoryIntegrationSurface(producer) {
         seam:'SCENE_EVIDENCE_RESOLUTION',
         status:'MEMORY_BRIDGE_READY_FOR_ASSEMBLY',
         behavior:'Admit owner artifact + exact source/evidence mapping, route SCENE_BOUNDARY_CONFIRMED / SCENE_EPISODE_READY, then route SceneExperienceProposal. Memory withholds the episode until exact refs, source revisions and Scene boundary fences resolve.',
+      },
+      {
+        seam:'BRAIN_POST_TURN_MEMORY',
+        status:'DIRECT_COMPATIBLE',
+        behavior:'After the exact Core narrative mapping is admitted, Runtime may call acceptCompletedTurn with identity/revision references only. Memory materializes the durable episode, evaluates bounded reflection eligibility, incrementally refreshes scene/session/arc summary scopes, and rebuilds Historian without receiving raw chat through Runtime telemetry.',
+      },
+      {
+        seam:'CONTINUOUS_CONSOLIDATION_MEMORY_REVIEW',
+        status:'OWNER_CONTRACT_READY',
+        behavior:'Validated proposal-only ConsolidationProposalBundle + MemoryConsolidationProposalHandoff may be reviewed by Memory. REFLECTION_EVIDENCE is admitted only when its source ArtifactReferences resolve to fresh Memory episodes and repetition/contradiction eligibility passes; proposal confidence never grants canonical or settlement authority.',
       },
       {
         seam:'CORE_SETTLEMENT_EVIDENCE',

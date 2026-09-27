@@ -189,7 +189,7 @@ export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionPr
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
-    id,title:'Diagnostics',icon:'⌁',category:'Product',navigation:{level:'product',order:85},views:['normal','detail','advanced'],supportedActions:['export-diagnostics','export-metadata','filter','drilldown'],
+    id,title:'Diagnostics',icon:'⌁',category:'Product',navigation:{level:'product',order:85},preferredWidth:1180,views:['normal','detail','advanced'],supportedActions:['export-diagnostics','export-metadata','filter','drilldown'],
     render(host,ctx){renderTurnLogWorkspace(host,{...ctx,model,filters});},
   });
   return{model,release(){try{registry.unregister(id);}catch{}},filters};

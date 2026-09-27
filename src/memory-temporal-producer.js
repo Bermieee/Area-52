@@ -354,8 +354,12 @@ export class MemoryTemporalProducer {
 
   reviewConsolidationBundle({bundle,handoff=null,selection={}}={}) {
     if(!bundle||bundle.kind!=='ConsolidationProposalBundle'||!Array.isArray(bundle.proposals))throw new TypeError('ConsolidationProposalBundle is required');
+    if(String(bundle.contractVersion??'')!=='1.1.0')throw new Error('MEMORY_CONSOLIDATION_CONTRACT_VERSION_UNSUPPORTED');
+    const validation=bundle.validationReceipt??{};
+    if(validation.syntax!=='PASS'||validation.schema!=='PASS'||validation.semantic!=='PASS')throw new Error('MEMORY_CONSOLIDATION_BUNDLE_NOT_VALIDATED');
     if(handoff!=null){
       if(handoff.kind!=='MemoryConsolidationProposalHandoff')throw new TypeError('MemoryConsolidationProposalHandoff is required');
+      if(String(handoff.contractVersion??'')!=='1.1.0')throw new Error('MEMORY_CONSOLIDATION_HANDOFF_VERSION_UNSUPPORTED');
       if(String(handoff.bundleId??'')!==String(bundle.bundleId??''))throw new Error('MEMORY_CONSOLIDATION_HANDOFF_BUNDLE_MISMATCH');
       if(handoff.memoryPersistence===true||handoff.reflectionAdmission===true||handoff.temporalSettlement===true||handoff.sourceDeletion===true)throw new Error('MEMORY_CONSOLIDATION_HANDOFF_AUTHORITY_VIOLATION');
       const allowed=new Set((handoff.proposalRefs??[]).map((row)=>String(row.proposalId)));
@@ -403,6 +407,14 @@ export class MemoryTemporalProducer {
       const unresolvedArtifacts=sourceArtifactRefs.filter((ref)=>!byId.has(String(ref?.artifactId??''))&&!byLogical.has(String(ref?.artifactId??'')));
       if(unresolvedArtifacts.length){
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_EPISODE_UNRESOLVED',artifactId:null,unresolvedArtifactRefs:unresolvedArtifacts.map((row)=>String(row?.artifactId??'')).filter(Boolean).slice(0,16)});
+        continue;
+      }
+      const staleArtifactRefs=sourceArtifactRefs.filter((ref)=>{
+        const row=byId.get(String(ref?.artifactId??''))??byLogical.get(String(ref?.artifactId??''));
+        return !row||Number(ref?.revision)!==Number(row.revision)||!(ref?.owner==null||String(ref.owner)==='MEMORY');
+      });
+      if(staleArtifactRefs.length){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_EPISODE_REVISION_MISMATCH',artifactId:null,staleArtifactRefs:staleArtifactRefs.map((row)=>String(row?.artifactId??'')).filter(Boolean).slice(0,16)});
         continue;
       }
       const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
@@ -928,6 +940,7 @@ export class MemoryTemporalProducer {
         'RESOLUTION_AWARE_HISTORIAN',
         'SUMMARY_WORK_REVISION_FENCES',
         'GENERATION_FENCED_CONSOLIDATION_WORK',
+        'CONTINUOUS_CONSOLIDATION_OWNER_REVIEW',
         'SELECTION_AWARE_UI_READ_MODEL',
         'MEMORY_READ_SUBSCRIBE',
         'SNAPSHOT_RELOAD',

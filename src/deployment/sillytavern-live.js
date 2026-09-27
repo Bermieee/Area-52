@@ -1,4 +1,6 @@
-import { ObservationClass, createFieldState } from '../scene/contracts.js';
+import { CastPresence, ObservationClass, createFieldState } from '../scene/contracts.js';
+import { SceneRelationship } from '../scene/lifecycle-contracts.js';
+import { HostActivity } from '../scene/index.js';
 import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 import {
@@ -136,18 +138,82 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
   });
 }
 
-export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef } = {}) {
+export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef, currentScene = null, sceneRuntime = null } = {}) {
   const raw = clean(text);
   const fields = {};
-  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  const priorLocation = clean(currentScene?.fields?.location?.value?.location ?? currentScene?.fields?.location?.value);
+  const priorCast = Array.isArray(currentScene?.fields?.activeCast?.value) ? clone(currentScene.fields.activeCast.value) : [];
+  const cast = new Map(priorCast.filter((row)=>row?.characterId).map((row)=>[String(row.characterId),{...clone(row)}]));
+  let castChanged = false;
+  const boundarySignals = {};
+  let relationship = null;
+  let resumeSceneId = null;
+
+  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
+    ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  let location = null;
   if (locationMatch?.[1]) {
-    const location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
+    location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
     if (location) fields.location = sceneField({ location }, revision, evidenceRef);
   }
+
+  const person = String.raw`[\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’_-]*)?`;
+  const enterRe = new RegExp(`\\b(${person})\\s+(?:enters?|entered|arrives?|arrived|joins?|joined|steps? in|walks? in)\\b`,'gu');
+  const leaveRe = new RegExp(`\\b(${person})\\s+(?:leaves?|left|exits?|exited|departs?|departed|walks? out|steps? out)\\b`,'gu');
+  const mentionRe = new RegExp(`\\b(?:mentions?|mentioned|talks? about|asks? about|references?|referenced)\\s+(${person})\\b`,'gu');
+  for (const match of raw.matchAll(enterRe)) {
+    const characterId=match[1].trim();cast.set(characterId,{characterId,state:CastPresence.PRESENT,evidenceRefs:[evidenceRef]});castChanged=true;
+  }
+  for (const match of raw.matchAll(leaveRe)) {
+    const characterId=match[1].trim();cast.set(characterId,{characterId,state:CastPresence.DEPARTED,evidenceRefs:[evidenceRef]});castChanged=true;
+  }
+  for (const match of raw.matchAll(mentionRe)) {
+    const characterId=match[1].trim();
+    if (!cast.has(characterId) || cast.get(characterId)?.state!==CastPresence.PRESENT) {
+      cast.set(characterId,{characterId,state:CastPresence.MENTIONED_ONLY,evidenceRefs:[evidenceRef]});castChanged=true;
+    }
+  }
+  if (castChanged) fields.activeCast = sceneField([...cast.values()], revision, evidenceRef);
+
+  const numberWords={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
+  const timeMatch=raw.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+(later|earlier)\b/i);
+  if(timeMatch){
+    const rawAmount=timeMatch[1].toLowerCase(),amount=numberWords[rawAmount]??Number(rawAmount),unit=timeMatch[2].toLowerCase(),direction=timeMatch[3].toLowerCase();
+    fields.narrativeTime=sceneField({anchor:`${amount} ${unit} ${direction}`,mode:direction==='earlier'?'FLASHBACK':'CONTINUOUS'},revision,evidenceRef);
+    if(direction==='earlier'){boundarySignals.flashback=1;relationship=SceneRelationship.FLASHBACK_OF;}
+    else if(/days?|weeks?|months?|years?/.test(unit)){boundarySignals.majorTimeJump={strength:1,explicit:true};}
+  }else if(/\b(?:years?|months?|weeks?|days?)\s+earlier\b/i.test(raw)||/\bflashback\b/i.test(raw)){
+    const anchor=(raw.match(/\b(?:years?|months?|weeks?|days?)\s+earlier\b/i)?.[0]??'flashback').toLowerCase();
+    fields.narrativeTime=sceneField({anchor,mode:'FLASHBACK'},revision,evidenceRef);
+    boundarySignals.flashback=1;relationship=SceneRelationship.FLASHBACK_OF;
+  }
+
+  if(/\bmeanwhile\b|\bat the same time elsewhere\b/i.test(raw)){boundarySignals.parallel=1;relationship=SceneRelationship.PARALLEL_TO;}
+  if(/\bdoorway\b|\bthreshold\b/i.test(raw))boundarySignals.doorway=1;
+
+  const resumeCue=/\bback in the present\b|\breturn(?:s|ed)? to (?:the )?(?:present|prior scene)\b|\bresume(?:s|d)? (?:the )?(?:present|prior scene)\b/i.test(raw);
+  if(resumeCue){
+    boundarySignals.explicitBreak=1;relationship=SceneRelationship.RESUMES;
+    const frames=[...(sceneRuntime?.stack?.frames??[])].reverse();
+    resumeSceneId=frames.find((frame)=>frame?.suspended&&frame?.resumable!==false)?.sceneId??null;
+  }
+
+  const travelCue=/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|went|go(?:es)?|return(?:s|ed)?)\b/i.test(raw);
+  if(location&&priorLocation&&location!==priorLocation&&travelCue&&!resumeCue){
+    boundarySignals.locationTransition=1;boundarySignals.explicitBreak=1;
+  }
+
+  const explicitBreak=/\bscene break\b|\bcut to\b|(?:^|\n)\s*\*\*\*\s*(?:$|\n)/i.test(raw);
+  if(explicitBreak)boundarySignals.explicitBreak=1;
+
   return {
-    explicit: Object.keys(fields).length > 0,
+    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0,
     fields,
     sourceText: raw,
+    boundarySignals:Object.keys(boundarySignals).length?boundarySignals:null,
+    relationship,
+    resumeSceneId,
+    allowWhenRefreshRequired:Boolean(relationship||boundarySignals.explicitBreak),
     extractionPolicy: 'GENERIC_HOST_EVIDENCE_ONLY',
   };
 }
@@ -200,33 +266,39 @@ function registerNarrativeSource(brain, { chatId, message }) {
   return { ...identity, sourceRevisionId: imported.revision.id };
 }
 
-function applyNativeScene(brain, { chatId, message, sourceRevisionId }) {
+function applyNativeScene(brain, { chatId, message, sourceRevisionId, turnId = null }) {
   const prior = brain.scene.integrationSignal(chatId);
-  const nextRevision = Number(prior?.sceneRevision ?? 0) + 1;
-  const parsed = extractDevelopmentDeploymentScene(message.text, { revision: nextRevision, evidenceRef: sourceRevisionId });
-  if (!parsed.explicit) {
-    const signal = prior ?? brain.ensureScene({ chatId, sourceRevisionId });
-    return {
-      observed: false,
-      initialized: !prior,
-      parsed,
-      signal,
-      delta: null,
-      reason: prior ? 'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT' : 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS',
-    };
-  }
-
-  const location = parsed.fields.location.value;
-  const observed = brain.observeScene({
+  const identity = sourceIdentity(chatId, message);
+  let parsed = null;
+  const receipt = brain.ingestSceneHostEvent({
+    activity: HostActivity.USER_SEND,
     chatId,
-    sourceRevisionId,
-    location,
-    activeCast: prior?.activeCast ?? [],
-    activeThreads: prior?.activeThreads ?? [],
-    objects: prior?.objects ?? [],
-    atmosphere: null,
-  });
-  return { observed: true, initialized: false, parsed, signal: observed, delta: observed.delta ?? null, reason: 'HOST_LOCATION_OBSERVED' };
+    hostEventId: ['st-scene', chatId, identity.messageKey, identity.digest].join(':'),
+    messageId: identity.messageKey,
+    messageRevision: 1,
+    turnId: turnId ?? ['scene-turn', chatId, identity.messageKey].join(':'),
+    content: message.text,
+    role: message.role ?? 'user',
+  }, { extract: (event, scene) => {
+    parsed = extractDevelopmentDeploymentScene(event.content, {
+      revision: scene.revision + 1,
+      evidenceRef: event.sourceRevisionId,
+      currentScene: scene,
+      sceneRuntime: brain.scene,
+    });
+    return parsed;
+  } });
+  const signal = receipt.signal ?? prior ?? brain.ensureScene({ chatId, sourceRevisionId });
+  return {
+    ...receipt,
+    observed: receipt.status === 'OBSERVED',
+    initialized: !prior,
+    parsed,
+    signal,
+    delta: receipt.delta ?? null,
+    reason: receipt.status === 'OBSERVED' ? 'HOST_SCENE_FIELDS_OBSERVED'
+      : !prior ? 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS' : receipt.noWorkReason,
+  };
 }
 
 async function injectPrompt(context, result) {
@@ -265,10 +337,10 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   if (!chatId) throw new Error('SillyTavern chatId is unavailable');
   const chosenMode = mode ?? classifyDevelopmentDeploymentTurn(message.text);
   const source = registerNarrativeSource(brain, { chatId, message });
-  const scene = applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId });
   const turnSuffix = source.messageKey + ':' + source.digest + ':' + chosenMode;
   const turnId = 'live:' + chatId + ':' + turnSuffix;
   const generationId = 'live-gen:' + chatId + ':' + source.messageKey + ':' + source.digest;
+  const scene = applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId, turnId });
 
   const result = await brain.runTurn({
     chatId,
@@ -276,6 +348,7 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
     generationId,
     query: message.text,
     mode: chosenMode,
+    sceneReceipt: scene,
   });
   const promptInjection = inject ? await injectPrompt(context, result) : { supported: true, succeeded: true, reason: 'DEGRADED_CONTROL_NO_MAIN_INJECTION' };
   const selection = result.selection;
@@ -487,8 +560,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(!before||!requestReady||!received)throw new Error('Native Brain live integration requires GENERATION_AFTER_COMMANDS, CHAT_COMPLETION_PROMPT_READY, and MESSAGE_RECEIVED events');
       const beforeHandler=async(type,options,dryRun)=>{if(dryRun)return;try{await this.prepareNativeGeneration({generationType:type});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_PREPARE'},SESSION_BOUNDS.errors);this.#notify();}};
       const requestHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeModelRequest(eventData);}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_MODEL_REQUEST'},SESSION_BOUNDS.errors);this.#notify();}};
-      const receivedHandler=async(index)=>{try{await this.completeNativeGeneration({messageIndex:index});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_COMPLETE'},SESSION_BOUNDS.errors);this.#notify();}};
-      const stoppedHandler=()=>{this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
+      const receivedHandler=async(index)=>{this.#recordHostNarrativeEvent('MESSAGE_RECEIVED',[index]);try{await this.completeNativeGeneration({messageIndex:index});}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_COMPLETE'},SESSION_BOUNDS.errors);this.#notify();}};
+      const stoppedHandler=(...args)=>{this.#recordHostNarrativeEvent('GENERATION_STOPPED',args);this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
       context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
@@ -496,11 +569,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     }else{
       const eventName=context.eventTypes?.MESSAGE_SENT??context.event_types?.MESSAGE_SENT;
       if(!eventName)throw new Error('No supported SillyTavern pre-generation event is available');
-      const handler=async()=>{try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
+      const handler=async(...args)=>{this.#recordHostNarrativeEvent('MESSAGE_SENT',args);try{await this.processCurrentTurn();}catch{/* processCurrentTurn records the failure for the operator. */}};
       context.eventSource.on(eventName,handler);releases.push(()=>context.eventSource.removeListener?.(eventName,handler));
     }
     const observedHostEvents=['MESSAGE_SENT','MESSAGE_RECEIVED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_UPDATED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','CHAT_CHANGED','CHAT_LOADED','CHAT_CREATED','CHAT_RENAMED','WORLDINFO_UPDATED','WORLDINFO_SETTINGS_UPDATED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED'];
     for(const key of observedHostEvents){
+      if (key === 'MESSAGE_SENT' || (this.nativeBrain && ['MESSAGE_RECEIVED','GENERATION_STOPPED'].includes(key))) continue;
       const eventName=context.eventTypes?.[key]??context.event_types?.[key];
       if(!eventName)continue;
       const observer=(...args)=>this.#recordHostNarrativeEvent(key,args);

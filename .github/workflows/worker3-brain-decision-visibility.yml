@@ -1,0 +1,57 @@
+name: Worker 3 Brain Decision Visibility
+
+on:
+  push:
+    branches:
+      - Development-Nexus-Worker3-Brain-Decision-Visibility
+  pull_request:
+    branches:
+      - Development-Nexus
+  workflow_dispatch:
+
+concurrency:
+  group: worker3-brain-decision-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  focused-brain-decision-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head and protected base
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          echo "TARGET_BASE=Development-Nexus"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Worker 3 selected-turn Brain decision behavior
+        run: node --test tests/worker3-brain-decision-visibility.test.mjs
+      - name: Existing cognition truth regressions
+        run: >
+          node --test
+          --test-name-pattern='absence never becomes SKIPPED|candidate jobs admitted skipped deferred|Gather distinguishes|Context Seal reports|PromptPlan contribution|receipt-grounded Why|canonical Worker-1 CognitiveChoiceReceipt'
+          tests/wave8.test.mjs
+      - name: Exact identity fencing regressions
+        run: >
+          node --test
+          --test-name-pattern='previous turn is rejected|stale selected revision remains|chat/turn switch rebinds generation|production mode with missing producers'
+          tests/wave11-live-bindings.test.mjs
+      - name: Diagnostics metadata and missing-state regressions
+        run: node --test tests/turn-log-diagnostics.test.mjs
+      - name: Browser-facing imports and focused syntax
+        run: |
+          node --input-type=module -e "await import('./src/ui-core/brain-decision-visibility.js'); await import('./src/ui-core/wave8-workspace.js'); await import('./src/ui-core/turn-log-diagnostics.js'); await import('./src/ui-core/wave6-runtime.js');"
+          node --check src/ui-core/brain-decision-visibility.js
+          node --check src/ui-core/wave8-workspace.js
+          node --check src/ui-core/turn-log-diagnostics.js
+          node --check src/ui-core/wave6-runtime.js
+          node --check tests/worker3-brain-decision-visibility.test.mjs

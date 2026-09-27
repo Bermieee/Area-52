@@ -9,11 +9,15 @@ import {
 } from '../candidate-bus-contracts.js';
 import { LoreStudyRuntime } from '../lore-study-runtime.js';
 import { LoreIntelligenceService } from '../lore-intelligence-service.js';
+import { reviewLoreJevAdvisory } from '../lore-jev-owner-review.js';
 import { LoreAuthoringService } from '../lore-authoring-service.js';
 import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
+import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
+import { SceneEventPublisher } from '../scene/event-publisher.js';
+import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
 import { CAPABILITIES, CognitiveRuntimeHost, RuntimeResultClass, WorkerDirector } from '../runtime/index.js';
 import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.js';
@@ -22,6 +26,7 @@ import { CoprocessorResourceConnections } from '../coprocessor/resource-connecti
 import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler.js';
 import { RuntimeDirectorAdmissionBridge } from '../coprocessor/runtime-director-bridge.js';
 import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
+import { adjudicateJevForOwner } from '../coprocessor/owner-integration.js';
 import { createOwnerGraphProviders } from './owner-graph-adapters.js';
 import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
@@ -119,6 +124,29 @@ class RuntimePreparedLoreChannel {
     });
     this.prepared.set(String(query), prepared);
     return prepared;
+  }
+
+  admitSceneCandidates(query, handoff) {
+    const original = this.prepared.get(String(query));
+    if (!original || handoff?.status !== 'SYNCED') return 0;
+    const allowed = new Set((handoff.candidates ?? []).map((row) => `${row.sourceId}|${row.sourceRevisionId}`));
+    const admitted = [];
+    for (const request of handoff.need?.queries ?? []) {
+      const result = this.loreSystem.query({ query: request.query, intent: 'NARROW' });
+      for (const lane of result.nominations ?? []) {
+        const drill = this.loreSystem.drillDown(lane);
+        if (!drill.length || !drill.every((row) => allowed.has(`${row.sourceId}|${row.sourceRevisionId}`))) continue;
+        const nomination = this.#toCoreNomination(lane);
+        if (!nomination) continue;
+        nomination.metadata.sceneLoreNeedId = handoff.need.needId;
+        nomination.metadata.sceneLoreQueryId = request.queryId;
+        admitted.push(nomination);
+      }
+    }
+    const byId = new Map(original.nominations.map((row) => [row.nominationId, row]));
+    for (const row of admitted) byId.set(row.nominationId, row);
+    this.prepared.set(String(query), Object.freeze({ ...original, nominations: [...byId.values()] }));
+    return admitted.length;
   }
 
   retrieve(intent, context = {}) {
@@ -263,10 +291,14 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
+    if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
     this.jevAvailable = Boolean(jevAvailable);
+    this.loreJevOwnerReview = loreJevOwnerReview ?? ((proposal) => reviewLoreJevAdvisory(proposal, {
+      currentLoreRevision: this.loreSystem.diagnostics().hierarchyRevision ?? 'lore:1',
+    }));
     this.core = new Area52CognitiveCore();
     if (loreOwnerSnapshot?.intelligence) {
       this.loreIntelligence = LoreIntelligenceService.fromSnapshot(loreOwnerSnapshot.intelligence);
@@ -282,7 +314,15 @@ export class DevelopmentDeploymentBrain {
       this.loreAuthoring = new LoreAuthoringService({ intelligence: this.loreIntelligence });
     }
     this.loreSettlementEvents = clone(loreOwnerSnapshot?.settlementEvents ?? []);
-    this.scene = new SceneLifecycleRuntime();
+    this.sceneOwnerTimeline = [];
+    const sceneTimelineSink = (type) => (value) => {
+      this.sceneOwnerTimeline.push({ type, value: clone(value) });
+      if (this.sceneOwnerTimeline.length > 256) this.sceneOwnerTimeline.splice(0, this.sceneOwnerTimeline.length - 256);
+    };
+    this.scene = new SceneLifecycleRuntime({
+      publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
+      contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
+    });
     this.memory = new MemoryTemporalProducer();
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
@@ -363,6 +403,21 @@ export class DevelopmentDeploymentBrain {
     this.turns = new Map();
     this.listeners = new Set();
     this.selectedTurnId = null;
+    this.sceneLoreHandoff = new SceneLoreHandoffAdapter({
+      getLoreInterface: () => this.loreIntelligence.brainInterface(),
+      getCurrentContext: (need) => {
+        const signal = this.scene.integrationSignal(String(need.chatId));
+        const knownTurn = this.turns.get(String(need.turnId))?.selection ?? null;
+        return {
+          activeChatId: this.core.hotCognition?.activeChatNamespace ?? null,
+          sceneId: signal?.sceneId ?? null,
+          sceneRevision: signal?.sceneRevision ?? null,
+          turnId: knownTurn?.turnId ?? null,
+          generationId: knownTurn?.generationId ?? null,
+        };
+      },
+      isTurnSealed: (turnId) => Boolean(this.core.publication.seal.isTurnSealed(turnId)),
+    });
     this.runtimeDirector = new WorkerDirector({
       persistence: null,
       capacity: { CPU: resourceCount },
@@ -378,16 +433,18 @@ export class DevelopmentDeploymentBrain {
     this.core.registerJevAdapter({
       invoke: (request) => {
         const proposal = this.turns.get(request.turnId)?.jevProposal ?? this.pendingJev?.get?.(request.turnId) ?? null;
+        const admission = this.turns.get(request.turnId)?.jevOwnerAdmission ?? this.pendingJevAdmission?.get?.(request.turnId) ?? null;
         if (!proposal) throw new Error('Runtime Jev proposal unavailable for this turn');
         return {
-          status: proposal.abstained ? 'ABSTAINED' : proposal.status,
-          abstained: Boolean(proposal.abstained),
+          status: admission?.accepted ? proposal.status : admission?.status ?? 'PENDING_OWNER_CONTRACT',
+          abstained: !admission?.accepted || Boolean(proposal.abstained),
           decisionId: proposal.jevReceiptRef ?? proposal.sourceRequestRef ?? ('jev:' + request.turnId),
           decisionRevision: proposal.revisionFence?.domainRevisions?.lore ?? null,
         };
       },
     });
     this.pendingJev = new Map();
+    this.pendingJevAdmission = new Map();
   }
 
   acceptLorebook(input = {}) {
@@ -494,6 +551,104 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
+  ingestSceneHostEvent(input = {}, { extract = null } = {}) {
+    const start = this.sceneOwnerTimeline.length;
+    let extracted = null;
+    const wrappedExtract = typeof extract === 'function'
+      ? (e, scene) => { extracted = extract(e, scene) ?? {}; return extracted; }
+      : null;
+    const outcome = this.scene.ingestHostEvent(input, { extract: wrappedExtract });
+    const evidence = outcome?.evidence ?? null;
+    const chatId = String(evidence?.chatId ?? input?.chatId ?? '').trim();
+    const timeline = this.sceneOwnerTimeline.slice(start).map((row) => clone(row));
+    const coreReceipts = [];
+    if (chatId) {
+      if (this.core.hotCognition.activeChatNamespace !== chatId) this.core.activateHotCognitionChat(chatId);
+      for (const row of timeline) {
+        const receipt = row.type === 'INVALIDATION'
+          ? this.core.consumeSceneContextInvalidation(row.value, { chatNamespace: chatId })
+          : this.core.consumeCognitiveEvent(row.value, { chatNamespace: chatId });
+        coreReceipts.push({
+          type: row.type,
+          ref: row.value?.eventId ?? row.value?.invalidationId ?? null,
+          eventType: row.value?.eventType ?? null,
+          status: receipt?.status ?? null,
+          coreHandling: receipt?.coreHandling ?? null,
+          reason: receipt?.reason ?? receipt?.reasonCode ?? null,
+        });
+      }
+    }
+    const signal = chatId ? this.scene.integrationSignal(chatId) : null;
+    const signalReceipt = signal ? this.core.consumeSceneSignal(signal, { chatNamespace: chatId }) : null;
+    const changedFields = Object.keys(outcome?.delta?.changedFields ?? {}).sort();
+    const eventRows = timeline.filter((row) => row.type === 'EVENT');
+    const invalidationRows = timeline.filter((row) => row.type === 'INVALIDATION');
+    const invalidatedSourceRevisionRefs = [...new Set([
+      ...(evidence?.invalidates ?? []),
+      evidence?.replacesRevisionId,
+    ].filter(Boolean).map(String))].sort();
+    const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
+    const boundaryStatus = outcome?.boundary?.decision?.status ?? null;
+    const status = changedFields.length || outcome?.transition ? 'OBSERVED' : 'NO_WORK';
+    const boundaryCueObserved = Boolean(extracted?.boundarySignals && Object.keys(extracted.boundarySignals).length);
+    const noWorkReason = status === 'NO_WORK'
+      ? (boundaryCueObserved && boundaryStatus !== 'CONFIRMED' ? 'BOUNDARY_NOT_CONFIRMED' : 'NO_EXPLICIT_SCENE_CHANGE')
+      : null;
+    return clone({
+      kind: 'DeploymentSceneOwnerReceipt',
+      contractVersion: 1,
+      status,
+      noWorkReason,
+      evidence: evidence ? {
+        activity: evidence.activity ?? null,
+        chatId: evidence.chatId ?? null,
+        messageId: evidence.messageId ?? null,
+        messageRevision: evidence.messageRevision ?? null,
+        turnId: evidence.turnId ?? null,
+        correlationId: evidence.correlationId ?? null,
+        causationId: evidence.causationId ?? null,
+        sourceRevisionId: evidence.sourceRevisionId ?? null,
+        replacesRevisionId: evidence.replacesRevisionId ?? null,
+        invalidates: [...(evidence.invalidates ?? [])],
+        current: Boolean(evidence.current),
+      } : null,
+      chatId,
+      sceneId: signal?.sceneId ?? outcome?.scene?.sceneId ?? null,
+      sceneRevision: signal?.sceneRevision ?? outcome?.scene?.revision ?? null,
+      sourceRevisionRefs,
+      invalidatedSourceRevisionRefs,
+      changedFields,
+      delta: clone(outcome?.delta ?? null),
+      dispatchTimeline: clone(timeline),
+      boundary: clone(outcome?.boundary ?? null),
+      boundarySignals: clone(extracted?.boundarySignals ?? null),
+      transition: clone(outcome?.transition ?? null),
+      eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
+      eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
+      invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),
+      coreReceipts,
+      signalReceipt: signalReceipt ? {
+        status: signalReceipt.status ?? null,
+        coreHandling: signalReceipt.coreHandling ?? null,
+        reason: signalReceipt.reason ?? signalReceipt.reasonCode ?? null,
+      } : null,
+      signal,
+      prefetchRecommendations: clone(signal?.prefetchRecommendations ?? []),
+      authority: 'DESCRIPTIVE',
+      authorityGranted: false,
+      canonicalMutationAuthority: false,
+      settlementAuthority: false,
+      contextSealAuthority: false,
+      contextSealBypass: false,
+      rawNarrativeIncluded: false,
+    });
+  }
+
+  async runSceneLoreHandoff({ sceneReceipt, chatId = null, turnId = null, generationId } = {}) {
+    const result = await this.sceneLoreHandoff.retrieve({ sceneReceipt, chatId, turnId, generationId });
+    this.#emit({ type: 'SCENE_LORE_HANDOFF', result: clone(result) });
+    return clone(result);
+  }
   admitMemoryEvidenceMapping(input = {}) {
     const receipt = this.memorySurface.adapters.admitExternalEvidenceMapping(input);
     const evidence = receipt.memoryEvidenceId ? this.memory.graph.evidenceRecord(receipt.memoryEvidenceId) : null;
@@ -515,6 +670,7 @@ export class DevelopmentDeploymentBrain {
     intent = 'CURRENT',
     mode = 'retrieval',
     anchorEntityIds = [],
+    sceneReceipt = null,
   } = {}) {
     if (!turnId || !generationId || !query) throw new TypeError('turnId, generationId and query are required');
     const sceneSignal = this.scene.integrationSignal(String(chatId));
@@ -553,7 +709,7 @@ export class DevelopmentDeploymentBrain {
           taskType: 'JEV_DECISION',
           capability: CAPABILITIES.SEMANTIC_JUDGMENT,
           resultClass: RuntimeResultClass.OPPORTUNISTIC,
-          metadata: { jevInput: this.#makeJevInput({ turn, query, planning }) },
+          metadata: { jevInput: this.#makeJevInput({ turn, query, planning, chatId }) },
         }));
       }
     }
@@ -561,6 +717,13 @@ export class DevelopmentDeploymentBrain {
     const publishedRuntime = this.runtime.publishTurn(turn, jobs);
     const foreground = await this.runtime.native.awaitForeground(turn.turnId);
     await this.runtimeDirector.drain();
+
+    const sceneLore = sceneReceipt && mode !== 'simple'
+      ? await this.runSceneLoreHandoff({ sceneReceipt, chatId, turnId, generationId })
+      : null;
+    const sceneLoreAdmittedCount = sceneLore?.status === 'SYNCED'
+      ? this.loreChannel.admitSceneCandidates(query, sceneLore)
+      : 0;
 
     const published = this.core.publishGenerationContext({
       turnId: turn.turnId,
@@ -635,7 +798,10 @@ export class DevelopmentDeploymentBrain {
         externalServiceRequired: false,
       },
       planning,
+      sceneLoreHandoff: sceneLore,
+      sceneLoreAdmittedCount,
       jevProposal: this.pendingJev.get(turn.turnId) ?? null,
+      jevOwnerAdmission: this.pendingJevAdmission.get(turn.turnId) ?? null,
       jevExecution: this.jevExecution.get(turn.turnId) ?? null,
       published,
       delivery,
@@ -789,6 +955,7 @@ export class DevelopmentDeploymentBrain {
       loreStudyHost,
       loreHost: loreStudyHost,
       loreBrainInterface: this.loreIntelligence.brainInterface(),
+      sceneLoreHandoff: (request = {}) => this.runSceneLoreHandoff(request),
       memoryIntegrationSurface: this.memorySurface,
       sceneRuntime: this.scene,
       graphProviders: createOwnerGraphProviders({
@@ -816,7 +983,25 @@ export class DevelopmentDeploymentBrain {
       readCandidateFusionReceipt: (selection) => attachIdentity(get(selection)?.published?.candidateEnvelope?.fusionReceipt, get(selection)?.selection ?? {}),
       readTruth: (selection) => attachIdentity(get(selection)?.published?.assessment, get(selection)?.selection ?? {}),
       readCorrectiveRetrieval: (selection) => attachIdentity(get(selection)?.published?.corrective, get(selection)?.selection ?? {}),
-      readJev: (selection) => attachIdentity(get(selection)?.jevProposal, get(selection)?.selection ?? {}),
+      readJev: (selection) => {
+        const record = get(selection);
+        if (!record?.jevProposal) return null;
+        const admission = record.jevOwnerAdmission;
+        return attachIdentity({
+          ...record.jevProposal,
+          ownerAdmission: admission ? {
+            kind: admission.kind,
+            status: admission.status,
+            ownerDecision: admission.ownerDecision,
+            accepted: admission.accepted,
+            rejected: admission.rejected,
+            reasonCode: admission.reasonCode,
+            ownerReviewInvoked: admission.ownerReviewInvoked,
+            settlementPerformed: admission.settlementPerformed,
+            canonicalMutation: admission.canonicalMutation,
+          } : null,
+        }, record.selection);
+      },
       readPrecision: (selection) => attachIdentity({
         kind: 'DeploymentPrecisionReceipt',
         resultCount: get(selection)?.published?.precisionResults?.length ?? 0,
@@ -1068,27 +1253,41 @@ export class DevelopmentDeploymentBrain {
     }
     if (cognitiveTask.taskType === 'JEV_DECISION') {
       const input = cognitiveTask.metadata.jevInput;
-      const currentRevisionState = {
-        sourceRevisionSet: input.sourceRevisionSet,
-        worldRevision: input.worldRevision,
-        sceneRevision: input.sceneRevision,
+      const currentRevisionState = () => ({
+        sourceRevisionSet: this.core.registry.activeRevisionIds(),
+        worldRevision: this.core.graph.revision,
+        sceneRevision: this.scene.uiReadModel(input.chatId)?.sceneRevision ?? input.sceneRevision,
         characterStateRevision: input.characterStateRevision,
-        domainRevisions: { lore: input.loreRevision, owner: input.ownerRevision },
+        domainRevisions: {
+          lore: this.loreSystem.diagnostics().hierarchyRevision ?? 'lore:1',
+          owner: this.core.graph.revision,
+        },
         freshnessToken: input.freshnessToken,
-      };
-      const proposal = await this.jev.service.adjudicate(input, {
+      });
+      const admission = await adjudicateJevForOwner({
+        service: this.jev.service,
+        input,
         currentRevisionState,
         sealed: () => this.core.publication.seal.isTurnSealed(cognitiveTask.turnId),
+        ownerReview: async (proposal) => {
+          if (proposal.abstained || proposal.unresolved || proposal.staleState === 'STALE') {
+            return { decision: 'UNRESOLVED', reasonCode: 'JEV_PROPOSAL_NOT_DECISIVE' };
+          }
+          const review = await this.loreJevOwnerReview(proposal);
+          return { ...review, settlementPerformed: false, canonicalMutation: false };
+        },
       });
+      const proposal = admission.proposal;
       const executionEvidence = clone(this.jevExecution.get(String(cognitiveTask.turnId)) ?? null);
       const enriched = { ...clone(proposal), executionEvidence };
       this.pendingJev.set(cognitiveTask.turnId, enriched);
-      return { value: proposal.proposedOutcome, proposal: enriched, executionEvidence };
+      this.pendingJevAdmission.set(cognitiveTask.turnId, clone(admission));
+      return { value: admission.accepted ? proposal.proposedOutcome : 'UNRESOLVED', proposal: enriched, ownerAdmission: clone(admission), executionEvidence };
     }
     return { value: 'NO_OP', taskType: cognitiveTask.taskType };
   }
 
-  #makeJevInput({ turn, query, planning }) {
+  #makeJevInput({ turn, query, planning, chatId }) {
     const rows = (planning?.nominations ?? []).slice(0, 8);
     const evidence = rows.map((row, index) => ({
       evidenceId: 'lore-evidence:' + turn.turnId + ':' + index,
@@ -1109,6 +1308,7 @@ export class DevelopmentDeploymentBrain {
       correlationId: turn.correlationId,
       causationId: turn.eventId,
       owner: 'LORE_OWNER',
+      chatId: String(chatId),
       options: [
         { optionId: LoreReconciliationClassification.TEMPORALLY_DISTINCT, evidenceRefs: refs, label: 'Preserve temporal distinction' },
         { optionId: LoreReconciliationClassification.CONTRADICTORY, evidenceRefs: refs, label: 'Preserve contradiction' },

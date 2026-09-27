@@ -141,6 +141,23 @@ function channelCandidates(envelope,channelId){
   return (envelope?.candidates??[]).filter(candidate=>(candidate.channelNominations??[]).some(row=>row.channelId===channelId));
 }
 
+
+test('production sparse residency remains bounded across repeated story-scope changes',()=>{
+  const rows=[
+    entry({book:'scope-a',uid:'1',title:'Scope A',allowedChats:['chat:a']}),
+    entry({book:'scope-b',uid:'2',title:'Scope B',allowedChats:['chat:b']}),
+    entry({book:'scope-c',uid:'3',title:'Scope C',allowedChats:['chat:c']}),
+  ];
+  const owner=loreOwner(rows);
+  const channel=new ProductionSparseRetrievalChannel({maxArtifacts:2,maxCandidates:4});
+  channel.hydrateLoreOwner(owner,{chatId:'chat:a'});
+  channel.hydrateLoreOwner(owner,{chatId:'chat:b'});
+  channel.hydrateLoreOwner(owner,{chatId:'chat:c'});
+  const diagnostics=channel.diagnostics();
+  assert.ok(diagnostics.residentOwnerArtifactCount<=2,JSON.stringify(diagnostics,null,2));
+  assert.ok(diagnostics.artifactCount<=2);
+});
+
 test('native Brain hydrates owner sparse recall and sends bounded decomposed scene intents through Candidate Bus',async()=>{
   const row=entry();
   const owner=mutableLoreOwner([row]);

@@ -50,7 +50,7 @@ export class SceneLifecycleRuntime{
     });
     this.publisher.publish({
       eventType:SceneEventType.PREFETCH_RECOMMENDED,sceneId:scene.sceneId,sceneRevision:scene.revision,
-      sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+      sourceRevisionRefs:[evidence.sourceRevisionId],chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,
       payload:{recommendation:rec},dedupeKey:[rec.dedupeKey??'prefetch',rec.recommendationId].join(':'),
     });
     return rec;
@@ -58,7 +58,7 @@ export class SceneLifecycleRuntime{
 
   #publishDelta(scene,delta,evidence){
     this.prefetchTrigger.cancelSuperseded({sceneId:scene.sceneId,sceneRevision:scene.revision});
-    const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId};
+    const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:[evidence.sourceRevisionId],chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId};
     this.publisher.publish({...base,eventType:SceneEventType.SCENE_STATE_DELTA,payload:{delta},dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}`});
     const map={location:SceneEventType.LOCATION_CHANGED,narrativeTime:SceneEventType.TIME_SHIFT_DETECTED,activeCast:SceneEventType.ACTIVE_CAST_CHANGED,activeRelationships:SceneEventType.RELATIONSHIP_SIGNAL,atmosphere:SceneEventType.VIBE_CHANGED,immediateObjects:SceneEventType.OBJECT_TRANSITION};
     for(const [name,change] of Object.entries(delta.changedFields??{})){const eventType=map[name];if(eventType)this.publisher.publish({...base,eventType,payload:{field:name,change},dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}`});}
@@ -83,7 +83,7 @@ export class SceneLifecycleRuntime{
     });
     for(const rec of rows)this.publisher.publish({
       eventType:SceneEventType.PREFETCH_RECOMMENDED,sceneId:scene.sceneId,sceneRevision:scene.revision,
-      sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+      sourceRevisionRefs:[evidence.sourceRevisionId],chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,
       payload:{recommendation:rec},dedupeKey:[rec.dedupeKey??'prefetch',rec.recommendationId].join(':'),
     });
     return rows;
@@ -109,7 +109,7 @@ export class SceneLifecycleRuntime{
     if(extracted.boundarySignals){
       boundary=this.sceneRuntime.boundary({sceneId:current.sceneId,evidenceRefs:[evidence.sourceRevisionId],signals:extracted.boundarySignals,sourcePosition:{messageId:evidence.messageId,messageRevision:evidence.messageRevision}});
       if(boundary){
-        this.publisher.publish({eventType:SceneEventType.SCENE_BOUNDARY_CANDIDATE,sceneId:current.sceneId,sceneRevision:current.revision,sourceRevisionRefs:[evidence.sourceRevisionId],payload:{candidate:boundary.candidate},turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,dedupeKey:boundary.candidate.candidateId});
+        this.publisher.publish({eventType:SceneEventType.SCENE_BOUNDARY_CANDIDATE,sceneId:current.sceneId,sceneRevision:current.revision,sourceRevisionRefs:[evidence.sourceRevisionId],payload:{candidate:boundary.candidate},chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,dedupeKey:boundary.candidate.candidateId});
         if(boundary.decision.status===BoundaryStatus.CONFIRMED){
           const relationship=extracted.relationship??relationForBoundary(boundary.candidate.proposedBoundaryType);
           const nextSceneId=relationship===SceneRelationship.RESUMES?extracted.resumeSceneId:null;
@@ -123,7 +123,7 @@ export class SceneLifecycleRuntime{
             evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],
             sourceRange:{start:evidence.messageId,end:evidence.messageId},destinationHints,destinationFields:fields,
             allowDestinationRefresh:Boolean(extracted.allowWhenRefreshRequired),expectedSceneRevision:current.revision,
-            turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+            chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,
           });
           if(transition.toSceneId){
             this.chatScenes.set(evidence.chatId,transition.toSceneId);

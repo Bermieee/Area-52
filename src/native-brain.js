@@ -525,7 +525,8 @@ export class Area52NativeBrain{
       throw new Error('PROVIDER_RESPONSE_IDENTITY_MISMATCH:'+mismatch);
     }
     record.delivery.receipt=clone(deliveryReceipt);
-    this.#appendPerformanceStage(record,{stage:'PROVIDER_RESPONSE',wallMs:typeof raw==='object'&&raw!==null?raw.providerLatencyMs:null,queueWaitMs:typeof raw==='object'&&raw!==null?raw.providerQueueWaitMs:0,inputCount:1,outputCount:1,outcome:'RECEIVED'});
+    const providerStageAlreadyMeasured=record.performance?.stages?.some(stage=>stage.stage==='PROVIDER_RESPONSE'&&stage.wallMs!=null);
+    if((typeof raw==='object'&&raw!==null)||!providerStageAlreadyMeasured)this.#appendPerformanceStage(record,{stage:'PROVIDER_RESPONSE',wallMs:typeof raw==='object'&&raw!==null?raw.providerLatencyMs:null,queueWaitMs:typeof raw==='object'&&raw!==null?raw.providerQueueWaitMs:0,inputCount:1,outputCount:1,outcome:'RECEIVED'});
     this.#notify('PROVIDER_RESPONSE_RECEIVED',record);
     const learningStarted=perfNow();
     const learning=await this.completeTurn({turnId:input.turnId,response,...completeOptions});

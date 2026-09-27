@@ -128,6 +128,22 @@ test('Worker 4 chat switch, regeneration, correction fence, reload, dedupe and r
   assert.equal(report.retention.criticalDeliveryProtected,true);assert.equal(report.retention.revisionFenceAware,true);
 });
 
+test('Worker 4 byte pruning preserves latest useful delivery evidence while enforcing the hard cap',()=>{
+  const selection={chatId:'chat:bytes',turnId:'turn:bytes',generationId:'gen:bytes',correlationId:'corr:bytes',worldRevision:11,sceneRevision:6,sourceRevisionRefs:['scene:bytes:r6']};
+  const items=Array.from({length:64},(_,index)=>({
+    expectedId:'expected:'+index+':'+('x'.repeat(96)),owner:index%2?'MEMORY':'LORE',ownerSignalId:'signal:'+index,status:index%3===0?'BLOCKED':'DONE',
+    reasonCode:index%3===0?'WAITING_FOR_OWNER_EVIDENCE':'OWNER_ACCEPTED',taskId:'task:'+index,missingEvidence:index%3===0?['PHYSICAL_EXECUTION','OWNER_ADMISSION']:[],
+    cause:{correlationId:selection.correlationId,worldRevision:11,sceneRevision:6,sourceRevisionRefs:['scene:bytes:r6']},
+    evidenceStages:[{id:'stage:'+index+':'+('y'.repeat(80)),eventKind:'OWNER_ADMISSION',producerId:'OWNER',consumerId:'COGNITIVE_STATE',ownerAccepted:index%3!==0,durationMs:0.2}],
+  }));
+  const journal=new DemoEvidenceJournal({storage:memory(),namespace:'worker4-byte-prune',maxTurns:4,maxEntriesPerTurn:64,maxStoredBytes:16384,now:()=>8000});
+  journal.recordSnapshot({selection,ownerReceipt:ownerReceipt(selection,{expectedWork:{items}})});
+  const status=journal.status(),turn=journal.readTurn(selection);
+  assert.ok(status.serializedBytes<=status.maxStoredBytes);
+  assert.ok(turn);
+  assert.ok(turn.entries.some(row=>row.type==='HOST_DELIVERY'||(row.type==='OWNER_EDGE'&&row.subtype==='delivery')));
+});
+
 test('Worker 4 UI load attribution is measured-only and browser memory remains an operator observation',()=>{
   const selection={chatId:'chat:perf',turnId:'turn:perf',generationId:'gen:perf',correlationId:'corr:perf',worldRevision:1,sceneRevision:1,sourceRevisionRefs:['scene:r1']};
   const journal=new DemoEvidenceJournal({storage:memory(),namespace:'worker4-perf',now:()=>6000});

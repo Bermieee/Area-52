@@ -61,7 +61,7 @@ export class MemoryCausalEventStore{
       confidenceGrantsCanon:false,repetitionGrantsCanon:false,ownerDecisionRequiredForResolution:true,canonicalMutationAuthority:false,settlementAuthority:false};
     this.hypotheses.set(id,row);this.hypothesisHistory.set(logical,[...history,id]);this.currentHypothesis.set(logical,id);this.#trim();return deepClone(row);
   }
-  hypothesisHistory(hypothesisId){return(this.hypothesisHistory.get(String(hypothesisId))??[]).map(id=>deepClone(this.hypotheses.get(id))).filter(Boolean);}
+  hypothesisVersions(hypothesisId){return(this.hypothesisHistory.get(String(hypothesisId))??[]).map(id=>deepClone(this.hypotheses.get(id))).filter(Boolean);}
   query({query='',mode='CONTINUITY_RECALL',retrievalIntentId=null,selection={},maxCandidates=16}={}){
     const q=tokens(query),ranked=[],chat=String(selection?.chatId??'').trim();
     const inChat=refs=>!chat||refs.every(id=>String(this.graph.evidenceRecord(id)?.metadata?.chatId??'')===chat);

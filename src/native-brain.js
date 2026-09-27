@@ -355,6 +355,22 @@ export class Area52NativeBrain{
         reason:receipt.reason??receipt.reasonCode??null,
       });
     }
+    const invalidatedHandoffs=sceneOwnerReceipt?.invalidatedTransitionHandoffs??sceneOwnerReceipt?.invalidatedHandoffs??[];
+    for(const handoff of invalidatedHandoffs??[]){
+      const receipt=this.core.consumeSceneTransitionHandoff(handoff,{chatNamespace:chat});
+      sceneIngressReceipts.push({
+        type:'HANDOFF',ref:handoff?.handoffId??null,eventType:'SCENE_TRANSITION_HANDOFF_INVALIDATED',
+        status:receipt.status??null,coreHandling:receipt.coreHandling??null,reason:receipt.reason??receipt.reasonCode??null,
+      });
+    }
+    const transitionHandoff=sceneOwnerReceipt?.transitionHandoff??sceneOwnerReceipt?.transition?.handoff??null;
+    if(transitionHandoff){
+      const receipt=this.core.consumeSceneTransitionHandoff(transitionHandoff,{chatNamespace:chat});
+      sceneIngressReceipts.push({
+        type:'HANDOFF',ref:transitionHandoff.handoffId??null,eventType:'SCENE_TRANSITION_HANDOFF',
+        status:receipt.status??null,coreHandling:receipt.coreHandling??null,reason:receipt.reason??receipt.reasonCode??null,
+      });
+    }
     const sceneSignalAdmission=(sceneSignal||scene)?this.observeScene(chat,sceneSignal??scene):null;
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
@@ -395,7 +411,15 @@ export class Area52NativeBrain{
       activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,
     });
     this.#recordSceneExpectedWork({chatId:chat,turnId:turn,generationId:generation,correlationId:corr,turnRevision:sequence,sceneState,published});
-    const contextRetirement=activeContext?this.contextRetirement.evaluate({chatId:chat,...clone(activeContext)}):null;
+    const sceneHandoff=this.core.sceneTransitionContext(chat);
+    const contextRetirement=activeContext?this.contextRetirement.evaluate({
+      chatId:chat,...clone(activeContext),sceneHandoff,
+      additionalCurrentSourceRevisionRefs:uniq([
+        ...(sceneState.sourceRevisionRefs??[]),
+        ...(sceneHandoff?.sourceRevisionRefs??[]),
+        ...(sceneHandoff?.continuity?.sourceRevisionRefs??[]),
+      ]),
+    }):null;
     const narrativeMessages=(contextRetirement?.retainedMessages??[]).filter(row=>!(String(row.role).toLowerCase()==='user'&&String(row.content).trim()===q));
     const contributions=narrativeMessages.length?[{
       id:'recent-narrative:'+stableHash({chatId:chat,turnId:turn,receiptId:contextRetirement.receiptId,messageIds:narrativeMessages.map(row=>row.messageId)},{length:20}),
@@ -511,6 +535,7 @@ export class Area52NativeBrain{
     if(typeof generate!=='function')return{prepared,response:null,learning:null};
     const raw=await generate(prepared.rendered,{
       selection:prepared.selection,promptPlan:prepared.promptPlan,contextSealReceipt:prepared.contextSealReceipt,
+      contextRetirement:prepared.contextRetirement??null,
     });
     const response=typeof raw==='string'?raw:raw?.text??raw?.content;
     if(typeof response!=='string'||!response.trim())throw new TypeError('generation callback must return response text');

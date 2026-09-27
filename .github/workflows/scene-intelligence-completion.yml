@@ -5,6 +5,9 @@ on:
     branches: [Development-Scene-Scanner]
     paths:
       - 'src/scene/**'
+      - 'src/scene-core-integration.js'
+      - 'src/cognitive-core.js'
+      - 'src/context-retirement-policy.js'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
@@ -25,6 +28,9 @@ on:
     branches: [main]
     paths:
       - 'src/scene/**'
+      - 'src/scene-core-integration.js'
+      - 'src/cognitive-core.js'
+      - 'src/context-retirement-policy.js'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'

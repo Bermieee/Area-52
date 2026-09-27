@@ -383,6 +383,25 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   ]),element(d,'p',{className:'a52-muted',text:snapshot.summary?.explanation??'No selected-turn evidence is retained yet.'}));
   advanced.append(coordination.root);
 
+  const brainDeep=diagnosticSection(d,'Brain / owner generation inspection',{count:String(operational?.producers?.stages?.length??0)+' stages'});
+  const deepStages=element(d,'div',{className:'a52-diagnostics-status-list'});
+  for(const row of operational?.producers?.stages??[])deepStages.append(compactStatusRow(d,row.label??label(row.id),row.state??'UNKNOWN',row.reason??row.errorCode??'Owner status published.',stageDiagnosticToken(row.state),inspect?()=>inspect({kind:'area52-diagnostic-stage',id:row.id,title:row.label??label(row.id),payload:operational?.producers?.inspections?.[row.id]??row}):null,scope));
+  if(!deepStages.children?.length)deepStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
+  brainDeep.body.append(deepStages);
+  brainDeep.body.append(renderSelectedTurnGraphVisibility(d,snapshot.graphTrace??operational?.graph,{compact:false,title:'Selected-turn world graph'}));
+  const generationInspection=operational?.generationInspection??null;
+  if(generationInspection){
+    brainDeep.body.append(element(d,'strong',{text:'Owner generation inspection'}),createKeyValue(d,[
+      {key:'Source revision fence',value:String(generationInspection.sourceRevisionFenceCount??0)+' revisions'},
+      {key:'Identity resolution',value:diagnosticReceiptSummary(generationInspection.identityResolution)},
+      {key:'Graph traversal',value:diagnosticReceiptSummary(generationInspection.graphTraversal)},
+      {key:'Retrieval budget',value:diagnosticReceiptSummary(generationInspection.retrievalBudget)},
+      {key:'Rejected evidence',value:generationInspection.rejectedEvidence?String(generationInspection.rejectedEvidence.count??0)+' rejected'+(generationInspection.rejectedEvidence.reasonCode?' · '+generationInspection.rejectedEvidence.reasonCode:''):'No owner rejection receipt'},
+      {key:'Lore / Memory sync',value:[generationInspection.loreSync?.status??generationInspection.loreSync?.kind??'Lore not published',generationInspection.memorySync?.status??generationInspection.memorySync?.kind??'Memory not published'].join(' · ')},
+    ]));
+  }
+  advanced.append(brainDeep.root);
+
   const runtime=diagnosticSection(d,'Runtime / lifecycle / jobs',{count:String(snapshot.summary?.logicalJobs??0)+' jobs'});
   runtime.body.append(createKeyValue(d,[{key:'Queued by layer',value:Object.entries(runtimeSummary.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},{key:'Borrowed background leases',value:runtimeSummary.borrowedBackgroundLeases??'Not published'}]));
   const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job'),jobList=element(d,'div',{className:'a52-diagnostics-timeline'});
@@ -397,7 +416,43 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
     card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical')),createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
     lanes.append(card);
   }
-  resources.body.append(lanes);advanced.append(resources.root);
+  resources.body.append(lanes);
+  const provider=operational?.coprocessor?.summary?.providerCalls??{},resourceTelemetry=operational?.coprocessor?.summary?.resourceTelemetry??{};
+  resources.body.append(createKeyValue(d,[{key:'Provider calls invoked / failed',value:(provider.invoked??0)+' / '+(provider.failed??0)},{key:'Resource tests pass / fail',value:(resourceTelemetry.testsPassed??0)+' / '+(resourceTelemetry.testsFailed??0)},{key:'Executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)}]));
+  if(resourceRows.length){
+    const currentResources=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const row of resourceRows.slice(0,40)){
+      const resourceState=row.state??row.health??'UNKNOWN',detail=[row.displayName&&row.displayName!==row.id?row.displayName:null,row.health?'health '+row.health:null,row.availability?'availability '+row.availability:null,row.lastExecution?.status?'last execution '+row.lastExecution.status:null].filter(Boolean).join(' · ')||'Owner resource state published.';
+      currentResources.append(compactStatusRow(d,row.displayName??row.id??row.resourceId??row.kind??'Resource',resourceState,detail,stageDiagnosticToken(resourceState),inspect?()=>inspect({kind:'area52-diagnostic-resource',id:row.id??row.resourceId??row.displayName??'resource',title:(row.displayName??row.id??row.resourceId??'Resource')+' detail',payload:sanitize(row)}):null,scope));
+    }
+    resources.body.append(element(d,'strong',{text:'Current resources'}),currentResources);
+  }
+  const resourceEvents=operational?.telemetry?.resourceEvents??[];
+  if(resourceEvents.length){
+    const eventList=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const event of resourceEvents.slice(0,40)){
+      const eventName=event.displayName??event.resourceId??'Resource';
+      eventList.append(compactStatusRow(d,eventName,event.code??'EVENT',event.message??'Owner resource event published.',stageDiagnosticToken(event.code),inspect?()=>inspect({kind:'area52-diagnostic-resource-event',id:String(event.sequence??event.code??eventName),title:eventName+' · '+String(event.code??'event'),payload:sanitize(event)}):null,scope));
+    }
+    resources.body.append(element(d,'strong',{text:'Recent owner resource telemetry'}),eventList);
+  }
+  advanced.append(resources.root);
+
+  const knowledgeDeep=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'});
+  knowledgeDeep.body.append(element(d,'div',{className:'a52-diagnostics-two-column'},
+    element(d,'div',{},element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}])),
+    element(d,'div',{},element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]))
+  ));advanced.append(knowledgeDeep.root);
+
+  const errorsDeep=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});
+  if(cognitionErrors.length){
+    const list=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const [name,error] of cognitionErrors)list.append(compactStatusRow(d,label(name),'READ ISSUE',error?.message??error?.code??'Unknown owner read issue.','warning',inspect?()=>inspect({kind:'area52-diagnostic-error',id:name,title:label(name)+' read issue',payload:error}):null,scope));
+    errorsDeep.body.append(list);
+  }
+  if(errorRows.length){const list=element(d,'div',{className:'a52-diagnostics-timeline'});for(const row of errorRows.slice(-24))list.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));errorsDeep.body.append(list);}
+  if(!cognitionErrors.length&&!errorRows.length)errorsDeep.body.append(emptyDiagnosticRow(d,'No retained warnings or errors match the current filters.'));
+  advanced.append(errorsDeep.root);
 
   const performance=diagnosticSection(d,'Performance detail / retrieval / UI workload',{count:profileEnabled?'PROFILE ON':'PROFILE OFF'});
   performance.body.append(element(d,'strong',{text:'Retrieval channels · slowest first'}));

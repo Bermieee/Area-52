@@ -5,6 +5,7 @@ import {
   createClaim, createMutationProposal, createProvenance,
 } from '../src/contracts.js';
 import {Area52CognitiveCore} from '../src/cognitive-core.js';
+import {Area52NativeBrain} from '../src/native-brain.js';
 import {createOwnerGraphProviders} from '../src/deployment/owner-graph-adapters.js';
 
 function admitEvidence(core,id,content=id){
@@ -54,7 +55,10 @@ test('multi-turn structured world references preserve current versus historical 
   const currentLocation=current.edges.filter(row=>row.providerId==='CORE_TEMPORAL_STATE'&&row.edgeMeaning==='location');
   const historicalLocation=historical.edges.filter(row=>row.providerId==='CORE_TEMPORAL_STATE'&&row.edgeMeaning==='location');
   assert.deepEqual(currentLocation.map(row=>[row.toEntityId,row.temporalStatus]),[['location:south','CURRENT']]);
-  assert.ok(historicalLocation.some(row=>row.toEntityId==='location:north'&&row.temporalStatus==='SUPERSEDED'));
+  const prior=historicalLocation.find(row=>row.toEntityId==='location:north'&&row.temporalStatus==='SUPERSEDED');
+  assert.ok(prior);
+  assert.equal(prior.temporal.validFrom,1);
+  assert.equal(prior.temporal.validUntil,2);
   assert.ok(historicalLocation.some(row=>row.toEntityId==='location:south'&&row.temporalStatus==='CURRENT'));
   assert.equal(current.authority.truth,false);
   assert.equal(current.authority.settlement,false);
@@ -112,13 +116,20 @@ test('Scene, Lore and Memory providers identity-link through one bounded referen
       }),
     },
   };
-  const sceneRecord={sceneId:'scene:harbor',revision:4,lifecycle:'OPEN',sourceRevisionRefs:['scene:harbor@4'],fields:{}};
+  core.registerEntityIdentity({entityId:'entity:oldmate',canonicalLabel:'Oldmate',entityType:'PERSON',worldId:'world:test'});
+  core.registerEntityIdentity({entityId:'entity:newmate',canonicalLabel:'Newmate',entityType:'PERSON',worldId:'world:test'});
+  const sceneOld={sceneId:'scene:north',revision:3,lifecycle:'CLOSED',sourceRevisionRefs:['scene:north@3'],fields:{}};
+  const sceneCurrent={sceneId:'scene:harbor',revision:4,lifecycle:'OPEN',sourceRevisionRefs:['scene:harbor@4'],fields:{}};
+  const scenes=new Map([[sceneOld.sceneId,sceneOld],[sceneCurrent.sceneId,sceneCurrent]]);
   const sceneRuntime={
-    registry:{list:()=>[{sceneId:'scene:harbor'}],current:(id)=>id==='scene:harbor'?sceneRecord:null,get:(id)=>id==='scene:harbor'?sceneRecord:null},
-    graph:{exportState:()=>({version:4,edges:[{
-      edgeId:'ENTITY_IN_SCENE:entity:pilot->scene:harbor',edgeType:'ENTITY_IN_SCENE',
-      fromRef:'entity:pilot',toSceneId:'scene:harbor',evidenceRefs:['scene:evidence:cast'],provenance:['scene:prov:cast'],derivedFrom:[],
-    }]})},
+    registry:{list:()=>[sceneOld,sceneCurrent].map(row=>({sceneId:row.sceneId})),current:(id)=>scenes.get(id)??null,get:(id)=>scenes.get(id)??null},
+    graph:{exportState:()=>({version:4,edges:[
+      {edgeId:'ENTITY_IN_SCENE:entity:pilot->scene:north',edgeType:'ENTITY_IN_SCENE',fromRef:'entity:pilot',toSceneId:'scene:north',evidenceRefs:['scene:evidence:pilot:north'],provenance:['scene:prov:north'],derivedFrom:[]},
+      {edgeId:'ENTITY_IN_SCENE:entity:oldmate->scene:north',edgeType:'ENTITY_IN_SCENE',fromRef:'entity:oldmate',toSceneId:'scene:north',evidenceRefs:['scene:evidence:oldmate'],provenance:['scene:prov:north'],derivedFrom:[]},
+      {edgeId:'SCENE_PRECEDES:scene:north->scene:harbor',edgeType:'SCENE_PRECEDES',fromSceneId:'scene:north',toSceneId:'scene:harbor',evidenceRefs:['scene:evidence:transition'],provenance:['scene:prov:transition'],derivedFrom:[]},
+      {edgeId:'ENTITY_IN_SCENE:entity:pilot->scene:harbor',edgeType:'ENTITY_IN_SCENE',fromRef:'entity:pilot',toSceneId:'scene:harbor',evidenceRefs:['scene:evidence:pilot:harbor'],provenance:['scene:prov:harbor'],derivedFrom:[]},
+      {edgeId:'ENTITY_IN_SCENE:entity:newmate->scene:harbor',edgeType:'ENTITY_IN_SCENE',fromRef:'entity:newmate',toSceneId:'scene:harbor',evidenceRefs:['scene:evidence:newmate'],provenance:['scene:prov:harbor'],derivedFrom:[]},
+    ]})},
   };
   for(const provider of createOwnerGraphProviders({loreInterface,memoryInterface,sceneRuntime}))core.registerGraphProvider(provider);
   const refs=core.worldGraphReferences('Pilot context',{intent:'TEMPORAL',anchorEntityIds:['entity:pilot'],worldRevision:core.graph.revision,sceneRevision:4});
@@ -128,13 +139,33 @@ test('Scene, Lore and Memory providers identity-link through one bounded referen
   assert.ok(byProvider.has('SCENE_OWNER_GRAPH'));
   assert.equal(byProvider.get('LORE_OWNER_GRAPH').temporalStatus,'CURRENT');
   assert.equal(byProvider.get('MEMORY_OWNER_GRAPH').temporalStatus,'HISTORICAL');
-  assert.deepEqual(byProvider.get('SCENE_OWNER_GRAPH').sourceRevisionRefs,['scene:harbor@4']);
-  assert.deepEqual(byProvider.get('SCENE_OWNER_GRAPH').evidenceRefs,['scene:evidence:cast']);
+  const sceneEdges=refs.edges.filter(row=>row.providerId==='SCENE_OWNER_GRAPH');
+  assert.ok(sceneEdges.some(row=>row.fromEntityId==='entity:oldmate'&&row.temporalStatus==='HISTORICAL'&&row.sourceRevisionRefs.includes('scene:north@3')));
+  assert.ok(sceneEdges.some(row=>row.fromEntityId==='entity:newmate'&&row.temporalStatus==='CURRENT'&&row.sourceRevisionRefs.includes('scene:harbor@4')));
+  assert.ok(sceneEdges.every(row=>!row.sourceRevisionRefs.some(ref=>ref.startsWith('scene:evidence:'))));
   assert.equal(byProvider.get('LORE_OWNER_GRAPH').drillbackRefs[0].sourceRevisionId,'lore:pilot@1');
   assert.equal(byProvider.get('MEMORY_OWNER_GRAPH').drillbackRefs.at(-1).artifactRef.artifactId,'memory-episode:pilot');
   assert.equal(JSON.stringify(refs).includes('SECRET_LORE_BODY_MUST_NOT_APPEAR'),false);
   assert.equal(JSON.stringify(refs).includes('SECRET_MEMORY_BODY_MUST_NOT_APPEAR'),false);
   assert.ok(refs.edges.every(row=>row.readOnly===true));
+});
+
+test('Native Brain exposes the bounded graph reference contract without authority escalation',()=>{
+  const brain=new Area52NativeBrain();
+  brain.registerEntityIdentity({entityId:'entity:pilot',canonicalLabel:'Pilot',entityType:'PERSON',worldId:'world:test'});
+  brain.registerGraphProvider({
+    providerId:'BRAIN_API_GRAPH',owner:'TEST_OWNER',semanticsVersion:'1',
+    isRevisionCurrent:(ref)=>ref==='brain:source@1',
+    query:()=>({providerRevision:'brain-provider:1',edges:[{
+      edgeId:'brain-edge',fromEntityId:'entity:pilot',toEntityId:'artifact:brain',edgeMeaning:'RELATED_CONTEXT',
+      sourceRevisionRefs:['brain:source@1'],provenanceRefs:['brain:prov@1'],artifactRef:{artifactId:'brain',artifactType:'Test',revision:1},temporalStatus:'CURRENT',
+    }]}),
+  });
+  const refs=brain.worldGraphReferences('Pilot context',{intent:'CURRENT',anchorEntityIds:['entity:pilot'],worldRevision:brain.core.graph.revision});
+  assert.equal(refs.kind,'StructuredWorldStateReferenceSet');
+  assert.ok(refs.edges.some(row=>row.edgeId==='brain-edge'));
+  assert.deepEqual(refs.authority,{graphMutation:false,truth:false,settlement:false,contextSeal:false,identitySettlement:false});
+  assert.equal(refs.rawSourceContentIncluded,false);
 });
 
 test('targeted owner revision invalidation rejects only the stale dependency cone',()=>{

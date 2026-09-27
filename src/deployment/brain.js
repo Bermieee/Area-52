@@ -565,7 +565,7 @@ export class DevelopmentDeploymentBrain {
       activeThreads: field(activeThreads, nextRevision, evidenceRef),
       immediateObjects: field(objects, nextRevision, evidenceRef),
     };
-    if (atmosphere != null) fields.atmosphere = field(atmosphere, nextRevision, evidenceRef, ObservationClass.INFERRED, 0.6);
+    if (atmosphere != null) fields.atmosphere = this.scene.atmosphereTracker.update({revision:nextRevision,evidenceRefs:[evidenceRef],dimensions:atmosphere?.value??atmosphere});
     const observed = this.scene.sceneRuntime.observe({
       sceneId: scene.sceneId,
       proposalId: 'deployment-scene:' + evidenceRef,

@@ -85,11 +85,13 @@ No shared Worker 2 or Worker 3 implementation files are edited by this wave.
 
 `tests/worker4-structured-world-state-graph.mjs` proves:
 
-1. a multi-turn entity location change has South/current and North/historical state without erasing history;
-2. same-time incompatible evidence remains unresolved;
-3. Scene, Lore and Memory references identity-link behind one bounded traversal while retaining distinct owner semantics and exact drillback IDs;
-4. targeted source invalidation rejects only the affected owner edge;
-5. a fresh graph nomination enters Candidate Bus while stale-source and late-Scene-revision edges are rejected before Context Seal.
+1. a multi-turn entity location change has South/current and North/historical state, including exact temporal bounds, without erasing history;
+2. historical and current Scene cast membership remain distinct across a Scene transition;
+3. same-time incompatible evidence remains unresolved;
+4. Scene, Lore and Memory references identity-link behind one bounded traversal while retaining distinct owner semantics and exact drillback IDs;
+5. targeted source invalidation rejects only the affected owner edge;
+6. the public Native Brain read contract returns the same bounded non-authoritative reference model;
+7. a fresh graph nomination enters Candidate Bus while stale-source and late-Scene-revision edges are rejected before Context Seal.
 
 The fixture also asserts raw Lore and Memory bodies are absent from the reference set.
 

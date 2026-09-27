@@ -73,7 +73,9 @@ test('Worker 1 Memory evidence distinguishes reader selection mismatch from an a
     query:'Continue.',scene:scene('scene:memory-diag',1),executionLabel:'DETERMINISTIC',
   });
   const before=brain.uiBindings().readMemoryStatus(prepared.selection);
-  assert.equal(before.evidenceDiagnosis.state,'WRITE_ABSENT');
+  assert.equal(before.evidenceDiagnosis.writeState,'WRITE_ABSENT');
+  assert.equal(before.evidenceDiagnosis.state,'READER_SELECTION_MISMATCH');
+  assert.ok(before.evidenceDiagnosis.mismatchFields.includes('chatId'));
   await brain.completeTurn({turnId:'turn:memory-diag:1',response:'Learn this response.'});
   const after=brain.uiBindings().readMemoryStatus(prepared.selection);
   assert.equal(after.evidenceDiagnosis.state,'READER_SELECTION_MISMATCH');

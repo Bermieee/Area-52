@@ -1,7 +1,8 @@
 import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
 import { renderBrainDecisionExplanation } from './brain-decision-visibility.js';
+import { renderSelectedTurnGraphVisibility } from './selected-turn-graph-visibility.js';
 
-export const TURN_LOG_DIAGNOSTICS_VERSION='1.2.0';
+export const TURN_LOG_DIAGNOSTICS_VERSION='1.3.0';
 const DEFAULT_MAX_VISIBLE=96;
 const DEFAULT_MAX_DETAIL_BYTES=12288;
 const CATEGORY_ORDER=['HOST','EDGE','COGNITION','RUNTIME','RESOURCE','RESULT','GATHER','CONTEXT','DELIVERY','LEARNING','ERROR'];
@@ -9,8 +10,8 @@ const SEVERITY_ORDER=['ERROR','WARN','OK','INFO'];
 const BLOCKED_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
 
 export class SelectedTurnLogModel{
-  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,diagnostics=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
-    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;this.diagnostics=diagnostics??null;
+  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,graphVisibility=null,diagnostics=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
+    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;this.graphVisibility=graphVisibility??null;this.diagnostics=diagnostics??null;
     this.selectionProvider=typeof selectionProvider==='function'?selectionProvider:()=>({});
     this.now=typeof now==='function'?now:()=>Date.now();
     this.maxVisibleRows=Math.max(16,Math.min(256,Number(maxVisibleRows)||DEFAULT_MAX_VISIBLE));
@@ -32,7 +33,7 @@ export class SelectedTurnLogModel{
       filters:normalizedFilters,rows,totalRows:allRows.length,matchingRows:filtered.length,visibleRows:rows.length,truncated,
       availableCategories:CATEGORY_ORDER.filter(category=>allRows.some(row=>row.category===category)),
       availableSeverities:SEVERITY_ORDER.filter(severity=>allRows.some(row=>row.severity===severity)),
-      summary:summarize(turn,allRows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),retention:status,
+      summary:summarize(turn,allRows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),graphTrace:safeGraphRead(this.graphVisibility,selected),retention:status,
       chronology:'OWNER_STAGE_ORDER_WITH_EXACT_TIMESTAMPS_WHEN_PUBLISHED',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
     });
@@ -112,7 +113,7 @@ export class SelectedTurnLogModel{
     }
     return sanitize({
       kind:'Area52SelectedTurnLogExport',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt:this.now(),
-      selection:selected,summary:summarize(turn,rows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),rows,details,retention:this.journal?.status?.()??null,
+      selection:selected,summary:summarize(turn,rows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),graphTrace:safeGraphRead(this.graphVisibility,selected),rows,details,retention:this.journal?.status?.()??null,
       chronology:'OWNER_STAGE_ORDER_WITH_EXACT_TIMESTAMPS_WHEN_PUBLISHED',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
     });
@@ -172,9 +173,9 @@ export class SelectedTurnLogModel{
   }
 }
 
-export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,diagnostics=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
+export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,graphVisibility=null,diagnostics=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
   if(!registry||!journal)return null;
-  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,diagnostics,maxVisibleRows});
+  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,graphVisibility,diagnostics,maxVisibleRows});
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
@@ -215,6 +216,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   if(!brainStages.children?.length)brainStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
   brain.body.append(brainStages);
   if(snapshot.brainDecision)brain.body.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
+  brain.body.append(renderSelectedTurnGraphVisibility(d,snapshot.graphTrace??operational?.graph,{compact:false,title:'Selected-turn world graph'}));
   const generationInspection=operational?.generationInspection??null;
   if(generationInspection){
     const identity=generationInspection.identityResolution,graph=generationInspection.graphTraversal,budget=generationInspection.retrievalBudget,rejected=generationInspection.rejectedEvidence;
@@ -353,6 +355,9 @@ function renderRow(d,row,{model,selection,scope,inspect}={}){
 function safeDiagnosticsRead(provider){
   try{return provider?.read?.()??null;}catch(error){return{kind:'Area52DiagnosticsUnavailable',error:{code:error?.code??'DIAGNOSTICS_READ_FAILED',message:safeText(error?.message??error,512)}};}
 }
+function safeGraphRead(provider,selection){
+  try{return provider?.read?.(selection)??null;}catch(error){return{kind:'SelectedTurnGraphVisibilityReadModel',state:'UNAVAILABLE',selection:normalizeSelection(selection),reason:safeText(error?.message??error,512),errors:[{code:error?.code??'GRAPH_VISIBILITY_READ_FAILED'}],safety:{metadataOnly:true,rawPrompt:false,rawLoreBodies:false,rawMemoryBodies:false,hiddenReasoning:false,mutationAuthority:false}};}
+}
 function diagnosticsStatus(snapshot,operational){
   const cognitionErrors=Object.keys(operational?.cognition?.errors??{}).length;
   const failures=Number(operational?.producers?.failures??0);
@@ -419,6 +424,7 @@ function diagnosticsBundleFiles(payload){
     {path:root+'selected-turn.json',content:j(payload.selectedTurn)},
     {path:root+'retained-evidence.json',content:j(payload.retainedEvidence)},
     {path:root+'brain/brain.json',content:j({producers:op.producers,pipeline:op.pipeline,generationInspection:op.generationInspection})},
+    {path:root+'brain/graph.json',content:j(payload.selectedTurn?.graphTrace??op.graph??null)},
     {path:root+'runtime/runtime.json',content:j(op.runtime)},
     {path:root+'resources/resources.json',content:j({resources:op.resources,wiring:op.wiring,coprocessor:op.coprocessor})},
     {path:root+'knowledge/lore-memory.json',content:j({lore:op.lore,memory:op.memory,cognition:op.cognition})},

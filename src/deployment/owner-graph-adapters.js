@@ -12,18 +12,36 @@ function currentLoreRevisionSet(loreInterface){
 }
 
 function currentMemoryRevisionSet(memoryInterface){
+  const refs=new Set();
   try{
     const adapters=memoryInterface?.adapters??memoryInterface;
-    if(typeof adapters?.resolveHistorian!=='function')return new Set();
-    const result=adapters.resolveHistorian({
-      kind:'HistorianMemoryRequest',
-      query:'',
-      mode:'EXPLICIT_HISTORY',
-      memoryRevisionRefs:[],
-      limits:{maxArtifacts:1,maxEvidenceBytes:256},
-    });
-    return new Set((result?.memoryRevisionRefs??[]).map(String));
-  }catch{return new Set();}
+    const snapshot=typeof adapters?.snapshot==='function'?adapters.snapshot():null;
+    for(const [revisionId,state] of snapshot?.graph?.sourceRevisionState??[]){
+      if(state?.state==='ACTIVE')refs.add(String(revisionId));
+    }
+    for(const revisionId of memoryInterface?.status?.()?.revisionRefs??[])refs.add(String(revisionId));
+    for(const revisionId of adapters?.status?.()?.revisionRefs??[])refs.add(String(revisionId));
+  }catch{}
+  return refs;
+}
+
+function temporalHintStatus(value){
+  const hint=Array.isArray(value)?value[0]:value;
+  if(hint&&typeof hint==='object')return String(hint.status??hint.temporalStatus??hint.kind??'UNRESOLVED').toUpperCase();
+  return String(hint??'CURRENT').toUpperCase();
+}
+
+function safeDrillbackRefs(nomination,drillback=[]){
+  const refs=(drillback??[]).slice(0,24).map(row=>({
+    kind:'OWNER_SOURCE_REF',sourceId:row?.sourceId??null,sourceRevisionId:row?.sourceRevisionId??null,
+    lorebookId:row?.lorebookId??null,uid:row?.uid??null,representationRef:row?.representationRef??null,
+  })).filter(row=>row.sourceRevisionId||row.representationRef);
+  refs.push({
+    kind:'OWNER_ARTIFACT_REF',artifactRef:clone(nomination?.artifactRef??null),representationRef:nomination?.representationRef??null,
+    sourceRevisionRefs:bounded(nomination?.sourceRevisionRefs??[],16),evidenceRefs:bounded(nomination?.evidenceRefs??[],16),
+    claimRefs:bounded(nomination?.claimRefs??[],16),eventRefs:bounded(nomination?.eventRefs??[],16),relationshipRefs:bounded(nomination?.relationshipRefs??[],16),
+  });
+  return refs.slice(0,32);
 }
 
 function currentSceneRevisionSet(sceneRuntime){
@@ -63,10 +81,12 @@ function candidateEdges({providerId,owner,sourceKind,rows,maxEdges=128}){
         toEntityId:target,
         edgeMeaning:sourceKind==='LORE'?'SUPPORTED_BY_LORE_SOURCE':'SUPPORTED_BY_MEMORY',
         sourceKind:sourceKind+'_OWNER',
-        temporalStatus:String(nomination?.temporalHints?.[0]??'CURRENT').toUpperCase(),
+        temporalStatus:temporalHintStatus(nomination?.temporalHints),
         authorityClass:nomination?.authorityClass??'DERIVED',
         sourceRevisionRefs,
         dependencyRevisionRefs:bounded(nomination?.dependencyRevisions??[],32),
+        identityRevisionRefs:bounded(nomination?.identityRevisionRefs??[],32),
+        drillbackRefs:safeDrillbackRefs(nomination,drillback),
         provenanceRefs:bounded((nomination?.provenance??[]).map(value=>typeof value==='string'?value:value?.ref??value?.id),32),
         evidenceRefs:bounded(nomination?.evidenceRefs??[],32),
         claimRefs:bounded(nomination?.claimRefs??[],32),
@@ -126,9 +146,12 @@ export function createMemoryOwnerGraphProvider(memoryInterface){
           mode:request.intentKind==='HISTORICAL'?'EXPLICIT_HISTORY':'AUTO',
           limits:{maxCandidates:Math.max(1,Math.min(Number(request.maxCandidates)||32,64))},
         });
+        const current=currentMemoryRevisionSet(memoryInterface);
+        const edges=candidateEdges({providerId:'MEMORY_OWNER_GRAPH',owner:'MEMORY_TEMPORAL',sourceKind:'MEMORY',rows:result?.nominations,maxEdges:request.maxEdges});
+        for(const edge of edges)edge.dependencyRevisionRefs=edge.dependencyRevisionRefs.filter(ref=>current.has(String(ref)));
         return {
-          providerRevision:(result?.memoryRevisionRefs??[]).join('|')||null,
-          edges:candidateEdges({providerId:'MEMORY_OWNER_GRAPH',owner:'MEMORY_TEMPORAL',sourceKind:'MEMORY',rows:result?.nominations,maxEdges:request.maxEdges}),
+          providerRevision:(result?.historianRevision??(result?.memoryRevisionRefs??[]).join('|'))||null,
+          edges,
         };
       }catch{return {providerRevision:null,edges:[]};}
     },
@@ -156,8 +179,10 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
         const state=sceneRuntime.graph.exportState();
         const edges=[];
         for(const row of state?.edges??[]){
-          const refs=bounded(row?.evidenceRefs??[],32);
+          const sceneIds=bounded([row?.fromSceneId,row?.toSceneId],16);
+          const refs=bounded(sceneIds.flatMap(sceneId=>sceneRuntime.registry?.current?.(sceneId)?.sourceRevisionRefs??[]),32);
           if(!refs.length)continue;
+          const evidenceRefs=bounded(row?.evidenceRefs??[],32);
           const from=row.fromSceneId??row.fromRef;
           const to=row.toSceneId??row.toRef;
           if(!from||!to)continue;
@@ -172,7 +197,8 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
             sourceRevisionRefs:refs,
             dependencyRevisionRefs:bounded(row.derivedFrom??[],32),
             provenanceRefs:bounded(row.provenance??[],32),
-            evidenceRefs:refs,
+            evidenceRefs,
+            drillbackRefs:sceneIds.map(sceneId=>({kind:'SCENE_SOURCE_REF',sceneId,sourceRevisionRefs:bounded(sceneRuntime.registry?.current?.(sceneId)?.sourceRevisionRefs??[],16)})),
             claimRefs:[],
             eventRefs:[],
             relationshipRefs:[String(row.edgeId)],

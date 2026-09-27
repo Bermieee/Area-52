@@ -2,12 +2,18 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 import { renderLoreReviewWorkspace } from './lore-authoring-review-ui.js';
+import { renderSelectedTurnGraphVisibility } from './selected-turn-graph-visibility.js';
 
-export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null}={}){
+export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null,graphVisibility=null}={}){
   const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
   if(registry.has('brain')){
     const current=registry.get('brain');
-    registry.update('brain',{render(host,ctx){current.render?.(host,ctx);if(operations&&ctx.productAdapter.getDetailLevel()!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});}});
+    registry.update('brain',{render(host,ctx){
+      current.render?.(host,ctx);
+      const detail=ctx.productAdapter.getDetailLevel();
+      if(operations&&detail!==ProductDetailLevel.NORMAL)renderOperationalDetail(host,{...ctx,operations});
+      if(graphVisibility&&detail!==ProductDetailLevel.NORMAL)host.append(renderSelectedTurnGraphVisibility(host.ownerDocument,graphVisibility.read?.(),{compact:detail!==ProductDetailLevel.ADVANCED,title:'Selected-turn world graph'}));
+    }});
   }
   if(!registry.has('connections'))registry.register({
     id:'connections',title:'Connections',icon:'⇄',category:'Product',navigation:{level:'product',order:70},views:['normal','detail','advanced'],supportedActions:['inspect','discover-models','refresh-models','select-model','connect','disconnect','test','forget-saved'],
@@ -615,6 +621,7 @@ export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,ins
     flowStep(d,'Learning recorded',pipeline.learningReceipt?'Owner learning receipt recorded':pipeline.generationReceipt?'Not yet':'No generation receipt')
   );
   center.append(element(d,'h3',{text:'Current turn activity'}),activity);
+  center.append(renderSelectedTurnGraphVisibility(d,snapshot.graph,{compact:!advanced,title:'Selected-turn world graph'}));
   center.append(renderSelectedTurnEvidence(d,{snapshot,evidenceJournal,scope,inspect,advanced}));
   const path=element(d,'section',{className:'a52-card a52-wave13-turn-path',attrs:{'aria-label':'Selected turn owner receipt path'}});
   path.append(element(d,'h3',{text:'Selected-turn receipt path'}),element(d,'p',{className:'a52-muted',text:'A read-only owner-receipt path for this selected turn. This is an operational trace, not a complete cognitive transaction ledger.'}));

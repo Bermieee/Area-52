@@ -297,6 +297,7 @@ export class Area52NativeBrain{
   entityIdentityContract(){return this.core.entityIdentityContract();}
   graphProviderInterfaceContract(){return this.core.graphProviderInterfaceContract();}
   graphWalkerDiagnostics(){return this.core.graphWalkerDiagnostics();}
+  worldGraphReferences(query,options={}){return this.core.worldGraphReferences(query,options);}
 
   observeScene(chatId,input){
     const id=req(chatId,'chatId'),signal=sceneSignalFrom(input,id);
@@ -572,6 +573,7 @@ export class Area52NativeBrain{
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
       readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel(),authorityGranted:false})),
       readGraphTraversal:(selection={})=>this.#readStage(selection,record=>record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??null),
+      readWorldGraphReferences:(selection={})=>this.#readStage(selection,record=>this.#worldGraphReferenceReadModel(record)),
       readRetrievalBudget:(selection={})=>this.#readStage(selection,record=>this.#uiRetrievalBudgetReceipt(record)),
       readRejectedEvidence:(selection={})=>this.#readStage(selection,record=>this.#uiRejectedEvidence(record)),
       readTruth:(selection={})=>this.#readStage(selection,record=>record.published?.publicationAssessment??record.published?.assessment??null),
@@ -993,6 +995,28 @@ export class Area52NativeBrain{
 
   #readGeneration(generationId,selection={}){if(generationId==null)return null;const record=this.#recordForSelection({...selection,generationId});if(!record)return null;return clone({kind:'NativeBrainGenerationReadModel',...this.#selection(record),state:record.state,executionLabel:record.executionLabel,cognitiveChoice:record.published?.cognitiveChoiceReceipt??null,candidateEnvelope:record.published?.candidateEnvelope??null,identityResolution:this.core.entityIdentityReadModel(),graphTraversal:record.published?.graphTraversalReceipt??null,retrievalBudget:this.#uiRetrievalBudgetReceipt(record),rejectedEvidence:this.#uiRejectedEvidence(record),truth:record.published?.publicationAssessment??record.published?.assessment??null,gather:record.published?.gatherReceipt??null,contextSeal:record.published?.sealReceipt??null,promptPlan:record.delivery?.plan??null,contextRetirement:record.contextRetirement??null,promptDeliveryReceipt:record.delivery?.receipt??null,loreSync:record.loreSync??null,memorySync:record.memorySync??null,memoryPostTurn:record.memoryPostTurn??null,memoryConsolidation:record.memoryConsolidation??null,learningReceipt:record.learningReceipt??null});}
 
+  #worldGraphReferenceReadModel(record){
+    const refs=this.worldGraphReferences(record.query,{
+      intent:record.intent??'CURRENT',
+      anchorEntityIds:[...(record.anchorEntityIds??[])],
+      worldRevision:record.worldRevision,
+      sceneRevision:record.sceneRevision,
+      latencyBudgetMs:record.retrievalPolicy?.latencyBudgetMs??100,
+      graphTraversal:clone(record.retrievalPolicy?.graphTraversal??null),
+      perspective:clone(record.perspectiveConstraint??null),
+    });
+    const referenceSet=clone(refs);
+    if(referenceSet&&typeof referenceSet==='object')delete referenceSet.query;
+    return{
+      kind:'NativeBrainSelectedTurnWorldGraphReferences',contractVersion:'1.0.0',
+      ...this.#selection(record),referenceSet,
+      observationClass:'ON_DEMAND_SELECTED_TURN_REFERENCE_READ',
+      generationTimeReceipt:false,queryIncluded:false,rawPromptIncluded:false,rawLoreIncluded:false,rawMemoryIncluded:false,
+      authorityGranted:false,mutationAuthority:false,truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+  }
+
+
   #notify(stage,record){
     if(!this.listeners.size||!record)return;const event=Object.freeze({kind:'NativeBrainReceiptUpdate',stage:String(stage),selection:this.#selection(record),rawPromptIncluded:false,rawResponseIncluded:false});
     for(const listener of [...this.listeners])try{listener(event);}catch{}
@@ -1204,7 +1228,13 @@ export class Area52NativeBrain{
 
   #uiGatherReceipt(record){
     const receipt=record.published?.gatherReceipt;if(!receipt)return null;
-    const results=(record.published?.resultRoutes??[]).map((row)=>({resultId:row?.result?.id??null,accepted:Boolean(row?.route?.accepted),freshness:row?.route?.freshness??null,destination:row?.route?.effectiveDestination??row?.result?.destination??null}));
+    const results=(record.published?.resultRoutes??[]).map((row)=>({
+      resultId:row?.result?.id??null,candidateId:row?.result?.payload?.candidateId??row?.result?.provenance?.candidateId??null,
+      accepted:Boolean(row?.route?.accepted),freshness:row?.route?.freshness??null,destination:row?.route?.effectiveDestination??row?.result?.destination??null,
+      evidenceRefs:uniq([...(row?.result?.evidenceIds??[]),...(row?.result?.payload?.evidenceRefs??[])]),
+      sourceRevisionRefs:uniq(row?.result?.sourceRevisionIds??[]),
+      graphProviders:uniq((row?.result?.payload?.graphMetadata??[]).map(meta=>meta?.graphProvider).filter(Boolean)),
+    }));
     return{...clone(receipt),...this.#selection(record),results};
   }
 

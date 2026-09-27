@@ -834,8 +834,8 @@ export class Wave13OperationalStatusAdapter{
 
 
 export class Wave13DiagnosticsCenterAdapter{
-  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={},uiLoadTrace=null}={}){
-    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;this.uiLoadTrace=uiLoadTrace;
+  constructor({operations=null,resources=null,loreStudy=null,memory=null,cognition=null,liveReceiptBinding=null,productionAdapters={},uiLoadTrace=null,graphVisibility=null}={}){
+    this.operations=operations;this.resources=resources;this.loreStudy=loreStudy;this.memory=memory;this.cognition=cognition;this.live=liveReceiptBinding;this.adapters=productionAdapters;this.uiLoadTrace=uiLoadTrace;this.graphVisibility=graphVisibility;
   }
   readJournalEvidence(){
     const selection=cloneSafe(this.live?.selection?.()??{});
@@ -862,6 +862,7 @@ export class Wave13DiagnosticsCenterAdapter{
     const coprocessorRead=safeRead(()=>this.adapters.coprocessor?.read?.(selection)??this.adapters.coprocessor?.read?.(),null);
     const promptPlanRead=safeRead(()=>this.adapters.promptPlan?.read?.(selection)??this.adapters.promptPlan?.read?.(),null);
     const liveDiagnostics=safeRead(()=>this.live?.diagnostics?.(),null);
+    const graphRead=safeRead(()=>this.graphVisibility?.read?.(selection),null);
     const resourceCaps=this.resources?.capabilities?.()??{};
     const rows=resourceRead?.data?.resources??[];
     const lanes=['JEV','SIDECAR','VECTORING'].map(kind=>{
@@ -907,6 +908,7 @@ export class Wave13DiagnosticsCenterAdapter{
       host:{connected:Boolean(operations?.hostConnected),waitingForTurn:Boolean(operations?.waitingForTurn),liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
       pipeline:cloneSafe(operations?.pipeline??{}),
       generationInspection:cloneSafe(operations?.inspection??null),
+      graph:cloneSafe(graphRead),
       producers:{active:Number(operations?.active??0),failures:Number(operations?.failures??0),stages:cloneSafe(operations?.stages??[]),inspections:cloneSafe(operations?.inspections??{})},
       runtime:{...diagnosticSource(runtimeRead),turn:runtimeTurn},coprocessor:diagnosticSource(coprocessorRead),promptPlan:diagnosticSource(promptPlanRead),
       resources:{

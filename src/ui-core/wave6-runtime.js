@@ -30,6 +30,7 @@ import { DemoActivityFeedController, DemoEvidenceJournal } from './demo-visibili
 import { OperatorLoadTrace } from './operator-load-trace.js';
 import { installTurnLogDiagnosticsWorkspace } from './turn-log-diagnostics.js';
 import { BrainDecisionVisibilityAdapter } from './brain-decision-visibility.js';
+import { SelectedTurnGraphVisibilityAdapter } from './selected-turn-graph-visibility.js';
 
 export function createWave6ProductInterface({
   root,
@@ -56,6 +57,7 @@ export function createWave6ProductInterface({
   const explainabilityPresentation=new ExplainabilityPresentationState({stateStore});
   const selectionProvider=()=>liveReceiptBinding?.selection?.()??{};
   const brainDecisionVisibility=hostBindings?new BrainDecisionVisibilityAdapter({bindings:hostBindings,selectionProvider}):null;
+  const graphVisibility=hostBindings?new SelectedTurnGraphVisibilityAdapter({bindings:hostBindings,selectionProvider,decisionVisibility:brainDecisionVisibility}):null;
   const uiLoadTrace=new OperatorLoadTrace({maxSamples:96});
   const hostDeliveryReader=typeof hostBindings?.readHostDeliveryReceipt==='function'?hostBindings.readHostDeliveryReceipt.bind(hostBindings):null;
   const hostDeliveryCache={key:null,value:null,valid:false};
@@ -134,10 +136,10 @@ export function createWave6ProductInterface({
   registerWave6FrontFaceWorkspaces(workspaceRegistry,{adapter:productAdapter,brainPulse});
   const productionAdapters={scene,runtime,coprocessor,promptPlan,forensics,cognition};
   const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters,loreStudy,resources}):null;
-  const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,memory:memoryOwner,cognition,liveReceiptBinding,productionAdapters,uiLoadTrace}):null;
+  const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,memory:memoryOwner,cognition,liveReceiptBinding,productionAdapters,uiLoadTrace,graphVisibility}):null;
   const evidenceJournal=hostBindings?new DemoEvidenceJournal({storage:stateStore.storage,namespace:String(stateStore.namespace??'area52.ui.v1')+'.demoEvidence.v1'}):null;
-  const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider,decisionVisibility:brainDecisionVisibility,diagnostics}):null;
-  const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,actionRouter,cognition,coprocessor,frontFacePresentation,evidenceJournal});
+  const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider,decisionVisibility:brainDecisionVisibility,graphVisibility,diagnostics}):null;
+  const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,actionRouter,cognition,coprocessor,frontFacePresentation,evidenceJournal,graphVisibility});
   registerProductionEngineeringWorkspaces(workspaceRegistry,{runtime,coprocessor,promptPlan,forensics});
   registerWave7Workspaces(workspaceRegistry,{promptPlan,forensics,presentation:explainabilityPresentation,scheduler});
 
@@ -210,7 +212,7 @@ export function createWave6ProductInterface({
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
     productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,liveReceiptBinding,
-    floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,loadTrace:uiLoadTrace,turnLog:turnLogWorkspace?.model??null,brainDecisionVisibility},
+    floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,loadTrace:uiLoadTrace,turnLog:turnLogWorkspace?.model??null,brainDecisionVisibility,graphVisibility},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
     destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();activityFeedHost?.remove?.();turnLogWorkspace?.release?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},

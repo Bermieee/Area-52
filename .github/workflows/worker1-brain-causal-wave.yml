@@ -18,12 +18,19 @@ on:
       - 'src/deployment/brain.js'
       - 'src/coprocessor/scene-observation-specialist.js'
       - 'src/coprocessor/foreground-specialists.js'
+      - 'src/scene/prefetch-trigger.js'
+      - 'src/scene/scene-lifecycle-runtime.js'
+      - 'src/scene/transition-manager.js'
+      - 'src/coprocessor/scene-signal-adapter.js'
+      - 'src/coprocessor/speculative-warmer.js'
+      - 'src/coprocessor/fanout-planner.js'
       - 'src/runtime/**'
       - 'tests/worker1-brain-lifecycle-causal-wave.mjs'
       - 'tests/worker1-context-trust-delivery.mjs'
       - 'tests/worker1-brain-context-delivery-completion.mjs'
       - 'tests/worker1-generation-performance-wiring.mjs'
       - 'tests/worker1-scene-cognition-integration.mjs'
+      - 'tests/worker1-scene-prefetch-trigger.mjs'
       - 'tests/openrouter-jev-decisions.test.mjs'
       - 'scripts/worker1-generation-performance-benchmark.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
@@ -61,6 +68,8 @@ jobs:
         run: node --test tests/worker1-generation-performance-wiring.mjs
       - name: Scene cognition integration
         run: node --test tests/worker1-scene-cognition-integration.mjs
+      - name: Scene Prefetch Trigger #112
+        run: node --test tests/worker1-scene-prefetch-trigger.mjs
       - name: Qualification probe contract
         run: node --test tests/openrouter-jev-decisions.test.mjs
       - name: Demo telemetry regression
@@ -95,6 +104,12 @@ jobs:
           node --check src/deployment/brain.js &&
           node --check src/coprocessor/scene-observation-specialist.js &&
           node --check src/coprocessor/foreground-specialists.js &&
+          node --check src/scene/prefetch-trigger.js &&
+          node --check src/scene/scene-lifecycle-runtime.js &&
+          node --check src/scene/transition-manager.js &&
+          node --check src/coprocessor/scene-signal-adapter.js &&
+          node --check src/coprocessor/speculative-warmer.js &&
+          node --check src/coprocessor/fanout-planner.js &&
           node --check src/runtime/causal-receipts.js &&
           node --check src/runtime/obligation-reconciler.js &&
           node --check src/runtime/worker-director.js &&
@@ -102,6 +117,7 @@ jobs:
           node --check tests/worker1-brain-context-delivery-completion.mjs &&
           node --check tests/worker1-generation-performance-wiring.mjs &&
           node --check tests/worker1-scene-cognition-integration.mjs &&
+          node --check tests/worker1-scene-prefetch-trigger.mjs &&
           node --check scripts/worker1-generation-performance-benchmark.mjs
       - name: Browser-facing imports
         run: >-
@@ -112,5 +128,9 @@ jobs:
           import('./src/prompt-presentation.js'),
           import('./src/native-brain.js'),
           import('./src/coprocessor/scene-observation-specialist.js'),
+          import('./src/scene/prefetch-trigger.js'),
+          import('./src/scene/scene-lifecycle-runtime.js'),
+          import('./src/coprocessor/scene-signal-adapter.js'),
+          import('./src/coprocessor/fanout-planner.js'),
           import('./src/runtime/index.js')
           ]).then(()=>console.log('WORKER1 BRAIN CAUSAL IMPORT PASS'))"

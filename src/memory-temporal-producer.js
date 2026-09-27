@@ -352,6 +352,115 @@ export class MemoryTemporalProducer {
     return receipts;
   }
 
+  reviewConsolidationBundle({bundle,handoff=null,selection={}}={}) {
+    if(!bundle||bundle.kind!=='ConsolidationProposalBundle'||!Array.isArray(bundle.proposals))throw new TypeError('ConsolidationProposalBundle is required');
+    if(handoff!=null){
+      if(handoff.kind!=='MemoryConsolidationProposalHandoff')throw new TypeError('MemoryConsolidationProposalHandoff is required');
+      if(String(handoff.bundleId??'')!==String(bundle.bundleId??''))throw new Error('MEMORY_CONSOLIDATION_HANDOFF_BUNDLE_MISMATCH');
+      if(handoff.memoryPersistence===true||handoff.reflectionAdmission===true||handoff.temporalSettlement===true||handoff.sourceDeletion===true)throw new Error('MEMORY_CONSOLIDATION_HANDOFF_AUTHORITY_VIOLATION');
+      const allowed=new Set((handoff.proposalRefs??[]).map((row)=>String(row.proposalId)));
+      if(bundle.proposals.some((row)=>!allowed.has(String(row.proposalId))))throw new Error('MEMORY_CONSOLIDATION_HANDOFF_PROPOSAL_MISMATCH');
+    }
+    const current=this.experienceStore.currentEpisodes({freshOnly:true});
+    const byId=new Map(current.map((row)=>[row.id,row]));
+    const byLogical=new Map(current.map((row)=>[row.logicalId,row]));
+    const sourceEvidence=new Map();
+    for(const evidenceId of this.graph.evidenceOrder??[]){
+      const row=this.graph.evidenceRecord(evidenceId);
+      if(!row)continue;
+      const list=sourceEvidence.get(String(row.sourceRevisionId))??[];
+      list.push(row.id);sourceEvidence.set(String(row.sourceRevisionId),list);
+    }
+    const resolveEvidenceRef=(ref)=>{
+      const id=String(ref??'');
+      if(!id)return[];
+      if(this.graph.evidenceRecord(id))return[id];
+      const episode=byId.get(id)??byLogical.get(id);
+      if(episode)return [...(episode.evidenceRefs??[])];
+      return [...(sourceEvidence.get(id)??[])];
+    };
+    const results=[];
+    for(const proposal of bundle.proposals.slice(0,MEMORY_LIMITS.maxConsolidationJobs)){
+      const proposalId=String(proposal?.proposalId??'');
+      if(proposal?.proposalKind!=='REFLECTION_EVIDENCE'){
+        results.push({proposalId,proposalKind:proposal?.proposalKind??null,status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_KIND_OUTSIDE_REFLECTION_OWNER_PATH',artifactId:null});
+        continue;
+      }
+      if(!['INFERRED','UNRESOLVED'].includes(String(proposal.authority??'').toUpperCase())||proposal.memoryMutation===true||proposal.durableMutation===true||proposal.settlementAuthority===true||proposal.deleteSourceTurns===true){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:'FAILED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_AUTHORITY_VIOLATION',artifactId:null});
+        continue;
+      }
+      const sourceArtifactRefs=proposal.sourceArtifactRefs??bundle.sourceArtifactRefs??[];
+      const supports=[...new Map(sourceArtifactRefs.map((ref)=>{
+        const row=byId.get(String(ref?.artifactId??''))??byLogical.get(String(ref?.artifactId??''));
+        return row?[row.logicalId,row]:null;
+      }).filter(Boolean)).values()];
+      const declaredSources=new Set((proposal.sourceRevisionSet??bundle.sourceRevisionSet??[]).map(String));
+      if(declaredSources.size&&supports.some((episode)=>(episode.sourceRevisionRefs??[]).some((ref)=>!declaredSources.has(String(ref))))){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_REVISION_MISMATCH',artifactId:null});
+        continue;
+      }
+      const unresolvedArtifacts=sourceArtifactRefs.filter((ref)=>!byId.has(String(ref?.artifactId??''))&&!byLogical.has(String(ref?.artifactId??'')));
+      if(unresolvedArtifacts.length){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_EPISODE_UNRESOLVED',artifactId:null,unresolvedArtifactRefs:unresolvedArtifacts.map((row)=>String(row?.artifactId??'')).filter(Boolean).slice(0,16)});
+        continue;
+      }
+      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
+      const rawContradictions=[...(proposal.payload?.contradictingEvidence??proposal.payload?.contradictionEvidenceRefs??[])].map(String).filter(Boolean);
+      const contradictionEvidenceRefs=[...new Set(rawContradictions.flatMap(resolveEvidenceRef))].sort();
+      const unresolvedContradictions=rawContradictions.filter((ref)=>resolveEvidenceRef(ref).length===0);
+      if(unresolvedContradictions.length){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:'DEFERRED',reasonCode:'MEMORY_CONSOLIDATION_CONTRADICTION_REF_UNRESOLVED',artifactId:null,unresolvedContradictionRefs:unresolvedContradictions.slice(0,16)});
+        continue;
+      }
+      const statement=String(proposal.payload?.inferredInterpretations?.[0]??proposal.payload?.repeatedPatterns?.[0]??'').trim();
+      if(!statement){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_REFLECTION_STATEMENT_MISSING',artifactId:null});
+        continue;
+      }
+      const sourceRevisionRefs=[...new Set([...supports.flatMap((row)=>row.sourceRevisionRefs??[]),...contradictionEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean)])].sort();
+      const eligibility=this.experienceStore.reflectionEligibility({
+        reflectionKey:String(proposal.semanticIdentity??proposalId),
+        supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
+      });
+      if(!eligibility.eligible){
+        results.push({proposalId,proposalKind:proposal.proposalKind,status:eligibility.status,reasonCode:eligibility.reasonCode,artifactId:null,supportEpisodeCount:supports.length,contradictionEvidenceCount:contradictionEvidenceRefs.length});
+        continue;
+      }
+      const session=this.startConsolidation([{type:'REFLECTION',input:{
+        reflectionKey:String(proposal.semanticIdentity??proposalId),statement,
+        subjectRefs:[...new Set(supports.flatMap((row)=>row.participants??[]))].sort().slice(0,32),
+        supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
+        sourceRevisionRefs,confidence:Number(proposal.confidence??eligibility.confidence),action:eligibility.action,
+        provenance:['continuous-consolidation:'+proposalId],
+      }}],{
+        selection,generationFence:selection,sourceRevisionRefs,
+        worldRevision:proposal.worldRevision??bundle.worldRevision??selection.worldRevision??null,
+        sceneRevision:proposal.sceneRevision??bundle.sceneRevision??selection.sceneRevision??null,
+      });
+      const state=this.runConsolidation(session.id,{maxUnits:1});
+      const outcome=state.outcomes?.at(-1)??null;
+      results.push({
+        proposalId,proposalKind:proposal.proposalKind,
+        status:outcome?.status??(state.failures?.length?'FAILED':'DEFERRED'),
+        reasonCode:outcome?.reasonCode??null,artifactId:outcome?.artifactId??null,
+        reflectionKey:String(proposal.semanticIdentity??proposalId),
+        supportEpisodeCount:supports.length,contradictionEvidenceCount:contradictionEvidenceRefs.length,
+        authorityClass:'INFERRED',canonicalAuthority:false,
+      });
+    }
+    const receipt={
+      kind:'MemoryConsolidationBundleReviewReceipt',contractVersion:'1.0.0',
+      bundleId:bundle.bundleId??null,unitId:bundle.unitId??null,
+      status:results.some((row)=>row.status==='COMPLETED')?'COMPLETED':results.some((row)=>row.status==='FAILED')?'FAILED':results.some((row)=>row.status==='DEFERRED')?'DEFERRED':'SKIPPED',
+      results:deepClone(results),
+      rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+    this.pushDiagnostic(receipt);
+    return receipt;
+  }
+
   applySettlement(envelope) {
     const result=this.graph.applySettlement(envelope);
     this.summaryHierarchy.invalidateEvidenceRefs(envelope?.proposal?.evidenceIds??[],'SETTLEMENT_CHANGED');

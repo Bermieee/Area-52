@@ -193,7 +193,7 @@ export class MemoryExperienceStore {
     const explicitEpisodes=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
     const evidenceRows=[...support,...contradictions].map((id)=>this.graph.evidenceRecord(id));
     const missingEvidence=[...support,...contradictions].filter((id)=>!this.graph.evidenceRecord(id));
-    const staleEvidence=[...support].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
+    const staleEvidence=[...support,...contradictions].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
     const currentEpisodes=[...this.currentEpisodeByLogical.values()].map((id)=>this.episodes.get(id)).filter(Boolean)
       .filter((episode)=>episode.state==='CURRENT'&&episode.freshness==='FRESH');
     const explicitRows=explicitEpisodes.map((id)=>this.episodes.get(id)).filter(Boolean);

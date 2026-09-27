@@ -66,53 +66,57 @@ jobs:
 
   baseline-diff:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 35
     steps:
-      - name: Checkout frozen main baseline
-        uses: actions/checkout@v4
-        with:
-          ref: 9eef91c9273861456f8918bea54219383b7f242b
-          path: baseline
-          fetch-depth: 0
       - name: Checkout combined exact head
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          path: combined
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Record exact combined head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
-      - name: Compare full-suite failure names with frozen main
+      - name: Compare broad failures with frozen main known set
         shell: bash
         run: |
           set +e
-          (cd baseline && node --test --test-reporter=tap tests/*.mjs) > baseline.tap 2>&1
-          BASE_RC=$?
-          (cd combined && node --test --test-reporter=tap tests/*.mjs) > combined.tap 2>&1
+          node --test --test-reporter=tap tests/*.mjs > combined.tap 2>&1
           COMBINED_RC=$?
           set -e
 
-          grep -E '^[[:space:]]*not ok [0-9]+ - ' baseline.tap             | sed -E 's/^[[:space:]]*not ok [0-9]+ - //'             | sed -E 's/[[:space:]]+# time=.*$//'             | sort -u > baseline.failures || true
-          grep -E '^[[:space:]]*not ok [0-9]+ - ' combined.tap             | sed -E 's/^[[:space:]]*not ok [0-9]+ - //'             | sed -E 's/[[:space:]]+# time=.*$//'             | sort -u > combined.failures || true
+          grep -E '^[[:space:]]*not ok [0-9]+ - ' combined.tap \
+            | sed -E 's/^[[:space:]]*not ok [0-9]+ - //' \
+            | sed -E 's/[[:space:]]+# time=.*$//' \
+            | sort -u > combined.failures || true
+          sort -u ci/known-main-failures-9eef91c.txt > baseline.failures
 
-          BASE_FAIL=$(grep -E '^# fail ' baseline.tap | tail -1 | awk '{print $3}')
+          EXPECTED_COUNT=$(wc -l < baseline.failures | tr -d ' ')
           COMBINED_FAIL=$(grep -E '^# fail ' combined.tap | tail -1 | awk '{print $3}')
+          comm -13 baseline.failures combined.failures > new.failures
+          comm -23 baseline.failures combined.failures > resolved.failures
 
-          echo "baseline_exit=$BASE_RC baseline_fail=$BASE_FAIL"
+          echo "frozen_main_expected_failures=$EXPECTED_COUNT"
           echo "combined_exit=$COMBINED_RC combined_fail=$COMBINED_FAIL"
-          echo "=== baseline failing names ==="
+          echo "=== frozen main known failing names ==="
           cat baseline.failures
           echo "=== combined failing names ==="
           cat combined.failures
+          echo "=== newly failing names (must be empty) ==="
+          cat new.failures
+          echo "=== inherited failures resolved by combined head ==="
+          cat resolved.failures
 
-          test "$BASE_FAIL" = "18"
-          test "$COMBINED_FAIL" = "18"
-          diff -u baseline.failures combined.failures
+          test "$EXPECTED_COUNT" = "18"
+          test -n "$COMBINED_FAIL"
+          test "$COMBINED_FAIL" -le "$EXPECTED_COUNT"
+          test ! -s new.failures
 
       - name: Combined exact-head cross-owner contract
-        working-directory: combined
         run: |
           node --test tests/main-owner-integration.test.mjs
           node --test --test-name-pattern='two unrelated chats' tests/deployment-live-host.test.mjs

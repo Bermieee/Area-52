@@ -51,7 +51,7 @@ export class SceneLifecycleRuntime{
     this.publisher.publish({
       eventType:SceneEventType.PREFETCH_RECOMMENDED,sceneId:scene.sceneId,sceneRevision:scene.revision,
       sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
-      payload:{recommendation:rec},dedupeKey:rec.dedupeKey??rec.recommendationId,
+      payload:{recommendation:rec},dedupeKey:[rec.dedupeKey??'prefetch',rec.recommendationId].join(':'),
     });
     return rec;
   }
@@ -84,7 +84,7 @@ export class SceneLifecycleRuntime{
     for(const rec of rows)this.publisher.publish({
       eventType:SceneEventType.PREFETCH_RECOMMENDED,sceneId:scene.sceneId,sceneRevision:scene.revision,
       sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
-      payload:{recommendation:rec},dedupeKey:rec.dedupeKey??rec.recommendationId,
+      payload:{recommendation:rec},dedupeKey:[rec.dedupeKey??'prefetch',rec.recommendationId].join(':'),
     });
     return rows;
   }

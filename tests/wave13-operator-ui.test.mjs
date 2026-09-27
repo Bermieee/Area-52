@@ -612,7 +612,7 @@ test('Diagnostics exposes safe foreign source-fence identity while keeping the f
   const{ui}=mount(owner);const snap=ui.operator.diagnostics.read();
   assert.equal(snap.cognition.errors.choice.code,'LIVE_RECEIPT_STALE');assert.deepEqual(snap.cognition.errors.choice.foreignSourceRevisionRefs,[foreign]);assert.equal(snap.cognition.jobs.length,1);
   ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(2);const body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/Outside selected source fence/);assert.match(body,/deadbeef@1/);assert.match(body,/LIVE_RECEIPT_STALE/);
+  assert.match(body,/outside the selected source fence/i);assert.match(body,/deadbeef@1/);assert.match(body,/LIVE_RECEIPT_STALE/);
   ui.destroy();
 });
 
@@ -625,7 +625,7 @@ test('Diagnostics workspace follows chat switches and rejects stale turn telemet
   assert.equal(snap.selection.chatId,'chat:diagnostics-new');assert.equal(snap.selection.turnId,'turn:diagnostics-new');
   assert.equal(snap.cognition.jobs.length,0);assert.equal(snap.cognition.errors.scatter.code,'LIVE_RECEIPT_IDENTITY_MISMATCH');
   assert.equal(operations.pipeline.executedJobs,0);assert.equal(operations.pipeline.returnedResults,0);assert.equal(operations.pipeline.contextAdmitted,0);
-  assert.doesNotMatch(textOf(ui.shell.nodes.workspace),/turn:1/);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Event timeline · all retained evidence/);assert.match(body,/turn:1/);assert.match(body,/turn:diagnostics-new/);
   ui.destroy();
 });
 

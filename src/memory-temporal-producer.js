@@ -1036,6 +1036,7 @@ export class MemoryTemporalProducer {
       evidenceBridge:this.evidenceBridge.snapshot(),
       uiReadModel:this.uiReadModel.snapshot(),
       diagnostics:deepClone(this.diagnostics),
+      consolidationProposalReviews:[...this.consolidationProposalReviews.entries()].map(([id,row])=>[id,deepClone(row)]),
     };
   }
 

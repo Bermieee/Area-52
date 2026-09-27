@@ -79,12 +79,12 @@ function localJevExecutor() {
           classification: null,
           reasonCodes: ['BOUNDED_AMBIGUITY_PRESERVED'],
           evidenceUsed,
-          unresolvedFactors: ['Owner evidence supports more than one unresolved Lore interpretation.'],
+          unresolvedFactors: ['Owner evidence supports more than one unresolved interpretation.'],
           confidence: 0.35,
           abstained: true,
           escalationTarget: null,
           requiresOperator: false,
-          explanation: 'Jev abstained; Lore owner settlement remains authoritative.',
+          explanation: 'Jev abstained; domain-owner settlement remains authoritative.',
         },
         providerProvenance: {
           providerProfileId: 'area52.local.one-resource',
@@ -678,7 +678,7 @@ export class DevelopmentDeploymentBrain {
     const receipt=this.#sceneObservationExecutionReceipt({
       task,admission,status:'RETURNED',reasonCode:'SCENE_OBSERVATION_PROPOSAL_RETURNED',
       attempted:true,returned:true,workerResult,sourceRevisionId:sourceRef,sceneRevision:current.revision,parentWorkId,
-      fieldNames:Object.keys(proposal.fields??{}),
+      fieldNames:Object.keys(proposal.fields??{}),ambiguityCount:(workerResult.payload?.ambiguities??[]).length,
     });
     this.#retainSceneObservationReceipt(receipt);
     return{

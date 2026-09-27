@@ -235,7 +235,7 @@ export class NativeSidecarSwarm{
       if(!isSealed&&fresh){
         const fallback=fallbackForTask(task,{at:Math.min(this.now(),Number(task.hardDeadline))});
         if(fallback){
-          settled=fallbackRecord(task,fallback,record);
+          settled=fallbackRecord(task,fallback,record,{ownerAdmissible:record.state!==NativeSwarmResultState.REJECTED_LATE||Boolean(gather)});
           emitTelemetry(this.telemetry,TelemetryEvent.FALLBACK_USED,{...checkpoint.selection,taskId:task.taskId,turnId:task.turnId,correlationId:task.correlationId,attempt:record.attempt,providerId:fallback.providerId,failureCode:record.failureCode,deterministic:true});
         }
       }
@@ -321,7 +321,7 @@ export class NativeSidecarSwarm{
     }:null;
     const executionTrace=createCoprocessorChoiceExecutionTrace({proposal:sourceCheckpoint.proposal,providerExecutions,resultRoutes,jevObservation,telemetry:this.telemetry});
     const choiceContribution=toCoreCognitiveChoiceContribution({proposal:sourceCheckpoint.proposal,executionTrace});
-    const readyResults=records.filter(record=>record.state===NativeSwarmResultState.READY_FOR_CORE&&!record.ownerAdmissionAttempted&&record.result).map(record=>record.result);
+    const readyResults=records.filter(record=>record.state===NativeSwarmResultState.READY_FOR_CORE&&record.ownerAdmissible!==false&&!record.ownerAdmissionAttempted&&record.result).map(record=>record.result);
     const continuousOwnerAdmissions=records.filter(record=>record.ownerAdmissionAttempted).map(record=>({taskId:record.taskId,resultId:record.resultId,acceptedByOwner:Boolean(record.ownerAccepted),destination:record.ownerDestination??null,late:Boolean(record.ownerLate),stale:Boolean(record.ownerStale),fallback:Boolean(record.fallbackUsed)}));
     const contribution=deepFreeze({
       kind:'NativeSidecarSwarmContribution',contractVersion:NATIVE_SIDECAR_SWARM_VERSION,
@@ -411,14 +411,14 @@ function rejectedRecord(task,state,failureCode,extra={}){
 }
 function parkedRecord(task){return rejectedRecord(task,NativeSwarmResultState.PARKED,null);}
 function skippedRecord(task,reason,extra={}){return rejectedRecord(task,NativeSwarmResultState.SKIPPED,reason,extra);}
-function fallbackRecord(task,result,prior){
+function fallbackRecord(task,result,prior,{ownerAdmissible=true}={}){
   const bytes=estimateRetainedResultBytes(result);
   return deepFreeze({
     taskId:task.taskId,optionId:task.metadata?.roleId??null,taskType:task.taskType,resultClass:task.resultClass,state:NativeSwarmResultState.READY_FOR_CORE,
     providerProfileId:null,providerId:result.providerId,workerId:result.workerId,resourceId:null,
     startedAt:result.startedAt,completedAt:result.completedAt,latencyMs:result.latency,resultId:result.resultId,result,attempt:prior.attempt,
     payloadBytes:bytes,retainedPayloadBytes:bytes,failureCode:prior.failureCode,fallbackUsed:true,late:false,stale:false,invalid:false,
-    ownerAdmissionAttempted:false,ownerAccepted:false,ownerDestination:null,ownerLate:false,ownerStale:false,
+    ownerAdmissible:Boolean(ownerAdmissible),ownerAdmissionAttempted:false,ownerAccepted:false,ownerDestination:null,ownerLate:false,ownerStale:false,
   });
 }
 function withOwnerAdmission(record,outcome){
@@ -429,7 +429,7 @@ function classifyRecordLayer(record,tasks){const task=tasks.find(row=>row.taskId
 function publicRecord(record){return deepFreeze({taskId:record.taskId,optionId:record.optionId,taskType:record.taskType,resultClass:record.resultClass,state:record.state,
   providerProfileId:record.providerProfileId,providerId:record.providerId,workerId:record.workerId,resourceId:record.resourceId,attempt:record.attempt,
   resultId:record.resultId??record.result?.resultId??null,startedAt:record.startedAt,completedAt:record.completedAt,latencyMs:record.latencyMs,failureCode:record.failureCode,
-  fallbackUsed:record.fallbackUsed,late:record.late,stale:record.stale,invalid:record.invalid,payloadBytes:Number(record.payloadBytes??0),retainedPayloadBytes:Number(record.retainedPayloadBytes??0),ownerAdmissionAttempted:Boolean(record.ownerAdmissionAttempted),ownerAccepted:Boolean(record.ownerAccepted),ownerDestination:record.ownerDestination??null});}
+  fallbackUsed:record.fallbackUsed,late:record.late,stale:record.stale,invalid:record.invalid,payloadBytes:Number(record.payloadBytes??0),retainedPayloadBytes:Number(record.retainedPayloadBytes??0),ownerAdmissible:record.ownerAdmissible!==false,ownerAdmissionAttempted:Boolean(record.ownerAdmissionAttempted),ownerAccepted:Boolean(record.ownerAccepted),ownerDestination:record.ownerDestination??null});}
 function countStates(records){const out=Object.fromEntries(Object.values(NativeSwarmResultState).map(state=>[state,0]));for(const record of records)out[record.state]+=1;return deepFreeze(out);}
 function retryable(code){return [FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED,FailureCode.PROVIDER_FAILURE,FailureCode.PROVIDER_TIMEOUT,FailureCode.CAPABILITY_UNAVAILABLE].includes(code);}
 function linkAbort(signal,controller){if(!signal)return()=>{};const abort=()=>controller.abort(signal.reason??'caller-abort');if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true});return()=>signal.removeEventListener?.('abort',abort);}

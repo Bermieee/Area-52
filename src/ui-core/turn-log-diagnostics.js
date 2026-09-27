@@ -211,7 +211,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const commandTitle=element(d,'div',{className:'a52-diagnostics-command__title'});
   commandTitle.append(
     element(d,'span',{className:'a52-diagnostics-command__eyebrow',text:'COGNITIVE OPERATIONS / LIVE FORENSICS'}),
-    element(d,'h1',{text:'Diagnostics Command Center'}),
+    element(d,'h1',{text:'Area-52 Diagnostics Command Center'}),
     element(d,'p',{className:'a52-muted',text:'Trace one Area-52 generation from Brain preparation through host insertion, provider wait, learning, and browser-side load — without exposing story content.'}),
   );
   const commandIdentity=element(d,'div',{className:'a52-diagnostics-command__identity'});
@@ -241,10 +241,11 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
 
   const primary=element(d,'section',{className:'a52-diagnostics-primary-grid'});
   const flight=diagnosticPanel(d,{icon:'◉',title:'Generation Flight Recorder',subtitle:'Exact selected-generation latency map',badge:detailed?'DETAILED':stages.length?'BRAIN TIMINGS':'NO EVIDENCE',tone:detailed?'ready':stages.length?'observed':'historical',className:'a52-diagnostics-flight'});
+  flight.body.append(element(d,'span',{className:'a52-eyebrow',text:'Performance / generation profiling'}));
   const profilerControl=element(d,'div',{className:'a52-generation-profiler-control a52-generation-profiler-control--hero'});
   const profilerStatus=element(d,'div',{className:'a52-inline-status'});
-  profilerStatus.append(element(d,'strong',{text:'Detailed browser profiling'}),makeBadge(d,profileControl.enabled==null?'NO_EVIDENCE':profileEnabled?'ON':'OFF',profileEnabled?'ready':profileControl.enabled==null?'historical':'warning'));
-  const toggle=createButton(d,{label:profileEnabled?'Profiling ON':'Arm profiler',scope,size:'sm',variant:profileEnabled?'primary':'secondary',onPress:()=>{model.setGenerationProfiling(!profileEnabled);refresh?.();}});
+  profilerStatus.append(element(d,'strong',{text:'Detailed generation profiling'}),makeBadge(d,profileControl.enabled==null?'NO_EVIDENCE':profileEnabled?'ON':'OFF',profileEnabled?'ready':profileControl.enabled==null?'historical':'warning'));
+  const toggle=createButton(d,{label:profileEnabled?'Turn profiling OFF':'Turn profiling ON',scope,size:'sm',variant:profileEnabled?'primary':'secondary',onPress:()=>{model.setGenerationProfiling(!profileEnabled);refresh?.();}});
   toggle.setAttribute('role','switch');toggle.setAttribute('aria-checked',String(profileEnabled));
   if(!profileControl.available){toggle.disabled=true;toggle.setAttribute('disabled','');}
   profilerControl.append(profilerStatus,toggle,element(d,'p',{className:'a52-muted',text:profileControl.available?'Session only. Arm before the generation you want to measure; a new live session starts OFF.':'This installed session does not expose detailed browser profiling.'}));
@@ -289,7 +290,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   measurementGrid.append(
     diagnosticMeasurement(d,{label:'Heap Δ',value:diagnosticBytes(overall.heapBytes),detail:generationPerf?.support?.heap??'NO_EVIDENCE',tone:overall.heapBytes>0?'warning':'observed'}),
     diagnosticMeasurement(d,{label:'Long Tasks',value:diagnosticLongTasks(overall.longTaskCount,overall.longTaskTotalMs),detail:generationPerf?.support?.longTasks??'NO_EVIDENCE',tone:Number(overall.longTaskCount)>0?'warning':'observed'}),
-    diagnosticMeasurement(d,{label:'UI Refresh',value:diagnosticRefresh(overall.diagnosticsUiRefreshCount,overall.diagnosticsUiRefreshTotalMs),detail:generationPerf?.support?.diagnosticsUiRefresh??'NO_EVIDENCE',tone:'cyan'}),
+    diagnosticMeasurement(d,{label:'Diagnostics/UI refresh',value:diagnosticRefresh(overall.diagnosticsUiRefreshCount,overall.diagnosticsUiRefreshTotalMs),detail:generationPerf?.support?.diagnosticsUiRefresh??'NO_EVIDENCE',tone:'cyan'}),
     diagnosticMeasurement(d,{label:'Provider Wait',value:diagnosticMs(detailed?.providerLatencyMs??stageMs('PROVIDER_RESPONSE')),detail:'generation transport edge',tone:'amber'}),
   );
   browser.body.append(measurementGrid);

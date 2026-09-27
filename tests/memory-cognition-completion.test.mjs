@@ -9,6 +9,9 @@ import {
   ConsolidationProposalKind,createConsolidationProposalBundle,createMemoryOwnerHandoff,
 } from '../src/coprocessor/continuous-consolidation.js';
 import {admitConsolidationBundleToMemoryOwner} from '../src/coprocessor/owner-integration.js';
+import {
+  Capability,DeterministicProviderAdapter,Placement,
+} from '../src/coprocessor/index.js';
 
 function scene(sceneId,sceneRevision,{location=null,activeCast=[],relationship=null}={}){
   return{
@@ -620,4 +623,80 @@ test('Memory cognition: an admitted episode can checkpoint before L3 consolidati
   const runtime=brain.runtimeDirector.ledger.list().find(row=>row.obligation?.taskType==='MEMORY_CONSOLIDATION_PROPOSAL');
   assert.ok(runtime);
   assert.equal(runtime.lifecycleStatus,'SATISFIED');
+});
+
+
+test('Memory cognition: deployment Continuous Consolidation producer closes real turn-to-reflection path',async()=>{
+  const deployment=new DevelopmentDeploymentBrain();
+  deployment.resourceConnections.profiles.register({
+    profileId:'memory-consolidation-test-profile',
+    workerId:'memory-consolidation-test-worker',
+    providerId:'memory-consolidation-test-provider',
+    capabilities:[Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
+    foregroundEligible:false,backgroundEligible:true,placements:[Placement.DEEP],supportedLayers:['L3'],
+  });
+  deployment.resourceConnections.adapters.register(new DeterministicProviderAdapter({
+    providerId:'memory-consolidation-test-provider',
+    capabilities:[Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
+    handlers:{
+      CONSOLIDATION:async({input})=>{
+        const refs=(input.data.sourceReferences??[]).map(ref=>({
+          kind:'ArtifactReference',artifactId:ref.artifactId,artifactType:ref.artifactType,
+          owner:ref.owner,revision:ref.revision,storageDomain:ref.storageDomain,provenanceRef:ref.provenanceRef,
+        }));
+        return{payload:{
+          kind:'ConsolidationProposalBundle',
+          unitId:input.data.taskSlice.unitId,
+          sourceRevisionSet:[...input.data.taskSlice.sourceRevisionSet],
+          proposals:[{
+            proposalKind:ConsolidationProposalKind.REFLECTION_EVIDENCE,
+            semanticIdentity:'reflection:sera:compass-check',
+            sourceArtifactRefs:refs,confidence:.79,authority:'INFERRED',
+            payload:{
+              directObservations:refs.map(row=>row.artifactId),
+              repeatedPatterns:['Sera repeatedly checks the brass compass before sailing.'],
+              inferredInterpretations:['Sera may habitually verify the brass compass before sailing.'],
+              contradictingEvidence:[],
+            },
+          }],
+          authority:'UNRESOLVED',
+        }};
+      },
+    },
+  }));
+
+  const bindings=deployment.hostBindings();
+  const brain=new Area52NativeBrain({
+    memoryInterface:deployment.memorySurface,
+    memoryConsolidationInterface:bindings.memoryConsolidationProducer,
+  });
+  for(const [index,response] of [
+    [1,'Sera checks the brass compass before sailing from the inlet.'],
+    [2,'Sera checks the brass compass again before the next departure.'],
+  ]){
+    await brain.prepareTurn({
+      chatId:'chat:real-consolidation',turnId:'real-consolidation:'+index,generationId:'gen:real-consolidation:'+index,
+      query:'Continue.',intent:'CURRENT',
+      scene:scene('inlet-'+index,index,{location:'Inlet',activeCast:['Sera'],relationship:index===1?null:'PRECEDES'}),
+      executionLabel:'DETERMINISTIC',
+    });
+    const learned=await brain.completeTurn({turnId:'real-consolidation:'+index,response,knownBy:['Sera']});
+    assert.equal(learned.memoryPostTurn?.status,'COMPLETED');
+    if(index===1){
+      assert.equal(learned.memoryConsolidation?.status,'SKIPPED');
+    }else{
+      assert.equal(learned.memoryConsolidation?.producerStatus,'PROPOSED');
+      assert.equal(learned.memoryConsolidation?.status,'COMPLETED');
+      assert.equal(learned.memoryConsolidation?.providerAttempted,true);
+    }
+  }
+
+  const reflection=deployment.memory.experienceStore.currentReflections()[0];
+  assert.ok(reflection);
+  assert.equal(reflection.reflectionKey,'reflection:sera:compass-check');
+  assert.equal(reflection.authorityClass,'INFERRED');
+  assert.equal(reflection.worldTruthAuthority,false);
+  assert.equal(reflection.settlementAuthority,false);
+  assert.equal(reflection.episodeRefs.length,2);
+  assert.match(reflection.statement,/habitually verify the brass compass/i);
 });

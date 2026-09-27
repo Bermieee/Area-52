@@ -458,11 +458,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     initialLorebook = null,
     nativeBrain = null,
     ownerBindings = {},
+    memoryOwnerSnapshot = null,
     persistNativeBrain = null,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
-    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true });
+    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
     this.persistNativeBrain=typeof persistNativeBrain==='function'?persistNativeBrain:null;
@@ -928,7 +929,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
     try{
       const snapshot=this.nativeBrain.snapshot();
-      await this.persistNativeBrain({chatId,turnId,generationId,snapshot});
+      const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+      const snapshotMemoryOwner=brainBindings?.snapshotMemoryOwner??(typeof this.brain?.snapshotMemoryOwner==='function'?()=>this.brain.snapshotMemoryOwner():null);
+      const memoryOwnerSnapshot=typeof snapshotMemoryOwner==='function'?snapshotMemoryOwner():null;
+      await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot});
       const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
       const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;

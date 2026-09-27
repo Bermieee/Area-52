@@ -972,6 +972,11 @@ export class Area52NativeBrain{
             producerStatus:proposed?.status??null,
             ownerReview:clone(ownerReview),
             providerAttempted:Boolean(proposed?.providerAttempted),
+            sidecarExecution:proposed?.executionReceipt?clone({
+              ...proposed.executionReceipt,
+              ownerDecision:ownerReview?.status??proposed?.status??'DEFERRED',
+              ownerAccepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),
+            }):null,
             rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
             authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
           };

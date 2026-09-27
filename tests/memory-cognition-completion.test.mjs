@@ -702,6 +702,14 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
       assert.equal(learned.memoryConsolidation?.producerStatus,'PROPOSED');
       assert.equal(learned.memoryConsolidation?.status,'COMPLETED');
       assert.equal(learned.memoryConsolidation?.providerAttempted,true);
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.requestPurpose,'COGNITIVE_EXECUTION');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.dispatchStatus,'DISPATCHED');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.returnStatus,'RETURNED');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerDestination,'MEMORY_OWNER_REVIEW');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerDecision,'COMPLETED');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerAccepted,true);
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.gatherDestination,'NOT_ELIGIBLE_POST_TURN');
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.sealDestination,'NOT_ELIGIBLE_POST_TURN');
     }
   }
 
@@ -713,6 +721,9 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
   assert.equal(trace.producers.memoryConsolidation.status,'COMPLETED');
   assert.equal(trace.producers.memoryConsolidation.ownerAccepted,true);
   assert.equal(trace.producers.memoryConsolidation.providerAttempted,true);
+  const turn=brain.readTurn('real-consolidation:2');
+  assert.equal(turn.memoryConsolidation.sidecarExecution.requestPurpose,'COGNITIVE_EXECUTION');
+  assert.equal(turn.memoryConsolidation.sidecarExecution.ownerAccepted,true);
 
   const reflection=deployment.memory.experienceStore.currentReflections()[0];
   assert.ok(reflection);

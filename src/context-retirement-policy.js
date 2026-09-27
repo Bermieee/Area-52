@@ -53,6 +53,24 @@ function coverageForMessage(message,coverage,chatId,isSourceRevisionCurrent=null
   return{ok:reasons.length===0,reasons,coverageId:String(coverage.coverageId??coverage.id??stableHash({kind,chatId,sourceRevisionRefs,covers},{length:20})),kind,sourceRevisionRefs,provenanceRefs};
 }
 
+function sceneCoverageFromHandoff(handoff,messages,chatId){
+  if(!handoff||handoff.kind!=='SceneTransitionContextHandoff'||handoff.status!=='ACTIVE')return[];
+  const continuity=handoff.continuity??{},episodeRef=continuity.episodeRef??null;
+  if(!episodeRef)return[];
+  const sourceRevisionRefs=uniq(continuity.sourceRevisionRefs??[]);
+  if(!sourceRevisionRefs.length)return[];
+  const sourceSet=new Set(sourceRevisionRefs),tail=new Set(uniq(continuity.recentTailRefs??[]));
+  const coversMessageIds=messages.filter(message=>message.sourceRevisionRefs.length&&message.sourceRevisionRefs.every(ref=>sourceSet.has(ref))&&!tail.has(message.messageId)&&!message.sourceRevisionRefs.some(ref=>tail.has(ref))).map(message=>message.messageId);
+  if(!coversMessageIds.length)return[];
+  return[{
+    kind:'SCENE_EPISODE',coverageId:'scene-handoff-coverage:'+handoff.handoffId,chatId,committed:true,durable:true,state:'CURRENT',
+    sourceRevisionRefs,coveredSourceRevisionRefs:sourceRevisionRefs,
+    provenanceRefs:uniq([...(handoff.evidenceRefs??[]),episodeRef.artifactId??episodeRef.id].filter(Boolean)),
+    coversMessageIds,
+    retrievalProbe:{status:'PASS',chatId,sourceRevisionRefs,artifactRef:clone(episodeRef)},
+    sceneHandoffId:handoff.handoffId,
+  }];
+}
 function protectedMessage(message){
   if(message.operatorPinned===true||message.unresolvedThread===true||message.hardRule===true||message.exception===true||message.relationshipChange===true)return true;
   return message.tags.some(tag=>protectedTags.has(tag));
@@ -65,19 +83,23 @@ export class NativeContextRetirementPolicy{
     this.isSourceRevisionCurrent=typeof isSourceRevisionCurrent==='function'?isSourceRevisionCurrent:null;
   }
 
-  evaluate({chatId,messages=[],coverage=[],recentWindow=this.defaultRecentWindow,sceneTransition=null}={}){
+  evaluate({chatId,messages=[],coverage=[],recentWindow=this.defaultRecentWindow,sceneTransition=null,sceneHandoff=null,additionalCurrentSourceRevisionRefs=[]}={}){
     const chat=req(chatId,'chatId');
     const normalized=(messages??[]).map(normalizeMessage).sort((a,b)=>a.sequence-b.sequence||a.messageId.localeCompare(b.messageId));
     const recentCount=Math.max(1,Number(recentWindow)||this.defaultRecentWindow);
     const recentIds=new Set(normalized.slice(-recentCount).map(row=>row.messageId));
-    const coverageRows=Array.isArray(coverage)?coverage:[];
+    const handoffTail=new Set(uniq(sceneHandoff?.continuity?.recentTailRefs??[]));
+    const coverageRows=[...(Array.isArray(coverage)?coverage:[]),...sceneCoverageFromHandoff(sceneHandoff,normalized,chat)];
+    const additionalCurrent=new Set(uniq(additionalCurrentSourceRevisionRefs));
+    const isCurrent=(ref)=>additionalCurrent.has(String(ref))||(typeof this.isSourceRevisionCurrent==='function'&&this.isSourceRevisionCurrent(ref)===true);
     const decisions=[],retireEligible=[],kept=[];
     for(const message of normalized){
       const reasons=[];
       if(recentIds.has(message.messageId))reasons.push('RECENT_VERBATIM_WINDOW');
+      if(handoffTail.has(message.messageId)||message.sourceRevisionRefs.some(ref=>handoffTail.has(ref)))reasons.push('SCENE_TRANSITION_RECENT_TAIL');
       if(protectedMessage(message))reasons.push('PROTECTED_CONTEXT');
       const matches=coverageRows.filter(row=>(row?.coversMessageIds??row?.messageIds??[]).map(String).includes(message.messageId));
-      const proofs=matches.map(row=>coverageForMessage(message,row,chat,this.isSourceRevisionCurrent));
+      const proofs=matches.map(row=>coverageForMessage(message,row,chat,isCurrent));
       const valid=proofs.find(row=>row.ok)??null;
       if(!reasons.length&&!valid){
         reasons.push(...uniq(proofs.flatMap(row=>row.reasons)));
@@ -90,7 +112,16 @@ export class NativeContextRetirementPolicy{
     const retainedMessages=normalized.filter(row=>kept.includes(row.messageId));
     const rawBytes=utf8ByteLength(normalized.map(row=>row.content).join('\n'));
     const retainedBytes=utf8ByteLength(retainedMessages.map(row=>row.content).join('\n'));
-    const transition=sceneTransition&&typeof sceneTransition==='object'?{
+    const transition=sceneHandoff?{
+      kind:'ContextSceneTransitionCarry',
+      previousSceneId:sceneHandoff.fromSceneRef?.sceneId??null,destinationSceneId:sceneHandoff.toSceneRef?.sceneId??null,relationship:sceneHandoff.relationship??null,
+      episodeRef:clone(sceneHandoff.continuity?.episodeRef??null),
+      compactPreviousSceneSummary:String(sceneHandoff.continuity?.compactPriorSceneSummary??'').slice(0,1600),
+      recentTailRefs:uniq(sceneHandoff.continuity?.recentTailRefs??[]),
+      retainedRecentTailMessageIds:decisions.filter(row=>row.reasons.includes('SCENE_TRANSITION_RECENT_TAIL')).map(row=>row.messageId),
+      prefetchDestination:Boolean(sceneHandoff.toSceneRef?.sceneId),prefetchHints:uniq([...(sceneHandoff.destinationPrefetch?.entityRefs??[]),...(sceneHandoff.destinationPrefetch?.locationRefs??[]),...(sceneHandoff.destinationPrefetch?.threadRefs??[])]),
+      eligibilityDecisionOwner:'CORE_CONTEXT_POLICY',promptInclusionAuthority:false,rawDialogueDeletionAuthority:false,contextSealAuthority:false,
+    }:sceneTransition&&typeof sceneTransition==='object'?{
       kind:'ContextSceneTransitionCarry',
       previousSceneId:sceneTransition.previousSceneId??null,
       destinationSceneId:sceneTransition.destinationSceneId??sceneTransition.nextSceneId??null,

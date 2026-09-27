@@ -9,6 +9,7 @@ import {
 } from '../candidate-bus-contracts.js';
 import { LoreStudyRuntime } from '../lore-study-runtime.js';
 import { LoreIntelligenceService } from '../lore-intelligence-service.js';
+import { reviewLoreJevAdvisory } from '../lore-jev-owner-review.js';
 import { LoreAuthoringService } from '../lore-authoring-service.js';
 import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
@@ -269,7 +270,9 @@ export class DevelopmentDeploymentBrain {
     if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
     this.jevAvailable = Boolean(jevAvailable);
-    this.loreJevOwnerReview = loreJevOwnerReview;
+    this.loreJevOwnerReview = loreJevOwnerReview ?? ((proposal) => reviewLoreJevAdvisory(proposal, {
+      currentLoreRevision: this.loreSystem.diagnostics().hierarchyRevision ?? 'lore:1',
+    }));
     this.core = new Area52CognitiveCore();
     if (loreOwnerSnapshot?.intelligence) {
       this.loreIntelligence = LoreIntelligenceService.fromSnapshot(loreOwnerSnapshot.intelligence);
@@ -1108,7 +1111,7 @@ export class DevelopmentDeploymentBrain {
         input,
         currentRevisionState,
         sealed: () => this.core.publication.seal.isTurnSealed(cognitiveTask.turnId),
-        ownerReview: this.loreJevOwnerReview == null ? null : async (proposal) => {
+        ownerReview: async (proposal) => {
           if (proposal.abstained || proposal.unresolved || proposal.staleState === 'STALE') {
             return { decision: 'UNRESOLVED', reasonCode: 'JEV_PROPOSAL_NOT_DECISIVE' };
           }

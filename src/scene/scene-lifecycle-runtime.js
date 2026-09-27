@@ -89,7 +89,7 @@ export class SceneLifecycleRuntime{
     return rows;
   }
 
-  #indexEpisodeGraph(episode){
+  indexEpisodeGraph(episode){
     if(!episode?.sceneId)return[];
     const scene=this.registry.current(episode.sceneId);if(!scene)return[];
     const refs=[],episodeRef=episode.artifactRef??null,sourceRevisionRefs=episode.sourceRevisionRefs??scene.sourceRevisionRefs??[];
@@ -152,7 +152,14 @@ export class SceneLifecycleRuntime{
             allowDestinationRefresh:Boolean(extracted.allowWhenRefreshRequired),expectedSceneRevision:current.revision,
             chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,
           });
-          if(transition.episodeRef){const episode=this.episodeCompiler.get(transition.episodeRef.artifactId);if(episode)this.#indexEpisodeGraph(episode);}
+          if(transition.episodeRef){
+            const episode=this.episodeCompiler.get(transition.episodeRef.artifactId);
+            if(episode)this.indexEpisodeGraph(episode);
+            this.graph.addRelationship({fromSceneId:transition.fromSceneId,toSceneId:transition.toSceneId,relationship:transition.relationship,evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[boundary.decision.candidateId,evidence.sourceRevisionId],sceneRevision:episode?.sceneRevision??current.revision,episodeRef:episode?.artifactRef??transition.episodeRef});
+            if(transition.relationship===SceneRelationship.CONTINUES)this.graph.addRelationship({fromSceneId:transition.fromSceneId,toSceneId:transition.toSceneId,relationship:SceneRelationship.PRECEDES,evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[boundary.decision.candidateId,evidence.sourceRevisionId],sceneRevision:episode?.sceneRevision??current.revision,episodeRef:episode?.artifactRef??transition.episodeRef});
+          }else if(transition.toSceneId){
+            this.graph.addRelationship({fromSceneId:transition.fromSceneId,toSceneId:transition.toSceneId,relationship:transition.relationship,evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[boundary.decision.candidateId,evidence.sourceRevisionId],sceneRevision:current.revision});
+          }
           if(transition.toSceneId){
             this.chatScenes.set(evidence.chatId,transition.toSceneId);
             const nextScene=this.registry.current(transition.toSceneId);

@@ -37,6 +37,29 @@ const req=(value,name)=>{if(typeof value!=='string'||!value.trim())throw new Typ
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
 const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
 
+function redactTransitionHandoff(handoff){
+  if(!handoff)return null;
+  const safe=clone(handoff);
+  if(safe.continuity){
+    const summary=String(safe.continuity.compactPriorSceneSummary??'');
+    safe.continuity.compactSummaryAvailable=Boolean(summary.trim());
+    safe.continuity.compactSummaryLength=summary.length;
+    delete safe.continuity.compactPriorSceneSummary;
+  }
+  return safe;
+}
+
+function redactSceneOwnerReceipt(receipt){
+  if(!receipt)return null;
+  const safe=clone(receipt);
+  if(safe.transitionHandoff)safe.transitionHandoff=redactTransitionHandoff(safe.transitionHandoff);
+  if(safe.transition?.handoff)safe.transition.handoff=redactTransitionHandoff(safe.transition.handoff);
+  if(Array.isArray(safe.invalidatedTransitionHandoffs))safe.invalidatedTransitionHandoffs=safe.invalidatedTransitionHandoffs.map(redactTransitionHandoff);
+  if(Array.isArray(safe.invalidatedHandoffs))safe.invalidatedHandoffs=safe.invalidatedHandoffs.map(redactTransitionHandoff);
+  safe.rawNarrativeIncluded=false;safe.storyTextIncluded=false;
+  return safe;
+}
+
 function redactContextRetirement(receipt){
   if(!receipt)return null;
   const transition=receipt.sceneTransition?{
@@ -408,6 +431,7 @@ export class Area52NativeBrain{
       });
     }
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
+    const safeSceneOwnerReceipt=redactSceneOwnerReceipt(sceneOwnerReceipt);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
     this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
     const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
@@ -505,7 +529,7 @@ export class Area52NativeBrain{
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet,sceneSourceRevisionRefs,ownerSourceRevisionSet,
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
-      sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:{
+      sceneOwnerReceipt:clone(safeSceneOwnerReceipt),sceneIngress:{
         kind:'NativeBrainSceneIngressReceipt',
         timelineCount:sceneIngressReceipts.length,
         timelineReceipts:clone(sceneIngressReceipts),
@@ -537,7 +561,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(safeSceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       retrievalQualityReceipt:published.retrievalQualityReceipt??null,
       correctiveRetrievalReceipt:published.correctiveRetrievalReceipt??null,
@@ -589,7 +613,7 @@ export class Area52NativeBrain{
     if(typeof generate!=='function')return{prepared,response:null,learning:null};
     const raw=await generate(prepared.rendered,{
       selection:prepared.selection,promptPlan:prepared.promptPlan,contextSealReceipt:prepared.contextSealReceipt,
-      contextRetirement:prepared.contextRetirement??null,
+      contextRetirement:prepared.contextRetirement??null,sceneOwnerReceipt:prepared.sceneOwnerReceipt??null,
     });
     const response=typeof raw==='string'?raw:raw?.text??raw?.content;
     if(typeof response!=='string'||!response.trim())throw new TypeError('generation callback must return response text');

@@ -886,9 +886,15 @@ export class MemoryTemporalProducer {
         const artifact=this.experienceStore.artifact(id);
         return [...(artifact?.supportEvidenceRefs??[]),...(artifact?.contradictionEvidenceRefs??[])];
       }))].sort();
-      if(evidenceRefs.length)this.summaryHierarchy.invalidateEvidenceRefs(evidenceRefs,'REFLECTION_CHANGED');
+      const affectedSummaryScopeRefs=evidenceRefs.length?this.summaryHierarchy.invalidateEvidenceRefs(evidenceRefs,'REFLECTION_CHANGED'):[];
+      const summaryRefresh=affectedSummaryScopeRefs.length
+        ?this.runSummaryCompaction({maxUnits:affectedSummaryScopeRefs.length})
+        :null;
       this.historian.build();
-      this.notifyUi('MEMORY_CONSOLIDATION_PUBLISHED',evidenceRefs,{sessionId,publishedArtifactIds:result.publishedArtifactIds});
+      this.notifyUi('MEMORY_CONSOLIDATION_PUBLISHED',evidenceRefs,{
+        sessionId,publishedArtifactIds:result.publishedArtifactIds,
+        affectedSummaryScopeRefs,summaryRefreshState:summaryRefresh?.state??null,
+      });
     }
     const outcomes=result.outcomes??[],failures=result.failures??[];
     let status='COMPLETED';

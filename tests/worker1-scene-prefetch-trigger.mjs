@@ -131,6 +131,18 @@ test('#112 duplicate recommendation publication coalesces by semantic identity',
   assert.equal(brain.scene.prefetchTrigger.active({sceneId:scene.sceneId,sceneRevision:scene.revision}).length,1);
 });
 
+test('#112 recommendation expiry remains Scene-revision bounded',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const scene=brain.scene.ensureChatScene('expiry-chat',{sourceRevisionRefs:['src:expiry'],evidenceRefs:['src:expiry']});
+  const recommendation=brain.scene.prefetchTrigger.recommend({
+    sceneId:scene.sceneId,sceneRevision:scene.revision,trigger:'THREAD_ACTIVATED',
+    threadRefs:['thread:expiry'],evidenceRefs:['src:expiry'],sourceRevisionRefs:['src:expiry'],ttlRevisions:1,
+  });
+  assert.equal(brain.scene.prefetchTrigger.isFresh(recommendation,{sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:['src:expiry']}),true);
+  assert.deepEqual(brain.scene.prefetchTrigger.active({sceneId:scene.sceneId,sceneRevision:scene.revision+2}),[]);
+  assert.equal(brain.scene.prefetchTrigger.exportState().pending.find(row=>row.recommendationId===recommendation.recommendationId)?.status,'EXPIRED');
+});
+
 test('#112 source correction cancels the old recommendation and publishes a replacement-fenced intent',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   ingest(brain,event(HostActivity.USER_SEND,'edit0','At North Gallery, Mara waits.'));

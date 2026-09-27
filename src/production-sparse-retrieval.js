@@ -225,7 +225,7 @@ export class ProductionSparseRetrievalChannel{
     return clone(this.lastHydration);
   }
 
-  hydrateLoreOwner(owner,{chatId}={}){
+  hydrateLoreOwner(owner,{chatId,query=null}={}){
     const chat=chatId==null?null:String(chatId);
     if(!chat||typeof owner?.status!=='function'||typeof owner?.sourceRevision!=='function'){
       return this.clearScope(!chat?'STORY_SCOPE_REQUIRED':'OWNER_CURRENT_SOURCE_SURFACE_UNAVAILABLE');
@@ -237,10 +237,18 @@ export class ProductionSparseRetrievalChannel{
       this.lastHydration={...this.lastHydration,chatId:chat,reason:error?.code??error?.message??'OWNER_STATUS_FAILED'};
       return clone(this.lastHydration);
     }
+    const queryText=normalize(query??'');
+    const exactStatusMatch=(row)=>queryText&&[
+      row?.sourceId,row?.uid,row?.title,row?.name,
+    ].some((value)=>value!=null&&containsQualified(queryText,value));
     const eligible=(status?.entries??[])
       .filter((row)=>row?.eligibleForStoryRetrieval===true&&row?.sourceState!=='REMOVED'&&row?.freshness==='CURRENT'&&row?.retrievalReady!==false)
-      .sort((a,b)=>String(a.sourceId).localeCompare(String(b.sourceId)));
+      .sort((a,b)=>{
+        const pa=exactStatusMatch(a)?0:1,pb=exactStatusMatch(b)?0:1;
+        return pa-pb||String(a.sourceId).localeCompare(String(b.sourceId));
+      });
     const selected=eligible.slice(0,this.maxArtifacts);
+    const queryPrioritizedCount=selected.filter(exactStatusMatch).length;
     const active=new Set(),failures=[],indexedArtifacts=[];
     let indexedCount=0;
     for(const entry of selected){
@@ -263,6 +271,7 @@ export class ProductionSparseRetrievalChannel{
       indexedCount,
       activeCount:active.size,
       boundedOutCount:Math.max(0,eligible.length-selected.length),
+      queryPrioritizedCount,
       compacted:Boolean(compaction),
       compaction:clone(compaction),
       failures:failures.slice(0,32),

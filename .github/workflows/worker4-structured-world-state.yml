@@ -9,8 +9,15 @@ on:
       - 'src/sensory-net-backbone.js'
       - 'src/cognitive-core.js'
       - 'src/native-brain.js'
+      - 'src/ui-core/selected-turn-graph-visibility.js'
+      - 'src/ui-core/wave6-runtime.js'
+      - 'src/ui-core/wave13-operator-adapters.js'
+      - 'src/ui-core/wave13-operator-surfaces.js'
+      - 'src/ui-core/turn-log-diagnostics.js'
+      - 'src/ui-core/index.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'tests/worker4-structured-world-state-graph.mjs'
+      - 'tests/worker4-selected-turn-graph-ui.test.mjs'
       - 'docs/WORKER4_STRUCTURED_WORLD_STATE_GRAPH.md'
       - '.github/workflows/worker4-structured-world-state.yml'
 
@@ -30,8 +37,18 @@ jobs:
           node --check src/native-brain.js
           node --check src/deployment/owner-graph-adapters.js
           node --check tests/worker4-structured-world-state-graph.mjs
+          node --check src/ui-core/selected-turn-graph-visibility.js
+          node --check src/ui-core/wave6-runtime.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check src/ui-core/wave13-operator-surfaces.js
+          node --check src/ui-core/turn-log-diagnostics.js
+          node --check tests/worker4-selected-turn-graph-ui.test.mjs
       - name: Worker 4 acceptance
         run: node --test tests/worker4-structured-world-state-graph.mjs
+      - name: Selected-turn graph UI acceptance
+        run: node --test tests/worker4-selected-turn-graph-ui.test.mjs
+      - name: Worker 3 shared UI regressions
+        run: node --test tests/worker3-brain-decision-visibility.test.mjs tests/worker3-brain-trace-ui.test.mjs tests/wave13-operator-ui.test.mjs
       - name: Native graph and identity regression
         run: |
           node --test --test-name-pattern='cross-source entity identity|graph walker|graph traversal candidate|Worker 4 v2 removal' tests/native-brain-identity-retrieval.mjs

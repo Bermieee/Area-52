@@ -64,3 +64,4 @@ export * from './turn-log-diagnostics.js';
 export * from './lore-review-workflow.js';
 export * from './lore-authoring-review-ui.js';
 export * from './brain-decision-visibility.js';
+export * from './selected-turn-graph-visibility.js';

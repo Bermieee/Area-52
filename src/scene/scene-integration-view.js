@@ -1,8 +1,10 @@
 import { createSceneIntegrationSignal, createSceneWhyReferences } from './integration-contracts.js';
 import { createSceneUiReadModel } from './scene-ui-read-model.js';
+import { AtmosphereConsumptionPolicy } from './atmosphere-policy.js';
 
 const clone=(v)=>v==null?v:structuredClone(v);
 const relationEdges=new Set(['SCENE_PRECEDES','SCENE_CONTINUES','SCENE_PARALLEL','SCENE_FLASHBACK','SCENE_INTERRUPTS','SCENE_RESUMES']);
+const atmospherePolicy=new AtmosphereConsumptionPolicy();
 
 function objectTransitionRefs(scene){
   const out=[];
@@ -42,6 +44,7 @@ export function buildSceneIntegrationSignal(runtime,chatId){
   const prefetch=runtime.prefetchTrigger.active({sceneId,sceneRevision:scene.revision});const objectRefs=objectTransitionRefs(scene);
   const prev=previousSceneRef(runtime,sceneId);const resumed=frame?.relationshipToPrior==='RESUMES'?{sceneId,sceneRevision:scene.revision}:null;
   const diag=diagnosticRefs(runtime,scene,recentEpisodeRefs,objectRefs);
+  const atmosphereContribution=atmospherePolicy.consume({atmosphere:scene.fields?.atmosphere,currentSceneRevision:scene.revision});
   const health=scene.health??{status:(scene.unresolvedFields??[]).length?'degraded':'ready',reasons:(scene.unresolvedFields??[]).length?['UNRESOLVED_FIELDS']:[]};
   return createSceneIntegrationSignal({
     sceneId,sceneRevision:scene.revision,sourceRevisionRefs:scene.sourceRevisionRefs??[],
@@ -51,7 +54,7 @@ export function buildSceneIntegrationSignal(runtime,chatId){
     sceneRelationship:frame?.relationshipToPrior??null,transitionType:frame?.relationshipToPrior??scene.fields?.boundaryState?.value?.type??null,
     previousSceneRef:prev,resumedSceneRef:resumed,latestEpisodeRef:recentEpisodeRefs.at(-1)??null,episodeRefs:recentEpisodeRefs,
     retrievalQuality:runtime.retrieval.quality(retrieval),prefetchRecommendations:prefetch,objectTransitionRefs:objectRefs,
-    atmosphere:scene.fields?.atmosphere??null,atmosphereRef:atmosphereRef(scene),health,
+    atmosphere:scene.fields?.atmosphere??null,atmosphereContribution,atmosphereRef:atmosphereRef(scene),health,
     provenance:[...(scene.provenance??[]),...Object.values(scene.fields??{}).flatMap((x)=>x?.evidenceRefs??[])],diagnosticRefs:diag,
   });
 }
@@ -73,6 +76,6 @@ export function fanOutSceneInput(runtime,chatId){
     activeThreads:clone(signal.activeThreads),uncertainSceneFields:[...signal.uncertainFields],conflictSignals:[...signal.conflictSignals],
     boundaryState:clone(signal.boundaryState),sceneRelationship:signal.sceneRelationship,sceneTransitionType:signal.transitionType,
     episodeRefs:clone(signal.episodeRefs),retrievalQuality:signal.retrievalQuality,prefetchRecommendations:clone(signal.prefetchRecommendations),
-    objects:clone(signal.objects),authorityGranted:false,
+    atmosphereContribution:clone(signal.atmosphereContribution),objects:clone(signal.objects),authorityGranted:false,
   });
 }

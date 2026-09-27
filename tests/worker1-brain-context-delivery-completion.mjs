@@ -118,7 +118,7 @@ test('DETERMINISTIC: provider response identity mismatch cannot learn into a sea
 test('ASSEMBLED_HOST_REQUEST: exact rendered roles, sections, seal identity, response receipt, and bounded payload retention',async()=>{
   const {context,listeners,sillyTavern}=makeHost();
   const nativeBrain=new Area52NativeBrain();
-  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,detailedGenerationProfiling:true});
   session.start();
   pushUser(context,'At Neutral Hall, inspect the sealed gate.');
   await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
@@ -150,6 +150,14 @@ test('ASSEMBLED_HOST_REQUEST: exact rendered roles, sections, seal identity, res
   assert.equal(completed.phases.providerResponse.generationId,selection.generationId);
   assert.equal(completed.phases.providerResponse.contextSealId,before.contextSealId);
   assert.equal(ui.readGeneration({generationId:selection.generationId,...selection}).state,'LEARNED');
+  const detailed=session.loadDiagnostics().generationProfiling.latest;
+  assert.equal(detailed.kind,'NativeGenerationDetailedPerformanceProfile');
+  assert.equal(detailed.generationId,selection.generationId);
+  assert.equal(typeof detailed.deltas.diagnosticsUiRefreshCount,'number');
+  assert.equal(typeof detailed.deltas.diagnosticsUiRefreshTotalMs,'number');
+  assert.ok(detailed.deltas.heapBytes===null||Number.isFinite(detailed.deltas.heapBytes));
+  assert.ok(detailed.deltas.longTaskCount===null||Number.isFinite(detailed.deltas.longTaskCount));
+  assert.equal(detailed.rawPromptIncluded,false);assert.equal(detailed.storyTextIncluded,false);assert.equal(detailed.credentialsIncluded,false);assert.equal(detailed.hiddenReasoningIncluded,false);
   session.destroy();
 });
 

@@ -94,9 +94,8 @@ export class SelectedTurnLogModel{
     const payload=this.exportDiagnostics({selection}),files=diagnosticsBundleFiles(payload),BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
     if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',payload,files};
     const stamp=fileTimestamp(payload.exportedAt),base='Area52-Diagnostics-'+stamp;
-    let blob,bundleFormat='zip',downloadName=filename??base+'.zip';
-    try{blob=createStoredZipBlob(files,BlobCtor);}
-    catch{bundleFormat='json';downloadName=filename??base+'.json';blob=new BlobCtor([JSON.stringify(payload,null,2)],{type:'application/json'});}
+    let blob=createStoredZipBlob(files,{BlobCtor,TextEncoderCtor:globalThis.TextEncoder,exportedAt:payload.exportedAt}),bundleFormat='zip',downloadName=filename??base+'.zip';
+    if(!blob){bundleFormat='json';downloadName=filename??base+'.json';blob=new BlobCtor([JSON.stringify(payload,null,2)],{type:'application/json'});}
     const url=URLApi.createObjectURL(blob),a=document.createElement('a');
     a.href=url;a.download=downloadName;a.style.display='none';document.body?.append?.(a);
     try{a.click?.();}finally{a.remove?.();URLApi.revokeObjectURL?.(url);}
@@ -369,42 +368,19 @@ function diagnosticsBundleFiles(payload){
   const op=payload.operationalSnapshot??{},root='Area52-Diagnostics-'+fileTimestamp(payload.exportedAt)+'/';
   const j=(value)=>JSON.stringify(value??null,null,2);
   return[
-    {name:root+'README.txt',content:'Area 52 Diagnostics bundle\n\nThis archive contains bounded metadata-only diagnostics retained by the UI. Raw prompts, story/Lore bodies, credentials, keys, and hidden reasoning are intentionally excluded.\n'},
-    {name:root+'manifest.json',content:j({...payload.manifest,safety:payload.safety})},
-    {name:root+'timeline.json',content:j(payload.timeline)},
-    {name:root+'selected-turn.json',content:j(payload.selectedTurn)},
-    {name:root+'retained-evidence.json',content:j(payload.retainedEvidence)},
-    {name:root+'brain/brain.json',content:j({producers:op.producers,pipeline:op.pipeline,generationInspection:op.generationInspection})},
-    {name:root+'runtime/runtime.json',content:j(op.runtime)},
-    {name:root+'resources/resources.json',content:j({resources:op.resources,wiring:op.wiring,coprocessor:op.coprocessor})},
-    {name:root+'knowledge/lore-memory.json',content:j({lore:op.lore,memory:op.memory,cognition:op.cognition})},
-    {name:root+'performance/ui-load.json',content:j(op.telemetry?.uiLoad??null)},
-    {name:root+'errors/errors.json',content:j(payload.errors)},
-    {name:root+'operational-snapshot.json',content:j(op)},
+    {path:root+'README.txt',content:'Area 52 Diagnostics bundle\n\nThis archive contains bounded metadata-only diagnostics retained by the UI. Raw prompts, story/Lore bodies, credentials, keys, and hidden reasoning are intentionally excluded.\n'},
+    {path:root+'manifest.json',content:j({...payload.manifest,safety:payload.safety})},
+    {path:root+'timeline.json',content:j(payload.timeline)},
+    {path:root+'selected-turn.json',content:j(payload.selectedTurn)},
+    {path:root+'retained-evidence.json',content:j(payload.retainedEvidence)},
+    {path:root+'brain/brain.json',content:j({producers:op.producers,pipeline:op.pipeline,generationInspection:op.generationInspection})},
+    {path:root+'runtime/runtime.json',content:j(op.runtime)},
+    {path:root+'resources/resources.json',content:j({resources:op.resources,wiring:op.wiring,coprocessor:op.coprocessor})},
+    {path:root+'knowledge/lore-memory.json',content:j({lore:op.lore,memory:op.memory,cognition:op.cognition})},
+    {path:root+'performance/ui-load.json',content:j(op.telemetry?.uiLoad??null)},
+    {path:root+'errors/errors.json',content:j(payload.errors)},
+    {path:root+'operational-snapshot.json',content:j(op)},
   ];
-}
-function createStoredZipBlob(files,BlobCtor){
-  const Encoder=globalThis.TextEncoder;if(typeof Encoder!=='function')throw new Error('TextEncoder unavailable');
-  const enc=new Encoder(),locals=[],centrals=[];let offset=0;
-  for(const file of files){
-    const name=enc.encode(String(file.name)),data=enc.encode(String(file.content??'')),crc=crc32(data);
-    const local=new Uint8Array(30+name.length),lv=new DataView(local.buffer);
-    lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(6,0,true);lv.setUint16(8,0,true);lv.setUint16(10,0,true);lv.setUint16(12,0,true);
-    lv.setUint32(14,crc,true);lv.setUint32(18,data.length,true);lv.setUint32(22,data.length,true);lv.setUint16(26,name.length,true);lv.setUint16(28,0,true);local.set(name,30);
-    locals.push(local,data);
-    const central=new Uint8Array(46+name.length),cv=new DataView(central.buffer);
-    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0,true);cv.setUint16(10,0,true);cv.setUint16(12,0,true);cv.setUint16(14,0,true);
-    cv.setUint32(16,crc,true);cv.setUint32(20,data.length,true);cv.setUint32(24,data.length,true);cv.setUint16(28,name.length,true);cv.setUint16(30,0,true);cv.setUint16(32,0,true);cv.setUint16(34,0,true);cv.setUint16(36,0,true);cv.setUint32(38,0,true);cv.setUint32(42,offset,true);central.set(name,46);
-    centrals.push(central);offset+=local.length+data.length;
-  }
-  const centralSize=centrals.reduce((n,row)=>n+row.length,0),end=new Uint8Array(22),ev=new DataView(end.buffer);
-  ev.setUint32(0,0x06054b50,true);ev.setUint16(4,0,true);ev.setUint16(6,0,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);ev.setUint32(12,centralSize,true);ev.setUint32(16,offset,true);ev.setUint16(20,0,true);
-  return new BlobCtor([...locals,...centrals,end],{type:'application/zip'});
-}
-function crc32(bytes){
-  let crc=0xffffffff;
-  for(const byte of bytes){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^(0xedb88320&-(crc&1));}
-  return(crc^0xffffffff)>>>0;
 }
 function fileTimestamp(value){
   const date=new Date(Number(value)||Date.now()),pad=(n)=>String(n).padStart(2,'0');

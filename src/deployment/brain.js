@@ -612,12 +612,12 @@ export class DevelopmentDeploymentBrain {
     }
     const invalidatedTransitionHandoffs=clone(outcome?.invalidatedHandoffs??[]);
     const handoffReceipts=[];
+    const signal = chatId ? this.scene.integrationSignal(chatId) : null;
+    const signalReceipt = signal ? this.core.consumeSceneSignal(signal, { chatNamespace: chatId }) : null;
     if(chatId){
       for(const handoff of invalidatedTransitionHandoffs)handoffReceipts.push(this.core.consumeSceneTransitionHandoff(handoff,{chatNamespace:chatId}));
       if(outcome?.transition?.handoff)handoffReceipts.push(this.core.consumeSceneTransitionHandoff(outcome.transition.handoff,{chatNamespace:chatId}));
     }
-    const signal = chatId ? this.scene.integrationSignal(chatId) : null;
-    const signalReceipt = signal ? this.core.consumeSceneSignal(signal, { chatNamespace: chatId }) : null;
     const changedFields = Object.keys(outcome?.delta?.changedFields ?? {}).sort();
     const eventRows = timeline.filter((row) => row.type === 'EVENT');
     const invalidationRows = timeline.filter((row) => row.type === 'INVALIDATION');

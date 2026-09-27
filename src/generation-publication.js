@@ -67,11 +67,11 @@ export class GenerationPublicationPipeline {
       stageRows.push({
         stage,wallMs:Math.max(0,perfNow()-started),queueWaitMs:Math.max(0,Number(queueWaitMs)||0),
         inputCount:Math.max(0,Number(inputCount)||0),outputCount:Math.max(0,Number(outputCount)||0),
-        inputBytes:Number.isFinite(Number(inputBytes))?Math.max(0,Number(inputBytes)):null,
-        outputBytes:Number.isFinite(Number(outputBytes))?Math.max(0,Number(outputBytes)):null,
+        inputBytes:inputBytes!=null&&Number.isFinite(Number(inputBytes))?Math.max(0,Number(inputBytes)):null,
+        outputBytes:outputBytes!=null&&Number.isFinite(Number(outputBytes))?Math.max(0,Number(outputBytes)):null,
         inputSizeClass:sizeClass(inputCount),outputSizeClass:sizeClass(outputCount),
         retainedObjectCount:Math.max(0,Number(retainedObjectCount)||0),
-        retainedBytes:Number.isFinite(Number(retainedBytes))?Math.max(0,Number(retainedBytes)):null,
+        retainedBytes:retainedBytes!=null&&Number.isFinite(Number(retainedBytes))?Math.max(0,Number(retainedBytes)):null,
         outcome:String(outcome),
       });
     };

@@ -100,6 +100,82 @@ export class SelectedTurnLogModel{
     });
   }
 
+  exportUnifiedDiagnostics({selection=null}={}){
+    const legacy=this.exportDiagnostics({selection}),op=legacy.operationalSnapshot??{},selectedTurn=legacy.selectedTurn??{},manifest=legacy.manifest??{};
+    return sanitize({
+      kind:'Area52UnifiedDiagnosticsExport',
+      contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,
+      exportedAt:legacy.exportedAt,
+      manifest:{
+        ...manifest,
+        format:'single-json',
+        bounded:true,
+        source:'Area-52 Diagnostics retained metadata',
+      },
+      selection:manifest.selection??selectedTurn.selection??normalizeSelection(selection??this.selectionProvider?.()??{}),
+      summary:{
+        selectedTurn:selectedTurn.summary??null,
+        retainedTurns:manifest.retainedTurns??0,
+        retainedTimelineEvents:manifest.retainedTimelineEvents??0,
+        selectedTurnRows:manifest.selectedTurnRows??0,
+        errorCount:manifest.errorCount??0,
+        chronology:selectedTurn.chronology??null,
+      },
+      generationPerformance:op.generationPerformance??null,
+      brain:{
+        producers:op.producers??null,
+        pipeline:op.pipeline??null,
+        generationInspection:op.generationInspection??null,
+        decision:selectedTurn.brainDecision??null,
+        graph:selectedTurn.graphTrace??op.graph??null,
+      },
+      runtime:op.runtime??null,
+      resources:{
+        resources:op.resources??null,
+        wiring:op.wiring??null,
+        coprocessor:op.coprocessor??null,
+      },
+      knowledge:{
+        lore:op.lore??null,
+        memory:op.memory??null,
+        cognition:op.cognition??null,
+      },
+      diagnosticsUi:op.telemetry?.uiLoad??null,
+      errors:legacy.errors??[],
+      eventTimeline:legacy.timeline??[],
+      selectedTurn,
+      retainedEvidence:legacy.retainedEvidence??null,
+      retention:selectedTurn.retention??null,
+      rawOperationalSnapshot:op,
+      bounds:{
+        retainedTurns:manifest.retainedTurns??0,
+        retainedTimelineEvents:manifest.retainedTimelineEvents??0,
+        selectedTurnRows:manifest.selectedTurnRows??0,
+        retentionBounded:true,
+      },
+      safety:{
+        ...(legacy.safety??{}),
+        metadataOnly:true,
+        rawPrompts:false,
+        storyLoreBodies:false,
+        providerBodies:false,
+        credentials:false,
+        hiddenReasoning:false,
+        mutationAuthority:false,
+      },
+    });
+  }
+
+  downloadDiagnosticsJson({selection=null,document=globalThis.document??null,filename=null}={}){
+    const payload=this.exportUnifiedDiagnostics({selection}),json=JSON.stringify(payload,null,2),BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
+    const downloadName=filename??'Area52-Diagnostics-'+fileTimestamp(payload.exportedAt)+'.json';
+    if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',filename:downloadName,bundleFormat:'json',payload,json};
+    const blob=new BlobCtor([json],{type:'application/json'}),url=URLApi.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=downloadName;a.style.display='none';document.body?.append?.(a);
+    try{a.click?.();}finally{a.remove?.();URLApi.revokeObjectURL?.(url);}
+    return{ok:true,filename:a.download,bundleFormat:'json',payload,json};
+  }
+
   downloadFullDiagnostics({selection=null,document=globalThis.document??null,filename=null}={}){
     const payload=this.exportDiagnostics({selection}),files=diagnosticsBundleFiles(payload),BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
     if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',payload,files};
@@ -224,7 +300,8 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const commandActions=element(d,'div',{className:'a52-diagnostics-command__actions'});
   commandActions.append(
     makeBadge(d,status.label,status.token),
-    createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',variant:'primary',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),
+    createButton(d,{label:'Export Diagnostics JSON',scope,size:'sm',variant:'primary',onPress:()=>model.downloadDiagnosticsJson({selection:s,document:d})}),
+    createButton(d,{label:'Export Full Diagnostics ZIP',scope,size:'sm',variant:'secondary',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),
     createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}),
   );
   command.append(commandTitle,commandIdentity,commandActions);root.append(command);

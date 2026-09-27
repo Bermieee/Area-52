@@ -457,7 +457,7 @@ test('local evidence journal survives UI reload with the same browser storage an
   const second=mount(owner,{storage});second.ui.scheduler.flush(2);
   const after=second.ui.operator.evidenceJournal.readTurn(selection);assert.ok(after);assert.equal(after.key,before.key);assert.ok(after.entries.length>=before.entries.length);
   second.ui.shell.selectWorkspace('turn-log');second.ui.scheduler.flush(3);
-  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Area-?52 Diagnostics/);assert.match(body,/Export Full Diagnostics/);assert.match(body,/Retention \/ safety/);
+  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Area-?52 Diagnostics/);assert.match(body,/Export Diagnostics JSON/);assert.match(body,/Export Full Diagnostics ZIP/);assert.match(body,/Retention \/ safety/);
   const exported=second.ui.operator.evidenceJournal.exportEvidence({selection});assert.equal(exported.turns.length,1);assert.equal(exported.safety.rawPromptsPersisted,false);
   second.ui.destroy();
 });

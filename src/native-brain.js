@@ -80,6 +80,7 @@ export class Area52NativeBrain{
     maxTurns=256,
     loreInterface=null,
     memoryInterface=null,
+    memoryConsolidationInterface=null,
     graphProviders=[],
   }={}){
     this.maxTurns=Math.max(16,Number(maxTurns)||256);
@@ -101,7 +102,7 @@ export class Area52NativeBrain{
     this.ownerEvidence=new Map();
     this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));
     this.rejectedLoreRevisionIds=new Set(clone(snapshot?.rejectedLoreRevisionIds??[]));
-    this.loreInterface=null;this.memoryInterface=null;
+    this.loreInterface=null;this.memoryInterface=null;this.memoryConsolidationInterface=null;
     this.ownerLoreChannel=new LoreOwnerRetrievalChannel({
       getInterface:()=>this.loreInterface,
       evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
@@ -111,6 +112,7 @@ export class Area52NativeBrain{
     this.core.registerExternalKnowledgeResolver((candidate)=>this.#resolveKnowledgeEvidence(candidate));
     this.attachLoreInterface(loreInterface);
     this.attachMemoryInterface(memoryInterface);
+    this.attachMemoryConsolidationInterface(memoryConsolidationInterface);
 
     this.turns=new Map(clone(snapshot?.turns??[]));
     this.turnOrder=clone(snapshot?.turnOrder??[]);
@@ -160,6 +162,18 @@ export class Area52NativeBrain{
     this.loreInterface=loreInterface;
     this.#registerKnowledgeChannels();
     return{kind:'NativeBrainLoreInterfaceReceipt',attached:Boolean(loreInterface),contractVersion:loreInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
+  }
+
+  attachMemoryConsolidationInterface(memoryConsolidationInterface=null){
+    if(memoryConsolidationInterface!==null&&typeof memoryConsolidationInterface?.propose!=='function')throw new TypeError('Memory consolidation interface must expose propose(input)');
+    this.memoryConsolidationInterface=memoryConsolidationInterface;
+    if(this.runtimeDirector)this.#attachRecoveredExecutors();
+    return{
+      kind:'NativeBrainMemoryConsolidationInterfaceReceipt',
+      attached:Boolean(memoryConsolidationInterface),
+      contractVersion:memoryConsolidationInterface?.contractVersion??null,
+      authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
   }
 
   acceptLoreRevisionChange(event={}){
@@ -468,7 +482,9 @@ export class Area52NativeBrain{
       settlementDecisions:settlements.map(x=>x?.decision?.decision??'REJECTED'),
       reflectionEvidenceIds:reflectionRows.map(x=>x.evidenceId),
       feedback:clone(latest.feedback),runtimeTaskId:feedbackTaskId,memoryRuntimeTaskId:memoryTaskId,
-      memoryWriteback:clone(memoryWriteback),memoryPostTurn:clone(latest.memoryPostTurn??null),memorySettlementReceipts:clone(memorySettlementReceipts),
+      memoryWriteback:clone(memoryWriteback),memoryPostTurn:clone(latest.memoryPostTurn??null),
+      memoryConsolidation:clone(latest.memoryConsolidation??null),memoryConsolidationRuntimeTaskId:latest.memoryConsolidationRuntimeTaskId??null,
+      memorySettlementReceipts:clone(memorySettlementReceipts),
       rawExperienceRecoverable:Boolean(this.core.registry.getRevision(experience.sourceRevisionId)?.exactContent===text),
       canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
     };
@@ -639,6 +655,7 @@ export class Area52NativeBrain{
         rejectedRevisionIds:[...this.rejectedLoreRevisionIds].sort(),
       },
       memoryInterface:{attached:Boolean(this.memoryInterface),kind:this.memoryInterface?.kind??null,contractVersion:this.memoryInterface?.contractVersion??null},
+      memoryConsolidationInterface:{attached:Boolean(this.memoryConsolidationInterface),kind:this.memoryConsolidationInterface?.kind??null,contractVersion:this.memoryConsolidationInterface?.contractVersion??null},
       ownerEvidence:{retained:this.ownerEvidence.size,currentSourceRevisionRefs:this.core.externalCurrentSourceRevisionIds()},
       expectedWork:{count:this.obligationReconciler.list().length},runtime:this.runtimeDirector.snapshot(),
       nativeRequirements:{jevRequired:false,sidecarRequired:false,externalDatabaseRequired:false,sqlRequired:false,remoteModelRequired:false,userOrchestratorRequired:false},
@@ -763,7 +780,116 @@ export class Area52NativeBrain{
           }catch(error){receipt={kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:error?.code??error?.message??String(error)};}
           const record=this.turns.get(String(item.turnId));if(record)record.memoryPostTurn=clone(receipt);
           this.#recordMemoryExpectedResult(item.expectedId,receipt);
+          if(record&&['COMPLETED','REPLAYED'].includes(String(receipt?.status??'').toUpperCase())){
+            const consolidationTask=this.#scheduleMemoryConsolidation(record,receipt);
+            record.memoryConsolidationRuntimeTaskId=consolidationTask?.task?.taskId??record.memoryConsolidationRuntimeTaskId??null;
+          }else if(record){
+            record.memoryConsolidation={
+              kind:'NativeBrainMemoryConsolidationReceipt',status:'SKIPPED',
+              reasonCode:'MEMORY_EPISODE_ADMISSION_NOT_COMPLETED',episodeId:receipt?.episodeId??null,
+              authorityGranted:false,canonicalMutation:false,
+            };
+          }
           receipts.push(clone(receipt));
+        }
+        return{output:receipts,validation:{valid:true},authorityGranted:false,canonicalMutation:false};
+      },
+    };
+  }
+
+  #scheduleMemoryConsolidation(record,memoryReceipt){
+    if(!record||!memoryReceipt?.episodeId)return null;
+    if(!this.memoryConsolidationInterface||typeof this.memoryConsolidationInterface.propose!=='function'){
+      record.memoryConsolidation={
+        kind:'NativeBrainMemoryConsolidationReceipt',status:'DEFERRED',
+        reasonCode:'MEMORY_CONSOLIDATION_PRODUCER_UNAVAILABLE',episodeId:memoryReceipt.episodeId,
+        authorityGranted:false,canonicalMutation:false,
+      };
+      return null;
+    }
+    const payload={
+      selection:{
+        chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,
+        worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,sourceRevisionRefs:[...(memoryReceipt.sourceRevisionRefs??[])],
+      },
+      episodeId:memoryReceipt.episodeId,
+    };
+    return this.runtimeDirector.submit({
+      taskType:'MEMORY_CONSOLIDATION_PROPOSAL',owner:'MEMORY',producerId:'CONTINUOUS_CONSOLIDATION',
+      layer:'L3',runtimeClass:'DEEP',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],
+      dedupeKey:'memory-consolidation:'+record.generationId+':'+memoryReceipt.episodeId,foreground:false,
+      sourceRevisionIds:[...(memoryReceipt.sourceRevisionRefs??[])],worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,
+      payload:{...clone(payload),resultClass:'DEFERRED'},
+      cause:{
+        eventType:'MEMORY_EPISODE_ADMITTED',eventId:'memory-consolidation:'+record.generationId,
+        correlationId:record.correlationId,producerId:'MEMORY',consumerId:'CONTINUOUS_CONSOLIDATION',ownerId:'MEMORY',
+        chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,turnRevision:record.sequence,
+        sourceRevisionRefs:[...(memoryReceipt.sourceRevisionRefs??[])],worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,
+      },
+      batchHint:{maxSliceUnits:1},checkpointPolicy:{maxUnitsPerCheckpoint:1},
+    },{
+      units:[{id:'memory-consolidation:'+record.turnId,payload}],
+      ...this.#memoryConsolidationExecutor(),
+    });
+  }
+
+  #memoryConsolidationExecutor(){
+    return{
+      execute:async({units})=>{
+        const rows=[];
+        for(const unit of units){
+          const producer=this.memoryConsolidationInterface;
+          if(!producer||typeof producer.propose!=='function'){
+            rows.push({kind:'DeploymentMemoryConsolidationProposalReceipt',status:'DEFERRED',reasonCode:'MEMORY_CONSOLIDATION_PRODUCER_UNAVAILABLE',...clone(unit.payload)});
+            continue;
+          }
+          try{
+            let result=producer.propose(clone(unit.payload));
+            if(result&&typeof result.then==='function')result=await result;
+            rows.push(clone(result));
+          }catch(error){
+            rows.push({
+              kind:'DeploymentMemoryConsolidationProposalReceipt',status:'FAILED',
+              reasonCode:error?.code??error?.message??String(error),
+              selection:clone(unit.payload?.selection??null),episodeId:unit.payload?.episodeId??null,
+              rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+            });
+          }
+        }
+        return rows;
+      },
+      validate:async({output})=>Array.isArray(output)&&output.every((row)=>typeof row?.status==='string'),
+      commit:async({output})=>{
+        const receipts=[];
+        for(const proposed of output){
+          const selection=proposed?.selection??null;
+          const turnId=String(selection?.turnId??proposed?.turnId??'');
+          const record=this.turns.get(turnId);
+          let ownerReview=null;
+          if(proposed?.status==='PROPOSED'&&proposed?.bundle){
+            const review=this.memoryInterface?.reviewConsolidationBundle??this.memoryInterface?.adapters?.reviewConsolidationBundle;
+            if(typeof review==='function'){
+              try{
+                ownerReview=review({bundle:proposed.bundle,handoff:proposed.memoryHandoff??null,selection:selection??{}});
+                if(ownerReview&&typeof ownerReview.then==='function')ownerReview=await ownerReview;
+              }catch(error){
+                ownerReview={kind:'MemoryConsolidationBundleReviewReceipt',status:'FAILED',reasonCode:error?.code??error?.message??String(error),results:[]};
+              }
+            }else ownerReview={kind:'MemoryConsolidationBundleReviewReceipt',status:'FAILED',reasonCode:'MEMORY_CONSOLIDATION_OWNER_REVIEW_UNAVAILABLE',results:[]};
+          }
+          const receipt={
+            kind:'NativeBrainMemoryConsolidationReceipt',
+            status:ownerReview?.status??proposed?.status??'DEFERRED',
+            reasonCode:ownerReview?.reasonCode??proposed?.reasonCode??null,
+            episodeId:proposed?.episodeId??record?.memoryPostTurn?.episodeId??null,
+            producerStatus:proposed?.status??null,
+            ownerReview:clone(ownerReview),
+            providerAttempted:Boolean(proposed?.providerAttempted),
+            rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+            authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+          };
+          if(record)record.memoryConsolidation=clone(receipt);
+          receipts.push(receipt);
         }
         return{output:receipts,validation:{valid:true},authorityGranted:false,canonicalMutation:false};
       },
@@ -812,6 +938,7 @@ export class Area52NativeBrain{
       let executor=null;
       if(record.obligation?.taskType==='NATIVE_LEARNING_FEEDBACK')executor=this.#feedbackExecutor();
       if(record.obligation?.taskType==='MEMORY_POST_TURN'&&this.memoryInterface)executor=this.#memoryPostTurnExecutor();
+      if(record.obligation?.taskType==='MEMORY_CONSOLIDATION_PROPOSAL'&&this.memoryConsolidationInterface&&this.memoryInterface)executor=this.#memoryConsolidationExecutor();
       if(!executor)continue;
       try{this.runtimeDirector.attachExecutor(record.taskId,executor);this.runtimeDirector.recoverTask(record.taskId);}catch{}
     }

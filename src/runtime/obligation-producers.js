@@ -83,7 +83,7 @@ export class ObligationProducerRegistry {
         try { guard = guardEvent(event); }
         catch (error) {
           notify({ status: 'REJECTED', reasonCode: error?.code ?? 'EVENT_GUARD_FAILED', event, admission: null });
-          return;
+          throw error;
         }
         const accepted = typeof guard === 'boolean' ? guard : guard?.accepted !== false;
         if (!accepted) {
@@ -95,7 +95,7 @@ export class ObligationProducerRegistry {
       try { request = mapEvent(event); }
       catch (error) {
         notify({ status: 'REJECTED', reasonCode: error?.code ?? 'EVENT_OWNER_MAP_FAILED', event, admission: null });
-        return;
+        throw error;
       }
       if (!request) {
         notify({ status: 'SKIPPED', reasonCode: 'OWNER_DECLARED_NO_WORK', event, admission: null });
@@ -105,7 +105,7 @@ export class ObligationProducerRegistry {
       try { executor = executorFactory(event, request); }
       catch (error) {
         notify({ status: 'REJECTED', reasonCode: error?.code ?? 'EVENT_EXECUTOR_FACTORY_FAILED', event, request, admission: null });
-        return;
+        throw error;
       }
       try {
         const admission = this.produce(producerId, request, executor);
@@ -116,6 +116,7 @@ export class ObligationProducerRegistry {
         });
       } catch (error) {
         notify({ status: 'REJECTED', reasonCode: error?.code ?? 'OBLIGATION_PRODUCTION_FAILED', event, request, admission: null });
+        throw error;
       }
     });
     const binding = { eventType, producerId, unsubscribe };

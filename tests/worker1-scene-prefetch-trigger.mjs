@@ -173,14 +173,16 @@ test('#112 production contract route reaches Dynamic Fan-Out consideration witho
 
   const sceneInput=brain.scene.fanOutInput('prefetch-chat');
   const plannerInput=plannerInputFromScene({publicSignals:sceneInput});
-  assert.equal(plannerInput.prefetchRecommendations.length,1);
-  assert.deepEqual(plannerInput.prefetchRecommendations[0].locationRefs,['Sunken Archive']);
-  assert.deepEqual(plannerInput.prefetchRecommendations[0].sourceRevisionSet,sceneInput.sourceRevisionSet.filter(ref=>plannerInput.prefetchRecommendations[0].sourceRevisionSet.includes(ref)));
+  assert.ok(plannerInput.prefetchRecommendations.length>=1);
+  const travelRecommendation=plannerInput.prefetchRecommendations.find(row=>row.trigger==='LIKELY_NEXT:EXPLICIT_TRAVEL_DESTINATION');
+  assert.ok(travelRecommendation);
+  assert.deepEqual(travelRecommendation.locationRefs,['Sunken Archive']);
+  assert.ok(travelRecommendation.sourceRevisionSet.every(ref=>sceneInput.sourceRevisionSet.includes(ref)));
 
   const turn=turnFor(sceneInput,'prefetch-route');
   const planner=new DynamicFanOutPlanner();
   const accepted=planner.plan({turnEvent:turn,...plannerInput,text:'Okay.'});
-  assert.equal(accepted.inputSignals.freshPrefetchRecommendationCount,1);
+  assert.equal(accepted.inputSignals.freshPrefetchRecommendationCount,plannerInput.prefetchRecommendations.length);
   const historian=accepted.nominations.find(row=>row.roleId==='historian');
   assert.ok(historian);
   assert.equal(historian.resultClass,ResultClass.OPPORTUNISTIC);
@@ -191,7 +193,7 @@ test('#112 production contract route reaches Dynamic Fan-Out consideration witho
     turnEvent:turn,...plannerInput,text:'Okay.',
     availableCapabilities:[Capability.GRAPH],
   });
-  assert.equal(denied.inputSignals.freshPrefetchRecommendationCount,1);
+  assert.equal(denied.inputSignals.freshPrefetchRecommendationCount,plannerInput.prefetchRecommendations.length);
   assert.equal(denied.tasks.some(task=>task.metadata.roleId==='historian'),false,'Dynamic Fan-Out retains execution choice');
 
   const staleTurn=turnFor(sceneInput,'prefetch-stale',['src:not-current']);

@@ -51,6 +51,7 @@ export class EventSpine {
         worldRevision: meta.worldRevision ?? null,
         sceneRevision: meta.sceneRevision ?? null,
       },
+      sourceRevisionSet: [...new Set((meta.sourceRevisionSet ?? Object.keys(meta.sourceRevisions ?? {})).filter(Boolean).map(String))].sort(),
       sourceRevisions: meta.sourceRevisions ?? {},
       worldRevision: meta.worldRevision ?? null,
       sceneRevision: meta.sceneRevision ?? null,

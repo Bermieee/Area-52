@@ -489,7 +489,6 @@ test('DETERMINISTIC: small and large delivery budgets preserve protected truth/s
     userInput:'Moon Gate eclipse archive: give current state, historical state, unresolved omen, rule and exception.',
   });
   assert.equal(large.ok,true);
-  console.log('WORKER1_4096_DIAG',JSON.stringify({budget:large.plan.budget,dropped:large.plan.dropped,deferred:large.plan.deferred,sections:large.plan.sections.map(row=>({slot:row.slot,representation:row.representation,allocatedTokens:row.allocatedTokens,compactTokens:row.compactTokens,richTokens:row.richTokens,priority:row.priority,protected:row.protected,textLength:row.text?.length??0}))}));
   assert.equal((large.plan.dropped?.length??0)+(large.plan.deferred?.length??0),0);
 
   let small=null,smallBudget=null;

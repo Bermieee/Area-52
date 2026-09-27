@@ -13,6 +13,12 @@ on:
       - 'src/settlement-boundary.js'
       - 'src/cognitive-core.js'
       - 'src/native-brain.js'
+      - 'tests/worker1-brain-context-delivery-completion.mjs'
+      - 'src/deployment/sillytavern-live.js'
+      - 'src/prompt-presentation.js'
+      - 'src/model-adapters.js'
+      - 'src/adaptive-context-sections.js'
+      - 'src/adaptive-context-runtime.js'
       - 'tests/worker1-identity-temporal-closure.mjs'
       - 'tests/native-brain-identity-retrieval.mjs'
       - 'tests/worker1-context-trust-delivery.mjs'
@@ -41,6 +47,8 @@ jobs:
         run: node --test tests/worker1-identity-temporal-closure.mjs
       - name: Preserve Worker 1 context trust and delivery
         run: node --test tests/worker1-context-trust-delivery.mjs
+      - name: Brain context delivery completion acceptance
+        run: node --test tests/worker1-brain-context-delivery-completion.mjs
       - name: Closure syntax
         run: >-
           node --check src/contracts.js &&
@@ -50,7 +58,8 @@ jobs:
           node --check src/settlement-boundary.js &&
           node --check src/cognitive-core.js &&
           node --check src/native-brain.js &&
-          node --check tests/worker1-identity-temporal-closure.mjs
+          node --check tests/worker1-identity-temporal-closure.mjs &&
+          node --check tests/worker1-brain-context-delivery-completion.mjs
       - name: Browser-facing Core imports
         run: >-
           node -e "globalThis.Buffer=undefined;

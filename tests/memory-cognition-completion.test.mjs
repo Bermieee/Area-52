@@ -712,6 +712,10 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.returnStatus,'RETURNED');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.providerRequestId,'sidecar:req:memory-consolidation-fixture');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.providerLatencyMs,3);
+      assert.ok(learned.memoryConsolidation?.sidecarExecution?.queueWaitMs>=0);
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.foregroundBlockedMs,0);
+      assert.ok(['XS','S','M','L','XL'].includes(learned.memoryConsolidation?.sidecarExecution?.payloadSizeClass));
+      assert.equal(learned.memoryConsolidation?.sidecarExecution?.payloadBodyRetained,false);
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerDestination,'MEMORY_OWNER_REVIEW');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerDecision,'COMPLETED');
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.ownerAccepted,true);

@@ -42,7 +42,7 @@ export class MemoryPlasticityManager{
     row.evidenceRefs=evidenceRefs;row.supportEvidenceRefs=evidenceRefs;
     row.contradictionEvidenceRefs=refs(artifact,'contradictionEvidenceRefs',128);row.sourceRevisionRefs=sourceRevisionRefs;
     row.current=true;row.stale=Boolean(artifact.freshness&&artifact.freshness!=='FRESH');row.updatedSequence=++this.sequence;
-    row.maturityStage=this.#maturityStage(row,0);
+    row.maturityStage=row.maturityStage??this.#maturityStage(row,0);
     this.records.set(key,row);this.currentByArtifact.set(id,key);this.#trim();return deepClone(row);
   }
   recordRetrievalUse({artifactId,artifactRevision=1,accepted=false,rejected=false}={}){
@@ -57,7 +57,7 @@ export class MemoryPlasticityManager{
     const accepted=new Set((acceptedArtifactIds??[]).map(String)),rejected=new Set((rejectedArtifactIds??[]).map(String));
     const touched=[];
     for(let i=0;i<keys.length;i++)for(let j=i+1;j<keys.length;j++){
-      const left=keys[i],right=keys[j],leftId=left.split('@')[0],rightId=right.split('@')[0],key=pairKey(left,right);
+      const left=keys[i],right=keys[j],leftId=this.records.get(left)?.artifactId??left,rightId=this.records.get(right)?.artifactId??right,key=pairKey(left,right);
       const row=this.associations.get(key)??{kind:'MemoryDerivedAssociation',contractVersion:MEMORY_PLASTICITY_VERSION,key,artifactRefs:[left,right],retrievalUses:0,usefulUses:0,rejectedUses:0,
         strength:.2,eligibleForReconsolidation:false,current:true,createdSequence:++this.sequence};
       row.retrievalUses+=1;

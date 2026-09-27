@@ -440,7 +440,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       retrievalQualityReceipt:published.retrievalQualityReceipt??null,
       correctiveRetrievalReceipt:published.correctiveRetrievalReceipt??null,

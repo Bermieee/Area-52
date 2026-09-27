@@ -67,9 +67,13 @@ export function buildSceneUiReadModel(runtime,chatId){
 
 export function fanOutSceneInput(runtime,chatId){
   const signal=buildSceneIntegrationSignal(runtime,chatId);if(!signal)return null;
+  const prefetchSourceRevisionSet=[...new Set([
+    ...(signal.sourceRevisionSet??[]),
+    ...(signal.prefetchRecommendations??[]).flatMap((row)=>row.sourceRevisionSet??row.sourceRevisionRefs??[]),
+  ].filter(Boolean).map(String))].sort();
   return Object.freeze({
     kind:'SceneFanOutInput',contractVersion:'1.0.0',sceneId:signal.sceneId,sceneRevision:signal.sceneRevision,
-    sourceRevisionSet:[...signal.sourceRevisionSet],activeCast:clone(signal.activeCast),location:clone(signal.location),
+    sourceRevisionSet:prefetchSourceRevisionSet,activeCast:clone(signal.activeCast),location:clone(signal.location),
     activeThreads:clone(signal.activeThreads),uncertainSceneFields:[...signal.uncertainFields],conflictSignals:[...signal.conflictSignals],
     boundaryState:clone(signal.boundaryState),sceneRelationship:signal.sceneRelationship,sceneTransitionType:signal.transitionType,
     episodeRefs:clone(signal.episodeRefs),retrievalQuality:signal.retrievalQuality,prefetchRecommendations:clone(signal.prefetchRecommendations),

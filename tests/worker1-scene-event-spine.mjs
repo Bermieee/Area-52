@@ -156,6 +156,10 @@ test('#113 duplicate Scene event does not create duplicate owner work',()=>{
     generationId:location.generationId,correlationId:location.correlationId,causationId:location.causationId,
     dedupeKey:location.dedupeKey,eventId:'duplicate-should-not-publish',
   });
+  const runtimeArgs=brain.scene.publisher.runtimeEmitArgs(location);
+  const runtimeDuplicate=brain.runtimeDirector.events.emit(runtimeArgs.eventType,runtimeArgs.payload,runtimeArgs.meta);
+  assert.equal(runtimeDuplicate.eventId,location.eventId,'Event Spine duplicate delivery returns the originally accepted event');
+  assert.equal(brain.runtimeDirector.events.events.filter(row=>row.eventType===location.eventType&&row.dedupeKey===location.dedupeKey).length,1);
 
   const ledgerAfter=brain.runtimeDirector.ledger.list().filter(row=>row.obligation?.producerId==='TEST_SCENE_OWNER').length;
   assert.equal(ledgerAfter,ledgerBefore);

@@ -334,6 +334,7 @@ export class MemoryTemporalProducer {
       }}],{
         generationFence:options.generationFence??{},sourceRevisionRefs,
         worldRevision:options.worldRevision??null,sceneRevision:options.sceneRevision??null,
+        reflectionEligibilityPolicy:'REPEATED_EXPERIENCE_REQUIRED',
       });
       const result=this.runConsolidation(session.id,{maxUnits:1});
       const outcome=result.outcomes?.at(-1)??(result.lateDisposition?{status:result.lateDisposition.status??'DEFERRED',reasonCode:result.lateDisposition.reasonCode}:null);
@@ -468,6 +469,7 @@ export class MemoryTemporalProducer {
         selection,generationFence:selection,sourceRevisionRefs,
         worldRevision:proposal.worldRevision??bundle.worldRevision??selection.worldRevision??null,
         sceneRevision:proposal.sceneRevision??bundle.sceneRevision??selection.sceneRevision??null,
+        reflectionEligibilityPolicy:'REPEATED_EXPERIENCE_REQUIRED',
       });
       const state=this.runConsolidation(session.id,{maxUnits:1});
       const outcome=state.outcomes?.at(-1)??null;

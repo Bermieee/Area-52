@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {Area52NativeBrain} from '../src/native-brain.js';
 import {ResultBus} from '../src/result-bus.js';
 import {createDevelopmentDeploymentSillyTavernSession} from '../src/deployment/sillytavern-live.js';
+import {DemoEvidenceJournal} from '../src/ui-core/index.js';
 
 function scene(id='scene:perf',revision=1){
   return{sceneId:id,sceneRevision:revision,location:'Test Hall',narrativeTime:'tick '+revision,activeCast:[],activeThreads:[],objects:[],sourceRevisionRefs:['scene:'+id+'@'+revision],provenance:['test:'+id]};
@@ -109,4 +110,25 @@ test('Worker 1 detailed host profiling is explicit opt-in and bounded metadata-o
   assert.equal(enabled.bounds.nativePerformance,12);
   assert.equal(enabled.rawPromptCaptured,false);assert.equal(enabled.storyTextCaptured,false);assert.equal(enabled.credentialsCaptured,false);assert.equal(enabled.hiddenReasoningCaptured,false);
   session.destroy();
+});
+
+
+test('Worker 1 telemetry: QUALIFICATION_PROBE is visible as qualification but never as cognitive resource execution',()=>{
+  const store=new Map(),storage={getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,String(value)),removeItem:key=>store.delete(key)};
+  const selection={chatId:'chat:probe',turnId:'turn:probe',generationId:'gen:probe',correlationId:'corr:probe',worldRevision:1,sceneRevision:1,sourceRevisionRefs:[]};
+  const journal=new DemoEvidenceJournal({storage,namespace:'worker1-probe',now:()=>100});
+  const recorded=journal.recordSnapshot({
+    selection,
+    operations:{selection,stages:[],inspections:{}},
+    diagnostics:{resources:{rows:[{
+      id:'jev:probe',kind:'JEV',displayName:'Jev probe',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,
+      lastExecution:{status:'SUCCESS',purpose:'QUALIFICATION_PROBE',latencyMs:12,receiptId:'probe:1'},
+    }]}},
+    cognition:{},promptPlan:null,
+  });
+  assert.equal(recorded.entries.some(row=>row.type==='RESOURCE_ATTEMPT'),false);
+  const lifecycle=recorded.entries.find(row=>row.type==='OPTIONAL_RESOURCE_LIFECYCLE');
+  assert.ok(lifecycle);
+  const resource=lifecycle.metadata.resources.find(row=>row.id==='jev:probe');
+  assert.equal(resource.qualificationProbe,true);assert.equal(resource.attempted,false);assert.equal(resource.skipReason,'QUALIFICATION_PROBE');
 });

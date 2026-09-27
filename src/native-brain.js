@@ -37,6 +37,41 @@ const req=(value,name)=>{if(typeof value!=='string'||!value.trim())throw new Typ
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
 const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
 
+function redactContextRetirement(receipt){
+  if(!receipt)return null;
+  const transition=receipt.sceneTransition?{
+    kind:receipt.sceneTransition.kind??'ContextSceneTransitionCarry',
+    handoffId:receipt.sceneTransition.handoffId??null,
+    previousSceneId:receipt.sceneTransition.previousSceneId??null,
+    destinationSceneId:receipt.sceneTransition.destinationSceneId??null,
+    relationship:receipt.sceneTransition.relationship??null,
+    episodeRef:clone(receipt.sceneTransition.episodeRef??null),
+    compactSummaryAvailable:Boolean(String(receipt.sceneTransition.compactPreviousSceneSummary??'').trim()),
+    sourceRevisionRefs:uniq(receipt.sceneTransition.sourceRevisionRefs??[]),
+    recentTailRefs:uniq(receipt.sceneTransition.recentTailRefs??[]),
+    retainedRecentTailMessageIds:uniq(receipt.sceneTransition.retainedRecentTailMessageIds??[]),
+    prefetchDestination:Boolean(receipt.sceneTransition.prefetchDestination),
+    prefetchHints:uniq(receipt.sceneTransition.prefetchHints??[]),
+    eligibilityDecisionOwner:receipt.sceneTransition.eligibilityDecisionOwner??null,
+    promptInclusionAuthority:false,rawDialogueDeletionAuthority:false,contextSealAuthority:false,
+  }:null;
+  return Object.freeze({
+    kind:receipt.kind??'NativeContextRetirementReceipt',contractVersion:receipt.contractVersion??1,chatId:receipt.chatId??null,
+    policy:receipt.policy??null,hostHistoryMutation:false,
+    recentWindow:Number(receipt.recentWindow??0),messageCount:Number(receipt.messageCount??0),
+    retireEligibleMessageIds:[...(receipt.retireEligibleMessageIds??[])],
+    keptRawMessageIds:[...(receipt.keptRawMessageIds??[])],
+    decisions:clone(receipt.decisions??[]),
+    retainedMessageRefs:(receipt.retainedMessages??[]).map(row=>({
+      messageId:row.messageId??null,sequence:Number(row.sequence??0),role:row.role??null,
+      sourceRevisionRefs:uniq(row.sourceRevisionRefs??[]),provenanceRefs:uniq(row.provenanceRefs??[]),tags:uniq(row.tags??[]),
+    })),
+    sceneTransition:transition,measurements:clone(receipt.measurements??{}),
+    abstained:Boolean(receipt.abstained),abstentionReason:receipt.abstentionReason??null,receiptId:receipt.receiptId??null,
+    rawNarrativeIncluded:false,storyTextIncluded:false,
+  });
+}
+
 function sceneSignalFrom(input,chatId){
   if(input?.kind==='SceneIntegrationSignal')return clone(input);
   if(!input?.sceneId)return null;
@@ -446,6 +481,7 @@ export class Area52NativeBrain{
         },
       });
     }
+    const contextRetirementReceipt=redactContextRetirement(contextRetirement);
     const deliveryStarted=perfNow();
     const delivery=this.core.deliverGenerationContext({
       published,chatId:chat,generationId,correlationId:corr,worldRevision:published.worldRevision,sceneRevision:sceneState.sceneRevision,
@@ -479,7 +515,7 @@ export class Area52NativeBrain{
       },
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal),retrievalIntents:clone(retrievalIntents)},
       sparseRetrievalReceipt:clone(sparseRetrievalReceipt),
-      published,delivery,contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
+      published,delivery,contextRetirement:clone(contextRetirementReceipt),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       performance:{
         kind:'NativeBrainGenerationPerformanceReceipt',contractVersion:1,
         chatId:chat,turnId:turn,generationId:generation,correlationId:corr,sceneRevision:sceneState.sceneRevision,worldRevision:published.worldRevision,
@@ -509,7 +545,7 @@ export class Area52NativeBrain{
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,
       budgetDecision:delivery.plan?.diagnosticReceipt?.budgetDecision??null,
-      contextRetirement,promptDeliveryReceipt:delivery.receipt??null,
+      contextRetirement:contextRetirementReceipt,promptDeliveryReceipt:delivery.receipt??null,
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });

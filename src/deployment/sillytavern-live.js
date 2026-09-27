@@ -787,6 +787,9 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
+    // Foreground generation is complete once provider-response learning finishes.
+    // Release its reserved cognitive slot before scheduling DEEP/NEXT_TURN Scene work.
+    this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     let postResponseScene=null;
     try{
       const assistantMessageForScene={...assistant,role:'assistant'};
@@ -836,7 +839,6 @@ export class DevelopmentDeploymentSillyTavernSession {
       },SESSION_BOUNDS.nativePerformance);
     }
     this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
-    this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
     this.#notify();return clone(completed);
   }

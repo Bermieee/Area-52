@@ -421,6 +421,18 @@ test('Memory cognition: validated Continuous Consolidation reflection evidence i
   assert.equal(reflection.reflectionKey,'reflection:rin:checks-western-gate');
   assert.equal(reflection.episodeRefs.length,2);
   assert.match(reflection.statement,/habitually verify the western gate latch/i);
+
+  const restored=MemoryTemporalProducer.fromSnapshot(memory.snapshot());
+  const restoredSurface=createMemoryIntegrationSurface(restored);
+  const historyCount=restored.experienceStore.reflectionHistory('reflection:rin:checks-western-gate').length;
+  const replay=admitConsolidationBundleToMemoryOwner({
+    bundle:repeated,handoff:createMemoryOwnerHandoff(repeated),memoryOwner:restoredSurface,
+    selection:{chatId:'chat:consolidation-owner',turnId:'consolidation-owner:2',generationId:'gen:consolidation-owner:2',worldRevision:2,sceneRevision:2},
+  });
+  assert.equal(replay.status,'REPLAYED');
+  assert.equal(replay.ownerAccepted,true);
+  assert.equal(replay.results[0].status,'REPLAYED');
+  assert.equal(restored.experienceStore.reflectionHistory('reflection:rin:checks-western-gate').length,historyCount);
 });
 
 

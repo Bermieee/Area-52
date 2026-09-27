@@ -610,6 +610,12 @@ export class DevelopmentDeploymentBrain {
         });
       }
     }
+    const invalidatedTransitionHandoffs=clone(outcome?.invalidatedHandoffs??[]);
+    const handoffReceipts=[];
+    if(chatId){
+      for(const handoff of invalidatedTransitionHandoffs)handoffReceipts.push(this.core.consumeSceneTransitionHandoff(handoff,{chatNamespace:chatId}));
+      if(outcome?.transition?.handoff)handoffReceipts.push(this.core.consumeSceneTransitionHandoff(outcome.transition.handoff,{chatNamespace:chatId}));
+    }
     const signal = chatId ? this.scene.integrationSignal(chatId) : null;
     const signalReceipt = signal ? this.core.consumeSceneSignal(signal, { chatNamespace: chatId }) : null;
     const changedFields = Object.keys(outcome?.delta?.changedFields ?? {}).sort();
@@ -655,6 +661,9 @@ export class DevelopmentDeploymentBrain {
       boundary: clone(outcome?.boundary ?? null),
       boundarySignals: clone(extracted?.boundarySignals ?? null),
       transition: clone(outcome?.transition ?? null),
+      transitionHandoff: clone(outcome?.transition?.handoff ?? null),
+      invalidatedTransitionHandoffs,
+      handoffReceipts: clone(handoffReceipts),
       eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
       eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
       invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),

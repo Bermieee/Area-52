@@ -1068,6 +1068,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     base.readHostDeliveryReceipt=(selection={})=>this.#readHostDeliveryReceipt(selection);
     base.readNativeGenerationPerformance=(selection={})=>this.#readNativeGenerationPerformance(selection);
+    base.setDetailedGenerationProfiling=(enabled=false)=>this.setDetailedGenerationProfiling(enabled);
+    base.loadDiagnostics=()=>this.loadDiagnostics();
     if(!contract.available)return base;
     const native=this.nativeBrain.uiBindings();
     const nativeKeys=['readSelection','readScene','readHotCognition','readCognitiveChoice','readScatter','readSensoryTrace','readCandidateBusEnvelope','readCandidateFusionReceipt','readIdentityResolution','readGraphTraversal','readWorldGraphReferences','readRetrievalBudget','readRejectedEvidence','readTruth','readCorrectiveRetrieval','readJev','readPrecision','readGather','readContextSeal','readLoreStatus','readMemoryStatus','readRuntimeStatus','readExpectedWork','readPromptPlan','readContextRetirement','readPromptDeliveryReceipt','readContextReceipt','readSelectedTurnReceipt','listGenerations','readGeneration'];
@@ -1158,9 +1160,9 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   #readNativeGenerationPerformance(selection={}){
-    const generationId=clean(selection?.generationId),chatId=clean(selection?.chatId),turnId=clean(selection?.turnId);
+    const generationId=clean(selection?.generationId),chatId=clean(selection?.chatId),turnId=clean(selection?.turnId),correlationId=clean(selection?.correlationId);
     if(!generationId)return null;
-    const row=[...this.nativePerformance].reverse().find(item=>item?.generationId===generationId&&(!chatId||item.chatId===chatId)&&(!turnId||item.turnId===turnId))??null;
+    const row=[...this.nativePerformance].reverse().find(item=>item?.generationId===generationId&&(!chatId||item.chatId===chatId)&&(!turnId||item.turnId===turnId)&&(!correlationId||item.correlationId===correlationId))??null;
     return row?clone(row):null;
   }
 

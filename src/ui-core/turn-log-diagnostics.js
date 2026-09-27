@@ -50,6 +50,15 @@ export class SelectedTurnLogModel{
     return safeDiagnosticsRead(this.diagnostics);
   }
 
+  setGenerationProfiling(enabled=false){
+    try{
+      if(typeof this.diagnostics?.setGenerationProfiling!=='function')return{ok:false,enabled:null,reason:'PROFILING_CONTROL_UNAVAILABLE',sessionScoped:true,persisted:false};
+      return this.diagnostics.setGenerationProfiling(Boolean(enabled));
+    }catch(error){
+      return{ok:false,enabled:null,reason:error?.code??String(error?.message??error),sessionScoped:true,persisted:false};
+    }
+  }
+
   readTimeline({filters={}}={}){
     const evidence=this.journal?.exportEvidence?.({selection:null})??{turns:[]};
     const normalizedFilters=normalizeFilters(filters,this.now());
@@ -144,6 +153,7 @@ export class SelectedTurnLogModel{
       {path:'selected-turn/timeline.jsonl',content:(selectedTurn.rows??[]).map(row=>JSON.stringify(row)).join('\n')},
       {path:'selected-turn/brain-decision.json',content:JSON.stringify(selectedTurn.brainDecision??null,null,2)},
       {path:'session/operational-snapshot.json',content:JSON.stringify(cleanOperational??null,null,2)},
+      {path:'session/generation-performance.json',content:JSON.stringify(cleanOperational?.generationPerformance??null,null,2)},
       {path:'session/retention.json',content:JSON.stringify(selectedTurn.retention??null,null,2)},
       {path:'README.txt',content:'Area-52 Diagnostics export\n\nThis archive is metadata-only. Raw prompts, story/Lore bodies, credentials, keys, and hidden reasoning are excluded. Missing evidence is reported as missing rather than inferred.\n'},
     ];
@@ -299,9 +309,41 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   if(!cognitionErrors.length&&!errorRows.length)errors.body.append(emptyDiagnosticRow(d,'No retained warnings or errors match the current filters.'));
   root.append(errors.root);
 
-  const performance=diagnosticSection(d,'Performance / browser UI attribution',{count:'timings'});
+  const generationPerf=operational?.generationPerformance??null,profileControl=generationPerf?.control??{},profileEnabled=profileControl.enabled===true;
+  const performance=diagnosticSection(d,'Performance / generation profiling',{count:profileEnabled?'ON':'OFF'});
+  const profilerControl=element(d,'div',{className:'a52-generation-profiler-control'});
+  const profilerStatus=element(d,'div',{className:'a52-inline-status'});
+  profilerStatus.append(element(d,'strong',{text:'Detailed generation profiling'}),makeBadge(d,profileControl.enabled==null?'NO_EVIDENCE':profileEnabled?'ON':'OFF',profileEnabled?'ready':profileControl.enabled==null?'historical':'warning'));
+  const toggle=createButton(d,{label:profileEnabled?'Turn profiling OFF':'Turn profiling ON',scope,size:'sm',variant:profileEnabled?'primary':'secondary',onPress:()=>{model.setGenerationProfiling(!profileEnabled);refresh?.();}});
+  toggle.setAttribute('role','switch');toggle.setAttribute('aria-checked',String(profileEnabled));
+  if(!profileControl.available){toggle.disabled=true;toggle.setAttribute('disabled','');}
+  profilerControl.append(profilerStatus,toggle,element(d,'p',{className:'a52-muted',text:profileControl.available?'Session-only diagnostic switch. Defaults OFF on a new Area-52 live session; enable it before the generation you want to measure.':'The installed live session does not export the detailed profiling control.'}));
+  performance.body.append(profilerControl);
+  const stages=generationPerf?.brainStages??[],stageMs=(name)=>stages.find(row=>row.stage===name)?.wallMs??null,detailed=generationPerf?.detailed??null;
+  performance.body.append(element(d,'strong',{text:'Selected generation phase timings'}),createKeyValue(d,[
+    {key:'Brain pre-generation',value:diagnosticMs(stageMs('BRAIN_PREPARATION_TOTAL'))},
+    {key:'Host preparation',value:diagnosticMs(stageMs('HOST_PREPARATION'))},
+    {key:'Host insertion',value:diagnosticMs(stageMs('HOST_INSERTION'))},
+    {key:'Provider wait',value:diagnosticMs(detailed?.providerLatencyMs??stageMs('PROVIDER_RESPONSE'))},
+    {key:'Response / learning',value:diagnosticMs(stageMs('LEARNING'))},
+    {key:'Exact detailed profile',value:detailed?'AVAILABLE':'NO_EVIDENCE'},
+  ]));
+  const overall=detailed?.deltas??{},preInsertion=detailed?.phases?.preGenerationToHostInsertion??{},afterInsertion=detailed?.phases?.hostInsertionToLearningComplete??{};
+  performance.body.append(element(d,'strong',{text:'Browser measurements'}),createKeyValue(d,[
+    {key:'Heap support',value:generationPerf?.support?.heap??'NO_EVIDENCE'},
+    {key:'Heap Δ overall',value:diagnosticBytes(overall.heapBytes)},
+    {key:'Long Task support',value:generationPerf?.support?.longTasks??'NO_EVIDENCE'},
+    {key:'Long Tasks Δ overall',value:diagnosticLongTasks(overall.longTaskCount,overall.longTaskTotalMs)},
+    {key:'Diagnostics/UI refresh Δ',value:diagnosticRefresh(overall.diagnosticsUiRefreshCount,overall.diagnosticsUiRefreshTotalMs)},
+    {key:'Pre-generation → host insertion',value:diagnosticPhaseDelta(preInsertion)},
+    {key:'Host insertion → learning complete',value:diagnosticPhaseDelta(afterInsertion)},
+    {key:'Retained detailed profiles',value:String(generationPerf?.retention?.retainedProfiles??0)+' / '+String(generationPerf?.retention?.maxProfiles??'NO_EVIDENCE')},
+  ]));
+  if(generationPerf?.selectionError)performance.body.append(emptyDiagnosticRow(d,'Selected generation performance rejected by identity fencing: '+String(generationPerf.selectionError)));
+  else if(!generationPerf?.exactSelection)performance.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — select an exact chat / turn / generation before reading generation performance.'));
+  else if(!detailed)performance.body.append(emptyDiagnosticRow(d,profileEnabled?'NO_EVIDENCE — no detailed profile has completed for this exact generation yet.':'Detailed profiling is OFF. Cheap Brain stage timings remain available; enable profiling before the next generation for browser measurements.'));
   const uiLoad=operational?.telemetry?.uiLoad??null,categories=uiLoad?.categories??{};
-  performance.body.append(createKeyValue(d,[
+  performance.body.append(element(d,'strong',{text:'Diagnostics UI workload'}),createKeyValue(d,[
     {key:'Host event invalidations',value:diagnosticLoadMetric(categories.HOST_EVENT_INVALIDATION)},{key:'Scatter / Gather owner read',value:diagnosticLoadMetric(categories.OWNER_SCATTER_GATHER_READ)},
     {key:'Journal diagnostics read',value:diagnosticLoadMetric(categories.UI_JOURNAL_DIAGNOSTICS_READ)},{key:'Journal processing',value:diagnosticLoadMetric(categories.UI_JOURNAL_PROCESS)},
     {key:'Activity feed render',value:diagnosticLoadMetric(categories.UI_ACTIVITY_FEED_RENDER)},{key:'Workspace refresh',value:diagnosticLoadMetric(categories.UI_WORKSPACE_REFRESH)},{key:'Capture total',value:diagnosticLoadMetric(categories.UI_CAPTURE_TOTAL)},
@@ -392,6 +434,11 @@ function diagnosticReceiptSummary(receipt){
   const counts=receipt.counts&&typeof receipt.counts==='object'?Object.entries(receipt.counts).map(([key,value])=>label(key)+' '+value).join(' · '):'';
   return[receipt.kind??'receipt',receipt.status??receipt.reasonCode??'published',counts].filter(Boolean).join(' · ');
 }
+function diagnosticMs(value){const n=Number(value);return value!=null&&Number.isFinite(n)?roundDiagnostic(n)+' ms':'NO_EVIDENCE';}
+function diagnosticBytes(value){const n=Number(value);if(value==null||!Number.isFinite(n))return'NO_EVIDENCE';const sign=n>0?'+':'';return sign+roundDiagnostic(n/1048576)+' MiB';}
+function diagnosticLongTasks(count,totalMs){const c=Number(count),ms=Number(totalMs);if(count==null||totalMs==null||!Number.isFinite(c)||!Number.isFinite(ms))return'NO_EVIDENCE';return c+' tasks · '+roundDiagnostic(ms)+' ms';}
+function diagnosticRefresh(count,totalMs){const c=Number(count),ms=Number(totalMs);if(count==null||totalMs==null||!Number.isFinite(c)||!Number.isFinite(ms))return'NO_EVIDENCE';return c+' refreshes · '+roundDiagnostic(ms)+' ms';}
+function diagnosticPhaseDelta(phase){if(!phase||typeof phase!=='object')return'NO_EVIDENCE';const parts=[];if(phase.heapBytes!=null)parts.push('heap '+diagnosticBytes(phase.heapBytes));if(phase.longTaskCount!=null&&phase.longTaskTotalMs!=null)parts.push('long '+diagnosticLongTasks(phase.longTaskCount,phase.longTaskTotalMs));if(phase.diagnosticsUiRefreshCount!=null&&phase.diagnosticsUiRefreshTotalMs!=null)parts.push('UI '+diagnosticRefresh(phase.diagnosticsUiRefreshCount,phase.diagnosticsUiRefreshTotalMs));return parts.length?parts.join(' · '):'NO_EVIDENCE';}
 function diagnosticLoadMetric(row){
   if(!row)return'NO_EVIDENCE';
   const count=Number(row.count??row.samples??0),avg=Number(row.averageMs??row.avgMs??0),max=Number(row.maxMs??0);
@@ -429,6 +476,7 @@ function diagnosticsBundleFiles(payload){
     {path:root+'resources/resources.json',content:j({resources:op.resources,wiring:op.wiring,coprocessor:op.coprocessor})},
     {path:root+'knowledge/lore-memory.json',content:j({lore:op.lore,memory:op.memory,cognition:op.cognition})},
     {path:root+'performance/ui-load.json',content:j(op.telemetry?.uiLoad??null)},
+    {path:root+'performance/generation-profile.json',content:j(op.generationPerformance??null)},
     {path:root+'errors/errors.json',content:j(payload.errors)},
     {path:root+'operational-snapshot.json',content:j(op)},
   ];

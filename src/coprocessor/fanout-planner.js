@@ -90,7 +90,8 @@ export class DynamicFanOutPlanner {
     if (!turnEvent) throw new TypeError('turnEvent is required');
     const normalized = String(text).trim().toLowerCase();
     const trivial = /^(ok|okay|thanks|thank you|got it|sure|yep|yes)[.! ]*$/.test(normalized);
-    const prefetch = Array.isArray(prefetchRecommendations) ? prefetchRecommendations : [];
+    const rawPrefetch = Array.isArray(prefetchRecommendations) ? prefetchRecommendations : [];
+    const prefetch = currentPrefetchRecommendations(rawPrefetch,turnEvent);
     const sceneUncertain = Array.isArray(uncertainSceneFields) ? uncertainSceneFields : [];
     const physical = /\b(where|location|inventory|item|object|weapon|equipment|find|looking|returns?|arrives?|leaves?|carried|left|placed|stored|moved|current state|physical state)\b/.test(normalized)
       || ['LOCATION', 'INVENTORY', 'PHYSICAL_STATE', 'CURRENT_STATE'].includes(queryIntent);
@@ -104,7 +105,7 @@ export class DynamicFanOutPlanner {
       text, queryIntent, activeThreads, hotStateSufficient, freshWarm, physical,
     });
 
-    if ((trivial || hotStateSufficient) && !conflict && !transition && !backgroundSignals.consolidationPending && !historianPolicy.wake) {
+    if ((trivial || hotStateSufficient) && !conflict && !transition && !backgroundSignals.consolidationPending && !historianPolicy.wake && !prefetch.length) {
       return freezePlan(turnEvent, [], [], {
         reason: 'zero-worker path: hot cognition already satisfies turn',
         reasonCodes: ['HOT_STATE_SUFFICIENT'], costBudget, latencyBudgetMs,
@@ -125,6 +126,15 @@ export class DynamicFanOutPlanner {
       [historianPolicy.reason],
       ['sceneRevision', 'sourceRevisionSet', 'intentFingerprint', 'retrievalIntents'],
     );
+    if(prefetch.length&&!freshWarm){
+      const high=prefetch.some((row)=>String(row.priority??'NORMAL').toUpperCase()==='HIGH');
+      nominate(
+        'historian',
+        high?0.82:0.72,
+        ['SCENE_PREFETCH_RECOMMENDATION'],
+        ['prefetchRecommendations','sceneRevision','sourceRevisionSet'],
+      );
+    }
     if (physical || transition || sceneUncertain.some((field) => ['location', 'immediateObjects', 'activeCast'].includes(field))) nominate('graph-walker', 0.86, ['PHYSICAL_OR_SCENE_STATE_QUERY'], ['sceneRevision', 'location']);
     if (dialogue && activeCast.length) nominate('green-room', 0.76, ['ACTIVE_CAST_DIALOGUE'], ['activeCast', 'sceneRevision']);
     if (physical || conflict || retrievalQuality === 'MIXED') nominate('truth-precision', 0.90, ['UNCERTAINTY_OR_PRECISION_REQUIRED'], ['worldRevision', 'sourceRevisionSet']);
@@ -146,7 +156,8 @@ export class DynamicFanOutPlanner {
       if (providerHealth[role.roleId] === 'unavailable' || providerHealth[role.roleId] === 'unhealthy') continue;
       if (Number(providerLoad[role.roleId] ?? 0) >= 1) continue;
       if (tasks.length >= caps.maxTotalWorkers) break;
-      const effectiveResultClass = role.roleId === 'historian' ? (historianPolicy.resultClass ?? role.resultClass) : role.resultClass;
+      const prefetchOnlyHistorian=role.roleId==='historian'&&!historianPolicy.wake&&signal.reasonCodes.includes('SCENE_PREFETCH_RECOMMENDATION');
+      const effectiveResultClass = role.roleId === 'historian' ? (historianPolicy.resultClass ?? (prefetchOnlyHistorian?ResultClass.OPPORTUNISTIC:role.resultClass)) : role.resultClass;
       if (effectiveResultClass === ResultClass.DEFERRED && backgroundCount >= caps.maxBackgroundNominations) continue;
       if (effectiveResultClass !== ResultClass.DEFERRED && foregroundCount >= caps.maxForegroundWorkers) continue;
       if (effectiveResultClass === ResultClass.OPPORTUNISTIC && opportunisticCount >= caps.maxOpportunisticWorkers) continue;
@@ -225,7 +236,7 @@ export class DynamicFanOutPlanner {
       latencyBudgetMs,
       boundedFanOut: caps.maxTotalWorkers,
       budget: budgetReceipt(foregroundCount, opportunisticCount, backgroundCount, costUsed, caps, deadlineExposureUsed),
-      inputSignals: Object.freeze({ queryIntent, location, retrievalQuality, sceneTransitionType, uncertainSceneFieldCount: sceneUncertain.length, prefetchRecommendationCount: prefetch.length }),
+      inputSignals: Object.freeze({ queryIntent, location, retrievalQuality, sceneTransitionType, uncertainSceneFieldCount: sceneUncertain.length, prefetchRecommendationCount: rawPrefetch.length, freshPrefetchRecommendationCount: prefetch.length, rejectedPrefetchRecommendationCount: Math.max(0,rawPrefetch.length-prefetch.length), prefetchRecommendationIds:Object.freeze(prefetch.map((row)=>String(row.recommendationId)).sort()) }),
     });
   }
 
@@ -262,6 +273,19 @@ export class DynamicFanOutPlanner {
       maxDeadlineExposureMs: Math.max(0, finiteCap(resourceConstraint.maxDeadlineExposureMs, this.defaultCaps.maxDeadlineExposureMs)),
     });
   }
+}
+
+function currentPrefetchRecommendations(values,turnEvent){
+  const currentSources=new Set((turnEvent?.sourceRevisionSet??[]).filter(Boolean).map(String));
+  const revision=Number(turnEvent?.sceneRevision);
+  return (values??[]).filter((row)=>{
+    if(!row||String(row.status??'ACTIVE')!=='ACTIVE')return false;
+    if(Number(row.sceneRevision)!==revision)return false;
+    if(Number(row.expiryRevision??row.sceneRevision)<revision)return false;
+    const sourceRefs=[...(row.sourceRevisionSet??row.sourceRevisionRefs??[])].filter(Boolean).map(String);
+    if(sourceRefs.length&&sourceRefs.some((ref)=>!currentSources.has(ref)))return false;
+    return true;
+  });
 }
 
 function fallbackFor(roleId) {

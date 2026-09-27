@@ -5,11 +5,12 @@ const factAuthority=(fact)=>fact?.a??fact?.authorityClass??null;
 export const factKey=(fact,slot)=>String(fact?.id??deliveryHash([slot,fact?.e,fact?.p,fact?.v]));
 function compactExternalEvidenceFact(fact){
   if(!fact||typeof fact!=='object'||!Object.prototype.hasOwnProperty.call(fact,'sourceClass')||!Object.prototype.hasOwnProperty.call(fact,'text'))return fact;
-  return{
+  const semantic=fact.semantic&&typeof fact.semantic==='object'?fact.semantic:null;
+  const base={
     id:fact.id,eid:fact.evidenceId,sc:fact.sourceClass,a:fact.a,t:fact.temporalStatus,cf:fact.cf,
-    text:fact.text,s:fact.semantic,hr:Boolean(fact.hardRule),ar:fact.artifactRef,
-    sr:fact.sourceRevisionRefs,dr:fact.dependencyRevisionRefs,pr:fact.provenanceRefs,
+    hr:Boolean(fact.hardRule),ar:fact.artifactRef,sr:fact.sourceRevisionRefs,dr:fact.dependencyRevisionRefs,pr:fact.provenanceRefs,
   };
+  return semantic?{...base,s:semantic}:{...base,text:fact.text};
 }
 function compactPresentation(content){
   if(typeof content==='string')return content;

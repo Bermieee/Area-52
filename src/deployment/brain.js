@@ -23,6 +23,7 @@ import { CoprocessorResourceConnections } from '../coprocessor/resource-connecti
 import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler.js';
 import { RuntimeDirectorAdmissionBridge } from '../coprocessor/runtime-director-bridge.js';
 import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
+import { adjudicateJevForOwner } from '../coprocessor/owner-integration.js';
 import { createOwnerGraphProviders } from './owner-graph-adapters.js';
 import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
@@ -264,10 +265,12 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
+    if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
     this.jevAvailable = Boolean(jevAvailable);
+    this.loreJevOwnerReview = loreJevOwnerReview;
     this.core = new Area52CognitiveCore();
     if (loreOwnerSnapshot?.intelligence) {
       this.loreIntelligence = LoreIntelligenceService.fromSnapshot(loreOwnerSnapshot.intelligence);
@@ -394,16 +397,18 @@ export class DevelopmentDeploymentBrain {
     this.core.registerJevAdapter({
       invoke: (request) => {
         const proposal = this.turns.get(request.turnId)?.jevProposal ?? this.pendingJev?.get?.(request.turnId) ?? null;
+        const admission = this.turns.get(request.turnId)?.jevOwnerAdmission ?? this.pendingJevAdmission?.get?.(request.turnId) ?? null;
         if (!proposal) throw new Error('Runtime Jev proposal unavailable for this turn');
         return {
-          status: proposal.abstained ? 'ABSTAINED' : proposal.status,
-          abstained: Boolean(proposal.abstained),
+          status: admission?.accepted ? proposal.status : admission?.status ?? 'PENDING_OWNER_CONTRACT',
+          abstained: !admission?.accepted || Boolean(proposal.abstained),
           decisionId: proposal.jevReceiptRef ?? proposal.sourceRequestRef ?? ('jev:' + request.turnId),
           decisionRevision: proposal.revisionFence?.domainRevisions?.lore ?? null,
         };
       },
     });
     this.pendingJev = new Map();
+    this.pendingJevAdmission = new Map();
   }
 
   acceptLorebook(input = {}) {
@@ -574,7 +579,7 @@ export class DevelopmentDeploymentBrain {
           taskType: 'JEV_DECISION',
           capability: CAPABILITIES.SEMANTIC_JUDGMENT,
           resultClass: RuntimeResultClass.OPPORTUNISTIC,
-          metadata: { jevInput: this.#makeJevInput({ turn, query, planning }) },
+          metadata: { jevInput: this.#makeJevInput({ turn, query, planning, chatId }) },
         }));
       }
     }
@@ -657,6 +662,7 @@ export class DevelopmentDeploymentBrain {
       },
       planning,
       jevProposal: this.pendingJev.get(turn.turnId) ?? null,
+      jevOwnerAdmission: this.pendingJevAdmission.get(turn.turnId) ?? null,
       jevExecution: this.jevExecution.get(turn.turnId) ?? null,
       published,
       delivery,
@@ -838,7 +844,25 @@ export class DevelopmentDeploymentBrain {
       readCandidateFusionReceipt: (selection) => attachIdentity(get(selection)?.published?.candidateEnvelope?.fusionReceipt, get(selection)?.selection ?? {}),
       readTruth: (selection) => attachIdentity(get(selection)?.published?.assessment, get(selection)?.selection ?? {}),
       readCorrectiveRetrieval: (selection) => attachIdentity(get(selection)?.published?.corrective, get(selection)?.selection ?? {}),
-      readJev: (selection) => attachIdentity(get(selection)?.jevProposal, get(selection)?.selection ?? {}),
+      readJev: (selection) => {
+        const record = get(selection);
+        if (!record?.jevProposal) return null;
+        const admission = record.jevOwnerAdmission;
+        return attachIdentity({
+          ...record.jevProposal,
+          ownerAdmission: admission ? {
+            kind: admission.kind,
+            status: admission.status,
+            ownerDecision: admission.ownerDecision,
+            accepted: admission.accepted,
+            rejected: admission.rejected,
+            reasonCode: admission.reasonCode,
+            ownerReviewInvoked: admission.ownerReviewInvoked,
+            settlementPerformed: admission.settlementPerformed,
+            canonicalMutation: admission.canonicalMutation,
+          } : null,
+        }, record.selection);
+      },
       readPrecision: (selection) => attachIdentity({
         kind: 'DeploymentPrecisionReceipt',
         resultCount: get(selection)?.published?.precisionResults?.length ?? 0,
@@ -1090,27 +1114,41 @@ export class DevelopmentDeploymentBrain {
     }
     if (cognitiveTask.taskType === 'JEV_DECISION') {
       const input = cognitiveTask.metadata.jevInput;
-      const currentRevisionState = {
-        sourceRevisionSet: input.sourceRevisionSet,
-        worldRevision: input.worldRevision,
-        sceneRevision: input.sceneRevision,
+      const currentRevisionState = () => ({
+        sourceRevisionSet: this.core.registry.activeRevisionIds(),
+        worldRevision: this.core.graph.revision,
+        sceneRevision: this.scene.uiReadModel(input.chatId)?.sceneRevision ?? input.sceneRevision,
         characterStateRevision: input.characterStateRevision,
-        domainRevisions: { lore: input.loreRevision, owner: input.ownerRevision },
+        domainRevisions: {
+          lore: this.loreSystem.diagnostics().hierarchyRevision ?? 'lore:1',
+          owner: this.core.graph.revision,
+        },
         freshnessToken: input.freshnessToken,
-      };
-      const proposal = await this.jev.service.adjudicate(input, {
+      });
+      const admission = await adjudicateJevForOwner({
+        service: this.jev.service,
+        input,
         currentRevisionState,
         sealed: () => this.core.publication.seal.isTurnSealed(cognitiveTask.turnId),
+        ownerReview: this.loreJevOwnerReview == null ? null : async (proposal) => {
+          if (proposal.abstained || proposal.unresolved || proposal.staleState === 'STALE') {
+            return { decision: 'UNRESOLVED', reasonCode: 'JEV_PROPOSAL_NOT_DECISIVE' };
+          }
+          const review = await this.loreJevOwnerReview(proposal);
+          return { ...review, settlementPerformed: false, canonicalMutation: false };
+        },
       });
+      const proposal = admission.proposal;
       const executionEvidence = clone(this.jevExecution.get(String(cognitiveTask.turnId)) ?? null);
       const enriched = { ...clone(proposal), executionEvidence };
       this.pendingJev.set(cognitiveTask.turnId, enriched);
-      return { value: proposal.proposedOutcome, proposal: enriched, executionEvidence };
+      this.pendingJevAdmission.set(cognitiveTask.turnId, clone(admission));
+      return { value: admission.accepted ? proposal.proposedOutcome : 'UNRESOLVED', proposal: enriched, ownerAdmission: clone(admission), executionEvidence };
     }
     return { value: 'NO_OP', taskType: cognitiveTask.taskType };
   }
 
-  #makeJevInput({ turn, query, planning }) {
+  #makeJevInput({ turn, query, planning, chatId }) {
     const rows = (planning?.nominations ?? []).slice(0, 8);
     const evidence = rows.map((row, index) => ({
       evidenceId: 'lore-evidence:' + turn.turnId + ':' + index,
@@ -1131,6 +1169,7 @@ export class DevelopmentDeploymentBrain {
       correlationId: turn.correlationId,
       causationId: turn.eventId,
       owner: 'LORE_OWNER',
+      chatId: String(chatId),
       options: [
         { optionId: LoreReconciliationClassification.TEMPORALLY_DISTINCT, evidenceRefs: refs, label: 'Preserve temporal distinction' },
         { optionId: LoreReconciliationClassification.CONTRADICTORY, evidenceRefs: refs, label: 'Preserve contradiction' },

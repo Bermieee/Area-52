@@ -234,6 +234,21 @@ test('Diagnostics command center exposes flagship widgets and wide workspace met
   scope.cleanup();mounted.release();
 });
 
+test('Diagnostics command center displays Vectoring query and background indexing in resource evidence',()=>{
+  const journal=new DemoEvidenceJournal({storage:memoryStorage()});journal.recordSnapshot(snapshot());
+  const diagnostics={read:()=>({selection:baseSelection,resources:{rows:[]},vectoringTrace:{selectedTurn:[{
+    executionId:'exec:query',chatId:baseSelection.chatId,turnId:baseSelection.turnId,generationId:baseSelection.generationId,operation:'EMBED_QUERY',status:'SUCCESS',latencyMs:23,memoryDecision:'ACCEPTED_FOR_HISTORIAN_NOMINATION',candidateCount:2,gather:'NO_EVIDENCE',
+  }],background:[{executionId:'exec:index',operation:'EMBED_ARTIFACT',status:'SUCCESS',latencyMs:31,memoryDecision:'ACCEPTED',workId:'work:index'}]}})};
+  const registry=new WorkspaceRegistry(),mounted=installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider:()=>baseSelection,diagnostics});
+  const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
+  registry.get('turn-log').render(host,{scope,refresh:()=>{}});
+  const visible=allNodesForDiagnostics(host).map(node=>node.textContent??'').join(' ');
+  for(const label of ['Vectoring causal trace','Selected-turn Memory queries','Background Memory indexing','2 candidate(s)','Gather NO_EVIDENCE'])assert.ok(visible.includes(label),label);
+  const exported=new SelectedTurnLogModel({journal,selectionProvider:()=>baseSelection,diagnostics}).exportUnifiedDiagnostics();
+  assert.equal(exported.resources.vectoringTrace.selectedTurn[0].executionId,'exec:query');
+  scope.cleanup();mounted.release();
+});
+
 test('Diagnostics aggregates retained history and current operational telemetry into one safe export bundle',()=>{
   let now=1700000600000;
   const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});

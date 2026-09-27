@@ -291,6 +291,7 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
   }
 
   for(const row of diag.resources?.rows??[]){
+    if(String(row.kind??'').toUpperCase()==='VECTORING'&&!exactResourceExecution(row.lastExecution,selection))continue;
     const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
     const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
     if(qualificationProbe||(!row.physicalExecutionAttempted&&!row.lastExecution))continue;
@@ -310,12 +311,13 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
   if(optionalRows.length){
     const jevReason=technicalReason(path.jev?.reasonCode??path.jev?.reason??path.jev?.outcome??path.jev?.state);
     const lifecycleRows=optionalRows.map(row=>{
+      const kind=String(row.kind??'').toUpperCase();
       const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
       const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
-      const attempted=!qualificationProbe&&Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=attempted&&Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
+      const attempted=!qualificationProbe&&(kind!=='VECTORING'||exactResourceExecution(row.lastExecution,selection))&&Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=attempted&&Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
       const returned=attempted?(typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null):null;
       const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
-      const kind=String(row.kind??'').toUpperCase(),skipReason=qualificationProbe?'QUALIFICATION_PROBE':kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
+      const skipReason=qualificationProbe?'QUALIFICATION_PROBE':kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
       const ownerAcceptanceState=typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE';
       return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,executionPurpose,qualificationProbe,measurementClass:row.measurementClass??null};
     });
@@ -503,6 +505,7 @@ function readModelEvidence(value,inspection,stage,selectedRefs,selection,overrid
 }
 function optionalResourceEvidence(row,stage,selectedRefs,selection){
   if(!row)return null;
+  if(stage==='vectoring'&&!exactResourceExecution(row.lastExecution,selection))return null;
   const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
   const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
   const attempted=!qualificationProbe&&Boolean(row.physicalExecutionAttempted||row.lastExecution);
@@ -514,6 +517,10 @@ function optionalResourceEvidence(row,stage,selectedRefs,selection){
     executionPurpose,qualificationProbe,
     sourceRevisionRefs:[...(selectedRefs??[])].slice(0,32),worldRevision:numberOrNull(selection?.worldRevision),sceneRevision:numberOrNull(selection?.sceneRevision),
     evidenceKind:'optional-resource:'+stage,reasonCode:qualificationProbe?'QUALIFICATION_PROBE':technicalReason(row.skipReason??row.lastFailure?.code??row.lastExecution?.reasonCode)};
+}
+function exactResourceExecution(execution,selection){
+  return Boolean(selection?.chatId&&selection?.turnId&&selection?.generationId&&
+    execution?.selection?.chatId===selection.chatId&&execution?.selection?.turnId===selection.turnId&&execution?.selection?.generationId===selection.generationId);
 }
 
 function expectedWorkJournalEntry(expectedWork,selection,at){

@@ -1,6 +1,7 @@
 import {
   ProductDataMode, Wave6Health, clone, createProductSourceStatus, deepFreeze, normalizeWave6Health,
 } from './wave6-contracts.js';
+import {projectVectoringCausalTrace,safeVectoringExecution} from './vectoring-causal-trace.js';
 
 export const OperatorProducerState=Object.freeze({
   LIVE:'LIVE',
@@ -868,7 +869,7 @@ export class Wave13DiagnosticsCenterAdapter{
       resources:{rows:rows.slice(0,32).map(row=>deepFreeze({
         id:row.id,displayName:row.displayName,kind:row.kind,physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted),
         physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded),ownerAccepted:row.ownerAccepted??null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,
-        reasonCode:row.reasonCode,reason:row.reason,lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+        reasonCode:row.reasonCode,reason:row.reason,lastExecution:row.kind==='VECTORING'?safeVectoringExecution(row.lastExecution):cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
       }))},
     });
   }
@@ -887,6 +888,8 @@ export class Wave13DiagnosticsCenterAdapter{
     const graphRead=safeRead(()=>this.graphVisibility?.read?.(selection),null);
     const resourceCaps=this.resources?.capabilities?.()??{};
     const rows=resourceRead?.data?.resources??[];
+    const memoryVectorReceipts=safeRead(()=>this.hostBindings.readMemoryVectorReceipts?.(),[]);
+    const vectoringTrace=projectVectoringCausalTrace({resources:rows,memoryReceipts:memoryVectorReceipts,selection});
     const lanes=['JEV','SIDECAR','VECTORING'].map(kind=>{
       const members=rows.filter(row=>String(row.kind??'SIDECAR').toUpperCase()===kind);
       return deepFreeze({
@@ -926,7 +929,7 @@ export class Wave13DiagnosticsCenterAdapter{
       })),
     });
     return deepFreeze({
-      kind:'Wave13DiagnosticsCenter',selection,
+      kind:'Wave13DiagnosticsCenter',selection,vectoringTrace,
       host:{connected:Boolean(operations?.hostConnected),waitingForTurn:Boolean(operations?.waitingForTurn),liveBinding:cloneSafe(liveDiagnostics),rawPromptTelemetry:false},
       pipeline:cloneSafe(operations?.pipeline??{}),
       generationInspection:cloneSafe(operations?.inspection??null),
@@ -940,7 +943,7 @@ export class Wave13DiagnosticsCenterAdapter{
           providerId:row.providerId,providerProfileId:row.providerProfileId,modelId:row.modelId,workerId:row.workerId,measurementClass:row.measurementClass,
           physicalExecutionAttempted:Boolean(row.physicalExecutionAttempted),physicalExecutionSucceeded:Boolean(row.physicalExecutionSucceeded),ownerAccepted:row.ownerAccepted??null,ownerAcceptanceSource:row.ownerAcceptanceSource??null,
           capabilities:[...(row.capabilities??[])],currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,reasonCode:row.reasonCode,reason:row.reason,
-          lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+          lastHealthResult:row.lastHealthResult,lastHealthLatencyMs:row.lastHealthLatencyMs,lastTest:cloneSafe(row.lastTest),lastExecution:row.kind==='VECTORING'?safeVectoringExecution(row.lastExecution):cloneSafe(row.lastExecution),executionHistory:row.kind==='VECTORING'?(row.executionHistory??[]).slice(-64).map(safeVectoringExecution):[],lastFailure:cloneSafe(row.lastFailure),
         })),
       },
       cognition:{
@@ -1203,7 +1206,7 @@ function normalizeResources(raw){
       local:Boolean(row.local),state:state||null,health,availability,connected:Boolean(connected),
       capabilities,declaredCapabilities:declared,activeCapabilities:active,qualifiedCapabilities:[...(row.qualifiedCapabilities??[])],routableCapabilities:[...(row.routableCapabilities??[])],placements:[...(row.placements??[])],currentLoad:Number(row.currentLoad??row.activeExecutions??0),
       concurrencyCapacity:Number(row.concurrencyCapacity??row.maxConcurrency??1),measurementClass:row.measurementClass??null,reasonCode:row.reasonCode??null,reason:row.reason??null,
-      lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastExecution:cloneSafe(row.lastExecution),lastFailure:cloneSafe(row.lastFailure),
+      lastHealthResult:row.lastHealthResult??null,lastHealthLatencyMs:row.lastHealthLatencyMs??null,lastTest:cloneSafe(row.lastTest),lastExecution:role==='VECTORING'?safeVectoringExecution(row.lastExecution):cloneSafe(row.lastExecution),executionHistory:role==='VECTORING'?(row.executionHistory??[]).slice(-64).map(safeVectoringExecution):[],lastFailure:cloneSafe(row.lastFailure),
       diagnostics:cloneSafe(row.diagnostics??[]),callable:Boolean(row.callable),credentialConfigured:Boolean(row.credentialConfigured),credentialRequired:Boolean(row.credentialRequired),lastError:row.lastFailure?.message??((state==='UNAVAILABLE'||state==='DEGRADED')?row.reason:null),
     });
   });

@@ -84,7 +84,7 @@ export class SelectedTurnLogModel{
   exportDiagnostics({selection=null}={}){
     const selected=normalizeSelection(selection??this.selectionProvider?.()??{});
     const retainedEvidence=this.journal?.exportEvidence?.({selection:null})??null;
-    const operational=safeDiagnosticsRead(this.diagnostics);
+    const operational=operationalForSelection(safeDiagnosticsRead(this.diagnostics),selected);
     const selectedTurn=this.exportMetadata({selection:selected});
     const timeline=buildMasterTimeline(retainedEvidence);
     const errors=collectDiagnosticErrors(operational,timeline);
@@ -132,6 +132,7 @@ export class SelectedTurnLogModel{
       runtime:op.runtime??null,
       resources:{
         resources:op.resources??null,
+        vectoringTrace:op.vectoringTrace??null,
         wiring:op.wiring??null,
         coprocessor:op.coprocessor??null,
       },
@@ -504,6 +505,21 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
     }
     resources.body.append(element(d,'strong',{text:'Current resources'}),currentResources);
   }
+  const vectorTrace=operational?.vectoringTrace??null;
+  resources.body.append(element(d,'strong',{text:'Vectoring causal trace'}));
+  for(const [title,records] of [['Selected-turn Memory queries',vectorTrace?.selectedTurn??[]],['Background Memory indexing',vectorTrace?.background??[]]]){
+    resources.body.append(element(d,'span',{className:'a52-eyebrow',text:title}));
+    if(!records.length){resources.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — no matching execution receipt.'));continue;}
+    const list=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const row of records.slice(-12)){
+      const detail=[row.latencyMs==null?null:diagnosticMs(row.latencyMs),
+        'Memory '+row.memoryDecision,row.candidateCount==null?null:row.candidateCount+' candidate(s)',
+        row.operation==='EMBED_QUERY'?'Gather '+row.gather:'Indexed work '+(row.workId??'unknown')].filter(Boolean).join(' · ');
+      list.append(compactStatusRow(d,row.operation==='EMBED_QUERY'?'Memory query':'Memory artifact index',row.status,detail,stageDiagnosticToken(row.status),
+        inspect?()=>inspect({kind:'area52-vectoring-trace',id:row.executionId??'vectoring',title:'Vectoring · '+row.operation,payload:row}):null,scope));
+    }
+    resources.body.append(list);
+  }
   const resourceEvents=operational?.telemetry?.resourceEvents??[];
   if(resourceEvents.length){
     const eventList=element(d,'div',{className:'a52-diagnostics-status-list'});
@@ -646,6 +662,12 @@ function renderRow(d,row,{model,selection,scope,inspect}={}){
 
 function safeDiagnosticsRead(provider){
   try{return provider?.read?.()??null;}catch(error){return{kind:'Area52DiagnosticsUnavailable',error:{code:error?.code??'DIAGNOSTICS_READ_FAILED',message:safeText(error?.message??error,512)}};}
+}
+function operationalForSelection(operational,selection){
+  if(!operational?.vectoringTrace)return operational;
+  const trace=operational.vectoringTrace;
+  const exact=row=>row?.chatId===selection.chatId&&row?.turnId===selection.turnId&&row?.generationId===selection.generationId;
+  return {...operational,vectoringTrace:{...trace,selectedTurn:(trace.selectedTurn??[]).filter(exact)}};
 }
 function safeGraphRead(provider,selection){
   try{return provider?.read?.(selection)??null;}catch(error){return{kind:'SelectedTurnGraphVisibilityReadModel',state:'UNAVAILABLE',selection:normalizeSelection(selection),reason:safeText(error?.message??error,512),errors:[{code:error?.code??'GRAPH_VISIBILITY_READ_FAILED'}],safety:{metadataOnly:true,rawPrompt:false,rawLoreBodies:false,rawMemoryBodies:false,hiddenReasoning:false,mutationAuthority:false}};}

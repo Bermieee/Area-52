@@ -371,9 +371,10 @@ export class DevelopmentDeploymentBrain {
       const controller=foreground?new AbortController():null;
       const timer=foreground?setTimeout(()=>controller.abort('MEMORY_VECTOR_QUERY_BUDGET_EXCEEDED'),1200):null;
       try{
-        return await this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input,signal:controller?.signal??null});
+        return await this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input,signal:controller?.signal??null,
+          origin:{operation:request.operation,selection:request.selection??{chatId:request.chatId??null},workId:request.workId??null,artifactId:request.artifactId??null,artifactRevision:request.artifactRevision??null}});
       }catch(error){
-        if(foreground&&controller.signal.aborted)return{status:'UNAVAILABLE',reasonCode:'VECTOR_QUERY_BUDGET_EXCEEDED',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:1200};
+        if(foreground&&controller.signal.aborted)return{status:'UNAVAILABLE',executionId:error?.executionId??null,reasonCode:'VECTOR_QUERY_BUDGET_EXCEEDED',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:1200};
         throw error;
       }finally{
         if(timer)clearTimeout(timer);
@@ -1100,6 +1101,7 @@ export class DevelopmentDeploymentBrain {
       completeOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.completeGeneration(meta),
       readOptionalResourceRuntime: () => clone(this.resourceDirector.snapshot()),
       readMemoryExecutionReceipts: () => clone(this.memoryNearlineReceipts),
+      readMemoryVectorReceipts: () => this.memory.vectorIndex.readReceipts({limit:128}),
       loreAuthoringService: this.loreAuthoring,
       loreAuthoringHost,
       loreAuthoringOperator: loreAuthoringHost,

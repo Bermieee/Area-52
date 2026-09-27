@@ -81,7 +81,8 @@ test('Worker 1 Memory evidence distinguishes reader selection mismatch from an a
   assert.equal(after.evidenceDiagnosis.state,'READER_SELECTION_MISMATCH');
   assert.ok(after.evidenceDiagnosis.mismatchFields.includes('chatId'));
   const selected=brain.uiBindings().readSelectedTurnReceipt(prepared.selection);
-  assert.equal(selected.producers.memory.metadata.readerDiagnosis.state,'READER_SELECTION_MISMATCH');
+  assert.equal(selected.producers.memory.readerDiagnosis.state,'READER_SELECTION_MISMATCH');
+  assert.equal(selected.producers.memory.readerDiagnosis.writeState,'WRITE_PRESENT');
 });
 
 test('Worker 1 installed host assembly exports selected-turn and graph readers without replacing owner UI',async()=>{

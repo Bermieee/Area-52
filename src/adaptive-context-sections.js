@@ -12,10 +12,18 @@ function compactExternalEvidenceFact(fact){
   };
   return semantic?{...base,s:semantic}:{...base,text:fact.text};
 }
+function compactHotCognitionFact(fact){
+  if(!fact||typeof fact!=='object'||!Object.prototype.hasOwnProperty.call(fact,'hotSegment'))return fact;
+  return{e:fact.e,p:fact.p,v:fact.v,a:fact.a,cf:fact.cf,t:fact.t};
+}
+function compactFactForPresentation(fact){
+  const external=compactExternalEvidenceFact(fact);
+  return external===fact?compactHotCognitionFact(fact):external;
+}
 function compactPresentation(content){
   if(typeof content==='string')return content;
-  if(Array.isArray(content))return content.map(compactExternalEvidenceFact);
-  return compactExternalEvidenceFact(content);
+  if(Array.isArray(content))return content.map(compactFactForPresentation);
+  return compactFactForPresentation(content);
 }
 function renderSection(slot,content){const richText=typeof content==='string'?content:`${slot}\n${JSON.stringify(content,null,2)}`,compactText=typeof content==='string'?content:JSON.stringify(compactPresentation(content));return{richText,compactText};}
 function sourceRevisionsForFact(packet,fact){return uniq(packet.provenanceIndex?.[fact.id]??[]);}

@@ -489,3 +489,135 @@ test('Memory cognition: consolidation owner review accepts exact current Scene e
   assert.equal(staleReceipt.results[0].status,'STALE');
   assert.equal(staleReceipt.results[0].reasonCode,'MEMORY_CONSOLIDATION_SOURCE_EPISODE_REVISION_MISMATCH');
 });
+
+
+function deterministicReflectionProducer(memory){
+  return Object.freeze({
+    kind:'TestMemoryConsolidationProducer',contractVersion:'1.0.0',
+    async propose(input={}){
+      const selection=input.selection??{};
+      const episodes=memory.experienceStore.currentEpisodes({freshOnly:true})
+        .filter(row=>row.chatId===selection.chatId)
+        .sort((a,b)=>a.createdSequence-b.createdSequence)
+        .slice(-6);
+      if(episodes.length<2)return{
+        kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+        status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_REPETITION_WINDOW_INSUFFICIENT',
+        selection,episodeId:input.episodeId??null,providerAttempted:false,
+      };
+      const refs=episodes.map(episode=>({
+        kind:'ArtifactReference',artifactId:episode.id,artifactType:'MemoryEpisode',owner:'MEMORY',
+        revision:episode.revision,storageDomain:'episodes',provenanceRef:'memory:'+episode.id,
+      }));
+      const sourceRevisionSet=[...new Set(episodes.flatMap(row=>row.sourceRevisionRefs))].sort();
+      const bundle=createConsolidationProposalBundle({
+        unitId:'test-native-auto:'+selection.generationId,sourceRevisionSet,
+        proposals:[{
+          proposalKind:ConsolidationProposalKind.REFLECTION_EVIDENCE,
+          semanticIdentity:'reflection:orin:lamp-check',
+          sourceArtifactRefs:refs,confidence:.77,authority:'INFERRED',
+          payload:{
+            directObservations:refs.map(row=>row.artifactId),
+            repeatedPatterns:['Orin repeatedly checks the signal lamp before departure.'],
+            inferredInterpretations:['Orin may habitually verify the signal lamp before departure.'],
+            contradictingEvidence:[],
+          },
+        }],
+      },{
+        unitId:'test-native-auto:'+selection.generationId,sourceArtifactRefs:refs,sourceRevisionSet,
+        worldRevision:selection.worldRevision??0,sceneRevision:selection.sceneRevision??0,characterStateRevision:0,
+      });
+      return{
+        kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+        status:'PROPOSED',reasonCode:null,selection,episodeId:input.episodeId??null,
+        episodeCount:episodes.length,bundle,memoryHandoff:createMemoryOwnerHandoff(bundle),
+        providerAttempted:true,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+      };
+    },
+  });
+}
+
+test('Memory cognition: real Brain episodes trigger durable consolidation without hand-authored reflection inputs',async()=>{
+  const memory=new MemoryTemporalProducer();
+  const surface=createMemoryIntegrationSurface(memory);
+  const producer=deterministicReflectionProducer(memory);
+  const brain=new Area52NativeBrain({memoryInterface:surface,memoryConsolidationInterface:producer});
+
+  for(const [index,response] of [
+    [1,'Orin checks the signal lamp before leaving the quay.'],
+    [2,'Orin checks the signal lamp again before the evening departure.'],
+  ]){
+    await brain.prepareTurn({
+      chatId:'chat:auto-consolidation',turnId:'auto-consolidation:'+index,generationId:'gen:auto-consolidation:'+index,
+      query:'Continue.',intent:'CURRENT',
+      scene:scene('quay-'+index,index,{location:'Quay',activeCast:['Orin'],relationship:index===1?null:'PRECEDES'}),
+      executionLabel:'DETERMINISTIC',
+    });
+    const learned=await brain.completeTurn({
+      turnId:'auto-consolidation:'+index,response,knownBy:['Orin'],
+    });
+    assert.equal(learned.memoryPostTurn?.status,'COMPLETED');
+    if(index===1){
+      assert.equal(learned.memoryConsolidation?.status,'SKIPPED');
+      assert.equal(memory.experienceStore.currentReflections().length,0);
+    }else{
+      assert.equal(learned.memoryConsolidation?.status,'COMPLETED');
+    }
+  }
+
+  const reflection=memory.experienceStore.currentReflections()[0];
+  assert.ok(reflection);
+  assert.equal(reflection.reflectionKey,'reflection:orin:lamp-check');
+  assert.equal(reflection.authorityClass,'INFERRED');
+  assert.equal(reflection.worldTruthAuthority,false);
+  assert.equal(reflection.settlementAuthority,false);
+  assert.equal(reflection.episodeRefs.length,2);
+  assert.match(reflection.statement,/habitually verify the signal lamp/i);
+});
+
+test('Memory cognition: an admitted episode can checkpoint before L3 consolidation and resume that task after reload',async()=>{
+  let memory=new MemoryTemporalProducer();
+  let surface=createMemoryIntegrationSurface(memory);
+  const deferredProducer=Object.freeze({
+    kind:'TestDeferredMemoryConsolidationProducer',contractVersion:'1.0.0',
+    propose:async(input)=>({
+      kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+      status:'DEFERRED',reasonCode:'TEST_PROVIDER_UNAVAILABLE',
+      selection:input.selection,episodeId:input.episodeId,providerAttempted:false,
+      rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+    }),
+  });
+  let brain=new Area52NativeBrain({memoryInterface:surface,memoryConsolidationInterface:deferredProducer});
+
+  await brain.prepareTurn({
+    chatId:'chat:l3-resume',turnId:'l3-resume:1',generationId:'gen:l3-resume:1',
+    query:'Continue.',intent:'CURRENT',
+    scene:scene('l3-dock',1,{location:'Dock',activeCast:['Mara']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  await brain.completeTurn({
+    turnId:'l3-resume:1',
+    response:'Mara places the brass marker beside the dock clock.',
+    knownBy:['Mara'],autoDrain:false,
+  });
+  await brain.runtimeDirector.drain({maxCycles:1});
+  const afterEpisode=brain.readTurn('l3-resume:1');
+  assert.equal(afterEpisode.memoryPostTurn?.status,'COMPLETED');
+  assert.ok(afterEpisode.memoryConsolidationRuntimeTaskId);
+  assert.equal(afterEpisode.memoryConsolidation??null,null);
+
+  const brainSnapshot=brain.snapshot();
+  const memorySnapshot=memory.snapshot();
+  memory=MemoryTemporalProducer.fromSnapshot(memorySnapshot);
+  surface=createMemoryIntegrationSurface(memory);
+  brain=Area52NativeBrain.fromSnapshot(brainSnapshot,{
+    memoryInterface:surface,memoryConsolidationInterface:deferredProducer,
+  });
+  await brain.runtimeDirector.drain({maxCycles:128});
+  const resumed=brain.readTurn('l3-resume:1');
+  assert.equal(resumed.memoryConsolidation?.status,'DEFERRED');
+  assert.equal(resumed.memoryConsolidation?.reasonCode,'TEST_PROVIDER_UNAVAILABLE');
+  const runtime=brain.runtimeDirector.ledger.list().find(row=>row.obligation?.taskType==='MEMORY_CONSOLIDATION_PROPOSAL');
+  assert.ok(runtime);
+  assert.equal(runtime.lifecycleStatus,'satisfied');
+});

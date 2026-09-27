@@ -4,6 +4,7 @@ import { ContextDeliveryEngine } from '../src/adaptive-context-runtime.js';
 import { GenerationContextSeal } from '../src/context-seal.js';
 import { Area52NativeBrain } from '../src/native-brain.js';
 import { createDevelopmentDeploymentSillyTavernSession } from '../src/deployment/sillytavern-live.js';
+import { DevelopmentDeploymentBrain } from '../src/deployment/brain.js';
 
 function sealedPacket(){
   const packet={
@@ -57,6 +58,26 @@ function makeHost(){
 }
 function pushUser(context,text){context.chat.push({is_user:true,mes:text,send_date:Date.now()});return context.chat.length-1;}
 function pushAssistant(context,text){context.chat.push({is_user:false,mes:text,send_date:Date.now()});return context.chat.length-1;}
+
+test('CHARACTERIZATION: a READY deployment Jev resource is not attached to the Native Brain choice seam',async()=>{
+  const {sillyTavern}=makeHost();
+  const deploymentBrain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:true});
+  const connected=await deploymentBrain.connectOptionalResource({
+    id:'jev:worker1-characterization',kind:'JEV',transportKind:'DETERMINISTIC_LOCAL',
+    modelId:'deterministic-bounded-jev',
+  });
+  assert.equal(connected.callable,true);
+  assert.equal(deploymentBrain.listOptionalResources().resources.find(row=>row.resourceId==='jev:worker1-characterization')?.callable,true);
+
+  const nativeBrain=new Area52NativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({
+    sillyTavern,document:null,mountUi:false,brain:deploymentBrain,nativeBrain,
+  });
+  assert.equal(nativeBrain.core.cognitiveChoice.jevAdapter,null,'Native Brain has no Jev bridge despite a callable deployment resource');
+  const attachments=session.exportEvidence().nativeBrainIntegration.ownerKnowledgeAttachments;
+  assert.equal(Object.prototype.hasOwnProperty.call(attachments,'jev'),false,'session owner attachment path does not wire Jev into Native Brain');
+  session.destroy();
+});
 
 test('DETERMINISTIC: delivery receipt separates planned, sealed/compiled, host-observed, and provider-response phases',()=>{
   const engine=new ContextDeliveryEngine();

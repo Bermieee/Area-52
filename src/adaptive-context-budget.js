@@ -1,4 +1,5 @@
 import { PromptSlot,RepresentationMode,DeliveryStatus,stableDeliveryString } from './adaptive-context-contracts.js';
+import { sliceFactSection } from './adaptive-context-sections.js';
 
 export class DeterministicApproxTokenEstimator{
   constructor({id='deterministic-approx-v1',charsPerToken=4}={}){this.id=id;this.charsPerToken=charsPerToken;this.exact=false;}
@@ -26,12 +27,29 @@ export class AdaptiveBudgetAllocator{
     // Admission is semantic; richness is presentation. First admit every section that can
     // fit in its minimum COMPACT representation, then spend remaining headroom on RICH
     // serialization. This prevents rich protected presentation from evicting optional Lore.
-    let remaining=available-protectedFloor;const decisions=[];
+    let remaining=available-protectedFloor;const decisions=[],partialDeferrals=[];
     for(const row of protectedRows)decisions.push({...row,representation:RepresentationMode.COMPACT,allocatedTokens:row.compactTokens,targetTokens:targetsBySlot[row.slot]??row.compactTokens,remainingTokensAtDecision:remaining,minimumTokens:row.compactTokens});
     for(const row of orderedOptional){
-      const remainingTokensAtDecision=remaining;let representation=RepresentationMode.OMITTED,used=0;
+      const remainingTokensAtDecision=remaining;let representation=RepresentationMode.OMITTED,used=0,admitted=row;
       if(row.compactTokens<=remaining){representation=RepresentationMode.COMPACT;used=row.compactTokens;remaining-=used;}
-      decisions.push({...row,representation,allocatedTokens:used,targetTokens:targetsBySlot[row.slot]??Math.max(0,used),remainingTokensAtDecision,minimumTokens:row.compactTokens});
+      else if(row.slot===PromptSlot.RELEVANT_LORE&&Array.isArray(row.content)&&row.content.length>1&&remaining>0){
+        let partial=null;
+        for(let count=row.content.length-1;count>=1;count-=1){
+          const section=sliceFactSection(row,count),compactTokens=this.estimator.estimate(section.compactText);
+          if(compactTokens<=remaining){partial={section,compactTokens,richTokens:this.estimator.estimate(section.richText),count};break;}
+        }
+        if(partial){
+          admitted={...partial.section,compactTokens:partial.compactTokens,richTokens:partial.richTokens,weight:row.weight};
+          representation=RepresentationMode.COMPACT;used=partial.compactTokens;remaining-=used;
+          partialDeferrals.push({
+            slot:row.slot,reason:'OPTIONAL_SECTION_PARTIAL_REMAINDER_EXCEEDS_BUDGET',reasonClass:'BUDGET_CAPACITY',legacyReason:'OPTIONAL_DEFERRED_BY_BUDGET',
+            requiredTokens:row.compactTokens,admittedTokens:used,remainingTokensAtDecision,shortfallTokens:Math.max(0,row.compactTokens-remainingTokensAtDecision),
+            targetTokens:targetsBySlot[row.slot]??Math.max(0,used),priority:Number(row.priority??0),partial:true,
+            originalEntryCount:row.content.length,admittedEntryCount:partial.count,deferredEntryCount:row.content.length-partial.count,
+          });
+        }
+      }
+      decisions.push({...admitted,representation,allocatedTokens:used,targetTokens:targetsBySlot[row.slot]??Math.max(0,used),remainingTokensAtDecision,minimumTokens:admitted.compactTokens});
     }
     if(profile.structuredContextPreference==='RICH'){
       const enrichment=[...decisions].filter(row=>row.representation!==RepresentationMode.OMITTED).sort((a,b)=>Number(b.protected)-Number(a.protected)||b.weight-a.weight||a.slot.localeCompare(b.slot));
@@ -39,8 +57,8 @@ export class AdaptiveBudgetAllocator{
     }
     const bySlot=new Map(decisions.map(x=>[x.slot,x])),ordered=sections.map(x=>bySlot.get(x.slot)).filter(Boolean),omitted=ordered.filter(x=>x.representation===RepresentationMode.OMITTED);
     const omission=(x,reason)=>({slot:x.slot,reason,reasonClass:'BUDGET_CAPACITY',legacyReason:Number(x.priority??0)>=5?'OPTIONAL_DEFERRED_BY_BUDGET':'OPTIONAL_BUDGET_PRESSURE',requiredTokens:x.compactTokens,remainingTokensAtDecision:x.remainingTokensAtDecision,shortfallTokens:Math.max(0,x.compactTokens-x.remainingTokensAtDecision),targetTokens:x.targetTokens,priority:Number(x.priority??0)});
-    const dropped=omitted.filter(x=>Number(x.priority??0)<5).map(x=>omission(x,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET')),deferred=omitted.filter(x=>Number(x.priority??0)>=5).map(x=>omission(x,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET')),fallbackDecisions=[];
-    if(ordered.some(x=>x.representation===RepresentationMode.COMPACT&&profile.structuredContextPreference==='RICH'))fallbackDecisions.push('COMPACT_SAFE_REPRESENTATION');if(dropped.length)fallbackDecisions.push('DROP_OPTIONAL_MATERIAL');if(deferred.length)fallbackDecisions.push('DEFER_OPTIONAL_MATERIAL');const allocated=ordered.reduce((sum,x)=>sum+x.allocatedTokens,0);
+    const dropped=omitted.filter(x=>Number(x.priority??0)<5).map(x=>omission(x,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET')),deferred=[...omitted.filter(x=>Number(x.priority??0)>=5).map(x=>omission(x,'OPTIONAL_SECTION_MINIMUM_EXCEEDS_REMAINING_BUDGET')),...partialDeferrals],fallbackDecisions=[];
+    if(ordered.some(x=>x.representation===RepresentationMode.COMPACT&&profile.structuredContextPreference==='RICH'))fallbackDecisions.push('COMPACT_SAFE_REPRESENTATION');if(dropped.length)fallbackDecisions.push('DROP_OPTIONAL_MATERIAL');if(partialDeferrals.length)fallbackDecisions.push('PARTIAL_OPTIONAL_LORE_BY_BUDGET');if(deferred.length)fallbackDecisions.push('DEFER_OPTIONAL_MATERIAL');const allocated=ordered.reduce((sum,x)=>sum+x.allocatedTokens,0);
     return{ok:true,status:DeliveryStatus.READY,intent:intentKey,budget:{available,total,reserved:profile.reservedTokens,protected:protectedFloor,allocated,remaining:Math.max(0,available-allocated),targetsBySlot},sections:ordered,dropped,deferred,fallbackDecisions};
   }
 }

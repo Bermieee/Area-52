@@ -82,6 +82,7 @@ export async function init() {
       onEvidence: (evidence) => renderEvidence(root, evidence),
       nativeBrain: globalThis.Area52NativeBrainOwner ?? new Area52NativeBrain(),
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
+      memoryOwnerSnapshot: globalThis.Area52MemoryOwnerSnapshot ?? null,
       persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
     });
     // Keep the installed live turn bridge active; only the standalone

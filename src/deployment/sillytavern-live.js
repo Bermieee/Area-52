@@ -347,6 +347,25 @@ function sceneOwnerReceiptForNative(scene){
   return safe;
 }
 
+function activeContextForNative(brain,context,chatId){
+  const chat=Array.isArray(context?.chat)?context.chat:[];
+  const currentEvidence=brain?.scene?.narrativeFeed?.currentEvidence?.(chatId)??[];
+  const evidenceByMessage=new Map(currentEvidence.filter(row=>row?.messageId!=null).map(row=>[String(row.messageId),row]));
+  const messages=[];
+  for(let index=0;index<chat.length;index++){
+    const row=chat[index],content=clean(row?.mes??row?.content??row?.text);
+    if(!content)continue;
+    const identity=sourceIdentity(chatId,{index,row,text:content}),evidence=evidenceByMessage.get(identity.messageKey);
+    messages.push({
+      messageId:identity.messageKey,sequence:index,
+      role:row?.role??(row?.is_user===true?'user':'assistant'),content,
+      sourceRevisionRefs:evidence?.sourceRevisionId?[evidence.sourceRevisionId]:[],
+      provenanceRefs:evidence?.sourceRevisionId?[evidence.sourceRevisionId]:[],
+    });
+  }
+  return{messages,coverage:[],recentWindow:6,hostHistoryMutation:false};
+}
+
 async function injectPrompt(context, result) {
   const plan = result?.delivery?.plan ?? null;
   if (!plan) return { supported: false, succeeded: false, reason: 'PROMPT_PLAN_UNAVAILABLE' };
@@ -665,20 +684,21 @@ export class DevelopmentDeploymentSillyTavernSession {
     const sceneVersion=this.#sceneHostVersion(chatId,message);
     const scene=applyNativeScene(this.brain,{chatId,message,sourceRevisionId:source.sourceRevisionId,activity:sceneVersion.activity,messageRevision:sceneVersion.messageRevision,turnId});
     const sceneOwnerReceipt=sceneOwnerReceiptForNative(scene);
+    const activeContext=activeContextForNative(this.brain,context,chatId);
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
     const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted:perfNow(),profileStart:this.#generationProfileSample(),profileAfterInsertion:null};
     this.nativeRuns.set(chatId,run);
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
-      chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,executionLabel:'LIVE_SILLYTAVERN',
+      chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,activeContext,executionLabel:'LIVE_SILLYTAVERN',
     },{
       generate:async(rendered,meta={})=>{
         const seal=meta.contextSealReceipt;
         if(!seal?.sealedState)throw new Error('Native Brain did not publish a sealed Context Seal before the model request');
         if(!rendered)throw new Error('Native Brain runTurn did not publish prepared.rendered for the model request');
         this.nativePayloads.set(chatId,clone(rendered));
-        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??null,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
+        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??null,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),contextRetirement:clone(meta.contextRetirement??null),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
         if(typeof this.nativeBrain?.recordHostObservationEvidence==='function')this.nativeBrain.recordHostObservationEvidence(turnId,{eventId:'host-preparation:'+generationId,chatId,turnId,generationId,correlationId:pending.correlationId,sceneRevision:pending.sceneRevision,sourceRevisionRefs:pending.sceneSourceRevisionRefs,durationMs:Math.max(0,perfNow()-run.hostPrepareStarted),capturedAt:Date.now()});
         this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
         this.#beginOptionalGeneration(pending);

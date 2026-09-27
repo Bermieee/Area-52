@@ -274,7 +274,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   if(slowest.length){
     const slow=element(d,'div',{className:'a52-diagnostics-slowest'});
     slow.append(element(d,'span',{className:'a52-eyebrow',text:'SLOWEST RETRIEVAL CHANNELS'}));
-    for(const row of slowest)slow.append(element(d,'div',{className:'a52-diagnostics-slowest__row'},element(d,'strong',{text:String(row.channelId??'channel')}),element(d,'span',{text:diagnosticMs(row.elapsedMs)}),makeBadge(d,String(row.status??'UNKNOWN'),stageDiagnosticToken(row.status))));
+    for(const row of slowest){const slowRow=element(d,'div',{className:'a52-diagnostics-slowest__row'});slowRow.append(element(d,'strong',{text:String(row.channelId??'channel')}),element(d,'span',{text:diagnosticMs(row.elapsedMs)}),makeBadge(d,String(row.status??'UNKNOWN'),stageDiagnosticToken(row.status)));slow.append(slowRow);}
     flight.body.append(slow);
   }
   flight.body.append(flightFoot);
@@ -338,7 +338,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const attentionList=element(d,'div',{className:'a52-diagnostics-attention-list'});
   for(const [name,error] of cognitionErrors.slice(0,4))attentionList.append(diagnosticAttentionItem(d,label(name)+' read issue',error?.message??error?.code??'Unknown owner read issue.','warning',inspect?()=>inspect({kind:'area52-diagnostic-error',id:name,title:label(name)+' read issue',payload:error}):null,scope));
   for(const row of errorRows.slice(-6).reverse())attentionList.append(diagnosticAttentionItem(d,row.stage,row.summary??row.reasonCode??'Retained warning/error evidence.',row.severity==='ERROR'?'warning':'historical',inspect?()=>inspect({kind:'area52-diagnostic-event',id:row.id,title:row.stage,payload:model.detail(row.id,{selection:row.selection??s})}):null,scope));
-  if(!attentionList.children?.length)attentionList.append(element(d,'div',{className:'a52-diagnostics-clear-state'},element(d,'span',{text:'✓'}),element(d,'strong',{text:'No retained issues'}),element(d,'p',{className:'a52-muted',text:'Selected-turn diagnostics contain no warning/error evidence under the current filters.'})));
+  if(!attentionList.children?.length){const clear=element(d,'div',{className:'a52-diagnostics-clear-state'});clear.append(element(d,'span',{text:'✓'}),element(d,'strong',{text:'No retained issues'}),element(d,'p',{className:'a52-muted',text:'Selected-turn diagnostics contain no warning/error evidence under the current filters.'}));attentionList.append(clear);}
   attention.body.append(attentionList);middle.append(attention.root);root.append(middle);
 
   const pulseGrid=element(d,'section',{className:'a52-diagnostics-pulse-grid'});
@@ -352,16 +352,16 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const contextPulse=diagnosticPanel(d,{icon:'◇',title:'Context Delivery',subtitle:'Evidence flow into the sealed generation',badge:pipeline.admissionReceipt?'SEALED':'NO EVIDENCE',tone:pipeline.admissionReceipt?'ready':'historical'});
   const admitted=Number(pipeline.contextAdmitted??0),returned=Number(pipeline.returnedResults??0),ratio=returned>0?Math.min(100,Math.round((admitted/returned)*100)):0;
   const contextMeter=element(d,'div',{className:'a52-diagnostics-context-meter'});
-  contextMeter.append(element(d,'div',{className:'a52-diagnostics-context-meter__track'},element(d,'span',{className:'a52-diagnostics-context-meter__fill',attrs:{style:'width:'+ratio+'%'}})),element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:admitted+' admitted'}),element(d,'span',{className:'a52-muted',text:returned+' returned · '+ratio+'%'})));
+  const contextTrack=element(d,'div',{className:'a52-diagnostics-context-meter__track'}),contextFill=element(d,'span',{className:'a52-diagnostics-context-meter__fill',attrs:{style:'width:'+ratio+'%'}}),contextStatus=element(d,'div',{className:'a52-inline-status'});contextTrack.append(contextFill);contextStatus.append(element(d,'strong',{text:admitted+' admitted'}),element(d,'span',{className:'a52-muted',text:returned+' returned · '+ratio+'%'}));contextMeter.append(contextTrack,contextStatus);
   contextPulse.body.append(contextMeter,createKeyValue(d,[{key:'Logical jobs',value:pipeline.logicalJobsMapped??snapshot.summary?.logicalJobs??0},{key:'Mapped resources',value:pipeline.mappedResourceCount??0},{key:'Physical attempts',value:pipeline.physicalExecutionAttempts??0},{key:'Delivery receipt',value:pipeline.deliveryReceipt?'OBSERVED':'NO_EVIDENCE'}]));pulseGrid.append(contextPulse.root);
 
   const knowledge=diagnosticPanel(d,{icon:'◫',title:'Knowledge Pulse',subtitle:'Lore and Memory readiness',badge:'OWNER DATA',tone:'observed'});
   const lore=operational?.lore??{},memory=operational?.memory??{},memoryCounts=memory.counts??{},fresh=memory.freshness??{};
-  knowledge.body.append(element(d,'div',{className:'a52-diagnostics-knowledge-split'},
+  const knowledgeSplit=element(d,'div',{className:'a52-diagnostics-knowledge-split'});knowledgeSplit.append(
     diagnosticMiniStat(d,'Lore ready',String(lore.retrievalReady??0),(lore.learned??0)+' learned / '+(lore.accepted??0)+' accepted'),
     diagnosticMiniStat(d,'Memory current',String(memoryCounts.current??0),(memoryCounts.historical??0)+' historical · '+(memoryCounts.unresolved??0)+' unresolved'),
     diagnosticMiniStat(d,'Summaries',String(memoryCounts.summaries??0),(fresh.freshSummaries??0)+' fresh · '+(fresh.staleSummaries??0)+' stale'),
-  ));pulseGrid.append(knowledge.root);root.append(pulseGrid);
+  );knowledge.body.append(knowledgeSplit);pulseGrid.append(knowledge.root);root.append(pulseGrid);
 
   const recent=diagnosticPanel(d,{icon:'≋',title:'Recent Diagnostic Events',subtitle:'Newest retained metadata for the current evidence set',badge:String(Math.min(10,timeline.rows.length))+' SHOWN',tone:'historical',className:'a52-diagnostics-recent'});
   const recentList=element(d,'div',{className:'a52-diagnostics-event-stream'});
@@ -370,8 +370,8 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   for(const row of newest)recentList.append(diagnosticEventStreamItem(d,row,{model,selection:row.selection??s,scope,inspect}));
   recent.body.append(recentList);root.append(recent.root);
 
-  const advancedHead=element(d,'div',{className:'a52-diagnostics-advanced-head'});
-  advancedHead.append(element(d,'div',{},element(d,'span',{className:'a52-eyebrow',text:'FORENSICS / ADVANCED EVIDENCE'}),element(d,'h2',{text:'Deep inspection'})),element(d,'p',{className:'a52-muted',text:'Detailed owner receipts, retained event filters, raw sanitized state, and storage safety stay available without dominating the live console.'}));
+  const advancedHead=element(d,'div',{className:'a52-diagnostics-advanced-head'}),advancedTitle=element(d,'div');advancedTitle.append(element(d,'span',{className:'a52-eyebrow',text:'FORENSICS / ADVANCED EVIDENCE'}),element(d,'h2',{text:'Deep inspection'}));
+  advancedHead.append(advancedTitle,element(d,'p',{className:'a52-muted',text:'Detailed owner receipts, retained event filters, raw sanitized state, and storage safety stay available without dominating the live console.'}));
   root.append(advancedHead);
   const advanced=element(d,'section',{className:'a52-diagnostics-advanced-grid'});
 
@@ -413,7 +413,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const lanes=element(d,'div',{className:'a52-diagnostics-lanes'});
   for(const spec of [['Jev',operational?.wiring?.jev],['Sidecar',operational?.wiring?.sidecar],['Vectoring',operational?.wiring?.vectoring]]){
     const lane=spec[1]?.lane??{},card=element(d,'article',{className:'a52-diagnostics-lane'}),laneStatus=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
-    card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical')),createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
+    const laneHead=element(d,'div',{className:'a52-inline-status'});laneHead.append(element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical'));card.append(laneHead,createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
     lanes.append(card);
   }
   resources.body.append(lanes);
@@ -438,11 +438,10 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   }
   advanced.append(resources.root);
 
-  const knowledgeDeep=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'});
-  knowledgeDeep.body.append(element(d,'div',{className:'a52-diagnostics-two-column'},
-    element(d,'div',{},element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}])),
-    element(d,'div',{},element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]))
-  ));advanced.append(knowledgeDeep.root);
+  const knowledgeDeep=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'}),knowledgeColumns=element(d,'div',{className:'a52-diagnostics-two-column'}),loreColumn=element(d,'div'),memoryColumn=element(d,'div');
+  loreColumn.append(element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}]));
+  memoryColumn.append(element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]));
+  knowledgeColumns.append(loreColumn,memoryColumn);knowledgeDeep.body.append(knowledgeColumns);advanced.append(knowledgeDeep.root);
 
   const errorsDeep=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});
   if(cognitionErrors.length){
@@ -504,7 +503,7 @@ function diagnosticPanel(d,{icon='◇',title,subtitle='',badge=null,tone='histor
 }
 function diagnosticKpi(d,{icon='•',label:labelText,value,detail,tone='historical'}={}){
   const root=element(d,'article',{className:'a52-diagnostics-kpi',dataset:{tone}});
-  root.append(element(d,'span',{className:'a52-diagnostics-kpi__icon',text:icon}),element(d,'div',{className:'a52-diagnostics-kpi__copy'},element(d,'span',{text:labelText}),element(d,'strong',{text:String(value??'NO_EVIDENCE')}),element(d,'small',{text:String(detail??'')})));
+  const copy=element(d,'div',{className:'a52-diagnostics-kpi__copy'});copy.append(element(d,'span',{text:labelText}),element(d,'strong',{text:String(value??'NO_EVIDENCE')}),element(d,'small',{text:String(detail??'')}));root.append(element(d,'span',{className:'a52-diagnostics-kpi__icon',text:icon}),copy);
   return root;
 }
 function diagnosticIdentityChip(d,labelText,value,tone='historical'){
@@ -532,7 +531,7 @@ function diagnosticDeltaBand(d,labelText,phase){
 }
 function diagnosticLanePill(d,name,state,tone,detail){
   const root=element(d,'div',{className:'a52-diagnostics-lane-pill'});
-  root.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:name}),makeBadge(d,state,tone)),element(d,'small',{className:'a52-muted',text:detail}));return root;
+  const head=element(d,'div',{className:'a52-inline-status'});head.append(element(d,'strong',{text:name}),makeBadge(d,state,tone));root.append(head,element(d,'small',{className:'a52-muted',text:detail}));return root;
 }
 function diagnosticPipelineNode(d,labelText,value,tone){
   const root=element(d,'div',{className:'a52-diagnostics-pipeline-node',dataset:{tone}});
@@ -541,17 +540,17 @@ function diagnosticPipelineNode(d,labelText,value,tone){
 function diagnosticPipelineArrow(d){return element(d,'span',{className:'a52-diagnostics-pipeline-arrow',text:'→',attrs:{'aria-hidden':'true'}});}
 function diagnosticProducerTile(d,row,onInspect,scope){
   const state=row.state??'UNKNOWN',root=element(d,'button',{className:'a52-diagnostics-producer-tile',attrs:{type:'button'},dataset:{state:String(state)}});
-  root.append(element(d,'span',{className:'a52-diagnostics-producer-tile__dot'}),element(d,'div',{},element(d,'strong',{text:row.label??label(row.id)}),element(d,'small',{className:'a52-muted',text:row.reason??row.errorCode??'Owner status published.'})),makeBadge(d,String(state),stageDiagnosticToken(state)));
+  const copy=element(d,'div');copy.append(element(d,'strong',{text:row.label??label(row.id)}),element(d,'small',{className:'a52-muted',text:row.reason??row.errorCode??'Owner status published.'}));root.append(element(d,'span',{className:'a52-diagnostics-producer-tile__dot'}),copy,makeBadge(d,String(state),stageDiagnosticToken(state)));
   if(onInspect)scope?.listen?.(root,'click',onInspect);else root.disabled=true;return root;
 }
 function diagnosticAttentionItem(d,title,detail,tone='warning',onInspect=null,scope=null){
   const root=element(d,onInspect?'button':'div',{className:'a52-diagnostics-attention-item',attrs:onInspect?{type:'button'}:{},dataset:{tone}});
-  root.append(element(d,'span',{className:'a52-diagnostics-attention-item__mark',text:tone==='warning'?'!':'•'}),element(d,'div',{},element(d,'strong',{text:title}),element(d,'small',{className:'a52-muted',text:String(detail??'')})));
+  const copy=element(d,'div');copy.append(element(d,'strong',{text:title}),element(d,'small',{className:'a52-muted',text:String(detail??'')}));root.append(element(d,'span',{className:'a52-diagnostics-attention-item__mark',text:tone==='warning'?'!':'•'}),copy);
   if(onInspect)scope?.listen?.(root,'click',onInspect);return root;
 }
 function diagnosticEventStreamItem(d,row,{model,selection,scope,inspect}={}){
   const root=element(d,'button',{className:'a52-diagnostics-event-stream__item',attrs:{type:'button'},dataset:{severity:String(row.severity??'INFO')}});
-  root.append(element(d,'span',{className:'a52-diagnostics-event-stream__time',text:displayTime(row)}),element(d,'span',{className:'a52-diagnostics-event-stream__mark'}),element(d,'div',{},element(d,'strong',{text:row.stage}),element(d,'small',{className:'a52-muted',text:row.summary??row.reasonCode??'Retained diagnostic evidence'})),makeBadge(d,String(row.status??'UNKNOWN'),statusToken(row.status)));
+  const copy=element(d,'div');copy.append(element(d,'strong',{text:row.stage}),element(d,'small',{className:'a52-muted',text:row.summary??row.reasonCode??'Retained diagnostic evidence'}));root.append(element(d,'span',{className:'a52-diagnostics-event-stream__time',text:displayTime(row)}),element(d,'span',{className:'a52-diagnostics-event-stream__mark'}),copy,makeBadge(d,String(row.status??'UNKNOWN'),statusToken(row.status)));
   scope?.listen?.(root,'click',()=>inspect?.({kind:'area52-diagnostic-event',id:row.id,title:row.stage,category:row.category,severity:row.severity,status:row.status,selection:{...selection},payload:model.detail(row.id,{selection})}));return root;
 }
 

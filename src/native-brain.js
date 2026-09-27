@@ -344,7 +344,7 @@ export class Area52NativeBrain{
     this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
     this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
     const sparseRetrievalReceipt=this.loreInterface
-      ?this.ownerSparseChannel.hydrateLoreOwner(this.loreInterface,{chatId:chat})
+      ?this.ownerSparseChannel.hydrateLoreOwner(this.loreInterface,{chatId:chat,query:q})
       :this.ownerSparseChannel.clearScope('LORE_OWNER_NOT_ATTACHED');
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
 

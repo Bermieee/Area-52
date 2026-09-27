@@ -71,43 +71,11 @@ export function exportLiveEvidence() {
 export async function init() {
   if (initialized || typeof document === 'undefined') return session;
   initialized = true;
-  const root = document.createElement('section');
-  root.id = ROOT_ID;
-  root.className = 'a52-deployment-controls';
-  root.innerHTML = [
-    '<div class="a52-deployment-head">',
-    '<div><strong>Area-52 — Development Deployment</strong><div class="a52-deployment-sub">#224 live evidence capture / main review candidate</div></div>',
-    '<button type="button" class="menu_button" data-a52-arm>Arm</button>',
-    '</div>',
-    '<div class="a52-deployment-status" data-a52-live-status>INITIALIZING</div>',
-    '<div class="a52-deployment-actions">',
-    '<button type="button" class="menu_button" data-a52-run>Process current turn</button>',
-    '<button type="button" class="menu_button" data-a52-confirm>Confirm Prompt Inspector + UI trace</button>',
-    '<button type="button" class="menu_button" data-a52-copy>Copy evidence</button>',
-    '</div>',
-    '<details class="a52-deployment-acceptance">',
-    '<summary>Live acceptance sequence</summary>',
-    '<ol>',
-    '<li><span data-a52-gate="native-multiturn">○ Pending</span> — Arm Area-52, send two ordinary turns in one selected story, and verify Generation delivery then Learning write-back in Brain.</li>',
-    '<li><span data-a52-gate="lore-study">○ Pending</span> — Select a real SillyTavern Lorebook, open Lore, Load selected Lorebook → Accept for study → Run pending study until owner state is READY.</li>',
-    '<li><span data-a52-gate="lore-revision">○ Pending</span> — After the Settlement-backed Lore owner is integrated, apply one approved correction and route its LoreSourceRevisionChanged receipt before the next generation.</li>',
-    '<li><span data-a52-gate="optional-provider">○ Pending</span> — In Connections, discover/select/qualify/test one Jev or Sidecar and exercise it on a live turn.</li>',
-    '<li><span data-a52-gate="vectoring">○ Pending</span> — Separately qualify Vectoring with owner-advertised retrieval/embed capability; a Jev/Sidecar pass does not satisfy this gate.</li>',
-    '<li><span data-a52-gate="provider-failure">○ Pending</span> — Exercise an unreachable/invalid provider and verify failure/fallback is shown without a false healthy state.</li>',
-    '<li><span data-a52-gate="navigation">○ Pending</span> — Drag, resize, collapse, keyboard-navigate, switch workspaces, and narrow the SillyTavern viewport; confirm the panel stays reachable.</li>',
-    '</ol>',
-    '<p><strong>Function-test observations (not acceptance):</strong></p>',
-    '<ul>',
-    '<li><span data-a52-gate="ft177">○ Pending</span> — FT177 Scene owner → Runtime execution → Context Seal observed in the selected live turn.</li>',
-    '<li><span data-a52-gate="ft178">○ Pending</span> — FT178 Memory owner → retrieval → Context Seal observed in the selected live turn.</li>',
-    '<li><span data-a52-gate="ft179">○ Pending</span> — FT179 retrieval-ready Lore → Truth → Context Seal observed in the selected live turn.</li>',
-    '<li><span data-a52-gate="ft180">○ Pending</span> — FT180 measured-live provider execution observed; function-test owner still decides pass/fail.</li>',
-    '</ul>',
-    '<p>No item is auto-promoted from fixture-only evidence. Copy evidence after the operator checks are complete.</p>',
-    '</details>',
-    '<pre class="a52-deployment-output" data-a52-live-output></pre>',
-  ].join('');
-  hostRoot().appendChild(root);
+
+  // The old development acceptance harness is intentionally non-visual now.
+  // Remove any stale DOM left by a prior/hot-reloaded extension version.
+  document.getElementById?.(ROOT_ID)?.remove?.();
+  const root = null;
 
   try {
     session = createDevelopmentDeploymentSillyTavernSession({
@@ -116,41 +84,15 @@ export async function init() {
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
       persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
     });
-    // The installed product must listen to the host turn lifecycle immediately.
-    // Lore/Connections can render without this bridge, which previously made a
-    // stopped session look partially healthy while real chat turns were ignored.
+    // Keep the installed live turn bridge active; only the standalone
+    // development-review panel has been removed.
     session.start();
-    const armButton=root.querySelector('[data-a52-arm]');
-    if(armButton)armButton.textContent='Disarm';
     renderEvidence(root, session.exportEvidence());
   } catch (error) {
     setText(root, '[data-a52-live-status]', 'UNAVAILABLE');
     setText(root, '[data-a52-live-output]', String(error?.stack ?? error));
     throw error;
   }
-
-  root.querySelector('[data-a52-arm]')?.addEventListener('click', () => {
-    try{
-      if (session.running) {
-        session.stop();
-        root.querySelector('[data-a52-arm]').textContent = 'Arm';
-      } else {
-        session.start();
-        root.querySelector('[data-a52-arm]').textContent = 'Disarm';
-      }
-    }catch(error){
-      setText(root,'[data-a52-live-status]','ARM FAILED');
-      setText(root,'[data-a52-live-output]',String(error?.message??error));
-      root.querySelector('[data-a52-arm]').textContent='Arm';
-    }
-  });
-  root.querySelector('[data-a52-run]')?.addEventListener('click', () => void session.processCurrentTurn().catch(() => {}));
-  root.querySelector('[data-a52-confirm]')?.addEventListener('click', () => session.confirmOperatorReview({ liveSillyTavernConfirmed: true }));
-  root.querySelector('[data-a52-copy]')?.addEventListener('click', async () => {
-    const text = JSON.stringify(session.exportEvidence(), null, 2);
-    try { await navigator.clipboard.writeText(text); }
-    catch { console.info('[Area-52] Live demo evidence', session.exportEvidence()); }
-  });
 
   globalThis.Area52DevelopmentDeployment = Object.freeze({
     getSession,

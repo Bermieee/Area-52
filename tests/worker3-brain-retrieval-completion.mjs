@@ -44,6 +44,12 @@ test('production sparse channel qualifies exact identifiers, phrases and authore
   assert.equal(exact[0].rankSignals.sparseExecution,'EXACT_IDENTIFIER');
   assert.equal(exact[0].metadata.ownerSourceRevisionId,'lore:book-a:7@r1');
 
+  const sourceId=channel.retrieve({intentId:'source-id',intentKind:'NARROW',query:'lore:book-a:7'},{worldRevision:1,sceneRevision:1});
+  assert.equal(sourceId[0].rankSignals.sparseExecution,'EXACT_IDENTIFIER');
+
+  const uid=channel.retrieve({intentId:'uid',intentKind:'NARROW',query:'7'},{worldRevision:1,sceneRevision:1});
+  assert.equal(uid[0].rankSignals.sparseExecution,'EXACT_IDENTIFIER');
+
   const phrase=channel.retrieve({intentId:'phrase',intentKind:'NARROW',query:'Moon Key'},{worldRevision:1,sceneRevision:1});
   assert.equal(phrase[0].rankSignals.sparseExecution,'EXACT_PHRASE');
 
@@ -329,6 +335,38 @@ test('broad conceptual selected turn consumes existing owner Lore hierarchy nomi
   assert.ok(owner.state.queryCalls.some(call=>call.intent==='AUTO'));
 });
 
+test('unavailable corrective retrieval preserves first-pass evidence and terminates after one attempt',async()=>{
+  const brain=new Area52NativeBrain();
+  brain.acceptLore({
+    sourceId:'lore:worker3:unavailable-corrective',sourceType:'LORE_ENTRY',
+    exactContent:'Moon Omen remains disputed.',
+    temporalStatus:'UNRESOLVED',
+    metadata:{representationText:'Moon Omen remains disputed.'},
+  });
+  const original=brain.core.retrieval.retrieve.bind(brain.core.retrieval);
+  brain.core.retrieval.retrieve=(query,options={})=>{
+    if(options?.metadata?.correctiveAction||options?.retrievalIntents?.some(row=>row?.metadata?.correctiveAction)){
+      const error=new Error('corrective provider unavailable');
+      error.code='OPTIONAL_RETRIEVAL_PROVIDER_UNAVAILABLE';
+      throw error;
+    }
+    return original(query,options);
+  };
+  const prepared=await brain.prepareTurn({
+    chatId:'chat:corrective-unavailable',turnId:'worker3:corrective-unavailable:1',generationId:'worker3:corrective-unavailable-gen:1',
+    query:'Moon Omen disputed',scene:minimalTurnScene('worker3-corrective-unavailable',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(prepared.retrievalQualityReceipt.quality,'MIXED');
+  assert.equal(prepared.correctiveRetrievalReceipt.correctivePasses,1);
+  assert.equal(prepared.correctiveRetrievalReceipt.failed,true);
+  assert.equal(prepared.correctiveRetrievalReceipt.terminated,true);
+  assert.match(prepared.correctiveRetrievalReceipt.error,/unavailable/i);
+  assert.ok((prepared.candidateTraceReceipt.rows??[]).length>0);
+  assert.equal(prepared.candidateTraceReceipt.hostDeliveryInferred,false);
+  assert.ok(prepared.contextSealReceipt);
+});
+
 test('paraphrase-only selected turn reports production dense capability unavailable and makes no dense-execution claim',async()=>{
   const row=entry();
   const owner=mutableLoreOwner([row]);
@@ -341,5 +379,6 @@ test('paraphrase-only selected turn reports production dense capability unavaila
   const denseReceipt=(prepared.candidateEnvelope.metadata?.channelReceipts??[]).find(row=>row.channelId==='DENSE_EMBEDDINGS');
   assert.equal(denseReceipt?.status,'UNAVAILABLE');
   assert.equal(channelCandidates(prepared.candidateEnvelope,'DENSE_EMBEDDINGS').length,0);
+  assert.equal(channelCandidates(prepared.candidateEnvelope,'OWNER_SPARSE_EXACT').length,0);
   assert.equal(prepared.retrievalQualityReceipt.productionDenseExecuted,false);
 });

@@ -310,7 +310,7 @@ async function applyNativeScene(brain, {
     };
   }
 
-  let semantic=null,admission=null,receipt=null,parsed=null;
+  let semantic=null,admission=null,receipt=null,parsed=null,jevAdvice=null;
   if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
     semantic=await brain.runSceneObservationWork({
       chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:'corr:'+resolvedTurnId,
@@ -319,9 +319,15 @@ async function applyNativeScene(brain, {
     const hasSemanticWork=semantic?.status==='RETURNED'&&(
       Object.keys(semantic?.proposal?.fields??{}).length>0||Object.keys(semantic?.boundarySignals??{}).length>0
     );
-    if(hasSemanticWork){
+    const hasBoundedAmbiguity=semantic?.status==='RETURNED'&&Array.isArray(semantic?.ambiguities)&&semantic.ambiguities.length>0;
+    if(hasBoundedAmbiguity&&typeof brain.adjudicateSceneObservationAmbiguity==='function'){
+      jevAdvice=await brain.adjudicateSceneObservationAmbiguity({
+        work:semantic,hostEvent,currentSelection,turnSealed,
+      });
+    }
+    if(hasSemanticWork||jevAdvice?.accepted===true){
       admission=brain.admitSceneObservationProposal({
-        work:semantic,hostEvent,currentSelection:currentSelection(),turnSealed:sealed(),
+        work:semantic,hostEvent,currentSelection:currentSelection(),turnSealed:sealed(),jevAdvice,
       });
       receipt=admission?.ownerReceipt??null;
       parsed={
@@ -334,7 +340,15 @@ async function applyNativeScene(brain, {
           ...(receipt??{}),kind:receipt?.kind??'DeploymentSceneOwnerReceipt',status:'REJECTED',noWorkReason:admission.reasonCode,
           chatId,sceneId:signal?.sceneId??semantic.proposal?.sceneId??null,sceneRevision:signal?.sceneRevision??semantic.proposal?.baseRevision??null,
           sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
-          semanticObservation:{...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:admission.reasonCode,stale:Boolean(admission.receipt?.stale),late:Boolean(admission.receipt?.late)},
+          semanticObservation:{
+            ...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:admission.reasonCode,
+            stale:Boolean(admission.receipt?.stale),late:Boolean(admission.receipt?.late),
+            ambiguityReview:jevAdvice?{
+              status:jevAdvice.status??null,reasonCode:jevAdvice.reasonCode??null,ambiguityId:jevAdvice.ambiguityId??null,
+              decisionKind:jevAdvice.decisionKind??null,field:jevAdvice.field??null,selectedOptionId:jevAdvice.selectedOptionId??null,
+              stale:Boolean(jevAdvice.stale),late:Boolean(jevAdvice.late),degraded:Boolean(jevAdvice.degraded),
+            }:null,
+          },
           parsed,reason:admission.reasonCode,authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
         };
       }
@@ -359,6 +373,12 @@ async function applyNativeScene(brain, {
   const semanticObservation=semantic?{
     ...clone(semantic.executionReceipt),ownerAdmitted:admission?.accepted??null,ownerReasonCode:admission?.reasonCode??null,
     changedFields:[...(admission?.ownerReceipt?.changedFields??receipt?.changedFields??[])].slice(0,16),
+    ambiguityCount:Array.isArray(semantic?.ambiguities)?Math.min(4,semantic.ambiguities.length):0,
+    ambiguityReview:jevAdvice?{
+      status:jevAdvice.status??null,reasonCode:jevAdvice.reasonCode??null,ambiguityId:jevAdvice.ambiguityId??null,
+      decisionKind:jevAdvice.decisionKind??null,field:jevAdvice.field??null,selectedOptionId:jevAdvice.selectedOptionId??null,
+      stale:Boolean(jevAdvice.stale),late:Boolean(jevAdvice.late),degraded:Boolean(jevAdvice.degraded),
+    }:null,
   }:null;
   return{
     ...receipt,observed,initialized,parsed,signal,delta:receipt.delta??null,semanticObservation,

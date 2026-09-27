@@ -403,6 +403,23 @@ export class Area52NativeBrain{
     });
     const response=typeof raw==='string'?raw:raw?.text??raw?.content;
     if(typeof response!=='string'||!response.trim())throw new TypeError('generation callback must return response text');
+    const record=this.turns.get(String(input.turnId));
+    if(!record)throw new Error('Unknown native Brain turn: '+String(input.turnId));
+    const responseEvidence=typeof raw==='object'&&raw!==null?{
+      chatId:raw.chatId,turnId:raw.turnId,generationId:raw.generationId,correlationId:raw.correlationId,
+      contextSealId:raw.contextSealId,requestId:raw.requestId,responseId:raw.responseId,
+      providerId:raw.providerId,routeId:raw.routeId,capturedAt:raw.capturedAt??Date.now(),
+    }:{
+      chatId:prepared.selection?.chatId,turnId:prepared.selection?.turnId,generationId:prepared.selection?.generationId,
+      correlationId:prepared.selection?.correlationId,contextSealId:prepared.contextSealReceipt?.id,capturedAt:Date.now(),
+    };
+    const deliveryReceipt=this.core.delivery.attachProviderResponseEvidence(record.delivery?.receipt,responseEvidence);
+    const responsePhase=deliveryReceipt?.phases?.providerResponse??null;
+    if(responsePhase?.status!=='RECEIVED'){
+      const mismatch=(responsePhase?.identityMismatch??[]).join(',')||'unknown';
+      throw new Error('PROVIDER_RESPONSE_IDENTITY_MISMATCH:'+mismatch);
+    }
+    record.delivery.receipt=clone(deliveryReceipt);this.#notify('PROVIDER_RESPONSE_RECEIVED',record);
     const learning=await this.completeTurn({turnId:input.turnId,response,...completeOptions});
     return{prepared,response,learning};
   }
@@ -543,6 +560,7 @@ export class Area52NativeBrain{
   contextRetirementContract(){return contextRetirementContract();}
   promptDeliveryIntegrationContract(){return this.core.delivery.integrationContract();}
   attachObservedHostPromptEvidence(receipt,evidence={}){return this.core.delivery.attachObservedHostEvidence(receipt,evidence);}
+  attachProviderResponseEvidence(receipt,evidence={}){return this.core.delivery.attachProviderResponseEvidence(receipt,evidence);}
   declareExpectedCognitiveWork(declaration,executor=null){return this.obligationReconciler.declare(declaration,executor);}
   reconcileExpectedCognitiveWork(expectedId,options={}){return this.obligationReconciler.reconcile(expectedId,options);}
   listExpectedCognitiveWork(){return this.obligationReconciler.list();}

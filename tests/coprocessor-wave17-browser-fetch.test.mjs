@@ -148,7 +148,18 @@ test('Wave17 browser authorization/test failures never leave a false connected c
     assert.equal(row.lastTest.status,'FAIL');assert.equal(row.lastTest.failureCode,'PROVIDER_UNAUTHORIZED');
     assert.equal(row.state,ResourceConnectionState.UNAVAILABLE);assert.equal(row.connected,false);assert.equal(row.callable,false);assert.equal(row.selectedModelQualified,false);
     assert.equal(row.lastFailure.code,'PROVIDER_UNAUTHORIZED');assert.equal(row.reasonCode,'PROVIDER_UNAUTHORIZED');
+    assert.equal(row.modelDiscovery.manualModelEntryAllowed,false);
     const denied=await registry.discoverModels({endpoint:'https://openrouter.ai/api/v1',apiKey:'browser-key',capabilities:[Capability.GRAPH]});
     assert.equal(denied.state,'UNAUTHORIZED');assert.equal(denied.manualModelEntryAllowed,false);
+    const missing=await registry.discoverModels({endpoint:'https://openrouter.ai/api/v1',capabilities:[Capability.GRAPH]});
+    assert.equal(missing.state,'UNAUTHORIZED');assert.equal(missing.reasonCode,'CREDENTIAL_REQUIRED');assert.equal(missing.manualModelEntryAllowed,false);
+    const noCredential=new CoprocessorResourceConnections();
+    noCredential.addResource({
+      resourceId:'missing-credential',providerProfileId:'profile:missing-credential',providerId:'provider:missing-credential',workerId:'worker:missing-credential',
+      kind:ResourceKind.OPENAI_COMPATIBLE,endpoint:'https://openrouter.ai/api/v1',modelId:'manual-model',capabilities:[Capability.GRAPH],
+      measurementClass:ResourceMeasurementClass.LOCAL_DETERMINISTIC,
+    });
+    const missingRefresh=await noCredential.refreshResourceModels('missing-credential');
+    assert.equal(missingRefresh.state,'UNAUTHORIZED');assert.equal(missingRefresh.reasonCode,'CREDENTIAL_REQUIRED');assert.equal(missingRefresh.manualModelEntryAllowed,false);
   }finally{windowFetch.restore();}
 });

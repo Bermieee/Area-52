@@ -43,12 +43,63 @@ export class SceneLifecycleRuntime{
   }
 
   #publishDelta(scene,delta,evidence){
+    return this.publishOperatorDelta({
+      scene,delta,
+      evidenceRefs:[evidence.sourceRevisionId],
+      sourceRevisionRefs:[evidence.sourceRevisionId],
+      operation:'HOST_OBSERVATION',
+      reason:delta?.reason??'HOST_OBSERVATION',
+      turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+    });
+  }
+
+  publishOperatorDelta({scene,delta,evidenceRefs=[],sourceRevisionRefs=[],operation='SCENE_OPERATOR',reason=null,turnId=null,correlationId=null,causationId=null}={}){
+    if(!scene?.sceneId||!delta?.toRevision)return null;
+    const refs=[...new Set([...(sourceRevisionRefs??[]),...(evidenceRefs??[])].filter(Boolean).map(String))];
     this.prefetchTrigger.cancelSuperseded({sceneId:scene.sceneId,sceneRevision:scene.revision});
-    const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId};
-    this.publisher.publish({...base,eventType:SceneEventType.SCENE_STATE_DELTA,payload:{delta},dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}`});
+    const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:refs,turnId,correlationId,causationId};
+    const published=[];
+    published.push(this.publisher.publish({
+      ...base,eventType:SceneEventType.SCENE_STATE_DELTA,
+      payload:{delta,operation,reason:reason??delta?.reason??null,operatorInitiated:operation!=='HOST_OBSERVATION'},
+      dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}:${operation}`,
+    }));
     const map={location:SceneEventType.LOCATION_CHANGED,narrativeTime:SceneEventType.TIME_SHIFT_DETECTED,activeCast:SceneEventType.ACTIVE_CAST_CHANGED,activeRelationships:SceneEventType.RELATIONSHIP_SIGNAL,atmosphere:SceneEventType.VIBE_CHANGED,immediateObjects:SceneEventType.OBJECT_TRANSITION};
-    for(const [name,change] of Object.entries(delta.changedFields??{})){const eventType=map[name];if(eventType)this.publisher.publish({...base,eventType,payload:{field:name,change},dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}`});}
-    const changed=Object.keys(delta.changedFields??{});if(changed.some((x)=>['location','activeCast','activeThreads'].includes(x))){const f=scene.fields;const rec=this.prefetchTrigger.recommend({sceneId:scene.sceneId,sceneRevision:scene.revision,trigger:`SCENE_DELTA:${changed.filter((x)=>['location','activeCast','activeThreads'].includes(x)).join('+')}`,entityRefs:(f.activeCast?.value??[]).filter((x)=>x.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),locationRefs:[f.location?.value?.location].filter(Boolean),threadRefs:(f.activeThreads?.value??[]).filter((x)=>typeof x==='string'),priority:changed.includes('location')?'HIGH':'NORMAL',evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId]});this.publisher.publish({...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,payload:{recommendation:rec},dedupeKey:rec.recommendationId});}
+    for(const [name,change] of Object.entries(delta.changedFields??{})){
+      const eventType=map[name];if(!eventType)continue;
+      published.push(this.publisher.publish({
+        ...base,eventType,payload:{field:name,change,operation,reason:reason??delta?.reason??null},
+        dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}:${operation}`,
+      }));
+    }
+    const changed=Object.keys(delta.changedFields??{});
+    let recommendation=null;
+    const retrievalFields=changed.filter((x)=>['location','activeCast','activeThreads'].includes(x));
+    if(retrievalFields.length){
+      const f=scene.fields;
+      recommendation=this.prefetchTrigger.recommend({
+        sceneId:scene.sceneId,sceneRevision:scene.revision,
+        trigger:`SCENE_DELTA:${retrievalFields.join('+')}`,
+        entityRefs:(f.activeCast?.value??[]).filter((x)=>x?.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),
+        locationRefs:[f.location?.value?.location??f.location?.value].filter(Boolean),
+        threadRefs:(f.activeThreads?.value??[]).map((x)=>typeof x==='string'?x:(x?.threadId??x?.id??null)).filter(Boolean),
+        priority:changed.includes('location')?'HIGH':'NORMAL',
+        evidenceRefs:[...new Set(evidenceRefs.map(String))],sourceRevisionRefs:refs,
+      });
+      published.push(this.publisher.publish({
+        ...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,
+        payload:{recommendation,operation,reason:reason??delta?.reason??null},
+        dedupeKey:recommendation.recommendationId,
+      }));
+    }
+    return clone({
+      kind:'SceneOperatorPublicationReceipt',operation,sceneId:scene.sceneId,sceneRevision:scene.revision,
+      changedFields:changed.sort(),eventIds:published.map((x)=>x?.eventId).filter(Boolean),
+      eventTypes:published.map((x)=>x?.eventType).filter(Boolean),
+      prefetchRecommendationId:recommendation?.recommendationId??null,
+      prefetchNeeded:Boolean(recommendation),sourceRevisionRefs:refs,
+      authority:'SIGNAL_ONLY',runtimeSchedulingAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    });
   }
 
   ingestHostEvent(input,{extract=null}={}){

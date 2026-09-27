@@ -56,11 +56,17 @@ const sceneCausalAdmissionReason=(reasonCode,accepted)=>{
   return CausalReasonCode.OWNER_REJECTED;
 };
 const unsupportedDeterministicStudy = (error) => /^RuleBasedStudyAdapter has no deterministic extractor for:/.test(String(error?.message ?? error));
-const SCENE_CURRENT_OBLIGATION_EVENT_TYPES=new Set([
+const SCENE_EXACT_REVISION_OBLIGATION_EVENT_TYPES=new Set([
   SceneEventType.SCENE_STATE_DELTA,SceneEventType.LOCATION_CHANGED,SceneEventType.TIME_SHIFT_DETECTED,
   SceneEventType.ACTIVE_CAST_CHANGED,SceneEventType.RELATIONSHIP_SIGNAL,SceneEventType.SCENE_BOUNDARY_CANDIDATE,
   SceneEventType.SCENE_BOUNDARY_CONFIRMED,SceneEventType.SCENE_CLOSED,SceneEventType.SCENE_OPENED,
   SceneEventType.VIBE_CHANGED,SceneEventType.PREFETCH_RECOMMENDED,SceneEventType.OBJECT_TRANSITION,
+]);
+const SCENE_ACTIVE_AT_EXECUTION_EVENT_TYPES=new Set([
+  SceneEventType.SCENE_STATE_DELTA,SceneEventType.LOCATION_CHANGED,SceneEventType.TIME_SHIFT_DETECTED,
+  SceneEventType.ACTIVE_CAST_CHANGED,SceneEventType.RELATIONSHIP_SIGNAL,SceneEventType.SCENE_BOUNDARY_CANDIDATE,
+  SceneEventType.SCENE_BOUNDARY_CONFIRMED,SceneEventType.SCENE_OPENED,SceneEventType.VIBE_CHANGED,
+  SceneEventType.PREFETCH_RECOMMENDED,SceneEventType.OBJECT_TRANSITION,
 ]);
 
 
@@ -904,7 +910,7 @@ export class DevelopmentDeploymentBrain {
     return receipt;
   }
 
-  #sceneEventObligationGuard(event){
+  #sceneEventObligationGuard(event,{execution=false}={}){
     if(event?.producer!=='SCENE_INTELLIGENCE')return{accepted:false,reasonCode:'SCENE_EVENT_PRODUCER_MISMATCH'};
     if(!event?.chatId)return{accepted:false,reasonCode:'SCENE_EVENT_CHAT_ID_MISSING'};
     const activeChat=String(this.core.hotCognition?.activeChatNamespace??this.scene.narrativeFeed.activeChatId??'');
@@ -913,9 +919,13 @@ export class DevelopmentDeploymentBrain {
     const refs=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
     const currentSources=new Set(this.scene.narrativeFeed.currentEvidence(String(event.chatId)).map(row=>String(row.sourceRevisionId)));
     if(refs.length&&refs.some(ref=>!currentSources.has(String(ref))))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SOURCE'};
-    if(SCENE_CURRENT_OBLIGATION_EVENT_TYPES.has(event.eventType)){
+    if(SCENE_EXACT_REVISION_OBLIGATION_EVENT_TYPES.has(event.eventType)){
       const current=this.scene.registry.current(String(event.sceneId??''));
       if(!current||Number(current.revision)!==Number(event.sceneRevision))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SCENE_REVISION'};
+    }
+    if(execution&&SCENE_ACTIVE_AT_EXECUTION_EVENT_TYPES.has(event.eventType)){
+      const activeSceneId=this.scene.chatScenes.get(String(event.chatId))??null;
+      if(activeSceneId&&String(activeSceneId)!==String(event.sceneId??''))return{accepted:false,reasonCode:'SCENE_EVENT_SUPERSEDED_SCENE'};
     }
     return{accepted:true,reasonCode:'SCENE_EVENT_CURRENT'};
   }
@@ -951,7 +961,7 @@ export class DevelopmentDeploymentBrain {
         return{
           ...ownerExecutor,
           execute:async(context={})=>{
-            const guard=this.#sceneEventObligationGuard(event);
+            const guard=this.#sceneEventObligationGuard(event,{execution:true});
             if(!guard.accepted){
               const reasonCode=guard.reasonCode+':BEFORE_EXECUTION';
               this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode,producerId,event});

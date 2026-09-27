@@ -21,6 +21,8 @@ on:
       - 'src/ui-core/wave6-front-face.js'
       - 'src/ui-core/shell.js'
       - 'src/ui-core/wave6-runtime.js'
+      - 'src/ui-core/wave6-presentation.js'
+      - 'src/ui-core/wave13-floating-navigation.js'
       - 'src/ui-core/index.js'
       - 'tests/turn-log-diagnostics.test.mjs'
       - 'tests/wave13-operator-ui.test.mjs'
@@ -80,5 +82,7 @@ jobs:
           node --check src/ui-core/wave6-front-face.js
           node --check src/ui-core/wave13-operator-surfaces.js
           node --check src/ui-core/wave6-runtime.js
+          node --check src/ui-core/wave13-floating-navigation.js
+          node --check src/ui-core/wave6-presentation.js
           node --check src/ui-core/index.js
           node --check tests/turn-log-diagnostics.test.mjs

@@ -189,7 +189,7 @@ export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionPr
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
-    id,title:'Diagnostics',icon:'⌁',category:'Product',navigation:{level:'product',order:85},views:['normal','detail','advanced'],supportedActions:['export-diagnostics','export-metadata','filter','drilldown'],
+    id,title:'Diagnostics',icon:'⌁',category:'Product',navigation:{level:'product',order:85},preferredWidth:1180,views:['normal','detail','advanced'],supportedActions:['export-diagnostics','export-metadata','filter','drilldown'],
     render(host,ctx){renderTurnLogWorkspace(host,{...ctx,model,filters});},
   });
   return{model,release(){try{registry.unregister(id);}catch{}},filters};
@@ -201,81 +201,229 @@ export function buildSelectedTurnLog(turn,selection={}){
 
 function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const d=host.ownerDocument,snapshot=model.read({filters}),timeline=model.readTimeline({filters}),operational=model.readOperational(),s=snapshot.selection??{};
-  const root=element(d,'section',{className:'a52-stack a52-turn-log a52-diagnostics-console',attrs:{'aria-label':'Area 52 diagnostics console'}});
-  const hero=element(d,'header',{className:'a52-diagnostics-hero'});
-  const heroTitle=element(d,'div',{className:'a52-diagnostics-hero__title'});
-  heroTitle.append(element(d,'h1',{text:'Area-52 Diagnostics'}),element(d,'p',{className:'a52-muted',text:'One console for retained turn evidence, Brain activity, runtime work, resources, Lore / Memory, failures, and browser-side performance attribution.'}));
-  const status=diagnosticsStatus(snapshot,operational),heroActions=element(d,'div',{className:'a52-diagnostics-hero__actions'});
-  heroActions.append(makeBadge(d,status.label,status.token),createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}));
-  hero.append(heroTitle,heroActions);
-  const metrics=element(d,'div',{className:'a52-diagnostics-metrics'});
-  for(const [labelText,value] of diagnosticsMetrics(snapshot,timeline,operational))metrics.append(element(d,'div',{className:'a52-diagnostics-metric'},element(d,'span',{text:labelText}),element(d,'strong',{text:String(value)})));
-  hero.append(metrics);root.append(hero);
+  const generationPerf=operational?.generationPerformance??null,profileControl=generationPerf?.control??{},profileEnabled=profileControl.enabled===true;
+  const stages=generationPerf?.brainStages??[],stageMs=(name)=>stages.find(row=>row.stage===name)?.wallMs??null,detailed=generationPerf?.detailed??null;
+  const errorRows=timeline.rows.filter(row=>row.severity==='ERROR'||row.severity==='WARN'),cognitionErrors=Object.entries(operational?.cognition?.errors??{});
+  const errorCount=collectDiagnosticErrors(operational,[]).length+errorRows.length,status=diagnosticsStatus(snapshot,operational);
+  const root=element(d,'section',{className:'a52-turn-log a52-diagnostics-console a52-diagnostics-command-center',attrs:{'aria-label':'Area 52 diagnostics console'}});
 
-  const coordination=diagnosticSection(d,'Coordination / selected turn',{open:true,count:snapshot.current?'CURRENT':'WAITING'});
-  coordination.body.append(createKeyValue(d,[
-    {key:'Chat',value:s.chatId??'unknown'},{key:'Turn',value:s.turnId??'unknown'},{key:'Generation',value:s.generationId??'unknown'},{key:'Correlation',value:s.correlationId??'unknown'},
-    {key:'World / Scene revision',value:(s.worldRevision??'unknown')+' / '+(s.sceneRevision??'unknown')},{key:'Source revision fence',value:s.sourceRevisionRefs?.length?s.sourceRevisionRefs.join(', '):'unknown'},
-    {key:'Retained turns / entries',value:String(snapshot.retention?.turnCount??0)+' / '+String(snapshot.retention?.entryCount??0)},
-  ]),element(d,'p',{className:'a52-muted',text:snapshot.summary?.explanation??'No selected-turn evidence is retained yet.'}));
-  root.append(coordination.root);
+  const command=element(d,'header',{className:'a52-diagnostics-command'});
+  const commandTitle=element(d,'div',{className:'a52-diagnostics-command__title'});
+  commandTitle.append(
+    element(d,'span',{className:'a52-diagnostics-command__eyebrow',text:'COGNITIVE OPERATIONS / LIVE FORENSICS'}),
+    element(d,'h1',{text:'Area-52 Diagnostics Command Center'}),
+    element(d,'p',{className:'a52-muted',text:'Trace one Area-52 generation from Brain preparation through host insertion, provider wait, learning, and browser-side load — without exposing story content.'}),
+  );
+  const commandIdentity=element(d,'div',{className:'a52-diagnostics-command__identity'});
+  commandIdentity.append(
+    diagnosticIdentityChip(d,'CHAT',shortDiagnosticId(s.chatId),'historical'),
+    diagnosticIdentityChip(d,'TURN',shortDiagnosticId(s.turnId),'observed'),
+    diagnosticIdentityChip(d,'GEN',shortDiagnosticId(s.generationId),'ready'),
+    diagnosticIdentityChip(d,'PROFILE',profileControl.enabled==null?'NO EVIDENCE':profileEnabled?'ARMED':'OFF',profileEnabled?'ready':profileControl.enabled==null?'historical':'warning'),
+  );
+  const commandActions=element(d,'div',{className:'a52-diagnostics-command__actions'});
+  commandActions.append(
+    makeBadge(d,status.label,status.token),
+    createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',variant:'primary',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),
+    createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}),
+  );
+  command.append(commandTitle,commandIdentity,commandActions);root.append(command);
 
-  const brain=diagnosticSection(d,'Brain / producer activity',{count:String(operational?.producers?.stages?.length??0)+' stages'});
-  const brainStages=element(d,'div',{className:'a52-diagnostics-status-list'});
-  for(const row of operational?.producers?.stages??[])brainStages.append(compactStatusRow(d,row.label??label(row.id),row.state??'UNKNOWN',row.reason??row.errorCode??'Owner status published.',stageDiagnosticToken(row.state),inspect?()=>inspect({kind:'area52-diagnostic-stage',id:row.id,title:row.label??label(row.id),payload:operational?.producers?.inspections?.[row.id]??row}):null,scope));
+  const pipeline=operational?.pipeline??{},resourceRows=operational?.resources?.rows??[],retained=snapshot.retention??{};
+  const kpis=element(d,'section',{className:'a52-diagnostics-kpi-strip',attrs:{'aria-label':'Diagnostics status summary'}});
+  kpis.append(
+    diagnosticKpi(d,{icon:'●',label:'SYSTEM STATE',value:status.label,detail:(operational?.producers?.active??0)+' active producers · '+(operational?.producers?.failures??0)+' failures',tone:status.token}),
+    diagnosticKpi(d,{icon:'⌁',label:'SELECTED GENERATION',value:s.generationId?shortDiagnosticId(s.generationId,20):'WAITING',detail:(snapshot.summary?.logicalJobs??0)+' logical jobs · '+(pipeline.returnedResults??0)+' results',tone:s.generationId?'observed':'historical'}),
+    diagnosticKpi(d,{icon:'◉',label:'FLIGHT RECORDER',value:profileControl.enabled==null?'NO EVIDENCE':profileEnabled?'ARMED':'STANDBY',detail:(generationPerf?.retention?.retainedProfiles??0)+' / '+(generationPerf?.retention?.maxProfiles??'—')+' detailed profiles',tone:profileEnabled?'ready':'historical'}),
+    diagnosticKpi(d,{icon:errorCount?'!':'✓',label:'NEEDS ATTENTION',value:String(errorCount),detail:errorCount?'Warnings or errors retained for review':'No retained warning/error evidence',tone:errorCount?'warning':'ready'}),
+  );
+  root.append(kpis);
+
+  const primary=element(d,'section',{className:'a52-diagnostics-primary-grid'});
+  const flight=diagnosticPanel(d,{icon:'◉',title:'Generation Flight Recorder',subtitle:'Exact selected-generation latency map',badge:detailed?'DETAILED':stages.length?'BRAIN TIMINGS':'NO EVIDENCE',tone:detailed?'ready':stages.length?'observed':'historical',className:'a52-diagnostics-flight'});
+  flight.body.append(element(d,'span',{className:'a52-eyebrow',text:'Performance / generation profiling'}));
+  const profilerControl=element(d,'div',{className:'a52-generation-profiler-control a52-generation-profiler-control--hero'});
+  const profilerStatus=element(d,'div',{className:'a52-inline-status'});
+  profilerStatus.append(element(d,'strong',{text:'Detailed generation profiling'}),makeBadge(d,profileControl.enabled==null?'NO_EVIDENCE':profileEnabled?'ON':'OFF',profileEnabled?'ready':profileControl.enabled==null?'historical':'warning'));
+  const toggle=createButton(d,{label:profileEnabled?'Turn profiling OFF':'Turn profiling ON',scope,size:'sm',variant:profileEnabled?'primary':'secondary',onPress:()=>{model.setGenerationProfiling(!profileEnabled);refresh?.();}});
+  toggle.setAttribute('role','switch');toggle.setAttribute('aria-checked',String(profileEnabled));
+  if(!profileControl.available){toggle.disabled=true;toggle.setAttribute('disabled','');}
+  profilerControl.append(profilerStatus,toggle,element(d,'p',{className:'a52-muted',text:profileControl.available?'Session only. Arm before the generation you want to measure; a new live session starts OFF.':'This installed session does not expose detailed browser profiling.'}));
+  flight.body.append(profilerControl);
+
+  const phases=[
+    {id:'brain',label:'Brain pre-generation',ms:stageMs('BRAIN_PREPARATION_TOTAL'),tone:'cyan'},
+    {id:'host-prep',label:'Host preparation',ms:stageMs('HOST_PREPARATION'),tone:'blue'},
+    {id:'host-insert',label:'Host insertion',ms:stageMs('HOST_INSERTION'),tone:'violet'},
+    {id:'provider',label:'Provider wait',ms:detailed?.providerLatencyMs??stageMs('PROVIDER_RESPONSE'),tone:'amber'},
+    {id:'learning',label:'Response / learning',ms:stageMs('LEARNING'),tone:'green'},
+  ];
+  const finitePhases=phases.map(row=>Number(row.ms)).filter(Number.isFinite),phaseMax=Math.max(1,...finitePhases);
+  const flightRows=element(d,'div',{className:'a52-diagnostics-flight__rows'});
+  for(const phase of phases)flightRows.append(diagnosticPhaseBar(d,phase,phaseMax));
+  flight.body.append(flightRows);
+
+  const retrievalTotal=stageMs('RETRIEVAL_CHANNELS'),allRetrievalChannels=generationPerf?.retrievalChannels??[];
+  const slowest=allRetrievalChannels.slice().sort((a,b)=>(b.elapsedMs??0)-(a.elapsedMs??0)).slice(0,3);
+  const flightFoot=element(d,'div',{className:'a52-diagnostics-flight__footer'});
+  flightFoot.append(
+    diagnosticMiniStat(d,'Retrieval',diagnosticMs(retrievalTotal),allRetrievalChannels.length+' measured channels'),
+    diagnosticMiniStat(d,'Context admitted',String(pipeline.contextAdmitted??'NO_EVIDENCE'),String(pipeline.returnedResults??0)+' returned'),
+    diagnosticMiniStat(d,'Host delivery',pipeline.deliveryReceipt?'OBSERVED':'NO_EVIDENCE',pipeline.deliveryReceipt?'Request edge retained':'No retained host receipt'),
+  );
+  if(slowest.length){
+    const slow=element(d,'div',{className:'a52-diagnostics-slowest'});
+    slow.append(element(d,'span',{className:'a52-eyebrow',text:'SLOWEST RETRIEVAL CHANNELS'}));
+    for(const row of slowest){const slowRow=element(d,'div',{className:'a52-diagnostics-slowest__row'});slowRow.append(element(d,'strong',{text:String(row.channelId??'channel')}),element(d,'span',{text:diagnosticMs(row.elapsedMs)}),makeBadge(d,String(row.status??'UNKNOWN'),stageDiagnosticToken(row.status)));slow.append(slowRow);}
+    flight.body.append(slow);
+  }
+  flight.body.append(flightFoot);
+  if(generationPerf?.selectionError)flight.body.append(emptyDiagnosticRow(d,'Identity fence rejected this performance record: '+String(generationPerf.selectionError)));
+  else if(!generationPerf?.exactSelection)flight.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — select an exact chat / turn / generation to bind the flight recorder.'));
+  else if(!detailed)flight.body.append(emptyDiagnosticRow(d,profileEnabled?'Profiler is armed; this selected generation has not published a detailed browser profile yet.':'Cheap Brain stage timings remain visible. Arm detailed profiling before the next generation for browser attribution.'));
+  primary.append(flight.root);
+
+  const sideStack=element(d,'div',{className:'a52-diagnostics-side-stack'});
+  const overall=detailed?.deltas??{},preInsertion=detailed?.phases?.preGenerationToHostInsertion??{},afterInsertion=detailed?.phases?.hostInsertionToLearningComplete??{};
+  const browser=diagnosticPanel(d,{icon:'⌁',title:'Browser Load Attribution',subtitle:'Measurements captured around the selected generation',badge:detailed?'MEASURED':'NO EVIDENCE',tone:detailed?'observed':'historical',className:'a52-diagnostics-browser'});
+  const measurementGrid=element(d,'div',{className:'a52-diagnostics-measurement-grid'});
+  measurementGrid.append(
+    diagnosticMeasurement(d,{label:'Heap Δ',value:diagnosticBytes(overall.heapBytes),detail:generationPerf?.support?.heap??'NO_EVIDENCE',tone:overall.heapBytes>0?'warning':'observed'}),
+    diagnosticMeasurement(d,{label:'Long Tasks',value:diagnosticLongTasks(overall.longTaskCount,overall.longTaskTotalMs),detail:generationPerf?.support?.longTasks??'NO_EVIDENCE',tone:Number(overall.longTaskCount)>0?'warning':'observed'}),
+    diagnosticMeasurement(d,{label:'Diagnostics/UI refresh',value:diagnosticRefresh(overall.diagnosticsUiRefreshCount,overall.diagnosticsUiRefreshTotalMs),detail:generationPerf?.support?.diagnosticsUiRefresh??'NO_EVIDENCE',tone:'cyan'}),
+    diagnosticMeasurement(d,{label:'Provider Wait',value:diagnosticMs(detailed?.providerLatencyMs??stageMs('PROVIDER_RESPONSE')),detail:'generation transport edge',tone:'amber'}),
+  );
+  browser.body.append(measurementGrid);
+  const split=element(d,'div',{className:'a52-diagnostics-browser__split'});
+  split.append(diagnosticDeltaBand(d,'PRE → INSERT',preInsertion),diagnosticDeltaBand(d,'INSERT → LEARNED',afterInsertion));
+  browser.body.append(split);sideStack.append(browser.root);
+
+  const selected=diagnosticPanel(d,{icon:'◎',title:'Selection Fence',subtitle:'Current evidence identity',badge:snapshot.current?'CURRENT':'WAITING',tone:snapshot.current?'ready':'historical',className:'a52-diagnostics-selection'});
+  selected.body.append(createKeyValue(d,[
+    {key:'Chat',value:s.chatId??'NO_EVIDENCE'},{key:'Turn',value:s.turnId??'NO_EVIDENCE'},{key:'Generation',value:s.generationId??'NO_EVIDENCE'},
+    {key:'Correlation',value:s.correlationId??'NO_EVIDENCE'},{key:'World / Scene',value:(s.worldRevision??'—')+' / '+(s.sceneRevision??'—')},
+    {key:'Source fence',value:(s.sourceRevisionRefs?.length??0)+' revision refs'},
+  ]));sideStack.append(selected.root);
+
+  const lanesPanel=diagnosticPanel(d,{icon:'⇄',title:'Resource Lanes',subtitle:'Configured execution paths',badge:String(resourceRows.length)+' RESOURCES',tone:resourceRows.length?'observed':'historical',className:'a52-diagnostics-resource-mini'});
+  const laneGrid=element(d,'div',{className:'a52-diagnostics-lane-grid'});
+  for(const spec of [['JEV',operational?.wiring?.jev],['SIDECAR',operational?.wiring?.sidecar],['VECTOR',operational?.wiring?.vectoring]]){
+    const lane=spec[1]?.lane??{},connected=Number(lane.connected??0),configured=Number(lane.configured??0),callable=Number(lane.callable??0);
+    laneGrid.append(diagnosticLanePill(d,spec[0],connected?'CONNECTED':configured?'CONFIGURED':'IDLE',connected?'ready':configured?'warning':'historical',callable+' callable'));
+  }
+  lanesPanel.body.append(laneGrid);sideStack.append(lanesPanel.root);
+  primary.append(sideStack);root.append(primary);
+
+  const middle=element(d,'section',{className:'a52-diagnostics-middle-grid'});
+  const brain=diagnosticPanel(d,{icon:'◈',title:'Brain / Producer Activity',subtitle:'What actually executed for this selected turn',badge:String(operational?.producers?.stages?.length??0)+' STAGES',tone:'observed',className:'a52-diagnostics-brain'});
+  const pipelineRibbon=element(d,'div',{className:'a52-diagnostics-pipeline-ribbon'});
+  pipelineRibbon.append(
+    diagnosticPipelineNode(d,'MAPPED',pipeline.logicalJobsMapped??snapshot.summary?.logicalJobs??0,'blue'),
+    diagnosticPipelineArrow(d),
+    diagnosticPipelineNode(d,'ATTEMPTED',pipeline.physicalExecutionAttempts??0,'violet'),
+    diagnosticPipelineArrow(d),
+    diagnosticPipelineNode(d,'RETURNED',pipeline.returnedResults??0,'cyan'),
+    diagnosticPipelineArrow(d),
+    diagnosticPipelineNode(d,'ADMITTED',pipeline.contextAdmitted??0,'green'),
+  );
+  brain.body.append(pipelineRibbon);
+  const brainStages=element(d,'div',{className:'a52-diagnostics-producer-grid'});
+  for(const row of (operational?.producers?.stages??[]).slice(0,12))brainStages.append(diagnosticProducerTile(d,row,inspect?()=>inspect({kind:'area52-diagnostic-stage',id:row.id,title:row.label??label(row.id),payload:operational?.producers?.inspections?.[row.id]??row}):null,scope));
   if(!brainStages.children?.length)brainStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
   brain.body.append(brainStages);
   if(snapshot.brainDecision)brain.body.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
-  brain.body.append(renderSelectedTurnGraphVisibility(d,snapshot.graphTrace??operational?.graph,{compact:false,title:'Selected-turn world graph'}));
+  middle.append(brain.root);
+
+  const attention=diagnosticPanel(d,{icon:errorCount?'!':'✓',title:'Needs Attention',subtitle:'Warnings, errors, and coherence issues',badge:errorCount?String(errorCount):'CLEAR',tone:errorCount?'warning':'ready',className:'a52-diagnostics-attention'});
+  const attentionList=element(d,'div',{className:'a52-diagnostics-attention-list'});
+  for(const [name,error] of cognitionErrors.slice(0,4))attentionList.append(diagnosticAttentionItem(d,label(name)+' read issue',error?.message??error?.code??'Unknown owner read issue.','warning',inspect?()=>inspect({kind:'area52-diagnostic-error',id:name,title:label(name)+' read issue',payload:error}):null,scope));
+  for(const row of errorRows.slice(-6).reverse())attentionList.append(diagnosticAttentionItem(d,row.stage,row.summary??row.reasonCode??'Retained warning/error evidence.',row.severity==='ERROR'?'warning':'historical',inspect?()=>inspect({kind:'area52-diagnostic-event',id:row.id,title:row.stage,payload:model.detail(row.id,{selection:row.selection??s})}):null,scope));
+  if(!attentionList.children?.length){const clear=element(d,'div',{className:'a52-diagnostics-clear-state'});clear.append(element(d,'span',{text:'✓'}),element(d,'strong',{text:'No retained issues'}),element(d,'p',{className:'a52-muted',text:'Selected-turn diagnostics contain no warning/error evidence under the current filters.'}));attentionList.append(clear);}
+  attention.body.append(attentionList);middle.append(attention.root);root.append(middle);
+
+  const pulseGrid=element(d,'section',{className:'a52-diagnostics-pulse-grid'});
+  const runtimeSummary=operational?.runtime?.summary??{},life=runtimeSummary.lifecycleCounts??{};
+  const runtimePulse=diagnosticPanel(d,{icon:'▥',title:'Runtime Pulse',subtitle:'Lifecycle and queue pressure',badge:String(snapshot.summary?.logicalJobs??0)+' JOBS',tone:'observed'});
+  runtimePulse.body.append(createKeyValue(d,[
+    {key:'Active / yielding',value:(life.ACTIVE??0)+' / '+(life.YIELDING??0)},{key:'Parked / recovering',value:(life.PARKED??0)+' / '+(life.RECOVERING??0)},
+    {key:'Complete / failed',value:(life.COMPLETE??0)+' / '+(life.FAILED??0)},{key:'Queue',value:Object.entries(runtimeSummary.queueDepth??{}).map(([key,value])=>key+' '+value).join(' · ')||'NO_EVIDENCE'},
+  ]));pulseGrid.append(runtimePulse.root);
+
+  const contextPulse=diagnosticPanel(d,{icon:'◇',title:'Context Delivery',subtitle:'Evidence flow into the sealed generation',badge:pipeline.admissionReceipt?'SEALED':'NO EVIDENCE',tone:pipeline.admissionReceipt?'ready':'historical'});
+  const admitted=Number(pipeline.contextAdmitted??0),returned=Number(pipeline.returnedResults??0),ratio=returned>0?Math.min(100,Math.round((admitted/returned)*100)):0;
+  const contextMeter=element(d,'div',{className:'a52-diagnostics-context-meter'});
+  const contextTrack=element(d,'div',{className:'a52-diagnostics-context-meter__track'}),contextFill=element(d,'span',{className:'a52-diagnostics-context-meter__fill',attrs:{style:'width:'+ratio+'%'}}),contextStatus=element(d,'div',{className:'a52-inline-status'});contextTrack.append(contextFill);contextStatus.append(element(d,'strong',{text:admitted+' admitted'}),element(d,'span',{className:'a52-muted',text:returned+' returned · '+ratio+'%'}));contextMeter.append(contextTrack,contextStatus);
+  contextPulse.body.append(contextMeter,createKeyValue(d,[{key:'Logical jobs',value:pipeline.logicalJobsMapped??snapshot.summary?.logicalJobs??0},{key:'Mapped resources',value:pipeline.mappedResourceCount??0},{key:'Physical attempts',value:pipeline.physicalExecutionAttempts??0},{key:'Delivery receipt',value:pipeline.deliveryReceipt?'OBSERVED':'NO_EVIDENCE'}]));pulseGrid.append(contextPulse.root);
+
+  const knowledge=diagnosticPanel(d,{icon:'◫',title:'Knowledge Pulse',subtitle:'Lore and Memory readiness',badge:'OWNER DATA',tone:'observed'});
+  const lore=operational?.lore??{},memory=operational?.memory??{},memoryCounts=memory.counts??{},fresh=memory.freshness??{};
+  const knowledgeSplit=element(d,'div',{className:'a52-diagnostics-knowledge-split'});knowledgeSplit.append(
+    diagnosticMiniStat(d,'Lore ready',String(lore.retrievalReady??0),(lore.learned??0)+' learned / '+(lore.accepted??0)+' accepted'),
+    diagnosticMiniStat(d,'Memory current',String(memoryCounts.current??0),(memoryCounts.historical??0)+' historical · '+(memoryCounts.unresolved??0)+' unresolved'),
+    diagnosticMiniStat(d,'Summaries',String(memoryCounts.summaries??0),(fresh.freshSummaries??0)+' fresh · '+(fresh.staleSummaries??0)+' stale'),
+  );knowledge.body.append(knowledgeSplit);pulseGrid.append(knowledge.root);root.append(pulseGrid);
+
+  const recent=diagnosticPanel(d,{icon:'≋',title:'Recent Diagnostic Events',subtitle:'Newest retained metadata for the current evidence set',badge:String(Math.min(10,timeline.rows.length))+' SHOWN',tone:'historical',className:'a52-diagnostics-recent'});
+  const recentList=element(d,'div',{className:'a52-diagnostics-event-stream'});
+  const newest=timeline.rows.slice(-10).reverse();
+  if(!newest.length)recentList.append(emptyDiagnosticRow(d,snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate diagnostics.'));
+  for(const row of newest)recentList.append(diagnosticEventStreamItem(d,row,{model,selection:row.selection??s,scope,inspect}));
+  recent.body.append(recentList);root.append(recent.root);
+
+  const advancedHead=element(d,'div',{className:'a52-diagnostics-advanced-head'}),advancedTitle=element(d,'div');advancedTitle.append(element(d,'span',{className:'a52-eyebrow',text:'FORENSICS / ADVANCED EVIDENCE'}),element(d,'h2',{text:'Deep inspection'}));
+  advancedHead.append(advancedTitle,element(d,'p',{className:'a52-muted',text:'Detailed owner receipts, retained event filters, raw sanitized state, and storage safety stay available without dominating the live console.'}));
+  root.append(advancedHead);
+  const advanced=element(d,'section',{className:'a52-diagnostics-advanced-grid'});
+
+  const coordination=diagnosticSection(d,'Coordination / selected turn',{count:snapshot.current?'CURRENT':'WAITING'});
+  coordination.body.append(createKeyValue(d,[
+    {key:'Chat',value:s.chatId??'unknown'},{key:'Turn',value:s.turnId??'unknown'},{key:'Generation',value:s.generationId??'unknown'},{key:'Correlation',value:s.correlationId??'unknown'},
+    {key:'World / Scene revision',value:(s.worldRevision??'unknown')+' / '+(s.sceneRevision??'unknown')},{key:'Source revision fence',value:s.sourceRevisionRefs?.length?s.sourceRevisionRefs.join(', '):'unknown'},
+    {key:'Retained turns / entries',value:String(retained.turnCount??0)+' / '+String(retained.entryCount??0)},
+  ]),element(d,'p',{className:'a52-muted',text:snapshot.summary?.explanation??'No selected-turn evidence is retained yet.'}));
+  advanced.append(coordination.root);
+
+  const brainDeep=diagnosticSection(d,'Brain / owner generation inspection',{count:String(operational?.producers?.stages?.length??0)+' stages'});
+  const deepStages=element(d,'div',{className:'a52-diagnostics-status-list'});
+  for(const row of operational?.producers?.stages??[])deepStages.append(compactStatusRow(d,row.label??label(row.id),row.state??'UNKNOWN',row.reason??row.errorCode??'Owner status published.',stageDiagnosticToken(row.state),inspect?()=>inspect({kind:'area52-diagnostic-stage',id:row.id,title:row.label??label(row.id),payload:operational?.producers?.inspections?.[row.id]??row}):null,scope));
+  if(!deepStages.children?.length)deepStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
+  brainDeep.body.append(deepStages);
+  brainDeep.body.append(renderSelectedTurnGraphVisibility(d,snapshot.graphTrace??operational?.graph,{compact:false,title:'Selected-turn world graph'}));
   const generationInspection=operational?.generationInspection??null;
   if(generationInspection){
-    const identity=generationInspection.identityResolution,graph=generationInspection.graphTraversal,budget=generationInspection.retrievalBudget,rejected=generationInspection.rejectedEvidence;
-    brain.body.append(element(d,'strong',{text:'Owner generation inspection'}),createKeyValue(d,[
+    brainDeep.body.append(element(d,'strong',{text:'Owner generation inspection'}),createKeyValue(d,[
       {key:'Source revision fence',value:String(generationInspection.sourceRevisionFenceCount??0)+' revisions'},
-      {key:'Identity resolution',value:diagnosticReceiptSummary(identity)},
-      {key:'Graph traversal',value:diagnosticReceiptSummary(graph)},
-      {key:'Retrieval budget',value:diagnosticReceiptSummary(budget)},
-      {key:'Rejected evidence',value:rejected?String(rejected.count??0)+' rejected'+(rejected.reasonCode?' · '+rejected.reasonCode:''):'No owner rejection receipt'},
+      {key:'Identity resolution',value:diagnosticReceiptSummary(generationInspection.identityResolution)},
+      {key:'Graph traversal',value:diagnosticReceiptSummary(generationInspection.graphTraversal)},
+      {key:'Retrieval budget',value:diagnosticReceiptSummary(generationInspection.retrievalBudget)},
+      {key:'Rejected evidence',value:generationInspection.rejectedEvidence?String(generationInspection.rejectedEvidence.count??0)+' rejected'+(generationInspection.rejectedEvidence.reasonCode?' · '+generationInspection.rejectedEvidence.reasonCode:''):'No owner rejection receipt'},
       {key:'Lore / Memory sync',value:[generationInspection.loreSync?.status??generationInspection.loreSync?.kind??'Lore not published',generationInspection.memorySync?.status??generationInspection.memorySync?.kind??'Memory not published'].join(' · ')},
     ]));
   }
-  root.append(brain.root);
+  advanced.append(brainDeep.root);
 
   const runtime=diagnosticSection(d,'Runtime / lifecycle / jobs',{count:String(snapshot.summary?.logicalJobs??0)+' jobs'});
-  const runtimeSummary=operational?.runtime?.summary??{},life=runtimeSummary.lifecycleCounts??{};
-  runtime.body.append(createKeyValue(d,[
-    {key:'Queued by layer',value:Object.entries(runtimeSummary.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},
-    {key:'Active / yielding',value:(life.ACTIVE??0)+' / '+(life.YIELDING??0)},{key:'Parked / recovering',value:(life.PARKED??0)+' / '+(life.RECOVERING??0)},
-    {key:'Complete / failed',value:(life.COMPLETE??0)+' / '+(life.FAILED??0)},{key:'Borrowed background leases',value:runtimeSummary.borrowedBackgroundLeases??'Not published'},
-  ]));
+  runtime.body.append(createKeyValue(d,[{key:'Queued by layer',value:Object.entries(runtimeSummary.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},{key:'Borrowed background leases',value:runtimeSummary.borrowedBackgroundLeases??'Not published'}]));
   const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job'),jobList=element(d,'div',{className:'a52-diagnostics-timeline'});
   for(const row of jobRows)jobList.append(renderRow(d,row,{model,selection:s,scope,inspect}));
   if(!jobRows.length)jobList.append(emptyDiagnosticRow(d,'No owner-backed job audit is retained for this selected turn.'));
-  runtime.body.append(jobList);root.append(runtime.root);
+  runtime.body.append(jobList);advanced.append(runtime.root);
 
-  const resources=diagnosticSection(d,'Resources / connections / provider calls',{count:String(operational?.resources?.rows?.length??0)+' configured'});
+  const resources=diagnosticSection(d,'Resources / connections / provider calls',{count:String(resourceRows.length)+' configured'});
   const lanes=element(d,'div',{className:'a52-diagnostics-lanes'});
   for(const spec of [['Jev',operational?.wiring?.jev],['Sidecar',operational?.wiring?.sidecar],['Vectoring',operational?.wiring?.vectoring]]){
-    const lane=spec[1]?.lane??{},card=element(d,'article',{className:'a52-diagnostics-lane'});
-    const laneStatus=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
-    card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical')),
-      createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
+    const lane=spec[1]?.lane??{},card=element(d,'article',{className:'a52-diagnostics-lane'}),laneStatus=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
+    const laneHead=element(d,'div',{className:'a52-inline-status'});laneHead.append(element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical'));card.append(laneHead,createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
     lanes.append(card);
   }
   resources.body.append(lanes);
   const provider=operational?.coprocessor?.summary?.providerCalls??{},resourceTelemetry=operational?.coprocessor?.summary?.resourceTelemetry??{};
   resources.body.append(createKeyValue(d,[{key:'Provider calls invoked / failed',value:(provider.invoked??0)+' / '+(provider.failed??0)},{key:'Resource tests pass / fail',value:(resourceTelemetry.testsPassed??0)+' / '+(resourceTelemetry.testsFailed??0)},{key:'Executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)}]));
-  const resourceRows=operational?.resources?.rows??[];
   if(resourceRows.length){
     const currentResources=element(d,'div',{className:'a52-diagnostics-status-list'});
     for(const row of resourceRows.slice(0,40)){
-      const state=row.state??row.health??'UNKNOWN',detail=[
-        row.displayName&&row.displayName!==row.id?row.displayName:null,
-        row.health?'health '+row.health:null,
-        row.availability?'availability '+row.availability:null,
-        row.lastExecution?.status?'last execution '+row.lastExecution.status:null,
-      ].filter(Boolean).join(' · ')||'Owner resource state published.';
-      currentResources.append(compactStatusRow(d,row.displayName??row.id??row.resourceId??row.kind??'Resource',state,detail,stageDiagnosticToken(state),inspect?()=>inspect({kind:'area52-diagnostic-resource',id:row.id??row.resourceId??row.displayName??'resource',title:(row.displayName??row.id??row.resourceId??'Resource')+' detail',payload:sanitize(row)}):null,scope));
+      const resourceState=row.state??row.health??'UNKNOWN',detail=[row.displayName&&row.displayName!==row.id?row.displayName:null,row.health?'health '+row.health:null,row.availability?'availability '+row.availability:null,row.lastExecution?.status?'last execution '+row.lastExecution.status:null].filter(Boolean).join(' · ')||'Owner resource state published.';
+      currentResources.append(compactStatusRow(d,row.displayName??row.id??row.resourceId??row.kind??'Resource',resourceState,detail,stageDiagnosticToken(resourceState),inspect?()=>inspect({kind:'area52-diagnostic-resource',id:row.id??row.resourceId??row.displayName??'resource',title:(row.displayName??row.id??row.resourceId??'Resource')+' detail',payload:sanitize(row)}):null,scope));
     }
     resources.body.append(element(d,'strong',{text:'Current resources'}),currentResources);
   }
@@ -288,81 +436,35 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
     }
     resources.body.append(element(d,'strong',{text:'Recent owner resource telemetry'}),eventList);
   }
-  root.append(resources.root);
+  advanced.append(resources.root);
 
-  const knowledge=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'});
-  const lore=operational?.lore??{},memory=operational?.memory??{},memoryCounts=memory.counts??{},fresh=memory.freshness??{};
-  knowledge.body.append(element(d,'div',{className:'a52-diagnostics-two-column'},
-    element(d,'div',{},element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}])),
-    element(d,'div',{},element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]))
-  ));root.append(knowledge.root);
+  const knowledgeDeep=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'}),knowledgeColumns=element(d,'div',{className:'a52-diagnostics-two-column'}),loreColumn=element(d,'div'),memoryColumn=element(d,'div');
+  loreColumn.append(element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}]));
+  memoryColumn.append(element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]));
+  knowledgeColumns.append(loreColumn,memoryColumn);knowledgeDeep.body.append(knowledgeColumns);advanced.append(knowledgeDeep.root);
 
-  const errorRows=timeline.rows.filter(row=>row.severity==='ERROR'||row.severity==='WARN'),errorCount=collectDiagnosticErrors(operational,[]).length+errorRows.length;
-  const errors=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});
-  const cognitionErrors=Object.entries(operational?.cognition?.errors??{});
+  const errorsDeep=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});
   if(cognitionErrors.length){
     const list=element(d,'div',{className:'a52-diagnostics-status-list'});
     for(const [name,error] of cognitionErrors)list.append(compactStatusRow(d,label(name),'READ ISSUE',error?.message??error?.code??'Unknown owner read issue.','warning',inspect?()=>inspect({kind:'area52-diagnostic-error',id:name,title:label(name)+' read issue',payload:error}):null,scope));
-    errors.body.append(list);
+    errorsDeep.body.append(list);
   }
-  if(errorRows.length){const list=element(d,'div',{className:'a52-diagnostics-timeline'});for(const row of errorRows.slice(-24))list.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));errors.body.append(list);}
-  if(!cognitionErrors.length&&!errorRows.length)errors.body.append(emptyDiagnosticRow(d,'No retained warnings or errors match the current filters.'));
-  root.append(errors.root);
+  if(errorRows.length){const list=element(d,'div',{className:'a52-diagnostics-timeline'});for(const row of errorRows.slice(-24))list.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));errorsDeep.body.append(list);}
+  if(!cognitionErrors.length&&!errorRows.length)errorsDeep.body.append(emptyDiagnosticRow(d,'No retained warnings or errors match the current filters.'));
+  advanced.append(errorsDeep.root);
 
-  const generationPerf=operational?.generationPerformance??null,profileControl=generationPerf?.control??{},profileEnabled=profileControl.enabled===true;
-  const performance=diagnosticSection(d,'Performance / generation profiling',{count:profileEnabled?'ON':'OFF'});
-  const profilerControl=element(d,'div',{className:'a52-generation-profiler-control'});
-  const profilerStatus=element(d,'div',{className:'a52-inline-status'});
-  profilerStatus.append(element(d,'strong',{text:'Detailed generation profiling'}),makeBadge(d,profileControl.enabled==null?'NO_EVIDENCE':profileEnabled?'ON':'OFF',profileEnabled?'ready':profileControl.enabled==null?'historical':'warning'));
-  const toggle=createButton(d,{label:profileEnabled?'Turn profiling OFF':'Turn profiling ON',scope,size:'sm',variant:profileEnabled?'primary':'secondary',onPress:()=>{model.setGenerationProfiling(!profileEnabled);refresh?.();}});
-  toggle.setAttribute('role','switch');toggle.setAttribute('aria-checked',String(profileEnabled));
-  if(!profileControl.available){toggle.disabled=true;toggle.setAttribute('disabled','');}
-  profilerControl.append(profilerStatus,toggle,element(d,'p',{className:'a52-muted',text:profileControl.available?'Session-only diagnostic switch. Defaults OFF on a new Area-52 live session; enable it before the generation you want to measure.':'The installed live session does not export the detailed profiling control.'}));
-  performance.body.append(profilerControl);
-  const stages=generationPerf?.brainStages??[],stageMs=(name)=>stages.find(row=>row.stage===name)?.wallMs??null,detailed=generationPerf?.detailed??null;
-  performance.body.append(element(d,'strong',{text:'Selected generation phase timings'}),createKeyValue(d,[
-    {key:'Brain pre-generation',value:diagnosticMs(stageMs('BRAIN_PREPARATION_TOTAL'))},
-    {key:'Host preparation',value:diagnosticMs(stageMs('HOST_PREPARATION'))},
-    {key:'Host insertion',value:diagnosticMs(stageMs('HOST_INSERTION'))},
-    {key:'Provider wait',value:diagnosticMs(detailed?.providerLatencyMs??stageMs('PROVIDER_RESPONSE'))},
-    {key:'Response / learning',value:diagnosticMs(stageMs('LEARNING'))},
-    {key:'Exact detailed profile',value:detailed?'AVAILABLE':'NO_EVIDENCE'},
-  ]));
-  const allRetrievalChannels=generationPerf?.retrievalChannels??[];
-  const retrievalChannels=allRetrievalChannels.slice().sort((a,b)=>(b.elapsedMs??0)-(a.elapsedMs??0)).slice(0,16);
-  const retrievalTotal=stageMs('RETRIEVAL_CHANNELS');
-  const attributedMs=allRetrievalChannels.reduce((sum,row)=>sum+(Number.isFinite(row.elapsedMs)?row.elapsedMs:0),0);
-  performance.body.append(element(d,'strong',{text:'Retrieval channels · slowest first'}),createKeyValue(d,[
-    {key:'Retrieval stage total',value:diagnosticMs(retrievalTotal)},
-    {key:'Outside measured channels',value:allRetrievalChannels.length&&retrievalTotal!=null?diagnosticMs(Math.max(0,retrievalTotal-attributedMs)):'NO_EVIDENCE'},
-  ]));
-  if(retrievalChannels.length)performance.body.append(createKeyValue(d,retrievalChannels.map(row=>({
-    key:row.channelId,
-    value:`${diagnosticMs(row.elapsedMs)} · ${row.status} · ${row.nominationCount??'NO_EVIDENCE'} nominations · ${row.attemptedIntents??'NO_EVIDENCE'} attempts · ${row.failedIntents??'NO_EVIDENCE'} failed`,
-  }))));
+  const performance=diagnosticSection(d,'Performance detail / retrieval / UI workload',{count:profileEnabled?'PROFILE ON':'PROFILE OFF'});
+  performance.body.append(element(d,'strong',{text:'Retrieval channels · slowest first'}));
+  if(allRetrievalChannels.length)performance.body.append(createKeyValue(d,allRetrievalChannels.slice().sort((a,b)=>(b.elapsedMs??0)-(a.elapsedMs??0)).slice(0,16).map(row=>({key:row.channelId,value:diagnosticMs(row.elapsedMs)+' · '+row.status+' · '+(row.nominationCount??'NO_EVIDENCE')+' nominations'}))));
   else performance.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — no per-channel retrieval timing was published for this generation.'));
-  const overall=detailed?.deltas??{},preInsertion=detailed?.phases?.preGenerationToHostInsertion??{},afterInsertion=detailed?.phases?.hostInsertionToLearningComplete??{};
-  performance.body.append(element(d,'strong',{text:'Browser measurements'}),createKeyValue(d,[
-    {key:'Heap support',value:generationPerf?.support?.heap??'NO_EVIDENCE'},
-    {key:'Heap Δ overall',value:diagnosticBytes(overall.heapBytes)},
-    {key:'Long Task support',value:generationPerf?.support?.longTasks??'NO_EVIDENCE'},
-    {key:'Long Tasks Δ overall',value:diagnosticLongTasks(overall.longTaskCount,overall.longTaskTotalMs)},
-    {key:'Diagnostics/UI refresh Δ',value:diagnosticRefresh(overall.diagnosticsUiRefreshCount,overall.diagnosticsUiRefreshTotalMs)},
-    {key:'Pre-generation → host insertion',value:diagnosticPhaseDelta(preInsertion)},
-    {key:'Host insertion → learning complete',value:diagnosticPhaseDelta(afterInsertion)},
-    {key:'Retained detailed profiles',value:String(generationPerf?.retention?.retainedProfiles??0)+' / '+String(generationPerf?.retention?.maxProfiles??'NO_EVIDENCE')},
-  ]));
-  if(generationPerf?.selectionError)performance.body.append(emptyDiagnosticRow(d,'Selected generation performance rejected by identity fencing: '+String(generationPerf.selectionError)));
-  else if(!generationPerf?.exactSelection)performance.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — select an exact chat / turn / generation before reading generation performance.'));
-  else if(!detailed)performance.body.append(emptyDiagnosticRow(d,profileEnabled?'NO_EVIDENCE — no detailed profile has completed for this exact generation yet.':'Detailed profiling is OFF. Cheap Brain stage timings remain available; enable profiling before the next generation for browser measurements.'));
   const uiLoad=operational?.telemetry?.uiLoad??null,categories=uiLoad?.categories??{};
   performance.body.append(element(d,'strong',{text:'Diagnostics UI workload'}),createKeyValue(d,[
     {key:'Host event invalidations',value:diagnosticLoadMetric(categories.HOST_EVENT_INVALIDATION)},{key:'Scatter / Gather owner read',value:diagnosticLoadMetric(categories.OWNER_SCATTER_GATHER_READ)},
     {key:'Journal diagnostics read',value:diagnosticLoadMetric(categories.UI_JOURNAL_DIAGNOSTICS_READ)},{key:'Journal processing',value:diagnosticLoadMetric(categories.UI_JOURNAL_PROCESS)},
     {key:'Activity feed render',value:diagnosticLoadMetric(categories.UI_ACTIVITY_FEED_RENDER)},{key:'Workspace refresh',value:diagnosticLoadMetric(categories.UI_WORKSPACE_REFRESH)},{key:'Capture total',value:diagnosticLoadMetric(categories.UI_CAPTURE_TOTAL)},
-  ]));root.append(performance.root);
+  ]));advanced.append(performance.root);
 
-  const timelineSection=diagnosticSection(d,'Event timeline · all retained evidence',{open:true,count:String(timeline.matchingRows)+' matching'});
+  const timelineSection=diagnosticSection(d,'Event timeline · all retained evidence',{count:String(timeline.matchingRows)+' matching'});
   const controls=element(d,'div',{className:'a52-diagnostics-toolbar'});
   const timeSelect=selectControl(d,'Time',filters.time,[['ALL','All retained'],['1M','Last 1 minute'],['5M','Last 5 minutes'],['15M','Last 15 minutes']]);
   const catSelect=selectControl(d,'Category',filters.category,[['ALL','All categories'],...timeline.availableCategories.map(x=>[x,x])]);
@@ -373,25 +475,83 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   scope?.listen?.(catSelect.input,'change',()=>{filters.category=catSelect.input.value;refresh?.();});
   scope?.listen?.(sevSelect.input,'change',()=>{filters.severity=sevSelect.input.value;refresh?.();});
   scope?.listen?.(search,'change',()=>{filters.search=String(search.value??'').trim();refresh?.();});
-  timelineSection.body.append(controls,element(d,'p',{className:'a52-muted',text:timeline.truncated?'Visible row cap reached. Narrow filters or use Export Full Diagnostics for the complete retained evidence set.':'Showing '+timeline.visibleRows+' of '+timeline.matchingRows+' matching rows across '+String(snapshot.retention?.turnCount??0)+' retained turn(s).'}));
+  timelineSection.body.append(controls,element(d,'p',{className:'a52-muted',text:timeline.truncated?'Visible row cap reached. Narrow filters or use Export Full Diagnostics for the complete retained evidence set.':'Showing '+timeline.visibleRows+' of '+timeline.matchingRows+' matching rows across '+String(retained.turnCount??0)+' retained turn(s).'}));
   const timelineList=element(d,'div',{className:'a52-diagnostics-timeline'});
-  if(!timeline.rows.length)timelineList.append(emptyDiagnosticRow(d,snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate diagnostics.'));
   for(const row of timeline.rows)timelineList.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));
-  timelineSection.body.append(timelineList);root.append(timelineSection.root);
+  timelineSection.body.append(timelineList);advanced.append(timelineSection.root);
 
-  const raw=diagnosticSection(d,'Raw operational snapshot',{count:operational?'sanitized':'NO EVIDENCE'});
+  const raw=diagnosticSection(d,'Raw operational snapshot',{count:operational?'SANITIZED':'NO EVIDENCE'});
   if(operational)raw.body.append(element(d,'pre',{className:'a52-context-packet',text:JSON.stringify(sanitize(operational),null,2),attrs:{'aria-label':'Sanitized raw operational diagnostics snapshot'}}));
   else raw.body.append(emptyDiagnosticRow(d,'No operational Diagnostics snapshot is currently published.'));
-  root.append(raw.root);
+  advanced.append(raw.root);
 
-  const retention=diagnosticSection(d,'Retention / safety',{count:String(snapshot.retention?.entryCount??0)+' entries'});
-  const retained=snapshot.retention??{};
-  retention.body.append(createKeyValue(d,[
-    {key:'Storage',value:retained.available===false?'DEGRADED: '+String(retained.lastError??'local storage unavailable'):String(retained.storageKind??'unknown')},
-    {key:'Retained turns / entries',value:String(retained.turnCount??0)+' / '+String(retained.entryCount??0)},{key:'Serialized bytes / ceiling',value:String(retained.serializedBytes??0)+' / '+String(retained.maxStoredBytes??'unknown')},
-    {key:'Writes / skipped redundant writes',value:String(retained.writes??0)+' / '+String(retained.skippedRedundantWrites??0)},{key:'Payload policy',value:'metadata only; no raw prompts, story/Lore bodies, credentials, or hidden reasoning'},
-  ]));root.append(retention.root);
+  const retention=diagnosticSection(d,'Retention / safety',{count:String(retained.entryCount??0)+' entries'});
+  retention.body.append(createKeyValue(d,[{key:'Storage',value:retained.available===false?'DEGRADED: '+String(retained.lastError??'local storage unavailable'):String(retained.storageKind??'unknown')},{key:'Retained turns / entries',value:String(retained.turnCount??0)+' / '+String(retained.entryCount??0)},{key:'Serialized bytes / ceiling',value:String(retained.serializedBytes??0)+' / '+String(retained.maxStoredBytes??'unknown')},{key:'Writes / skipped redundant writes',value:String(retained.writes??0)+' / '+String(retained.skippedRedundantWrites??0)},{key:'Payload policy',value:'metadata only; no raw prompts, story/Lore bodies, credentials, or hidden reasoning'}]));
+  advanced.append(retention.root);
+  root.append(advanced);
   host.append(root);
+}
+
+function diagnosticPanel(d,{icon='◇',title,subtitle='',badge=null,tone='historical',className=''}={}){
+  const root=element(d,'article',{className:'a52-diagnostics-panel '+className});
+  const head=element(d,'header',{className:'a52-diagnostics-panel__head'});
+  const mark=element(d,'span',{className:'a52-diagnostics-panel__icon',text:icon,attrs:{'aria-hidden':'true'}});
+  const copy=element(d,'div',{className:'a52-diagnostics-panel__copy'});
+  copy.append(element(d,'h2',{text:title}),element(d,'p',{className:'a52-muted',text:subtitle}));
+  head.append(mark,copy);if(badge!=null)head.append(makeBadge(d,String(badge),tone));
+  const body=element(d,'div',{className:'a52-diagnostics-panel__body'});root.append(head,body);return{root,head,body};
+}
+function diagnosticKpi(d,{icon='•',label:labelText,value,detail,tone='historical'}={}){
+  const root=element(d,'article',{className:'a52-diagnostics-kpi',dataset:{tone}});
+  const copy=element(d,'div',{className:'a52-diagnostics-kpi__copy'});copy.append(element(d,'span',{text:labelText}),element(d,'strong',{text:String(value??'NO_EVIDENCE')}),element(d,'small',{text:String(detail??'')}));root.append(element(d,'span',{className:'a52-diagnostics-kpi__icon',text:icon}),copy);
+  return root;
+}
+function diagnosticIdentityChip(d,labelText,value,tone='historical'){
+  const chip=element(d,'div',{className:'a52-diagnostics-identity-chip'});
+  chip.append(element(d,'span',{text:labelText}),makeBadge(d,String(value??'—'),tone));return chip;
+}
+function shortDiagnosticId(value,max=15){const s=String(value??'');if(!s)return'—';return s.length>max?s.slice(0,Math.max(4,max-5))+'…'+s.slice(-4):s;}
+function diagnosticPhaseBar(d,phase,max){
+  const n=Number(phase.ms),measured=Number.isFinite(n),pct=measured?Math.max(2,Math.min(100,(n/max)*100)):0;
+  const row=element(d,'div',{className:'a52-diagnostics-phase',dataset:{phase:phase.id,tone:phase.tone}});
+  const labelNode=element(d,'strong',{text:phase.label}),track=element(d,'div',{className:'a52-diagnostics-phase__track'}),fill=element(d,'span',{className:'a52-diagnostics-phase__fill',attrs:{style:'width:'+pct+'%'}}),value=element(d,'span',{className:'a52-diagnostics-phase__value',text:diagnosticMs(phase.ms)});
+  track.append(fill);row.append(labelNode,track,value);return row;
+}
+function diagnosticMiniStat(d,labelText,value,detail){
+  const root=element(d,'div',{className:'a52-diagnostics-mini-stat'});
+  root.append(element(d,'span',{text:labelText}),element(d,'strong',{text:String(value??'NO_EVIDENCE')}),element(d,'small',{text:String(detail??'')}));return root;
+}
+function diagnosticMeasurement(d,{label:labelText,value,detail,tone='historical'}={}){
+  const root=element(d,'div',{className:'a52-diagnostics-measurement',dataset:{tone}});
+  root.append(element(d,'span',{text:labelText}),element(d,'strong',{text:String(value??'NO_EVIDENCE')}),element(d,'small',{text:String(detail??'NO_EVIDENCE')}));return root;
+}
+function diagnosticDeltaBand(d,labelText,phase){
+  const root=element(d,'div',{className:'a52-diagnostics-delta-band'});
+  root.append(element(d,'span',{text:labelText}),element(d,'strong',{text:diagnosticPhaseDelta(phase)}));return root;
+}
+function diagnosticLanePill(d,name,state,tone,detail){
+  const root=element(d,'div',{className:'a52-diagnostics-lane-pill'});
+  const head=element(d,'div',{className:'a52-inline-status'});head.append(element(d,'strong',{text:name}),makeBadge(d,state,tone));root.append(head,element(d,'small',{className:'a52-muted',text:detail}));return root;
+}
+function diagnosticPipelineNode(d,labelText,value,tone){
+  const root=element(d,'div',{className:'a52-diagnostics-pipeline-node',dataset:{tone}});
+  root.append(element(d,'span',{text:labelText}),element(d,'strong',{text:String(value??0)}));return root;
+}
+function diagnosticPipelineArrow(d){return element(d,'span',{className:'a52-diagnostics-pipeline-arrow',text:'→',attrs:{'aria-hidden':'true'}});}
+function diagnosticProducerTile(d,row,onInspect,scope){
+  const state=row.state??'UNKNOWN',root=element(d,'button',{className:'a52-diagnostics-producer-tile',attrs:{type:'button'},dataset:{state:String(state)}});
+  const copy=element(d,'div');copy.append(element(d,'strong',{text:row.label??label(row.id)}),element(d,'small',{className:'a52-muted',text:row.reason??row.errorCode??'Owner status published.'}));root.append(element(d,'span',{className:'a52-diagnostics-producer-tile__dot'}),copy,makeBadge(d,String(state),stageDiagnosticToken(state)));
+  if(onInspect)scope?.listen?.(root,'click',onInspect);else root.disabled=true;return root;
+}
+function diagnosticAttentionItem(d,title,detail,tone='warning',onInspect=null,scope=null){
+  const root=element(d,onInspect?'button':'div',{className:'a52-diagnostics-attention-item',attrs:onInspect?{type:'button'}:{},dataset:{tone}});
+  const copy=element(d,'div');copy.append(element(d,'strong',{text:title}),element(d,'small',{className:'a52-muted',text:String(detail??'')}));root.append(element(d,'span',{className:'a52-diagnostics-attention-item__mark',text:tone==='warning'?'!':'•'}),copy);
+  if(onInspect)scope?.listen?.(root,'click',onInspect);return root;
+}
+function diagnosticEventStreamItem(d,row,{model,selection,scope,inspect}={}){
+  const root=element(d,'button',{className:'a52-diagnostics-event-stream__item',attrs:{type:'button'},dataset:{severity:String(row.severity??'INFO')}});
+  const copy=element(d,'div');copy.append(element(d,'strong',{text:row.stage}),element(d,'small',{className:'a52-muted',text:row.summary??row.reasonCode??'Retained diagnostic evidence'}));root.append(element(d,'span',{className:'a52-diagnostics-event-stream__time',text:displayTime(row)}),element(d,'span',{className:'a52-diagnostics-event-stream__mark'}),copy,makeBadge(d,String(row.status??'UNKNOWN'),statusToken(row.status)));
+  scope?.listen?.(root,'click',()=>inspect?.({kind:'area52-diagnostic-event',id:row.id,title:row.stage,category:row.category,severity:row.severity,status:row.status,selection:{...selection},payload:model.detail(row.id,{selection})}));return root;
 }
 
 function renderRow(d,row,{model,selection,scope,inspect}={}){

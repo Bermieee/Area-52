@@ -434,6 +434,22 @@ test('regeneration rebases Inspect and activity evidence to the exact new genera
   assert.equal(ui.shell.inspector.selection.selection.generationId,'gen:2');ui.destroy();
 });
 
+test('Diagnostics prefers a wide canvas when room exists and still clamps to a narrow viewport',()=>{
+  const owner=liveOwner(),wide=mount(owner,{width:1600,height:900});
+  wide.ui.floatingController.open('turn-log');wide.ui.scheduler.flush(1);
+  assert.equal(wide.ui.presentation.get().frontFaceWidth,1180);
+  assert.ok(wide.ui.floatingController.diagnostics().card.width>=1100);
+  wide.ui.destroy();
+
+  const owner2=liveOwner(),narrow=mount(owner2,{width:760,height:700});
+  narrow.ui.floatingController.open('turn-log');narrow.ui.scheduler.flush(1);
+  const geometry=narrow.ui.floatingController.diagnostics();
+  assert.equal(narrow.ui.presentation.get().frontFaceWidth,1180);
+  assert.ok(geometry.card.width<1180);
+  assert.ok(geometry.card.x>=8&&geometry.card.x+geometry.card.width<=752);
+  narrow.ui.destroy();
+});
+
 test('local evidence journal survives UI reload with the same browser storage and remains exportable',()=>{
   const owner=liveOwner(),storage=memory(),selection=owner.bindings.readSelection();
   const first=mount(owner,{storage});first.ui.scheduler.flush(1);first.ui.operator.captureEvidence();

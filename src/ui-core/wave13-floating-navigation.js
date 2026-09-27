@@ -4,7 +4,7 @@ import { FrontFaceMode } from './wave6-presentation.js';
 import { createButton, element } from './primitives.js';
 
 export const WAVE13_FLOATING_NAV_VERSION='1.1.0';
-const RAIL_WIDTH=136,NARROW_RAIL_WIDTH=112,EDGE=8,MIN_CARD=180,MINIMIZED_CARD_WIDTH=260,MAX_CARD=960;
+const RAIL_WIDTH=136,NARROW_RAIL_WIDTH=112,EDGE=8,MIN_CARD=180,MINIMIZED_CARD_WIDTH=260,MAX_CARD=1360;
 
 export class VerticalRailPopoutController{
   constructor({frontFaceController,shell,presentation,signals,scheduler,stateStore,workspaceRegistry,productName='Area-52',viewportProvider=null}={}){
@@ -136,7 +136,12 @@ export class VerticalRailPopoutController{
 
   #updateTitle(id){
     if(!this.nodes.title)return;
-    try{this.nodes.title.textContent=this.workspaceRegistry.get(id)?.title??'Area-52';}catch{this.nodes.title.textContent='Area-52';}
+    try{
+      const entry=this.workspaceRegistry.get(id);
+      this.nodes.title.textContent=entry?.title??'Area-52';
+      const preferred=Number(entry?.preferredWidth);
+      if(Number.isFinite(preferred)&&preferred>0&&this.presentation.get().frontFaceWidth<preferred)this.presentation.setWidth(preferred);
+    }catch{this.nodes.title.textContent='Area-52';}
   }
 
   #ensureInitialPosition(){

@@ -33,7 +33,7 @@ const OWNER_BINDING_KEYS=Object.freeze([
   'addResource','configureResource','discoverModels','loadModels','listProviderModels','refreshModels','refreshResourceModels','setCredential','setResourceCredential','clearCredential','clearResourceCredential','revokeCredential','revokeResourceCredential','selectModel','selectResourceModel','connectResource','mountResource','disconnectResource','unmountResource','testResource','probeResource','testConnection','subscribeResources','subscribeResourceStatus',
   'loreIntelligenceService','loreStudyService','loreOperatorHost','loreStudyHost','loreHost','loreStudyRuntime','loreRuntime',
   'loreAuthoringService','loreAuthoringHost','loreAuthoringOperator',
-  'memoryIntegrationSurface','memoryInterface','memoryOwner','readMemory','readMemoryReadModel','readMemoryRetrieval','readMemorySummaryStatus',
+  'memoryIntegrationSurface','memoryInterface','memoryOwner','readMemory','readMemoryReadModel','readMemoryRetrieval','readMemorySummaryStatus','readMemoryVectorReceipts',
   'acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook','runLoreStudy','startLoreStudy','runDueLoreStudy','retryLoreStudy','subscribeLoreStudy','subscribeLoreStatus',
   'story','characters','lore','memory','world','knowledgeAdapter',
 ]);

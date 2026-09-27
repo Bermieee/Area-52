@@ -116,6 +116,13 @@ test('Wave 12 installed host bindings preserve the generation profiling operator
   bound.destroy();
 });
 
+test('Wave 12 forwards Memory Vector owner receipts to the installed Diagnostics Center',()=>{
+  const receipts=[{kind:'MemoryVectorQueryReceipt',executionId:'vector-execution:test',status:'READY'}];
+  const bound=createWave12SillyTavernHostBindings({getContext:()=>({chatId:'chat:vector'}),hostBindings:{readMemoryVectorReceipts:()=>receipts}});
+  assert.deepEqual(bound.hostBindings.readMemoryVectorReceipts(),receipts);
+  bound.destroy();
+});
+
 test('SillyTavern host bindings preserve Worker 4 Lore operator service ownership',()=>{
   const service={operatorInterface(){return{kind:'LoreStudyOperatorHost',read:{status:()=>({entries:[],counts:{}})},actions:{acceptLorebook(){},runLoreStudy(){}}};}};
   const bound=createWave12SillyTavernHostBindings({getContext:()=>({chatId:'chat:lore'}),hostBindings:{loreIntelligenceService:service}});

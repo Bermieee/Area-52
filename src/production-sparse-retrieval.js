@@ -241,12 +241,16 @@ export class ProductionSparseRetrievalChannel{
       .filter((row)=>row?.eligibleForStoryRetrieval===true&&row?.sourceState!=='REMOVED'&&row?.freshness==='CURRENT'&&row?.retrievalReady!==false)
       .sort((a,b)=>String(a.sourceId).localeCompare(String(b.sourceId)));
     const selected=eligible.slice(0,this.maxArtifacts);
-    const active=new Set(),failures=[];
+    const active=new Set(),failures=[],indexedArtifacts=[];
     let indexedCount=0;
     for(const entry of selected){
       const receipt=this.#indexEntry(owner,entry);
-      if(receipt.ok){active.add(receipt.artifactId);indexedCount+=1;}
+      if(receipt.ok){active.add(receipt.artifactId);indexedArtifacts.push(receipt.artifact);indexedCount+=1;}
       else failures.push(receipt.failure);
+    }
+    let compaction=null;
+    if(this.lifecycle.ownerArtifacts.size>this.maxArtifacts){
+      compaction=this.lifecycle.rebuild({ownerArtifacts:indexedArtifacts,adapterIds:[this.adapter.adapterId]});
     }
     this.activeChatId=chat;
     this.activeArtifactIds=active;
@@ -259,6 +263,8 @@ export class ProductionSparseRetrievalChannel{
       indexedCount,
       activeCount:active.size,
       boundedOutCount:Math.max(0,eligible.length-selected.length),
+      compacted:Boolean(compaction),
+      compaction:clone(compaction),
       failures:failures.slice(0,32),
       indexVersion:this.adapter.indexVersion,
       implementation:'QUALIFIED_LEXICAL_SPARSE',
@@ -452,7 +458,7 @@ export class ProductionSparseRetrievalChannel{
     });
     try{
       const receipt=this.lifecycle.indexArtifact(artifact,{adapterIds:[this.adapter.adapterId]});
-      return{ok:true,artifactId,receipt};
+      return{ok:true,artifactId,artifact:clone(artifact),receipt};
     }catch(error){
       return{ok:false,failure:{sourceId,reason:error?.code??error?.message??'SPARSE_INDEX_FAILED'}};
     }

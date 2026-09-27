@@ -175,6 +175,42 @@ test('bounded hydration prioritizes an exact source identifier outside the defau
   assert.equal(exact.find(candidate=>candidate.metadata.ownerSourceId==='lore:book-a:99').rankSignals.sparseExecution,'EXACT_IDENTIFIER');
 });
 
+test('runtime sparse hydration failure reports OWNER_SPARSE_EXACT UNAVAILABLE while fallback channels remain truthful',async()=>{
+  const row=entry();
+  const owner=mutableLoreOwner([row]);
+  const originalStatus=owner.api.status;
+  let failStatus=true;
+  owner.api.status=(request={})=>{
+    if(failStatus){
+      const error=new Error('owner status temporarily unavailable');
+      error.code='LORE_OWNER_STATUS_UNAVAILABLE';
+      throw error;
+    }
+    return originalStatus(request);
+  };
+  const brain=new Area52NativeBrain({loreInterface:owner.api});
+  const unavailable=await brain.prepareTurn({
+    chatId:'chat:a',turnId:'worker3:unavailable-sparse:1',generationId:'worker3:unavailable-sparse-gen:1',
+    query:'moon-key-77',scene:minimalTurnScene('worker3-unavailable-sparse',1),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(unavailable.sparseRetrievalReceipt.status,'UNAVAILABLE');
+  const receipt=(unavailable.candidateEnvelope.metadata?.channelReceipts??[]).find(row=>row.channelId==='OWNER_SPARSE_EXACT');
+  assert.equal(receipt?.status,'UNAVAILABLE');
+  assert.equal(channelCandidates(unavailable.candidateEnvelope,'OWNER_SPARSE_EXACT').length,0);
+
+  failStatus=false;
+  const recovered=await brain.prepareTurn({
+    chatId:'chat:a',turnId:'worker3:unavailable-sparse:2',generationId:'worker3:unavailable-sparse-gen:2',
+    query:'moon-key-77',scene:minimalTurnScene('worker3-unavailable-sparse',2),
+    budgetTokens:4096,latencyBudgetMs:1000,executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(recovered.sparseRetrievalReceipt.status,'READY');
+  const recoveredReceipt=(recovered.candidateEnvelope.metadata?.channelReceipts??[]).find(row=>row.channelId==='OWNER_SPARSE_EXACT');
+  assert.equal(recoveredReceipt?.status,'OK');
+  assert.ok(channelCandidates(recovered.candidateEnvelope,'OWNER_SPARSE_EXACT').length>0);
+});
+
 test('native Brain hydrates owner sparse recall and sends bounded decomposed scene intents through Candidate Bus',async()=>{
   const row=entry();
   const owner=mutableLoreOwner([row]);

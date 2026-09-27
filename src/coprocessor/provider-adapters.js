@@ -79,16 +79,22 @@ export class OpenAICompatibleProviderAdapter {
     if(typeof endpoint!=='string'||!endpoint)throw new TypeError('endpoint is required');
     if(typeof fetchImpl!=='function')throw new TypeError('fetchImpl is required');
     if(!Object.values(ProviderTransportMode).includes(transportMode))throw new TypeError('unsupported provider transport mode: '+transportMode);
-    this.providerId=providerId;this.modelId=modelId;this.endpoint=endpoint.replace(/\/$/,'');this.setCredential(apiKey);
+    this.providerId=providerId;this.modelId=modelId;this.transportMode=transportMode;this.setEndpoint(endpoint);this.setCredential(apiKey);
     this.headers={...headers};this.fetchImpl=bindProviderFetch(fetchImpl);this.timeoutMs=Math.max(1,Number(timeoutMs)||30000);
     this.contextLimit=contextLimit==null?null:Number(contextLimit);this.outputLimit=outputLimit==null?null:Number(outputLimit);
     this.capabilities=[...new Set(capabilities)];this.structuredOutputSupport=transportMode===ProviderTransportMode.CHAT_COMPLETIONS;
     this.streamingSupport=false;this.abortSupport=true;this.local=Boolean(local);this.costMetadata=costMetadata==null?null:structuredClone(costMetadata);
-    this.healthCheckPath=String(healthCheckPath||'/models');this.transportMode=transportMode;
+    this.healthCheckPath=String(healthCheckPath||'/models');
     this.modelListPath=String(modelListPath??(transportMode===ProviderTransportMode.EMBEDDINGS?'/embeddings/models':this.healthCheckPath));
     this.measurementClass=measurementClass;
   }
   get credentialConfigured(){return Boolean(this.#apiKey);}
+  setEndpoint(value){
+    const endpoint=String(value).replace(/\/$/,'');
+    this.endpoint=this.transportMode===ProviderTransportMode.EMBEDDINGS&&endpoint.endsWith('/embeddings')
+      ?endpoint.slice(0,-'/embeddings'.length):endpoint;
+    return this.endpoint;
+  }
   setCredential(value){
     if(value==null||value===''){this.#apiKey=null;return false;}
     if(typeof value!=='string'||!value.trim())throw new TypeError('credential must be a non-empty string');

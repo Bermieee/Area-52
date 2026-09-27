@@ -92,7 +92,7 @@ test('saving a corrected Vectoring endpoint rebinds the live resource before qua
   const host=createCoprocessorResourceHost({fetchImpl}),ui=new Wave13ResourceControlAdapter({bindings:{resourceHost:host}});
   const config={role:'VECTORING',displayName:'Primary Vectoring',transportKind:'OPENAI_COMPATIBLE',
     modelId:'openai/text-embedding-3-small',apiKey:'test-only',capabilities:[Capability.RETRIEVAL,Capability.EMBED],local:false};
-  const old=await ui.connect({...config,endpoint:'https://openrouter.ai/api/v1/embeddings'});
+  const old=await ui.connect({...config,endpoint:'https://openrouter.ai/api/v1/wrong'});
   assert.equal(old.state,'UNAVAILABLE');
   const corrected=await ui.connect({...config,endpoint:'https://openrouter.ai/api/v1'});
   assert.equal(corrected.state,'READY');

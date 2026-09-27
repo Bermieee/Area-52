@@ -268,7 +268,7 @@ export class CoprocessorResourceConnections{
     if(!(adapter instanceof OpenAICompatibleProviderAdapter))throw new TypeError('resource adapter does not support endpoint changes');
     for(const controller of this.controllers.get(resourceId)??[])if(!controller.signal.aborted)controller.abort('endpoint-changed');
     this.controllers.delete(resourceId);
-    adapter.endpoint=value;row.endpoint=safeEndpoint(value);row.providerIdentity=identity;
+    adapter.setEndpoint(value);row.endpoint=safeEndpoint(value);row.providerIdentity=identity;
     row.modelDiscovery=createDiscoveryReadModel(ResourceModelDiscoveryState.IDLE,{transportMode:row.transportMode});
     row.modelSelectionMode='CONFIGURED_UNQUALIFIED';row.qualificationEvidence=null;
     this.#invalidateQualification(row,{reasonCode:ResourceConnectionReason.CONFIGURED,reason:'Endpoint changed; authenticated qualification is required.'});

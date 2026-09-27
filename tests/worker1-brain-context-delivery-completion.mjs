@@ -195,6 +195,32 @@ test('DETERMINISTIC: overflow and unknown-profile fallback are explicit inspecta
   assert.equal(fallback.receipt.presentation.fallbackUsed,true);
 });
 
+test('ASSEMBLED_HOST_REQUEST: late provider result after source edit cannot learn into the invalidated sealed generation',async()=>{
+  const {context,listeners,sillyTavern}=makeHost();
+  const nativeBrain=new Area52NativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();
+  const userIndex=pushUser(context,'Inspect the gate before the late response.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+  const selection=nativeBrain.uiBindings().readSelection({chatId:context.chatId});
+  const request={chat:[{role:'system',content:'SillyTavern host policy'},{role:'user',content:context.chat[userIndex].mes}],dryRun:false,requestId:'host-request:late'};
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(request)));
+  assert.equal(nativeBrain.uiBindings().readPromptDeliveryReceipt(selection).phases.hostRequest.status,'OBSERVED_MATCH');
+
+  context.chat[userIndex].mes='Inspect the gate after the source edit.';
+  await Promise.all([...listeners.get('message_edited')].map(fn=>fn(userIndex)));
+  assert.equal(session.exportEvidence().nativeBrainIntegration.pendingCount,0);
+  assert.ok(session.exportEvidence().nativeBrainIntegration.rejections.some(row=>row.code==='HOST_MESSAGE_EDITED_INVALIDATED_PENDING_GENERATION'));
+
+  const lateAssistantIndex=pushAssistant(context,'This is the late provider result for the invalidated request.');
+  await Promise.all([...listeners.get('message_received')].map(fn=>fn(lateAssistantIndex)));
+  const record=nativeBrain.readTurn(selection.turnId);
+  assert.equal(record.state,'SEALED_FOR_GENERATION');
+  assert.equal(record.learningReceipt??null,null);
+  assert.equal(nativeBrain.uiBindings().readPromptDeliveryReceipt(selection).phases.providerResponse.status,'NOT_RECEIVED');
+  session.destroy();
+});
+
 test('ASSEMBLED_HOST_REQUEST: chat switch invalidates a sealed pending generation before host delivery',async()=>{
   const {context,listeners,sillyTavern}=makeHost();
   const nativeBrain=new Area52NativeBrain();

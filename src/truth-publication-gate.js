@@ -207,6 +207,8 @@ export class TruthPublicationGate {
     const missing=new Set(assessment?.retrievalQuality?.missingIntentIds??[]);
     let intents=(retrievalIntents??[]).filter((row,index)=>!missing.size||missing.has(intentId(row,index)));
     if(!intents.length)intents=[{kind:request.intent,query:request.originalQuery,entityRefs:anchorEntityIds,perspective:perspectiveConstraint}];
+    const legacyPublicationFallback=intents.length>0&&intents.every((row)=>row?.metadata?.publicationFallbackIntent===true);
+    const legacyCorrectiveIntent=request.intent==='HISTORICAL'?'TEMPORAL':'CONTRADICTION';
     let correctiveGraph=graphTraversal;
     if(action===CorrectiveRetrievalAction.GRAPH_EXPANSION)correctiveGraph=expandGraphTraversal(graphTraversal);
     if(action===CorrectiveRetrievalAction.TEMPORAL_NARROWING){
@@ -220,7 +222,7 @@ export class TruthPublicationGate {
 
     try{
       const candidates=retrieval.retrieve(request.originalQuery,{
-        intent:request.intent,
+        intent:legacyPublicationFallback?legacyCorrectiveIntent:request.intent,
         anchorEntityIds,
         worldRevision:request.worldRevision,
         sceneRevision:request.sceneRevision,
@@ -230,8 +232,9 @@ export class TruthPublicationGate {
         channelIds,
         retrievalIntents:intents.map((row)=>({
           ...structuredClone(row),
+          kind:legacyPublicationFallback?legacyCorrectiveIntent:row.kind,
           perspective:row.perspective??perspectiveConstraint,
-          metadata:{...(row.metadata??{}),correctiveAction:action,correctiveAttempt:request.attempt,...(correctiveGraph?{graphTraversal:correctiveGraph}:{})},
+          metadata:{...(row.metadata??{}),correctiveAction:action,correctiveAttempt:request.attempt,legacyCorrectiveIntent:legacyPublicationFallback?legacyCorrectiveIntent:null,...(correctiveGraph?{graphTraversal:correctiveGraph}:{})},
         })),
         metadata:{correctiveAction:action,correctiveAttempt:request.attempt},
       });

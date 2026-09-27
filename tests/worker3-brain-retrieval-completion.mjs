@@ -74,7 +74,7 @@ test('production sparse channel enforces owner story scope and hydration bounds'
 
 
 function mutableLoreOwner(initialRows){
-  const state={rows:initialRows.map(structuredClone),queryCalls:[]};
+  const state={rows:initialRows.map((row)=>structuredClone(row)),queryCalls:[]};
   const api={
     kind:'LoreBrainRetrievalInterface',contractVersion:1,
     status:({chatId}={})=>({

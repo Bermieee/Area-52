@@ -1,6 +1,7 @@
 import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
+import { renderLoreReviewWorkspace } from './lore-authoring-review-ui.js';
 
 export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null}={}){
   const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
@@ -29,7 +30,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     const current=registry.get('lore');
     registry.update('lore',{render(host,ctx){
       renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
-      renderLoreAuthoringSurface(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
+      renderLoreReviewWorkspace(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
     }});
   }
   if(registry.has('memory')&&memory){
@@ -74,6 +75,12 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.previewEdit')return loreAuthoring.previewEditImpact(action.payload??{});
       if(action.type==='wave13.loreAuthoring.proposeTree')return loreAuthoring.proposeTree(action.payload??{});
       if(action.type==='wave13.loreAuthoring.previewMerge')return loreAuthoring.previewMerge(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.createMutationProposal')return loreAuthoring.createMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.approveMutationProposal')return loreAuthoring.approveMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.rejectMutationProposal')return loreAuthoring.rejectMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.commitMutationProposal')return loreAuthoring.commitMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.restoreMutationProposal')return loreAuthoring.restoreMutationProposal(action.payload??{});
+      if(action.type==='wave13.loreAuthoring.rebuildAffectedNavigation')return loreAuthoring.rebuildAffectedNavigation(action.payload??{});
       if(action.type==='wave13.loreAuthoring.startTreeBuild')return loreAuthoring.startTreeBuild(action.payload??{});
       if(action.type==='wave13.loreAuthoring.startMergeBuild')return loreAuthoring.startMergeBuild(action.payload??{});
       if(action.type==='wave13.loreAuthoring.resumeBuild')return loreAuthoring.resumeBuild(action.payload??{});
@@ -85,7 +92,7 @@ export function registerWave13OperatorActions(actionRouter,{resources=null,loreS
       if(action.type==='wave13.loreAuthoring.restoreSettlement')return loreAuthoring.restoreSettlement(action.payload??{});
       throw new Error('Unsupported Wave 13 Lore authoring action');
     }));
-    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
+    for(const type of ['wave13.loreAuthoring.discover','wave13.loreAuthoring.previewEdit','wave13.loreAuthoring.proposeTree','wave13.loreAuthoring.previewMerge','wave13.loreAuthoring.createMutationProposal','wave13.loreAuthoring.approveMutationProposal','wave13.loreAuthoring.rejectMutationProposal','wave13.loreAuthoring.commitMutationProposal','wave13.loreAuthoring.restoreMutationProposal','wave13.loreAuthoring.rebuildAffectedNavigation','wave13.loreAuthoring.startTreeBuild','wave13.loreAuthoring.startMergeBuild','wave13.loreAuthoring.resumeBuild','wave13.loreAuthoring.recordDecision','wave13.loreAuthoring.reclassify','wave13.loreAuthoring.computeFinalPreview','wave13.loreAuthoring.approveFinalPreview','wave13.loreAuthoring.applySettlement','wave13.loreAuthoring.restoreSettlement']){
       releases.push(actionRouter.registerAction(type,{subsystem:'wave13-lore-authoring'}));
     }
   }
@@ -336,6 +343,7 @@ function renderLockedResource(d,{row,spec,savedProfile=null,resources,actionRout
   return card;
 }
 
+function loadMetric(value){if(!value)return'NO_EVIDENCE';return String(value.count??0)+' samples · '+String(value.avgMs??0)+' ms avg · '+String(value.maxMs??0)+' ms max';}
 function resourceStatus(v){if(v==='HEALTHY')return'ready';if(v==='DEGRADED'||v==='SATURATED'||v==='COOLDOWN'||v==='PROBE')return'warning';return'offline';}
 function testSummary(x){
   if(x?.failure||String(x?.resource?.lastTest?.status??'').toUpperCase()==='FAIL')return'FAIL';
@@ -541,6 +549,31 @@ export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,ins
     {key:'Batch history',value:runtime.batchProgressAvailable===false?'Not published by owner snapshot':runtime.batchProgressAvailable?'Published':'Not available'},
     {key:'Late-result history',value:runtime.lateResultHistoryAvailable===false?'Not published by owner snapshot':runtime.lateResultHistoryAvailable?'Published':'Not available'},
   ]));
+  const uiLoad=snapshot.telemetry?.uiLoad??null,loadCategories=uiLoad?.categories??{};
+  center.append(element(d,'h3',{text:'Browser-side UI load attribution'}),createKeyValue(d,[
+    {key:'Host event invalidations',value:loadMetric(loadCategories.HOST_EVENT_INVALIDATION)},
+    {key:'Scatter / Gather owner read',value:loadMetric(loadCategories.OWNER_SCATTER_GATHER_READ)},
+    {key:'Journal diagnostics read',value:loadMetric(loadCategories.UI_JOURNAL_DIAGNOSTICS_READ)},
+    {key:'Journal processing',value:loadMetric(loadCategories.UI_JOURNAL_PROCESS)},
+    {key:'Activity feed render',value:loadMetric(loadCategories.UI_ACTIVITY_FEED_RENDER)},
+    {key:'Workspace refresh',value:loadMetric(loadCategories.UI_WORKSPACE_REFRESH)},
+    {key:'Capture total',value:loadMetric(loadCategories.UI_CAPTURE_TOTAL)},
+  ]));
+  center.append(element(d,'p',{className:'a52-muted',text:uiLoad?'Bounded in-browser timing samples from this UI instance. These are attribution signals, not a substitute for installed-browser Long Task and heap measurements.':'NO_EVIDENCE — this UI instance has not published bounded load samples.'}));
+  const scatterWaves=snapshot.cognition?.scatterTelemetry??null;
+  center.append(element(d,'h3',{text:'Layered Scatter owner telemetry'}));
+  if(Array.isArray(scatterWaves)&&scatterWaves.length){
+    const waveBox=element(d,'div',{className:'a52-wave13-diagnostic-events'});
+    for(const wave of scatterWaves.slice(0,16)){
+      const line=element(d,'div',{className:'a52-wave13-diagnostic-event'});
+      line.append(element(d,'strong',{text:wave.waveId??'Wave'}),element(d,'span',{className:'a52-muted',text:[
+        wave.trigger?'trigger '+wave.trigger:null,wave.durationMs!=null?wave.durationMs+' ms':null,wave.concurrency!=null?'concurrency '+wave.concurrency:null,
+        wave.jobs!=null?'jobs '+wave.jobs:null,wave.deferred!=null?'deferred '+wave.deferred:null,
+      ].filter(Boolean).join(' · ')||'Owner published a wave without timing/concurrency fields.'}));
+      waveBox.append(line);
+    }
+    center.append(waveBox);
+  }else center.append(element(d,'p',{className:'a52-muted',text:'NO_EVIDENCE — the Scatter owner did not publish layered wave triggers, timings, concurrency, or deferred-work telemetry for this selected turn.'}));
 
   const wiring=element(d,'div',{className:'a52-wave13-diagnostic-lanes'});
   for(const spec of [

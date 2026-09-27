@@ -62,6 +62,7 @@ export class ObligationProducerRegistry {
       coalescible: request.coalescible ?? false,
       foreground: request.foreground,
       payload: request.payload ?? {},
+      cause: request.cause ?? {},
       producerId,
     };
     return this.director.submit(obligation, { ...executor, units: request.units ?? executor.units });

@@ -738,8 +738,12 @@ export class MemoryTemporalProducer {
   runConsolidation(sessionId,options={}) {
     const result=this.experienceStore.runConsolidation(sessionId,options);
     if (result.publishedArtifactIds.length) {
+      const evidenceRefs=[...new Set(result.publishedArtifactIds.flatMap((id)=>{
+        const artifact=this.experienceStore.artifact(id);
+        return [...(artifact?.supportEvidenceRefs??[]),...(artifact?.contradictionEvidenceRefs??[])];
+      }))].sort();
+      if(evidenceRefs.length)this.summaryHierarchy.invalidateEvidenceRefs(evidenceRefs,'REFLECTION_CHANGED');
       this.historian.build();
-      const evidenceRefs=result.publishedArtifactIds.flatMap((id)=>this.experienceStore.artifact(id)?.supportEvidenceRefs??[]);
       this.notifyUi('MEMORY_CONSOLIDATION_PUBLISHED',evidenceRefs,{sessionId,publishedArtifactIds:result.publishedArtifactIds});
     }
     const outcomes=result.outcomes??[],failures=result.failures??[];

@@ -24,6 +24,7 @@ import { createJevDomainAdapterMatrix } from '../coprocessor/jev-adapter-matrix.
 import { createCoprocessorResourceHost } from '../coprocessor/resource-host-adapter.js';
 import { CoprocessorResourceConnections } from '../coprocessor/resource-connections.js';
 import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler.js';
+import { Capability as CoprocessorCapability } from '../coprocessor/constants.js';
 import { RuntimeDirectorAdmissionBridge } from '../coprocessor/runtime-director-bridge.js';
 import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
 import { adjudicateJevForOwner } from '../coprocessor/owner-integration.js';
@@ -358,6 +359,16 @@ export class DevelopmentDeploymentBrain {
       telemetry: this.coprocessorTelemetry,
       scheduler: this.resourcePlacementScheduler,
       ownerReceipts: () => this.resourceOwnerReceipts,
+    });
+    this.memoryNearlineReceipts=[];
+    this.memory.attachVectorExecutor(async(request)=>{
+      const resources=this.resourceConnections.readModel().resources??[];
+      const vector=resources.find((row)=>row.transportMode==='EMBEDDINGS'&&row.callable===true&&row.selectedModelQualified===true);
+      if(!vector)return{status:'UNAVAILABLE',reasonCode:'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION'};
+      return this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input});
+    });
+    this.memory.subscribeMemory((event)=>{
+      if(event?.type==='MEMORY_COMPLETED_TURN_ADMITTED')this.#scheduleMemoryVectorMaintenance('MEMORY_COMPLETED_TURN_ADMITTED');
     });
     this.jevExecution = new Map();
     const liveJevExecutor = this.optionalResources.execution.createJevProviderExecutor();
@@ -853,8 +864,10 @@ export class DevelopmentDeploymentBrain {
       const capabilities = Array.isArray(config.capabilities) && config.capabilities.length
         ? [...config.capabilities]
         : kind === 'JEV'
-          ? [CAPABILITIES.SEMANTIC_JUDGMENT]
-          : [CAPABILITIES.CPU_ANALYSIS, CAPABILITIES.GRAPH];
+          ? [CoprocessorCapability.SEMANTIC_JUDGMENT]
+          : kind === 'VECTOR'
+            ? [CoprocessorCapability.RETRIEVAL,CoprocessorCapability.EMBED]
+            : [CoprocessorCapability.STRUCTURED_EXTRACTION,CoprocessorCapability.SEMANTIC_JUDGMENT,CoprocessorCapability.GRAPH,CoprocessorCapability.CONSOLIDATION,CoprocessorCapability.COMPRESSION,CoprocessorCapability.REFLECTION];
       this.optionalResources.actions.addResource({
         resourceId,
         kind: config.transportKind ?? 'OPENAI_COMPATIBLE',
@@ -867,6 +880,7 @@ export class DevelopmentDeploymentBrain {
         apiKey: config.apiKey ?? null,
         headers: config.headers ?? {},
         capabilities,
+        transportMode: config.transportMode ?? (kind === 'VECTOR' ? 'EMBEDDINGS' : 'CHAT_COMPLETIONS'),
         local: config.local !== false,
         timeoutMs: config.timeoutMs ?? 30000,
         healthTimeoutMs: config.healthTimeoutMs ?? 10000,
@@ -875,6 +889,8 @@ export class DevelopmentDeploymentBrain {
     }
     const result = await this.optionalResources.actions.connectResource(resourceId);
     this.#syncOptionalDirectorProfiles();
+    const connected=this.resourceConnections.readResource(resourceId);
+    if(connected.transportMode==='EMBEDDINGS'&&connected.callable)this.#scheduleMemoryVectorMaintenance('VECTOR_RESOURCE_CONNECTED');
     this.#emit({ type: 'OPTIONAL_RESOURCE_CHANGED', resourceId, action: 'CONNECT' });
     return clone(result);
   }
@@ -946,12 +962,34 @@ export class DevelopmentDeploymentBrain {
       providerAttempted:result.status!=='IDLE',failure:clone(result.failure??null),
       rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
     });
+    const workerResult=result.workerResult??null;
+    const executionReceipt=Object.freeze({
+      kind:'MemorySidecarExecutionReceipt',contractVersion:'1.0.0',requestPurpose:'COGNITIVE_EXECUTION',
+      jobId:result.task?.taskId??unit.unitId,dispatchStatus:'DISPATCHED',providerRequestId:workerResult?.providerMetadata?.requestId??null,
+      providerId:workerResult?.providerId??null,modelId:workerResult?.modelId??null,returnStatus:'RETURNED',
+      ownerDestination:'MEMORY_OWNER_REVIEW',gatherDestination:'NOT_ELIGIBLE_POST_TURN',sealDestination:'NOT_ELIGIBLE_POST_TURN',
+      usageReceipt:clone(workerResult?.providerMetadata?.usageReceipt??null),providerLatencyMs:workerResult?.latency??null,
+      payloadBodyRetained:false,hiddenReasoningRetained:false,canonicalMutation:false,settlementAuthority:false,
+    });
+    this.resourceOwnerReceipts.push(clone(executionReceipt));
     return Object.freeze({
       kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
       status:'PROPOSED',reasonCode:null,chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,
-      bundle:clone(result.bundle),memoryHandoff:clone(result.memoryHandoff),
+      bundle:clone(result.bundle),memoryHandoff:clone(result.memoryHandoff),executionReceipt,
       providerAttempted:true,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
     });
+  }
+
+  #scheduleMemoryVectorMaintenance(reason){
+    const queuedAt=Date.now();
+    setTimeout(async()=>{
+      let receipt;
+      try{receipt=await this.memory.runVectorMaintenance({maxUnits:1});}
+      catch(error){receipt={kind:'MemoryVectorMaintenanceReceipt',status:'UNAVAILABLE',reasonCode:error?.code??'VECTOR_MAINTENANCE_FAILED',pending:this.memory.vectorIndex.status().pendingCount};}
+      this.memoryNearlineReceipts.push({reason,queueWaitMs:Math.max(0,Date.now()-queuedAt),...clone(receipt),foregroundBlockedMs:0});
+      if(this.memoryNearlineReceipts.length>128)this.memoryNearlineReceipts.splice(0,this.memoryNearlineReceipts.length-128);
+      this.#emit({type:'MEMORY_VECTOR_MAINTENANCE',receipt:clone(this.memoryNearlineReceipts.at(-1))});
+    },0);
   }
 
   async testOptionalResource(resource = {}) {
@@ -1044,6 +1082,7 @@ export class DevelopmentDeploymentBrain {
       beginOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.beginGeneration(meta),
       completeOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.completeGeneration(meta),
       readOptionalResourceRuntime: () => clone(this.resourceDirector.snapshot()),
+      readMemoryExecutionReceipts: () => clone(this.memoryNearlineReceipts),
       loreAuthoringService: this.loreAuthoring,
       loreAuthoringHost,
       loreAuthoringOperator: loreAuthoringHost,

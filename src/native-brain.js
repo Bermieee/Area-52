@@ -380,6 +380,10 @@ export class Area52NativeBrain{
       });
     }
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
+    // Dense Memory is optional and bounded to one query embedding. The synchronous
+    // owner channel consumes only the cached nomination result; provider failure
+    // leaves sparse/graph/Memory retrieval fully available.
+    const memoryDensePrime=await this.ownerMemoryChannel.prime({intentId:'memory-dense:'+turn,query:q,intentKind:intent,perspective:perspectiveConstraint},{query:q,selection:ownerSelection});
 
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});

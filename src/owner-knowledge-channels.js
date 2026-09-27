@@ -231,6 +231,28 @@ export class MemoryOwnerRetrievalChannel extends OwnerChannelBase{
   constructor({getInterface,evidenceSink,maxCandidates=48}={}){
     super({channelId:'OWNER_MEMORY',capabilities:[RetrievalChannelCapability.HISTORIAN,RetrievalChannelCapability.REFLECTION,RetrievalChannelCapability.CHARACTER_MEMORY],evidenceSink,maxCandidates});
     this.getInterface=typeof getInterface==='function'?getInterface:()=>null;
+    this.lastDensePrime=null;
+  }
+
+  beginTurn(context={}){
+    super.beginTurn(context);
+    this.lastDensePrime=null;
+  }
+
+  async prime(intent,context={}){
+    const owner=this.getInterface();
+    const primeDense=owner?.primeDenseHistorian??owner?.adapters?.primeDenseHistorian;
+    if(typeof primeDense!=='function'){
+      this.lastDensePrime={kind:'MemoryDensePrimeReceipt',status:'UNAVAILABLE',reasonCode:'MEMORY_DENSE_PRIME_NOT_ATTACHED',requestPurpose:'COGNITIVE_EXECUTION'};
+      return clone(this.lastDensePrime);
+    }
+    const selection=clone(this.turnContext?.selection??context.selection??{});
+    try{
+      this.lastDensePrime=await primeDense({query:intent?.query??context.query??'',selection,maxCandidates:this.descriptor.maxCandidates});
+    }catch(error){
+      this.lastDensePrime={kind:'MemoryDensePrimeReceipt',status:'UNAVAILABLE',reasonCode:error?.code??'MEMORY_DENSE_PRIME_FAILED',requestPurpose:'COGNITIVE_EXECUTION'};
+    }
+    return clone(this.lastDensePrime);
   }
 
   retrieve(intent,context={}){
@@ -322,7 +344,8 @@ export class MemoryOwnerRetrievalChannel extends OwnerChannelBase{
       this.lastReceipt={
         kind:'OwnerKnowledgeRetrievalReceipt',channelId:this.channelId,status:result?.status==='DEGRADED'?'DEGRADED':'SYNCED',queried:true,
         nominationCount:out.length,sourceRevisionFence:uniq(out.flatMap((row)=>row.sourceRevisionRefs)),
-        historianRevision:result?.historianRevision??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
+        historianRevision:result?.historianRevision??null,densePrime:clone(this.lastDensePrime),
+        authorityGranted:false,settlementAuthority:false,contextSealAuthority:false,
       };
       return out;
     }catch(error){

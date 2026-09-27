@@ -75,17 +75,21 @@ function lexicalScore(queryTerms,representationTerms){
   for(const row of representationTerms??[])if(q.has(row.term))score+=1+Math.log1p(Number(row.count??1));
   return score;
 }
+function containsQualified(query,value){
+  const needle=normalize(value);if(!needle)return false;
+  return query===needle||(' '+query+' ').includes(' '+needle+' ');
+}
 function scoreSparse(queryRepresentation,representation){
   const query=normalize(queryRepresentation?.normalized??queryRepresentation?.query??'');
   const data=representation?.representationData??{};
   if(!query)return null;
-  if((data.exactIdentifiers??[]).includes(query)){
+  if((data.exactIdentifiers??[]).some((value)=>containsQualified(query,value))){
     return{score:100,rankSignals:{sparseExecution:'EXACT_IDENTIFIER',qualifiedExact:1,sparse:100}};
   }
-  if((data.exactPhrases??[]).includes(query)){
+  if((data.exactPhrases??[]).some((value)=>containsQualified(query,value))){
     return{score:70,rankSignals:{sparseExecution:'EXACT_PHRASE',exactPhrase:1,sparse:70}};
   }
-  if((data.authoredKeywords??[]).includes(query)){
+  if((data.authoredKeywords??[]).some((value)=>containsQualified(query,value))){
     return{score:50,rankSignals:{sparseExecution:'AUTHORED_KEYWORD',authoredKeyword:1,sparse:50}};
   }
   const lexical=lexicalScore(queryRepresentation?.terms,data.terms);

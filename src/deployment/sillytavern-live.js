@@ -458,11 +458,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     initialLorebook = null,
     nativeBrain = null,
     ownerBindings = {},
+    memoryOwnerSnapshot = null,
     persistNativeBrain = null,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
-    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true });
+    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
     this.persistNativeBrain=typeof persistNativeBrain==='function'?persistNativeBrain:null;
@@ -474,7 +475,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeRejections = [];
     this.nativeLoreRevisionEvents = [];
     this.routedLoreRevisionKeys = new Set();
-    this.nativeOwnerAttachments = {lore:null,memory:null,graphProviders:[]};
+    this.nativeOwnerAttachments = {lore:null,memory:null,memoryConsolidation:null,graphProviders:[]};
     this.nativeGraphProviderIds = new Set();
     this.optionalGenerationActive = new Map();
     this.releaseLoreOwnerEvents = null;
@@ -533,7 +534,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   detachNativeBrain(){
     const wasRunning=this.running;if(wasRunning)this.stop();
     for(const run of this.nativeRuns.values())try{run.responseReject?.(new Error('Native Brain owner detached'));}catch{}
-    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeRuns.clear();this.nativeOwnerAttachments={lore:null,memory:null,graphProviders:[]};this.nativeGraphProviderIds.clear();this.#completeAllOptionalGenerations('NATIVE_BRAIN_DETACHED');
+    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeRuns.clear();this.nativeOwnerAttachments={lore:null,memory:null,memoryConsolidation:null,graphProviders:[]};this.nativeGraphProviderIds.clear();this.#completeAllOptionalGenerations('NATIVE_BRAIN_DETACHED');
     if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
     if(wasRunning)this.start();
     this.#notify();return this;
@@ -663,10 +664,32 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(pending.requestInjectedAt)return clone(pending);
     if(rendered.format!=='messages'||!Array.isArray(rendered.messages))throw new Error('Native Brain prepared.rendered format is not supported by the SillyTavern chat-completion request hook: '+String(rendered.format??'unknown'));
     if(!Array.isArray(eventData.chat))throw new Error('SillyTavern CHAT_COMPLETION_PROMPT_READY did not expose a mutable chat request');
-    const exactMessages=clone(rendered.messages),lastUserIndex=eventData.chat.map(row=>String(row?.role??'')).lastIndexOf('user'),insertAt=lastUserIndex>=0?lastUserIndex:eventData.chat.length;
+    const exactMessages=clone(rendered.messages),supportedRoles=new Set(rendered.supportedProviderRoles??['system','user','assistant']);
+    const unsupportedRole=exactMessages.map(row=>String(row?.role??'')).find(role=>!supportedRoles.has(role));
+    if(unsupportedRole)throw new Error('UNSUPPORTED_PROVIDER_MESSAGE_ROLE:'+unsupportedRole);
+    const lastUserIndex=eventData.chat.map(row=>String(row?.role??'')).lastIndexOf('user'),insertAt=lastUserIndex>=0?lastUserIndex:eventData.chat.length;
     eventData.chat.splice(insertAt,0,...exactMessages);
-    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestPayloadDigest:shortHash(JSON.stringify(exactMessages)),renderedMessageCount:exactMessages.length,requestHook:'CHAT_COMPLETION_PROMPT_READY'};
-    this.nativePending.set(chatId,updated);this.nativeHistory.push(clone(updated));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    const requestPayloadDigest=shortHash(JSON.stringify(exactMessages));
+    let observedReceipt=null,ownerDeliveryReceiptRecorded=false;
+    if(typeof this.nativeBrain?.recordObservedHostPromptEvidence==='function'){
+      try{
+        observedReceipt=this.nativeBrain.recordObservedHostPromptEvidence(pending.turnId,{
+          host:'SILLYTAVERN',hostObserved:true,live:true,chatId,turnId:pending.turnId,generationId:pending.generationId,
+          contextSealId:pending.contextSealId,requestId:eventData.requestId??eventData.id??null,
+          sealedPacketHash:rendered.sealedPacketHash??null,observedRoles:exactMessages.map(row=>row.role),
+          observedSections:(rendered.messageMap??[]).map(row=>({slot:row.slot,sectionIdentity:row.sectionIdentity??null,providerRole:row.providerRole??null,sourceRevisionIds:[...(row.sourceRevisionIds??[])],semanticManifestIdentity:row.semanticManifestIdentity??null})),
+          promptFingerprint:requestPayloadDigest,capturedAt:Date.now(),
+        });
+        if(observedReceipt?.phases?.hostRequest?.status!=='OBSERVED_MATCH')throw new Error('HOST_DELIVERY_OBSERVATION_MISMATCH');
+        ownerDeliveryReceiptRecorded=true;
+      }catch(error){
+        eventData.chat.splice(insertAt,exactMessages.length);
+        throw error;
+      }
+    }
+    const deliveryReceiptStatus=ownerDeliveryReceiptRecorded?(observedReceipt?.status??'OBSERVED_MATCH'):'HOST_OBSERVED_OWNER_RECEIPT_UNAVAILABLE';
+    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestPayloadDigest,renderedMessageCount:exactMessages.length,requestHook:'CHAT_COMPLETION_PROMPT_READY',deliveryReceiptStatus,deliveryReceiptContractVersion:observedReceipt?.contractVersion??null,ownerDeliveryReceiptRecorded};
+    this.nativePending.set(chatId,updated);this.nativePayloads.delete(chatId);this.nativeHistory.push(clone(updated));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
     this.#notify();return clone(updated);
   }
 
@@ -889,7 +912,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
         installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
-        pendingCount:this.nativePending.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
+        pendingCount:this.nativePending.size,retainedDeliveryPayloadCount:this.nativePayloads.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
@@ -928,7 +951,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
     try{
       const snapshot=this.nativeBrain.snapshot();
-      await this.persistNativeBrain({chatId,turnId,generationId,snapshot});
+      const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
+      const snapshotMemoryOwner=brainBindings?.snapshotMemoryOwner??(typeof this.brain?.snapshotMemoryOwner==='function'?()=>this.brain.snapshotMemoryOwner():null);
+      const memoryOwnerSnapshot=typeof snapshotMemoryOwner==='function'?snapshotMemoryOwner():null;
+      await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot});
       const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
       const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
@@ -942,6 +968,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     const loreService=mergedOwners.loreIntelligenceService??mergedOwners.loreStudyService??null;
     const loreInterface=mergedOwners.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
     const memoryInterface=mergedOwners.memoryIntegrationSurface??mergedOwners.memoryInterface??mergedOwners.memoryOwner??null;
+    const memoryConsolidationInterface=mergedOwners.memoryConsolidationProducer??mergedOwners.memoryConsolidationInterface??null;
     const graphProviders=Array.isArray(mergedOwners.graphProviders)?mergedOwners.graphProviders.filter(Boolean):[];
 
     if(typeof this.nativeBrain.attachLoreInterface==='function'){
@@ -951,6 +978,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(typeof this.nativeBrain.attachMemoryInterface==='function'){
       try{const receipt=this.nativeBrain.attachMemoryInterface(memoryInterface??null);this.nativeOwnerAttachments.memory={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryInterface?.contractVersion??null};}
       catch(error){this.nativeOwnerAttachments.memory={attached:false,error:String(error?.code??error?.message??error)};}
+    }
+    if(typeof this.nativeBrain.attachMemoryConsolidationInterface==='function'){
+      try{
+        const receipt=this.nativeBrain.attachMemoryConsolidationInterface(memoryConsolidationInterface??null);
+        this.nativeOwnerAttachments.memoryConsolidation={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryConsolidationInterface?.contractVersion??null};
+      }catch(error){this.nativeOwnerAttachments.memoryConsolidation={attached:false,error:String(error?.code??error?.message??error)};}
     }
 
     const graphReceipts=[];
@@ -1221,7 +1254,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       notification:{requested:this.loadMetrics.notifyRequested,delivered:this.loadMetrics.notifyDelivered,coalesced:this.loadMetrics.notifyCoalesced,lastMs:this.loadMetrics.lastNotifyMs,maxMs:this.loadMetrics.notifyMaxMs,totalMs:this.loadMetrics.notifyTotalMs},
       longTasks:{supported:Boolean(globalThis.PerformanceObserver?.supportedEntryTypes?.includes?.('longtask')),count:this.loadMetrics.longTaskCount,totalMs:this.loadMetrics.longTaskTotalMs,maxMs:this.loadMetrics.longTaskMaxMs},
       heap:{supported:Number.isFinite(Number(globalThis.performance?.memory?.usedJSHeapSize)),minBytes:this.loadMetrics.heapMinBytes,maxBytes:this.loadMetrics.heapMaxBytes,lastBytes:this.loadMetrics.heapLastBytes},
-      retained:{turnEvidence:this.turnEvidence.length,processed:this.processed.size,hostNarrativeEvents:this.hostNarrativeEvents.length,nativeHistory:this.nativeHistory.length,nativeRejections:this.nativeRejections.length,loreIngestion:this.loreIngestion.length,errors:this.errors.length,optionalGenerations:this.optionalGenerationActive.size},
+      retained:{turnEvidence:this.turnEvidence.length,processed:this.processed.size,hostNarrativeEvents:this.hostNarrativeEvents.length,nativeHistory:this.nativeHistory.length,nativeRejections:this.nativeRejections.length,nativeDeliveryPayloads:this.nativePayloads.size,loreIngestion:this.loreIngestion.length,errors:this.errors.length,optionalGenerations:this.optionalGenerationActive.size},
       bounds:clone(SESSION_BOUNDS),rawPromptCaptured:false,storyTextCaptured:false,credentialsCaptured:false,hiddenReasoningCaptured:false,
     });
   }

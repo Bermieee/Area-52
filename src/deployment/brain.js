@@ -27,6 +27,8 @@ import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler
 import { RuntimeDirectorAdmissionBridge } from '../coprocessor/runtime-director-bridge.js';
 import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
 import { adjudicateJevForOwner } from '../coprocessor/owner-integration.js';
+import { ContinuousConsolidationWorker } from '../coprocessor/cognitive-worker-pipelines.js';
+import { createConsolidationUnit } from '../coprocessor/continuous-consolidation.js';
 import { createOwnerGraphProviders } from './owner-graph-adapters.js';
 import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
@@ -291,7 +293,7 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, memoryOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
     if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
@@ -323,7 +325,7 @@ export class DevelopmentDeploymentBrain {
       publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
     });
-    this.memory = new MemoryTemporalProducer();
+    this.memory = new MemoryTemporalProducer({ snapshot: memoryOwnerSnapshot });
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
@@ -509,6 +511,10 @@ export class DevelopmentDeploymentBrain {
       authoring: this.loreAuthoring.snapshot(),
       settlementEvents: clone(this.loreSettlementEvents),
     };
+  }
+
+  snapshotMemoryOwner() {
+    return this.memory.snapshot();
   }
 
   ensureScene({ chatId, sourceRevisionId } = {}) {
@@ -882,6 +888,72 @@ export class DevelopmentDeploymentBrain {
     return clone(result);
   }
 
+  async proposeMemoryConsolidation(input = {}) {
+    const selection=input.selection??input;
+    const chatId=String(selection.chatId??'').trim();
+    const turnId=String(selection.turnId??'').trim();
+    const generationId=String(selection.generationId??'').trim();
+    const correlationId=String(selection.correlationId??('memory-consolidation:'+generationId)).trim();
+    if(!chatId||!turnId||!generationId)throw new TypeError('Memory consolidation proposal requires chatId, turnId and generationId');
+    const maxEpisodes=Math.max(2,Math.min(8,Number(input.maxEpisodes??6)||6));
+    const episodes=this.memory.experienceStore.currentEpisodes({freshOnly:true})
+      .filter((row)=>row.chatId===chatId)
+      .sort((a,b)=>a.createdSequence-b.createdSequence)
+      .slice(-maxEpisodes);
+    if(episodes.length<2)return Object.freeze({
+      kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+      status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_REPETITION_WINDOW_INSUFFICIENT',
+      chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,bundle:null,memoryHandoff:null,
+      providerAttempted:false,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+    });
+    const artifactRefs=episodes.map((episode)=>Object.freeze({
+      kind:'ArtifactReference',artifactId:episode.id,artifactType:'MemoryEpisode',owner:'MEMORY',
+      revision:episode.revision,storageDomain:'episodes',provenanceRef:'memory:'+episode.id,
+    }));
+    const sourceRevisionSet=uniq(episodes.flatMap((row)=>row.sourceRevisionRefs??[]));
+    const worldRevision=Number(selection.worldRevision??Math.max(...episodes.map((row)=>Number(row.worldRevision??0)),0));
+    const sceneRevision=Number(selection.sceneRevision??episodes.at(-1)?.sceneRevision??0);
+    const unit=createConsolidationUnit({
+      unitId:'memory-cognition:'+chatId+':'+generationId,
+      artifactRefs,sourceRevisionSet,worldRevision,sceneRevision,characterStateRevision:0,
+      priority:0,createdAt:0,resumeIdentity:'memory-cognition:'+chatId+':'+generationId,
+      provenance:{producer:'DEVELOPMENT_DEPLOYMENT_BRAIN',episodeIds:episodes.map((row)=>row.id)},
+    });
+    const worker=new ContinuousConsolidationWorker({
+      executionLayer:this.resourceConnections.executionLayer,
+      telemetry:this.coprocessorTelemetry,
+    });
+    worker.enqueue(unit);
+    const currentRevisionSet={sourceRevisionSet,worldRevision,sceneRevision,characterStateRevision:0};
+    const result=await worker.processUnit(unit.unitId,{
+      currentRevisionSet,turnId,correlationId,
+      inputResolver:async(storedUnit)=>({
+        unit:storedUnit,
+        evidenceSlices:storedUnit.artifactRefs.map((ref)=>{
+          const episode=episodes.find((row)=>row.id===ref.artifactId);
+          const exact=episode?this.memory.experienceStore.exactDrillback(episode.id):[];
+          const excerpt=exact.map((row)=>String(row?.exactContent??row?.content??'')).filter(Boolean).join('\n').slice(0,2400);
+          return {ref,excerpt,structuredFacts:[],provenanceRef:'memory-drillback:'+ref.artifactId};
+        }),
+        semanticGoals:['reflection-evidence','cross-episode-links','episode-summary'],
+      }),
+    });
+    if(result.status!=='SUCCESS')return Object.freeze({
+      kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+      status:result.status==='STALE'?'STALE':'DEFERRED',
+      reasonCode:result.status==='STALE'?'MEMORY_CONSOLIDATION_INPUT_STALE':(result.failure?.code??'MEMORY_CONSOLIDATION_PROVIDER_UNAVAILABLE'),
+      chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,bundle:null,memoryHandoff:null,
+      providerAttempted:result.status!=='IDLE',failure:clone(result.failure??null),
+      rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+    });
+    return Object.freeze({
+      kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+      status:'PROPOSED',reasonCode:null,chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,
+      bundle:clone(result.bundle),memoryHandoff:clone(result.memoryHandoff),
+      providerAttempted:true,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+    });
+  }
+
   async testOptionalResource(resource = {}) {
     const resourceId = String(typeof resource === 'string' ? resource : resource.id ?? resource.resourceId ?? resource.profileId ?? '');
     if (!resourceId) throw new TypeError('resource id is required');
@@ -957,6 +1029,11 @@ export class DevelopmentDeploymentBrain {
       loreBrainInterface: this.loreIntelligence.brainInterface(),
       sceneLoreHandoff: (request = {}) => this.runSceneLoreHandoff(request),
       memoryIntegrationSurface: this.memorySurface,
+      memoryConsolidationProducer: Object.freeze({
+        kind:'DeploymentMemoryConsolidationProducer',contractVersion:'1.0.0',
+        propose:(input)=>this.proposeMemoryConsolidation(input),
+        authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,
+      }),
       sceneRuntime: this.scene,
       graphProviders: createOwnerGraphProviders({
         loreInterface: this.loreIntelligence.brainInterface(),
@@ -971,6 +1048,7 @@ export class DevelopmentDeploymentBrain {
       loreAuthoringHost,
       loreAuthoringOperator: loreAuthoringHost,
       snapshotLoreOwner: () => this.snapshotLoreOwner(),
+      snapshotMemoryOwner: () => this.snapshotMemoryOwner(),
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),

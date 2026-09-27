@@ -86,6 +86,36 @@ export function createMemoryConsolidationDeepWork({memoryOwner,jobs=[],options={
   };
 }
 
+export function admitConsolidationBundleToMemoryOwner({bundle,handoff=null,memoryOwner,selection={}}={}) {
+  const review=resolve(memoryOwner,['reviewConsolidationBundle']);
+  if(!review)return freeze({
+    kind:'MemoryConsolidationOwnerAdmissionReceipt',contractVersion:COPROCESSOR_OWNER_INTEGRATION_VERSION,
+    status:'OWNER_CONTRACT_UNAVAILABLE',ownerAccepted:false,pendingOwnerIntegration:true,
+    bundleId:bundle?.bundleId??null,results:[],authority:'NONE',canonicalMutation:false,settlementAuthority:false,
+  });
+  try{
+    const receipt=review({bundle,handoff,selection});
+    if(receipt?.kind!=='MemoryConsolidationBundleReviewReceipt')throw new TypeError('Memory owner returned unsupported consolidation review receipt');
+    const completed=(receipt.results??[]).filter((row)=>['COMPLETED','REPLAYED'].includes(row.status));
+    return freeze({
+      kind:'MemoryConsolidationOwnerAdmissionReceipt',contractVersion:COPROCESSOR_OWNER_INTEGRATION_VERSION,
+      status:receipt.status,ownerAccepted:completed.length>0,pendingOwnerIntegration:false,
+      bundleId:receipt.bundleId??bundle?.bundleId??null,unitId:receipt.unitId??bundle?.unitId??null,
+      acceptedArtifactIds:completed.map((row)=>row.artifactId).filter(Boolean),
+      results:clone(receipt.results??[]),authority:'INFERRED_ONLY',
+      canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+  }catch(error){
+    return freeze({
+      kind:'MemoryConsolidationOwnerAdmissionReceipt',contractVersion:COPROCESSOR_OWNER_INTEGRATION_VERSION,
+      status:'REJECTED',ownerAccepted:false,pendingOwnerIntegration:false,
+      bundleId:bundle?.bundleId??null,results:[],reasonCode:String(error?.code??'MEMORY_CONSOLIDATION_OWNER_REJECTED'),
+      reason:String(error?.message??error).slice(0,400),authority:'NONE',
+      canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+  }
+}
+
 export async function adjudicateJevForOwner({service,input,currentRevisionState=null,sealed=false,signal=null,ownerReview=null}={}){
   if(!service||typeof service.adjudicate!=='function')throw new TypeError('JevDomainAdapterService is required');
   const proposal=await service.adjudicate(input,{currentRevisionState,sealed,signal});

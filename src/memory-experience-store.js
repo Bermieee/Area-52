@@ -77,6 +77,10 @@ export class MemoryExperienceStore {
 
   publishEpisode({
     logicalId,
+    chatId=null,
+    turnId=null,
+    generationId=null,
+    correlationId=null,
     sceneId=null,
     sceneRevision=null,
     sourceRevisionRefs=[],
@@ -96,6 +100,7 @@ export class MemoryExperienceStore {
     sceneEpisodeRef=null,
     graphReferenceSet=null,
     provenance=[],
+    reflectionSignals=[],
     admissionSource='MEMORY_DIRECT',
   }={}) {
     requiredString(logicalId,'episode.logicalId');
@@ -111,9 +116,9 @@ export class MemoryExperienceStore {
     const bridgeReasons=uniqStrings(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
     const history=this.episodeHistoryByLogical.get(logicalId)??[];
     const publicationFingerprint=stableHash(stableStringify({
-      logicalId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,unresolvedExternal,mappings,
+      logicalId,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,unresolvedExternal,mappings,
       bridgeResolutionStatus,bridgeReasons,participants,knownBy,significance,timeStart,timeEnd,summary,
-      sceneEpisodeRef,graphReferenceSet,admissionSource,
+      sceneEpisodeRef,graphReferenceSet,reflectionSignals,admissionSource,
     }));
     const prior=currentRevisionFor(this.episodeHistoryByLogical,this.currentEpisodeByLogical,logicalId,this.episodes);
     if (prior&&prior.publicationFingerprint===publicationFingerprint) return deepClone(prior);
@@ -130,6 +135,10 @@ export class MemoryExperienceStore {
       id,
       logicalId,
       revision,
+      chatId:chatId==null?null:String(chatId),
+      turnId:turnId==null?null:String(turnId),
+      generationId:generationId==null?null:String(generationId),
+      correlationId:correlationId==null?null:String(correlationId),
       sceneId:sceneId==null?null:String(sceneId),
       sceneRevision:sceneRevision==null?null:Number(sceneRevision),
       sourceRevisionRefs:sources,
@@ -150,6 +159,10 @@ export class MemoryExperienceStore {
       sceneEpisodeRef:deepClone(sceneEpisodeRef),
       graphReferenceSet:deepClone(graphReferenceSet),
       provenance:deepClone(provenance),
+      reflectionSignals:deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
+        reflectionKey:String(row?.reflectionKey??row?.key??''),
+        polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
+      })).filter((row)=>row.reflectionKey),
       admissionSource,
       state:'CURRENT',
       freshness:(freshBySources(this.graph,sources)
@@ -169,6 +182,72 @@ export class MemoryExperienceStore {
     return deepClone(episode);
   }
 
+  reflectionEligibility({
+    reflectionKey=null,
+    supportEvidenceRefs=[],
+    contradictionEvidenceRefs=[],
+    episodeRefs=[],
+  }={}) {
+    const support=uniqStrings(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs);
+    const contradictions=uniqStrings(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs);
+    const explicitEpisodes=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
+    const evidenceRows=[...support,...contradictions].map((id)=>this.graph.evidenceRecord(id));
+    const missingEvidence=[...support,...contradictions].filter((id)=>!this.graph.evidenceRecord(id));
+    const staleEvidence=[...support,...contradictions].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
+    const currentEpisodes=[...this.currentEpisodeByLogical.values()].map((id)=>this.episodes.get(id)).filter(Boolean)
+      .filter((episode)=>episode.state==='CURRENT'&&episode.freshness==='FRESH');
+    const explicitRows=explicitEpisodes.map((id)=>this.episodes.get(id)).filter(Boolean);
+    const supportRows=currentEpisodes.filter((episode)=>episode.evidenceRefs.some((id)=>support.includes(id)));
+    const contradictionRows=currentEpisodes.filter((episode)=>episode.evidenceRefs.some((id)=>contradictions.includes(id)));
+    for(const episode of explicitRows)if(!supportRows.some((row)=>row.id===episode.id)&&episode.state==='CURRENT'&&episode.freshness==='FRESH')supportRows.push(episode);
+    const supportLogicalIds=[...new Set(supportRows.map((row)=>row.logicalId))].sort();
+    const contradictionLogicalIds=[...new Set(contradictionRows.map((row)=>row.logicalId))].sort();
+    const priorId=reflectionKey==null?null:this.currentReflectionByKey.get(String(reflectionKey));
+    const prior=priorId?this.reflections.get(priorId):null;
+    const base={
+      kind:'MemoryReflectionEligibilityReceipt',
+      reflectionKey:reflectionKey==null?null:String(reflectionKey),
+      supportEpisodeIds:supportRows.map((row)=>row.id).sort(),
+      supportEpisodeLogicalIds:supportLogicalIds,
+      contradictionEpisodeIds:contradictionRows.map((row)=>row.id).sort(),
+      contradictionEpisodeLogicalIds:contradictionLogicalIds,
+      supportEvidenceRefs:support,
+      contradictionEvidenceRefs:contradictions,
+      sourceRevisionRefs:uniqStrings(evidenceRows.map((row)=>row?.sourceRevisionId).filter(Boolean),MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact),
+      priorReflectionId:prior?.id??null,
+      priorConfidence:prior?.confidence??null,
+      authorityClass:AuthorityClass.INFERRED,
+      canonicalAuthority:false,
+      settlementAuthority:false,
+    };
+    if(missingEvidence.length||staleEvidence.length){
+      return {...base,status:'STALE',eligible:false,reasonCode:missingEvidence.length?'MEMORY_REFLECTION_EVIDENCE_MISSING':'MEMORY_REFLECTION_SUPPORT_STALE',missingEvidenceRefs:missingEvidence,staleEvidenceRefs:staleEvidence};
+    }
+    const priorContradictionRevision=Boolean(prior&&contradictionLogicalIds.length>0&&supportLogicalIds.length>=1);
+    if(supportLogicalIds.length<2&&!priorContradictionRevision){
+      return {...base,status:'SKIPPED',eligible:false,reasonCode:'MEMORY_REFLECTION_REPETITION_INSUFFICIENT',minimumSupportingEpisodes:2};
+    }
+    const supportCount=supportLogicalIds.length,contradictionCount=contradictionLogicalIds.length;
+    const priorConfidence=Number(prior?.confidence??0);
+    let confidence=Math.min(0.95,Math.max(priorConfidence,0.45+Math.min(0.4,supportCount*0.1)));
+    let action=prior?'REINFORCE':'ESTABLISH';
+    let truthStatus=KnowledgeStatus.INFERRED;
+    let resolutionStatus='SUPPORTED';
+    if(contradictionCount>0){
+      const ratio=supportCount/(supportCount+contradictionCount);
+      confidence=Math.max(0.1,Math.min(confidence,ratio*0.8));
+      action='REVISE_WITH_CONTRADICTION';
+      resolutionStatus='CONTESTED';
+      if(contradictionCount>=supportCount){
+        confidence=Math.min(confidence,0.49);
+        action='REVISE_UNRESOLVED';
+        truthStatus=KnowledgeStatus.UNRESOLVED;
+        resolutionStatus='UNRESOLVED';
+      }
+    }
+    return {...base,status:'ELIGIBLE',eligible:true,reasonCode:null,action,truthStatus,resolutionStatus,confidence};
+  }
+
   reviseReflection({
     reflectionKey,
     statement,
@@ -179,6 +258,8 @@ export class MemoryExperienceStore {
     sourceRevisionRefs=[],
     confidence,
     action='REINFORCE',
+    truthStatus=KnowledgeStatus.INFERRED,
+    resolutionStatus=null,
     supersedesReflectionIds=[],
     splitFromReflectionId=null,
     provenance=[],
@@ -198,6 +279,7 @@ export class MemoryExperienceStore {
     const sources=uniqStrings([
       ...sourceRevisionRefs,
       ...support.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
+      ...contradictions.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...eps.flatMap((id)=>this.episodes.get(id)?.sourceRevisionRefs??[]),
     ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
     for (const sourceRevisionId of sources) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
@@ -231,7 +313,8 @@ export class MemoryExperienceStore {
       state:'CURRENT',
       freshness:freshBySources(this.graph,sources)?'FRESH':'STALE',
       authorityClass:AuthorityClass.INFERRED,
-      truthStatus:KnowledgeStatus.INFERRED,
+      truthStatus:[KnowledgeStatus.INFERRED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.CONTRADICTED].includes(truthStatus)?truthStatus:KnowledgeStatus.INFERRED,
+      resolutionStatus:resolutionStatus==null?null:String(resolutionStatus),
       worldTruthAuthority:false,
       characterStateMutation:false,
       settlementAuthority:false,
@@ -285,7 +368,7 @@ export class MemoryExperienceStore {
     for (const reflection of this.reflections.values()) {
       if (reflection.state!=='CURRENT') continue;
       const episodeFresh=reflection.episodeRefs.every((id)=>this.episodes.get(id)?.freshness==='FRESH');
-      const evidenceFresh=reflection.supportEvidenceRefs.every((id)=>this.graph.evidenceFresh(id));
+      const evidenceFresh=[...reflection.supportEvidenceRefs,...reflection.contradictionEvidenceRefs].every((id)=>this.graph.evidenceFresh(id));
       const sourceFresh=freshBySources(this.graph,reflection.sourceRevisionRefs);
       if (!(episodeFresh&&evidenceFresh&&sourceFresh)) {
         reflection.freshness='STALE';
@@ -375,6 +458,8 @@ export class MemoryExperienceStore {
       jobs:deepClone(jobs),
       publishedArtifactIds:[],
       failures:[],
+      outcomes:[],
+      reflectionEligibilityPolicy:String(options.reflectionEligibilityPolicy??'LEGACY_DIRECT'),
       checkpoint:null,
       inputRevisionFence,
       generationFence,
@@ -432,6 +517,7 @@ export class MemoryExperienceStore {
     if(!fence.ok){
       session.state=fence.state;
       session.lateDisposition={
+        status:'DEFERRED',
         reasonCode:fence.reasonCode,
         destination:fence.destination,
         generationId:session.generationFence?.generationId??null,
@@ -450,6 +536,7 @@ export class MemoryExperienceStore {
       if(!liveFence.ok){
         session.state=liveFence.state;
         session.lateDisposition={
+          status:'DEFERRED',
           reasonCode:liveFence.reasonCode,destination:liveFence.destination,
           generationId:session.generationFence?.generationId??null,foregroundEligible:false,contextSealMutation:false,
           staleSourceRevisionRefs:[...(liveFence.staleSourceRevisionRefs??[])],
@@ -459,10 +546,31 @@ export class MemoryExperienceStore {
       const job=session.jobs[session.cursor];
       try {
         if (job.type!=='REFLECTION') throw new Error('MEMORY_CONSOLIDATION_JOB_UNSUPPORTED:'+String(job.type));
-        const artifact=this.reviseReflection(job.input??{});
-        if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
+        if(session.reflectionEligibilityPolicy==='REPEATED_EXPERIENCE_REQUIRED'){
+          const eligibility=this.reflectionEligibility(job.input??{});
+          if(!eligibility.eligible){
+            session.outcomes.push({cursor:session.cursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
+          }else{
+            const artifact=this.reviseReflection({
+              ...(job.input??{}),
+              confidence:eligibility.confidence,
+              action:eligibility.action,
+              truthStatus:eligibility.truthStatus,
+              resolutionStatus:eligibility.resolutionStatus,
+              episodeRefs:eligibility.supportEpisodeIds,
+            });
+            if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
+            session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+          }
+        }else{
+          const artifact=this.reviseReflection(job.input??{});
+          if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
+          session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+        }
       } catch (error) {
-        session.failures.push({cursor:session.cursor,code:error?.message??String(error)});
+        const failure={cursor:session.cursor,code:error?.message??String(error)};
+        session.failures.push(failure);
+        session.outcomes.push({cursor:session.cursor,status:'FAILED',reasonCode:failure.code});
       }
       session.cursor+=1;
       used+=1;
@@ -475,6 +583,7 @@ export class MemoryExperienceStore {
           cursor:session.cursor,
           publishedArtifactIds:session.publishedArtifactIds,
           failures:session.failures,
+          outcomes:session.outcomes,
           inputRevisionFence:session.inputRevisionFence,
           generationFence:session.generationFence,
         })),

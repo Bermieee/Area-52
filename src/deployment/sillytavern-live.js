@@ -475,7 +475,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeRejections = [];
     this.nativeLoreRevisionEvents = [];
     this.routedLoreRevisionKeys = new Set();
-    this.nativeOwnerAttachments = {lore:null,memory:null,graphProviders:[]};
+    this.nativeOwnerAttachments = {lore:null,memory:null,memoryConsolidation:null,graphProviders:[]};
     this.nativeGraphProviderIds = new Set();
     this.optionalGenerationActive = new Map();
     this.releaseLoreOwnerEvents = null;
@@ -534,7 +534,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   detachNativeBrain(){
     const wasRunning=this.running;if(wasRunning)this.stop();
     for(const run of this.nativeRuns.values())try{run.responseReject?.(new Error('Native Brain owner detached'));}catch{}
-    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeRuns.clear();this.nativeOwnerAttachments={lore:null,memory:null,graphProviders:[]};this.nativeGraphProviderIds.clear();this.#completeAllOptionalGenerations('NATIVE_BRAIN_DETACHED');
+    this.nativeBrain=null;this.nativePending.clear();this.nativePayloads.clear();this.nativeRuns.clear();this.nativeOwnerAttachments={lore:null,memory:null,memoryConsolidation:null,graphProviders:[]};this.nativeGraphProviderIds.clear();this.#completeAllOptionalGenerations('NATIVE_BRAIN_DETACHED');
     if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
     if(wasRunning)this.start();
     this.#notify();return this;
@@ -946,6 +946,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     const loreService=mergedOwners.loreIntelligenceService??mergedOwners.loreStudyService??null;
     const loreInterface=mergedOwners.loreBrainInterface??(typeof loreService?.brainInterface==='function'?loreService.brainInterface():null);
     const memoryInterface=mergedOwners.memoryIntegrationSurface??mergedOwners.memoryInterface??mergedOwners.memoryOwner??null;
+    const memoryConsolidationInterface=mergedOwners.memoryConsolidationProducer??mergedOwners.memoryConsolidationInterface??null;
     const graphProviders=Array.isArray(mergedOwners.graphProviders)?mergedOwners.graphProviders.filter(Boolean):[];
 
     if(typeof this.nativeBrain.attachLoreInterface==='function'){
@@ -955,6 +956,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(typeof this.nativeBrain.attachMemoryInterface==='function'){
       try{const receipt=this.nativeBrain.attachMemoryInterface(memoryInterface??null);this.nativeOwnerAttachments.memory={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryInterface?.contractVersion??null};}
       catch(error){this.nativeOwnerAttachments.memory={attached:false,error:String(error?.code??error?.message??error)};}
+    }
+    if(typeof this.nativeBrain.attachMemoryConsolidationInterface==='function'){
+      try{
+        const receipt=this.nativeBrain.attachMemoryConsolidationInterface(memoryConsolidationInterface??null);
+        this.nativeOwnerAttachments.memoryConsolidation={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryConsolidationInterface?.contractVersion??null};
+      }catch(error){this.nativeOwnerAttachments.memoryConsolidation={attached:false,error:String(error?.code??error?.message??error)};}
     }
 
     const graphReceipts=[];

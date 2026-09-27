@@ -33,6 +33,16 @@ export class SceneEpisodeCompiler{
     this.cache.set(key,episode);return clone(episode);
   }
 
+  attachGraphRefs(episodeId,graphRefs=[]){
+    const refs=[...new Set((graphRefs??[]).filter(Boolean).map(String))].slice(0,128);
+    for(const [key,episode] of this.cache){
+      if(episode.episodeId!==episodeId)continue;
+      const next={...clone(episode),graphRefs:[...new Set([...(episode.graphRefs??[]),...refs])].slice(0,128)};
+      this.cache.set(key,next);return clone(next);
+    }
+    return null;
+  }
+
   validateFreshness(episode,scene){if(!episode||!scene)return false;if(episode.sceneId!==scene.sceneId||episode.sceneRevision!==scene.revision)return false;const a=[...(episode.sourceRevisionRefs??[])].sort(),b=[...(scene.sourceRevisionRefs??[])].sort();return JSON.stringify(a)===JSON.stringify(b);}
   get(episodeId){for(const episode of this.cache.values())if(episode.episodeId===episodeId)return clone(episode);return null;}
   list(){return [...this.cache.values()].map(clone);}

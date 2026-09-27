@@ -423,7 +423,7 @@ test('local evidence journal survives UI reload with the same browser storage an
   const second=mount(owner,{storage});second.ui.scheduler.flush(2);
   const after=second.ui.operator.evidenceJournal.readTurn(selection);assert.ok(after);assert.equal(after.key,before.key);assert.ok(after.entries.length>=before.entries.length);
   second.ui.shell.selectWorkspace('turn-log');second.ui.scheduler.flush(3);
-  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Area 52 Diagnostics/);assert.match(body,/Export Full Diagnostics/);assert.match(body,/Retention \/ safety/);
+  const body=textOf(second.ui.shell.nodes.workspace);assert.match(body,/Area-?52 Diagnostics/);assert.match(body,/Export Full Diagnostics/);assert.match(body,/Retention \/ safety/);
   const exported=second.ui.operator.evidenceJournal.exportEvidence({selection});assert.equal(exported.turns.length,1);assert.equal(exported.safety.rawPromptsPersisted,false);
   second.ui.destroy();
 });
@@ -583,7 +583,7 @@ test('Diagnostics workspace centralizes prompt-safe owner telemetry and three re
   for(const row of ui.operator.resources.read().data.resources)assert.equal((await ui.actionRouter.route({type:'wave13.resource.test',target:row})).ok,true);
   ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(2);
   let body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/Area 52 Diagnostics/);assert.match(body,/Resources \/ connections \/ provider calls/);assert.match(body,/Current resources/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/Unified retained event timeline/);assert.match(body,/Raw operational snapshot/);
+  assert.match(body,/Area-?52 Diagnostics/);assert.match(body,/Resources \/ connections \/ provider calls/);assert.match(body,/Current resources/);assert.match(body,/Recent owner resource telemetry/);assert.match(body,/Event timeline/);assert.match(body,/Raw operational snapshot/);
   ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/jev:diag/);assert.match(body,/sidecar:diag/);assert.match(body,/vector:diag/);
   const snap=ui.operator.diagnostics.read();
@@ -601,7 +601,7 @@ test('Diagnostics drilldown shows six owner jobs and native turn resource withou
   owner.bindings.readScatter=()=>({kind:'RuntimeTurnReceipt',jobs,admittedJobCount:6,resourceCount:1,resourceIds:['native-brain-local-cpu'],executionComplete:true,...selection});
   const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.productAdapter.setDetailLevel(ProductDetailLevel.ADVANCED);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const body=textOf(ui.shell.nodes.workspace);for(const id of ['CONTEXT_COMPILER','CONTEXT_SEAL','GATHER','PRECISION','RETRIEVAL','TRUTH'])assert.match(body,new RegExp(id));
-  assert.match(body,/native-brain-local-cpu/);assert.match(body,/Runtime \/ lifecycle \/ jobs/);assert.match(body,/Unified retained event timeline/);assert.match(body,/Raw operational snapshot/);
+  assert.match(body,/native-brain-local-cpu/);assert.match(body,/Runtime \/ lifecycle \/ jobs/);assert.match(body,/Event timeline/);assert.match(body,/Raw operational snapshot/);
   ui.destroy();
 });
 

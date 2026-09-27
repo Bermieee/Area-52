@@ -651,6 +651,7 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
     modelId:'memory-consolidation-test-model',
     capabilities:[Capability.CONSOLIDATION,Capability.COMPRESSION,Capability.REFLECTION,Capability.STRUCTURED_EXTRACTION],
     foregroundEligible:false,backgroundEligible:true,supportedLayers:['L3'],placements:['DEEP'],
+    resourceClass:'DEEP_BACKGROUND',
     handler:async({input})=>{
         const refs=(input.data.sourceReferences??[]).map(ref=>({
           kind:'ArtifactReference',artifactId:ref.artifactId,artifactType:ref.artifactType,

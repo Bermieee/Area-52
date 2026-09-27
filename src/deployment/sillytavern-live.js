@@ -727,7 +727,22 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
     const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
     const profileEnd=this.#generationProfileSample();
-    if(run.profileStart||run.profileAfterInsertion||profileEnd)pushBounded(this.nativePerformance,{kind:'NativeGenerationDetailedPerformanceProfile',chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,start:run.profileStart,afterInsertion:run.profileAfterInsertion,end:profileEnd,providerLatencyMs,rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false},SESSION_BOUNDS.nativePerformance);
+    if(run.profileStart||run.profileAfterInsertion||profileEnd){
+      const start=run.profileStart,end=profileEnd;
+      const delta=(a,b)=>Number.isFinite(Number(a))&&Number.isFinite(Number(b))?Number(b)-Number(a):null;
+      pushBounded(this.nativePerformance,{
+        kind:'NativeGenerationDetailedPerformanceProfile',chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,
+        start,afterInsertion:run.profileAfterInsertion,end:profileEnd,providerLatencyMs,
+        deltas:{
+          heapBytes:delta(start?.heapBytes,end?.heapBytes),
+          longTaskCount:delta(start?.longTaskCount,end?.longTaskCount),
+          longTaskTotalMs:delta(start?.longTaskTotalMs,end?.longTaskTotalMs),
+          diagnosticsUiRefreshCount:delta(start?.diagnosticsUiRefreshCount,end?.diagnosticsUiRefreshCount),
+          diagnosticsUiRefreshTotalMs:delta(start?.diagnosticsUiRefreshTotalMs,end?.diagnosticsUiRefreshTotalMs),
+        },
+        rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      },SESSION_BOUNDS.nativePerformance);
+    }
     this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
     this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
@@ -1292,6 +1307,10 @@ export class DevelopmentDeploymentSillyTavernSession {
     return{
       at:Date.now(),heapBytes:Number.isFinite(heap)?heap:null,
       longTaskCount:this.loadMetrics.longTaskCount,longTaskTotalMs:this.loadMetrics.longTaskTotalMs,longTaskMaxMs:this.loadMetrics.longTaskMaxMs,
+      diagnosticsUiRefreshCount:this.loadMetrics.notifyDelivered,
+      diagnosticsUiRefreshTotalMs:this.loadMetrics.notifyTotalMs,
+      diagnosticsUiRefreshMaxMs:this.loadMetrics.notifyMaxMs,
+      diagnosticsUiRefreshLastMs:this.loadMetrics.lastNotifyMs,
     };
   }
 

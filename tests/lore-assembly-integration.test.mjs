@@ -83,7 +83,7 @@ function decideAll(authoring,sessionId,decision='ACCEPT',prefix='assembly-decisi
   return unwrap(authoring.read.draftReview({sessionId}));
 }
 
-test('assembled host exposes Wave 7 owner lifecycle while Worker 3 UI remains explicitly preview-only',()=>{
+test('assembled host exposes reviewed owner-controlled Lore commit while Worker 3 UI delegates Settlement authority',()=>{
   const brain=readyBrain();
   const bindings=brain.hostBindings();
   const owner=bindings.loreAuthoringHost;
@@ -101,9 +101,11 @@ test('assembled host exposes Wave 7 owner lifecycle while Worker 3 UI remains ex
   assert.equal(available.blocked,false);
 
   const worker3=new Wave13LoreAuthoringUIAdapter({bindings});
-  assert.equal(worker3.capabilities().destructiveApply,false);
+  assert.equal(worker3.capabilities().destructiveApply,true);
+  assert.equal(worker3.capabilities().settlement,true);
   assert.equal(worker3.capabilities().tree,true);
   assert.equal(worker3.capabilities().merge,true);
+  assert.equal(typeof worker3.applySettlement,'function');
 
   const absent=new Wave13LoreAuthoringUIAdapter({bindings:{}});
   const unavailable=absent.sourceDiscoveryIdentity({});

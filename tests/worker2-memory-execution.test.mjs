@@ -134,7 +134,7 @@ test('Worker 2: vector unavailable is truthful and a late stale vector is reject
   const late=await pending;
   assert.equal(late.outcomes[0].status,'REJECTED_LATE');
   assert.equal(late.outcomes[0].ownerDecision,'REJECTED');
-  assert.equal(memory.graph.evidenceRecord(ev.id).freshness,'STALE');
+  assert.equal(memory.graph.evidenceFresh(ev.id),false);
 });
 
 test('Worker 2: retrieval use enables bounded plasticity but adds no support or authority, and only rebuildable derived state can be evicted',()=>{

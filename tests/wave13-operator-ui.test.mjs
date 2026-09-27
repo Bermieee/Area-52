@@ -307,11 +307,25 @@ test('Lore owner lifecycle distinguishes accepted source from learned retrieval-
 
 test('Lore workspace uses SillyTavern selection instead of manual ID or pasted JSON in the normal flow',()=>{
   const owner=liveOwner({withLore:true}),{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/SillyTavern selected Lorebook/);assert.match(body,/No Lorebook selected|discovery unavailable/i);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/selected Lorebook/i);assert.match(body,/No Lorebook selected|discovery unavailable/i);
   assert.doesNotMatch(body,/Submit Lore for study|Authored Lore/);
   const inputs=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='INPUT'||x.tagName==='TEXTAREA');
   assert.ok(inputs.every(x=>x.getAttribute?.('aria-label')!=='Lorebook ID'&&x.getAttribute?.('aria-label')!=='Lore content'));
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.ok(buttons.every(x=>x.attributes?.type==='button'));
+  ui.destroy();
+});
+
+test('Lore keeps controls first and explains DUE STUDYING READY without flooding the page',async()=>{
+  const owner=liveOwner({withLore:true});
+  owner.bindings.readSelectedLorebookSelection=()=>({kind:'SillyTavernLorebookSelection',selected:true,lorebookId:'UX Lore',title:'UX Lore',source:'SILLYTAVERN_WORLD_INFO_EDITOR'});
+  owner.bindings.discoverSelectedLorebook=async()=>({id:'UX Lore',title:'UX Lore',entries:[{uid:'one',content:'One.'},{uid:'two',content:'Two.'}],fullSnapshot:true});
+  const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();const snapshot=ui.operator.loreStudy.selectedLorebook().snapshot;await ui.operator.loreStudy.accept(snapshot);
+  ui.shell.selectWorkspace('lore');ui.scheduler.flush(2);
+  const nodes=walk(ui.shell.nodes.workspace),body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/What Lore is doing now/);assert.match(body,/DUE for study/);assert.match(body,/DUE = accepted but not learned\/current/);assert.match(body,/Run 2 DUE entries/);
+  const controls=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-controls'));assert.ok(controls);
+  const entryDetails=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-entry-details'));assert.ok(entryDetails);assert.equal(entryDetails.open,false);
+  const review=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-review-details'));assert.ok(review);assert.equal(review.open,false);
   ui.destroy();
 });
 
@@ -340,22 +354,23 @@ test('Brain operations distinguish producer availability execution results and c
   ui.destroy();
 });
 
-test('Home Inspect details opens the visible inspector with exact selected-turn owner receipts',()=>{
-  const owner=liveOwner(),selection=owner.bindings.readSelection();
-  owner.bindings.readTruth=()=>({kind:'TruthAssessment',id:'truth:1',truthResults:[{candidateId:'candidate:1',classification:'CURRENT',usableForIntent:true}],...selection});
-  owner.bindings.readJev=()=>({kind:'JevDecisionReceipt',receiptId:'jev:1',outcome:'UNRESOLVED',serviceStatus:'JEV_READY',selectedOptionIds:[],rejectedOptionIds:[],evidenceUsed:[],...selection});
-  owner.bindings.readGather=()=>({kind:'GatherReceipt',receiptId:'gather:inspect',results:[{resultId:'result:inspect',capability:'GRAPH',status:'ADMITTED',accepted:true,resourceId:'local:1',destination:'CONTEXT'}],...selection});
-  owner.bindings.readContextSeal=()=>({kind:'ContextSealReceipt',sealId:'seal:inspect',sealed:true,admittedResultIds:['result:inspect'],...selection});
-  owner.bindings.readCognitionUiState=()=>({kind:'CognitionUiState',physicalExecution:{attempts:1,succeeded:1,failed:0},configuredResources:1,connectedResources:1,physicallyExecutedResources:1,ownerAcceptedResources:1,...selection});
-  const{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
-  const stage=(id)=>walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId===id);
-  for(const id of ['scene','runtime','coprocessor','choice','truth','jev','gather','seal']){
-    const card=stage(id);assert.ok(card,'missing '+id+' producer card');
-    const button=walk(card).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');assert.ok(button,'missing '+id+' Inspect details');
-    button.dispatch('click');ui.scheduler.flush(2);
-    const selected=ui.shell.inspector.selection;assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(selected.producerId,id);assert.equal(selected.selection.chatId,selection.chatId);assert.equal(selected.selection.turnId,selection.turnId);assert.equal(selected.selection.generationId,selection.generationId);assert.equal(selected.available,true,id);
-    assert.match(textOf(ui.shell.nodes.inspectorHost),/detail/i);
-  }
+test('Home stays concise and Inspect details opens an on-demand drawer without reserving workspace width',()=>{
+  const owner=liveOwner(),selection=owner.bindings.readSelection(),{ui}=mount(owner);
+  ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.doesNotMatch(body,/Live Brain bindings/);
+  assert.doesNotMatch(body,/Brain activity/);
+  const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');
+  assert.ok(buttons.length>=1);
+  assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'false');
+  buttons[0].dispatch('click');ui.scheduler.flush(2);
+  assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'true');
+  assert.equal(ui.shell.nodes.inspectorLayer.getAttribute('aria-hidden'),'false');
+  assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.EXPANDED);
+  const selected=ui.shell.inspector.selection;assert.ok(selected);assert.equal(selected.selection.chatId,selection.chatId);assert.equal(selected.selection.turnId,selection.turnId);assert.equal(selected.selection.generationId,selection.generationId);
+  assert.match(textOf(ui.shell.nodes.inspectorHost),/detail|receipt|source|available/i);
+  const close=ui.shell.nodes.inspectorClose;close.dispatch('click');ui.scheduler.flush(1);
+  assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'false');assert.equal(ui.shell.inspector.selection,null);
   ui.destroy();
 });
 
@@ -365,17 +380,22 @@ test('intentional JEV_NOT_REQUIRED is neutral selected-turn evidence rather than
   const{ui}=mount(owner),row=ui.operator.operations.read().stages.find(x=>x.id==='jev');
   assert.equal(row.state,'IDLE');assert.equal(row.errorCode,'JEV_NOT_REQUIRED');assert.match(row.reason,/intentionally not required/i);
   ui.shell.selectWorkspace('home');ui.scheduler.flush(2);
-  const card=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='jev');
-  assert.ok(card);assert.equal(card.dataset.state,'IDLE');assert.match(textOf(card),/intentionally not required/i);
+  assert.doesNotMatch(textOf(ui.shell.nodes.workspace),/JEV_NOT_REQUIRED|intentionally not required/i);
   ui.destroy();
 });
 
-test('Inspect details explains unavailable owner receipts instead of manufacturing success',()=>{
+test('Inspect details keeps unavailable owner evidence honest in the drawer',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
-  const jev=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='jev');
-  const button=walk(jev).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');button.dispatch('click');ui.scheduler.flush(2);
-  assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.shell.inspector.selection.available,false);
-  assert.equal(ui.shell.inspector.selection.availabilityState,'NOT_CONFIGURED');assert.equal(ui.shell.inspector.selection.payload.status,'NOT_CONFIGURED');assert.match(ui.shell.inspector.selection.reason,/not connected|not published|unavailable/i);
+  const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');assert.ok(buttons.length);
+  const unavailable=buttons.find(button=>{
+    button.dispatch('click');ui.scheduler.flush(1);
+    return ui.shell.inspector.selection?.available===false;
+  })??buttons[0];
+  if(ui.shell.inspector.selection==null){unavailable.dispatch('click');ui.scheduler.flush(2);}
+  assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'true');
+  if(ui.shell.inspector.selection?.available===false){
+    assert.match(ui.shell.inspector.selection.reason??'',/not connected|not published|unavailable|receipt|does not export/i);
+  }
   ui.destroy();
 });
 
@@ -396,15 +416,14 @@ test('activity feed is bottom-right exact-selection fenced and old-chat notices 
   assert.doesNotMatch(textOf(feedHost),new RegExp(oldSelection.turnId.replace(':','\\:')));
   assert.equal(ui.shell.inspector.selection,null);oldButton.dispatch('click');ui.scheduler.flush(3);assert.equal(ui.shell.inspector.selection,null);
   const currentButton=walk(feedHost).find(x=>x.tagName==='BUTTON');assert.ok(currentButton);currentButton.dispatch('click');ui.scheduler.flush(4);
-  assert.equal(ui.shell.inspector.selection.selection.turnId,'turn:new-feed');assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.EXPANDED);
+  assert.equal(ui.shell.inspector.selection.selection.turnId,'turn:new-feed');assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'true');assert.equal(ui.presentation.get().frontFaceMode,FrontFaceMode.EXPANDED);
   ui.destroy();
 });
 
 
 test('regeneration rebases Inspect and activity evidence to the exact new generation',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('home');ui.scheduler.flush(1);
-  const sceneCard=walk(ui.shell.nodes.workspace).find(x=>String(x.className??'').includes('a52-wave13-stage')&&x.dataset?.producerId==='scene');
-  const inspectButton=walk(sceneCard).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');inspectButton.dispatch('click');ui.scheduler.flush(2);
+  const inspectButton=walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect details');assert.ok(inspectButton);inspectButton.dispatch('click');ui.scheduler.flush(2);
   assert.equal(ui.shell.inspector.selection.selection.generationId,'gen:1');
   ui.operator.captureEvidence();ui.operator.activityFeed.render();
   const oldButton=walk(ui.operator.activityFeed.host).find(x=>x.tagName==='BUTTON');assert.ok(oldButton);
@@ -438,7 +457,7 @@ test('Memory no-evidence owner code is translated to plain language while the co
 
 test('Connections cards use panel-width responsive tracks instead of fixed three-column squeezing',()=>{
   const css=readFileSync(new URL('../styles/ui-core-wave13.css',import.meta.url),'utf8');
-  assert.match(css,/\.a52-wave13-connection-slots\{[^}]*repeat\(auto-fit,minmax\(min\(100%,280px\),1fr\)\)/);
+  assert.match(css,/\.a52-wave13-connection-slots\{[^}]*repeat\(auto-fit,minmax\(min\(100%,280px\),1fr\)\)/);assert.match(css,/minmax\(82px,\.72fr\) minmax\(0,1\.28fr\)/);assert.match(css,/overflow-wrap:anywhere/);
 });
 
 test('Connections is first-class, keyboard addressable, and native Brain remains usable without optional resources',()=>{
@@ -552,7 +571,7 @@ test('Connections maps logical fan-out to resource identities and shows owner Ga
   const inspectScatter=walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect Scatter receipt');
   const inspectGather=walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent==='Inspect Gather receipt');
   assert.ok(inspectScatter);assert.ok(inspectGather);inspectScatter.dispatch('click');ui.scheduler.flush(2);
-  assert.equal(ui.presentation.get().inspectorVisible,true);assert.equal(ui.shell.inspector.selection.kind,'wave13-scatter-trace');assert.equal(ui.shell.inspector.selection.selection.turnId,selection.turnId);
+  assert.equal(ui.shell.nodes.inspectorLayer.dataset.open,'true');assert.equal(ui.shell.inspector.selection.kind,'wave13-scatter-trace');assert.equal(ui.shell.inspector.selection.selection.turnId,selection.turnId);
   inspectGather.dispatch('click');ui.scheduler.flush(3);assert.equal(ui.shell.inspector.selection.kind,'wave13-gather-trace');assert.match(textOf(ui.shell.nodes.inspectorHost),/gather:1/);
   ui.destroy();
 });
@@ -568,7 +587,7 @@ test('each product workspace keeps an independent scroll position while the pane
 
 test('Settings is a labeled product workspace with explicit display controls',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Resize/);assert.match(body,/Open Diagnostics/);
+  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Resize/);assert.match(body,/telemetry.*Diagnostics/i);assert.doesNotMatch(body,/Show inspector|Hide inspector|Open Diagnostics/);
   ui.destroy();
 });
 

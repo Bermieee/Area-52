@@ -115,7 +115,7 @@ export function createWave6ProductInterface({
   const inspectionScope=new ResourceScope();
   inspectionScope.subscribe(signals,'UI_INSPECT_SELECTION_CHANGED',({payload})=>{
     if(!payload?.object)return;
-    frontFacePresentation.patch({inspectorVisible:true,frontFaceMode:FrontFaceMode.EXPANDED});
+    frontFacePresentation.patch({frontFaceMode:FrontFaceMode.EXPANDED});
     floatingController?.open?.();
     controller?.scheduleQuickDash?.();
   });

@@ -19,7 +19,7 @@
 .a52-front-face[data-presentation=COLLAPSED] .a52-quick-dash__activity{writing-mode:vertical-rl;transform:rotate(180deg);max-height:180px}
 .a52-front-face__expanded{height:100%;overflow:hidden}
 .a52-front-face__shell,.a52-front-face__shell.a52-app{height:100%;min-height:0}
-.a52-front-face__shell.a52-app{grid-template-columns:164px minmax(0,1fr) minmax(260px,320px);grid-template-rows:54px minmax(0,1fr) 30px}\n.a52-front-face__shell.a52-app[data-inspector-visible=false]{grid-template-columns:164px minmax(0,1fr)}
+.a52-front-face__shell.a52-app{grid-template-columns:164px minmax(0,1fr);grid-template-rows:54px minmax(0,1fr) 30px}
 .a52-front-face__shell .a52-shell__header{grid-template-columns:164px 1fr minmax(120px,220px);padding-inline:.75rem}
 .a52-front-face__shell .a52-shell__workspace{padding:var(--a52-space-4)}
 .a52-front-face__shell .a52-shell__nav{padding:.55rem}
@@ -68,13 +68,13 @@
 .a52-front-face[data-density=COMPACT] .a52-card{padding:var(--a52-panel-padding-compact)}
 .a52-front-face[data-density=COMPACT] .a52-product-grid,.a52-front-face[data-density=COMPACT] .a52-composition__secondary{gap:var(--a52-space-2)}
 
-.a52-app[data-layout=COMPACT] .a52-front-face__shell,.a52-front-face__shell[data-layout=COMPACT]{grid-template-columns:58px minmax(0,1fr) minmax(240px,300px)}
+.a52-app[data-layout=COMPACT] .a52-front-face__shell,.a52-front-face__shell[data-layout=COMPACT]{grid-template-columns:58px minmax(0,1fr)}
 .a52-front-face__shell[data-layout=COMPACT] .a52-shell__nav .a52-nav-item{font-size:0;text-align:center}
 .a52-front-face__shell[data-layout=COMPACT] .a52-shell__nav .a52-nav-item::first-letter{font-size:.9rem}
-.a52-front-face__shell[data-layout=STACKED]{grid-template-columns:1fr;grid-template-rows:52px auto minmax(0,1fr) auto 30px;grid-template-areas:'header' 'nav' 'work' 'inspector' 'activity'}
+.a52-front-face__shell[data-layout=STACKED]{grid-template-columns:1fr;grid-template-rows:52px auto minmax(0,1fr) 30px;grid-template-areas:'header' 'nav' 'work' 'activity'}
 .a52-front-face__shell[data-layout=STACKED] .a52-shell__nav{display:flex;gap:.25rem;overflow-x:auto;border-right:0;border-bottom:1px solid var(--a52-border-soft)}
 .a52-front-face__shell[data-layout=STACKED] .a52-nav-item{width:auto;white-space:nowrap}
-.a52-front-face__shell[data-layout=STACKED] .a52-shell__inspector{border-left:0;border-top:1px solid var(--a52-border-soft);max-height:40vh}
+.a52-front-face__shell[data-layout=STACKED] .a52-shell__inspector-layer{top:52px;bottom:30px;width:min(420px,92%)}
 .a52-front-face__shell[data-layout=STACKED] .a52-brain-pulse__lanes{grid-template-columns:1fr}
 
 @media(max-width:760px){

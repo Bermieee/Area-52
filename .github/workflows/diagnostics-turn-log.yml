@@ -9,6 +9,12 @@ on:
     paths:
       - 'src/ui-core/demo-visibility.js'
       - 'src/ui-core/turn-log-diagnostics.js'
+      - 'styles/ui-core-wave13.css'
+      - 'styles/ui-core-wave6.css'
+      - 'styles/ui-core.css'
+      - 'src/ui-core/wave13-operator-surfaces.js'
+      - 'src/ui-core/wave6-front-face.js'
+      - 'src/ui-core/shell.js'
       - 'src/ui-core/wave6-runtime.js'
       - 'src/ui-core/index.js'
       - 'tests/turn-log-diagnostics.test.mjs'
@@ -46,7 +52,9 @@ jobs:
       - name: Selected-turn diagnostics regressions
         run: node --test tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs
       - name: Operator diagnostics workspace regressions
-        run: node --test --test-name-pattern="Brain activity distinguishes|local evidence journal|Settings is a labeled product workspace|Diagnostics" tests/wave13-operator-ui.test.mjs
+        run: node --test --test-name-pattern="Brain activity distinguishes|local evidence journal|Settings is a labeled product workspace|Diagnostics|Home stays concise|Inspect details keeps unavailable|Lore keeps controls first|Lore workspace uses SillyTavern selection|Lore selected-book discovery|Connections cards use panel-width responsive tracks|Connections preserves independent" tests/wave13-operator-ui.test.mjs
+      - name: Core shell regressions
+        run: node --test tests/ui-core.test.mjs
       - name: Preserve client-load repair contracts
         run: node --test tests/client-repair-wave2.test.mjs
       - name: Host and operator stress
@@ -58,6 +66,9 @@ jobs:
         run: |
           node --check src/ui-core/demo-visibility.js
           node --check src/ui-core/turn-log-diagnostics.js
+          node --check src/ui-core/shell.js
+          node --check src/ui-core/wave6-front-face.js
+          node --check src/ui-core/wave13-operator-surfaces.js
           node --check src/ui-core/wave6-runtime.js
           node --check src/ui-core/index.js
           node --check tests/turn-log-diagnostics.test.mjs

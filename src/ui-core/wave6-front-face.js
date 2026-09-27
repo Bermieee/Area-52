@@ -63,8 +63,7 @@ export class HostAdjacentFrontFaceController{
     this.nodes.root.dataset.presentation=p.frontFaceMode;this.nodes.root.dataset.density=p.frontFaceDensity;
     this.nodes.root.style.width=`${expanded?p.frontFaceWidth:76}px`;
     this.nodes.quick.style.display='';this.nodes.expanded.style.display=expanded?'':'none';
-    this.nodes.shellRoot.classList.toggle('a52-density-compact',p.frontFaceDensity===FrontFaceDensity.COMPACT);this.nodes.shellRoot.dataset.inspectorVisible=String(p.inspectorVisible);
-    if(this.shell.nodes?.inspectorHost){this.shell.nodes.inspectorHost.style.display=p.inspectorVisible?'':'none';this.shell.nodes.inspectorHost.style.width=`${p.inspectorWidth}px`;}
+    this.nodes.shellRoot.classList.toggle('a52-density-compact',p.frontFaceDensity===FrontFaceDensity.COMPACT);
     this.hostMountAdapter?.apply?.({mode:p.frontFaceMode,width:p.frontFaceWidth,collapsedWidth:this.collapsedReservationWidth});
   }
   destroy(){

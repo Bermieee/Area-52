@@ -28,6 +28,7 @@ import { installWave13OperatorSurfaces, registerWave13OperatorActions } from './
 import { VerticalRailPopoutController } from './wave13-floating-navigation.js';
 import { DemoActivityFeedController, DemoEvidenceJournal } from './demo-visibility.js';
 import { installTurnLogDiagnosticsWorkspace } from './turn-log-diagnostics.js';
+import { BrainDecisionVisibilityAdapter } from './brain-decision-visibility.js';
 
 export function createWave6ProductInterface({
   root,
@@ -53,6 +54,7 @@ export function createWave6ProductInterface({
   const frontFacePresentation=new FrontFacePresentationState({stateStore});
   const explainabilityPresentation=new ExplainabilityPresentationState({stateStore});
   const selectionProvider=()=>liveReceiptBinding?.selection?.()??{};
+  const brainDecisionVisibility=hostBindings?new BrainDecisionVisibilityAdapter({bindings:hostBindings,selectionProvider}):null;
   const scene=effectiveBridges.scene?.readModel?new SceneProductionUIAdapter({...effectiveBridges.scene,selectionProvider}):null;
   const runtime=effectiveBridges.runtimeAdapter?new RuntimeProductionUIAdapter(effectiveBridges.runtimeAdapter):
     (effectiveBridges.cognition?.readScatterReceipt||typeof hostBindings?.readRuntimeStatus==='function')?new Wave13RuntimeReceiptUIAdapter({
@@ -97,7 +99,7 @@ export function createWave6ProductInterface({
   inspectorRegistry.register('*',(object,{document:doc})=>renderReadOnlyInspector(doc,object));
   inspectorRegistry.register('framework-artifact',renderGenericArtifactInspector);
   const releaseWave7Inspectors=registerWave7Inspectors(inspectorRegistry,{forensics,promptPlan});
-  const releaseWave8Inspectors=registerWave8Inspectors(inspectorRegistry,{cognition,forensics});
+  const releaseWave8Inspectors=registerWave8Inspectors(inspectorRegistry,{cognition,forensics,decisionVisibility:brainDecisionVisibility});
 
   const inspector=new InspectorController({host:root,registry:inspectorRegistry,signals,scheduler,services:{signals,actionRouter,productAdapter,extensionRegistry}});
   const inspectionScope=new ResourceScope();
@@ -111,7 +113,7 @@ export function createWave6ProductInterface({
     for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();workspaceScope=new ResourceScope();host.replaceChildren();
     entry.render?.(host,{
       scope:workspaceScope,signals,scheduler,actionRouter,notifications,productAdapter,brainPulse,workspaceRegistry,
-      promptPlan,forensics,cognition,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,loreAuthoring,diagnostics,floatingController,
+      promptPlan,forensics,cognition,brainDecisionVisibility,presentation:explainabilityPresentation,frontFacePresentation,liveReceiptBinding,operations,resources,loreStudy,loreAuthoring,diagnostics,floatingController,
       mount(widgetId,node,props){const instance=widgetRuntime.mount(widgetId,node,props);mounted.add(instance);return instance;},
       inspect(object){signals.publish('UI_INSPECT_SELECTION_CHANGED',{object},{source:'wave6-product'});},
       navigate(id){shell?.selectWorkspace(id);},
@@ -124,7 +126,7 @@ export function createWave6ProductInterface({
   const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters,loreStudy,resources}):null;
   const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,memory:memoryOwner,cognition,liveReceiptBinding,productionAdapters}):null;
   const evidenceJournal=hostBindings?new DemoEvidenceJournal({storage:stateStore.storage,namespace:String(stateStore.namespace??'area52.ui.v1')+'.demoEvidence.v1'}):null;
-  const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider}):null;
+  const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider,decisionVisibility:brainDecisionVisibility}):null;
   const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,actionRouter,cognition,coprocessor,frontFacePresentation,evidenceJournal});
   registerProductionEngineeringWorkspaces(workspaceRegistry,{runtime,coprocessor,promptPlan,forensics});
   registerWave7Workspaces(workspaceRegistry,{promptPlan,forensics,presentation:explainabilityPresentation,scheduler});
@@ -187,7 +189,7 @@ export function createWave6ProductInterface({
   return{
     controller,shell,signals,scheduler,widgetRegistry,workspaceRegistry,inspectorRegistry,actionRouter,extensionRegistry,overlays,notifications,
     productAdapter,brainPulse,presentation:frontFacePresentation,productPresentation,explainabilityPresentation,liveReceiptBinding,
-    floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,turnLog:turnLogWorkspace?.model??null},
+    floatingController,operator:{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,evidenceJournal,activityFeed,captureEvidence,turnLog:turnLogWorkspace?.model??null,brainDecisionVisibility},
     productionAdapters:{scene,runtime,coprocessor,promptPlan,forensics,cognition},
     registerUIExtension(descriptor,binding){return extensionRegistry.register(descriptor,binding);},
     destroy(){for(const instance of mounted)widgetRuntime.destroy(instance);mounted.clear();workspaceScope.cleanup();toastScope.cleanup();cognitionScope.cleanup();inspectionScope.cleanup();activityFeed?.destroy?.();activityFeedHost?.remove?.();turnLogWorkspace?.release?.();floatingController?.destroy?.();liveReceiptBinding?.destroy?.();cognition.destroy?.();forensics.destroy?.();releaseWave13Surfaces?.();releaseWave13Actions?.();releaseWave8Inspectors?.();releaseWave8Actions?.();releaseWave7Inspectors?.();releaseWave7Actions?.();overlays.destroy();controller.destroy();extensionRegistry.destroy();scheduler.destroy();signals.clear();},

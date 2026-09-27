@@ -140,8 +140,8 @@ test('#112 duplicate recommendation publication coalesces by semantic identity',
     locationRefs:['Sunken Archive'],priority:'HIGH',evidenceRefs:['src:dedupe'],sourceRevisionRefs:['src:dedupe'],
   };
   const a=brain.scene.prefetchTrigger.recommend(input);
-  const b=brain.scene.prefetchTrigger.recommend(input);
-  assert.equal(a.recommendationId,b.recommendationId);
+  const b=brain.scene.prefetchTrigger.recommend({...input,evidenceRefs:['src:dedupe-2'],sourceRevisionRefs:['src:dedupe-2']});
+  assert.equal(a.recommendationId,b.recommendationId,'same semantic recommendation must coalesce across repeated source messages');
   assert.equal(brain.scene.prefetchTrigger.active({sceneId:scene.sceneId,sceneRevision:scene.revision}).length,1);
 });
 

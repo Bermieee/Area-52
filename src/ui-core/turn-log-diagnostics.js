@@ -1,7 +1,7 @@
 import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
 import { renderBrainDecisionExplanation } from './brain-decision-visibility.js';
 
-export const TURN_LOG_DIAGNOSTICS_VERSION='1.1.0';
+export const TURN_LOG_DIAGNOSTICS_VERSION='1.2.0';
 const DEFAULT_MAX_VISIBLE=96;
 const DEFAULT_MAX_DETAIL_BYTES=12288;
 const CATEGORY_ORDER=['HOST','EDGE','COGNITION','RUNTIME','RESOURCE','RESULT','GATHER','CONTEXT','DELIVERY','LEARNING','ERROR'];
@@ -9,8 +9,8 @@ const SEVERITY_ORDER=['ERROR','WARN','OK','INFO'];
 const BLOCKED_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
 
 export class SelectedTurnLogModel{
-  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
-    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;
+  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,diagnostics=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
+    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;this.diagnostics=diagnostics??null;
     this.selectionProvider=typeof selectionProvider==='function'?selectionProvider:()=>({});
     this.now=typeof now==='function'?now:()=>Date.now();
     this.maxVisibleRows=Math.max(16,Math.min(256,Number(maxVisibleRows)||DEFAULT_MAX_VISIBLE));
@@ -45,6 +45,63 @@ export class SelectedTurnLogModel{
     return row?detailPayload(this.journal,selected,row,this.maxDetailBytes):null;
   }
 
+  readOperational(){
+    return safeDiagnosticsRead(this.diagnostics);
+  }
+
+  readTimeline({filters={}}={}){
+    const evidence=this.journal?.exportEvidence?.({selection:null})??{turns:[]};
+    const normalizedFilters=normalizeFilters(filters,this.now());
+    const allRows=[];
+    for(const turn of evidence.turns??[]){
+      const turnSelection=normalizeSelection(turn.selection??{});
+      for(const row of buildTurnRows(turn,turnSelection)){
+        const publicRow=stripPrivate(row);
+        allRows.push({...publicRow,selection:turnSelection,turnKey:turn.key??selectionKey(turnSelection)});
+      }
+    }
+    allRows.sort((a,b)=>numericTime(a.time??a.observedAt)-numericTime(b.time??b.observedAt)||String(a.id).localeCompare(String(b.id)));
+    const filtered=allRows.filter(row=>matchesFilters(row,normalizedFilters));
+    const truncated=filtered.length>this.maxVisibleRows;
+    const rows=boundedVisibleRows(filtered,this.maxVisibleRows);
+    return safeClone({
+      filters:normalizedFilters,rows,totalRows:allRows.length,matchingRows:filtered.length,visibleRows:rows.length,truncated,
+      availableCategories:CATEGORY_ORDER.filter(category=>allRows.some(row=>row.category===category)),
+      availableSeverities:SEVERITY_ORDER.filter(severity=>allRows.some(row=>row.severity===severity)),
+    });
+  }
+
+  exportDiagnostics({selection=null}={}){
+    const selected=normalizeSelection(selection??this.selectionProvider?.()??{});
+    const retainedEvidence=this.journal?.exportEvidence?.({selection:null})??null;
+    const operational=safeDiagnosticsRead(this.diagnostics);
+    const selectedTurn=this.exportMetadata({selection:selected});
+    const timeline=buildMasterTimeline(retainedEvidence);
+    const errors=collectDiagnosticErrors(operational,timeline);
+    return sanitize({
+      kind:'Area52DiagnosticsExport',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt:this.now(),
+      manifest:{
+        product:'Area-52',surface:'Diagnostics',selection:selected,
+        retainedTurns:retainedEvidence?.turns?.length??0,retainedTimelineEvents:timeline.length,
+        selectedTurnRows:selectedTurn?.rows?.length??0,errorCount:errors.length,
+      },
+      operationalSnapshot:operational,selectedTurn,retainedEvidence,timeline,errors,
+      safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
+    });
+  }
+
+  downloadFullDiagnostics({selection=null,document=globalThis.document??null,filename=null}={}){
+    const payload=this.exportDiagnostics({selection}),files=diagnosticsBundleFiles(payload),BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
+    if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',payload,files};
+    const stamp=fileTimestamp(payload.exportedAt),base='Area52-Diagnostics-'+stamp;
+    let blob=createStoredZipBlob(files,{BlobCtor,TextEncoderCtor:globalThis.TextEncoder,exportedAt:payload.exportedAt}),bundleFormat='zip',downloadName=filename??base+'.zip';
+    if(!blob){bundleFormat='json';downloadName=filename??base+'.json';blob=new BlobCtor([JSON.stringify(payload,null,2)],{type:'application/json'});}
+    const url=URLApi.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=downloadName;a.style.display='none';document.body?.append?.(a);
+    try{a.click?.();}finally{a.remove?.();URLApi.revokeObjectURL?.(url);}
+    return{ok:true,filename:a.download,bundleFormat,payload,files};
+  }
+
   exportMetadata({selection=null}={}){
     const selected=normalizeSelection(selection??this.selectionProvider?.()??{}),turn=this.journal?.readTurn?.(selected)??null;
     const rows=buildTurnRows(turn,selected).map(stripPrivate),details={};
@@ -61,6 +118,49 @@ export class SelectedTurnLogModel{
     });
   }
 
+
+  exportDiagnosticsBundle({selection=null,operationalSnapshot=null}={}){
+    const selectedTurn=this.exportMetadata({selection}),exportedAt=this.now();
+    const cleanOperational=sanitize(operationalSnapshot??null);
+    const manifest=sanitize({
+      kind:'Area52DiagnosticsBundleManifest',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt,
+      selection:selectedTurn.selection,
+      sources:{
+        selectedTurn:true,
+        operationalSnapshot:Boolean(cleanOperational),
+        brainDecision:Boolean(selectedTurn.brainDecision),
+        eventTimeline:true,
+        retention:Boolean(selectedTurn.retention),
+      },
+      chronology:selectedTurn.chronology,
+      safety:selectedTurn.safety,
+      note:'This bundle contains every bounded diagnostic surface currently retained by the Area-52 Diagnostics UI. Missing owner evidence remains explicitly missing and is never reconstructed.',
+    });
+    const files=[
+      {path:'manifest.json',content:JSON.stringify(manifest,null,2)},
+      {path:'selected-turn/diagnostics.json',content:JSON.stringify(selectedTurn,null,2)},
+      {path:'selected-turn/timeline.json',content:JSON.stringify(selectedTurn.rows??[],null,2)},
+      {path:'selected-turn/timeline.jsonl',content:(selectedTurn.rows??[]).map(row=>JSON.stringify(row)).join('\n')},
+      {path:'selected-turn/brain-decision.json',content:JSON.stringify(selectedTurn.brainDecision??null,null,2)},
+      {path:'session/operational-snapshot.json',content:JSON.stringify(cleanOperational??null,null,2)},
+      {path:'session/retention.json',content:JSON.stringify(selectedTurn.retention??null,null,2)},
+      {path:'README.txt',content:'Area-52 Diagnostics export\n\nThis archive is metadata-only. Raw prompts, story/Lore bodies, credentials, keys, and hidden reasoning are excluded. Missing evidence is reported as missing rather than inferred.\n'},
+    ];
+    return{kind:'Area52DiagnosticsBundle',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt,selection:selectedTurn.selection,manifest,files};
+  }
+
+  downloadDiagnosticsBundle({selection=null,operationalSnapshot=null,document=globalThis.document??null,filename=null}={}){
+    const bundle=this.exportDiagnosticsBundle({selection,operationalSnapshot});
+    const BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
+    if(!document?.createElement||typeof BlobCtor!=='function'||typeof URLApi?.createObjectURL!=='function'||typeof globalThis.TextEncoder!=='function')return{ok:false,reason:'DOWNLOAD_API_UNAVAILABLE',bundle};
+    const blob=createStoredZipBlob(bundle.files,{BlobCtor,TextEncoderCtor:globalThis.TextEncoder,exportedAt:bundle.exportedAt});
+    if(!blob)return{ok:false,reason:'ZIP_BUILD_FAILED',bundle};
+    const url=URLApi.createObjectURL(blob),a=document.createElement('a'),id=bundle.selection;
+    a.href=url;a.download=filename??['area52-diagnostics',id?.chatId,id?.turnId,id?.generationId].filter(Boolean).map(filePart).join('-')+'.zip';a.style.display='none';document.body?.append?.(a);
+    try{a.click?.();}finally{a.remove?.();URLApi.revokeObjectURL?.(url);}
+    return{ok:true,filename:a.download,bundle};
+  }
+
   download({selection=null,document=globalThis.document??null,filename=null}={}){
     const payload=this.exportMetadata({selection}),json=JSON.stringify(payload,null,2);
     const BlobCtor=globalThis.Blob,URLApi=globalThis.URL;
@@ -72,13 +172,13 @@ export class SelectedTurnLogModel{
   }
 }
 
-export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
+export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,diagnostics=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
   if(!registry||!journal)return null;
-  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,maxVisibleRows});
+  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,diagnostics,maxVisibleRows});
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
-    id,title:'Turn Log',icon:'⌁',category:'Product',navigation:{level:'product',order:85},views:['normal','detail','advanced'],supportedActions:['export-metadata','filter','drilldown'],
+    id,title:'Diagnostics',icon:'⌁',category:'Product',navigation:{level:'product',order:85},views:['normal','detail','advanced'],supportedActions:['export-diagnostics','export-metadata','filter','drilldown'],
     render(host,ctx){renderTurnLogWorkspace(host,{...ctx,model,filters});},
   });
   return{model,release(){try{registry.unregister(id);}catch{}},filters};
@@ -88,61 +188,156 @@ export function buildSelectedTurnLog(turn,selection={}){
   return buildTurnRows(turn,normalizeSelection(selection)).map(stripPrivate);
 }
 
-function renderTurnLogWorkspace(host,{model,filters,scope,refresh}={}){
-  const d=host.ownerDocument,snapshot=model.read({filters}),root=element(d,'section',{className:'a52-stack a52-turn-log',attrs:{'aria-label':'Selected turn diagnostics log'}});
-  root.append(element(d,'h1',{text:'Selected Turn Log'}),element(d,'p',{className:'a52-muted',text:'Correlated, metadata-only owner evidence for the current chat / turn / generation. Connection and planning states never count as execution or host delivery proof.'}));
-  const s=snapshot.selection??{};
-  const head=element(d,'section',{className:'a52-card'});
-  head.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'strong',{text:'Current selected turn'}),makeBadge(d,snapshot.current?'SELECTED':'WAITING',snapshot.current?'ready':'historical')),
-    createKeyValue(d,[{key:'Chat',value:s.chatId??'unknown'},{key:'Turn',value:s.turnId??'unknown'},{key:'Generation',value:s.generationId??'unknown'},{key:'Correlation',value:s.correlationId??'unknown'},{key:'World / Scene revision',value:(s.worldRevision??'unknown')+' / '+(s.sceneRevision??'unknown')},{key:'Source revision fence',value:s.sourceRevisionRefs?.length?s.sourceRevisionRefs.join(', '):'unknown'}]));
-  const summary=snapshot.summary??{};
-  head.append(element(d,'p',{className:'a52-muted',text:summary.explanation??'No selected-turn evidence is retained yet.'}));
-  const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
-  actions.append(createButton(d,{label:'Export selected-turn metadata',scope,size:'sm',variant:'quiet',onPress:()=>model.download({selection:s,document:d})}));
-  head.append(actions);root.append(head);
-  if(snapshot.brainDecision)root.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
+function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
+  const d=host.ownerDocument,snapshot=model.read({filters}),timeline=model.readTimeline({filters}),operational=model.readOperational(),s=snapshot.selection??{};
+  const root=element(d,'section',{className:'a52-stack a52-turn-log a52-diagnostics-console',attrs:{'aria-label':'Area 52 diagnostics console'}});
+  const hero=element(d,'header',{className:'a52-diagnostics-hero'});
+  const heroTitle=element(d,'div',{className:'a52-diagnostics-hero__title'});
+  heroTitle.append(element(d,'h1',{text:'Area-52 Diagnostics'}),element(d,'p',{className:'a52-muted',text:'One console for retained turn evidence, Brain activity, runtime work, resources, Lore / Memory, failures, and browser-side performance attribution.'}));
+  const status=diagnosticsStatus(snapshot,operational),heroActions=element(d,'div',{className:'a52-diagnostics-hero__actions'});
+  heroActions.append(makeBadge(d,status.label,status.token),createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}));
+  hero.append(heroTitle,heroActions);
+  const metrics=element(d,'div',{className:'a52-diagnostics-metrics'});
+  for(const [labelText,value] of diagnosticsMetrics(snapshot,timeline,operational))metrics.append(element(d,'div',{className:'a52-diagnostics-metric'},element(d,'span',{text:labelText}),element(d,'strong',{text:String(value)})));
+  hero.append(metrics);root.append(hero);
 
-  root.append(element(d,'section',{className:'a52-card'},element(d,'h2',{text:'Execution profile'}),createKeyValue(d,[
-    {key:'Causal owner edges',value:String(summary.ownerEvidenceEdges??0)+' evidenced / '+String(summary.missingOwnerEdges??0)+' no evidence'},{key:'Logical jobs',value:summary.logicalJobs??0},{key:'Native resources',value:summary.nativeResources??0},{key:'Optional provider attempts',value:summary.optionalAttempts??0},
-    {key:'Gather admitted',value:summary.gatherAdmitted??0},{key:'Gather rejected / late / stale',value:[summary.gatherRejected??0,summary.gatherLate??0,summary.gatherStale??0].join(' / ')},
-    {key:'PromptPlan',value:summary.promptPlanState??'NOT OBSERVED'},{key:'Host delivery',value:summary.hostDeliveryState??'NOT OBSERVED'},{key:'Source-fence/read errors',value:summary.readErrors??0},
-  ])));
+  const coordination=diagnosticSection(d,'Coordination / selected turn',{open:true,count:snapshot.current?'CURRENT':'WAITING'});
+  coordination.body.append(createKeyValue(d,[
+    {key:'Chat',value:s.chatId??'unknown'},{key:'Turn',value:s.turnId??'unknown'},{key:'Generation',value:s.generationId??'unknown'},{key:'Correlation',value:s.correlationId??'unknown'},
+    {key:'World / Scene revision',value:(s.worldRevision??'unknown')+' / '+(s.sceneRevision??'unknown')},{key:'Source revision fence',value:s.sourceRevisionRefs?.length?s.sourceRevisionRefs.join(', '):'unknown'},
+    {key:'Retained turns / entries',value:String(snapshot.retention?.turnCount??0)+' / '+String(snapshot.retention?.entryCount??0)},
+  ]),element(d,'p',{className:'a52-muted',text:snapshot.summary?.explanation??'No selected-turn evidence is retained yet.'}));
+  root.append(coordination.root);
 
-  const filterCard=element(d,'section',{className:'a52-card'});filterCard.append(element(d,'h2',{text:'Filters'}));
-  const controls=element(d,'div',{className:'a52-wave13-resource-actions'});
+  const brain=diagnosticSection(d,'Brain / producer activity',{count:String(operational?.producers?.stages?.length??0)+' stages'});
+  const brainStages=element(d,'div',{className:'a52-diagnostics-status-list'});
+  for(const row of operational?.producers?.stages??[])brainStages.append(compactStatusRow(d,row.label??label(row.id),row.state??'UNKNOWN',row.reason??row.errorCode??'Owner status published.',stageDiagnosticToken(row.state),inspect?()=>inspect({kind:'area52-diagnostic-stage',id:row.id,title:row.label??label(row.id),payload:operational?.producers?.inspections?.[row.id]??row}):null,scope));
+  if(!brainStages.children?.length)brainStages.append(emptyDiagnosticRow(d,'No producer telemetry is currently published.'));
+  brain.body.append(brainStages);
+  if(snapshot.brainDecision)brain.body.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
+  const generationInspection=operational?.generationInspection??null;
+  if(generationInspection){
+    const identity=generationInspection.identityResolution,graph=generationInspection.graphTraversal,budget=generationInspection.retrievalBudget,rejected=generationInspection.rejectedEvidence;
+    brain.body.append(element(d,'strong',{text:'Owner generation inspection'}),createKeyValue(d,[
+      {key:'Source revision fence',value:String(generationInspection.sourceRevisionFenceCount??0)+' revisions'},
+      {key:'Identity resolution',value:diagnosticReceiptSummary(identity)},
+      {key:'Graph traversal',value:diagnosticReceiptSummary(graph)},
+      {key:'Retrieval budget',value:diagnosticReceiptSummary(budget)},
+      {key:'Rejected evidence',value:rejected?String(rejected.count??0)+' rejected'+(rejected.reasonCode?' · '+rejected.reasonCode:''):'No owner rejection receipt'},
+      {key:'Lore / Memory sync',value:[generationInspection.loreSync?.status??generationInspection.loreSync?.kind??'Lore not published',generationInspection.memorySync?.status??generationInspection.memorySync?.kind??'Memory not published'].join(' · ')},
+    ]));
+  }
+  root.append(brain.root);
+
+  const runtime=diagnosticSection(d,'Runtime / lifecycle / jobs',{count:String(snapshot.summary?.logicalJobs??0)+' jobs'});
+  const runtimeSummary=operational?.runtime?.summary??{},life=runtimeSummary.lifecycleCounts??{};
+  runtime.body.append(createKeyValue(d,[
+    {key:'Queued by layer',value:Object.entries(runtimeSummary.queueDepth??{}).map(([key,value])=>key+': '+value).join(' · ')||'Not published'},
+    {key:'Active / yielding',value:(life.ACTIVE??0)+' / '+(life.YIELDING??0)},{key:'Parked / recovering',value:(life.PARKED??0)+' / '+(life.RECOVERING??0)},
+    {key:'Complete / failed',value:(life.COMPLETE??0)+' / '+(life.FAILED??0)},{key:'Borrowed background leases',value:runtimeSummary.borrowedBackgroundLeases??'Not published'},
+  ]));
+  const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job'),jobList=element(d,'div',{className:'a52-diagnostics-timeline'});
+  for(const row of jobRows)jobList.append(renderRow(d,row,{model,selection:s,scope,inspect}));
+  if(!jobRows.length)jobList.append(emptyDiagnosticRow(d,'No owner-backed job audit is retained for this selected turn.'));
+  runtime.body.append(jobList);root.append(runtime.root);
+
+  const resources=diagnosticSection(d,'Resources / connections / provider calls',{count:String(operational?.resources?.rows?.length??0)+' configured'});
+  const lanes=element(d,'div',{className:'a52-diagnostics-lanes'});
+  for(const spec of [['Jev',operational?.wiring?.jev],['Sidecar',operational?.wiring?.sidecar],['Vectoring',operational?.wiring?.vectoring]]){
+    const lane=spec[1]?.lane??{},card=element(d,'article',{className:'a52-diagnostics-lane'});
+    const laneStatus=lane.connected>0?'CONNECTED':lane.configured>0?'CONFIGURED':'NOT CONNECTED';
+    card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:spec[0]}),makeBadge(d,laneStatus,lane.connected>0?'ready':lane.configured>0?'warning':'historical')),
+      createKeyValue(d,[{key:'Callable',value:lane.callable??0},{key:'Attempted / succeeded',value:(lane.attempted??0)+' / '+(lane.succeeded??0)},{key:'Owner accepted',value:lane.ownerAccepted??0},{key:'Active',value:lane.activeExecutions??0}]));
+    lanes.append(card);
+  }
+  resources.body.append(lanes);
+  const provider=operational?.coprocessor?.summary?.providerCalls??{},resourceTelemetry=operational?.coprocessor?.summary?.resourceTelemetry??{};
+  resources.body.append(createKeyValue(d,[{key:'Provider calls invoked / failed',value:(provider.invoked??0)+' / '+(provider.failed??0)},{key:'Resource tests pass / fail',value:(resourceTelemetry.testsPassed??0)+' / '+(resourceTelemetry.testsFailed??0)},{key:'Executions success / fail',value:(resourceTelemetry.executionsSucceeded??0)+' / '+(resourceTelemetry.executionsFailed??0)}]));
+  const resourceRows=operational?.resources?.rows??[];
+  if(resourceRows.length){
+    const currentResources=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const row of resourceRows.slice(0,40)){
+      const state=row.state??row.health??'UNKNOWN',detail=[
+        row.displayName&&row.displayName!==row.id?row.displayName:null,
+        row.health?'health '+row.health:null,
+        row.availability?'availability '+row.availability:null,
+        row.lastExecution?.status?'last execution '+row.lastExecution.status:null,
+      ].filter(Boolean).join(' · ')||'Owner resource state published.';
+      currentResources.append(compactStatusRow(d,row.displayName??row.id??row.resourceId??row.kind??'Resource',state,detail,stageDiagnosticToken(state),inspect?()=>inspect({kind:'area52-diagnostic-resource',id:row.id??row.resourceId??row.displayName??'resource',title:(row.displayName??row.id??row.resourceId??'Resource')+' detail',payload:sanitize(row)}):null,scope));
+    }
+    resources.body.append(element(d,'strong',{text:'Current resources'}),currentResources);
+  }
+  const resourceEvents=operational?.telemetry?.resourceEvents??[];
+  if(resourceEvents.length){
+    const eventList=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const event of resourceEvents.slice(0,40)){
+      const eventName=event.displayName??event.resourceId??'Resource';
+      eventList.append(compactStatusRow(d,eventName,event.code??'EVENT',event.message??'Owner resource event published.',stageDiagnosticToken(event.code),inspect?()=>inspect({kind:'area52-diagnostic-resource-event',id:String(event.sequence??event.code??eventName),title:eventName+' · '+String(event.code??'event'),payload:sanitize(event)}):null,scope));
+    }
+    resources.body.append(element(d,'strong',{text:'Recent owner resource telemetry'}),eventList);
+  }
+  root.append(resources.root);
+
+  const knowledge=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'});
+  const lore=operational?.lore??{},memory=operational?.memory??{},memoryCounts=memory.counts??{},fresh=memory.freshness??{};
+  knowledge.body.append(element(d,'div',{className:'a52-diagnostics-two-column'},
+    element(d,'div',{},element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}])),
+    element(d,'div',{},element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]))
+  ));root.append(knowledge.root);
+
+  const errorRows=timeline.rows.filter(row=>row.severity==='ERROR'||row.severity==='WARN'),errorCount=collectDiagnosticErrors(operational,[]).length+errorRows.length;
+  const errors=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});
+  const cognitionErrors=Object.entries(operational?.cognition?.errors??{});
+  if(cognitionErrors.length){
+    const list=element(d,'div',{className:'a52-diagnostics-status-list'});
+    for(const [name,error] of cognitionErrors)list.append(compactStatusRow(d,label(name),'READ ISSUE',error?.message??error?.code??'Unknown owner read issue.','warning',inspect?()=>inspect({kind:'area52-diagnostic-error',id:name,title:label(name)+' read issue',payload:error}):null,scope));
+    errors.body.append(list);
+  }
+  if(errorRows.length){const list=element(d,'div',{className:'a52-diagnostics-timeline'});for(const row of errorRows.slice(-24))list.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));errors.body.append(list);}
+  if(!cognitionErrors.length&&!errorRows.length)errors.body.append(emptyDiagnosticRow(d,'No retained warnings or errors match the current filters.'));
+  root.append(errors.root);
+
+  const performance=diagnosticSection(d,'Performance / browser UI attribution',{count:'timings'});
+  const uiLoad=operational?.telemetry?.uiLoad??null,categories=uiLoad?.categories??{};
+  performance.body.append(createKeyValue(d,[
+    {key:'Host event invalidations',value:diagnosticLoadMetric(categories.HOST_EVENT_INVALIDATION)},{key:'Scatter / Gather owner read',value:diagnosticLoadMetric(categories.OWNER_SCATTER_GATHER_READ)},
+    {key:'Journal diagnostics read',value:diagnosticLoadMetric(categories.UI_JOURNAL_DIAGNOSTICS_READ)},{key:'Journal processing',value:diagnosticLoadMetric(categories.UI_JOURNAL_PROCESS)},
+    {key:'Activity feed render',value:diagnosticLoadMetric(categories.UI_ACTIVITY_FEED_RENDER)},{key:'Workspace refresh',value:diagnosticLoadMetric(categories.UI_WORKSPACE_REFRESH)},{key:'Capture total',value:diagnosticLoadMetric(categories.UI_CAPTURE_TOTAL)},
+  ]));root.append(performance.root);
+
+  const timelineSection=diagnosticSection(d,'Event timeline · all retained evidence',{open:true,count:String(timeline.matchingRows)+' matching'});
+  const controls=element(d,'div',{className:'a52-diagnostics-toolbar'});
   const timeSelect=selectControl(d,'Time',filters.time,[['ALL','All retained'],['1M','Last 1 minute'],['5M','Last 5 minutes'],['15M','Last 15 minutes']]);
-  const catSelect=selectControl(d,'Category',filters.category,[['ALL','All categories'],...snapshot.availableCategories.map(x=>[x,x])]);
-  const sevSelect=selectControl(d,'Severity',filters.severity,[['ALL','All severities'],...snapshot.availableSeverities.map(x=>[x,x])]);
-  const search=element(d,'input',{attrs:{type:'search',placeholder:'Search stage, reason, receipt, job, result…','aria-label':'Search turn log'}});search.value=filters.search??'';
+  const catSelect=selectControl(d,'Category',filters.category,[['ALL','All categories'],...timeline.availableCategories.map(x=>[x,x])]);
+  const sevSelect=selectControl(d,'Severity',filters.severity,[['ALL','All severities'],...timeline.availableSeverities.map(x=>[x,x])]);
+  const search=element(d,'input',{attrs:{type:'search',placeholder:'Search stages, reasons, receipts, jobs, resources…','aria-label':'Search diagnostics'}});search.value=filters.search??'';
   controls.append(timeSelect.wrap,catSelect.wrap,sevSelect.wrap,search);
   scope?.listen?.(timeSelect.input,'change',()=>{filters.time=timeSelect.input.value;refresh?.();});
   scope?.listen?.(catSelect.input,'change',()=>{filters.category=catSelect.input.value;refresh?.();});
   scope?.listen?.(sevSelect.input,'change',()=>{filters.severity=sevSelect.input.value;refresh?.();});
   scope?.listen?.(search,'change',()=>{filters.search=String(search.value??'').trim();refresh?.();});
-  filterCard.append(controls,element(d,'p',{className:'a52-muted',text:snapshot.truncated?'Visible row cap reached; narrow filters or export the selected-turn metadata for the bounded retained set.':'Showing '+snapshot.visibleRows+' of '+snapshot.matchingRows+' matching rows.'}));root.append(filterCard);
+  timelineSection.body.append(controls,element(d,'p',{className:'a52-muted',text:timeline.truncated?'Visible row cap reached. Narrow filters or use Export Full Diagnostics for the complete retained evidence set.':'Showing '+timeline.visibleRows+' of '+timeline.matchingRows+' matching rows across '+String(snapshot.retention?.turnCount??0)+' retained turn(s).'}));
+  const timelineList=element(d,'div',{className:'a52-diagnostics-timeline'});
+  if(!timeline.rows.length)timelineList.append(emptyDiagnosticRow(d,snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate diagnostics.'));
+  for(const row of timeline.rows)timelineList.append(renderRow(d,row,{model,selection:row.selection??s,scope,inspect}));
+  timelineSection.body.append(timelineList);root.append(timelineSection.root);
 
-  const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job');
-  const jobs=element(d,'section',{className:'a52-card',attrs:{'aria-label':'Selected turn job drilldown'}});jobs.append(element(d,'h2',{text:'Jobs · resource → return → Gather → Seal'}));
-  if(!jobRows.length)jobs.append(element(d,'p',{className:'a52-muted',text:'No owner-backed job audit is retained for this selected turn.'}));
-  for(const row of jobRows)jobs.append(renderRow(d,row,{model,selection:s,scope}));
-  root.append(jobs);
+  const raw=diagnosticSection(d,'Raw operational snapshot',{count:operational?'sanitized':'NO EVIDENCE'});
+  if(operational)raw.body.append(element(d,'pre',{className:'a52-context-packet',text:JSON.stringify(sanitize(operational),null,2),attrs:{'aria-label':'Sanitized raw operational diagnostics snapshot'}}));
+  else raw.body.append(emptyDiagnosticRow(d,'No operational Diagnostics snapshot is currently published.'));
+  root.append(raw.root);
 
-  const list=element(d,'section',{className:'a52-card',attrs:{'aria-label':'Correlated turn path'}});list.append(element(d,'h2',{text:'Producer → consumer causal path'}));
-  const pathRows=snapshot.rows.filter(row=>row.stage!=='Fan-out job');
-  if(!pathRows.length)list.append(element(d,'p',{className:'a52-muted',text:snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate this log.'}));
-  for(const row of pathRows)list.append(renderRow(d,row,{model,selection:s,scope}));
-  root.append(list);
-
-  const retention=snapshot.retention??{};
-  root.append(element(d,'section',{className:'a52-card'},element(d,'h2',{text:'Retention / safety'}),createKeyValue(d,[
-    {key:'Storage',value:retention.available===false?'DEGRADED: '+String(retention.lastError??'local storage unavailable'):String(retention.storageKind??'unknown')},
-    {key:'Retained turns / entries',value:String(retention.turnCount??0)+' / '+String(retention.entryCount??0)},{key:'Serialized bytes / ceiling',value:String(retention.serializedBytes??0)+' / '+String(retention.maxStoredBytes??'unknown')},
-    {key:'Storage writes / skipped redundant writes',value:String(retention.writes??0)+' / '+String(retention.skippedRedundantWrites??0)},{key:'Payload policy',value:'metadata only; no raw prompts, story/Lore bodies, credentials, or hidden reasoning'},
-  ])));
+  const retention=diagnosticSection(d,'Retention / safety',{count:String(snapshot.retention?.entryCount??0)+' entries'});
+  const retained=snapshot.retention??{};
+  retention.body.append(createKeyValue(d,[
+    {key:'Storage',value:retained.available===false?'DEGRADED: '+String(retained.lastError??'local storage unavailable'):String(retained.storageKind??'unknown')},
+    {key:'Retained turns / entries',value:String(retained.turnCount??0)+' / '+String(retained.entryCount??0)},{key:'Serialized bytes / ceiling',value:String(retained.serializedBytes??0)+' / '+String(retained.maxStoredBytes??'unknown')},
+    {key:'Writes / skipped redundant writes',value:String(retained.writes??0)+' / '+String(retained.skippedRedundantWrites??0)},{key:'Payload policy',value:'metadata only; no raw prompts, story/Lore bodies, credentials, or hidden reasoning'},
+  ]));root.append(retention.root);
   host.append(root);
 }
 
-function renderRow(d,row,{model,selection,scope}={}){
+function renderRow(d,row,{model,selection,scope,inspect}={}){
   const details=element(d,'details',{className:'a52-wave13-flow-row a52-turn-log__row',dataset:{turnLogRow:row.id}}),summary=element(d,'summary',{className:'a52-inline-status'});
   summary.append(element(d,'span',{className:'a52-muted',text:displayTime(row)}),makeBadge(d,row.severity,severityStatus(row.severity)),element(d,'strong',{text:row.stage}),makeBadge(d,row.status,statusToken(row.status)));
   if(row.receiptId)summary.append(element(d,'code',{text:row.receiptId}));
@@ -150,8 +345,91 @@ function renderRow(d,row,{model,selection,scope}={}){
   let loaded=false;
   scope?.listen?.(details,'toggle',()=>{
     if(!details.open||loaded)return;loaded=true;const payload=model.detail(row.id,{selection});details.append(renderDetail(d,row,payload));
+    if(inspect)inspect({kind:'area52-diagnostic-event',id:row.id,title:row.stage,category:row.category,severity:row.severity,status:row.status,selection:{...selection},payload});
   });
   return details;
+}
+
+function safeDiagnosticsRead(provider){
+  try{return provider?.read?.()??null;}catch(error){return{kind:'Area52DiagnosticsUnavailable',error:{code:error?.code??'DIAGNOSTICS_READ_FAILED',message:safeText(error?.message??error,512)}};}
+}
+function diagnosticsStatus(snapshot,operational){
+  const cognitionErrors=Object.keys(operational?.cognition?.errors??{}).length;
+  const failures=Number(operational?.producers?.failures??0);
+  if(cognitionErrors||failures)return{label:'ATTENTION',token:'warning'};
+  if(!snapshot.current||operational?.host?.waitingForTurn)return{label:'WAITING',token:'historical'};
+  return{label:'LIVE',token:'ready'};
+}
+function diagnosticsMetrics(snapshot,timeline,operational){
+  const lanes=operational?.resources?.rows??[],errors=timeline.rows.filter(row=>row.severity==='ERROR').length,warnings=timeline.rows.filter(row=>row.severity==='WARN').length;
+  return[
+    ['Retained events',timeline.totalRows],['Visible',timeline.visibleRows],['Jobs',snapshot.summary?.logicalJobs??0],
+    ['Resources',lanes.length],['Errors / warnings',errors+' / '+warnings],['Lore / Memory',(operational?.lore?.accepted??0)+' / '+(operational?.memory?.counts?.exactEvidence??0)],
+  ];
+}
+function diagnosticSection(d,title,{open=false,count=null}={}){
+  const root=element(d,'details',{className:'a52-diagnostics-section'});root.open=Boolean(open);
+  const summary=element(d,'summary',{className:'a52-diagnostics-section__summary'});
+  summary.append(element(d,'strong',{text:title}));
+  if(count!=null)summary.append(element(d,'span',{className:'a52-muted',text:String(count)}));
+  const body=element(d,'div',{className:'a52-diagnostics-section__body'});root.append(summary,body);return{root,body};
+}
+function compactStatusRow(d,name,status,detail,token='historical',onInspect=null,scope=null){
+  const row=element(d,'div',{className:'a52-diagnostics-status-row'});
+  row.append(element(d,'strong',{text:name}),makeBadge(d,String(status??'UNKNOWN'),token),element(d,'span',{className:'a52-muted',text:String(detail??'No additional evidence published.')}));
+  if(onInspect)row.append(createButton(d,{label:'Inspect',scope,size:'sm',variant:'quiet',onPress:onInspect}));
+  return row;
+}
+function emptyDiagnosticRow(d,textValue){return element(d,'div',{className:'a52-diagnostics-empty',text:textValue});}
+function stageDiagnosticToken(value){const x=String(value??'').toUpperCase();if(/FAIL|ERROR|DEGRADED|UNAVAILABLE|DISCONNECTED/.test(x))return'warning';if(/LIVE|READY|COMPLETE|CONNECTED|SEALED/.test(x))return'ready';return'historical';}
+function diagnosticReceiptSummary(receipt){
+  if(!receipt)return'Not published';
+  const counts=receipt.counts&&typeof receipt.counts==='object'?Object.entries(receipt.counts).map(([key,value])=>label(key)+' '+value).join(' · '):'';
+  return[receipt.kind??'receipt',receipt.status??receipt.reasonCode??'published',counts].filter(Boolean).join(' · ');
+}
+function diagnosticLoadMetric(row){
+  if(!row)return'NO_EVIDENCE';
+  const count=Number(row.count??row.samples??0),avg=Number(row.averageMs??row.avgMs??0),max=Number(row.maxMs??0);
+  return count+' samples · '+roundDiagnostic(avg)+' ms avg · '+roundDiagnostic(max)+' ms max';
+}
+function roundDiagnostic(value){const n=Number(value);return Number.isFinite(n)?Math.round(n*10)/10:0;}
+function buildMasterTimeline(evidence){
+  const out=[];
+  for(const turn of evidence?.turns??[]){
+    for(const entry of turn.entries??[])out.push({
+      id:entry.id,type:entry.type,subtype:entry.subtype??null,status:entry.status??null,title:entry.title??null,summary:entry.summary??null,detail:entry.detail??null,
+      at:entry.at??null,receiptRef:entry.receiptRef??null,selection:turn.selection??entry.selection??null,metadata:entry.metadata??null,
+    });
+  }
+  return out.sort((a,b)=>numericTime(a.at)-numericTime(b.at)||String(a.id??'').localeCompare(String(b.id??'')));
+}
+function collectDiagnosticErrors(operational,timeline=[]){
+  const out=[];
+  for(const [name,error] of Object.entries(operational?.cognition?.errors??{}))out.push({source:'COGNITION',name,error});
+  for(const row of timeline)if(/ERROR|FAIL|DEGRADED|ABORT|REJECT|INVALID/.test(String(row.status??'').toUpperCase())||String(row.type??'').toUpperCase()==='READ_ERROR')out.push({source:'TIMELINE',event:row});
+  return out;
+}
+function diagnosticsBundleFiles(payload){
+  const op=payload.operationalSnapshot??{},root='Area52-Diagnostics-'+fileTimestamp(payload.exportedAt)+'/';
+  const j=(value)=>JSON.stringify(value??null,null,2);
+  return[
+    {path:root+'README.txt',content:'Area 52 Diagnostics bundle\n\nThis archive contains bounded metadata-only diagnostics retained by the UI. Raw prompts, story/Lore bodies, credentials, keys, and hidden reasoning are intentionally excluded.\n'},
+    {path:root+'manifest.json',content:j({...payload.manifest,safety:payload.safety})},
+    {path:root+'timeline.json',content:j(payload.timeline)},
+    {path:root+'selected-turn.json',content:j(payload.selectedTurn)},
+    {path:root+'retained-evidence.json',content:j(payload.retainedEvidence)},
+    {path:root+'brain/brain.json',content:j({producers:op.producers,pipeline:op.pipeline,generationInspection:op.generationInspection})},
+    {path:root+'runtime/runtime.json',content:j(op.runtime)},
+    {path:root+'resources/resources.json',content:j({resources:op.resources,wiring:op.wiring,coprocessor:op.coprocessor})},
+    {path:root+'knowledge/lore-memory.json',content:j({lore:op.lore,memory:op.memory,cognition:op.cognition})},
+    {path:root+'performance/ui-load.json',content:j(op.telemetry?.uiLoad??null)},
+    {path:root+'errors/errors.json',content:j(payload.errors)},
+    {path:root+'operational-snapshot.json',content:j(op)},
+  ];
+}
+function fileTimestamp(value){
+  const date=new Date(Number(value)||Date.now()),pad=(n)=>String(n).padStart(2,'0');
+  return date.getFullYear()+pad(date.getMonth()+1)+pad(date.getDate())+'-'+pad(date.getHours())+pad(date.getMinutes())+pad(date.getSeconds());
 }
 
 function buildTurnRows(turn,selection){
@@ -309,5 +587,29 @@ function safeText(value,limit=2048){let out=String(value??'');out=out.replace(/(
 function sanitize(value,depth=0,key=''){if(depth>7)return'[depth-clipped]';const k=String(key??'').toLowerCase();if(BLOCKED_KEYS.has(k))return'[REDACTED]';if(value==null||typeof value==='number'||typeof value==='boolean')return value;if(typeof value==='string')return safeText(value);if(Array.isArray(value))return value.slice(0,64).map(v=>sanitize(v,depth+1,key));if(typeof value==='object'){const out={};for(const [name,v] of Object.entries(value)){const clean=sanitize(v,depth+1,name);if(clean!==undefined)out[name]=clean;}return out;}return safeText(value);}
 function boundObject(value,maxBytes){let clean=sanitize(value),json=JSON.stringify(clean);if(json.length<=maxBytes)return clean;return{kind:clean?.kind??'Area52TurnLogDetail',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,row:clean?.row??null,sources:(clean?.sources??[]).slice(0,4).map(source=>({entryId:source.entryId,type:source.type,subtype:source.subtype,status:source.status,receiptRef:source.receiptRef,summary:safeText(source.summary??'Detail clipped to bounded export size.',512)})),truncated:true,maxBytes,safety:{metadataOnly:true}};}
 function safeClone(value){if(value==null)return value;if(typeof structuredClone==='function')return structuredClone(value);return JSON.parse(JSON.stringify(value));}
+
+
+function createStoredZipBlob(files,{BlobCtor=globalThis.Blob,TextEncoderCtor=globalThis.TextEncoder,exportedAt=Date.now()}={}){
+  try{
+    const encoder=new TextEncoderCtor(),locals=[],centrals=[];let offset=0,centralSize=0;
+    const stamp=dosDateTime(exportedAt);
+    for(const file of files??[]){
+      const name=encoder.encode(String(file.path??'diagnostic.txt')),data=encoder.encode(String(file.content??'')),crc=crc32(data),size=data.byteLength;
+      const local=new Uint8Array(30+name.byteLength),lv=new DataView(local.buffer);
+      lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(6,0x0800,true);lv.setUint16(8,0,true);lv.setUint16(10,stamp.time,true);lv.setUint16(12,stamp.date,true);
+      lv.setUint32(14,crc,true);lv.setUint32(18,size,true);lv.setUint32(22,size,true);lv.setUint16(26,name.byteLength,true);lv.setUint16(28,0,true);local.set(name,30);
+      locals.push(local,data);
+      const central=new Uint8Array(46+name.byteLength),cv=new DataView(central.buffer);
+      cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x0800,true);cv.setUint16(10,0,true);cv.setUint16(12,stamp.time,true);cv.setUint16(14,stamp.date,true);
+      cv.setUint32(16,crc,true);cv.setUint32(20,size,true);cv.setUint32(24,size,true);cv.setUint16(28,name.byteLength,true);cv.setUint16(30,0,true);cv.setUint16(32,0,true);cv.setUint16(34,0,true);cv.setUint16(36,0,true);cv.setUint32(38,0,true);cv.setUint32(42,offset,true);central.set(name,46);
+      centrals.push(central);offset+=local.byteLength+size;centralSize+=central.byteLength;
+    }
+    const end=new Uint8Array(22),ev=new DataView(end.buffer),count=centrals.length;
+    ev.setUint32(0,0x06054b50,true);ev.setUint16(4,0,true);ev.setUint16(6,0,true);ev.setUint16(8,count,true);ev.setUint16(10,count,true);ev.setUint32(12,centralSize,true);ev.setUint32(16,offset,true);ev.setUint16(20,0,true);
+    return new BlobCtor([...locals,...centrals,end],{type:'application/zip'});
+  }catch{return null;}
+}
+function crc32(bytes){let crc=0xffffffff;for(const byte of bytes){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return(crc^0xffffffff)>>>0;}
+function dosDateTime(value){const d=new Date(Number(value)||Date.now()),year=Math.max(1980,d.getFullYear());return{time:(d.getHours()<<11)|(d.getMinutes()<<5)|Math.floor(d.getSeconds()/2),date:((year-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()};}
 
 function safeDecisionRead(adapter,selection){try{return adapter?.read?.(selection)??null;}catch(error){return{kind:'BrainDecisionVisibilityReadModel',contractVersion:1,selection,state:'NO_EVIDENCE',identityState:'READ_FAILED',stages:[],sensoryNominations:[],choiceDecisions:[],lifecycleObligations:[],candidateFlow:[],delivery:{planned:{state:'UNAVAILABLE'},sealed:{state:'UNAVAILABLE'},observed:{state:'UNAVAILABLE'}},missingReceipts:['NativeBrainSelectedTurnReceipt'],errors:[{stage:'BrainDecisionVisibility',code:error?.code??'READ_FAILED'}],safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false}};}}

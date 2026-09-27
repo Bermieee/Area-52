@@ -164,8 +164,33 @@ test('chat switch, regeneration, reload, bounded retention, failed storage, and 
   const registry=new WorkspaceRegistry();
   const mounted=installTurnLogDiagnosticsWorkspace(registry,{journal:reloaded,selectionProvider:()=>s2});
   assert.equal(registry.has('turn-log'),true);
+  assert.equal(registry.get('turn-log').title,'Diagnostics');
   mounted.release();
   assert.equal(registry.has('turn-log'),false);
+});
+
+
+test('full Diagnostics export bundles every retained UI evidence surface and sanitizes operational secrets',()=>{
+  let now=1700000450000;
+  const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});
+  journal.recordSnapshot(snapshot());
+  const model=new SelectedTurnLogModel({journal,selectionProvider:()=>baseSelection,now:()=>now});
+  const bundle=model.exportDiagnosticsBundle({operationalSnapshot:{
+    runtime:{summary:{lifecycleCounts:{ACTIVE:1,FAILED:0}}},
+    resources:{rows:[{id:'sidecar:one',state:'READY'}]},
+    secret:'sk-should-never-export',
+  }});
+  assert.equal(bundle.kind,'Area52DiagnosticsBundle');
+  const paths=bundle.files.map(file=>file.path);
+  assert.ok(paths.includes('manifest.json'));
+  assert.ok(paths.includes('selected-turn/diagnostics.json'));
+  assert.ok(paths.includes('selected-turn/timeline.jsonl'));
+  assert.ok(paths.includes('selected-turn/brain-decision.json'));
+  assert.ok(paths.includes('session/operational-snapshot.json'));
+  assert.ok(paths.includes('session/retention.json'));
+  const serialized=bundle.files.map(file=>file.content).join('\n');
+  assert.equal(serialized.includes('sk-should-never-export'),false);
+  assert.match(serialized,/\[REDACTED\]/);
 });
 
 
@@ -177,6 +202,8 @@ test('workspace answers the selected-turn drilldown in human-readable labels ins
   const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
   registry.get('turn-log').render(host,{scope,refresh:()=>{}});
   const all=(node)=>[node,...(node.children??[]).flatMap(all)],nodes=all(host),visible=nodes.map(node=>node.textContent??'').join(' ');
+  assert.match(visible,/Area-?52 Diagnostics/);
+  assert.match(visible,/event timeline/i);
   assert.match(visible,/6 logical jobs/);
   assert.match(visible,/0 optional provider attempts/);
   assert.match(visible,/result:1 · job HOT → GATHER · Gather ADMITTED/);
@@ -188,4 +215,53 @@ test('workspace answers the selected-turn drilldown in human-readable labels ins
   assert.match(expandedText,/GATHER/);
   assert.equal(expanded.some(node=>node.tagName==='PRE'),false);
   scope.cleanup();mounted.release();
+});
+
+
+test('Diagnostics aggregates retained history and current operational telemetry into one safe export bundle',()=>{
+  let now=1700000600000;
+  const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});
+  const first={...baseSelection,turnId:'turn:one',generationId:'gen:one',correlationId:'corr:one'};
+  const second={...baseSelection,turnId:'turn:two',generationId:'gen:two',correlationId:'corr:two'};
+  journal.recordSnapshot(snapshot({selection:first}));
+  journal.recordSnapshot(snapshot({selection:second}));
+  const diagnostics={read:()=>({
+    kind:'Wave13DiagnosticsCenter',
+    host:{connected:true,waitingForTurn:false},
+    producers:{active:2,failures:0,stages:[{id:'runtime',label:'Runtime',state:'LIVE',reason:'Owner receipt published.'}],inspections:{}},
+    runtime:{summary:{lifecycleCounts:{ACTIVE:1,COMPLETE:4},queueDepth:{L0:0,L1:1}},turn:{jobs:[]}},
+    coprocessor:{summary:{providerCalls:{invoked:2,failed:0},resourceTelemetry:{testsPassed:1,testsFailed:0}}},
+    resources:{rows:[{id:'sidecar:test',kind:'SIDECAR',connected:true,callable:true}],lanes:[]},
+    cognition:{errors:{},jobs:[],gather:[],seal:{admittedResultIds:[]}},
+    lore:{accepted:3,learned:2,retrievalReady:2,lifecycle:{due:0,active:0,counts:{INVALID:0}}},
+    memory:{counts:{exactEvidence:4,current:3,historical:1,unresolved:0,episodes:1,reflections:0,summaries:1},freshness:{freshSummaries:1,staleSummaries:0},retrievalStatus:'READY'},
+    telemetry:{uiLoad:{categories:{}},resourceEvents:[]},
+    wiring:{jev:{lane:{}},sidecar:{lane:{configured:1,connected:1,callable:1}},vectoring:{lane:{}}},
+    diagnosticMessage:'api_key=sk-export-secret',
+  })};
+  const model=new SelectedTurnLogModel({journal,selectionProvider:()=>second,diagnostics,now:()=>now});
+  const timeline=model.readTimeline();
+  assert.ok(timeline.totalRows>model.read().rows.length);
+  const exported=model.exportDiagnostics();
+  assert.equal(exported.kind,'Area52DiagnosticsExport');
+  assert.equal(exported.manifest.retainedTurns,2);
+  assert.equal(exported.operationalSnapshot.lore.accepted,3);
+  assert.ok(exported.timeline.length>0);
+  assert.equal(JSON.stringify(exported).includes('sk-export-secret'),false);
+  assert.match(JSON.stringify(exported),/\[REDACTED\]/);
+  const download=model.downloadFullDiagnostics({document:null});
+  assert.equal(download.ok,false);
+  assert.equal(download.reason,'DOWNLOAD_API_UNAVAILABLE');
+  const paths=download.files.map(file=>file.path);
+  assert.ok(paths.length>=10);
+  assert.ok(paths.every(path=>path.startsWith('Area52-Diagnostics-')));
+  assert.ok(paths.some(path=>path.endsWith('/manifest.json')));
+  assert.ok(paths.some(path=>path.endsWith('/timeline.json')));
+  assert.ok(paths.some(path=>path.endsWith('/brain/brain.json')));
+  assert.ok(paths.some(path=>path.endsWith('/runtime/runtime.json')));
+  assert.ok(paths.some(path=>path.endsWith('/resources/resources.json')));
+  assert.ok(paths.some(path=>path.endsWith('/knowledge/lore-memory.json')));
+  assert.ok(paths.some(path=>path.endsWith('/performance/ui-load.json')));
+  assert.ok(paths.some(path=>path.endsWith('/errors/errors.json')));
+  assert.ok(paths.some(path=>path.endsWith('/operational-snapshot.json')));
 });

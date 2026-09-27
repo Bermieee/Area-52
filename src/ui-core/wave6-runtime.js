@@ -136,7 +136,7 @@ export function createWave6ProductInterface({
   const operations=hostBindings?new Wave13OperationalStatusAdapter({hostBindings,liveReceiptBinding,productionAdapters,loreStudy,resources}):null;
   const diagnostics=hostBindings?new Wave13DiagnosticsCenterAdapter({operations,resources,loreStudy,memory:memoryOwner,cognition,liveReceiptBinding,productionAdapters,uiLoadTrace}):null;
   const evidenceJournal=hostBindings?new DemoEvidenceJournal({storage:stateStore.storage,namespace:String(stateStore.namespace??'area52.ui.v1')+'.demoEvidence.v1'}):null;
-  const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider,decisionVisibility:brainDecisionVisibility}):null;
+  const turnLogWorkspace=evidenceJournal?installTurnLogDiagnosticsWorkspace(workspaceRegistry,{journal:evidenceJournal,selectionProvider,decisionVisibility:brainDecisionVisibility,diagnostics}):null;
   const releaseWave13Surfaces=installWave13OperatorSurfaces(workspaceRegistry,{operations,resources,loreStudy,loreAuthoring,memory:memoryOwner,diagnostics,actionRouter,cognition,coprocessor,frontFacePresentation,evidenceJournal});
   registerProductionEngineeringWorkspaces(workspaceRegistry,{runtime,coprocessor,promptPlan,forensics});
   registerWave7Workspaces(workspaceRegistry,{promptPlan,forensics,presentation:explainabilityPresentation,scheduler});

@@ -904,12 +904,12 @@ export class DevelopmentDeploymentBrain {
     return receipt;
   }
 
-  #sceneEventObligationGuard(event,{allowPostSeal=false}={}){
+  #sceneEventObligationGuard(event){
     if(event?.producer!=='SCENE_INTELLIGENCE')return{accepted:false,reasonCode:'SCENE_EVENT_PRODUCER_MISMATCH'};
     if(!event?.chatId)return{accepted:false,reasonCode:'SCENE_EVENT_CHAT_ID_MISSING'};
     const activeChat=String(this.core.hotCognition?.activeChatNamespace??this.scene.narrativeFeed.activeChatId??'');
     if(activeChat&&String(event.chatId)!==activeChat)return{accepted:false,reasonCode:'SCENE_EVENT_FOREIGN_CHAT'};
-    if(event.turnId&&!allowPostSeal&&this.core.publication.seal.isTurnSealed(event.turnId))return{accepted:false,reasonCode:'SCENE_EVENT_POST_SEAL'};
+    if(event.turnId&&this.core.publication.seal.isTurnSealed(event.turnId))return{accepted:false,reasonCode:'SCENE_EVENT_POST_SEAL'};
     const refs=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
     const currentSources=new Set(this.scene.narrativeFeed.currentEvidence(String(event.chatId)).map(row=>String(row.sourceRevisionId)));
     if(refs.length&&refs.some(ref=>!currentSources.has(String(ref))))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SOURCE'};
@@ -920,7 +920,7 @@ export class DevelopmentDeploymentBrain {
     return{accepted:true,reasonCode:'SCENE_EVENT_CURRENT'};
   }
 
-  bindSceneEventObligationOwner({producer,eventTypes,mapEvent,executorFactory,allowPostSeal=false}={}){
+  bindSceneEventObligationOwner({producer,eventTypes,mapEvent,executorFactory}={}){
     const producerId=String(producer?.producerId??'').trim();
     if(!producerId)throw new TypeError('Scene event obligation owner requires producer.producerId');
     if(typeof mapEvent!=='function')throw new TypeError('Scene event obligation owner requires mapEvent');
@@ -931,7 +931,7 @@ export class DevelopmentDeploymentBrain {
     for(const eventType of types)if(!Object.values(SceneEventType).includes(eventType))throw new TypeError('Unsupported Scene event obligation type: '+eventType);
     const releases=types.map(eventType=>this.runtime.producers.bindEvent({
       eventType,producerId,
-      guardEvent:(event)=>this.#sceneEventObligationGuard(event,{allowPostSeal}),
+      guardEvent:(event)=>this.#sceneEventObligationGuard(event),
       mapEvent:(event)=>{
         const request=mapEvent(clone(event));
         if(!request)return null;
@@ -951,7 +951,7 @@ export class DevelopmentDeploymentBrain {
         return{
           ...ownerExecutor,
           execute:async(context={})=>{
-            const guard=this.#sceneEventObligationGuard(event,{allowPostSeal});
+            const guard=this.#sceneEventObligationGuard(event);
             if(!guard.accepted){
               const reasonCode=guard.reasonCode+':BEFORE_EXECUTION';
               this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode,producerId,event});

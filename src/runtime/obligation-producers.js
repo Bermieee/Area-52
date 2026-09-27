@@ -68,15 +68,55 @@ export class ObligationProducerRegistry {
     return this.director.submit(obligation, { ...executor, units: request.units ?? executor.units });
   }
 
-  bindEvent({ eventType, producerId, mapEvent, executorFactory }) {
+  bindEvent({ eventType, producerId, mapEvent, executorFactory, guardEvent = null, onDisposition = null }) {
     if (typeof mapEvent !== 'function') throw new TypeError('mapEvent must be a function supplied by the specialist owner');
     if (typeof executorFactory !== 'function') throw new TypeError('executorFactory must be supplied by the specialist owner');
+    if (guardEvent !== null && typeof guardEvent !== 'function') throw new TypeError('guardEvent must be a function when supplied');
+    if (onDisposition !== null && typeof onDisposition !== 'function') throw new TypeError('onDisposition must be a function when supplied');
     this.#required(producerId);
+    const notify = (entry) => {
+      try { onDisposition?.(structuredClone(entry)); } catch {}
+    };
     const unsubscribe = this.director.events.subscribe(eventType, (event) => {
-      const request = mapEvent(event);
-      if (!request) return;
-      const executor = executorFactory(event, request);
-      this.produce(producerId, request, executor);
+      if (guardEvent) {
+        let guard;
+        try { guard = guardEvent(event); }
+        catch (error) {
+          notify({ status: 'REJECTED', reasonCode: error?.code ?? 'EVENT_GUARD_FAILED', event, admission: null });
+          return;
+        }
+        const accepted = typeof guard === 'boolean' ? guard : guard?.accepted !== false;
+        if (!accepted) {
+          notify({ status: 'REJECTED', reasonCode: guard?.reasonCode ?? 'EVENT_GUARD_REJECTED', event, admission: null });
+          return;
+        }
+      }
+      let request;
+      try { request = mapEvent(event); }
+      catch (error) {
+        notify({ status: 'REJECTED', reasonCode: error?.code ?? 'EVENT_OWNER_MAP_FAILED', event, admission: null });
+        return;
+      }
+      if (!request) {
+        notify({ status: 'SKIPPED', reasonCode: 'OWNER_DECLARED_NO_WORK', event, admission: null });
+        return;
+      }
+      let executor;
+      try { executor = executorFactory(event, request); }
+      catch (error) {
+        notify({ status: 'REJECTED', reasonCode: error?.code ?? 'EVENT_EXECUTOR_FACTORY_FAILED', event, request, admission: null });
+        return;
+      }
+      try {
+        const admission = this.produce(producerId, request, executor);
+        notify({
+          status: admission?.accepted === false ? 'REJECTED' : admission?.deduped ? 'DEDUPED' : admission?.coalesced ? 'COALESCED' : 'ADMITTED',
+          reasonCode: admission?.accepted === false ? String(admission?.reason ?? 'OBLIGATION_REJECTED') : 'OWNER_OBLIGATION_ADMITTED',
+          event, request, admission,
+        });
+      } catch (error) {
+        notify({ status: 'REJECTED', reasonCode: error?.code ?? 'OBLIGATION_PRODUCTION_FAILED', event, request, admission: null });
+      }
     });
     const binding = { eventType, producerId, unsubscribe };
     this.bindings.push(binding);

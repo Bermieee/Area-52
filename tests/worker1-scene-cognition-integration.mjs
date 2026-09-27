@@ -334,3 +334,161 @@ test('Scene cognition receipts and Director metadata remain bounded and retain n
   assert.doesNotMatch(JSON.stringify(brain.resourceDirector.snapshot()),new RegExp(secret));
   assert.equal(brain.listOptionalResources().resources.length,0);
 });
+
+function ambiguousScenePayload(){
+  return{
+    fields:{},
+    boundarySignals:{},
+    ambiguities:[{
+      ambiguityId:'location-reading',
+      decisionKind:'SCENE_CAST_LOCATION_CONFLICT',
+      field:'location',
+      alternatives:[
+        {optionId:'OBSERVATORY',label:'Greyharbor Observatory',value:{location:'Greyharbor Observatory'},confidence:.72},
+        {optionId:'ANNEX',label:'Greyharbor Annex',value:{location:'Greyharbor Annex'},confidence:.68},
+      ],
+    }],
+  };
+}
+
+test('clear deterministic Scene observation stays on the Scene owner path and does not invoke the Sidecar',async()=>{
+  let sidecarCalls=0;
+  const {sillyTavern,context,listeners}=makeHost();
+  const nativeBrain=new Area52NativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  await connectSceneResource(session.brain,{
+    resourceId:'scene:deterministic-skip',
+    handler:()=>{sidecarCalls++;return scenePayload();},
+  });
+  session.start();
+
+  pushUser(context,'At Ember Tavern, Mira waits by the hearth.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+
+  const signal=session.brain.scene.integrationSignal(context.chatId);
+  assert.equal(signal.location.location,'Ember Tavern');
+  assert.equal(sidecarCalls,0,'deterministic supported evidence must not schedule external Scene extraction');
+  const selection=nativeBrain.uiBindings().readSelection({chatId:context.chatId});
+  const selected=session.uiBindings().readSelectedTurnReceipt(selection);
+  assert.equal(selected.sceneFlow?.semanticObservation??null,null);
+  assert.equal(session.brain.readSceneObservationReceipts({limit:16}).length,0);
+  session.destroy();
+});
+
+test('deterministic meaningful location transition is revisioned through the Scene owner and confirms a boundary',()=>{
+  const brain=new DevelopmentDeploymentBrain();
+  const chatId='chat:transition';
+  const firstSource=ownerSource(brain,{chatId,messageId:'m1'});
+  const firstEvent=hostEvent({brain,chatId,messageId:'m1',turnId:'turn:transition:1',sourceRevisionId:firstSource,content:'At Old Docks, Mira waits.'});
+  const first=brain.ingestSceneHostEvent(firstEvent,{extract:(e,scene)=>extractDevelopmentDeploymentScene(e.content,{
+    revision:scene.revision+1,evidenceRef:e.sourceRevisionId,currentScene:scene,sceneRuntime:brain.scene,
+  })});
+  assert.equal(first.status,'OBSERVED');
+  const firstScene=brain.scene.registry.current(first.sceneId);
+  assert.equal(firstScene.fields.location.value.location,'Old Docks');
+
+  const secondSource=ownerSource(brain,{chatId,messageId:'m2'});
+  const secondEvent=hostEvent({brain,chatId,messageId:'m2',turnId:'turn:transition:2',sourceRevisionId:secondSource,content:'Mira travels to Sunken Archive. Scene break.'});
+  const second=brain.ingestSceneHostEvent(secondEvent,{extract:(e,scene)=>extractDevelopmentDeploymentScene(e.content,{
+    revision:scene.revision+1,evidenceRef:e.sourceRevisionId,currentScene:scene,sceneRuntime:brain.scene,
+  })});
+  assert.equal(second.status,'OBSERVED');
+  assert.ok(second.changedFields.includes('location'));
+  assert.equal(second.boundarySignals.locationTransition,1);
+  assert.equal(second.boundarySignals.explicitBreak,1);
+  assert.equal(second.boundary?.decision?.status,'CONFIRMED');
+  assert.ok(second.transition,'confirmed meaningful transition must flow through Clapperboard rather than direct mutation');
+});
+
+test('bounded Sidecar ambiguity is advisory until Scene owner accepts Jev guidance',async()=>{
+  const brain=new DevelopmentDeploymentBrain();
+  await connectSceneResource(brain,{resourceId:'scene:ambiguous',handler:()=>ambiguousScenePayload()});
+  const {work,event}=await createDirectWork(brain,{chatId:'chat:ambiguous',turnId:'turn:ambiguous',generationId:'gen:ambiguous'});
+  assert.equal(work.status,'RETURNED');
+  assert.equal(work.ambiguities.length,1);
+  assert.equal(work.executionReceipt.ambiguityCount,1);
+  const before=brain.scene.integrationSignal('chat:ambiguous').sceneRevision;
+
+  brain.sceneJevOwner.service={
+    async adjudicate(){
+      return{proposedOutcome:'OBSERVATORY',staleState:'FRESH',abstained:false};
+    },
+  };
+  const advice=await brain.adjudicateSceneObservationAmbiguity({
+    work,hostEvent:event,currentSelection:()=>true,turnSealed:()=>false,
+  });
+  assert.equal(advice.status,'ADVISED');
+  assert.equal(advice.accepted,true);
+  assert.equal(advice.selectedOptionId,'OBSERVATORY');
+  assert.equal(brain.scene.integrationSignal('chat:ambiguous').sceneRevision,before,'Jev advice itself must not revise Scene');
+
+  const admission=brain.admitSceneObservationProposal({
+    work,hostEvent:event,currentSelection:true,turnSealed:false,jevAdvice:advice,
+  });
+  assert.equal(admission.accepted,true);
+  assert.equal(admission.ownerReceipt.jevAdvisory.selectedOptionId,'OBSERVATORY');
+  const current=brain.scene.registry.current(admission.ownerReceipt.sceneId);
+  assert.equal(current.fields.location.value.location,'Greyharbor Observatory');
+  assert.equal(current.fields.location.observationClass,'INFERRED');
+  assert.deepEqual(current.fields.location.evidenceRefs,[event.sourceRevisionId]);
+  assert.equal(advice.canonicalMutation,false);
+  assert.equal(advice.settlementPerformed,false);
+});
+
+test('Jev unavailable or late after selection change preserves unresolved Scene state',async()=>{
+  const unavailable=new DevelopmentDeploymentBrain({jevAvailable:false});
+  await connectSceneResource(unavailable,{resourceId:'scene:ambiguous-unavailable',handler:()=>ambiguousScenePayload()});
+  const unavailableWork=await createDirectWork(unavailable,{chatId:'chat:jev-unavailable',turnId:'turn:jev-unavailable',generationId:'gen:jev-unavailable'});
+  const unavailableBefore=unavailable.scene.integrationSignal('chat:jev-unavailable').sceneRevision;
+  const unavailableAdvice=await unavailable.adjudicateSceneObservationAmbiguity({
+    work:unavailableWork.work,hostEvent:unavailableWork.event,currentSelection:()=>true,turnSealed:()=>false,
+  });
+  assert.equal(unavailableAdvice.status,'UNRESOLVED');
+  assert.equal(unavailableAdvice.reasonCode,'JEV_SERVICE_UNAVAILABLE');
+  assert.equal(unavailable.scene.integrationSignal('chat:jev-unavailable').sceneRevision,unavailableBefore);
+
+  const late=new DevelopmentDeploymentBrain();
+  await connectSceneResource(late,{resourceId:'scene:ambiguous-late',handler:()=>ambiguousScenePayload()});
+  const lateWork=await createDirectWork(late,{chatId:'chat:jev-late',turnId:'turn:jev-late',generationId:'gen:jev-late'});
+  const lateBefore=late.scene.integrationSignal('chat:jev-late').sceneRevision;
+  let selected=true;
+  late.sceneJevOwner.service={
+    async adjudicate(){
+      selected=false;
+      return{proposedOutcome:'OBSERVATORY',staleState:'FRESH',abstained:false};
+    },
+  };
+  const lateAdvice=await late.adjudicateSceneObservationAmbiguity({
+    work:lateWork.work,hostEvent:lateWork.event,currentSelection:()=>selected,turnSealed:()=>false,
+  });
+  assert.equal(lateAdvice.status,'UNRESOLVED');
+  assert.equal(lateAdvice.reasonCode,'SCENE_JEV_SELECTION_SUPERSEDED');
+  assert.equal(lateAdvice.stale,true);
+  assert.equal(late.scene.integrationSignal('chat:jev-late').sceneRevision,lateBefore);
+});
+
+test('source edit invalidates dependent Scene observation and fences the old Sidecar proposal',async()=>{
+  const brain=new DevelopmentDeploymentBrain();
+  await connectSceneResource(brain,{resourceId:'scene:source-edit'});
+  const original=await createDirectWork(brain,{chatId:'chat:edit',messageId:'m1',messageRevision:1,turnId:'turn:edit',generationId:'gen:edit'});
+  const admitted=brain.admitSceneObservationProposal({work:original.work,hostEvent:original.event,currentSelection:true,turnSealed:false});
+  assert.equal(admitted.accepted,true);
+  const oldRevision=admitted.ownerReceipt.sceneRevision;
+
+  const replacementSource=ownerSource(brain,{chatId:'chat:edit',messageId:'m1',messageRevision:2});
+  const edit=hostEvent({
+    brain,chatId:'chat:edit',messageId:'m1',messageRevision:2,turnId:'turn:edit:replacement',
+    sourceRevisionId:replacementSource,activity:HostActivity.EDIT,content:'The earlier location description was corrected.',
+  });
+  const editReceipt=brain.ingestSceneHostEvent(edit,{extract:()=>({fields:{},boundarySignals:{}})});
+  assert.ok(editReceipt.invalidatedSourceRevisionRefs.includes(original.sourceRevisionId));
+  assert.ok(editReceipt.sceneRevision>oldRevision);
+  const current=brain.scene.registry.current(editReceipt.sceneId);
+  assert.equal(current.fields.location.observationClass,'UNRESOLVED');
+
+  const oldAgain=brain.admitSceneObservationProposal({work:original.work,hostEvent:original.event,currentSelection:true,turnSealed:false});
+  assert.equal(oldAgain.accepted,false);
+  assert.equal(oldAgain.reasonCode,'SCENE_PROPOSAL_STALE_REVISION');
+  assert.equal(oldAgain.receipt.stale,true);
+});
+

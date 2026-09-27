@@ -16,6 +16,7 @@ import { createMemoryIntegrationSurface } from '../memory-integration-surface.js
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
 import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
+import { SceneStateExtractor } from '../scene/scene-state-extractor.js';
 import { SceneEventPublisher } from '../scene/event-publisher.js';
 import { SceneContextInvalidationPublisher } from '../scene/context-invalidation.js';
 import { ObservationClass, createFieldState } from '../scene/contracts.js';
@@ -25,7 +26,8 @@ import { createCoprocessorResourceHost } from '../coprocessor/resource-host-adap
 import { CoprocessorResourceConnections } from '../coprocessor/resource-connections.js';
 import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler.js';
 import { Capability as CoprocessorCapability } from '../coprocessor/constants.js';
-import { RuntimeDirectorAdmissionBridge } from '../coprocessor/runtime-director-bridge.js';
+import { RuntimeDirectorAdmissionBridge, createResourceDirectorExecutor } from '../coprocessor/runtime-director-bridge.js';
+import { createSceneObservationTask } from '../coprocessor/scene-observation-specialist.js';
 import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
 import { adjudicateJevForOwner } from '../coprocessor/owner-integration.js';
 import { ContinuousConsolidationWorker } from '../coprocessor/cognitive-worker-pipelines.js';
@@ -328,6 +330,8 @@ export class DevelopmentDeploymentBrain {
       publisher: new SceneEventPublisher({ sink: sceneTimelineSink('EVENT') }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
     });
+    this.sceneObservationExtractor = new SceneStateExtractor({ agent: 'area52-cognitive-resource' });
+    this.sceneObservationReceipts = [];
     this.memory = new MemoryTemporalProducer({ snapshot: memoryOwnerSnapshot });
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
     this.sourceMap = new Map();
@@ -579,6 +583,138 @@ export class DevelopmentDeploymentBrain {
       observationApplied: Boolean(observed.applied),
       delta: clone(observed.delta ?? null),
     };
+  }
+
+  async runSceneObservationWork({
+    chatId,turnId,generationId,correlationId=null,sourceRevisionId,narrative,
+    phase='FOREGROUND_USER',parentWorkId=null,foregroundBudgetMs=1200,
+  }={}){
+    const chat=String(chatId??'').trim(),turn=String(turnId??'').trim(),generation=String(generationId??'').trim();
+    const sourceRef=String(sourceRevisionId??'').trim(),text=String(narrative??'').trim();
+    if(!chat||!turn||!generation||!sourceRef||!text)throw new TypeError('Scene observation work requires chatId, turnId, generationId, sourceRevisionId, and narrative');
+    const correlation=String(correlationId??('corr:'+generation));
+    const current=this.scene.ensureChatScene(chat,{sourceRevisionRefs:[sourceRef],evidenceRefs:[sourceRef]});
+    const dispatchedScene=clone(current);
+    const task=createSceneObservationTask({
+      chatId:chat,turnId:turn,generationId:generation,correlationId:correlation,sourceRevisionId:sourceRef,
+      sceneRevision:current.revision,worldRevision:this.core.graph.revision,phase,parentWorkId,
+      foregroundBudgetMs,now:Date.now(),
+    });
+    this.#syncOptionalDirectorProfiles();
+    let workerResult=null,executionError=null;
+    const baseExecutor=createResourceDirectorExecutor({
+      connections:this.resourceConnections,task,
+      inputResolver:()=>({
+        narrative:text,phase,sceneId:dispatchedScene.sceneId,baseRevision:dispatchedScene.revision,
+        evidenceRef:sourceRef,sourceRevisionId:sourceRef,
+      }),
+    });
+    const executor={
+      ...baseExecutor,
+      execute:async(context)=>{
+        try{workerResult=await baseExecutor.execute(context);return workerResult;}
+        catch(error){executionError=error;throw error;}
+      },
+    };
+    const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(text).length/4));
+    const admission=this.resourceDirectorBridge.admit(task,{
+      executor,units:[{id:task.taskId+':unit',payload:{sourceRevisionId:sourceRef,sceneRevision:current.revision,phase}}],
+      constraints:{contextTokens,expectedOutputTokens:700,maxCostClass:'HIGH',requireStructuredOutput:true},
+      owner:'SCENE_OBSERVATION_WORKER',
+    });
+    if(admission.status!=='ADMITTED'){
+      const receipt=this.#sceneObservationExecutionReceipt({
+        task,admission,status:'SKIPPED',reasonCode:'SCENE_OBSERVATION_'+String(admission.status??'UNAVAILABLE'),
+        attempted:false,returned:false,workerResult:null,sourceRevisionId:sourceRef,sceneRevision:current.revision,parentWorkId,
+      });
+      this.#retainSceneObservationReceipt(receipt);
+      return{kind:'SceneObservationWorkResult',status:'SKIPPED',proposal:null,boundarySignals:{},executionReceipt:receipt};
+    }
+    await this.resourceDirector.runCycle({waitForTaskIds:[task.taskId]});
+    const directorRecord=this.resourceDirector.ledger.get(task.taskId);
+    const complete=directorRecord?.executionStatus==='COMPLETE'&&workerResult?.status==='SUCCESS';
+    if(!complete){
+      const receipt=this.#sceneObservationExecutionReceipt({
+        task,admission,status:'DEGRADED',reasonCode:executionError?.code??directorRecord?.lastError?.code??'SCENE_OBSERVATION_EXECUTION_FAILED',
+        attempted:true,returned:false,workerResult:null,sourceRevisionId:sourceRef,sceneRevision:current.revision,parentWorkId,
+      });
+      this.#retainSceneObservationReceipt(receipt);
+      return{kind:'SceneObservationWorkResult',status:'DEGRADED',proposal:null,boundarySignals:{},executionReceipt:receipt};
+    }
+    let proposal;
+    try{
+      const fields={};
+      for(const [name,row] of Object.entries(workerResult.payload?.fields??{})){
+        const observationClass=row?.observationClass??ObservationClass.UNKNOWN;
+        fields[name]={
+          value:clone(row?.value??null),confidence:Number(row?.confidence??0),observationClass,
+          evidenceRefs:observationClass===ObservationClass.UNKNOWN?[]:[sourceRef],
+          provenance:observationClass===ObservationClass.UNKNOWN?[]:['area52-cognitive-resource:'+sourceRef],
+        };
+      }
+      proposal=this.sceneObservationExtractor.propose({
+        scene:dispatchedScene,evidence:{id:sourceRef,sourceRevisionId:sourceRef},fields,
+        provider:String(workerResult.providerId??'area52-cognitive-resource'),
+      });
+    }catch(error){
+      this.resourceDirector.recordOwnerAdmission(task.taskId,{accepted:false,reasonCode:'SCENE_PROPOSAL_CONTRACT_INVALID',consumerId:'SCENE_OWNER'});
+      const receipt=this.#sceneObservationExecutionReceipt({
+        task,admission,status:'INVALID',reasonCode:error?.code??'SCENE_PROPOSAL_CONTRACT_INVALID',
+        attempted:true,returned:true,workerResult,sourceRevisionId:sourceRef,sceneRevision:current.revision,parentWorkId,invalid:true,
+      });
+      this.#retainSceneObservationReceipt(receipt);
+      return{kind:'SceneObservationWorkResult',status:'INVALID',proposal:null,boundarySignals:{},executionReceipt:receipt};
+    }
+    const receipt=this.#sceneObservationExecutionReceipt({
+      task,admission,status:'RETURNED',reasonCode:'SCENE_OBSERVATION_PROPOSAL_RETURNED',
+      attempted:true,returned:true,workerResult,sourceRevisionId:sourceRef,sceneRevision:current.revision,parentWorkId,
+      fieldNames:Object.keys(proposal.fields??{}),
+    });
+    this.#retainSceneObservationReceipt(receipt);
+    return{
+      kind:'SceneObservationWorkResult',status:'RETURNED',proposal,
+      boundarySignals:clone(workerResult.payload?.boundarySignals??{}),executionReceipt:receipt,
+    };
+  }
+
+  admitSceneObservationProposal({
+    work,hostEvent,currentSelection=true,turnSealed=false,
+  }={}){
+    const proposal=work?.proposal,execution=work?.executionReceipt??null;
+    const taskId=execution?.workId??null;
+    const reject=(reasonCode,{stale=false,late=false,invalid=false}={})=>{
+      if(taskId&&this.resourceDirector.ledger.get(taskId))this.resourceDirector.recordOwnerAdmission(taskId,{accepted:false,reasonCode,consumerId:'SCENE_OWNER'});
+      const receipt=this.#sceneObservationOwnerReceipt({execution,accepted:false,reasonCode,stale,late,invalid,ownerReceipt:null});
+      this.#retainSceneObservationReceipt(receipt);this.resourceOwnerReceipts.push(clone(receipt));while(this.resourceOwnerReceipts.length>128)this.resourceOwnerReceipts.shift();
+      return{kind:'SceneObservationAdmissionResult',accepted:false,reasonCode,ownerReceipt:null,receipt};
+    };
+    if(!proposal||proposal.kind!=='SceneObservationProposal')return reject('SCENE_PROPOSAL_CONTRACT_INVALID',{invalid:true});
+    if(!currentSelection)return reject('SCENE_PROPOSAL_SELECTION_SUPERSEDED',{stale:true});
+    const phase=execution?.phase??'FOREGROUND_USER';
+    if(phase!=='POST_RESPONSE'&&turnSealed)return reject('SCENE_PROPOSAL_LATE_AFTER_SEAL',{late:true});
+    const current=this.scene.registry.current(proposal.sceneId);
+    if(!current)return reject('SCENE_PROPOSAL_SCENE_UNAVAILABLE',{stale:true});
+    if(Number(current.revision)!==Number(proposal.baseRevision))return reject('SCENE_PROPOSAL_STALE_REVISION',{stale:true});
+    const hostSource=String(hostEvent?.sourceRevisionId??'').trim();
+    if(!hostSource||!(proposal.sourceRevisionRefs??[]).includes(hostSource)||!(proposal.evidenceRefs??[]).includes(hostSource))return reject('SCENE_PROPOSAL_SOURCE_FENCE_MISMATCH',{invalid:true});
+    let ownerReceipt;
+    try{
+      ownerReceipt=this.ingestSceneHostEvent(hostEvent,{extract:()=>({
+        fields:clone(proposal.fields??{}),boundarySignals:clone(work?.boundarySignals??{}),
+      })});
+    }catch(error){
+      return reject(error?.code??'SCENE_OWNER_REJECTED_PROPOSAL',{invalid:true});
+    }
+    const accepted=ownerReceipt?.status==='OBSERVED';
+    const reasonCode=accepted?'SCENE_OWNER_ADMITTED':ownerReceipt?.noWorkReason??'SCENE_OWNER_NO_CHANGE';
+    if(taskId&&this.resourceDirector.ledger.get(taskId))this.resourceDirector.recordOwnerAdmission(taskId,{accepted,reasonCode,consumerId:'SCENE_OWNER'});
+    const receipt=this.#sceneObservationOwnerReceipt({execution,accepted,reasonCode,ownerReceipt});
+    this.#retainSceneObservationReceipt(receipt);this.resourceOwnerReceipts.push(clone(receipt));while(this.resourceOwnerReceipts.length>128)this.resourceOwnerReceipts.shift();
+    return{kind:'SceneObservationAdmissionResult',accepted,reasonCode,ownerReceipt,receipt};
+  }
+
+  readSceneObservationReceipts({limit=64}={}){
+    const n=Math.max(1,Math.min(128,Number(limit)||64));return clone(this.sceneObservationReceipts.slice(-n));
   }
 
   ingestSceneHostEvent(input = {}, { extract = null } = {}) {
@@ -1102,6 +1238,7 @@ export class DevelopmentDeploymentBrain {
       readOptionalResourceRuntime: () => clone(this.resourceDirector.snapshot()),
       readMemoryExecutionReceipts: () => clone(this.memoryNearlineReceipts),
       readMemoryVectorReceipts: () => this.memory.vectorIndex.readReceipts({limit:128}),
+      readSceneObservationReceipts: () => this.readSceneObservationReceipts({limit:128}),
       loreAuthoringService: this.loreAuthoring,
       loreAuthoringHost,
       loreAuthoringOperator: loreAuthoringHost,
@@ -1269,6 +1406,57 @@ export class DevelopmentDeploymentBrain {
       .sort();
     this.sourceMap.set(sourceId, { laneRevisionId: revision.id, coreRevisionId: coreRevision.id, claimIds, extractionMode });
     return this.sourceMap.get(sourceId);
+  }
+
+  #sceneObservationExecutionReceipt({
+    task,admission,status,reasonCode,attempted,returned,workerResult,sourceRevisionId,sceneRevision,parentWorkId,
+    fieldNames=[],invalid=false,
+  }={}){
+    const profileId=workerResult?.workerId
+      ? admission?.plan?.capabilityAdmission?.candidates?.find(row=>row.sourceWorkerId===workerResult.workerId)?.profileId??admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null
+      : admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null;
+    const resource=(this.resourceConnections.readModel().resources??[]).find(row=>row.providerProfileId===profileId)??null;
+    return{
+      kind:'DeploymentSceneObservationExecutionReceipt',contractVersion:1,
+      status,reasonCode,workId:task?.taskId??null,parentWorkId:parentWorkId??task?.metadata?.parentWorkId??null,
+      chatId:task?.metadata?.chatId??null,turnId:task?.turnId??null,generationId:task?.metadata?.generationId??null,correlationId:task?.correlationId??null,
+      sourceRevisionId,sourceRevisionRefs:[sourceRevisionId].filter(Boolean),sceneRevision:Number(sceneRevision??task?.sceneRevision??0)||null,
+      phase:task?.metadata?.phase??null,attempted:Boolean(attempted),returned:Boolean(returned),ownerAdmitted:null,
+      invalid:Boolean(invalid),stale:false,late:false,degraded:status==='DEGRADED',skipped:status==='SKIPPED',
+      resultId:workerResult?.resultId??null,resourceId:resource?.resourceId??null,providerProfileId:profileId,
+      providerId:workerResult?.providerId??resource?.providerId??null,workerId:workerResult?.workerId??resource?.workerId??null,modelId:workerResult?.modelId??resource?.actualModelId??resource?.modelId??null,
+      latencyMs:Number.isFinite(Number(workerResult?.latency))?Number(workerResult.latency):null,
+      fieldNames:[...new Set(fieldNames)].sort().slice(0,16),
+      rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,
+    };
+  }
+
+  #sceneObservationOwnerReceipt({execution,accepted,reasonCode,stale=false,late=false,invalid=false,ownerReceipt=null}={}){
+    return{
+      kind:'DeploymentSceneObservationOwnerReceipt',contractVersion:1,
+      chatId:execution?.chatId??null,turnId:execution?.turnId??null,generationId:execution?.generationId??null,correlationId:execution?.correlationId??null,
+      workId:execution?.workId??null,parentWorkId:execution?.parentWorkId??null,
+      sourceRevisionId:execution?.sourceRevisionId??null,sceneRevision:ownerReceipt?.sceneRevision??execution?.sceneRevision??null,
+      phase:execution?.phase??null,attempted:Boolean(execution?.attempted),returned:Boolean(execution?.returned),
+      ownerDecision:accepted?'ADMITTED':'REJECTED',ownerAdmissionPerformed:true,ownerAdmitted:Boolean(accepted),
+      status:accepted?'ADMITTED':'REJECTED',reasonCode,stale:Boolean(stale),late:Boolean(late),invalid:Boolean(invalid),
+      degraded:Boolean(execution?.degraded),skipped:Boolean(execution?.skipped),latencyMs:execution?.latencyMs??null,
+      admissions:[{
+        taskId:execution?.workId??null,resultId:execution?.resultId??null,resourceId:execution?.resourceId??null,
+        providerProfileId:execution?.providerProfileId??null,providerId:execution?.providerId??null,workerId:execution?.workerId??null,
+        acceptedByOwner:Boolean(accepted),destination:'SCENE_OWNER',stale:Boolean(stale),late:Boolean(late),invalid:Boolean(invalid),reason:reasonCode,
+      }],
+      changedFields:[...(ownerReceipt?.changedFields??[])].slice(0,16),
+      rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      settlementPerformed:false,canonicalMutation:false,authorityGranted:false,
+    };
+  }
+
+  #retainSceneObservationReceipt(receipt){
+    this.sceneObservationReceipts.push(clone(receipt));
+    if(this.sceneObservationReceipts.length>128)this.sceneObservationReceipts.splice(0,this.sceneObservationReceipts.length-128);
+    return receipt;
   }
 
   #syncOptionalDirectorProfiles() {

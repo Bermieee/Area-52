@@ -180,14 +180,17 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
     metadata:{sourceKind:'SCENE_OWNER',authority:'REFERENCE_ONLY'},
     isRevisionCurrent:(revisionId)=>(queryRevisionSet??=currentSceneRevisionSet(sceneRuntime)).has(String(revisionId)),
     query(request={}){
-      queryRevisionSet=null;
+      queryRevisionSet=currentSceneRevisionSet(sceneRuntime);
       const maxEdges=Math.max(1,Math.min(Number(request.maxEdges)||128,256));
       try{
         const state=sceneRuntime.graph.exportState();
+        const historical=['HISTORICAL','TEMPORAL'].includes(String(request.intentKind??'CURRENT').toUpperCase());
+        if(historical)for(const row of state?.edges??[])for(const ref of [...(row?.sourceRevisionRefs??[]),...(row?.evidenceRefs??[])])queryRevisionSet.add(String(ref));
         const edges=[];
         for(const row of state?.edges??[]){
-          const sceneIds=bounded([row?.fromSceneId,row?.toSceneId],16);
-          const refs=bounded(sceneIds.flatMap(sceneId=>sceneRuntime.registry?.current?.(sceneId)?.sourceRevisionRefs??[]),32);
+          if(row?.status==='RETIRED'&&!historical)continue;
+          const sceneIds=bounded([row?.sceneId,row?.fromSceneId,row?.toSceneId],16);
+          const refs=bounded((row?.sourceRevisionRefs?.length?row.sourceRevisionRefs:sceneIds.flatMap(sceneId=>sceneRuntime.registry?.current?.(sceneId)?.sourceRevisionRefs??[])),32);
           if(!refs.length)continue;
           const evidenceRefs=bounded(row?.evidenceRefs??[],32);
           const from=row.fromSceneId??row.fromRef;
@@ -200,21 +203,24 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
             edgeMeaning:String(row.edgeType??'SCENE_RELATED'),
             sourceKind:'SCENE_OWNER',
             temporalStatus:temporalStatusFor(row),
+            temporal:clone(row.temporalApplicability??null),
             authorityClass:row.authorityClass??(['EVIDENCE_CAUSES','EVIDENCE_SUPPORTS'].includes(String(row.edgeType))?'INFERRED':'OBSERVED'),
             sourceRevisionRefs:refs,
-            dependencyRevisionRefs:bounded(row.derivedFrom??[],32),
+            dependencyRevisionRefs:bounded([...(row.derivedFrom??[]),...(row.sourceRevisionRefs??[])],32),
             provenanceRefs:bounded(row.provenance??[],32),
             evidenceRefs,
-            drillbackRefs:sceneIds.map(sceneId=>({kind:'SCENE_SOURCE_REF',sceneId,sourceRevisionRefs:bounded(sceneRuntime.registry?.current?.(sceneId)?.sourceRevisionRefs??[],16)})),
+            drillbackRefs:sceneIds.map(sceneId=>({kind:'SCENE_SOURCE_REF',sceneId,sceneRevision:row.sceneRevision??sceneRuntime.registry?.current?.(sceneId)?.revision??null,episodeRef:clone(row.episodeRef??null),sourceRevisionRefs:bounded(row.sourceRevisionRefs?.length?row.sourceRevisionRefs:sceneRuntime.registry?.current?.(sceneId)?.sourceRevisionRefs??[],16),observedState:clone(row.observedState??null),temporalApplicability:clone(row.temporalApplicability??null)})),
             claimRefs:[],
-            eventRefs:[],
+            eventRefs:String(row.edgeType)==='EVENT_IN_SCENE'?[String(row.fromRef??'')].filter(Boolean):[],
             relationshipRefs:[String(row.edgeId)],
-            artifactRef:{artifactId:String(row.edgeId),artifactType:'SceneGraphEdge',revision:1},
-            artifactRevision:1,
+            artifactRef:clone(row.episodeRef??{artifactId:String(row.edgeId),artifactType:'SceneGraphEdge',revision:Math.max(1,Number(row.sceneRevision)||1)}),
+            artifactRevision:row.episodeRef?.revision??Math.max(1,Number(row.sceneRevision)||1),
             providerRevision:state?.version??1,
-            representationText:null,
+            representationText:row.observedState?['Scene',sceneIds[0]??'',String(row.edgeType),String(row.fromRef??row.fromSceneId??''),JSON.stringify(row.observedState)].join(' '):null,
             hardRule:false,
             providerWeight:1,
+            sceneRevision:row.sceneRevision??null,
+            status:row.status??'ACTIVE',
           });
           if(edges.length>=maxEdges)break;
         }

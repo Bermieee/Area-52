@@ -97,7 +97,7 @@ test('Worker 4 failed owner admission is retained as FAILED expected work with b
 
 test('Worker 4 chat switch, regeneration, correction fence, reload, dedupe and retention stay isolated',()=>{
   const storage=memory();let now=5000;
-  const journal=new DemoEvidenceJournal({storage,namespace:'worker4-fences',maxTurns:3,maxEntriesPerTurn:4,maxStoredBytes:16384,now:()=>++now});
+  const journal=new DemoEvidenceJournal({storage,namespace:'worker4-fences',maxTurns:3,maxEntriesPerTurn:4,maxStoredBytes:131072,now:()=>++now});
   const a={chatId:'chat:a',turnId:'turn:1',generationId:'gen:1',correlationId:'corr:a1',worldRevision:1,sceneRevision:1,sourceRevisionRefs:['scene:a:r1']};
   const b={chatId:'chat:b',turnId:'turn:1',generationId:'gen:1',correlationId:'corr:b1',worldRevision:1,sceneRevision:1,sourceRevisionRefs:['scene:b:r1']};
   const regen={...a,generationId:'gen:2',correlationId:'corr:a2'};
@@ -121,7 +121,7 @@ test('Worker 4 chat switch, regeneration, correction fence, reload, dedupe and r
   assert.ok(retained.entries.some(row=>row.type==='HOST_DELIVERY'||(row.type==='OWNER_EDGE'&&row.subtype==='delivery')));
   assert.ok(journal.status().serializedBytes<=journal.status().maxStoredBytes);
 
-  const restored=new DemoEvidenceJournal({storage,namespace:'worker4-fences',maxTurns:3,maxEntriesPerTurn:4,maxStoredBytes:16384,now:()=>9000});
+  const restored=new DemoEvidenceJournal({storage,namespace:'worker4-fences',maxTurns:3,maxEntriesPerTurn:4,maxStoredBytes:131072,now:()=>9000});
   assert.ok(restored.readTurn(corrected));assert.equal(restored.readTurn(a),null);
   const report=new SelectedTurnCausalReportReader({journal:restored}).read({selection:corrected});
   assert.equal(report.selection.correlationId,'corr:a1-corrected');

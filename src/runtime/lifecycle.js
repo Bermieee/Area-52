@@ -1,5 +1,6 @@
 import { COGNITIVE_LAYERS, LIFECYCLE_STATUS, assertLayer, isForegroundLayer } from './constants.js';
 import { compareRevision, deepClone, makeSequenceId, normalizeCapabilities } from './utils.js';
+import { normalizeCausalCause } from './causal-receipts.js';
 
 const OPEN = new Set([LIFECYCLE_STATUS.PENDING, LIFECYCLE_STATUS.ELIGIBLE]);
 
@@ -43,6 +44,7 @@ export class LifecycleCore {
         revision: this.#newerRevision(coalesced.obligation.revision, input.revision),
         sourceRevisions: { ...(coalesced.obligation.sourceRevisions ?? {}), ...(input.sourceRevisions ?? {}) },
         payload: { ...(coalesced.obligation.payload ?? {}), ...(input.payload ?? {}) },
+        cause: input.cause ? normalizeCausalCause(input.cause) : coalesced.obligation.cause,
         coalescedCount: (coalesced.obligation.coalescedCount ?? 0) + 1,
       };
       this.ledger.updateObligation(coalesced.taskId, patch);
@@ -63,6 +65,7 @@ export class LifecycleCore {
       layer,
       owner: input.owner,
       producerId: input.producerId ?? null,
+      cause: normalizeCausalCause({...input.cause,producerId:input.producerId??input.cause?.producerId,ownerId:input.owner}),
       resultContract: deepClone(input.resultContract ?? null),
       runtimeClass: input.runtimeClass ?? null,
       requiredCapabilities,
@@ -72,10 +75,10 @@ export class LifecycleCore {
       resourceLimits: deepClone(input.resourceLimits ?? {}),
       serviceDependencies: deepClone(input.serviceDependencies ?? []),
       sourceRevisions: deepClone(input.sourceRevisions ?? {}),
-      sourceRevisionIds: [...(input.sourceRevisionIds ?? [])],
-      worldRevision: input.worldRevision ?? null,
-      sceneRevision: input.sceneRevision ?? null,
-      revision: input.revision ?? input.worldRevision ?? 0,
+      sourceRevisionIds: [...(input.sourceRevisionIds ?? input.cause?.sourceRevisionRefs ?? [])],
+      worldRevision: input.worldRevision ?? input.cause?.worldRevision ?? null,
+      sceneRevision: input.sceneRevision ?? input.cause?.sceneRevision ?? null,
+      revision: input.revision ?? input.worldRevision ?? input.cause?.worldRevision ?? 0,
       dependencies: [...(input.dependencies ?? [])],
       priority: Number.isFinite(input.priority) ? input.priority : 50,
       deadline: input.deadline ?? null,

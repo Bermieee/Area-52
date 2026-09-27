@@ -7,6 +7,7 @@ on:
       - 'src/cognitive-choice-contracts.js'
       - 'src/cognitive-choice-controller.js'
       - 'src/model-adapters.js'
+      - 'src/adaptive-context-sections.js'
       - 'src/prompt-presentation.js'
       - 'src/native-brain.js'
       - 'src/deployment/sillytavern-live.js'
@@ -61,6 +62,7 @@ jobs:
           node --check src/cognitive-choice-contracts.js &&
           node --check src/cognitive-choice-controller.js &&
           node --check src/model-adapters.js &&
+          node --check src/adaptive-context-sections.js &&
           node --check src/prompt-presentation.js &&
           node --check src/native-brain.js &&
           node --check src/deployment/sillytavern-live.js &&

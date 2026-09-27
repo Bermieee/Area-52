@@ -3,6 +3,7 @@ import {
   MEMORY_CONTRACT_VERSION,
   MEMORY_LIMITS,
   deepClone,
+  stableHash,
   stableStringify,
 } from './memory-contracts.js';
 import {TemporalStateGraph} from './memory-temporal-state-graph.js';
@@ -205,6 +206,150 @@ export class MemoryTemporalProducer {
     const episode=this.experienceStore.publishEpisode(input);
     this.summaryHierarchy.onEpisodePublished(episode);
     return episode;
+  }
+
+  acceptCompletedTurn(input={}) {
+    const ownerArtifactRef=input.ownerArtifactRef;
+    const externalEvidenceRef=String(input.externalEvidenceRef??'').trim();
+    const sourceRevisionId=String(input.sourceRevisionId??'').trim();
+    const chatId=String(input.chatId??'').trim();
+    const turnId=String(input.turnId??'').trim();
+    const generationId=String(input.generationId??'').trim();
+    if(!ownerArtifactRef||!externalEvidenceRef||!sourceRevisionId||!chatId||!turnId||!generationId)throw new TypeError('Memory completed-turn admission requires ownerArtifactRef, externalEvidenceRef, sourceRevisionId, chatId, turnId and generationId');
+    const resolution=this.evidenceBridge.resolveMapping({
+      ownerArtifactRef,externalEvidenceRef,sourceRevisionId,
+      sceneRevision:input.sceneRevision??ownerArtifactRef.sceneRevision??null,
+      worldRevision:input.worldRevision??ownerArtifactRef.worldRevision??null,
+    });
+    if(!resolution.ok){
+      const status=String(resolution.reasonCode??'').includes('STALE')||String(resolution.reasonCode??'').includes('REVISION')?'STALE':'FAILED';
+      const receipt={
+        kind:'MemoryCompletedTurnAdmissionReceipt',contractVersion:'1.0.0',status,
+        reasonCode:resolution.reasonCode??'MEMORY_COMPLETED_TURN_MAPPING_UNAVAILABLE',
+        chatId,turnId,generationId,correlationId:input.correlationId??null,sceneId:input.sceneId??null,sceneRevision:input.sceneRevision??null,
+        sourceRevisionRefs:[sourceRevisionId],episodeId:null,summaryScopeRefs:[],reflectionReceipts:[],
+        rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+        authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+      };
+      this.pushDiagnostic(receipt);
+      return receipt;
+    }
+    const mapping=resolution.mapping;
+    const evidence=this.graph.evidenceRecord(mapping.memoryEvidenceId);
+    if(!evidence)throw new Error('MEMORY_COMPLETED_TURN_EVIDENCE_MISSING:'+mapping.memoryEvidenceId);
+    const reflectionCandidates=(input.reflectionCandidates??[]).slice(0,8).map((row,index)=>{
+      const statement=String(row?.statement??'').trim();
+      const reflectionKey=String(row?.reflectionKey??row?.key??(statement?'brain-reflection:'+stableHash(statement.toLowerCase()):'')).trim();
+      if(!reflectionKey||!statement)return null;
+      return {
+        reflectionKey,statement,
+        polarity:String(row?.polarity??(row?.contradiction===true?'CONTRADICT':'SUPPORT')).toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
+        subjectRefs:[...(row?.subjectRefs??[])].filter(Boolean).map(String).slice(0,32),
+        confidence:Number.isFinite(Number(row?.confidence))?Math.max(0,Math.min(1,Number(row.confidence))):0.5,
+        index,
+      };
+    }).filter(Boolean);
+    const logicalId='brain-turn:'+chatId+':'+turnId;
+    const priorId=this.experienceStore.currentEpisodeByLogical.get(logicalId)??null;
+    const episode=this.publishEpisode({
+      logicalId,chatId,turnId,generationId,correlationId:input.correlationId??null,
+      sceneId:input.sceneId??null,sceneRevision:input.sceneRevision??null,
+      sourceRevisionRefs:[mapping.sourceRevisionId],evidenceRefs:[mapping.memoryEvidenceId],
+      externalEvidenceRefs:[mapping.externalEvidenceRef],externalSourceRevisionRefs:[mapping.sourceRevisionId],
+      unresolvedExternalEvidenceRefs:[],mappingRefs:[mapping.id],bridgeResolutionStatus:'RESOLVED',
+      participants:evidence.participants??[],knownBy:evidence.knownBy??[],significance:input.significance??0.5,
+      timeStart:evidence.occurredAt??null,timeEnd:evidence.occurredAt??null,
+      summary:String(evidence.exactContent??'').slice(0,MEMORY_LIMITS.maxHistorianExcerptCharacters),
+      provenance:['native-brain-turn:'+turnId,'external-map:'+mapping.id],
+      reflectionSignals:reflectionCandidates.map((row)=>({reflectionKey:row.reflectionKey,polarity:row.polarity})),
+      admissionSource:'NATIVE_BRAIN_COMPLETED_TURN',
+    });
+    const hierarchy=this.ensureCompletedTurnSummaryScopes(episode);
+    const reflectionReceipts=this.consolidateCompletedTurnReflections(episode,reflectionCandidates,{
+      worldRevision:input.worldRevision??null,sceneRevision:input.sceneRevision??null,
+      generationFence:{chatId,turnId,generationId,correlationId:input.correlationId??null,contextSealId:input.contextSealId??null},
+    });
+    const compaction=this.runSummaryCompaction({maxUnits:3});
+    this.historian.build();
+    const receipt={
+      kind:'MemoryCompletedTurnAdmissionReceipt',contractVersion:'1.0.0',
+      status:priorId===episode.id?'REPLAYED':'COMPLETED',reasonCode:null,
+      chatId,turnId,generationId,correlationId:input.correlationId??null,sceneId:episode.sceneId,sceneRevision:episode.sceneRevision,
+      sourceRevisionRefs:[...episode.sourceRevisionRefs],evidenceRefs:[...episode.evidenceRefs],
+      episodeId:episode.id,episodeLogicalId:episode.logicalId,episodeRevision:episode.revision,
+      exactSourceDrillback:this.experienceStore.exactDrillback(episode.id).length>0,
+      summaryScopeRefs:hierarchy.scopeRefs,summaryPublishedArtifactIds:[...(compaction.publishedArtifactIds??[])],
+      reflectionReceipts,
+      rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+    this.pushDiagnostic(receipt);
+    this.notifyUi('MEMORY_COMPLETED_TURN_ADMITTED',episode.evidenceRefs??[],{episodeId:episode.id,turnId,generationId});
+    return receipt;
+  }
+
+  ensureCompletedTurnSummaryScopes(episode) {
+    const chatId=episode.chatId??'unknown';
+    const sceneKey=episode.sceneId??('revision-'+String(episode.sceneRevision??'unknown'));
+    const sceneScopeRef='SCENE:brain:'+chatId+':'+sceneKey;
+    const sessionScopeRef='SESSION:brain:'+chatId;
+    const arcScopeRef='ARC:brain:'+chatId;
+    const current=this.experienceStore.currentEpisodes({freshOnly:true}).filter((row)=>row.chatId===chatId);
+    const sceneEpisodes=current.filter((row)=>(row.sceneId??('revision-'+String(row.sceneRevision??'unknown')))===sceneKey);
+    const sceneEvidence=[...new Set(sceneEpisodes.flatMap((row)=>row.evidenceRefs??[]))].sort();
+    const sceneLogicalIds=sceneEpisodes.map((row)=>row.logicalId).sort();
+    const allSceneKeys=[...new Set(current.map((row)=>row.sceneId??('revision-'+String(row.sceneRevision??'unknown'))))].sort();
+    const childSceneRefs=allSceneKeys.map((key)=>'SCENE:brain:'+chatId+':'+key);
+    const defineIfChanged=(input)=>{
+      const ref=input.level+':'+input.scopeId,prior=this.summaryHierarchy.scope(ref);
+      const shape=(row)=>stableStringify({
+        parentScopeRefs:[...(row?.parentScopeRefs??[])].sort(),childScopeRefs:[...(row?.childScopeRefs??[])].sort(),
+        evidenceRefs:[...(row?.evidenceRefs??[])].sort(),episodeLogicalIds:[...(row?.episodeLogicalIds??[])].sort(),
+        narrativeTimeRange:row?.narrativeTimeRange??null,
+      });
+      if(prior&&shape(prior)===shape(input))return prior;
+      return this.summaryHierarchy.defineScope(input);
+    };
+    defineIfChanged({level:'SCENE',scopeId:'brain:'+chatId+':'+sceneKey,parentScopeRefs:[sessionScopeRef],evidenceRefs:sceneEvidence,episodeLogicalIds:sceneLogicalIds,provenance:['native-brain:'+chatId]});
+    defineIfChanged({level:'SESSION',scopeId:'brain:'+chatId,parentScopeRefs:[arcScopeRef],childScopeRefs:childSceneRefs,episodeLogicalIds:current.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
+    defineIfChanged({level:'ARC',scopeId:'brain:'+chatId,childScopeRefs:[sessionScopeRef],episodeLogicalIds:current.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
+    return {kind:'MemoryCompletedTurnHierarchyReceipt',scopeRefs:[sceneScopeRef,sessionScopeRef,arcScopeRef],authorityGranted:false};
+  }
+
+  consolidateCompletedTurnReflections(episode,candidates=[],options={}) {
+    const receipts=[];
+    for(const candidate of candidates.slice(0,8)){
+      const current=this.experienceStore.currentEpisodes({freshOnly:true});
+      const supports=current.filter((row)=>(row.reflectionSignals??[]).some((signal)=>signal.reflectionKey===candidate.reflectionKey&&signal.polarity==='SUPPORT'));
+      const contradictions=current.filter((row)=>(row.reflectionSignals??[]).some((signal)=>signal.reflectionKey===candidate.reflectionKey&&signal.polarity==='CONTRADICT'));
+      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
+      const contradictionEvidenceRefs=[...new Set(contradictions.flatMap((row)=>row.evidenceRefs??[]))].sort();
+      const sourceRevisionRefs=[...new Set([...supports,...contradictions].flatMap((row)=>row.sourceRevisionRefs??[]))].sort();
+      const session=this.startConsolidation([{type:'REFLECTION',input:{
+        reflectionKey:candidate.reflectionKey,statement:candidate.statement,subjectRefs:candidate.subjectRefs,
+        supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
+        sourceRevisionRefs,confidence:candidate.confidence,action:'REINFORCE',
+        provenance:['native-brain-reflection:'+candidate.reflectionKey],
+      }}],{
+        generationFence:options.generationFence??{},sourceRevisionRefs,
+        worldRevision:options.worldRevision??null,sceneRevision:options.sceneRevision??null,
+      });
+      const result=this.runConsolidation(session.id,{maxUnits:1});
+      const outcome=result.outcomes?.at(-1)??(result.lateDisposition?{status:result.lateDisposition.status??'DEFERRED',reasonCode:result.lateDisposition.reasonCode}:null);
+      const safe={
+        kind:'MemoryPostTurnReflectionReceipt',reflectionKey:candidate.reflectionKey,
+        status:outcome?.status??(result.failures?.length?'FAILED':'DEFERRED'),reasonCode:outcome?.reasonCode??null,
+        artifactId:outcome?.artifactId??null,resolutionStatus:outcome?.resolutionStatus??null,
+        supportEpisodeCount:supports.length,contradictionEpisodeCount:contradictions.length,
+        authorityClass:'INFERRED',canonicalAuthority:false,rawChatIncluded:false,hiddenReasoningIncluded:false,
+      };
+      receipts.push(safe);this.pushDiagnostic(safe);
+    }
+    if(!candidates.length){
+      const skipped={kind:'MemoryPostTurnReflectionReceipt',reflectionKey:null,status:'SKIPPED',reasonCode:'MEMORY_REFLECTION_CANDIDATE_ABSENT',supportEpisodeCount:0,contradictionEpisodeCount:0,authorityClass:'INFERRED',canonicalAuthority:false,rawChatIncluded:false,hiddenReasoningIncluded:false};
+      receipts.push(skipped);this.pushDiagnostic(skipped);
+    }
+    return receipts;
   }
 
   applySettlement(envelope) {
@@ -625,6 +770,7 @@ export class MemoryTemporalProducer {
       capabilities:[
         'APPEND_EVIDENCE',
         'INGEST_SCENE_EXPERIENCE',
+        'ADMIT_COMPLETED_BRAIN_TURN',
         'APPLY_OWNER_SETTLEMENT',
         'CURRENT_PROJECTION',
         'AS_OF_HISTORY',

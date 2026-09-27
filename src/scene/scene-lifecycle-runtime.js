@@ -59,17 +59,18 @@ export class SceneLifecycleRuntime{
     this.prefetchTrigger.cancelSuperseded({sceneId:scene.sceneId,sceneRevision:scene.revision});
     const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:refs,turnId,correlationId,causationId};
     const published=[];
+    const hostObservation=operation==='HOST_OBSERVATION';
     published.push(this.publisher.publish({
       ...base,eventType:SceneEventType.SCENE_STATE_DELTA,
-      payload:{delta,operation,reason:reason??delta?.reason??null,operatorInitiated:operation!=='HOST_OBSERVATION'},
-      dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}:${operation}`,
+      payload:hostObservation?{delta}:{delta,operation,reason:reason??delta?.reason??null,operatorInitiated:true},
+      dedupeKey:hostObservation?`delta:${scene.sceneId}:${delta.toRevision}`:`delta:${scene.sceneId}:${delta.toRevision}:${operation}`,
     }));
     const map={location:SceneEventType.LOCATION_CHANGED,narrativeTime:SceneEventType.TIME_SHIFT_DETECTED,activeCast:SceneEventType.ACTIVE_CAST_CHANGED,activeRelationships:SceneEventType.RELATIONSHIP_SIGNAL,atmosphere:SceneEventType.VIBE_CHANGED,immediateObjects:SceneEventType.OBJECT_TRANSITION};
     for(const [name,change] of Object.entries(delta.changedFields??{})){
       const eventType=map[name];if(!eventType)continue;
       published.push(this.publisher.publish({
-        ...base,eventType,payload:{field:name,change,operation,reason:reason??delta?.reason??null},
-        dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}:${operation}`,
+        ...base,eventType,payload:hostObservation?{field:name,change}:{field:name,change,operation,reason:reason??delta?.reason??null},
+        dedupeKey:hostObservation?`${eventType}:${scene.sceneId}:${delta.toRevision}`:`${eventType}:${scene.sceneId}:${delta.toRevision}:${operation}`,
       }));
     }
     const changed=Object.keys(delta.changedFields??{});

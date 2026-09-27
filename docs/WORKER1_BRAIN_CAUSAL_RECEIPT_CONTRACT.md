@@ -65,3 +65,21 @@ NativeTurn Runtime accepts optional `chatId` and `generationId` on the turn enve
 The execution probe confirms the proposed layered partition reduces peak queued work from 9 to 2 for the measured fixture while both eager and layered cases perform exactly 2 provider invocations before the foreground quorum seals. Eager execution leaves 7 non-required tasks open at Seal; the layered fixture leaves 0. `foregroundProviderWorkDelta` is 0 and `productionRoutingChanged` remains false: this is evidence for a future execution-owner scheduling change, not an activated production policy.
 
 A missing Memory owner writeback receipt is now represented consistently as `NO_EVIDENCE` in both obligation reconciliation and the selected-turn UI receipt. Physical invocation alone cannot promote the Memory stage to owner accepted.
+
+
+## Worker 4 Lore owner receipt consumer
+
+Brain now accepts the bounded Worker 4 `LoreStudyRunReceipt` as owner evidence through `recordLoreStudyOwnerReceipt()`. It does not schedule, execute or approve Lore work. A matching declared `studyObligationId` is required first.
+
+- `COMPLETED` records physical execution, returned result and Lore owner admission.
+- `CHECKPOINTED` records physical execution and a returned partial result but remains DUE because owner admission is still missing.
+- `FAILED` or `INVALID` records failed work.
+- `SUPERSEDED` records stale work.
+- Unknown obligation IDs remain `NO_EXPECTED_WORK` and do not create obligations.
+- Replayed owner receipts reuse deterministic receipt IDs, so the bounded causal journal does not duplicate the same owner evidence.
+
+No raw Lore bodies, prompts, credentials or hidden reasoning are copied into the reconciliation receipt.
+
+## Broad CI validation window
+
+The broad Cognitive Core job previously had a 10-minute job timeout while the growing `npm test` suite alone could consume most or all of that budget, causing exact-head runs to be cancelled before later acceptance steps. Development-Nexus now uses a 20-minute job timeout so broad exact-head validation can complete; this changes validation capacity only, not runtime routing or product behavior.

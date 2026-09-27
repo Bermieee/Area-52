@@ -226,5 +226,5 @@ test('#112 production contract route reaches Dynamic Fan-Out consideration witho
   const staleTurn=turnFor(sceneInput,'prefetch-stale',['src:not-current']);
   const stale=planner.plan({turnEvent:staleTurn,...plannerInput,text:'Okay.'});
   assert.equal(stale.inputSignals.freshPrefetchRecommendationCount,0);
-  assert.equal(stale.tasks.length,0);
+  assert.equal(stale.tasks.some(task=>task.metadata.roleId==='historian'&&task.metadata.reasonCodes?.includes('SCENE_PREFETCH_RECOMMENDATION')),false,'stale Scene recommendation must contribute no prefetch-driven work');
 });

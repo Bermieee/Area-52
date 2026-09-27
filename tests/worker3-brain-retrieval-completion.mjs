@@ -158,6 +158,23 @@ test('production sparse residency remains bounded across repeated story-scope ch
   assert.ok(diagnostics.artifactCount<=2);
 });
 
+
+test('bounded hydration prioritizes an exact source identifier outside the default long-Lore window',()=>{
+  const rows=[
+    entry({uid:'1',title:'First Entry',allowedChats:['chat:a']}),
+    entry({uid:'2',title:'Second Entry',allowedChats:['chat:a']}),
+    entry({uid:'99',title:'Tail Entry',allowedChats:['chat:a'],triggers:['tail-trigger']}),
+  ];
+  const owner=loreOwner(rows);
+  const channel=new ProductionSparseRetrievalChannel({maxArtifacts:2,maxCandidates:4});
+  const receipt=channel.hydrateLoreOwner(owner,{chatId:'chat:a',query:'Find lore:book-a:99'});
+  assert.equal(receipt.indexedCount,2);
+  assert.equal(receipt.boundedOutCount,1);
+  const exact=channel.retrieve({intentId:'long-lore-id',intentKind:'NARROW',query:'Find lore:book-a:99'},{});
+  assert.ok(exact.some(candidate=>candidate.metadata.ownerSourceId==='lore:book-a:99'));
+  assert.equal(exact.find(candidate=>candidate.metadata.ownerSourceId==='lore:book-a:99').rankSignals.sparseExecution,'EXACT_IDENTIFIER');
+});
+
 test('native Brain hydrates owner sparse recall and sends bounded decomposed scene intents through Candidate Bus',async()=>{
   const row=entry();
   const owner=mutableLoreOwner([row]);

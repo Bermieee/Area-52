@@ -102,12 +102,14 @@ export class MemoryPlasticityManager{
     if(refsNormalized.length<minimum)throw new Error('MEMORY_REORGANIZATION_INPUT_INSUFFICIENT');
     const rows=refsNormalized.map(ref=>this.records.get(ref)).filter(Boolean);
     if(rows.length!==refsNormalized.length||rows.some(row=>!row.current||row.stale))throw new Error('MEMORY_REORGANIZATION_INPUT_STALE');
+    const sourceRevisionPool=uniqStrings(rows.flatMap(row=>row.sourceRevisionRefs??[]),MEMORY_LIMITS.maxSummarySourceRevisionRefs);
+    const evidencePool=uniqStrings(rows.flatMap(row=>row.evidenceRefs??[]),MEMORY_LIMITS.maxSummaryEvidenceRefs);
     const proposal={
       kind:'MemoryDerivedReorganizationProposal',contractVersion:MEMORY_PLASTICITY_VERSION,
       proposalId:'memory-reorganization:'+stableHash(stableStringify([kind,refsNormalized,targetKeys,++this.sequence])),
       operation:kind,artifactRefs:refsNormalized,targetKeys:uniqStrings(targetKeys,32),reasonCode:String(reasonCode),status:'PROPOSED',
-      sourceRevisionRefs:uniqStrings(rows.flatMap(row=>row.sourceRevisionRefs??[]),128),
-      evidenceRefs:uniqStrings(rows.flatMap(row=>row.evidenceRefs??[]),256),
+      sourceRevisionRefs:sourceRevisionPool.slice(0,128),sourceRevisionRefCount:sourceRevisionPool.length,sourceRevisionRefsTruncated:sourceRevisionPool.length>128,
+      evidenceRefs:evidencePool.slice(0,256),evidenceRefCount:evidencePool.length,evidenceRefsTruncated:evidencePool.length>256,
       authorityClasses:[...new Set(rows.map(row=>row.authorityClass))].sort(),
       retrievalFeedbackIsEvidence:false,canonicalMutationAuthority:false,settlementAuthority:false,ownerAdmissionRequired:true,createdSequence:this.sequence,
     };

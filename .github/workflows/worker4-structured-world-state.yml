@@ -32,7 +32,9 @@ jobs:
           node --check tests/worker4-structured-world-state-graph.mjs
       - name: Worker 4 acceptance
         run: node --test tests/worker4-structured-world-state-graph.mjs
-      - name: Identity and graph regression
-        run: node --test tests/native-brain-identity-retrieval.mjs tests/worker1-identity-temporal-closure.mjs
+      - name: Native graph and identity regression
+        run: |
+          node --test --test-name-pattern='cross-source entity identity|graph walker|graph traversal candidate|Worker 4 v2 removal' tests/native-brain-identity-retrieval.mjs
+          node --test tests/worker1-identity-temporal-closure.mjs
       - name: Scene and Memory contract regression
         run: node --test tests/scene-wave3.mjs tests/memory-wave4.mjs

@@ -749,6 +749,12 @@ export class Area52NativeBrain{
     this.#appendPerformanceStage(record,{stage:'HOST_INSERTION',wallMs:bounded.insertionDurationMs,queueWaitMs:0,inputCount:Number(bounded.area52MessageCount??bounded.observedRoles?.length??0),outputCount:Number(bounded.hostMessageCount??0),inputBytes:bounded.area52InputBytes??null,outputBytes:null,retainedObjectCount:0,retainedBytes:0,outcome:receipt?.phases?.hostRequest?.status==='OBSERVED_MATCH'?'OBSERVED_MATCH':'OBSERVATION_REJECTED'});
     this.#notify('HOST_DELIVERY_EVIDENCE_RECORDED',record);return clone(receipt);
   }
+  recordProviderResponsePerformance(turnId,evidence={}){
+    const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record)throw new Error('Unknown native Brain turn: '+id);
+    for(const [name,expected] of [['chatId',record.chatId],['turnId',record.turnId],['generationId',record.generationId],['correlationId',record.correlationId]])if(evidence[name]!=null&&String(evidence[name])!==String(expected))throw new Error('PROVIDER_PERFORMANCE_IDENTITY_MISMATCH:'+name);
+    const row=this.#appendPerformanceStage(record,{stage:'PROVIDER_RESPONSE',wallMs:evidence.providerLatencyMs,queueWaitMs:evidence.providerQueueWaitMs??0,inputCount:1,outputCount:1,outcome:'RECEIVED'});
+    this.#notify('PROVIDER_RESPONSE_PERFORMANCE_RECORDED',record);return clone(row);
+  }
   identityReferences(entityIds=[],options={}){return this.core.entityIdentityReferences(entityIds,options);}
   temporalReferences(options={}){return this.core.temporalStateReferences(options);}
 

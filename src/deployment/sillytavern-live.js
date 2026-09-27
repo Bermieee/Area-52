@@ -150,6 +150,25 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
   });
 }
 
+const ATMOSPHERE_CUES=Object.freeze({
+  tension:{pattern:/\b(?:tense|tension|strained|on edge)\b/i,score:.78,confidence:.82},
+  danger:{pattern:/\b(?:danger|dangerous|threat|threatening|peril|unsafe)\b/i,score:.82,confidence:.86},
+  intimacy:{pattern:/\b(?:intimate|intimacy|tender|tenderness|affectionate|affection)\b/i,score:.72,confidence:.78},
+  urgency:{pattern:/\b(?:urgent|urgency|hurry|hurried|immediately|no time to lose)\b/i,score:.82,confidence:.86},
+  uncertainty:{pattern:/\b(?:uncertain|uncertainty|unsure|unclear|ambiguous)\b/i,score:.70,confidence:.80},
+  humor:{pattern:/\b(?:humor|humorous|joke|jokes|laugh|laughs|laughter|amused)\b/i,score:.68,confidence:.78},
+  grief:{pattern:/\b(?:grief|grieving|grieve|mourn|mourns|mourning|sorrow|sorrowful)\b/i,score:.82,confidence:.86},
+  hostility:{pattern:/\b(?:hostile|hostility|snarl|snarls|threatens?|menacing)\b/i,score:.82,confidence:.86},
+});
+function extractAtmosphereDimensions(raw,evidenceRef){
+  const dimensions={};
+  for(const [name,cue] of Object.entries(ATMOSPHERE_CUES)){
+    if(!cue.pattern.test(raw))continue;
+    dimensions[name]={score:cue.score,confidence:cue.confidence,evidenceRefs:[evidenceRef]};
+  }
+  return dimensions;
+}
+
 export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef, currentScene = null, sceneRuntime = null } = {}) {
   const raw = clean(text);
   const fields = {};
@@ -186,6 +205,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
     }
   }
   if (castChanged) fields.activeCast = sceneField([...cast.values()], revision, evidenceRef);
+
+  const atmosphereDimensions=extractAtmosphereDimensions(raw,evidenceRef);
+  if(Object.keys(atmosphereDimensions).length)fields.atmosphere=sceneField(atmosphereDimensions,revision,evidenceRef,ObservationClass.INFERRED,Math.min(...Object.values(atmosphereDimensions).map((row)=>row.confidence)));
 
   const numberWords={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
   const timeMatch=raw.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+(later|earlier)\b/i);

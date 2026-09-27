@@ -22,10 +22,11 @@ export class DemoEvidenceJournal{
     this.maxEntriesPerTurn=Math.max(4,Number(maxEntriesPerTurn)||64);
     this.maxStoredBytes=Math.max(16384,Number(maxStoredBytes)||262144);
     this.now=typeof now==='function'?now:()=>Date.now();
-    this.lastError=null;this.cachedState=null;this.lastSerializedBytes=0;this.writeCount=0;this.skippedWriteCount=0;this.storageLoadCount=0;
+    this.lastError=null;this.cachedState=null;this.lastSerializedBytes=0;this.writeCount=0;this.skippedWriteCount=0;this.storageLoadCount=0;this.revision=0;this.lastRecordChanged=false;
   }
 
   recordSnapshot({selection={},operations=null,diagnostics=null,cognition=null,promptPlan=null,ownerReceipt=null}={}){
+    this.lastRecordChanged=false;
     const identity=normalizeSelection(selection);
     if(!identity.chatId||!identity.turnId||!identity.generationId)return null;
     const state=this.#load(),key=selectionKey(identity),at=this.now();
@@ -35,21 +36,22 @@ export class DemoEvidenceJournal{
       state.turns.push(turn);changed=true;
     }
     const entries=deriveEntries({selection:identity,operations,diagnostics,cognition,promptPlan,ownerReceipt,at});
+    const entryIndex=new Map(turn.entries.map((row,index)=>[row.identityKey,index]));
     for(const entry of entries){
-      const index=turn.entries.findIndex(row=>row.identityKey===entry.identityKey);
-      if(index>=0){
+      const index=entryIndex.get(entry.identityKey);
+      if(index!=null){
         const prior=turn.entries[index];
         if(!sameEvidence(prior,entry)){turn.entries[index]=entry;changed=true;}
-      }else{turn.entries.push(entry);changed=true;}
+      }else{entryIndex.set(entry.identityKey,turn.entries.length);turn.entries.push(entry);changed=true;}
     }
     turn.entries.sort((a,b)=>Number(a.at??0)-Number(b.at??0));
     if(turn.entries.length>this.maxEntriesPerTurn){turn.entries.splice(0,turn.entries.length-this.maxEntriesPerTurn);changed=true;}
-    if(!changed){this.skippedWriteCount+=1;return clone(turn);}
+    if(!changed){this.skippedWriteCount+=1;this.lastRecordChanged=false;return clone(turn);}
     turn.lastUpdatedAt=at;
     state.turns.sort((a,b)=>Number(a.lastUpdatedAt??0)-Number(b.lastUpdatedAt??0));
     if(state.turns.length>this.maxTurns)state.turns.splice(0,state.turns.length-this.maxTurns);
     state.updatedAt=at;
-    this.#save(state);
+    this.#save(state);this.revision+=1;this.lastRecordChanged=true;
     return clone(turn);
   }
 
@@ -61,8 +63,11 @@ export class DemoEvidenceJournal{
   }
 
   listEntries(selection={}, {limit=64}={}){
-    const turn=this.readTurn(selection);
-    return turn?[...turn.entries].slice(-Math.max(1,Number(limit)||64)): [];
+    const identity=normalizeSelection(selection);
+    if(!identity.chatId||!identity.turnId||!identity.generationId)return[];
+    const turn=this.#load().turns.find(row=>row.key===selectionKey(identity));
+    if(!turn)return[];
+    return clone(turn.entries.slice(-Math.max(1,Number(limit)||64)));
   }
 
   readEntry(selection={},entryId=null){
@@ -79,7 +84,7 @@ export class DemoEvidenceJournal{
       kind:'Area52DemoEvidenceJournalStatus',contractVersion:DEMO_EVIDENCE_JOURNAL_VERSION,
       available:this.lastError==null,persistent:this.storageKind!=='MEMORY_FALLBACK',storageKind:this.storageKind,
       turnCount,entryCount,maxTurns:this.maxTurns,maxEntriesPerTurn:this.maxEntriesPerTurn,maxStoredBytes:this.maxStoredBytes,
-      serializedBytes:this.lastSerializedBytes,storageLoads:this.storageLoadCount,writes:this.writeCount,skippedRedundantWrites:this.skippedWriteCount,
+      serializedBytes:this.lastSerializedBytes,storageLoads:this.storageLoadCount,writes:this.writeCount,skippedRedundantWrites:this.skippedWriteCount,revision:this.revision,lastRecordChanged:this.lastRecordChanged,
       metadataOnly:true,updatedAt:state.updatedAt??null,
       lastError:this.lastError?String(this.lastError?.message??this.lastError):null,
     };
@@ -169,6 +174,7 @@ export class DemoActivityFeedController{
         const button=element(d,'button',{className:'a52-activity-feed__item',attrs:{type:'button','aria-label':entry.title+': '+entry.summary,title:entry.detail??entry.summary},dataset:{status:entry.status,age:String(age),phase,paused:String(held),entryId:entry.id}});
         button.append(element(d,'strong',{text:entry.title}),element(d,'span',{className:'a52-activity-feed__summary',text:entry.summary}),element(d,'span',{className:'a52-activity-feed__detail',text:entry.detail??entry.summary}));
         this.renderScope.listen(button,'click',()=>this.#activate(entry));
+        this.renderScope.listen(button,'keydown',(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault?.();this.#activate(entry);}});
         this.renderScope.listen(button,'mouseenter',()=>this.#hold(entry.id));
         this.renderScope.listen(button,'mouseleave',()=>this.#release(entry.id));
         this.renderScope.listen(button,'focusin',()=>this.#hold(entry.id));
@@ -183,7 +189,8 @@ export class DemoActivityFeedController{
   #activate(entry){
     const current=normalizeSelection(this.selectionProvider?.()??{});
     if(selectionKey(current)!==selectionKey(entry.selection)){this.render();return false;}
-    this.inspect?.({kind:'wave14-activity-evidence',id:entry.id,title:entry.title,available:true,selection:clone(entry.selection),receiptRef:entry.receiptRef??null,payload:clone(entry)});
+    const receiptRef=entry.receiptRef??null,evidenceState=receiptRef?'RECEIPT_AVAILABLE':'NO_EVIDENCE';
+    this.inspect?.({kind:'wave14-activity-evidence',id:entry.id,title:entry.title,available:Boolean(receiptRef),evidenceState,selection:clone(entry.selection),receiptRef,payload:clone(entry),reason:receiptRef?null:'No owner receipt reference was retained for this selected-turn notice.'});
     return true;
   }
   #hold(id){this.held.add(id);this.#cancelTimer();const node=this.#entryNode(id);if(node)node.dataset.paused='true';}

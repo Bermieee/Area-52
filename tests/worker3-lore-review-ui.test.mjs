@@ -11,6 +11,7 @@ import {
   mutationRestudyProgress,
   proposalOwnerPath,
   renderLoreReviewWorkspace,
+  registerWave13OperatorActions,
   toOwnerMutationRequest,
   verifySelectedLorebook,
 } from '../src/ui-core/index.js';
@@ -146,6 +147,26 @@ test('typed adapter binds all #261 mutation reads/actions and keeps approval sep
   assert.equal(restored.value.state,'RESTORED');assert.equal(restored.value.restoration.appendOnlyCompensatingRevisions,true);
   assert.deepEqual(calls.map(x=>x[0]),['create','approve','commit','restore']);
   assert.equal(typeof host.actions.writeLorebook,'undefined');assert.equal(typeof host.actions.updateEntry,'undefined');
+});
+
+
+
+test('Wave 13 action router exposes the five reviewed mutation owner actions and no obsolete source-session action',async()=>{
+  const {host,calls}=ownerHost(),adapter=new Wave13LoreAuthoringUIAdapter({bindings:{loreAuthoringHost:host}});
+  const handlers=new Map(),actions=new Map();
+  const router={
+    registerSubsystem(name,handler){handlers.set(name,handler);return()=>handlers.delete(name);},
+    registerAction(type,config){actions.set(type,config);return()=>actions.delete(type);},
+  };
+  const release=registerWave13OperatorActions(router,{loreAuthoring:adapter});
+  for(const type of ['createMutationProposal','approveMutationProposal','rejectMutationProposal','commitMutationProposal','restoreMutationProposal']){
+    assert.ok(actions.has('wave13.loreAuthoring.'+type),type);
+  }
+  assert.equal(actions.has('wave13.loreAuthoring.startSourceMutationBuild'),false);
+  const handler=handlers.get('wave13-lore-authoring');assert.equal(typeof handler,'function');
+  const created=await handler({type:'wave13.loreAuthoring.createMutationProposal',payload:toOwnerMutationRequest(local('UPDATE_ENTRY'),{chatId:'chat-1'})});
+  assert.equal(created.value.state,'REVIEW_READY');assert.equal(calls.at(-1)[0],'create');
+  release();
 });
 
 test('partial mutation contract is explicit and old startSourceMutationBuild seam is gone',()=>{

@@ -9,6 +9,10 @@ on:
       - 'tests/demo-visibility.test.mjs'
       - 'tests/wave8.test.mjs'
       - 'tests/wave13-operator-ui.test.mjs'
+      - 'tests/worker3-brain-trace-ui.test.mjs'
+      - 'tests/worker3-ui-load-probe.mjs'
+      - 'src/deployment/sillytavern-live.js'
+      - 'tests/deployment-live-host.test.mjs'
       - '.github/workflows/client-repair-wave3.yml'
   push:
     branches: [Development-Client-Repair-3]
@@ -54,6 +58,14 @@ jobs:
           node --test
           --test-name-pattern='floating UI.Core product beside|mount, duplicate mount, destroy and remount|chat switch drops stale|same-turn owner receipt update|wrong-generation Cognitive Choice|Gather late/Seal admission conflict|routine host telemetry'
           tests/wave12-sillytavern-host.test.mjs
+      - name: Assembled Scene reader and Inspector coalescing regressions
+        run: |
+          node --test --test-name-pattern='real native Brain host event publishes Scene|live host listener topology stays bounded' tests/deployment-live-host.test.mjs
+          node --test --test-name-pattern='500 Inspector select/clear cycles' tests/wave6.test.mjs
+      - name: Brain trace, diagnostics, and safe export contracts
+        run: node --test tests/worker3-brain-trace-ui.test.mjs
+      - name: Selected-turn repeated-selection and long-turn load probe
+        run: node --expose-gc tests/worker3-ui-load-probe.mjs
       - name: Browser-facing imports
         run: >
           node -e "globalThis.Buffer=undefined; globalThis.process=undefined; globalThis.require=undefined;
@@ -79,6 +91,9 @@ jobs:
           node --check src/ui-core/wave13-floating-navigation.js &&
           node --check src/ui-core/wave13-operator-adapters.js &&
           node --check src/ui-core/wave13-operator-surfaces.js &&
+          node --check tests/deployment-live-host.test.mjs &&
+          node --check tests/worker3-brain-trace-ui.test.mjs &&
+          node --check tests/worker3-ui-load-probe.mjs &&
           node --check tests/demo-visibility.test.mjs &&
           node --check tests/wave8.test.mjs &&
           node --check tests/wave13-operator-ui.test.mjs

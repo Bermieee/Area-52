@@ -3,7 +3,8 @@ import {CandidateFreshness} from './candidate-bus-contracts.js';
 import {HotFreshness,HotSegmentKind} from './hot-cognition-contracts.js';
 import {stableHash} from './browser-runtime-utils.js';
 import {
-  CognitiveChoicePath,CognitiveJob,CognitiveReason,JevAction,createCognitiveChoiceReceipt,
+  CognitiveChoicePath,CognitiveJob,CognitiveReason,CognitiveDisposition,CognitiveDeadlineClass,CognitiveFreshnessRequirement,
+  JevAction,createCognitiveChoiceReceipt,createCognitiveFunctionDecision,
 } from './cognitive-choice-contracts.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
@@ -62,6 +63,14 @@ function representationRefs(envelopes=[]){
     if(candidate.representationRef)refs.push(candidate.representationRef+(candidate.representationRevision==null?'':'@'+candidate.representationRevision));
   }
   return uniq(refs);
+}
+function identityRevisionRefs(envelopes=[]){
+  return uniq(envelopes.flatMap(envelope=>(envelope?.candidates??[]).flatMap(candidate=>candidate.identityRevisionRefs??[])));
+}
+function temporalEvidenceRefs(envelopes=[]){
+  const rows=[];
+  for(const envelope of envelopes)for(const candidate of envelope?.candidates??[])rows.push({candidateId:candidate.candidateId,temporalStatus:candidate.temporalStatus??candidate.truthStatusHint??'UNKNOWN',temporalHints:clone(candidate.temporalHints??[]),identityRevisionRefs:uniq(candidate.identityRevisionRefs??[]),sourceRevisionRefs:uniq(candidate.sourceRevisionRefs??[])});
+  return rows.sort((a,b)=>String(a.candidateId).localeCompare(String(b.candidateId)));
 }
 function candidateRevisionRefs(envelopes=[]){
   const refs=[];
@@ -252,6 +261,45 @@ export class CognitiveChoiceController{
       ...(packet?.dependencies??[]),
       ...envelopes.flatMap(x=>x?.sourceRevisionSet??[]),
     ]);
+    const sourceFence=Object.freeze({
+      turnId:session.turnId,turnRevision:session.turnRevision,correlationId:session.correlationId,
+      worldRevision:session.worldRevision,sceneRevision:session.sceneRevision,sourceRevisionRefs,
+      sceneSourceRevisionRefs:uniq(session.sceneContext?.sourceRevisionRefs??[]),
+      candidateRevisionRefs:candidateRevisionRefs(envelopes),truthInputCandidateIds:uniq(assessment?.truthResults?.map(x=>x.candidateId)??[]),
+    });
+    const ownerNeeds=(session.sceneContext?.cognitiveNeeds??[]).map(row=>({
+      needId:row.needId??row.kind??null,kind:row.kind??null,required:Boolean(row.required),
+      requiredCapabilities:uniq(row.requiredCapabilities??[]),reason:row.reason??null,
+    })).slice(0,32);
+    const reasonFor=(job,disposition)=>{
+      if(job===CognitiveJob.HOT_CONTEXT)return session.hotOnly?CognitiveReason.HOT_SUFFICIENT:CognitiveReason.RETRIEVAL_REQUIRED;
+      if(job===CognitiveJob.RETRIEVAL)return session.hotOnly?CognitiveReason.HOT_SUFFICIENT:CognitiveReason.RETRIEVAL_REQUIRED;
+      if(job===CognitiveJob.TRUTH)return session.hotOnly?CognitiveReason.HOT_SUFFICIENT:CognitiveReason.TRUTH_REQUIRED;
+      if(job===CognitiveJob.GATHER)return session.hotOnly?CognitiveReason.HOT_SUFFICIENT:CognitiveReason.GATHER_REQUIRED;
+      if(job===CognitiveJob.CONTEXT_COMPILER)return CognitiveReason.CONTEXT_COMPILE_REQUIRED;
+      if(job===CognitiveJob.CONTEXT_SEAL)return CognitiveReason.CONTEXT_SEAL_REQUIRED;
+      if(job===CognitiveJob.JEV)return session.jev?.reason??CognitiveReason.JEV_NOT_REQUIRED;
+      if(job===CognitiveJob.PRECISION)return session.precision?.reason??CognitiveReason.PRECISION_NOT_REQUIRED;
+      if(job===CognitiveJob.CORRECTIVE_RETRIEVAL)return session.correctionRequested?CognitiveReason.CORRECTION_REQUIRED:CognitiveReason.NOT_REQUIRED;
+      if(job===CognitiveJob.DEEP_COGNITION)return CognitiveReason.DEFER_BACKGROUND;
+      if([CognitiveJob.HISTORIAN,CognitiveJob.GRAPH_WALKER,CognitiveJob.GREEN_ROOM,CognitiveJob.EXTERNAL_GROUNDING].includes(job))return disposition===CognitiveDisposition.ADMITTED?CognitiveReason.CHANNEL_SELECTED:CognitiveReason.LOW_EXPECTED_VALUE;
+      return disposition===CognitiveDisposition.ADMITTED?CognitiveReason.OWNER_OBLIGATION:CognitiveReason.NOT_REQUIRED;
+    };
+    const functionDecisions=allJobs.map(job=>{
+      let disposition=session.admitted.has(job)?CognitiveDisposition.ADMITTED:session.deferred.has(job)?CognitiveDisposition.DEFERRED:CognitiveDisposition.SKIPPED;
+      if(job===CognitiveJob.JEV&&session.paths.has(CognitiveChoicePath.BOUNDED_AMBIGUITY)&&(session.jev?.unavailable||session.jev?.abstained))disposition=CognitiveDisposition.ESCALATED;
+      const reasonCode=disposition===CognitiveDisposition.ESCALATED?CognitiveReason.AMBIGUITY_ESCALATED:reasonFor(job,disposition);
+      const deadlineClass=job===CognitiveJob.DEEP_COGNITION?CognitiveDeadlineClass.DEFERRED:[CognitiveJob.CONTEXT_COMPILER,CognitiveJob.CONTEXT_SEAL].includes(job)?CognitiveDeadlineClass.FOREGROUND_REQUIRED:CognitiveDeadlineClass.FOREGROUND_OPPORTUNISTIC;
+      const freshnessRequirement=[CognitiveJob.RETRIEVAL,CognitiveJob.TRUTH,CognitiveJob.GATHER,CognitiveJob.CONTEXT_COMPILER,CognitiveJob.CONTEXT_SEAL].includes(job)?CognitiveFreshnessRequirement.TURN_CURRENT:CognitiveFreshnessRequirement.NONE;
+      return createCognitiveFunctionDecision({
+        capability:job,disposition,reasonCode,expectedValue:disposition===CognitiveDisposition.ADMITTED?1:disposition===CognitiveDisposition.ESCALATED?0.75:disposition===CognitiveDisposition.DEFERRED?0.5:0,
+        resourceCost:{class:job===CognitiveJob.DEEP_COGNITION?'DEEP':deadlineClass===CognitiveDeadlineClass.FOREGROUND_REQUIRED?'FOREGROUND_REQUIRED':'BOUNDED_OPTIONAL'},
+        freshnessRequirement,deadlineClass,
+        requiredCapabilities:uniq(ownerNeeds.filter(n=>n.requiredCapabilities.includes(job)||n.kind===job).flatMap(n=>n.requiredCapabilities)),
+        channelIds:job===CognitiveJob.RETRIEVAL?[...session.channelsUsed]:[],
+        metadata:{sourceFence,ownerNeeds,physicalExecutionClaimed:false,configuredResourceIsExecution:false,scheduledJobIsExecution:false},
+      });
+    });
     const receipt=createCognitiveChoiceReceipt({
       id:'cognitive-choice:'+stableHash({turnId:session.turnId,correlationId:session.correlationId},{length:24}),
       receiptRevision:1,turnId:session.turnId,turnRevision:session.turnRevision,correlationId:session.correlationId,
@@ -286,10 +334,10 @@ export class CognitiveChoiceController{
       },
       revisions:{
         turnRevision:session.turnRevision,sceneId:session.sceneContext?.sceneId??null,sceneRevision:session.sceneRevision,worldRevision:session.worldRevision,
-        sourceRevisionRefs,candidateRevisionRefs:candidateRevisionRefs(envelopes),sceneSourceRevisionRefs:uniq(session.sceneContext?.sourceRevisionRefs??[]),
+        sourceRevisionRefs,identityRevisionRefs:identityRevisionRefs(envelopes),candidateRevisionRefs:candidateRevisionRefs(envelopes),sceneSourceRevisionRefs:uniq(session.sceneContext?.sourceRevisionRefs??[]),
         sceneProvenanceRefs:uniq(session.sceneContext?.provenanceRefs??[]),sceneContextInvalidationEpoch:Number(session.sceneContext?.contextInvalidationEpoch??0),
         retrievalRepresentationRevisionRefs:representationRefs(envelopes),
-        truthInputCandidateIds:uniq(assessment?.truthResults?.map(x=>x.candidateId)??[]),
+        truthInputCandidateIds:uniq(assessment?.truthResults?.map(x=>x.candidateId)??[]),temporalEvidenceRefs:temporalEvidenceRefs(envelopes),
         jevDecisionRevision:session.jev?.decisionRevision??null,
         contextSealRevision:sealReceipt?.sequence??null,
       },
@@ -302,7 +350,8 @@ export class CognitiveChoiceController{
         sealed:Boolean(sealReceipt?.sealedState),sealReceiptId:sealReceipt?.id??null,sequence:sealReceipt?.sequence??null,
         packetId:sealReceipt?.packetId??packet?.id??null,packetHash:sealReceipt?.packetHash??null,publicationBoundary:'CLOSED',
       },
-      lateResultIds,staleResultIds,invalidResultIds,
+      lateResultIds,staleResultIds,invalidResultIds,functionDecisions,
+      executionPlan:{ownerNeeds,logicalOnly:true,physicalExecutionClaimed:false,sourceFence},
       metadata:{hotCognitionSnapshotId:session.hotSnapshotId,query:session.query,intent:session.intent,sceneIntegration:clone(session.sceneContext),sceneCognitiveNeeds:clone(session.sceneContext?.cognitiveNeeds??[])},
     });
     this.#store(receipt);return receipt;

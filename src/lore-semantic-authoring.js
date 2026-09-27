@@ -2,6 +2,7 @@ import {ArtifactType, deepClone, stableHash, stableStringify} from './lore-contr
 import {semanticDiff} from './lore-study-engine.js';
 import {LoreIntelligenceService} from './lore-intelligence-service.js';
 import {LoreInvalidationTarget, sourceRevisionIdentity} from './lore-authoring-contracts.js';
+import {LoreSemanticImpactPlanner} from './lore-semantic-impact-planner.js';
 
 function splitSentences(content) {
   return String(content || '')
@@ -233,6 +234,11 @@ export class LoreSemanticCompiler {
   constructor({intelligence} = {}) {
     if (!intelligence) throw new TypeError('LoreSemanticCompiler requires LoreIntelligenceService');
     this.intelligence = intelligence;
+    this.impactPlanner = new LoreSemanticImpactPlanner({intelligence});
+  }
+
+  semanticImpactPlan(request = {}) {
+    return this.impactPlanner.plan(request);
   }
 
   sourceIdentity(sourceId, revisionId = null) {
@@ -455,6 +461,11 @@ export class LoreSemanticCompiler {
       fromRevisionId: current.id,
       toRevisionId: nextRevision.id,
     });
+    const semanticImpact = previewCompiler.semanticImpactPlan({
+      sourceId,
+      fromRevisionId: current.id,
+      toRevisionId: nextRevision.id,
+    });
 
     const afterStatus = preview.status();
     const beforeBySource = new Map(beforeStatus.entries.map((row) => [row.sourceId, row]));
@@ -485,6 +496,7 @@ export class LoreSemanticCompiler {
         compilationCount: study.compilations?.length || 0,
       },
       semanticChange: report,
+      semanticImpact,
       unaffectedSources: unaffected,
       allPreviouslyReadyUnrelatedSourcesRemainReady: unaffected.every((row) => row.remainsReady),
       previewOnly: true,

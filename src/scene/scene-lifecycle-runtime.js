@@ -20,7 +20,7 @@ export class SceneLifecycleRuntime{
   constructor({registry=new SceneRegistry(),stack=new SceneStack(),episodeCompiler=new SceneEpisodeCompiler(),graph=new SceneGraph(),publisher=new SceneEventPublisher(),prefetchTrigger=new ScenePrefetchTrigger(),narrativeFeed=new NarrativeFeedAdapter(),contextInvalidationPublisher=new SceneContextInvalidationPublisher()}={}){
     this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.narrativeFeed=narrativeFeed;this.contextInvalidationPublisher=contextInvalidationPublisher;
     this.sceneRuntime=new SceneIntelligenceRuntime({registry});
-    this.transitionManager=new ClapperboardTransitionManager({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,contextInvalidationPublisher});
+    this.transitionManager=new ClapperboardTransitionManager({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,sceneRuntime:this.sceneRuntime,contextInvalidationPublisher});
     this.retrieval=new SceneRetrievalAdapter({episodeProvider:()=>episodeCompiler.list(),graph});
     this.chatScenes=new Map();this.chatSceneSeq=new Map();
   }
@@ -63,20 +63,37 @@ export class SceneLifecycleRuntime{
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
     const extracted=extract(evidence,current)??{};const fields=extracted.fields??extracted;
-    const observed=this.sceneRuntime.observe({sceneId:current.sceneId,proposalId:`host:${evidence.sourceRevisionId}`,fields,sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId],allowWhenRefreshRequired:Boolean(extracted.allowWhenRefreshRequired)});
-    if(observed.applied)this.#publishDelta(observed.scene,observed.delta,evidence);
-    let boundary=null,transition=null;
+    let boundary=null,transition=null,observed=null;
     if(extracted.boundarySignals){
       boundary=this.sceneRuntime.boundary({sceneId:current.sceneId,evidenceRefs:[evidence.sourceRevisionId],signals:extracted.boundarySignals,sourcePosition:{messageId:evidence.messageId,messageRevision:evidence.messageRevision}});
       if(boundary){
-        this.publisher.publish({eventType:SceneEventType.SCENE_BOUNDARY_CANDIDATE,sceneId:current.sceneId,sceneRevision:observed.scene?.revision??current.revision,sourceRevisionRefs:[evidence.sourceRevisionId],payload:{candidate:boundary.candidate},turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,dedupeKey:boundary.candidate.candidateId});
+        this.publisher.publish({eventType:SceneEventType.SCENE_BOUNDARY_CANDIDATE,sceneId:current.sceneId,sceneRevision:current.revision,sourceRevisionRefs:[evidence.sourceRevisionId],payload:{candidate:boundary.candidate},turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,dedupeKey:boundary.candidate.candidateId});
         if(boundary.decision.status===BoundaryStatus.CONFIRMED){
           const relationship=extracted.relationship??relationForBoundary(boundary.candidate.proposedBoundaryType);
           const nextSceneId=relationship===SceneRelationship.RESUMES?extracted.resumeSceneId:null;
-          transition=this.transitionManager.transition({decision:boundary.decision,fromSceneId:current.sceneId,nextSceneId,relationship,evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],sourceRange:{start:evidence.messageId,end:evidence.messageId},expectedSceneRevision:observed.scene?.revision??current.revision,turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId});
-          if(transition.toSceneId)this.chatScenes.set(evidence.chatId,transition.toSceneId);
+          const destinationHints={
+            entityRefs:(fields.activeCast?.value??[]).filter((row)=>row?.state==='PRESENT').map((row)=>row.characterId).filter(Boolean),
+            locationRefs:[fields.location?.value?.location??fields.location?.value].filter(Boolean),
+            threadRefs:(fields.activeThreads?.value??[]).filter((row)=>typeof row==='string'),
+          };
+          transition=this.transitionManager.transition({
+            decision:boundary.decision,fromSceneId:current.sceneId,nextSceneId,relationship,
+            evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],
+            sourceRange:{start:evidence.messageId,end:evidence.messageId},destinationHints,destinationFields:fields,
+            allowDestinationRefresh:Boolean(extracted.allowWhenRefreshRequired),expectedSceneRevision:current.revision,
+            turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+          });
+          if(transition.toSceneId){
+            this.chatScenes.set(evidence.chatId,transition.toSceneId);
+            const nextScene=this.registry.current(transition.toSceneId);
+            observed={scene:nextScene,delta:clone(transition.destinationDelta??null),applied:Boolean(transition.destinationApplied)};
+          }
         }
       }
+    }
+    if(!observed){
+      observed=this.sceneRuntime.observe({sceneId:current.sceneId,proposalId:`host:${evidence.sourceRevisionId}`,fields,sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId],allowWhenRefreshRequired:Boolean(extracted.allowWhenRefreshRequired)});
+      if(observed.applied)this.#publishDelta(observed.scene,observed.delta,evidence);
     }
     return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }

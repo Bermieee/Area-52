@@ -130,10 +130,13 @@ function generationSelector(d,ctx,currentId,{compact=false}={}){
 }
 
 function generationHero(d,x,source){
-  const card=element(d,'section',{className:'a52-card a52-generation-hero'}),head=element(d,'div',{className:'a52-inline-status'}),budget=contextBudget(x);
+  const card=element(d,'section',{className:'a52-card a52-generation-hero'}),head=element(d,'div',{className:'a52-inline-status'}),budget=contextBudget(x),compiled=x.budgetEvidence?.compiled??{};
+  const delivery=x.deliveryEvidence??{};
   head.append(sourceModeBadge(d,source),makeHealthPill(d,{label:`Context · ${source.health}`,status:source.statusToken,detail:source.impact}),makeBadge(d,x.generationId??'generation unavailable','observed'));
   card.append(head,element(d,'h2',{text:x.generationId??'Generation'}),createKeyValue(d,[
-    {key:'Available budget',value:`${number(budget.total)} tokens`},{key:'Allocated',value:`${number(budget.allocated)} tokens`},{key:'Remaining',value:`${number(budget.remaining)} tokens`},
+    {key:'Core planned budget',value:`${number(budget.total)} total · ${number(budget.allocated)} allocated · ${number(budget.remaining)} remaining`},
+    {key:'Compiled/sealed budget',value:`${number(compiled.total)} total · ${number(compiled.allocated)} compiled · ${number(compiled.remaining)} remaining`},
+    {key:'Planned',value:delivery.planned?.state??'NO_EVIDENCE'},{key:'Compiled / sealed',value:delivery.compiled?.state??'NO_EVIDENCE'},{key:'Observed in host request',value:delivery.observed?.state??'NO_EVIDENCE'},
     {key:'Final packet estimate',value:`${number(x.usedOrEstimatedTokens)} tokens`},{key:'Model profile',value:x.modelProfileId??'unavailable'},{key:'Fallback',value:x.fallbackState??'NONE'},
     {key:'Integrity',value:x.integrityState??'unavailable'},{key:'Turn',value:x.turnId??'unavailable'},
   ]));
@@ -153,7 +156,13 @@ function contextSections(d,x,detail,ctx){
   const root=element(d,'div',{className:'a52-context-section-grid'});
   for(const [index,section] of x.sections.entries()){
     const explanation=explainContextSection(section),card=element(d,'article',{className:'a52-context-section-card',dataset:{state:explanation.state},attrs:{'aria-label':`Context section ${index+1}: ${human(explanation.slot)}`}});
-    const head=element(d,'div',{className:'a52-inline-status'});head.append(makeBadge(d,`#${index+1}`,'observed'),makeBadge(d,explanation.state,stateToken(explanation.state)),element(d,'strong',{text:human(explanation.slot)}),makeBadge(d,`${number(explanation.actualTokens??explanation.estimatedTokens)} tokens`,'observed'));
+    const head=element(d,'div',{className:'a52-inline-status'});head.append(
+      makeBadge(d,`#${index+1}`,'observed'),element(d,'strong',{text:human(explanation.slot)}),
+      makeBadge(d,`Planned: ${explanation.plannedState}`,stateToken(explanation.plannedState)),
+      makeBadge(d,`Compiled: ${explanation.compiledState}`,stateToken(explanation.compiledState)),
+      makeBadge(d,`Host: ${explanation.observedState}`,stateToken(explanation.observedState)),
+      makeBadge(d,`${number(explanation.actualTokens??explanation.estimatedTokens)} tokens`,'observed')
+    );
     card.append(head,element(d,'p',{text:explanation.impact}));
     if(explanation.reason)card.append(element(d,'p',{className:'a52-muted',text:explanation.reason}));else card.append(element(d,'p',{className:'a52-muted',text:'Reason not published by the owning context model.'}));
     if(detail!==ProductDetailLevel.NORMAL)card.append(createKeyValue(d,[{key:'Priority',value:explanation.priority??'unavailable'},{key:'Tokens',value:number(explanation.actualTokens??explanation.estimatedTokens)},{key:'Representation',value:explanation.representation??'unavailable'},{key:'Cache eligible',value:explanation.cacheEligible==null?'unavailable':String(explanation.cacheEligible)}]));
@@ -227,10 +236,11 @@ function advancedForensic(d,data,ctx){
 function renderGenerationInspector(object,{document:d,scope,services},forensics,promptPlan){
   const root=element(d,'div',{className:'a52-stack'}),x=object.generation??object.payload??{},level=services?.productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL,budget=contextBudget(x),counts=x.sectionCounts??{};
   root.append(element(d,'h2',{text:object.title??'Generation Context'}),element(d,'p',{className:'a52-muted',text:'Read-only explanation of the generation packet. Authority comes from owning subsystem receipts, not UI confidence.'}),createKeyValue(d,[
-    {key:'Generation',value:x.generationId??'—'},{key:'Model profile',value:x.modelProfileId??'—'},{key:'Budget',value:`${number(budget.allocated)} / ${number(budget.total)} · ${number(budget.remaining)} remaining`},
+    {key:'Generation',value:x.generationId??'—'},{key:'Model profile',value:x.modelProfileId??'—'},{key:'Core planned budget',value:`${number(budget.allocated)} / ${number(budget.total)} · ${number(budget.remaining)} remaining`},
+    {key:'Planned / compiled / observed',value:`${x.deliveryEvidence?.planned?.state??'NO_EVIDENCE'} / ${x.deliveryEvidence?.compiled?.state??'NO_EVIDENCE'} / ${x.deliveryEvidence?.observed?.state??'NO_EVIDENCE'}`},
     {key:'Final packet estimate',value:`${number(x.usedOrEstimatedTokens)} tokens`},{key:'Reuse / rebuild',value:`${counts.REUSED??0} reused · ${counts.REBUILT??0} rebuilt · ${counts.UPDATED??0} updated`},{key:'Fallback',value:x.fallbackState??'NONE'},
   ]));
-  if(x.sections?.length){root.append(element(d,'h3',{text:'Ordered context sections'}));for(const [index,section] of x.sections.entries()){const row=element(d,'div',{className:'a52-inspector-trace-row'});row.append(makeBadge(d,`#${index+1}`,'observed'),makeBadge(d,section.state??'INCLUDED',stateToken(section.state)),element(d,'span',{text:`${human(section.slot)} · ${number(section.actualTokens??section.estimatedTokens)} tokens`}));if(section.authority)row.append(createAuthorityPill(d,section.authority));root.append(row);}}
+  if(x.sections?.length){root.append(element(d,'h3',{text:'Ordered context sections'}));for(const [index,section] of x.sections.entries()){const row=element(d,'div',{className:'a52-inspector-trace-row'});row.append(makeBadge(d,`#${index+1}`,'observed'),element(d,'span',{text:`${human(section.slot)} · ${number(section.actualTokens??section.estimatedTokens)} tokens`}),makeBadge(d,`Plan ${section.plannedState??'NO_EVIDENCE'}`,stateToken(section.plannedState)),makeBadge(d,`Compiled ${section.compiledState??'NO_EVIDENCE'}`,stateToken(section.compiledState)),makeBadge(d,`Host ${section.observedState??'NO_EVIDENCE'}`,stateToken(section.observedState)));if(section.authority)row.append(createAuthorityPill(d,section.authority));root.append(row);}}
   if(level!==ProductDetailLevel.NORMAL){
     root.append(element(d,'h3',{text:'Evidence and revision fences'}),createKeyValue(d,[{key:'World / Scene',value:`${x.worldRevision??'—'} / ${x.sceneRevision??'—'}`},{key:'Source revisions',value:(x.sourceRevisionRefs??[]).join(', ')||'none'},{key:'PromptPlan',value:x.promptPlanId??'—'},{key:'Context Seal',value:x.contextSealId??'—'}]));
     for(const conflict of unresolvedConflictModel(x.receipt)){const row=element(d,'div',{className:'a52-inspector-trace-row'});row.append(createAuthorityPill(d,conflict.authority),element(d,'span',{text:`${conflict.subjectId??'Evidence'} · ${conflict.predicate??'unresolved'}`}));root.append(row);}
@@ -241,7 +251,7 @@ function renderGenerationInspector(object,{document:d,scope,services},forensics,
   return root;
 }
 function renderSectionInspector(object,{document:d,services}){
-  const x=explainContextSection(object.section),root=element(d,'div',{className:'a52-stack'}),level=services?.productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL;root.append(element(d,'h2',{text:object.title??human(x.slot)}),makeBadge(d,x.state,stateToken(x.state)),element(d,'p',{text:x.impact}),element(d,'p',{className:'a52-muted',text:x.reason??'Reason not published by owning backend.'}),createKeyValue(d,[{key:'Tokens',value:number(x.actualTokens??x.estimatedTokens)},{key:'Priority',value:x.priority??'—'},{key:'Reuse',value:x.reuseState??'—'},{key:'Cache eligible',value:x.cacheEligible==null?'—':String(x.cacheEligible)},{key:'Representation',value:x.representation??'—'}]));if(x.authority)root.append(createAuthorityPill(d,x.authority));if(level!==ProductDetailLevel.NORMAL)root.append(createKeyValue(d,[{key:'Source subsystem',value:x.sourceSubsystem??'unavailable'},{key:'Revision identity',value:x.revisionIdentity?JSON.stringify(x.revisionIdentity):'unavailable'}]));if(level===ProductDetailLevel.ADVANCED&&object.section?.rawRef)root.append(element(d,'pre',{className:'a52-context-packet',text:JSON.stringify(object.section.rawRef,null,2)}));return root;
+  const x=explainContextSection(object.section),root=element(d,'div',{className:'a52-stack'}),level=services?.productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL;root.append(element(d,'h2',{text:object.title??human(x.slot)}),element(d,'div',{className:'a52-inline-status'},makeBadge(d,`Planned ${x.plannedState}`,stateToken(x.plannedState)),makeBadge(d,`Compiled ${x.compiledState}`,stateToken(x.compiledState)),makeBadge(d,`Host ${x.observedState}`,stateToken(x.observedState))),element(d,'p',{text:x.impact}),element(d,'p',{className:'a52-muted',text:x.reason??'Reason not published by owning backend.'}),createKeyValue(d,[{key:'Tokens',value:number(x.actualTokens??x.estimatedTokens)},{key:'Priority',value:x.priority??'—'},{key:'Reuse',value:x.reuseState??'—'},{key:'Cache eligible',value:x.cacheEligible==null?'—':String(x.cacheEligible)},{key:'Representation',value:x.representation??'—'}]));if(x.authority)root.append(createAuthorityPill(d,x.authority));if(level!==ProductDetailLevel.NORMAL)root.append(createKeyValue(d,[{key:'Source subsystem',value:x.sourceSubsystem??'unavailable'},{key:'Revision identity',value:x.revisionIdentity?JSON.stringify(x.revisionIdentity):'unavailable'},{key:'Compiled receipt',value:x.evidence?.compiled?.receiptRef??'NO_EVIDENCE'},{key:'Host receipt',value:x.evidence?.observed?.receiptRef??'NO_EVIDENCE'}]));return root;
 }
 function renderForensicInspector(object,{document:d,scope,services},forensics){
   const item=object.item??{},whyModel=forensicWhy(item),root=element(d,'div',{className:'a52-stack'}),level=services?.productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL;root.append(element(d,'h2',{text:object.title??human(item.eventType)}),makeBadge(d,item.status??'RECORDED',statusToken(item.status)),createAuthorityPill(d,item.authority?.authority??'UNRESOLVED'),element(d,'p',{text:whyModel.summary}),createKeyValue(d,[{key:'Subsystem',value:item.subsystem??'—'},{key:'Reason',value:item.reasonCode??'not published'},{key:'Revision',value:`${item.beforeRevision??'—'} → ${item.afterRevision??'—'}`},{key:'Correlation',value:item.correlationId??'—'},{key:'Task',value:item.taskId??'—'}]));
@@ -255,7 +265,8 @@ function forensicPathCard(d,path,ctx){
   if(path.lateAfterSeal.length)card.append(state(d,'Late result contained',`${path.lateAfterSeal.length} late result${path.lateAfterSeal.length===1?' is':'s are'} visible in history but did not alter the sealed generation.`,'warning'));
   return card;
 }
-function contextBudget(x){const budget=x?.budget??{},allocated=Number(budget.allocated??budget.usedTokens??x?.plannedTokens??x?.usedOrEstimatedTokens??0)||0,total=Number(budget.total??budget.available??budget.contextWindow??allocated)||allocated,remaining=Number.isFinite(Number(budget.remaining))?Number(budget.remaining):Math.max(0,total-allocated);return{allocated,total,remaining};}
+function contextBudget(x){const evidence=x?.budgetEvidence?.planned;if(evidence)return evidence;const budget=x?.budget??{},allocated=finiteOrNull(budget.allocated??budget.usedTokens??x?.plannedTokens),total=finiteOrNull(budget.total??budget.available??budget.contextWindow),explicit=finiteOrNull(budget.remaining),remaining=explicit??(total!=null&&allocated!=null?Math.max(0,total-allocated):null);return{allocated,total,remaining};}
+function finiteOrNull(value){if(value==null||value==='')return null;const n=Number(value);return Number.isFinite(n)?n:null;}
 
 function renderConflictInspector(object,{document:d}){
   const x=object.conflict??{},root=element(d,'div',{className:'a52-stack'});root.append(element(d,'h2',{text:'Unresolved conflict'}),makeBadge(d,'UNRESOLVED','warning'),createAuthorityPill(d,x.authority??'UNRESOLVED'),element(d,'p',{text:'Competing evidence remains preserved. The UI does not choose a winner.'}),createKeyValue(d,[{key:'Subject',value:x.subjectId??'—'},{key:'Predicate',value:x.predicate??'—'},{key:'Provenance',value:(x.provenanceRefs??[]).join(', ')||'—'}]));return root;

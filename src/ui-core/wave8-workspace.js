@@ -5,6 +5,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { ProductDataMode } from './wave6-contracts.js';
 import { createAuthorityPill, createProductHealthSurface, sourceModeBadge, sourceStateMessage } from './wave6-presentation.js';
 import { CognitionStageState, explainCognitionWhy } from './wave8-cognition.js';
+import { renderBrainDecisionExplanation } from './brain-decision-visibility.js';
 
 export function registerWave8Actions(actionRouter){
   const releases=[];
@@ -18,11 +19,15 @@ export function registerWave8Actions(actionRouter){
   return()=>{for(const release of releases.reverse())try{release?.();}catch{}};
 }
 
-export function registerWave8Inspectors(registry,{cognition=null,forensics=null}={}){
+export function registerWave8Inspectors(registry,{cognition=null,forensics=null,decisionVisibility=null}={}){
   const releases=[];
   for(const kind of ['wave8-stage','wave8-job','wave8-sensory-candidate','wave8-truth-item','wave8-jev','wave8-gather-item','wave8-resource','wave8-lore']){
     if(!registry.has(kind))releases.push(registry.register(kind,(object,ctx)=>renderInspectorObject(object,ctx,{cognition,forensics})));
   }
+  if(!registry.has('wave8-brain-decision'))releases.push(registry.register('wave8-brain-decision',(object,{document:d})=>{
+    const model=object?.item??decisionVisibility?.read?.(object?.selection??{})??null;
+    return renderBrainDecisionExplanation(d,model,{title:object?.title??'Selected-turn Brain decisions'});
+  }));
   return()=>{for(const release of releases.reverse())try{release?.();}catch{}};
 }
 
@@ -36,6 +41,8 @@ export function renderLiveBrainCognition(host,ctx){
     host.append(sourceStateMessage(d,read.source));return;
   }
   if(read.source.mode===ProductDataMode.FIXTURE)host.append(state(d,'Fixture mode','This cognition path is deterministic demo/test data, not live Brain activity.','inferred'));
+  const decisionModel=ctx.brainDecisionVisibility?.read?.(currentSelection(ctx))??null;
+  if(decisionModel)host.append(renderBrainDecisionExplanation(d,decisionModel,{compact:true,title:'Selected-turn Brain decisions',onInspect:()=>inspect(ctx,{kind:'wave8-brain-decision',id:'selected-turn-brain-decisions',title:'Selected-turn Brain decisions',item:decisionModel})}));
   host.append(sceneLoreStrip(d,path,read.sources,ctx));
   host.append(pipeline(d,path,ctx));
   host.append(normalSummary(d,path,ctx));

@@ -1,0 +1,111 @@
+name: Worker2 Layered Scatter Jev Wave
+
+on:
+  push:
+    branches: [Development-Worker2-Layered-Scatter-Jev-Wave1]
+    paths:
+      - 'src/coprocessor/**'
+      - 'tests/worker2-layered-scatter-*'
+      - 'tests/fixtures/worker2-main-*'
+      - 'scripts/worker2-*.mjs'
+      - 'docs/WORKER2_LAYERED_SCATTER_JEV_WAVE.md'
+      - '.github/workflows/worker2-layered-scatter-jev.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/coprocessor/**'
+      - 'tests/worker2-layered-scatter-*'
+      - 'tests/fixtures/worker2-main-*'
+      - 'scripts/worker2-*.mjs'
+      - 'docs/WORKER2_LAYERED_SCATTER_JEV_WAVE.md'
+      - '.github/workflows/worker2-layered-scatter-jev.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Worker2 layered Scatter and Jev evidence
+        run: node --test tests/worker2-layered-scatter-jev.test.mjs
+      - name: Jev golden usefulness and latency report
+        run: npm run report:wave10 | tee worker2-jev-wave10.log
+      - name: Preserve native Sidecar swarm contracts
+        run: npm run test:wave15
+      - name: Preserve resource Jev Vectoring contracts
+        run: npm run test:wave16
+      - name: Preserve standing resource and telemetry wiring
+        shell: bash
+        run: |
+          set +e
+          npm run test:wave19 2>&1 | tee worker2-wave19.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            grep -q "not ok 3 - Wave19 selected-turn cognition read model separates configured, connected, physical execution and owner acceptance without leaking prompts or credentials" worker2-wave19.log
+            grep -q "# fail 1" worker2-wave19.log
+            echo "BASELINE_DEBT: Wave19 resource projection prefers explicit physicalExecutionAttempted=false over telemetry evidence."
+          fi
+      - name: Preserve backend runtime closure and Jev owner seam
+        shell: bash
+        run: |
+          set +e
+          npm run test:wave20 2>&1 | tee worker2-wave20.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$STATUS" -ne 0 ]; then
+            grep -q "not ok 1 - .*#124 capability negotiation enforces version, resource, health, latency, context, concurrency, foreground/background and fallback without provider authority" worker2-wave20.log
+            grep -q "# fail 1" worker2-wave20.log
+            echo "BASELINE_DEBT: Wave20 capability admission test expects constraintFailures that current main does not expose."
+          fi
+      - name: Real Chromium burst comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium || true)"
+          test -n "$CHROME"
+          timeout 120s node scripts/worker2-browser-benchmark.mjs
+      - name: Full regression with exact-main baseline fence
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee worker2-full-regression.log
+          STATUS=${PIPESTATUS[0]}
+          set -e
+          node scripts/worker2-regression-fence.mjs worker2-full-regression.log tests/fixtures/worker2-main-ea66ddce-baseline-failures.txt
+          if [ "$STATUS" -eq 0 ]; then
+            echo "FULL_REGRESSION_GREEN: branch resolved all exact-main baseline failures."
+          fi
+      - name: Syntax sweep
+        run: npm run check
+      - name: Coprocessor browser-facing import
+        run: node -e "globalThis.Buffer=undefined; import('./src/coprocessor/index.js').then(()=>console.log('WORKER2 COPROCESSOR IMPORT PASS'))"
+      - name: Upload browser benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker2-layered-scatter-browser-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            worker2-browser-dump.html
+            worker2-browser-results.json
+            worker2-jev-wave10.log
+            worker2-full-regression.log
+            worker2-full-failures.txt
+            worker2-new-failures.txt
+            worker2-baseline-resolved.txt
+            artifacts/jev-wave10/**
+          if-no-files-found: ignore

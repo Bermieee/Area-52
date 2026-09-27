@@ -5,7 +5,7 @@
   "branch": "main",
   "deploymentBaseSha": "ba4619f56db8e4f94873256dc26589e1680b7d29",
   "manifestParentHead": "01d37104c99d0299366de0a6ae552d5426354a65",
-  "status": "OWNER_INTEGRATION_PROMOTION_READY_CI_RUNNER_BACKLOG_LIVE_GATE_OPEN",
+  "status": "WORKER4_DEMO_RECONCILED_EXACT_HEAD_CI_PENDING_INSTALLED_GATE_OPEN",
   "mainMutationAllowed": true,
   "sourceDigestAlgorithm": "git-blob-sha1",
   "laneManifests": [
@@ -272,5 +272,6 @@
       "ownerAcceptanceIsNotContextSealAdmission": true,
       "nativeBrainRequiresOptionalResources": false
     }
-  }
+  },
+  "reconciliationDigestOverlay": "assembly/reconciliations/worker4-demo-20260926.json"
 }

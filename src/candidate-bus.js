@@ -37,7 +37,7 @@ function limits(input={}){
 function uniqueObjects(values=[],max=64){const map=new Map();for(const value of values){const key=stableJson(value);if(!map.has(key))map.set(key,clone(value));}return [...map.values()].sort((a,b)=>stableJson(a).localeCompare(stableJson(b))).slice(0,max);}
 function nominationSignature(n){return stableHash({
   channelId:n.channelId,evidenceIdentity:n.evidenceIdentity,artifactRef:n.artifactRef,artifactRevision:n.artifactRevision,
-  sourceRevisionRefs:n.sourceRevisionRefs,claimRefs:n.claimRefs,eventRefs:n.eventRefs,entityRefs:n.entityRefs,relationshipRefs:n.relationshipRefs,
+  sourceRevisionRefs:n.sourceRevisionRefs,identityRevisionRefs:n.identityRevisionRefs,claimRefs:n.claimRefs,eventRefs:n.eventRefs,entityRefs:n.entityRefs,relationshipRefs:n.relationshipRefs,
   retrievalIntentIds:n.retrievalIntentIds,rankSignals:n.rankSignals,normalizedRank:n.normalizedRank,graphMetadata:n.graphMetadata,
   temporalHints:n.temporalHints,continuitySignals:n.continuitySignals,authorityClass:n.authorityClass,truthStatusHint:n.truthStatusHint,
   provenance:n.provenance,evidenceRefs:n.evidenceRefs,dependencyRevisions:n.dependencyRevisions,freshness:n.freshness,
@@ -114,12 +114,13 @@ function nominationView(n,lim){return {
   temporalHints:clone(n.temporalHints).slice(0,16),continuitySignals:clone(n.continuitySignals).slice(0,16),freshness:n.freshness,
   provenance:uniqueObjects(n.provenance??[],Math.min(16,lim.maxProvenanceRefsPerCandidate)),
   evidenceRefs:[...n.evidenceRefs].slice(0,Math.min(16,lim.maxEvidenceRefsPerCandidate)),
+  identityRevisionRefs:[...(n.identityRevisionRefs??[])],
   metadata:boundedMetadata([n],Math.max(64,Math.floor(lim.maxMetadataBytesPerCandidate/Math.max(1,lim.maxNominationRecordsPerCandidate)))),
 };}
 
 export class CandidateBus{
-  constructor({limits:inputLimits={},isSourceRevisionCurrent=null,isDependencyRevisionCurrent=null,isArtifactKnown=null}={}){
-    this.limits=limits(inputLimits);this.isSourceRevisionCurrent=isSourceRevisionCurrent;this.isDependencyRevisionCurrent=isDependencyRevisionCurrent;this.isArtifactKnown=isArtifactKnown;
+  constructor({limits:inputLimits={},isSourceRevisionCurrent=null,isIdentityRevisionCurrent=null,isDependencyRevisionCurrent=null,isArtifactKnown=null}={}){
+    this.limits=limits(inputLimits);this.isSourceRevisionCurrent=isSourceRevisionCurrent;this.isIdentityRevisionCurrent=isIdentityRevisionCurrent;this.isDependencyRevisionCurrent=isDependencyRevisionCurrent;this.isArtifactKnown=isArtifactKnown;
     this.receipts=[];this.counters={fusions:0,inputNominations:0,duplicates:0,boundedOut:0,stale:0,invalid:0};
   }
 
@@ -139,6 +140,7 @@ export class CandidateBus{
           throw new CandidateBusContractError('UNKNOWN_ARTIFACT_REF','Unknown artifact reference: '+artifactId,{artifactId});
         let freshness=currentFreshness(n,currentRevisionSet);
         if(freshness===CandidateFreshness.FRESH&&typeof this.isSourceRevisionCurrent==='function'&&n.sourceRevisionRefs.some(ref=>!this.isSourceRevisionCurrent(ref)))freshness=CandidateFreshness.STALE;
+        if(freshness===CandidateFreshness.FRESH&&typeof this.isIdentityRevisionCurrent==='function'&&(n.identityRevisionRefs??[]).some(ref=>!this.isIdentityRevisionCurrent(ref)))freshness=CandidateFreshness.STALE;
         if(freshness===CandidateFreshness.FRESH&&typeof this.isDependencyRevisionCurrent==='function'&&n.dependencyRevisions.some(ref=>!this.isDependencyRevisionCurrent(ref)))freshness=CandidateFreshness.STALE;
         normalized.push({...clone(n),freshness});
       }catch(error){invalid.push({code:error?.code??'NOMINATION_INVALID',message:String(error?.message??error),nominationId:raw?.nominationId??null,channelId:raw?.channelId??null});}
@@ -185,6 +187,7 @@ export class CandidateBus{
       const candidate=createCanonicalCandidate({
         candidateId:nominatedCandidateId??('candidate:'+stableHash(identity,{length:24,alreadyString:true})),evidenceIdentity:identity,
         artifactRef,artifactRevision,sourceRevisionRefs:uniq(keptRows.flatMap(x=>x.sourceRevisionRefs)),
+        identityRevisionRefs:uniq(keptRows.flatMap(x=>x.identityRevisionRefs??[])),
         claimRefs:uniq(keptRows.flatMap(x=>x.claimRefs)),eventRefs:uniq(keptRows.flatMap(x=>x.eventRefs)),
         entityRefs:uniq(keptRows.flatMap(x=>x.entityRefs)),relationshipRefs:uniq(keptRows.flatMap(x=>x.relationshipRefs)),
         retrievalIntentIds:intentSet,channelNominations:keptRows.map(n=>nominationView(n,this.limits)),rankSignals:mergeRankSignals(keptRows),
@@ -219,12 +222,13 @@ export class CandidateBus{
     const perChannelCounts=Object.fromEntries([...channelCounts.entries()].sort((a,b)=>a[0].localeCompare(b[0])));
     const perIntentCounts=Object.fromEntries([...intentCounts.entries()].filter(([id])=>id!=='__NO_INTENT__').sort((a,b)=>a[0].localeCompare(b[0])));
     const sourceRevisionSet=uniq(currentRevisionSet.sourceRevisionSet??selected.flatMap(c=>c.sourceRevisionRefs));
+    const identityRevisionSet=uniq(currentRevisionSet.identityRevisionSet??selected.flatMap(c=>c.identityRevisionRefs??[]));
     const staleNominationCount=normalized.filter(x=>x.freshness===CandidateFreshness.STALE).length;
     const invalidNominationCount=invalid.length+normalized.filter(x=>x.freshness===CandidateFreshness.INVALID).length;
     const envelopeFreshness=selected.some(c=>c.freshness===CandidateFreshness.FRESH)?CandidateFreshness.FRESH:(selected.some(c=>c.freshness===CandidateFreshness.STALE)?CandidateFreshness.STALE:CandidateFreshness.UNKNOWN);
     const setId=candidateSetId??'candidate-set:'+stableHash({
       retrievalIntentIds:intentIds,candidates:selected.map(c=>[c.candidateId,c.freshness,c.channelNominations.map(n=>n.channelId)]),
-      sourceRevisionSet,worldRevision:currentRevisionSet.worldRevision??0,sceneRevision:currentRevisionSet.sceneRevision??0,
+      sourceRevisionSet,identityRevisionSet,worldRevision:currentRevisionSet.worldRevision??0,sceneRevision:currentRevisionSet.sceneRevision??0,
     },{length:24});
     const receipt=createFusionReceipt({
       candidateSetId:setId,retrievalIntentIds:intentIds,inputNominationCount:nominations.length,
@@ -232,7 +236,7 @@ export class CandidateBus{
       duplicateNominationCount,perChannelCounts,perIntentCounts,
       boundedOutCount:boundedNominationIds.length+prunedCandidateIds.length,unavailableChannels,degradedChannels,
       staleNominationCount,invalidNominationCount,revisionSet:{
-        sourceRevisionSet,worldRevision:currentRevisionSet.worldRevision??0,sceneRevision:currentRevisionSet.sceneRevision??0,
+        sourceRevisionSet,identityRevisionSet,worldRevision:currentRevisionSet.worldRevision??0,sceneRevision:currentRevisionSet.sceneRevision??0,
         dependencyRevisionSet:uniq(currentRevisionSet.dependencyRevisionSet??[]),
       },freshness:envelopeFreshness,coverageByIntent,candidateIdsByIntent,uncoveredIntentIds,prunedCandidateIds,
       fusionPolicyVersion:FUSION_POLICY_VERSION,diagnostics:{
@@ -242,7 +246,7 @@ export class CandidateBus{
       },
     });
     const envelope=createCandidateBusEnvelope({
-      candidateSetId:setId,query,retrievalIntentIds:intentIds,sourceRevisionSet,
+      candidateSetId:setId,query,retrievalIntentIds:intentIds,sourceRevisionSet,identityRevisionSet,
       worldRevision:currentRevisionSet.worldRevision??0,sceneRevision:currentRevisionSet.sceneRevision??0,
       candidates:selected,unavailableChannels,degradedChannels,fusionReceipt:receipt,freshness:envelopeFreshness,metadata,
     });

@@ -1,15 +1,16 @@
 import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
+import { renderBrainDecisionExplanation } from './brain-decision-visibility.js';
 
-export const TURN_LOG_DIAGNOSTICS_VERSION='1.0.0';
+export const TURN_LOG_DIAGNOSTICS_VERSION='1.1.0';
 const DEFAULT_MAX_VISIBLE=96;
 const DEFAULT_MAX_DETAIL_BYTES=12288;
-const CATEGORY_ORDER=['HOST','COGNITION','RUNTIME','RESOURCE','RESULT','GATHER','CONTEXT','DELIVERY','LEARNING','ERROR'];
+const CATEGORY_ORDER=['HOST','EDGE','COGNITION','RUNTIME','RESOURCE','RESULT','GATHER','CONTEXT','DELIVERY','LEARNING','ERROR'];
 const SEVERITY_ORDER=['ERROR','WARN','OK','INFO'];
 const BLOCKED_KEYS=new Set(['rawprompt','prompt','prompttext','story','storytext','lorebody','contentbody','responsebody','reasoning','hiddenreasoning','apikey','api_key','authorization','credential','credentials','password','secret','access_token','refresh_token']);
 
 export class SelectedTurnLogModel{
-  constructor({journal,selectionProvider=()=>({}),now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
-    this.journal=journal??null;
+  constructor({journal,selectionProvider=()=>({}),decisionVisibility=null,now=()=>Date.now(),maxVisibleRows=DEFAULT_MAX_VISIBLE,maxDetailBytes=DEFAULT_MAX_DETAIL_BYTES}={}){
+    this.journal=journal??null;this.decisionVisibility=decisionVisibility??null;
     this.selectionProvider=typeof selectionProvider==='function'?selectionProvider:()=>({});
     this.now=typeof now==='function'?now:()=>Date.now();
     this.maxVisibleRows=Math.max(16,Math.min(256,Number(maxVisibleRows)||DEFAULT_MAX_VISIBLE));
@@ -31,7 +32,7 @@ export class SelectedTurnLogModel{
       filters:normalizedFilters,rows,totalRows:allRows.length,matchingRows:filtered.length,visibleRows:rows.length,truncated,
       availableCategories:CATEGORY_ORDER.filter(category=>allRows.some(row=>row.category===category)),
       availableSeverities:SEVERITY_ORDER.filter(severity=>allRows.some(row=>row.severity===severity)),
-      summary:summarize(turn,allRows),retention:status,
+      summary:summarize(turn,allRows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),retention:status,
       chronology:'OWNER_STAGE_ORDER_WITH_EXACT_TIMESTAMPS_WHEN_PUBLISHED',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
     });
@@ -54,7 +55,7 @@ export class SelectedTurnLogModel{
     }
     return sanitize({
       kind:'Area52SelectedTurnLogExport',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,exportedAt:this.now(),
-      selection:selected,summary:summarize(turn,rows),rows,details,retention:this.journal?.status?.()??null,
+      selection:selected,summary:summarize(turn,rows),brainDecision:safeDecisionRead(this.decisionVisibility,selected),rows,details,retention:this.journal?.status?.()??null,
       chronology:'OWNER_STAGE_ORDER_WITH_EXACT_TIMESTAMPS_WHEN_PUBLISHED',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false},
     });
@@ -71,9 +72,9 @@ export class SelectedTurnLogModel{
   }
 }
 
-export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
+export function installTurnLogDiagnosticsWorkspace(registry,{journal,selectionProvider=()=>({}),decisionVisibility=null,maxVisibleRows=DEFAULT_MAX_VISIBLE}={}){
   if(!registry||!journal)return null;
-  const model=new SelectedTurnLogModel({journal,selectionProvider,maxVisibleRows});
+  const model=new SelectedTurnLogModel({journal,selectionProvider,decisionVisibility,maxVisibleRows});
   const filters={time:'ALL',category:'ALL',severity:'ALL',search:''};
   const id='turn-log';
   if(!registry.has(id))registry.register({
@@ -99,9 +100,10 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh}={}){
   const actions=element(d,'div',{className:'a52-wave13-resource-actions'});
   actions.append(createButton(d,{label:'Export selected-turn metadata',scope,size:'sm',variant:'quiet',onPress:()=>model.download({selection:s,document:d})}));
   head.append(actions);root.append(head);
+  if(snapshot.brainDecision)root.append(renderBrainDecisionExplanation(d,snapshot.brainDecision,{compact:true,title:'Brain decision evidence'}));
 
   root.append(element(d,'section',{className:'a52-card'},element(d,'h2',{text:'Execution profile'}),createKeyValue(d,[
-    {key:'Logical jobs',value:summary.logicalJobs??0},{key:'Native resources',value:summary.nativeResources??0},{key:'Optional provider attempts',value:summary.optionalAttempts??0},
+    {key:'Causal owner edges',value:String(summary.ownerEvidenceEdges??0)+' evidenced / '+String(summary.missingOwnerEdges??0)+' no evidence'},{key:'Logical jobs',value:summary.logicalJobs??0},{key:'Native resources',value:summary.nativeResources??0},{key:'Optional provider attempts',value:summary.optionalAttempts??0},
     {key:'Gather admitted',value:summary.gatherAdmitted??0},{key:'Gather rejected / late / stale',value:[summary.gatherRejected??0,summary.gatherLate??0,summary.gatherStale??0].join(' / ')},
     {key:'PromptPlan',value:summary.promptPlanState??'NOT OBSERVED'},{key:'Host delivery',value:summary.hostDeliveryState??'NOT OBSERVED'},{key:'Source-fence/read errors',value:summary.readErrors??0},
   ])));
@@ -119,9 +121,16 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh}={}){
   scope?.listen?.(search,'change',()=>{filters.search=String(search.value??'').trim();refresh?.();});
   filterCard.append(controls,element(d,'p',{className:'a52-muted',text:snapshot.truncated?'Visible row cap reached; narrow filters or export the selected-turn metadata for the bounded retained set.':'Showing '+snapshot.visibleRows+' of '+snapshot.matchingRows+' matching rows.'}));root.append(filterCard);
 
-  const list=element(d,'section',{className:'a52-card',attrs:{'aria-label':'Correlated turn path'}});list.append(element(d,'h2',{text:'Correlated path'}));
-  if(!snapshot.rows.length)list.append(element(d,'p',{className:'a52-muted',text:snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate this log.'}));
-  for(const row of snapshot.rows)list.append(renderRow(d,row,{model,selection:s,scope}));
+  const jobRows=snapshot.rows.filter(row=>row.stage==='Fan-out job');
+  const jobs=element(d,'section',{className:'a52-card',attrs:{'aria-label':'Selected turn job drilldown'}});jobs.append(element(d,'h2',{text:'Jobs · resource → return → Gather → Seal'}));
+  if(!jobRows.length)jobs.append(element(d,'p',{className:'a52-muted',text:'No owner-backed job audit is retained for this selected turn.'}));
+  for(const row of jobRows)jobs.append(renderRow(d,row,{model,selection:s,scope}));
+  root.append(jobs);
+
+  const list=element(d,'section',{className:'a52-card',attrs:{'aria-label':'Correlated turn path'}});list.append(element(d,'h2',{text:'Producer → consumer causal path'}));
+  const pathRows=snapshot.rows.filter(row=>row.stage!=='Fan-out job');
+  if(!pathRows.length)list.append(element(d,'p',{className:'a52-muted',text:snapshot.current?'No retained evidence matches these filters.':'Select a chat turn and generation to populate this log.'}));
+  for(const row of pathRows)list.append(renderRow(d,row,{model,selection:s,scope}));
   root.append(list);
 
   const retention=snapshot.retention??{};
@@ -156,6 +165,11 @@ function buildTurnRows(turn,selection){
 
   const readErrors=entries.filter(e=>e.type==='READ_ERROR');
   for(const entry of readErrors)add(fromEntry(entry,{phase:phaseForStage(entry.subtype),stage:(entry.subtype?label(entry.subtype)+' inspection':'Owner read')+' error',category:'ERROR',severity:'ERROR',status:'BLOCKED',reasonCode:entry.metadata?.code??entry.status,summary:entry.summary}));
+
+  for(const edge of entries.filter(e=>e.type==='OWNER_EDGE')){
+    const missing=String(edge.status??'').toUpperCase()==='NO_EVIDENCE';
+    add(fromEntry(edge,{phase:Number(edge.metadata?.phase??phaseForStage(edge.subtype)),stage:edge.title??('Causal edge · '+label(edge.subtype)),category:'EDGE',severity:missing?'WARN':severityFromEntry(edge),status:edge.status,reasonCode:edge.metadata?.reasonCode??null,summary:edge.summary}));
+  }
 
   const scatter=latest(entries.filter(e=>e.type==='SCATTER'));
   if(scatter)add(fromEntry(scatter,{phase:30,stage:'Fan-out plan',category:'RUNTIME',severity:'OK',status:scatter.status,summary:scatter.summary}));
@@ -209,12 +223,12 @@ function buildTurnRows(turn,selection){
 
 function summarize(turn,rows){
   const entries=Array.isArray(turn?.entries)?turn.entries:[],audit=latest(entries.filter(e=>e.type==='JOB_AUDIT')),gather=latest(entries.filter(e=>e.type==='GATHER')),lifecycle=latest(entries.filter(e=>e.type==='OPTIONAL_RESOURCE_LIFECYCLE')),prompt=latest(entries.filter(e=>e.type==='PROMPT_PLAN')),delivery=latest(entries.filter(e=>e.type==='HOST_DELIVERY'));
+  const ownerEdges=entries.filter(e=>e.type==='OWNER_EDGE'),ownerEvidenceEdges=ownerEdges.filter(e=>String(e.status??'').toUpperCase()!=='NO_EVIDENCE').length,missingOwnerEdges=ownerEdges.length-ownerEvidenceEdges;
   const logicalJobs=Number(audit?.metadata?.logicalJobCount??0),nativeResources=(audit?.metadata?.nativeResourceIds??[]).length,resources=lifecycle?.metadata?.resources??[],optionalAttempts=resources.filter(r=>r.attempted).length,counts=gather?.metadata?.counts??{};
   const gatherAdmitted=Number(counts.ADMITTED??0),gatherRejected=Number(counts.REJECTED??0)+Number(counts.INVALID??0),gatherLate=Number(counts.LATE??0),gatherStale=Number(counts.STALE??0),readErrors=rows.filter(r=>r.category==='ERROR').length;
-  const explanation=logicalJobs
-    ? logicalJobs+' logical job'+(logicalJobs===1?'':'s')+' recorded across '+nativeResources+' native resource'+(nativeResources===1?'':'s')+'; '+optionalAttempts+' optional provider attempt'+(optionalAttempts===1?'':'s')+'. Connection/qualification alone is not execution evidence.'
-    : 'No selected-turn job audit is retained yet. Missing evidence remains unknown.';
-  return{logicalJobs,nativeResources,optionalAttempts,gatherAdmitted,gatherRejected,gatherLate,gatherStale,promptPlanState:prompt?'PLANNED':'NOT OBSERVED',hostDeliveryState:delivery?.status??'NOT OBSERVED',readErrors,explanation};
+  const jobText=logicalJobs?logicalJobs+' logical job'+(logicalJobs===1?'':'s')+' recorded across '+nativeResources+' native resource'+(nativeResources===1?'':'s')+'; '+optionalAttempts+' optional provider attempt'+(optionalAttempts===1?'':'s')+'.':'No selected-turn job audit is retained.';
+  const edgeText=ownerEdges.length?' '+ownerEvidenceEdges+' causal owner edge'+(ownerEvidenceEdges===1?'':'s')+' have evidence; '+missingOwnerEdges+' explicitly have no evidence.':' Causal owner receipts are not retained yet.';
+  return{logicalJobs,nativeResources,optionalAttempts,gatherAdmitted,gatherRejected,gatherLate,gatherStale,promptPlanState:prompt?'PLANNED':'NOT OBSERVED',hostDeliveryState:delivery?.status??'NOT OBSERVED',readErrors,ownerEvidenceEdges,missingOwnerEdges,explanation:jobText+edgeText+' Connection/qualification alone is not execution evidence.'};
 }
 
 function renderDetail(d,row,payload){
@@ -238,7 +252,7 @@ function detailPairs(source,row){
   if(source.summary)pairs.push({key:'Summary',value:source.summary});
   if(source.detail)pairs.push({key:'Detail',value:source.detail});
   if(!value||typeof value!=='object')return pairs;
-  const preferred=['owner','sequence','reasonCode','assignedNativeResourceId','assignedOptionalResourceId','startAt','endAt','outcome','providerAttempted','resultId','taskId','jobId','status','accepted','resourceId','destination','capability','at','configured','qualifiedCallable','attempted','succeeded','failed','ownerAccepted','ownerAcceptanceSource','skipReason','measurementClass'];
+  const preferred=['producer','consumer','edgeClass','parentReceiptId','correlationId','durationMs','lifecycleState','worldRevision','sceneRevision','sourceRevisionRefs','owner','sequence','reasonCode','assignedNativeResourceId','assignedOptionalResourceId','startAt','endAt','outcome','providerAttempted','resultId','taskId','jobId','status','accepted','resourceId','destination','capability','at','configured','qualifiedCallable','attempted','succeeded','failed','ownerAccepted','ownerAcceptanceSource','skipReason','measurementClass'];
   for(const key of preferred){
     const v=value[key];if(v==null||v===''||(Array.isArray(v)&&!v.length))continue;
     pairs.push({key:label(key),value:Array.isArray(v)?v.join(', '):String(v)});
@@ -295,3 +309,5 @@ function safeText(value,limit=2048){let out=String(value??'');out=out.replace(/(
 function sanitize(value,depth=0,key=''){if(depth>7)return'[depth-clipped]';const k=String(key??'').toLowerCase();if(BLOCKED_KEYS.has(k))return'[REDACTED]';if(value==null||typeof value==='number'||typeof value==='boolean')return value;if(typeof value==='string')return safeText(value);if(Array.isArray(value))return value.slice(0,64).map(v=>sanitize(v,depth+1,key));if(typeof value==='object'){const out={};for(const [name,v] of Object.entries(value)){const clean=sanitize(v,depth+1,name);if(clean!==undefined)out[name]=clean;}return out;}return safeText(value);}
 function boundObject(value,maxBytes){let clean=sanitize(value),json=JSON.stringify(clean);if(json.length<=maxBytes)return clean;return{kind:clean?.kind??'Area52TurnLogDetail',contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,row:clean?.row??null,sources:(clean?.sources??[]).slice(0,4).map(source=>({entryId:source.entryId,type:source.type,subtype:source.subtype,status:source.status,receiptRef:source.receiptRef,summary:safeText(source.summary??'Detail clipped to bounded export size.',512)})),truncated:true,maxBytes,safety:{metadataOnly:true}};}
 function safeClone(value){if(value==null)return value;if(typeof structuredClone==='function')return structuredClone(value);return JSON.parse(JSON.stringify(value));}
+
+function safeDecisionRead(adapter,selection){try{return adapter?.read?.(selection)??null;}catch(error){return{kind:'BrainDecisionVisibilityReadModel',contractVersion:1,selection,state:'NO_EVIDENCE',identityState:'READ_FAILED',stages:[],sensoryNominations:[],choiceDecisions:[],lifecycleObligations:[],candidateFlow:[],delivery:{planned:{state:'UNAVAILABLE'},sealed:{state:'UNAVAILABLE'},observed:{state:'UNAVAILABLE'}},missingReceipts:['NativeBrainSelectedTurnReceipt'],errors:[{stage:'BrainDecisionVisibility',code:error?.code??'READ_FAILED'}],safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,credentials:false,hiddenReasoning:false,mutationAuthority:false}};}}

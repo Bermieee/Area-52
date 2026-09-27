@@ -7,6 +7,10 @@ import {fileURLToPath} from 'node:url';
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,'..');
 const rootManifest=JSON.parse(fs.readFileSync(path.join(root,'assembly','development-deployment.json'),'utf8'));
+const reconciliationOverlay=rootManifest.reconciliationDigestOverlay
+  ? JSON.parse(fs.readFileSync(path.join(root,rootManifest.reconciliationDigestOverlay),'utf8'))
+  : null;
+const reconciliationDigests=new Map(Object.entries(reconciliationOverlay?.pathDigests??{}));
 
 function gitBlobSha(filePath){
   const bytes=fs.readFileSync(filePath);
@@ -38,6 +42,7 @@ for(const lanePath of rootManifest.laneManifests){
     if(observed===row.sourceDigest){exact++;continue;}
     const patch=patches.get(row.path);
     if(patch&&observed===patch.expectedDigest){patched++;continue;}
+    if(reconciliationDigests.get(row.path)===observed){patched++;continue;}
     unexpected++;failed=true;
     console.error(JSON.stringify({lane:lane.laneId,path:row.path,sourceDigest:row.sourceDigest,observedDigest:observed,expectedPatchDigest:patch?.expectedDigest??null}));
   }
@@ -46,11 +51,12 @@ for(const lanePath of rootManifest.laneManifests){
     if(!fs.existsSync(target)){missing++;failed=true;continue;}
     const observed=gitBlobSha(target);
     if(observed===row.expectedDigest&&observed===row.sourceDigest){exact++;continue;}
+    if(reconciliationDigests.get(row.integrationPath)===observed){patched++;continue;}
     unexpected++;failed=true;
     console.error(JSON.stringify({lane:lane.laneId,path:row.integrationPath,sourcePath:row.sourcePath,sourceDigest:row.sourceDigest,observedDigest:observed,expectedDigest:row.expectedDigest}));
   }
   summary.push({lane:lane.laneId,mode:lane.mode??'COPIED_CHECKPOINT',exact,patched,missing,unexpected});
 }
-const out={kind:'DevelopmentDeploymentDigestVerification',status:failed?'FAIL':'PASS',deploymentBaseSha:rootManifest.deploymentBaseSha,summary};
+const out={kind:'DevelopmentDeploymentDigestVerification',status:failed?'FAIL':'PASS',deploymentBaseSha:rootManifest.deploymentBaseSha,reconciliationOverlay:rootManifest.reconciliationDigestOverlay??null,reconciliationId:reconciliationOverlay?.reconciliationId??null,summary};
 console.log(JSON.stringify(out,null,2));
 if(failed)process.exitCode=1;

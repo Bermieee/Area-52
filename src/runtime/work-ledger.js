@@ -1,7 +1,7 @@
 import { EXECUTION_STATUS, LIFECYCLE_STATUS } from './constants.js';
 import { deepClone } from './utils.js';
 
-const SNAPSHOT_VERSION = 1;
+const SNAPSHOT_VERSION = 2;
 
 export class WorkLedger {
   constructor({ persistence } = {}) {
@@ -9,6 +9,7 @@ export class WorkLedger {
     const snapshot = persistence?.load?.();
     this.sequence = snapshot?.sequence ?? 0;
     this.records = new Map((snapshot?.records ?? []).map((record) => [record.taskId, record]));
+    for (const record of this.records.values()) record.causalReceipts = Array.isArray(record.causalReceipts) ? record.causalReceipts.slice(-64) : [];
     this.#markInterruptedWorkForRecovery();
     this.flush();
   }
@@ -50,6 +51,7 @@ export class WorkLedger {
       batch: null,
       checkpoint: null,
       resultReceipts: [],
+      causalReceipts: [],
       retryState: { attempts: 0, failures: [] },
       recoveryState: null,
       supersession: null,
@@ -91,6 +93,17 @@ export class WorkLedger {
     record.updatedSequence = ++this.sequence;
     this.flush();
     return record;
+  }
+
+  recordCausalReceipt(taskId, receipt) {
+    const record = this.#required(taskId);
+    record.causalReceipts ??= [];
+    if (receipt?.id && record.causalReceipts.some((row) => row?.id === receipt.id)) return false;
+    record.causalReceipts.push(deepClone(receipt));
+    if (record.causalReceipts.length > 64) record.causalReceipts.splice(0, record.causalReceipts.length - 64);
+    record.updatedSequence = ++this.sequence;
+    this.flush();
+    return true;
   }
 
   setExecution(taskId, executionStatus, reason = null) {

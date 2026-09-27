@@ -153,6 +153,10 @@ test('DETERMINISTIC: presentation profiles preserve one sealed semantic identity
   assert.equal(openA.receipt.status,'PLANNED_NOT_OBSERVED');
   assert.equal(openA.receipt.providerChatTemplateTokensEmitted,false);
   assert.equal(openA.receipt.semanticSelectionAuthority,false);
+  assert.deepEqual(openA.receipt.unsupportedProviderRoles,[]);
+  assert.ok(openA.rendered.messages.every(message=>['system','user','assistant'].includes(message.role)));
+  assert.ok(openA.rendered.messageMap.some(row=>row.semanticRole==='context'&&row.providerRole==='system'));
+  assert.ok(openA.receipt.messageRoleMap.some(row=>row.semanticRole==='context'&&row.providerRole==='system'));
 
   for(const result of [stable,generic,openA]){
     const text=JSON.stringify(result.plan.sections);
@@ -162,7 +166,7 @@ test('DETERMINISTIC: presentation profiles preserve one sealed semantic identity
 
   const observed=engine.attachObservedHostEvidence(openA.receipt,{
     host:'SILLYTAVERN',generationId:'gen:worker1',requestId:'request:1',
-    observedRoles:['system','context','user'],observedSections:openA.plan.ordering,
+    observedRoles:['system','user'],observedSections:openA.plan.ordering,
     sealedPacketHash:openA.receipt.sealedPacketHash,semanticManifestIdentity:openA.receipt.semanticManifestIdentity,live:false,
   });
   assert.equal(observed.status,'OBSERVED_MATCH');

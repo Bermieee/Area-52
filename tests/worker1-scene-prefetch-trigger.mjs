@@ -194,6 +194,27 @@ test('#112 quiet continuation publishes no new prefetch work',()=>{
   assert.equal(receipt.eventTypes.includes(SceneEventType.PREFETCH_RECOMMENDED),false);
 });
 
+test('#112 installed DevelopmentDeploymentBrain runTurn reaches Dynamic Fan-Out consideration without executing checkpoint',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  ingest(brain,event(HostActivity.USER_SEND,'installed0','At North Gallery, Mara waits.',{chatId:'installed-prefetch'}));
+  ingest(brain,event(HostActivity.USER_SEND,'installed1','We should head to Sunken Archive next.',{chatId:'installed-prefetch'}));
+  const result=await brain.runTurn({
+    chatId:'installed-prefetch',turnId:'turn:installed-prefetch',generationId:'gen:installed-prefetch',
+    query:'Continue.',mode:'simple',
+  });
+  const receipt=result.scenePrefetchConsideration;
+  assert.equal(receipt.status,'CONSIDERED');
+  assert.equal(receipt.plannerConsidered,true);
+  assert.equal(receipt.freshRecommendationCount,1);
+  assert.equal(receipt.workerExecutionAttempted,false);
+  assert.equal(receipt.checkpointExecutionPerformed,false);
+  assert.equal(receipt.authorityGranted,false);
+  assert.equal(receipt.retrievalAuthority,false);
+  assert.equal(receipt.truthAuthority,false);
+  assert.equal(receipt.contextSealAuthority,false);
+  assert.deepEqual(brain.readScenePrefetchConsiderations({limit:1})[0],receipt);
+});
+
 test('#112 production contract route reaches Dynamic Fan-Out consideration without Scene execution authority',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   ingest(brain,event(HostActivity.USER_SEND,'route0','At North Gallery, Mara waits.'));

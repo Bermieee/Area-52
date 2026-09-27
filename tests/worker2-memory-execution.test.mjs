@@ -236,6 +236,12 @@ test('Worker 2: events keep temporal order separate from unresolved competing ca
   assert.ok(invalidation.causalAffectedHypothesisIds.includes(weakened.id));
   assert.ok(!invalidation.causalAffectedEventIds.includes(gate.id));
   assert.equal(memory.causalEvents.events.get(gate.id).freshness,'FRESH');
+
+  const identityInvalidation=memory.invalidateCausalIdentityRevision('identity:gate@r3');
+  assert.ok(identityInvalidation.affectedEvents.includes(gate.id));
+  assert.ok(identityInvalidation.affectedHypotheses.includes(resolved.id));
+  assert.ok(!identityInvalidation.affectedEvents.includes(alarm.id));
+  assert.equal(memory.causalEvents.events.get(gate.id).identityFreshness,'STALE');
 });
 
 
@@ -301,6 +307,15 @@ test('Worker 2: hierarchical summary query cost is measured on a long-story shap
   assert.equal(profile.status,'MEASURED');
   assert.ok(profile.before.artifactsExamined>profile.afterIndexedCold.artifactsExamined);
   assert.ok(profile.afterWarmCache.cacheEntries>=1);
+  console.log('WORKER2_HIERARCHY_QUERY_METRIC '+JSON.stringify({
+    beforeArtifactsExamined:profile.before.artifactsExamined,
+    afterArtifactsExamined:profile.afterIndexedCold.artifactsExamined,
+    coldP50Ms:profile.afterIndexedCold.p50Ms,
+    coldP95Ms:profile.afterIndexedCold.p95Ms,
+    warmP50Ms:profile.afterWarmCache.p50Ms,
+    warmP95Ms:profile.afterWarmCache.p95Ms,
+    warmCacheEntries:profile.afterWarmCache.cacheEntries,
+  }));
 
   const result=memory.queryHistorian({query:'signal-archive',resolutionHint:'SCENE',selection:{chatId:'chat:long-story'}});
   assert.ok(result.nominations.length>=1);

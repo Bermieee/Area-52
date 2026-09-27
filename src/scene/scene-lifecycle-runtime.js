@@ -55,7 +55,8 @@ export class SceneLifecycleRuntime{
 
   publishOperatorDelta({scene,delta,evidenceRefs=[],sourceRevisionRefs=[],operation='SCENE_OPERATOR',reason=null,turnId=null,correlationId=null,causationId=null}={}){
     if(!scene?.sceneId||!delta?.toRevision)return null;
-    const refs=[...new Set([...(sourceRevisionRefs??[]),...(evidenceRefs??[])].filter(Boolean).map(String))];
+    const refs=[...new Set(((sourceRevisionRefs?.length?sourceRevisionRefs:scene.sourceRevisionRefs)??[]).filter(Boolean).map(String))];
+    const evidence=[...new Set((evidenceRefs??[]).filter(Boolean).map(String))];
     this.prefetchTrigger.cancelSuperseded({sceneId:scene.sceneId,sceneRevision:scene.revision});
     const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:refs,turnId,correlationId,causationId};
     const published=[];
@@ -85,7 +86,7 @@ export class SceneLifecycleRuntime{
         locationRefs:[f.location?.value?.location??f.location?.value].filter(Boolean),
         threadRefs:(f.activeThreads?.value??[]).map((x)=>typeof x==='string'?x:(x?.threadId??x?.id??null)).filter(Boolean),
         priority:changed.includes('location')?'HIGH':'NORMAL',
-        evidenceRefs:[...new Set(evidenceRefs.map(String))],sourceRevisionRefs:refs,
+        evidenceRefs:evidence,sourceRevisionRefs:refs,
       });
       published.push(this.publisher.publish({
         ...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,
@@ -98,7 +99,7 @@ export class SceneLifecycleRuntime{
       changedFields:changed.sort(),eventIds:published.map((x)=>x?.eventId).filter(Boolean),
       eventTypes:published.map((x)=>x?.eventType).filter(Boolean),
       prefetchRecommendationId:recommendation?.recommendationId??null,
-      prefetchNeeded:Boolean(recommendation),sourceRevisionRefs:refs,
+      prefetchNeeded:Boolean(recommendation),sourceRevisionRefs:refs,evidenceRefs:evidence,
       authority:'SIGNAL_ONLY',runtimeSchedulingAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     });
   }

@@ -6,7 +6,7 @@ import { SceneStack } from './scene-stack.js';
 import { SceneEpisodeCompiler } from './scene-episode.js';
 import { SceneGraph } from './scene-graph.js';
 import { SceneEventPublisher } from './event-publisher.js';
-import { ScenePrefetchTrigger } from './prefetch-trigger.js';
+import { ScenePrefetchTrigger, scenePrefetchIntentsFromNarrative } from './prefetch-trigger.js';
 import { NarrativeFeedAdapter } from './narrative-feed-adapter.js';
 import { SceneRetrievalAdapter } from './scene-retrieval.js';
 import { ClapperboardTransitionManager } from './transition-manager.js';
@@ -42,13 +42,51 @@ export class SceneLifecycleRuntime{
     return affected;
   }
 
+  #publishRecommendation(scene,evidence,input){
+    const rec=this.prefetchTrigger.recommend({
+      sceneId:scene.sceneId,sceneRevision:scene.revision,
+      evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],
+      ...input,
+    });
+    this.publisher.publish({
+      eventType:SceneEventType.PREFETCH_RECOMMENDED,sceneId:scene.sceneId,sceneRevision:scene.revision,
+      sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+      payload:{recommendation:rec},dedupeKey:rec.dedupeKey??rec.recommendationId,
+    });
+    return rec;
+  }
+
   #publishDelta(scene,delta,evidence){
     this.prefetchTrigger.cancelSuperseded({sceneId:scene.sceneId,sceneRevision:scene.revision});
     const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId};
     this.publisher.publish({...base,eventType:SceneEventType.SCENE_STATE_DELTA,payload:{delta},dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}`});
     const map={location:SceneEventType.LOCATION_CHANGED,narrativeTime:SceneEventType.TIME_SHIFT_DETECTED,activeCast:SceneEventType.ACTIVE_CAST_CHANGED,activeRelationships:SceneEventType.RELATIONSHIP_SIGNAL,atmosphere:SceneEventType.VIBE_CHANGED,immediateObjects:SceneEventType.OBJECT_TRANSITION};
     for(const [name,change] of Object.entries(delta.changedFields??{})){const eventType=map[name];if(eventType)this.publisher.publish({...base,eventType,payload:{field:name,change},dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}`});}
-    const changed=Object.keys(delta.changedFields??{});if(changed.some((x)=>['location','activeCast','activeThreads'].includes(x))){const f=scene.fields;const rec=this.prefetchTrigger.recommend({sceneId:scene.sceneId,sceneRevision:scene.revision,trigger:`SCENE_DELTA:${changed.filter((x)=>['location','activeCast','activeThreads'].includes(x)).join('+')}`,entityRefs:(f.activeCast?.value??[]).filter((x)=>x.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),locationRefs:[f.location?.value?.location].filter(Boolean),threadRefs:(f.activeThreads?.value??[]).filter((x)=>typeof x==='string'),priority:changed.includes('location')?'HIGH':'NORMAL',evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId]});this.publisher.publish({...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,payload:{recommendation:rec},dedupeKey:rec.recommendationId});}
+    const f=scene.fields;
+    const entityRefs=(f.activeCast?.value??[]).filter((x)=>x?.state==='PRESENT').map((x)=>x.characterId).filter(Boolean);
+    const locationRefs=[f.location?.value?.location??f.location?.value].filter((x)=>typeof x==='string'&&x.length);
+    const threadRefs=(f.activeThreads?.value??[]).filter((x)=>typeof x==='string');
+    const changed=delta.changedFields??{};
+    if(changed.location)this.#publishRecommendation(scene,evidence,{trigger:'LOCATION_CHANGED',entityRefs,locationRefs,threadRefs,priority:'HIGH'});
+    if(changed.activeCast)this.#publishRecommendation(scene,evidence,{trigger:'ACTIVE_CAST_CHANGED',entityRefs,locationRefs,threadRefs,priority:'NORMAL'});
+    if(changed.activeThreads){
+      const before=new Set(fieldArray(changed.activeThreads.before));
+      const activated=fieldArray(changed.activeThreads.after).filter((x)=>typeof x==='string'&&!before.has(x));
+      if(activated.length)this.#publishRecommendation(scene,evidence,{trigger:'THREAD_ACTIVATED',entityRefs,locationRefs,threadRefs:activated,priority:'NORMAL'});
+    }
+  }
+
+  #publishLikelyNext(scene,evidence,intents){
+    const rows=this.prefetchTrigger.recommendFromIntents({
+      sceneId:scene.sceneId,sceneRevision:scene.revision,intents,
+      trigger:'LIKELY_NEXT',evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],
+    });
+    for(const rec of rows)this.publisher.publish({
+      eventType:SceneEventType.PREFETCH_RECOMMENDED,sceneId:scene.sceneId,sceneRevision:scene.revision,
+      sourceRevisionRefs:[evidence.sourceRevisionId],turnId:evidence.turnId,correlationId:evidence.correlationId,causationId:evidence.causationId,
+      payload:{recommendation:rec},dedupeKey:rec.dedupeKey??rec.recommendationId,
+    });
+    return rows;
   }
 
   ingestHostEvent(input,{extract=null}={}){
@@ -56,13 +94,17 @@ export class SceneLifecycleRuntime{
     if(normalized.status!==HostEventStatus.ACCEPTED)return normalized;
     const evidence=normalized.evidence;
     if([HostActivity.CHAT_LOAD,HostActivity.CHAT_SWITCH,HostActivity.NEW_CHAT,HostActivity.IMPORT_OR_RELOAD].includes(evidence.activity)){
-      const scene=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});return {...normalized,scene:clone(scene)};
+      const scene=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
+      const invalidatedPrefetch=this.prefetchTrigger.cancelOtherScenes({sceneId:scene.sceneId,reason:'CHAT_CHANGE:'+evidence.activity});
+      return {...normalized,scene:clone(scene),invalidatedPrefetch};
     }
     const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[],invalidationRefs=[...new Set([...(evidence.invalidates??[]),evidence.replacesRevisionId].filter(Boolean))];
     for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
     const extracted=extract(evidence,current)??{};const fields=extracted.fields??extracted;
+    const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];
+    const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(current,evidence,likelyNextIntents):[];
     let boundary=null,transition=null,observed=null;
     if(extracted.boundarySignals){
       boundary=this.sceneRuntime.boundary({sceneId:current.sceneId,evidenceRefs:[evidence.sourceRevisionId],signals:extracted.boundarySignals,sourcePosition:{messageId:evidence.messageId,messageRevision:evidence.messageRevision}});
@@ -95,7 +137,7 @@ export class SceneLifecycleRuntime{
       observed=this.sceneRuntime.observe({sceneId:current.sceneId,proposalId:`host:${evidence.sourceRevisionId}`,fields,sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId],allowWhenRefreshRequired:Boolean(extracted.allowWhenRefreshRequired)});
       if(observed.applied)this.#publishDelta(observed.scene,observed.delta,evidence);
     }
-    return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
+    return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }
 
   integrationSignal(chatId){return buildSceneIntegrationSignal(this,chatId);}
@@ -103,3 +145,5 @@ export class SceneLifecycleRuntime{
   fanOutInput(chatId){return fanOutSceneInput(this,chatId);}
   uiReadModel(chatId){return buildSceneUiReadModel(this,chatId);}
 }
+
+function fieldArray(state){const value=state&&typeof state==='object'&&Object.prototype.hasOwnProperty.call(state,'value')?state.value:state;return Array.isArray(value)?value:[];}

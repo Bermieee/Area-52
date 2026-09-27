@@ -368,6 +368,20 @@ export class MemoryTemporalProducer {
     const current=this.experienceStore.currentEpisodes({freshOnly:true});
     const byId=new Map(current.map((row)=>[row.id,row]));
     const byLogical=new Map(current.map((row)=>[row.logicalId,row]));
+    const resolveEpisodeArtifactRef=(ref)=>{
+      const artifactId=String(ref?.artifactId??'');
+      if(!artifactId)return null;
+      const direct=byId.get(artifactId)??byLogical.get(artifactId);
+      if(direct)return {episode:direct,revision:direct.revision,owner:'MEMORY',mode:'MEMORY_EPISODE'};
+      const sceneOwned=current.find((row)=>String(row.sceneEpisodeRef?.artifactId??'')===artifactId);
+      if(!sceneOwned)return null;
+      return {
+        episode:sceneOwned,
+        revision:Number(sceneOwned.sceneEpisodeRef?.revision??0),
+        owner:String(sceneOwned.sceneEpisodeRef?.owner??'SCENE_INTELLIGENCE'),
+        mode:'SCENE_OWNER_EPISODE',
+      };
+    };
     const sourceEvidence=new Map();
     for(const evidenceId of this.graph.evidenceOrder??[]){
       const row=this.graph.evidenceRecord(evidenceId);
@@ -395,24 +409,23 @@ export class MemoryTemporalProducer {
         continue;
       }
       const sourceArtifactRefs=proposal.sourceArtifactRefs??bundle.sourceArtifactRefs??[];
-      const supports=[...new Map(sourceArtifactRefs.map((ref)=>{
-        const row=byId.get(String(ref?.artifactId??''))??byLogical.get(String(ref?.artifactId??''));
-        return row?[row.logicalId,row]:null;
-      }).filter(Boolean)).values()];
+      const resolvedArtifactRefs=sourceArtifactRefs.map((ref)=>({ref,resolved:resolveEpisodeArtifactRef(ref)}));
+      const supports=[...new Map(resolvedArtifactRefs.filter((row)=>row.resolved).map((row)=>[row.resolved.episode.logicalId,row.resolved.episode])).values()];
       const declaredSources=new Set((proposal.sourceRevisionSet??bundle.sourceRevisionSet??[]).map(String));
       if(declaredSources.size&&supports.some((episode)=>(episode.sourceRevisionRefs??[]).some((ref)=>!declaredSources.has(String(ref))))){
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_REVISION_MISMATCH',artifactId:null});
         continue;
       }
-      const unresolvedArtifacts=sourceArtifactRefs.filter((ref)=>!byId.has(String(ref?.artifactId??''))&&!byLogical.has(String(ref?.artifactId??'')));
+      const unresolvedArtifacts=resolvedArtifactRefs.filter((row)=>!row.resolved).map((row)=>row.ref);
       if(unresolvedArtifacts.length){
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_EPISODE_UNRESOLVED',artifactId:null,unresolvedArtifactRefs:unresolvedArtifacts.map((row)=>String(row?.artifactId??'')).filter(Boolean).slice(0,16)});
         continue;
       }
-      const staleArtifactRefs=sourceArtifactRefs.filter((ref)=>{
-        const row=byId.get(String(ref?.artifactId??''))??byLogical.get(String(ref?.artifactId??''));
-        return !row||Number(ref?.revision)!==Number(row.revision)||!(ref?.owner==null||String(ref.owner)==='MEMORY');
-      });
+      const staleArtifactRefs=resolvedArtifactRefs.filter(({ref,resolved})=>{
+        if(!resolved)return true;
+        const ownerOk=ref?.owner==null||String(ref.owner)===resolved.owner;
+        return Number(ref?.revision)!==Number(resolved.revision)||!ownerOk;
+      }).map((row)=>row.ref);
       if(staleArtifactRefs.length){
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_EPISODE_REVISION_MISMATCH',artifactId:null,staleArtifactRefs:staleArtifactRefs.map((row)=>String(row?.artifactId??'')).filter(Boolean).slice(0,16)});
         continue;

@@ -202,7 +202,7 @@ test('workspace answers the selected-turn drilldown in human-readable labels ins
   const d=new FakeDocument(),host=new FakeNode('section',d),scope=new ResourceScope();
   registry.get('turn-log').render(host,{scope,refresh:()=>{}});
   const all=(node)=>[node,...(node.children??[]).flatMap(all)],nodes=all(host),visible=nodes.map(node=>node.textContent??'').join(' ');
-  assert.match(visible,/Area 52 Diagnostics/);
+  assert.match(visible,/Area-?52 Diagnostics/);
   assert.match(visible,/event timeline/i);
   assert.match(visible,/6 logical jobs/);
   assert.match(visible,/0 optional provider attempts/);

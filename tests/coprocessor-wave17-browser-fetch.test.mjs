@@ -131,6 +131,46 @@ test('Wave17 native Window.fetch receiver keeps OpenRouter embeddings separate f
   }finally{windowFetch.restore();}
 });
 
+test('embedding qualification can use the selected model when browser model discovery is unreachable',async()=>{
+  const calls=[];
+  const fetchImpl=async(url,init={})=>{
+    const href=String(url),method=String(init.method??'GET').toUpperCase();
+    calls.push({href,method});
+    if(method==='GET'&&href.endsWith('/embeddings/models'))throw new TypeError('Failed to fetch');
+    if(method==='POST'&&href.endsWith('/embeddings'))return response({model:'openai/text-embedding-3-small',data:[{embedding:[0.1,0.2,0.3]}]});
+    return response({error:{message:'unexpected route'}},404);
+  };
+  const registry=new CoprocessorResourceConnections({fetchImpl});
+  registry.addResource({
+    resourceId:'vector',providerProfileId:'profile:vector',providerId:'provider:vector',workerId:'worker:vector',
+    kind:ResourceKind.OPENAI_COMPATIBLE,endpoint:'https://openrouter.ai/api/v1',modelId:'openai/text-embedding-3-small',apiKey:'test-only',
+    transportMode:ProviderTransportMode.EMBEDDINGS,capabilities:[Capability.RETRIEVAL,Capability.EMBED],
+    measurementClass:ResourceMeasurementClass.LOCAL_DETERMINISTIC,
+  });
+  const connected=await registry.connectResource('vector');
+  assert.equal(connected.state,ResourceConnectionState.READY);
+  assert.equal(connected.callable,true);
+  assert.equal(connected.qualification.evidence.discoveryState,'UNREACHABLE');
+  assert.equal(connected.qualification.evidence.modelListed,null);
+  assert.deepEqual(calls.map(({method,href})=>method+' '+new URL(href).pathname),[
+    'GET /api/v1/embeddings/models','POST /api/v1/embeddings',
+  ]);
+  const denied=new CoprocessorResourceConnections({fetchImpl:async(url,init={})=>{
+    if(String(init.method??'GET').toUpperCase()==='GET')throw new TypeError('Failed to fetch');
+    return response({error:{message:'unauthorized'}},401);
+  }});
+  denied.addResource({
+    resourceId:'denied',providerProfileId:'profile:denied',providerId:'provider:denied',workerId:'worker:denied',
+    kind:ResourceKind.OPENAI_COMPATIBLE,endpoint:'https://openrouter.ai/api/v1',modelId:'openai/text-embedding-3-small',apiKey:'test-only',
+    transportMode:ProviderTransportMode.EMBEDDINGS,capabilities:[Capability.RETRIEVAL,Capability.EMBED],
+    measurementClass:ResourceMeasurementClass.LOCAL_DETERMINISTIC,
+  });
+  const rejected=await denied.connectResource('denied');
+  assert.equal(rejected.state,ResourceConnectionState.UNAVAILABLE);
+  assert.equal(rejected.callable,false);
+  assert.equal(rejected.reasonCode,'PROVIDER_UNAUTHORIZED');
+});
+
 test('Wave17 browser authorization/test failures never leave a false connected claim',async()=>{
   const windowFetch=installWindowBoundFetch();
   try{

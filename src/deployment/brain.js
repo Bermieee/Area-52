@@ -903,7 +903,7 @@ export class DevelopmentDeploymentBrain {
     if(episodes.length<2)return Object.freeze({
       kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
       status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_REPETITION_WINDOW_INSUFFICIENT',
-      chatId,turnId,generationId,episodeCount:episodes.length,bundle:null,memoryHandoff:null,
+      chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,bundle:null,memoryHandoff:null,
       providerAttempted:false,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
     });
     const artifactRefs=episodes.map((episode)=>Object.freeze({
@@ -942,13 +942,13 @@ export class DevelopmentDeploymentBrain {
       kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
       status:result.status==='STALE'?'STALE':'DEFERRED',
       reasonCode:result.status==='STALE'?'MEMORY_CONSOLIDATION_INPUT_STALE':(result.failure?.code??'MEMORY_CONSOLIDATION_PROVIDER_UNAVAILABLE'),
-      chatId,turnId,generationId,episodeCount:episodes.length,bundle:null,memoryHandoff:null,
+      chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,bundle:null,memoryHandoff:null,
       providerAttempted:result.status!=='IDLE',failure:clone(result.failure??null),
       rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
     });
     return Object.freeze({
       kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
-      status:'PROPOSED',reasonCode:null,chatId,turnId,generationId,episodeCount:episodes.length,
+      status:'PROPOSED',reasonCode:null,chatId,turnId,generationId,selection:clone(selection),episodeId:input.episodeId??null,episodeCount:episodes.length,
       bundle:clone(result.bundle),memoryHandoff:clone(result.memoryHandoff),
       providerAttempted:true,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
     });

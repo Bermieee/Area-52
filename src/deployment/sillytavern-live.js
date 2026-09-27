@@ -720,7 +720,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(assistant.index<=pending.userMessageIndex)throw new Error('Assistant completion does not follow the prepared user message');
     const run=this.nativeRuns.get(chatId);if(!run)throw new Error('Native Brain runTurn callback is unavailable for the pending generation');
     const providerLatencyMs=Math.max(0,Date.now()-Number(pending.requestInjectedAt??Date.now()));
-    run.responseResolve({text:assistant.text,chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,contextSealId:pending.contextSealId,requestId:pending.requestId,providerLatencyMs,capturedAt:Date.now()});
+    if(typeof this.nativeBrain?.recordProviderResponsePerformance==='function')this.nativeBrain.recordProviderResponsePerformance(pending.turnId,{chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,providerLatencyMs,capturedAt:Date.now()});
+    run.responseResolve(assistant.text);
     const outcome=await run.runPromise;
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;

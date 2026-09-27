@@ -218,3 +218,41 @@ test('source edit invalidates dependent observations and stale rescan cannot pre
   assert.equal(wrongChat.status,'UNAVAILABLE');
   assert.equal(brain.scene.registry.current(edit.sceneId).fields.location.value.location,'West Room');
 });
+
+
+test('regeneration invalidates prior source evidence and a chat switch fences stale operator work',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const original=ingest(brain,hostEvent(HostActivity.USER_SEND,'regen-1','At East Room, Mara waits.',{
+    chatId:'regen-chat',messageId:'regen-message',messageRevision:1,
+  }));
+  const regenerated=ingest(brain,hostEvent(HostActivity.REGENERATE,'regen-2','At North Room, Mara waits.',{
+    chatId:'regen-chat',messageId:'regen-message',messageRevision:2,
+  }));
+  assert.ok(regenerated.invalidatedSourceRevisionRefs.includes(original.evidence.sourceRevisionId));
+  assert.equal(regenerated.signal.location.location,'North Room');
+
+  const current=brain.scene.registry.current(regenerated.sceneId);
+  const stale=brain.runSceneOperatorAction({
+    action:'RESCAN',chatId:'regen-chat',sceneId:regenerated.sceneId,
+    expectedSceneRevision:current.revision,
+    sourceRevisionRefs:[original.evidence.sourceRevisionId],
+    evidenceRefs:['operator:regen-stale'],
+    fields:{location:{location:'East Room'}},
+  });
+  assert.equal(stale.status,'STALE');
+  assert.equal(stale.operatorResult.reason,'SOURCE_REVISION_STALE');
+  assert.equal(brain.scene.registry.current(regenerated.sceneId).fields.location.value.location,'North Room');
+
+  ingest(brain,hostEvent(HostActivity.CHAT_SWITCH,'switch-1','',{chatId:'other-chat'}));
+  const afterSwitchRevision=brain.scene.registry.current(regenerated.sceneId).revision;
+  const switched=brain.runSceneOperatorAction({
+    action:'CORRECT',chatId:'regen-chat',sceneId:regenerated.sceneId,
+    expectedSceneRevision:afterSwitchRevision,
+    sourceRevisionRefs:[regenerated.evidence.sourceRevisionId],
+    fieldName:'location',value:{location:'Stale Room'},evidenceRefs:['operator:after-switch'],
+  });
+  assert.equal(switched.status,'UNAVAILABLE');
+  assert.equal(switched.operatorResult.reason,'CHAT_SELECTION_STALE');
+  assert.equal(brain.scene.registry.current(regenerated.sceneId).revision,afterSwitchRevision);
+  assert.equal(brain.scene.registry.current(regenerated.sceneId).fields.location.value.location,'North Room');
+});

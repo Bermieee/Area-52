@@ -1,4 +1,4 @@
-import {AuthorityClass,deepClone,stableHash,stableStringify,uniqStrings} from './memory-contracts.js';
+import {AuthorityClass,MEMORY_LIMITS,deepClone,stableHash,stableStringify,uniqStrings} from './memory-contracts.js';
 
 export const MEMORY_PLASTICITY_VERSION='1.1.0';
 export const MemoryMaturityStage=Object.freeze({
@@ -18,6 +18,13 @@ const keyOf=(id,rev)=>String(id)+'@'+String(Number(rev)||1);
 const refs=(a,key,limit)=>uniqStrings(a?.[key]??[],limit);
 const pairKey=(left,right)=>[left,right].sort().join('<->');
 const artifactRefKey=(value)=>typeof value==='string'?value:keyOf(value?.artifactId??value?.id,value?.artifactRevision??value?.revision??1);
+const artifactRefLimits=(artifact)=>{
+  const type=String(artifact?.artifactType??artifact?.kind??'').toUpperCase();
+  const summary=type.includes('SUMMARY')||type==='MEMORYSUMMARYARTIFACT';
+  return summary
+    ? {evidence:MEMORY_LIMITS.maxSummaryEvidenceRefs,source:MEMORY_LIMITS.maxSummarySourceRevisionRefs}
+    : {evidence:MEMORY_LIMITS.maxEvidenceRefsPerArtifact,source:MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact};
+};
 
 export class MemoryPlasticityManager{
   constructor({graph,snapshot=null,maxRecords=4096,maxAssociations=4096,maxReceipts=128,maxProposals=256}={}){
@@ -31,8 +38,9 @@ export class MemoryPlasticityManager{
     const id=String(artifact.id),revision=Math.max(1,Number(artifact.revision)||1),key=keyOf(id,revision);
     const priorKey=this.currentByArtifact.get(id),prior=priorKey?this.records.get(priorKey):null;
     if(prior&&prior.key!==key){prior.current=false;if(prior.residency!=='EVICTED')prior.residency='HISTORICAL';}
-    const evidenceRefs=uniqStrings([...(artifact.evidenceRefs??[]),...(artifact.supportEvidenceRefs??[]),...(artifact.exactEvidenceRefs??[])],128);
-    const sourceRevisionRefs=uniqStrings([...(artifact.sourceRevisionRefs??[]),...(artifact.exactSourceRevisionSet??[])],64);
+    const limits=artifactRefLimits(artifact);
+    const evidenceRefs=uniqStrings([...(artifact.evidenceRefs??[]),...(artifact.supportEvidenceRefs??[]),...(artifact.exactEvidenceRefs??[])],limits.evidence);
+    const sourceRevisionRefs=uniqStrings([...(artifact.sourceRevisionRefs??[]),...(artifact.exactSourceRevisionSet??[])],limits.source);
     const row=this.records.get(key)??{
       kind:'MemoryPlasticityRecord',contractVersion:MEMORY_PLASTICITY_VERSION,key,artifactId:id,artifactRevision:revision,
       artifactType:String(artifact.artifactType??artifact.kind??'DERIVED_MEMORY'),authorityClass:String(artifact.authorityClass??AuthorityClass.DERIVED),

@@ -1,0 +1,118 @@
+name: Workers 1-4 Integration
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact combined head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Worker 1 context delivery acceptance
+        run: |
+          node --test tests/worker1-brain-context-delivery-completion.mjs
+          node --test --test-name-pattern="small and large delivery budgets" tests/native-brain-identity-retrieval.mjs
+
+      - name: Worker 2 Memory cognition acceptance
+        run: |
+          node --test tests/memory-cognition-completion.test.mjs
+          node --test tests/memory-wave4.mjs
+
+      - name: Worker 3 sparse and corrective retrieval acceptance
+        run: |
+          node --test tests/worker3-brain-retrieval-completion.mjs
+          node --test tests/worker1-sensory-hot-closure.mjs tests/candidate-bus-wave8.mjs tests/cognitive-choice-wave9.mjs tests/wave6-integration.mjs
+
+      - name: Worker 4 graph and selected-turn visibility acceptance
+        run: |
+          node --test tests/worker4-structured-world-state-graph.mjs
+          node --test tests/worker4-selected-turn-graph-ui.test.mjs
+          node --test tests/worker3-brain-decision-visibility.test.mjs tests/worker3-brain-trace-ui.test.mjs
+
+      - name: Combined turn A to turn B owner path
+        run: node --test tests/workers-1-4-integration.test.mjs
+
+      - name: Syntax
+        run: npm run check
+
+      - name: Browser-facing imports
+        run: >-
+          node -e "globalThis.Buffer=undefined;
+          Promise.all([
+          import('./src/native-brain.js'),
+          import('./src/production-sparse-retrieval.js'),
+          import('./src/generation-publication.js'),
+          import('./src/truth-publication-gate.js'),
+          import('./src/graph-neighborhood-retriever.js'),
+          import('./src/ui-core/selected-turn-graph-visibility.js')
+          ]).then(()=>console.log('WORKERS 1-4 INTEGRATION IMPORT PASS'))"
+
+  baseline-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout frozen main baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 9eef91c9273861456f8918bea54219383b7f242b
+          path: baseline
+          fetch-depth: 0
+      - name: Checkout combined exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: combined
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compare full-suite failure names with frozen main
+        shell: bash
+        run: |
+          set +e
+          (cd baseline && node --test --test-reporter=tap tests/*.mjs) > baseline.tap 2>&1
+          BASE_RC=$?
+          (cd combined && node --test --test-reporter=tap tests/*.mjs) > combined.tap 2>&1
+          COMBINED_RC=$?
+          set -e
+
+          grep -E '^[[:space:]]*not ok [0-9]+ - ' baseline.tap             | sed -E 's/^[[:space:]]*not ok [0-9]+ - //'             | sed -E 's/[[:space:]]+# time=.*$//'             | sort -u > baseline.failures || true
+          grep -E '^[[:space:]]*not ok [0-9]+ - ' combined.tap             | sed -E 's/^[[:space:]]*not ok [0-9]+ - //'             | sed -E 's/[[:space:]]+# time=.*$//'             | sort -u > combined.failures || true
+
+          BASE_FAIL=$(grep -E '^# fail ' baseline.tap | tail -1 | awk '{print $3}')
+          COMBINED_FAIL=$(grep -E '^# fail ' combined.tap | tail -1 | awk '{print $3}')
+
+          echo "baseline_exit=$BASE_RC baseline_fail=$BASE_FAIL"
+          echo "combined_exit=$COMBINED_RC combined_fail=$COMBINED_FAIL"
+          echo "=== baseline failing names ==="
+          cat baseline.failures
+          echo "=== combined failing names ==="
+          cat combined.failures
+
+          test "$BASE_FAIL" = "18"
+          test "$COMBINED_FAIL" = "18"
+          diff -u baseline.failures combined.failures
+
+      - name: Combined exact-head cross-owner contract
+        working-directory: combined
+        run: |
+          node --test tests/main-owner-integration.test.mjs
+          node --test --test-name-pattern='two unrelated chats' tests/deployment-live-host.test.mjs

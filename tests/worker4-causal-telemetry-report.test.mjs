@@ -103,8 +103,9 @@ test('Worker 4 chat switch, regeneration, correction fence, reload, dedupe and r
   const regen={...a,generationId:'gen:2',correlationId:'corr:a2'};
   const first={selection:a,ownerReceipt:ownerReceipt(a)};
   journal.recordSnapshot(first);
-  const before=journal.status();journal.recordSnapshot(first);const after=journal.status();
-  assert.equal(after.entryCount,before.entryCount);assert.ok(after.skippedRedundantWrites>before.skippedRedundantWrites);
+  const before=journal.status();journal.recordSnapshot(first);const after=journal.status(),deduped=journal.readTurn(a);
+  assert.equal(after.entryCount,before.entryCount);
+  assert.equal(new Set(deduped.entries.map(row=>row.identityKey)).size,deduped.entries.length);
   journal.recordSnapshot({selection:b,ownerReceipt:ownerReceipt(b,{hostObserved:false})});
   journal.recordSnapshot({selection:regen,ownerReceipt:ownerReceipt(regen,{hostObserved:false})});
   assert.ok(journal.readTurn(a));assert.ok(journal.readTurn(b));assert.ok(journal.readTurn(regen));

@@ -24,7 +24,7 @@ export class SelectedTurnCausalReportReader{
     const optionalResources=projectOptionalResources(latest(entries,'OPTIONAL_RESOURCE_LIFECYCLE'));
     const gather=latest(entries,'GATHER'),seal=latest(entries,'CONTEXT_SEAL'),prompt=latest(entries,'PROMPT_PLAN'),delivery=latest(entries,'HOST_DELIVERY');
     const evidence=projectEvidence({gather,seal,connections});
-    const deliveryRead=projectDelivery({seal,prompt,delivery});
+    const deliveryRead=projectDelivery({seal,prompt,delivery,connections});
     const missingOrBlocked=[
       ...connections.rows.filter(row=>row.status==='NO_EVIDENCE').map(row=>({kind:'OWNER_EDGE',stage:row.stage,state:'NO_EVIDENCE',reasonCode:row.reasonCode})),
       ...obligations.items.filter(row=>OPEN_OBLIGATION_STATES.has(row.status)).map(row=>({kind:'EXPECTED_WORK',stage:row.owner||row.expectedId,state:row.status,reasonCode:row.reasonCode,missingEvidence:row.missingEvidence})),
@@ -123,10 +123,12 @@ function projectEvidence({gather,seal,connections}){
   };
 }
 
-function projectDelivery({seal,prompt,delivery}){
+function projectDelivery({seal,prompt,delivery,connections}){
+  const sealEdge=connections?.rows?.find(row=>row.stage==='contextSeal'&&row.status!=='NO_EVIDENCE')??null;
+  const promptEdge=connections?.rows?.find(row=>row.stage==='promptPlan'&&row.status!=='NO_EVIDENCE')??null;
   return{
-    contextSeal:{state:seal?state(seal.status):'NO_EVIDENCE',receiptId:text(seal?.receiptRef,256)},
-    promptPlan:{state:prompt?'PLANNED':'NO_EVIDENCE',receiptId:text(prompt?.receiptRef,256)},
+    contextSeal:{state:seal?state(seal.status):sealEdge?'EVIDENCED':'NO_EVIDENCE',receiptId:text(seal?.receiptRef??sealEdge?.receiptId,256)},
+    promptPlan:{state:prompt||promptEdge?'PLANNED':'NO_EVIDENCE',receiptId:text(prompt?.receiptRef??promptEdge?.receiptId,256)},
     observedHostDelivery:{state:delivery?state(delivery.status):'NO_EVIDENCE',receiptId:text(delivery?.receiptRef,256),requestId:text(delivery?.metadata?.requestId,256),matching:booleanOrNull(delivery?.metadata?.matching),live:booleanOrNull(delivery?.metadata?.live),responseCompleted:booleanOrNull(delivery?.metadata?.responseCompleted),reasonCode:reason(delivery?.metadata?.abortCode)},
   };
 }

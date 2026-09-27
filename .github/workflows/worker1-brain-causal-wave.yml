@@ -17,6 +17,8 @@ on:
       - 'tests/worker1-brain-context-delivery-completion.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
       - '.github/workflows/worker1-brain-causal-wave.yml'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

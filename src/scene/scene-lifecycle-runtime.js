@@ -134,8 +134,12 @@ export class SceneLifecycleRuntime{
       }
     }
     if(!observed){
-      observed=this.sceneRuntime.observe({sceneId:current.sceneId,proposalId:`host:${evidence.sourceRevisionId}`,fields,sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId],allowWhenRefreshRequired:Boolean(extracted.allowWhenRefreshRequired)});
-      if(observed.applied)this.#publishDelta(observed.scene,observed.delta,evidence);
+      if(Object.keys(fields??{}).length){
+        observed=this.sceneRuntime.observe({sceneId:current.sceneId,proposalId:`host:${evidence.sourceRevisionId}`,fields,sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId],allowWhenRefreshRequired:Boolean(extracted.allowWhenRefreshRequired)});
+        if(observed.applied)this.#publishDelta(observed.scene,observed.delta,evidence);
+      }else{
+        observed={scene:current,delta:null,applied:false,noChange:true};
+      }
     }
     return {...normalized,invalidated,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }

@@ -193,7 +193,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   const root=element(d,'section',{className:'a52-stack a52-turn-log a52-diagnostics-console',attrs:{'aria-label':'Area 52 diagnostics console'}});
   const hero=element(d,'header',{className:'a52-diagnostics-hero'});
   const heroTitle=element(d,'div',{className:'a52-diagnostics-hero__title'});
-  heroTitle.append(element(d,'h1',{text:'Area 52 Diagnostics'}),element(d,'p',{className:'a52-muted',text:'One console for retained turn evidence, Brain activity, runtime work, resources, Lore / Memory, failures, and browser-side performance attribution.'}));
+  heroTitle.append(element(d,'h1',{text:'Area-52 Diagnostics'}),element(d,'p',{className:'a52-muted',text:'One console for retained turn evidence, Brain activity, runtime work, resources, Lore / Memory, failures, and browser-side performance attribution.'}));
   const status=diagnosticsStatus(snapshot,operational),heroActions=element(d,'div',{className:'a52-diagnostics-hero__actions'});
   heroActions.append(makeBadge(d,status.label,status.token),createButton(d,{label:'Export Full Diagnostics',scope,size:'sm',onPress:()=>model.downloadFullDiagnostics({selection:s,document:d})}),createButton(d,{label:'Refresh',scope,size:'sm',variant:'quiet',onPress:()=>refresh?.()}));
   hero.append(heroTitle,heroActions);

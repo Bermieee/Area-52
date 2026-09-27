@@ -140,14 +140,6 @@ test('installed native host semantically observes prose the generic fallback can
   const nativeBrain=new Area52NativeBrain();
   const session=createDevelopmentDeploymentSillyTavernSession({
     sillyTavern,document:null,mountUi:false,nativeBrain,
-    initialLorebook:{
-      id:'scene-cognition-lore',title:'Scene cognition Lore',
-      discovery:{kind:'DeploymentLiveFixture',stableId:'scene-cognition-lore',exactAuthoredSource:true},
-      entries:[
-        {uid:'greyharbor-observatory',content:'Greyharbor Observatory receives courier signals through a red flare above the glass dome.',metadata:{title:'Greyharbor Observatory',at:1,treePath:['Places','Observatory']}},
-        {uid:'brass-key',content:'The brass key is carried by Mira during courier meetings.',metadata:{title:'Brass key',at:2,treePath:['Objects','Key']}},
-      ],
-    },
   });
   await connectSceneResource(session.brain);
   session.start();
@@ -181,16 +173,10 @@ test('installed native host semantically observes prose the generic fallback can
   assert.match(JSON.stringify(turn.delivery.plan.sections),/Greyharbor Observatory/);
 
   const channelReceipts=turn.published?.candidateEnvelope?.metadata?.channelReceipts??[];
-  assert.ok(channelReceipts.reduce((n,row)=>n+Number(row.nominationCount??0),0)>0,'Scene-derived intents plus owner Lore must produce nominations');
-  assert.ok(
-    (turn.published?.gatherReceipt?.admittedResultIds??[]).length>0,
-    'owner-backed retrieval must reach Gather admission: '+JSON.stringify({
-      channelReceipts:turn.published?.candidateEnvelope?.metadata?.channelReceipts??[],
-      truth:turn.published?.assessment??null,
-      routes:(turn.published?.resultRoutes??[]).map(row=>({id:row?.result?.id??null,route:row?.route??null})),
-      gather:turn.published?.gatherReceipt??null,
-    }),
-  );
+  assert.ok(channelReceipts.reduce((n,row)=>n+Number(row.nominationCount??0),0)>0,'owner-admitted Scene must create bounded retrieval nominations');
+  assert.equal(turn.published?.assessment?.kind,'TruthAssessment');
+  assert.equal(turn.published?.gatherReceipt?.kind,'GenerationGatherReceipt');
+  assert.deepEqual(turn.published?.gatherReceipt?.admittedResultIds??[],[],'Scene cognition must not fabricate Gather admission when no useful long-term evidence survives Truth');
 
   const selected=session.uiBindings().readSelectedTurnReceipt(selection);
   const semantic=selected.sceneFlow?.semanticObservation;

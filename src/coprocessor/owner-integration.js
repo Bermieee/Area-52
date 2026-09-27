@@ -96,7 +96,7 @@ export function admitConsolidationBundleToMemoryOwner({bundle,handoff=null,memor
   try{
     const receipt=review({bundle,handoff,selection});
     if(receipt?.kind!=='MemoryConsolidationBundleReviewReceipt')throw new TypeError('Memory owner returned unsupported consolidation review receipt');
-    const completed=(receipt.results??[]).filter((row)=>row.status==='COMPLETED');
+    const completed=(receipt.results??[]).filter((row)=>['COMPLETED','REPLAYED'].includes(row.status));
     return freeze({
       kind:'MemoryConsolidationOwnerAdmissionReceipt',contractVersion:COPROCESSOR_OWNER_INTEGRATION_VERSION,
       status:receipt.status,ownerAccepted:completed.length>0,pendingOwnerIntegration:false,

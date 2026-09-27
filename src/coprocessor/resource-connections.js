@@ -356,6 +356,7 @@ export class CoprocessorResourceConnections{
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now();
+    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(this.profiles.get(row.providerProfileId))});
     try{
       const execution=await adapter.embed(input,{signal:controller.signal,timeoutMs:this.privateConfig.get(row.resourceId)?.timeoutMs,dimensions,inputType,encodingFormat});
       const latency=Math.max(0,this.now()-started);const profile=this.profiles.get(row.providerProfileId);
@@ -364,7 +365,7 @@ export class CoprocessorResourceConnections{
       row.lastExecution={status:'SUCCESS',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:latency,providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,actualModelId:row.actualModelId,actualProvider:row.actualProvider,vectorCount:execution.vectors.length,dimensions:execution.dimensions};
       this.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:this.now()});
       emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'SUCCESS',latencyMs:latency,vectorCount:execution.vectors.length,dimensions:execution.dimensions,actualModelId:row.actualModelId,actualProvider:row.actualProvider});
-      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:null,taskType:'EMBEDDING',status:'SUCCESS',latencyMs:latency,workerId:row.workerId,providerId:row.providerId});
+      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'SUCCESS',latencyMs:latency,workerId:row.workerId,providerId:row.providerId});
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_INVOKED,{providerId:row.providerId,modelId:row.actualModelId,taskClass:'EMBEDDING',executionLatency:execution.latencyMs,validationLatency:0,attempt:1,measurementClass:row.measurementClass});
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_USAGE,{providerId:row.providerId,providerProfileId:row.providerProfileId,measurementClass:row.measurementClass,usageReceipt});
       return deepFreeze({kind:'ResourceEmbeddingResult',resourceId:row.resourceId,providerProfileId:row.providerProfileId,providerId:row.providerId,workerId:row.workerId,requestedModelId:row.modelId,actualModelId:row.actualModelId,actualProvider:row.actualProvider,embeddings:execution.vectors,vectorCount:execution.vectors.length,dimensions:execution.dimensions,usageReceipt,latencyMs:execution.latencyMs,measurementClass:row.measurementClass,authority:'NONE'});
@@ -372,7 +373,7 @@ export class CoprocessorResourceConnections{
       row.lastExecution={status:'FAIL',taskId:null,taskType:'EMBEDDING',at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
       this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Embedding provider qualification is no longer valid.'),unavailable:true});
       emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
-      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:null,taskType:'EMBEDDING',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});throw error;
+      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});throw error;
     }finally{
       detach();set.delete(controller);if(!set.size)this.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
       this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});this.#notify('RESOURCE_EXECUTION',row);
@@ -415,17 +416,18 @@ export class CoprocessorResourceConnections{
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now();
+    emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'SIDECAR',taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(profile)});
     try{
       const result=await this.executionLayer.execute(task,{input,attempt,signal:controller.signal,maxCostClass,profileId:row.providerProfileId,leaseHeld:true});
       const latency=Math.max(0,this.now()-started);row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:task.taskType,at:this.now(),latencyMs:latency,providerId:result.providerId,workerId:result.workerId,measurementClass:row.measurementClass,actualModelId:result.modelId??null,actualProvider:result.providerMetadata?.actualProvider??null};
       this.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:this.now()});
       if(row.state===ResourceConnectionState.DEGRADED&&this.health.snapshot(row.providerProfileId).health==='HEALTHY'){row.state=ResourceConnectionState.READY;row.reasonCode=ResourceConnectionReason.EXECUTION_SUCCEEDED;row.reason='Execution succeeded and health recovered.';}
-      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,status:'SUCCESS',latencyMs:latency,workerId:result.workerId,providerId:result.providerId});
+      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'SIDECAR',taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,status:'SUCCESS',latencyMs:latency,workerId:result.workerId,providerId:result.providerId});
       return result;
     }catch(error){
       row.lastExecution={status:'FAIL',taskId:task.taskId,taskType:task.taskType,at:this.now(),latencyMs:Math.max(0,this.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
       this.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))this.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Provider qualification is no longer valid.'),unavailable:true});
-      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
+      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'SIDECAR',taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
       throw error;
     }finally{
       detach();set.delete(controller);if(!set.size)this.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
@@ -477,19 +479,20 @@ export class CoprocessorResourceConnections{
         const controller=new AbortController();const detach=linkAbort(signal,controller);const set=owner.controllers.get(row.resourceId)??new Set();set.add(controller);owner.controllers.set(row.resourceId,set);
         row.activeExecutions+=1;owner.profiles.setLoad(row.providerProfileId,row.activeExecutions);owner.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:owner.now()});
         const started=owner.now();
+        emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...owner.#telemetryRow(row),executionKind:'JEV',taskId:task.taskId,taskType:'JEV_DECISION',turnId:task.turnId,correlationId:task.correlationId,physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(profile)});
         try{
           const execution=await base.execute(request,{prefilter,signal:controller.signal,attempt,profileId:profile.profileId,leaseHeld:true});
           const latency=Math.max(0,owner.now()-started);
           row.lastExecution={status:'SUCCESS',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:latency,providerId:profile.providerId,workerId:profile.workerId,measurementClass:row.measurementClass,actualModelId:execution.providerProvenance?.modelId??null,actualProvider:execution.providerProvenance?.actualProvider??null};
           owner.health.observe(row.providerProfileId,{outcome:'SUCCESS',activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:latency,now:owner.now()});
-          emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),taskId:task.taskId,taskType:'JEV_DECISION',turnId:task.turnId,correlationId:task.correlationId,status:'SUCCESS',latencyMs:latency,workerId:profile.workerId,providerId:profile.providerId});
+          emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),executionKind:'JEV',taskId:task.taskId,taskType:'JEV_DECISION',turnId:task.turnId,correlationId:task.correlationId,status:'SUCCESS',latencyMs:latency,workerId:profile.workerId,providerId:profile.providerId});
           emitTelemetry(owner.telemetry,TelemetryEvent.PROVIDER_INVOKED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:execution.providerProvenance?.modelId??profile.modelId,requestedModelId:profile.modelId,actualProvider:execution.providerProvenance?.actualProvider??null,taskClass:'JEV_DECISION',executionLatency:execution.latencyMetadata?.providerLatencyMs??latency,validationLatency:execution.latencyMetadata?.validationLatencyMs??0,attempt,measurementClass:execution.providerProvenance?.measurementClass??row.measurementClass});
           emitTelemetry(owner.telemetry,TelemetryEvent.PROVIDER_USAGE,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,providerProfileId:profile.profileId,measurementClass:execution.providerProvenance?.measurementClass??row.measurementClass,usageReceipt:execution.providerProvenance?.usageReceipt??null});
           return execution;
         }catch(error){
           row.lastExecution={status:'FAIL',taskId:task.taskId,taskType:'JEV_DECISION',at:owner.now(),latencyMs:Math.max(0,owner.now()-started),providerId:row.providerId,workerId:row.workerId,measurementClass:row.measurementClass,failureCode:error?.code??FailureCode.PROVIDER_FAILURE};
           owner.#observeFailure(row,error);if(qualificationInvalidatingFailure(error))owner.#invalidateQualification(row,{reasonCode:reasonFromError(error),reason:safeMessage(error?.message??'Jev provider qualification is no longer valid.'),unavailable:true});
-          emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),taskId:task.taskId,taskType:'JEV_DECISION',turnId:task.turnId,correlationId:task.correlationId,status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
+          emitTelemetry(owner.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...owner.#telemetryRow(row),executionKind:'JEV',taskId:task.taskId,taskType:'JEV_DECISION',turnId:task.turnId,correlationId:task.correlationId,status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
           throw error;
         }finally{
           detach();set.delete(controller);if(!set.size)owner.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
@@ -706,3 +709,5 @@ function taskContextTokens(task){const n=Number(task?.metadata?.contextTokens??t
 function positiveFiniteOrNull(value){const n=Number(value);return Number.isFinite(n)&&n>0?n:null;}
 function clone(value){return value==null?value:structuredClone(value);}
 function deepFreeze(value){if(!value||typeof value!=='object'||Object.isFrozen(value))return value;Object.freeze(value);for(const child of Object.values(value))deepFreeze(child);return value;}
+
+function profileCostClass(profile){return profile?.costClass??profile?.estimatedCostClass??profile?.costMetadata?.costClass??null;}

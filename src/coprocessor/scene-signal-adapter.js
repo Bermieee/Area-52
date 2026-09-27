@@ -27,6 +27,7 @@ export function adaptScenePublicSignals(input = {}) {
     conflictSignals: Object.freeze([...(input.conflictSignals ?? [])]),
     sceneTransitionType: input.sceneRelationship ?? input.boundaryState?.type ?? null,
     retrievalQuality: input.retrievalQuality ?? null,
+    atmosphereContribution: structuredClone(input.atmosphereContribution ?? null),
     prefetchRecommendations: Object.freeze((input.prefetchRecommendations ?? []).map(normalizePrefetchRecommendation)),
     sceneHealth: structuredClone(input.health ?? null),
     episodeRefs: Object.freeze([...(input.episodeRefs ?? [])]),

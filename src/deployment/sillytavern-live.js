@@ -278,43 +278,94 @@ function registerNarrativeSource(brain, { chatId, message }) {
   return { ...identity, sourceRevisionId: imported.revision.id };
 }
 
-function applyNativeScene(brain, { chatId, message, sourceRevisionId = null, activity = HostActivity.USER_SEND, messageRevision = 1, turnId = null, hostEventId = null } = {}) {
-  const prior = brain.scene.integrationSignal(chatId);
-  const identity = sourceIdentity(chatId, message);
-  let parsed = null;
-  const receipt = brain.ingestSceneHostEvent({
-    activity,
-    chatId,
-    hostEventId: hostEventId ?? ['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':'),
-    messageId: identity.messageKey,
-    messageRevision,
-    turnId: turnId ?? ['scene-turn',chatId,identity.messageKey,messageRevision].join(':'),
-    content: message.text,
-    role: message.role ?? 'user',
-  },{
-    extract:(e,scene)=>{
-      parsed=extractDevelopmentDeploymentScene(e.content,{
-        revision:scene.revision+1,
-        evidenceRef:e.sourceRevisionId,
-        currentScene:scene,
-        sceneRuntime:brain.scene,
+async function applyNativeScene(brain, {
+  chatId,message,sourceRevisionId=null,activity=HostActivity.USER_SEND,messageRevision=1,turnId=null,hostEventId=null,
+  generationId=null,phase='FOREGROUND_USER',selectionGuard=null,turnSealed=null,foregroundBudgetMs=1200,
+}={}){
+  const prior=brain.scene.integrationSignal(chatId);
+  const identity=sourceIdentity(chatId,message);
+  const resolvedTurnId=turnId??['scene-turn',chatId,identity.messageKey,messageRevision].join(':');
+  const resolvedGenerationId=generationId??['scene-generation',chatId,identity.messageKey,messageRevision,identity.digest].join(':');
+  const ownerSourceRevisionId=brain.scene?.narrativeFeed?.sourceRevisionIdFor?.({
+    chatId,messageId:identity.messageKey,messageRevision,
+  })??sourceRevisionId;
+  const hostEvent={
+    activity,chatId,
+    hostEventId:hostEventId??['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':'),
+    messageId:identity.messageKey,messageRevision,turnId:resolvedTurnId,
+    correlationId:'corr:'+resolvedTurnId,sourceRevisionId:ownerSourceRevisionId,
+    content:message.text,role:message.role??(activity===HostActivity.USER_SEND?'user':'assistant'),
+  };
+  const currentSelection=()=>typeof selectionGuard==='function'?Boolean(selectionGuard()):true;
+  const sealed=()=>typeof turnSealed==='function'?Boolean(turnSealed()):false;
+  if(!currentSelection()){
+    const signal=prior??(sourceRevisionId?brain.ensureScene({chatId,sourceRevisionId:ownerSourceRevisionId??sourceRevisionId}):null);
+    return{
+      kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'REJECTED',noWorkReason:'SCENE_SELECTION_SUPERSEDED',
+      chatId,sceneId:signal?.sceneId??null,sceneRevision:signal?.sceneRevision??null,sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],
+      changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
+      semanticObservation:{status:'SKIPPED',reasonCode:'SCENE_SELECTION_SUPERSEDED',attempted:false,returned:false,ownerAdmitted:false,stale:true},
+      parsed:{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'NO_SCENE_MUTATION_SUPERSEDED_SELECTION'},
+      reason:'SCENE_SELECTION_SUPERSEDED',authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
+    };
+  }
+
+  let semantic=null,admission=null,receipt=null,parsed=null;
+  if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
+    semantic=await brain.runSceneObservationWork({
+      chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:'corr:'+resolvedTurnId,
+      sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,
+    });
+    const hasSemanticWork=semantic?.status==='RETURNED'&&(
+      Object.keys(semantic?.proposal?.fields??{}).length>0||Object.keys(semantic?.boundarySignals??{}).length>0
+    );
+    if(hasSemanticWork){
+      admission=brain.admitSceneObservationProposal({
+        work:semantic,hostEvent,currentSelection:currentSelection(),turnSealed:sealed(),
       });
-      return parsed;
-    },
-  });
-  const signal = receipt.signal ?? prior ?? (sourceRevisionId ? brain.ensureScene({ chatId, sourceRevisionId }) : null);
-  const observed = receipt.status === 'OBSERVED';
-  const initialized = !prior && Boolean(signal);
-  return {
-    ...receipt,
-    observed,
-    initialized,
-    parsed: parsed ?? {explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'},
-    signal,
-    delta: receipt.delta ?? null,
-    reason: observed
-      ? (receipt.transition ? 'HOST_SCENE_TRANSITION_OBSERVED' : 'HOST_SCENE_FIELDS_OBSERVED')
-      : (initialized ? 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS' : receipt.noWorkReason ?? 'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT'),
+      receipt=admission?.ownerReceipt??null;
+      parsed={
+        explicit:true,fields:clone(semantic.proposal?.fields??{}),boundarySignals:clone(semantic.boundarySignals??{}),
+        relationship:null,resumeSceneId:null,allowWhenRefreshRequired:false,extractionPolicy:'SEMANTIC_COGNITIVE_RESOURCE',
+      };
+      if(!admission?.accepted&&['SCENE_PROPOSAL_SELECTION_SUPERSEDED','SCENE_PROPOSAL_LATE_AFTER_SEAL','SCENE_PROPOSAL_STALE_REVISION'].includes(admission?.reasonCode)){
+        const signal=prior??brain.scene.integrationSignal(chatId);
+        return{
+          ...(receipt??{}),kind:receipt?.kind??'DeploymentSceneOwnerReceipt',status:'REJECTED',noWorkReason:admission.reasonCode,
+          chatId,sceneId:signal?.sceneId??semantic.proposal?.sceneId??null,sceneRevision:signal?.sceneRevision??semantic.proposal?.baseRevision??null,
+          sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
+          semanticObservation:{...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:admission.reasonCode,stale:Boolean(admission.receipt?.stale),late:Boolean(admission.receipt?.late)},
+          parsed,reason:admission.reasonCode,authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
+        };
+      }
+    }
+  }
+
+  if(!receipt){
+    let fallbackParsed=null;
+    receipt=brain.ingestSceneHostEvent(hostEvent,{
+      extract:(e,scene)=>{
+        fallbackParsed=extractDevelopmentDeploymentScene(e.content,{
+          revision:scene.revision+1,evidenceRef:e.sourceRevisionId,currentScene:scene,sceneRuntime:brain.scene,
+        });
+        return fallbackParsed;
+      },
+    });
+    parsed=fallbackParsed??{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'};
+  }
+  const signal=receipt.signal??prior??(ownerSourceRevisionId?brain.ensureScene({chatId,sourceRevisionId:ownerSourceRevisionId}):sourceRevisionId?brain.ensureScene({chatId,sourceRevisionId}):null);
+  const observed=receipt.status==='OBSERVED';
+  const initialized=!prior&&Boolean(signal);
+  const semanticObservation=semantic?{
+    ...clone(semantic.executionReceipt),ownerAdmitted:admission?.accepted??null,ownerReasonCode:admission?.reasonCode??null,
+    changedFields:[...(admission?.ownerReceipt?.changedFields??receipt?.changedFields??[])].slice(0,16),
+  }:null;
+  return{
+    ...receipt,observed,initialized,parsed,signal,delta:receipt.delta??null,semanticObservation,
+    extractionPolicy:parsed?.extractionPolicy??'GENERIC_HOST_EVIDENCE_ONLY',
+    reason:observed
+      ? (receipt.transition?'HOST_SCENE_TRANSITION_OBSERVED':parsed?.extractionPolicy==='SEMANTIC_COGNITIVE_RESOURCE'?'SEMANTIC_SCENE_FIELDS_ADMITTED':'HOST_SCENE_FIELDS_OBSERVED')
+      : (initialized?'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS':receipt.noWorkReason??'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT'),
   };
 }
 
@@ -364,7 +415,7 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   const turnSuffix = source.messageKey + ':' + source.digest + ':' + chosenMode;
   const turnId = 'live:' + chatId + ':' + turnSuffix;
   const generationId = 'live-gen:' + chatId + ':' + source.messageKey + ':' + source.digest;
-  const scene = applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId, turnId });
+  const scene = await applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId, turnId, generationId });
 
   const result = await brain.runTurn({
     chatId,
@@ -641,7 +692,17 @@ export class DevelopmentDeploymentSillyTavernSession {
     const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
     const sceneVersion=this.#sceneHostVersion(chatId,message);
-    const scene=applyNativeScene(this.brain,{chatId,message,sourceRevisionId:source.sourceRevisionId,activity:sceneVersion.activity,messageRevision:sceneVersion.messageRevision,turnId});
+    const scene=await applyNativeScene(this.brain,{
+      chatId,message,sourceRevisionId:source.sourceRevisionId,activity:sceneVersion.activity,messageRevision:sceneVersion.messageRevision,
+      turnId,generationId,phase:'FOREGROUND_USER',
+      selectionGuard:()=>{
+        try{
+          const current=this.getContext(),latest=latestUserMessage(current);
+          return clean(current.chatId)===chatId&&Boolean(latest)&&latest.index===message.index&&sourceIdentity(chatId,latest).digest===source.digest;
+        }catch{return false;}
+      },
+      turnSealed:()=>Boolean(this.nativeBrain?.core?.publication?.seal?.isTurnSealed?.(turnId)),
+    });
     const sceneOwnerReceipt=sceneOwnerReceiptForNative(scene);
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
@@ -1144,7 +1205,18 @@ export class DevelopmentDeploymentSillyTavernSession {
       }:{state:'UNAVAILABLE',reason:sceneReadModel?'SCENE_READ_MODEL_FENCE_MISMATCH':'SCENE_READ_MODEL_UNAVAILABLE'};
       return{
         ...owner,
-        sceneFlow:{...(owner.sceneFlow??{}),readModel:readModelEdge,hostDelivery:hostObserved},
+        sceneFlow:{
+          ...(owner.sceneFlow??{}),readModel:readModelEdge,hostDelivery:hostObserved,
+          semanticObservation:(()=>{
+            const rows=this.brain?.readSceneObservationReceipts?.({limit:128})??[];
+            const matching=rows.filter(row=>
+              (!owner.chatId||row?.chatId===owner.chatId)&&(!owner.turnId||row?.turnId===owner.turnId)&&(!owner.generationId||row?.generationId===owner.generationId)
+            );
+            const execution=[...matching].reverse().find(row=>row?.kind==='DeploymentSceneObservationExecutionReceipt')??null;
+            const ownerAdmission=[...matching].reverse().find(row=>row?.kind==='DeploymentSceneObservationOwnerReceipt')??null;
+            return execution||ownerAdmission?{execution:clone(execution),ownerAdmission:clone(ownerAdmission)}:null;
+          })(),
+        },
         sceneFences:{...(owner.sceneFences??{}),sceneReadModelMatchesSelection:sceneReadMatches},
         delivery:{...(owner.delivery??{}),hostObserved},
         hostDeliveryReceiptId:host?.receiptId??null,

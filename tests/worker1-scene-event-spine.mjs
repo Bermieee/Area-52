@@ -84,6 +84,7 @@ test('#113 production Scene publication reaches Event Spine and preserves the re
   assert.ok(Object.isFrozen(locationSpine));
   assert.ok(Object.isFrozen(locationSpine.payload));
   assert.ok(Object.keys(locationSpine.sourceRevisions??{}).length>0);
+  assert.deepEqual(locationSpine.sourceRevisionSet,receipt.eventSpineReceipts.find(row=>row.eventId===locationSpine.eventId)?.sourceRevisionRefs);
   assert.ok(locationSpine.dedupeKey);
 
   assert.ok(receipt.dispatchTimeline.some(row=>row.type==='EVENT'&&row.value?.eventType===SceneEventType.LOCATION_CHANGED));

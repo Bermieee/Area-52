@@ -895,6 +895,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const currentTitle=failed?'Study needs attention':studying?('Studying '+studying+' entr'+(studying===1?'y':'ies')):accepted?(accepted+' entr'+(accepted===1?'y is':'ies are')+' DUE'):ready?'Lore is ready':'Waiting for Lore study';
   const currentToken=failed?'warning':studying?'observed':accepted?'warning':ready?'ready':'historical';
 
+  const statusHeading=element(d,'div',{className:'a52-lore-status-heading'});statusHeading.append(element(d,'span',{className:'a52-eyebrow',text:'LIVE STUDY STATE'}),element(d,'h2',{text:'What Lore is doing now'}));host.append(statusHeading);
   const statusStrip=element(d,'section',{className:'a52-lore-status-strip'});
   statusStrip.append(
     loreStatusTile(d,'LORE OWNER',source.operationalState??source.health,source.impact,currentToken),

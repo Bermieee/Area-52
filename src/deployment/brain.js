@@ -1226,7 +1226,7 @@ export class DevelopmentDeploymentBrain {
     if(task.taskType==='HISTORIAN_RETRIEVAL'){
       const result=this.memorySurface.adapters.queryHistorian({
         query:String(query??''),mode:'CONTINUITY_RECALL',activeEntityIds,maxCandidates:24,
-        chatId:sceneInput?.chatId??null,sceneId:sceneInput?.sceneId??null,sceneRevision:sceneInput?.sceneRevision??null,
+        selection:{chatId:sceneInput?.chatId??null,sceneId:sceneInput?.sceneId??null,sceneRevision:sceneInput?.sceneRevision??null},
       });
       const candidates=(result?.nominations??[]).slice(0,24).map(row=>({
         candidateId:row.candidateId,summary:row.representationText??'',value:row.representationText??null,

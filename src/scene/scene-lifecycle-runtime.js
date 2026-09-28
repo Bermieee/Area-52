@@ -226,7 +226,6 @@ export class SceneLifecycleRuntime{
       }
     }
     const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];const graphEvidenceLinks=extracted.graphEvidenceLinks??[],graphEvidenceOwnerApproved=extracted.graphEvidenceLinksOwnerApproved===true;
-    const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(current,evidence,likelyNextIntents):[];
     let boundary=null,transition=null,observed=null;
     if(extracted.boundarySignals){
       boundary=this.sceneRuntime.boundary({sceneId:current.sceneId,evidenceRefs:[evidence.sourceRevisionId],signals:extracted.boundarySignals,sourcePosition:{messageId:evidence.messageId,messageRevision:evidence.messageRevision}});
@@ -278,6 +277,7 @@ export class SceneLifecycleRuntime{
         observed={scene:current,delta:null,applied:false,noChange:true};
       }
     }
+    const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(observed.scene,evidence,likelyNextIntents):[];
     const graphLinkScene=transition?.episodeRef?(this.registry.current(transition.fromSceneId)??observed.scene):observed.scene;
     const graphEvidenceAdmission=graphEvidenceLinks.length?(graphEvidenceOwnerApproved?this.admitGraphEvidenceLinks({chatId:evidence.chatId,sceneId:graphLinkScene.sceneId,sceneRevision:transition?.episodeRef?.revision??graphLinkScene.revision,sourceRevisionId:evidence.sourceRevisionId,links:graphEvidenceLinks,episodeRef:transition?.episodeRef??null}):{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',receipts:graphEvidenceLinks.slice(0,32).map(raw=>({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation:String(raw?.relation??'SUPPORTS').toUpperCase(),fromRef:raw?.fromRef??null,toRef:raw?.toRef??null}))}):{kind:'SceneGraphEvidenceAdmission',status:'NO_WORK',reasonCode:'SCENE_GRAPH_OWNER_NO_LINKS',receipts:[]};
     const graphEvidenceReceipts=graphEvidenceAdmission.receipts;

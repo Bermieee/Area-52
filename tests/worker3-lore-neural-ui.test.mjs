@@ -174,7 +174,7 @@ test('cluster click selects and updates detail state without snapping the camera
   assert.equal(refreshes.length,1);
   const rerender=renderLoreNeuralWorkspace(d,{data,selected,progress:100,renderState:state,refresh:()=>{},scope:listenerScope()});
   const rerenderBody=textOf(rerender);
-  assert.match(rerenderBody,/Selected UID/);
+  assert.match(rerenderBody,/Selected Node/);
   assert.match(rerenderBody,/Cluster/);
   assert.match(rerenderBody,/Direct graph relationships/);
 });
@@ -560,7 +560,7 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/DEFAULT_WORLD_VIEW=\{x:90,y:-14,width:820,height:788\}/);
   assert.match(js,/hubRadius=grouped\.length<=2\?220:grouped\.length<=4\?240:258/);
   assert.match(js,/const radius=76\+ring\*44\+jitter/);
-  assert.doesNotMatch(js,/coreTitle\\.textContent='WORLD TREE'/);
+  assert.doesNotMatch(js,/coreTitle\.textContent='WORLD TREE'/);
   assert.match(js,/className:'a52-world-tree-filter-dock'/);
   const surfaces=readFileSync(new URL('../src/ui-core/wave13-operator-surfaces.js',import.meta.url),'utf8');
   assert.match(surfaces,/className:'a52-world-tree-shell'/);

@@ -479,7 +479,7 @@ export class Area52NativeBrain{
       ownerSelection={...ownerSelection,worldRevision:postPrimeWorld,sceneRevision:postPrimeScene?.sceneRevision??ownerSelection.sceneRevision,sourceRevisionRefs:postPrimeSourceRefs};
       this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
       this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
-      memoryDensePrime=this.ownerMemoryChannel.skipDense('DENSE_PRIME_STALE_SELECTED_STATE',{selection:ownerSelection,resultClass:'OPPORTUNISTIC'});
+      memoryDensePrime=this.ownerMemoryChannel.markDenseStale(memoryDensePrime,{selection:ownerSelection,reason:'DENSE_PRIME_STALE_SELECTED_STATE',resultClass:'OPPORTUNISTIC'});
     }
     let sceneFanOutIngress={kind:'NativeBrainSceneFanOutIngressReceipt',status:'UNAVAILABLE',reasonCode:'SCENE_FANOUT_HANDOFF_ABSENT',candidateCount:0,candidateIds:[],authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false};
     let externalRetrievalCandidates=[];

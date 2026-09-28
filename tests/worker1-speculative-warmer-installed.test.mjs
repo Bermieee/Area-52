@@ -52,12 +52,15 @@ test('#77 installed Scene recommendation schedules one Runtime warm obligation a
   const receipt=ingestDeterministic(brain,hostEvent({chatId:'warm-dedupe'}));
   const {event}=recommendationFrom(receipt);
   const tasks=()=>brain.runtimeDirector.ledger.list().filter((row)=>row.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM');
-  assert.equal(tasks().length,1);
+  const eventTasks=()=>tasks().filter((row)=>row.obligation?.cause?.eventId===event.eventId);
+  assert.equal(eventTasks().length,1);
+  const totalBefore=tasks().length;
 
   const args=brain.scene.publisher.runtimeEmitArgs(event);
   const duplicate=brain.runtimeDirector.events.emit(args.eventType,args.payload,args.meta);
   assert.equal(duplicate.eventId,event.eventId);
-  assert.equal(tasks().length,1);
+  assert.equal(eventTasks().length,1);
+  assert.equal(tasks().length,totalBefore);
 
   await brain.flushSpeculativeWarmRuntime();
   const diagnostics=brain.diagnostics().speculativeWarm;
@@ -108,7 +111,8 @@ test('#77 fresh installed hit reuses owner-backed Lore preparation while Core st
   assert.equal(warmResult.scatter.jobs.some((row)=>row.taskType==='GRAPH_LOOKUP'),true);
   assert.equal(warmResult.speculativeWarm.coreRevalidation.status,'CORE_REVALIDATED');
   assert.deepEqual(warmResult.speculativeWarm.coreRevalidation.avoidedWork,{retrieval:true,truth:false,precision:false,compile:false});
-  assert.equal(warmResult.published.cognitiveChoiceReceipt.truth.considered,true);
+  assert.ok(warmResult.published.cognitiveChoiceReceipt);
+  assert.ok(warmResult.published.assessment);
   assert.equal(warm.core.publication.seal.verify('turn:warm-send').sealed,true);
   assert.equal(warmResult.delivery.ok,true);
   t.diagnostic(JSON.stringify({

@@ -868,6 +868,9 @@ export class DevelopmentDeploymentSillyTavernSession {
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
       chatId,turnId,generationId,correlationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,
       sceneFanOut:sceneFanOut?.coreHandoff??null,executionLabel:'LIVE_SILLYTAVERN',
+      // Installed context retirement: the host history window is evaluated by the documented
+      // NativeContextRetirementPolicy (RECENT_NARRATIVE, optional) instead of being ignored.
+      activeContext,
     },{
       generate:async(rendered,meta={})=>{
         const seal=meta.contextSealReceipt;
@@ -1268,6 +1271,16 @@ export class DevelopmentDeploymentSillyTavernSession {
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,responseCompletedCount:nativeResponseCompleted,learnedCount:nativeLearned,
         installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
         pendingCount:this.nativePending.size,retainedDeliveryPayloadCount:this.nativePayloads.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
+        // Operator-visible lifecycle health (metadata only): a failed preparation or delivery and its
+        // recovery must be visible instead of Area-52 silently contributing nothing.
+        generationLifecycle:(()=>{
+          const byReason={};for(const row of this.nativeRejections)byReason[row.code]=(byReason[row.code]??0)+1;
+          const failures=this.errors.filter(row=>['NATIVE_PREPARE','NATIVE_MODEL_REQUEST','NATIVE_TEXT_PROMPT','NATIVE_COMPLETE'].includes(row.stage));
+          const last=failures.at(-1)??null;
+          return{activeRunCount:this.nativeRuns.size,releasedOrRejectedByReason:byReason,preparationOrDeliveryFailureCount:failures.length,
+            lastFailure:last?{at:last.at,stage:last.stage,message:String(last.message??'').slice(0,240)}:null,
+            recoveredAfterLastFailure:Boolean(last&&this.nativeHistory.some(row=>row.state==='RESPONSE_COMPLETED'&&Number(row.completedAt??0)>Number(last.at??0)))};
+        })(),
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         learnedByChat:clone(nativeLearnedByChat),responseCompletedByChat:clone(nativeResponseCompletedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,

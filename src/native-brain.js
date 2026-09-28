@@ -31,6 +31,7 @@ import {
 import {stableHash} from './browser-runtime-utils.js';
 import {createSceneUiReadModelFromIntegrationState} from './scene/scene-ui-read-model.js';
 import {NativeContextRetirementPolicy,contextRetirementContract} from './context-retirement-policy.js';
+import {compactTurnRecord,reboundCompactedTurnRecord,DEFAULT_FULL_DETAIL_TURNS} from './native-turn-retention.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
@@ -1048,7 +1049,9 @@ export class Area52NativeBrain{
       },
       knowledge:this.knowledge.exportState(),feedback:this.feedback.exportState(),
       loreRevisionTrust:[...this.loreRevisionTrust.entries()],rejectedLoreRevisionIds:[...this.rejectedLoreRevisionIds],
-      turns:[...this.turns.entries()],turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
+      // Restore image: settled turns are persisted in compacted reference form (owner stores and the
+      // sealed packet stay authoritative); turns with pending background learning keep full detail.
+      turns:[...this.turns.entries()].map(([id,record])=>[id,this.#turnBackgroundSettled(record)?compactTurnRecord(record,{reason:'SNAPSHOT',sequence:this.turnSequence}):record]),turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
       runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,expectedWork:this.obligationReconciler.snapshot(),
     });
   }
@@ -1891,5 +1894,34 @@ export class Area52NativeBrain{
     if(!this.turns.has(id))this.turnOrder.push(id);
     this.turns.set(id,record);
     while(this.turnOrder.length>this.maxTurns){const old=this.turnOrder.shift();this.turns.delete(old);}
+    this.#compactRetainedTurns();
+  }
+
+  // Audit H3: only the newest turns keep full diagnostic detail. Older records whose background
+  // learning has settled are compacted to references; owner stores and the sealed packet remain
+  // authoritative. A record with pending Runtime work or uncomputed feedback is left intact.
+  #turnBackgroundSettled(record){
+    if(record.feedbackRuntimeTaskId&&!record.feedback)return false;
+    const ids=[record.feedbackRuntimeTaskId,record.memoryFeedbackRuntimeTaskId,record.memoryRuntimeTaskId,record.memoryConsolidationRuntimeTaskId].filter(Boolean);
+    for(const taskId of ids){
+      const task=this.runtimeDirector?.ledger?.get?.(taskId);if(!task)continue;
+      if(['PENDING','ELIGIBLE'].includes(String(task.lifecycleStatus))||['QUEUED','ACTIVE','YIELDING','PARKED','RECOVERING'].includes(String(task.executionStatus)))return false;
+    }
+    return true;
+  }
+  #compactRetainedTurns(){
+    const keep=Math.max(1,Number(this.fullDetailTurns??DEFAULT_FULL_DETAIL_TURNS));
+    const eligible=this.turnOrder.slice(0,Math.max(0,this.turnOrder.length-keep));
+    for(const id of eligible){
+      const record=this.turns.get(id);
+      if(!record)continue;
+      if(record.retention?.state==='COMPACTED'){
+        // Late learning receipts can attach after compaction; re-bound recently compacted records only.
+        if(Number(record.retention.compactedAtSequence??0)>=this.turnSequence-8)this.turns.set(id,reboundCompactedTurnRecord(record));
+        continue;
+      }
+      if(!this.#turnBackgroundSettled(record))continue;
+      this.turns.set(id,compactTurnRecord(record,{sequence:this.turnSequence}));
+    }
   }
 }

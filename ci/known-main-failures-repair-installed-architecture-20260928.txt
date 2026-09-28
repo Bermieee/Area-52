@@ -1,0 +1,33 @@
+#112 same host observation keeps likely-next prefetch on the post-observation Scene revision
+#113 owner-declared Scene obligation executes once and duplicate event does not reschedule it
+#124 capability negotiation enforces version, resource, health, latency, context, concurrency, foreground/background and fallback without provider authority
+105 READY metadata-poor sources distribute across neutral topology hubs instead of one READY hub
+Combined cognition golden: HOT Green Room assists current generation while DEEP consolidation remains background
+Connections model input stays editable and discovered models are suggestions rather than a whitelist
+Connections renders separate Jev Sidecar and Vectoring slots and locks owner-configured resources
+Consolidation golden: checkpoint, yield/resume, revision invalidation and duplicate replay preserve lineage
+DETERMINISTIC: context retirement requires durable retrieval proof and preserves protected/raw context
+Front Face presentation persists UI-only state and clamps dimensions
+Lore READY CURRENT entry with semanticDiff does not show stale source revision warning
+Lore UI marks edited source revisions stale until the owner re-studies them
+Lore keeps controls first and explains DUE STUDYING READY without flooding the page
+Lore neural canvas stays quiet until study and then grows from published source metadata
+Lore stale learned revision still shows source revision warning
+Lore workspace shows Worker 4 multi-resolution and hierarchical summaries as derived non-source artifacts
+Memory workspace renders owner-backed hierarchical compaction and keeps derived summaries non-authoritative
+Scene Graph supports evidence-backed causal/supporting links without turning adjacency into causality
+Scene provider executes through the existing bounded Core Graph Walker beside another provider without gaining truth authority
+Settlement Engine exposes the complete Wave 2 decision vocabulary deterministically
+Wave 3 provider output claiming owner authority is rejected before Result Bus eligibility
+Wave 8 focused stress stays bounded, idempotent, revision-safe and non-authoritative
+Wave 9 mixed adapter stress remains bounded, replay-safe, stale-safe, isolated and non-authoritative
+Worker 1 #262 real Scene retrieval need reconciles physical/result evidence but waits for explicit Scene owner admission
+Worker 2 configured resource reconnect uses resourceId and does not duplicate addResource
+Worker 4 Wave 6 authoring contract stays review-only and renders Tree / merge previews without Apply
+Worker 4 late optional result preserves configured, qualified, attempted, returned, admitted and sealed as distinct facts
+Worker 4 v2 lifecycle gates Settlement behind review Final Preview and explicit approval
+completed valid consolidation slice survives sibling provider failure
+configured Jev Sidecar and Vectoring cards expose no credential management layer
+failed optional execution stays distinct from intentional Jev skip and owner acceptance
+manual model ID can be selected and qualified even when discovery does not list it
+real ContinuousConsolidationWorker executes provider-neutral cognition and returns proposal-only Memory handoff

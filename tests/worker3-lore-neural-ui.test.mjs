@@ -79,6 +79,10 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.match(body,/Graph growth/);
   assert.match(body,/Growth queue/);
   assert.match(body,/Moon Harbor/);
+  for(const label of ['Merge','Summarizer','Rebuild']){
+    const button=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+    assert.ok(button);assert.equal(Boolean(button.disabled||button.attributes?.disabled),true);assert.equal(button.dataset?.futureFeature,'true');
+  }
   assert.doesNotMatch(body,/Character|Faction|Place|Event|Concept|Timeline|Memory/);
   const svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   assert.ok(svg);
@@ -123,10 +127,14 @@ test('Lore neural canvas uses published category metadata without inferring cate
   assert.equal(hubs.length,3);
   assert.ok(hubs.every(x=>String(x.attributes?.['data-state'])==='SEMANTIC'));
   assert.ok(hubs.every(x=>Boolean(x.attributes?.['data-tone'])));
+  const toneByLabel=new Map(hubs.map(hub=>[textOf(hub).replace(/\s+/g,' ').trim().toLowerCase(),hub.attributes?.['data-tone']]));
+  assert.ok([...toneByLabel].some(([label,tone])=>label.includes('character')&&tone==='violet'));
+  assert.ok([...toneByLabel].some(([label,tone])=>label.includes('faction')&&tone==='blue'));
+  assert.ok([...toneByLabel].some(([label,tone])=>label.includes('place')&&tone==='green'));
   assert.match(body,/Mara/);assert.match(body,/Moon Harbor/);assert.match(body,/Lantern Guild/);
 });
 
-test('cluster bubbles glow and zoom while Full Graph clears focus',()=>{
+test('cluster click selects and updates detail state without snapping the camera',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),refreshes=[];
   const data={
     kind:'Wave13LoreStudySurface',
@@ -146,20 +154,46 @@ test('cluster bubbles glow and zoom while Full Graph clears focus',()=>{
   const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   const hubs=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-hub-node'));
   assert.equal(hubs.length,2);
-  assert.equal(svg.attributes?.viewBox,'0 0 1000 760');
+  const before=String(svg.attributes?.viewBox);
   hubs[0].dispatch('click');
   assert.equal(state.selectedNodeKind,'hub');
   assert.equal(state.selectedNodeId,hubs[0].attributes?.['data-node-id']);
-  assert.equal(state.focusHubId,hubs[0].attributes?.['data-node-id']);
+  assert.equal(state.focusHubId,null);
   assert.match(String(hubs[0].className??''),/is-selected/);
-  assert.notEqual(svg.attributes?.viewBox,'0 0 1000 760');
-  assert.match(String(svg.className??''),/is-focused/);
-  const connected=nodes.filter(x=>String(x.className??'').includes('is-connected'));
-  assert.ok(connected.length>=3);
-  const fullGraph=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent==='Full Graph');
-  assert.ok(fullGraph);fullGraph.dispatch('click');
-  assert.equal(state.focusHubId,null);assert.equal(state.selectedNodeId,null);assert.equal(refreshes.length,1);
+  assert.equal(String(svg.attributes?.viewBox),before);
+  assert.equal(refreshes.length,1);
+  const rerender=renderLoreNeuralWorkspace(d,{data,selected,progress:100,renderState:state,refresh:()=>{},scope:listenerScope()});
+  const rerenderBody=textOf(rerender);
+  assert.match(rerenderBody,/Selected UID/);
+  assert.match(rerenderBody,/Cluster/);
+  assert.match(rerenderBody,/Direct graph relationships/);
 });
+
+test('source click renders truthful UID details in the right rail without moving viewport',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),refreshes=[];
+  const data={
+    kind:'Wave13LoreStudySurface',
+    entries:[{sourceId:'lore:uid:mara',uid:'uid-mara',operatorState:'READY',artifactIds:['a1','a2'],representations:[{id:'rep1'}],retrievalReady:true,sourceRevisionId:'rev-42'}],
+    operatorCounts:{ACCEPTED:0,STUDYING:0,READY:1,FAILED:0,REMOVED:0},artifacts:[],conflicts:[],revision:'graph-7',retrievalReady:1,
+  };
+  const selected={selection:{selected:true,title:'UID Lore',lorebookId:'uid'},snapshot:{id:'uid',title:'UID Lore',entries:[
+    {uid:'uid-mara',metadata:{title:'Mara Vex',category:'Character',treePath:['Character','Primary']}},
+  ]}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:100,renderState:state,refresh:()=>refreshes.push('refresh'),scope:listenerScope()});
+  const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
+  const source=nodes.find(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  const before=String(svg.attributes?.viewBox);
+  source.dispatch('click');
+  assert.equal(String(svg.attributes?.viewBox),before);
+  assert.equal(state.selectedNodeId,'lore:uid:mara');
+  assert.equal(refreshes.length,1);
+  const detail=renderLoreNeuralWorkspace(d,{data,selected,progress:100,renderState:state,refresh:()=>{},scope:listenerScope()});
+  const body=textOf(detail);
+  assert.match(body,/Selected UID/);assert.match(body,/uid-mara/);assert.match(body,/Mara Vex/);assert.match(body,/Character/);
+  assert.match(body,/rev-42/);assert.match(body,/1/);assert.match(body,/2/);assert.match(body,/Character › Primary/);
+  assert.match(body,/Connections/);assert.match(body,/Direct graph relationships/);
+});
+
 
 test('dragging a Lore bubble moves it keeps live connections and persists without Lore mutation',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData(),original=JSON.stringify(data);
@@ -208,6 +242,9 @@ test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>refreshes.push('refresh'),scope:listenerScope()});
   const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   assert.ok(svg);assert.equal(svg.attributes?.viewBox,'0 0 1000 760');
+  assert.equal(svg.attributes?.['data-zoom-level'],'overview');
+  const sourceLabels=nodes.filter(x=>String(x.attributes?.class??'').includes('a52-lore-entry-node__label'));
+  assert.ok(sourceLabels.length>0);
 
   svg.dispatch('pointerdown',{button:0,pointerId:3,clientX:500,clientY:350});
   svg.dispatch('pointermove',{pointerId:3,clientX:650,clientY:430});
@@ -224,6 +261,7 @@ test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   for(let i=0;i<20;i++)svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
   const minZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
   assert.ok(minZoom[2]>=250);
+  assert.equal(svg.attributes?.['data-zoom-level'],'close');
   for(let i=0;i<30;i++)svg.dispatch('wheel',{deltaY:120,offsetX:640,offsetY:300});
   const maxZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
   assert.ok(maxZoom[2]<=1180);
@@ -497,6 +535,7 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/SOURCE_INNER_START_MS=3200/);
   assert.match(js,/SOURCE_RING_GAP_MS=900/);
   assert.doesNotMatch(js,/index\*INITIAL_WAVE_SPACING_MS/);
+  assert.doesNotMatch(js,/focusHubId=hub\.id/);
   assert.match(js,/dur:1500/);
   assert.match(js,/dur:1250/);
   assert.match(js,/dur:950/);

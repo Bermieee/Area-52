@@ -46,7 +46,8 @@ test('Lore neural canvas starts blank before a source is accepted',()=>{
   assert.equal(root.dataset.graphState,'blank');
   assert.match(body,/Waiting for a Lorebook/);
   assert.match(body,/blank canvas/);
-  assert.match(body,/Load and accept a selected Lorebook to begin growing the graph/);
+  assert.match(body,/Waiting for a Lorebook/);
+  assert.match(body,/Accept the selected Lorebook, then run study to populate source nodes and learned links/);
   assert.equal(walk(root).some(x=>String(x.className??'').includes('a52-lore-neural-svg')),false);
 });
 
@@ -73,17 +74,24 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   });
   const nodes=walk(root),body=textOf(root);
   assert.equal(root.dataset.graphState,'populated');
-  assert.match(body,/What Lore is doing now/);
-  assert.match(body,/Graph legend/);
+  assert.match(body,/World Overview/);
+  assert.match(body,/Categories/);
+  assert.match(body,/Filters/);
+  assert.match(body,/Study State/);
   assert.match(body,/Selected Lorebook/);
   assert.match(body,/Graph growth/);
   assert.match(body,/Growth queue/);
+  assert.match(body,/WORLD TREE/);
+  assert.match(body,/Your world's memory, visualized/);
   assert.match(body,/Moon Harbor/);
   for(const label of ['Merge','Summarizer','Rebuild']){
     const button=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent===label);
     assert.ok(button);assert.equal(Boolean(button.disabled||button.attributes?.disabled),true);assert.equal(button.dataset?.futureFeature,'true');
   }
-  assert.doesNotMatch(body,/Character|Faction|Place|Event|Concept|Timeline|Memory/);
+  const search=nodes.find(x=>x.tagName==='INPUT'&&String(x.className??'').includes('a52-world-tree-search'));
+  assert.ok(search);assert.equal(Boolean(search.disabled||search.attributes?.disabled),true);
+  assert.equal(search.attributes?.placeholder,'Search world tree…');
+  assert.doesNotMatch(body,/Character|Faction|Place|Event|Concept|Memory/);
   const svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   assert.ok(svg);
   const entryNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
@@ -192,6 +200,10 @@ test('source click renders truthful UID details in the right rail without moving
   assert.match(body,/Selected UID/);assert.match(body,/uid-mara/);assert.match(body,/Mara Vex/);assert.match(body,/Character/);
   assert.match(body,/rev-42/);assert.match(body,/1/);assert.match(body,/2/);assert.match(body,/Character › Primary/);
   assert.match(body,/Connections/);assert.match(body,/Direct graph relationships/);
+  assert.match(body,/Narrative Intelligence/);
+  assert.match(body,/Pending Scene Intelligence/);
+  assert.match(body,/Not yet published/);
+  assert.match(body,/does not infer these fields from Lore text today/);
 });
 
 
@@ -320,7 +332,8 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.ok(sourceNodes.every(x=>x.attributes?.['data-state']==='READY'));
   assert.equal(sourceNodes.length,54);
   assert.equal(artifactNodes.length,1);
-  assert.match(body,/Source clusters · layout only/);
+  assert.match(body,/Presentation clusters until categories are published/);
+  assert.match(body,/Layout-only clusters do not add semantic meaning to Lore/);
   assert.match(body,/54 of 105 source nodes shown/);
   assert.doesNotMatch(body,/hierarchy:a59b5c6ea9e88b85deadbeef/);
   assert.match(body,/hierarchy:a59b5c6e…beef/);
@@ -534,6 +547,9 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/HUB_BLOOM_START_MS=1750/);
   assert.match(js,/SOURCE_INNER_START_MS=3200/);
   assert.match(js,/SOURCE_RING_GAP_MS=900/);
+  assert.match(js,/hubRadius=grouped\.length<=2\?220:grouped\.length<=4\?240:258/);
+  assert.match(js,/const radius=76\+ring\*44\+jitter/);
+  assert.match(js,/coreTitle\.textContent='WORLD TREE'/);
   assert.doesNotMatch(js,/index\*INITIAL_WAVE_SPACING_MS/);
   assert.doesNotMatch(js,/focusHubId=hub\.id/);
   assert.match(js,/dur:1500/);
@@ -543,10 +559,15 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);
   assert.match(css,/\.a52-lore-neural-workspace\{/);
-  assert.match(css,/height:clamp\(480px,60vh,620px\)/);
+  assert.match(css,/height:clamp\(620px,72vh,820px\)/);
   assert.match(css,/padding:8px 0 18px/);
   assert.match(css,/@keyframes a52-lore-hub-arrival/);
   assert.match(css,/\.a52-lore-neural-canvas-head__actions/);
+  assert.match(css,/\.a52-world-overview__stats/);
+  assert.match(css,/\.a52-world-category-row/);
+  assert.match(css,/\.a52-world-filter-row/);
+  assert.match(css,/\.a52-world-tree-search/);
+  assert.match(css,/@keyframes a52-lore-core-pulse\{0%,100%\{r:92/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);
   assert.ok(rootCss.indexOf('ui-core-lore-neural.css')>rootCss.indexOf('ui-core-console-theme.css'));

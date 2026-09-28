@@ -27,7 +27,7 @@ export function renderLoreNeuralWorkspace(doc,{
 }={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
-  const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
+  const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Area-52 World Tree'}});
   const left=renderStudyRail(doc,{data,source,counts,progress,selected});
   const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode});
   const right=renderLoreInsightRail(doc,{data,selected,progress,renderState});
@@ -38,45 +38,62 @@ export function renderLoreNeuralWorkspace(doc,{
 
 function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   const rail=element(doc,'aside',{className:'a52-lore-neural-rail a52-lore-neural-rail--left'});
-  const progressCard=panel(doc,'What Lore is doing now','Owner-reported study progress','◉');
-  progressCard.root.classList?.add?.('a52-lore-neural-progress-card');
-  const total=STATE_ORDER.reduce((sum,key)=>sum+Number(counts?.[key]??0),0);
-  const ring=element(doc,'div',{className:'a52-lore-progress-ring',attrs:{role:'img','aria-label':'Lore readiness '+progress+' percent'},dataset:{progress:String(progress)}});
-  ring.setAttribute?.('style','--a52-lore-progress:'+Math.max(0,Math.min(100,Number(progress)||0))+'%');
-  ring.append(element(doc,'strong',{text:String(progress)+'%'}),element(doc,'span',{text:String(Number(counts?.READY??0))+' / '+String(Math.max(0,total-Number(counts?.REMOVED??0)))+' ready'}));
-  const legend=element(doc,'div',{className:'a52-lore-state-legend'});
-  for(const state of STATE_ORDER){
-    const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-state-legend__row',dataset:{state}});
-    row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'strong',{text:meta.label}),element(doc,'span',{text:String(Number(counts?.[state]??0))}));
-    legend.append(row);
-  }
-  const top=element(doc,'div',{className:'a52-lore-progress-overview'});top.append(ring,legend);progressCard.body.append(top);
-  progressCard.body.append(element(doc,'p',{className:'a52-lore-neural-contract',text:'DUE for study '+String(Number(counts?.ACCEPTED??0))+' · STUDYING now '+String(Number(counts?.STUDYING??0))+' · READY '+String(Number(counts?.READY??0))}),element(doc,'p',{className:'a52-muted a52-lore-neural-explainer',text:
-    Number(counts?.FAILED??0)>0?'Study needs attention. Failed sources stay visible and are not treated as retrieval-ready.'
-    :Number(counts?.STUDYING??0)>0?'Study is active. Nodes and links appear as the Lore owner publishes current learned representations.'
-    :Number(counts?.ACCEPTED??0)>0?'DUE = accepted but not learned/current. Run pending study to grow retrieval-ready nodes.'
-    :Number(counts?.READY??0)>0?'All currently counted learned sources are owner-reported READY. Category color stays independent of study state.'
-    :'Load and accept a selected Lorebook to begin growing the graph.'}));
-  const state=source?.operationalState??source?.health??'IDLE';
-  progressCard.body.append(makeBadge(doc,'LORE OWNER · '+String(state),source?.statusToken??'historical'));
+  const entries=Array.isArray(data?.entries)?data.entries:[],categoryCounts=semanticCategoryCounts(selected?.snapshot,entries);
+  const graph=entries.length?buildLoreGraph({entries,data,selected}):{edges:[],hubs:[],nodes:[],artifacts:[]};
+  const overview=panel(doc,'World Overview','Current published structure','◉');
+  overview.root.classList?.add?.('a52-world-overview');
+  const stats=element(doc,'div',{className:'a52-world-overview__stats'});
+  const stat=(icon,value,label)=>{const row=element(doc,'div',{className:'a52-world-stat'});row.append(element(doc,'span',{className:'a52-world-stat__icon',text:icon}),element(doc,'strong',{text:String(value)}),element(doc,'span',{text:label}));return row;};
+  stats.append(
+    stat('◇',entries.length,'Nodes'),
+    stat('✦',categoryCounts.length||presentationClusterCount(entries),'Categories'),
+    stat('⇄',graph.edges?.length??0,'Connections'),
+    stat('◌',categoryCounts.filter(([name])=>/timeline|time|era|history/i.test(String(name))).reduce((sum,[,count])=>sum+Number(count||0),0),'Timelines')
+  );
+  overview.body.append(stats);
+  const ownerLine=element(doc,'div',{className:'a52-world-owner-line'});
+  ownerLine.append(makeBadge(doc,'LORE OWNER · '+String(source?.operationalState??source?.health??'IDLE'),source?.statusToken??'historical'),element(doc,'span',{className:'a52-muted',text:String(progress)+'% retrieval-ready'}));
+  overview.body.append(ownerLine);
 
-  const categoryCounts=semanticCategoryCounts(selected?.snapshot,data?.entries??[]);
-  const neutralClusterCount=categoryCounts.length?0:presentationClusterCount(data?.entries??[]);
-  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Presentation clusters + real owner study states','⌘');
-  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:semanticToneForCategory(category,index)}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
-  if(neutralClusterCount){
-    const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--structure',dataset:{tone:'cyan'}});
-    row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:'Source clusters · layout only'}),element(doc,'strong',{text:String(neutralClusterCount)}));legendCard.body.append(row);
-    legendCard.body.append(element(doc,'p',{className:'a52-muted a52-lore-graph-legend-note',text:'Cluster membership is presentation-only. READY / STUDYING / DUE / FAILED still comes only from the Lore owner.'}));
+  const categories=panel(doc,'Categories',categoryCounts.length?'Published source categories':'Presentation clusters until categories are published','⌘');
+  if(categoryCounts.length){
+    for(const [category,count] of categoryCounts.slice(0,10)){
+      const tone=semanticToneForCategory(category),row=element(doc,'div',{className:'a52-world-category-row',dataset:{tone}});
+      row.append(element(doc,'span',{className:'a52-world-category-dot'}),element(doc,'strong',{text:category}),element(doc,'span',{text:String(count)}));
+      categories.body.append(row);
+    }
+  }else{
+    const count=presentationClusterCount(entries);
+    for(let index=0;index<count;index++){
+      const tone=SEMANTIC_TONES[index%SEMANTIC_TONES.length],row=element(doc,'div',{className:'a52-world-category-row',dataset:{tone}});
+      row.append(element(doc,'span',{className:'a52-world-category-dot'}),element(doc,'strong',{text:'Cluster '+String(index+1)}),element(doc,'span',{text:'layout'}));
+      categories.body.append(row);
+    }
+    categories.body.append(element(doc,'p',{className:'a52-muted a52-world-category-note',text:'Layout-only clusters do not add semantic meaning to Lore.'}));
   }
+
+  const filters=panel(doc,'Filters','World Tree visual controls','⌘');
+  const filterRows=[
+    ['Show connections',true,false],
+    ['Category colors',true,false],
+    ['Depth view',false,true],
+    ['Show unknown',true,true],
+  ];
+  for(const [label,on,planned] of filterRows){
+    const row=element(doc,'div',{className:'a52-world-filter-row'+(planned?' is-planned':'')});
+    row.append(element(doc,'span',{text:label}),element(doc,'span',{className:'a52-world-filter-toggle'+(on?' is-on':''),attrs:{role:'switch','aria-checked':String(on),'aria-disabled':'true'},title:planned?'Planned World Tree control':'Visual shell placeholder'}));
+    filters.body.append(row);
+  }
+
+  const stateCard=panel(doc,'Study State','Owner lifecycle · compact view','◌');
+  const stateGrid=element(doc,'div',{className:'a52-world-study-grid'});
   for(const state of STATE_ORDER){
-    const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state}});
+    const meta=STATE_META[state],row=element(doc,'div',{className:'a52-world-study-row',dataset:{state}});
     row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'span',{text:meta.label}),element(doc,'strong',{text:String(Number(counts?.[state]??0))}));
-    legendCard.body.append(row);
+    stateGrid.append(row);
   }
-  const artifactLegend=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state:'ARTIFACT'}});artifactLegend.append(element(doc,'span',{className:'a52-lore-state-dot',text:'◇'}),element(doc,'span',{text:'Derived artifact / representation'}),element(doc,'strong',{text:String(data?.artifacts?.length??0)}));legendCard.body.append(artifactLegend);
-
-  rail.append(progressCard.root,legendCard.root);
+  stateCard.body.append(stateGrid);
+  rail.append(overview.root,categories.root,filters.root,stateCard.root);
   return rail;
 }
 
@@ -87,11 +104,17 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
   const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
   const title=element(doc,'div');
-  title.append(element(doc,'span',{className:'a52-eyebrow',text:'LIVE LORE GRAPH'}),element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Lore Knowledge Canvas'}));
+  title.append(
+    element(doc,'span',{className:'a52-eyebrow',text:'WORLD TREE'}),
+    element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Your World'}),
+    element(doc,'p',{className:'a52-muted a52-world-tree-subtitle',text:"Your world's memory, visualized."})
+  );
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
   headActions.append(badge);
-  const futureActions=element(doc,'div',{className:'a52-lore-future-actions',attrs:{'aria-label':'Future Lore tools'}});
+  const search=element(doc,'input',{className:'a52-world-tree-search',attrs:{type:'search',placeholder:'Search world tree…','aria-label':'Search world tree',disabled:'disabled',title:'World Tree search · planned'}});
+  headActions.append(search);
+  const futureActions=element(doc,'div',{className:'a52-lore-future-actions',attrs:{'aria-label':'Future World Tree tools'}});
   for(const label of ['Merge','Summarizer','Rebuild']){
     const button=createButton(doc,{label,scope,size:'sm',variant:'secondary',disabled:true});
     button.classList?.add?.('a52-lore-future-action');
@@ -147,10 +170,10 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   }
 
   const core=svgEl(doc,'g',{'class':'a52-lore-core-node'+(renderState?.selectedNodeKind==='core'?' is-selected':''),'data-node-id':'core','tabindex':'0','role':'button','aria-label':'Selected Lorebook core'});
-  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'72','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'55','class':'a52-lore-core-node__body'}));
-  const coreTitle=svgEl(doc,'text',{'x':'500','y':'370','text-anchor':'middle','class':'a52-lore-core-node__title'});coreTitle.textContent='LORE';
-  const coreCount=svgEl(doc,'text',{'x':'500','y':'394','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' sources';
-  const coreProgress=svgEl(doc,'text',{'x':'500','y':'415','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent=String(progress)+'% ready';
+  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'92','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'70','class':'a52-lore-core-node__body'}));
+  const coreTitle=svgEl(doc,'text',{'x':'500','y':'366','text-anchor':'middle','class':'a52-lore-core-node__title'});coreTitle.textContent='WORLD TREE';
+  const coreCount=svgEl(doc,'text',{'x':'500','y':'397','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' nodes';
+  const coreProgress=svgEl(doc,'text',{'x':'500','y':'421','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent='Area-52 · '+String(progress)+'% ready';
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
   const activateCore=()=>{if(renderState){renderState.selectedNodeId='core';renderState.selectedNodeKind='core';renderState.focusHubId=null;renderState.viewport=null;}applyGraphInteraction(svg,graph,renderState);};
   scope?.listen?.(core,'click',activateCore);scope?.listen?.(core,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateCore();}});
@@ -160,13 +183,13 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const selected=renderState?.selectedNodeId===hub.id;
     const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':hub.id,'data-node-kind':'hub','data-state':hub.state,'data-tone':hub.tone??null,'data-wave':hub.wave??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
-    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'42','class':'a52-lore-hub-node__halo'});
-    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'31','class':'a52-lore-hub-node__body'});
+    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'48','class':'a52-lore-hub-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'36','class':'a52-lore-hub-node__body'});
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:1250}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+120,dur:1100}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'48',begin:delay,dur:1250}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'36',begin:delay+120,dur:1100}));
       t.setAttribute('opacity','0');count.setAttribute('opacity','0');
       t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+480,dur:420}));
       count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
@@ -216,7 +239,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   installGraphSandbox(svg,graph,renderState,scope);
   canvas.append(svg);
   if(nativeMotion)scheduleNativeAnimations(svg,doc);
-  panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
+  panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' nodes shown · World Tree uses published structure or presentation-only clusters; lifecycle remains owner-reported.'));
   return panelRoot;
 }
 
@@ -497,6 +520,16 @@ function renderLoreInsightRail(doc,{data,selected,progress,renderState}={}){
       }
     }else related.body.append(element(doc,'p',{className:'a52-muted',text:'No direct graph connections are published for this selection.'}));
 
+    const future=panel(doc,'Narrative Intelligence','Future Scene Intelligence sockets','✦');
+    future.root.classList?.add?.('a52-world-future-intelligence');
+    future.body.append(createKeyValue(doc,[
+      {key:'Narrative role',value:'Pending Scene Intelligence'},
+      {key:'Active thread',value:'Not yet published'},
+      {key:'Scene relevance',value:'Pending Scene Intelligence'},
+      {key:'Relationship impact',value:'Not yet published'},
+      {key:'Last narrative change',value:'NO_EVIDENCE'},
+    ]),element(doc,'p',{className:'a52-muted',text:'Reserved for future Scene Intelligence. Area-52 does not infer these fields from Lore text today.'}));
+
     const book=panel(doc,'Selected Lorebook','Current SillyTavern source','▤');
     book.body.append(createKeyValue(doc,[
       {key:'Title',value:snapshot?.title??selected?.selection?.title??'Not loaded'},
@@ -505,7 +538,7 @@ function renderLoreInsightRail(doc,{data,selected,progress,renderState}={}){
       {key:'Readiness',value:String(progress)+'%'},
       {key:'Graph revision',value:shortGraphRevision(data?.revision)},
     ]));
-    rail.append(detail.root,related.root,book.root);
+    rail.append(detail.root,related.root,future.root,book.root);
     return rail;
   }
 
@@ -566,7 +599,7 @@ function buildLoreGraph({entries,data,selected}={}){
   const semantic=decorated.some(item=>item.category);
   const grouped=semantic?semanticTopologyGroups(decorated):neutralTopologyGroups(decorated);
   const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380};
-  const hubRadius=grouped.length<=2?190:grouped.length<=4?210:225;
+  const hubRadius=grouped.length<=2?220:grouped.length<=4?240:258;
 
   grouped.forEach((group,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
@@ -589,7 +622,7 @@ function buildLoreGraph({entries,data,selected}={}){
       const slotOffset=ringSize<=1?0:(slot/(ringSize-1)-.5)*Math.min(1.18,.46+ringSize*.13);
       const nodeAngle=angle+slotOffset;
       const hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%13)-6;
-      const radius=68+ring*38+jitter;
+      const radius=76+ring*44+jitter;
       const artifactCount=Number(row.artifactIds?.length??0);
       const nodeDepth=2+ring;
       const nodeDelay=SOURCE_INNER_START_MS+ring*SOURCE_RING_GAP_MS+slot*SOURCE_SLOT_GAP_MS;

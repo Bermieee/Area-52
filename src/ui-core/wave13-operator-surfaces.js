@@ -854,7 +854,7 @@ function plainMemoryReason(reason){
 
 export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null,frontFacePresentation=null}={}){
   const d=host.ownerDocument;
-  host.append(header(d,'Lore','Select the SillyTavern Lorebook, accept it for study, then watch Area-52 grow the owner-backed Lore graph as study becomes current.'));
+  host.append(header(d,'World Tree',"Your world's memory, visualized. Current Lore and UID evidence feed the tree today; future Scene Intelligence will fill the reserved narrative layers."));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
 
   const read=loreStudy.read(),source=read.source,data=read.data,caps=loreStudy.capabilities(),selected=loreStudy.selectedLorebook?.()??{};
@@ -876,7 +876,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls a52-lore-command'});
   const commandHead=element(d,'div',{className:'a52-lore-command__head'});
   const commandCopy=element(d,'div',{className:'a52-lore-command__copy'});
-  commandCopy.append(element(d,'span',{className:'a52-eyebrow',text:'LORE / KNOWLEDGE GROWTH'}),element(d,'h2',{text:'Selected Lorebook'}),element(d,'p',{className:'a52-muted',text:snapshot?'Source loaded. Accept it, then run study to grow the graph from owner-published source state.':'Load the Lorebook currently selected in SillyTavern. The neural canvas stays empty until Area-52 has accepted and studied source evidence.'}));
+  commandCopy.append(element(d,'span',{className:'a52-eyebrow',text:'WORLD TREE / SOURCE INTAKE'}),element(d,'h2',{text:'Selected Lorebook'}),element(d,'p',{className:'a52-muted',text:snapshot?'This source currently feeds the World Tree. Re-accept only when the authored Lorebook changes.':'Load the Lorebook currently selected in SillyTavern. The World Tree stays quiet until Area-52 accepts and studies source evidence.'}));
   commandHead.append(commandCopy,makeBadge(d,snapshot?'SOURCE LOADED':'LOAD SOURCE',snapshot?'observed':'historical'));
   form.append(commandHead);
   if(selection.selected){

@@ -179,7 +179,8 @@ export class SceneLifecycleRuntime{
         observed={scene:current,delta:null,applied:false,noChange:true};
       }
     }
-    const graphEvidenceReceipts=this.#admitGraphEvidenceLinks(observed.scene,evidence,graphEvidenceLinks,transition?.episodeRef??null);
+    const graphLinkScene=transition?.episodeRef?(this.registry.current(transition.fromSceneId)??observed.scene):observed.scene;
+    const graphEvidenceReceipts=this.#admitGraphEvidenceLinks(graphLinkScene,evidence,graphEvidenceLinks,transition?.episodeRef??null);
     return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }
 

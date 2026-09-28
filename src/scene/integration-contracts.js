@@ -43,7 +43,7 @@ export function createSceneIntegrationSignal(input={}){
     previousSceneRef:safe(input.previousSceneRef??null),resumedSceneRef:safe(input.resumedSceneRef??null),
     latestEpisodeRef:safe(input.latestEpisodeRef??null),episodeRefs:safe(input.episodeRefs??[]),
     retrievalQuality:input.retrievalQuality??null,prefetchRecommendations:safe(input.prefetchRecommendations??[]),
-    objectTransitionRefs:safe(input.objectTransitionRefs??[]),atmosphere:safe(input.atmosphere??null),atmosphereRef:safe(input.atmosphereRef??null),
+    objectTransitionRefs:safe(input.objectTransitionRefs??[]),atmosphere:safe(input.atmosphere??null),atmosphereContribution:safe(input.atmosphereContribution??null),atmosphereRef:safe(input.atmosphereRef??null),
     health:safe(input.health??{status:'ready',reasons:[]}),provenance:strings(input.provenance??[],'SceneIntegrationSignal.provenance'),
     diagnosticRefs:createSceneWhyReferences(input.diagnosticRefs??{}),
     authority:'DESCRIPTIVE',authorityGranted:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealBypass:false,runtimeSchedulingAuthority:false,

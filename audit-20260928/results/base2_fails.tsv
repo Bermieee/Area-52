@@ -1,0 +1,48 @@
+client-repair-wave2.test.mjs	failed optional execution stays distinct from intentional Jev skip and owner acceptance
+coprocessor-wave14-connections.test.mjs	manual model ID can be selected and qualified even when discovery does not list it
+coprocessor-wave20-backend-closure.test.mjs	\#124 capability negotiation enforces version, resource, health, latency, context, concurrency, foreground/background and fallback without provider authority
+coprocessor-wave3.test.mjs	Wave 3 provider output claiming owner authority is rejected before Result Bus eligibility
+coprocessor-wave6-consolidation.test.mjs	real ContinuousConsolidationWorker executes provider-neutral cognition and returns proposal-only Memory handoff
+coprocessor-wave6-consolidation.test.mjs	completed valid consolidation slice survives sibling provider failure
+coprocessor-wave6-golden.test.mjs	Consolidation golden: checkpoint, yield/resume, revision invalidation and duplicate replay preserve lineage
+coprocessor-wave6-golden.test.mjs	Combined cognition golden: HOT Green Room assists current generation while DEEP consolidation remains background
+coprocessor-wave8-stress.test.mjs	Wave 8 focused stress stays bounded, idempotent, revision-safe and non-authoritative
+coprocessor-wave9-stress.test.mjs	Wave 9 mixed adapter stress remains bounded, replay-safe, stale-safe, isolated and non-authoritative
+deployment-brain.integration.test.mjs	deployment golden lore is studied exactly and mirrored through Core settlement without external services
+deployment-brain.integration.test.mjs	simple turn uses native Scene Hot Cognition and reaches a sealed PromptPlan without expensive retrieval or Jev
+deployment-brain.integration.test.mjs	retrieval-heavy turn executes Lore and Graph on one resource before Candidate Bus/Truth/Gather/Seal
+deployment-brain.integration.test.mjs	ambiguous Sun Blade turn invokes bounded Jev through Runtime and preserves owner authority
+deployment-brain.integration.test.mjs	an abstaining Jev result cannot be owner-accepted by an injected Lore reviewer
+deployment-brain.integration.test.mjs	missing optional Jev degrades safely while Truth, Gather, Seal and PromptPlan remain usable
+deployment-brain.integration.test.mjs	one versus several local resources changes placement, not sealed semantic evidence
+deployment-brain.integration.test.mjs	sequential simple, retrieval and ambiguous turns dedupe rich fallback semantics before PromptPlan
+deployment-brain.integration.test.mjs	Wave 11 binding reads the same selected deployment turn/generation and does not use fixtures
+deployment-brain.integration.test.mjs	Memory Wave 3 exact-evidence bridge is available without granting Core or Seal authority
+scene-clapperboard-handoff.mjs	installed SillyTavern native path carries handoff into Core retirement without mutating host history
+scene-completion-wave4-gaps.mjs	Scene Graph supports evidence-backed causal/supporting links without turning adjacency into causality
+scene-completion-wave4-gaps.mjs	Scene provider executes through the existing bounded Core Graph Walker beside another provider without gaining truth authority
+wave13-operator-ui.test.mjs	Lore READY CURRENT entry with semanticDiff does not show stale source revision warning
+wave13-operator-ui.test.mjs	Lore stale learned revision still shows source revision warning
+wave13-operator-ui.test.mjs	Lore keeps controls first and explains DUE STUDYING READY without flooding the page
+wave13-operator-ui.test.mjs	Lore neural canvas stays quiet until study and then grows from published source metadata
+wave13-operator-ui.test.mjs	Connections renders separate Jev Sidecar and Vectoring slots and locks owner-configured resources
+wave13-operator-ui.test.mjs	Connections model input stays editable and discovered models are suggestions rather than a whitelist
+wave13-operator-ui.test.mjs	Worker 2 configured resource reconnect uses resourceId and does not duplicate addResource
+wave13-operator-ui.test.mjs	configured Jev Sidecar and Vectoring cards expose no credential management layer
+wave13-operator-ui.test.mjs	Memory workspace renders owner-backed hierarchical compaction and keeps derived summaries non-authoritative
+wave13-operator-ui.test.mjs	Lore workspace shows Worker 4 multi-resolution and hierarchical summaries as derived non-source artifacts
+wave13-operator-ui.test.mjs	Lore UI marks edited source revisions stale until the owner re-studies them
+wave13-operator-ui.test.mjs	Worker 4 v2 lifecycle gates Settlement behind review Final Preview and explicit approval
+wave13-operator-ui.test.mjs	Worker 4 Wave 6 authoring contract stays review-only and renders Tree / merge previews without Apply
+wave2.mjs	Settlement Engine exposes the complete Wave 2 decision vocabulary deterministically
+wave6.test.mjs	Front Face presentation persists UI-only state and clamps dimensions
+worker1-brain-lifecycle-causal-wave.mjs	Worker 1 \#262 real Scene retrieval need reconciles physical/result evidence but waits for explicit Scene owner admission
+worker1-context-trust-delivery.mjs	DETERMINISTIC: context retirement requires durable retrieval proof and preserves protected/raw context
+worker1-scene-event-spine.mjs	\#113 owner-declared Scene obligation executes once and duplicate event does not reschedule it
+worker1-scene-ft002-assembly.mjs	\#177 real Scene prefetch can execute a physical Historian resource and only owner-admitted candidates enter Core Result Bus/Gather/Seal
+worker1-scene-ft002-assembly.mjs	\#177 assembled real-narrative scenarios preserve Scene semantics through Native Gather/Seal/PromptPlan
+worker1-scene-ft002-assembly.mjs	\#177 source edit rejects a pre-edit Fan-Out handoff before Core publication
+worker1-scene-ft002-assembly.mjs	\#177 Scene Fan-Out handoff fails closed on selected-turn identity mismatch before Core publication
+worker1-scene-prefetch-trigger.mjs	\#112 same host observation keeps likely-next prefetch on the post-observation Scene revision
+worker3-lore-neural-ui.test.mjs	105 READY metadata-poor sources distribute across neutral topology hubs instead of one READY hub
+worker4-causal-telemetry-report.test.mjs	Worker 4 late optional result preserves configured, qualified, attempted, returned, admitted and sealed as distinct facts

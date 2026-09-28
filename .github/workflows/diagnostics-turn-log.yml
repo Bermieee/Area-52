@@ -57,7 +57,7 @@ jobs:
           echo "Actual:   $(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
       - name: Selected-turn diagnostics regressions
-        run: node --test tests/generation-diagnostics-repairs.test.mjs tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs tests/worker3-generation-profiling-ui.test.mjs
+        run: node --test tests/scene-adaptive-output-budget.test.mjs tests/generation-diagnostics-repairs.test.mjs tests/turn-log-diagnostics.test.mjs tests/demo-visibility.test.mjs tests/worker3-generation-profiling-ui.test.mjs
       - name: Operator diagnostics workspace regressions
         run: node --test --test-name-pattern="Brain activity distinguishes|local evidence journal|Settings is a labeled product workspace|Diagnostics|Home stays concise|Inspect details keeps unavailable|Lore keeps controls first|Lore workspace uses SillyTavern selection|Lore selected-book discovery|Connections cards use panel-width responsive tracks|Connections preserves independent" tests/wave13-operator-ui.test.mjs
       - name: Core shell regressions

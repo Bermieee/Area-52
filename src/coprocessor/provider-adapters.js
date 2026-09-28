@@ -282,6 +282,12 @@ export function safeCompletionResponseMetadata(value){
     promptTokens:count(value.promptTokens),completionTokens:count(value.completionTokens),totalTokens:count(value.totalTokens),reasoningTokens:count(value.reasoningTokens),
   });
 }
+export function safeSceneGenerationBudget(value){
+  if(value?.policy!=='ADAPTIVE_SCENE')return null;
+  const out={policy:'ADAPTIVE_SCENE',providerLimited:value.providerLimited===true};
+  for(const key of ['estimatedFinalTokens','reasoningAllowanceTokens','requestedGenerationTokens','effectiveGenerationTokens'])out[key]=Number.isSafeInteger(value[key])&&value[key]>=0?value[key]:null;
+  return Object.freeze(out);
+}
 function completionResponseMetadata(json){
   const choices=Array.isArray(json?.choices)?json.choices:[],choice=choices[0],message=choice?.message,content=message?.content,usage=json?.usage;
   return safeCompletionResponseMetadata({choiceCount:choices.length,finishReason:choice?.finish_reason,

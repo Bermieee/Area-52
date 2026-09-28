@@ -22,9 +22,11 @@ export function createSceneObservationTask({
   chatId,turnId,generationId,correlationId,sourceRevisionId,sceneRevision,
   worldRevision=0,phase='FOREGROUND_USER',parentWorkId=null,now=Date.now(),
   foregroundBudgetMs=1200,
+  narrative='',sceneWorkload={},
 }={}){
   const foreground=phase!=='POST_RESPONSE';
   const budget=Math.max(100,Math.min(5000,Number(foregroundBudgetMs)||1200));
+  sceneWorkload=Object.fromEntries(['cast','objects','relationships','threads'].map(key=>[key,Number.isSafeInteger(sceneWorkload?.[key])&&sceneWorkload[key]>0?sceneWorkload[key]:0]));
   return createCognitiveTask({
     taskId:`scene-observation:${generationId}:${phase}`,
     taskType:SCENE_OBSERVATION_TASK_TYPE,
@@ -46,7 +48,8 @@ export function createSceneObservationTask({
     metadata:{
       chatId:String(chatId),generationId:String(generationId),sourceRevisionId:String(sourceRevisionId),
       parentWorkId:parentWorkId==null?null:String(parentWorkId),phase,
-      expectedOutputTokens:700,latencyBudgetMs:foreground?budget:null,
+      expectedOutputTokens:sceneObservationOutputEstimate(narrative,sceneWorkload),outputBudgetPolicy:'ADAPTIVE_SCENE',sceneWorkload,
+      latencyBudgetMs:foreground?budget:null,
       foregroundBudgetMs:foreground?budget:null,
       retainedNarrative:false,rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,
       credentialsIncluded:false,hiddenReasoningIncluded:false,
@@ -59,6 +62,13 @@ export const SceneObservationSpecialist=Object.freeze({
   buildInput:buildSceneObservationInput,
   normalize:normalizeSceneObservationOutput,
 });
+
+export function sceneObservationOutputEstimate(narrative='',workload={}){
+  const narrativeBytes=new TextEncoder().encode(String(narrative).trim().slice(0,6000)).length;
+  const entities=['cast','objects','relationships','threads'].reduce((sum,key)=>sum+(Number.isSafeInteger(workload?.[key])&&workload[key]>0?workload[key]:0),0);
+  // Routing estimate for the final structured payload, independent of reasoning.
+  return Math.ceil(narrativeBytes/4)+FIELD_NAMES.length*64+entities*48;
+}
 
 export function buildSceneObservationInput(task,input={}){
   const narrative=String(input.narrative??'').trim();

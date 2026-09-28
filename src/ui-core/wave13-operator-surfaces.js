@@ -873,7 +873,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const snapshotEntryCount=Number(snapshot?.entries?.length??0);
   const sourceCurrent=Boolean(snapshot&&snapshotEntryCount>0&&ready===snapshotEntryCount&&accepted===0&&studying===0&&failed===0);
 
-  const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls a52-lore-command'});
+  const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls a52-lore-command',dataset:{sourceState:sourceCurrent?'current':snapshot?'loaded':'empty'}});
   const commandHead=element(d,'div',{className:'a52-lore-command__head'});
   const commandCopy=element(d,'div',{className:'a52-lore-command__copy'});
   commandCopy.append(element(d,'span',{className:'a52-eyebrow',text:'WORLD TREE / SOURCE INTAKE'}),element(d,'h2',{text:'Selected Lorebook'}),element(d,'p',{className:'a52-muted',text:snapshot?'This source currently feeds the World Tree. Re-accept only when the authored Lorebook changes.':'Load the Lorebook currently selected in SillyTavern. The World Tree stays quiet until Area-52 accepts and studies source evidence.'}));

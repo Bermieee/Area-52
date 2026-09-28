@@ -52,7 +52,7 @@ function renderStudyRail(doc,{data,source,counts,progress}={}){
     row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'span',{text:meta.label}),element(doc,'strong',{text:String(Number(counts?.[state]??0))}));
     legendCard.body.append(row);
   }
-  legendCard.body.append(element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state:'ARTIFACT'}},element(doc,'span',{className:'a52-lore-state-dot',text:'◇'}),element(doc,'span',{text:'Derived artifact / representation'}),element(doc,'strong',{text:String(data?.artifacts?.length??0)})));
+  const artifactLegend=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state:'ARTIFACT'}});artifactLegend.append(element(doc,'span',{className:'a52-lore-state-dot',text:'◇'}),element(doc,'span',{text:'Derived artifact / representation'}),element(doc,'strong',{text:String(data?.artifacts?.length??0)}));legendCard.body.append(artifactLegend);
 
   rail.append(progressCard.root,legendCard.root);
   return rail;

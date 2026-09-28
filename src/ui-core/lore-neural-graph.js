@@ -431,8 +431,86 @@ function renderEmptyCanvas(doc,{loaded=false,accepted=false}={}){
   return empty;
 }
 
-function renderLoreInsightRail(doc,{data,selected,progress}={}){
+function renderLoreInsightRail(doc,{data,selected,progress,renderState}={}){
   const rail=element(doc,'aside',{className:'a52-lore-neural-rail a52-lore-neural-rail--right'}),entries=data?.entries??[],snapshot=selected?.snapshot??null;
+  const graph=entries.length?buildLoreGraph({entries,data,selected}):{hubs:[],nodes:[],artifacts:[],edges:[]};
+  applyPersistedNodePositions(graph,renderState);
+  const selectedId=renderState?.selectedNodeId??null;
+  const all=[...(graph.hubs??[]),...(graph.nodes??[]),...(graph.artifacts??[])];
+  const selectedNode=all.find(row=>row.id===selectedId)??null;
+
+  if(selectedNode){
+    const isHub=(graph.hubs??[]).includes(selectedNode),isArtifact=(graph.artifacts??[]).includes(selectedNode),kind=isHub?'Cluster':isArtifact?'Derived artifact':'Source UID';
+    const detail=panel(doc,'Selected UID',kind+' · graph selection','◉');
+    detail.root.classList?.add?.('a52-lore-selected-detail');
+    detail.root.dataset.tone=selectedNode.tone??'cyan';
+    detail.body.append(element(doc,'div',{className:'a52-lore-selected-detail__hero'},[
+      element(doc,'span',{className:'a52-lore-selected-detail__orb',dataset:{tone:selectedNode.tone??'cyan'}}),
+      element(doc,'div',{},[
+        element(doc,'strong',{text:selectedNode.label??selectedNode.id}),
+        element(doc,'span',{className:'a52-muted',text:kind}),
+      ]),
+    ]));
+
+    if(isHub){
+      detail.body.append(createKeyValue(doc,[
+        {key:'Node ID',value:selectedNode.id},
+        {key:'Label',value:selectedNode.label},
+        {key:'Grouping',value:selectedNode.presentationOnly?'Presentation-only cluster':'Published semantic category'},
+        {key:'Sources',value:selectedNode.count??0},
+        {key:'Palette',value:selectedNode.tone??'NO_EVIDENCE'},
+      ]));
+      if(selectedNode.presentationOnly)detail.body.append(element(doc,'p',{className:'a52-muted',text:'This cluster is layout-only. It does not add category meaning to Lore.'}));
+    }else if(isArtifact){
+      const parent=(graph.nodes??[]).find(row=>row.id===selectedNode.parentId);
+      detail.body.append(createKeyValue(doc,[
+        {key:'Node ID',value:selectedNode.id},
+        {key:'Parent UID',value:parent?.payload?.uid??parent?.id??'NO_EVIDENCE'},
+        {key:'Parent source',value:parent?.label??'NO_EVIDENCE'},
+        {key:'Derived refs',value:selectedNode.count??0},
+        {key:'Owner state',value:selectedNode.state??'NO_EVIDENCE'},
+        {key:'Cluster',value:(graph.hubs??[]).find(row=>row.id===selectedNode.hubId)?.label??'NO_EVIDENCE'},
+      ]));
+    }else{
+      const row=selectedNode.payload??{},meta=selectedNode.sourceMeta??null,tree=sourceTreePath(meta);
+      detail.body.append(createKeyValue(doc,[
+        {key:'UID',value:row.uid??selectedNode.id},
+        {key:'Source ID',value:row.sourceId??selectedNode.id},
+        {key:'Title',value:selectedNode.label??'NO_EVIDENCE'},
+        {key:'Category',value:selectedNode.category??'NO_EVIDENCE'},
+        {key:'Owner state',value:selectedNode.state??'NO_EVIDENCE'},
+        {key:'Retrieval-ready',value:row.retrievalReady?'Yes':'No'},
+        {key:'Revision',value:row.sourceRevisionId??'NO_EVIDENCE'},
+        {key:'Representations',value:Array.isArray(row.representations)?row.representations.length:0},
+        {key:'Derived refs',value:Array.isArray(row.artifactIds)?row.artifactIds.length:0},
+        {key:'Tree path',value:tree.length?tree.join(' › '):'NO_EVIDENCE'},
+      ]));
+    }
+
+    const related=panel(doc,'Connections','Direct graph relationships','⇄');
+    const lookup=new Map([['core',{label:'LORE CORE',kind:'Core'}],...(graph.hubs??[]).map(row=>[row.id,{label:row.label,kind:'Cluster'}]),...(graph.nodes??[]).map(row=>[row.id,{label:row.label,kind:'Source UID'}]),...(graph.artifacts??[]).map(row=>[row.id,{label:row.label,kind:'Derived'}])]);
+    const direct=(graph.edges??[]).filter(edge=>edge.fromId===selectedNode.id||edge.toId===selectedNode.id).slice(0,12);
+    if(direct.length){
+      for(const edge of direct){
+        const otherId=edge.fromId===selectedNode.id?edge.toId:edge.fromId,other=lookup.get(otherId)??{label:otherId,kind:'Node'};
+        const row=element(doc,'div',{className:'a52-lore-related-row',dataset:{tone:edge.tone??selectedNode.tone??'cyan'}});
+        row.append(element(doc,'span',{className:'a52-lore-related-row__dot'}),element(doc,'strong',{text:other.label}),element(doc,'span',{className:'a52-muted',text:other.kind}));
+        related.body.append(row);
+      }
+    }else related.body.append(element(doc,'p',{className:'a52-muted',text:'No direct graph connections are published for this selection.'}));
+
+    const book=panel(doc,'Selected Lorebook','Current SillyTavern source','▤');
+    book.body.append(createKeyValue(doc,[
+      {key:'Title',value:snapshot?.title??selected?.selection?.title??'Not loaded'},
+      {key:'Lorebook ID',value:snapshot?.id??selected?.selection?.lorebookId??'NO_EVIDENCE'},
+      {key:'Entries',value:snapshot?.entries?.length??entries.length??0},
+      {key:'Readiness',value:String(progress)+'%'},
+      {key:'Graph revision',value:shortGraphRevision(data?.revision)},
+    ]));
+    rail.append(detail.root,related.root,book.root);
+    return rail;
+  }
+
   const book=panel(doc,'Selected Lorebook','Current SillyTavern source','▤');
   book.body.append(createKeyValue(doc,[
     {key:'Title',value:snapshot?.title??selected?.selection?.title??'Not loaded'},

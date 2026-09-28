@@ -133,9 +133,10 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
     svg.append(g);
   }
   for(const node of graph.artifacts){
-    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact group '+node.label});
     g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
-    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':'5','class':'a52-lore-artifact-node__body'}));
+    const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
+    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-artifact-node__body'}));
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
   }
   canvas.append(svg);

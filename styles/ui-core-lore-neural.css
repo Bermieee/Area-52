@@ -1224,3 +1224,60 @@
   .a52-lore-core-node__ring,
   .a52-lore-neural-link--hub.is-steady{animation:none!important}
 }
+
+
+/* World Tree compact controls + published imagery */
+.a52-world-tree-view-menu{position:relative}
+.a52-world-tree-view-menu>summary{
+  list-style:none;
+  cursor:pointer;
+  min-height:24px;
+  padding:3px 8px;
+  border:1px solid rgba(70,157,199,.14);
+  border-radius:7px;
+  background:rgba(5,26,39,.20);
+  color:#9ebdca;
+  font-size:.5rem;
+  font-weight:750;
+  user-select:none;
+}
+.a52-world-tree-view-menu>summary::-webkit-details-marker{display:none}
+.a52-world-tree-view-menu[open]>summary{border-color:rgba(66,199,255,.28);color:#d8f4ff}
+.a52-world-tree-view-menu .a52-world-tree-view-actions{
+  position:absolute;
+  z-index:20;
+  top:calc(100% + 5px);
+  right:0;
+  min-width:118px;
+  display:grid;
+  gap:4px;
+  padding:6px;
+  border:1px solid rgba(63,174,218,.18);
+  border-radius:8px;
+  background:rgba(3,15,25,.94);
+  -webkit-backdrop-filter:blur(12px);
+  backdrop-filter:blur(12px);
+  box-shadow:0 10px 24px rgba(0,0,0,.28);
+}
+.a52-world-tree-view-menu .a52-world-tree-view-actions .a52-button{width:100%;justify-content:flex-start}
+.a52-lore-entry-node__image{
+  pointer-events:none;
+  clip-path:circle(48% at 50% 50%);
+  opacity:.92;
+  filter:saturate(.9) contrast(1.03);
+}
+.a52-lore-entry-node__image-ring{
+  pointer-events:none;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.15;
+  opacity:.82;
+}
+.a52-lore-entry-node.is-selected .a52-lore-entry-node__image{
+  opacity:1;
+  filter:saturate(1.05) contrast(1.06) brightness(1.04);
+}
+.a52-lore-entry-node.is-selected .a52-lore-entry-node__image-ring{
+  stroke-width:2.4;
+  filter:drop-shadow(0 0 5px currentColor);
+}

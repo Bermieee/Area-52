@@ -283,7 +283,7 @@ function registerNarrativeSource(brain, { chatId, message }) {
 
 async function applyNativeScene(brain, {
   chatId,message,sourceRevisionId=null,activity=HostActivity.USER_SEND,messageRevision=1,turnId=null,hostEventId=null,
-  generationId=null,phase='FOREGROUND_USER',selectionGuard=null,turnSealed=null,foregroundBudgetMs=1200,
+  generationId=null,correlationId=null,causationId=null,phase='FOREGROUND_USER',selectionGuard=null,turnSealed=null,foregroundBudgetMs=1200,
 }={}){
   const prior=brain.scene.integrationSignal(chatId);
   const identity=sourceIdentity(chatId,message);
@@ -292,11 +292,12 @@ async function applyNativeScene(brain, {
   const ownerSourceRevisionId=brain.scene?.narrativeFeed?.sourceRevisionIdFor?.({
     chatId,messageId:identity.messageKey,messageRevision,
   })??sourceRevisionId;
+  const resolvedHostEventId=hostEventId??['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':');
+  const resolvedCorrelationId=correlationId??('corr:'+resolvedTurnId),resolvedCausationId=causationId??resolvedHostEventId;
   const hostEvent={
-    activity,chatId,
-    hostEventId:hostEventId??['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':'),
+    activity,chatId,hostEventId:resolvedHostEventId,
     messageId:identity.messageKey,messageRevision,turnId:resolvedTurnId,generationId:resolvedGenerationId,
-    correlationId:'corr:'+resolvedTurnId,sourceRevisionId:ownerSourceRevisionId,
+    correlationId:resolvedCorrelationId,causationId:resolvedCausationId,sourceRevisionId:ownerSourceRevisionId,
     content:message.text,role:message.role??(activity===HostActivity.USER_SEND?'user':'assistant'),
   };
   const currentSelection=()=>typeof selectionGuard==='function'?Boolean(selectionGuard()):true;
@@ -339,7 +340,7 @@ async function applyNativeScene(brain, {
     parsed={...safeParsed(ownerParsed??deterministicPreview),extractionPolicy:'DETERMINISTIC_SCENE_OWNER'};
   }else if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
     semantic=await brain.runSceneObservationWork({
-      chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:'corr:'+resolvedTurnId,
+      chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:resolvedCorrelationId,
       sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,
     });
     if(!currentSelection())return superseded(semantic);

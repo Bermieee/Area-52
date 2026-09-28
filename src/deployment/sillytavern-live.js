@@ -844,6 +844,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         readySettled=true;readyResolve(clone(pending));this.#notify();
         return responsePromise;
       },
+      completeOptions:{autoDrain:false},
     })).then(result=>({ok:true,result})).catch(error=>{if(!readySettled){readySettled=true;readyReject(error);}return{ok:false,error};});
     return readyPromise;
   }
@@ -906,9 +907,11 @@ export class DevelopmentDeploymentSillyTavernSession {
     const outcome=await run.runPromise;
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;
-    if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
-    // Foreground generation is complete once provider-response learning finishes.
-    // Release its reserved cognitive slot before scheduling DEEP/NEXT_TURN Scene work.
+    const completion=outcome.result?.completion??learning?.responseCompletion??null;
+    if(!learning||completion?.status!=='COMPLETED')throw new Error('Native Brain runTurn returned no response-completion receipt after the provider response');
+    // Foreground response ownership ends after bounded response admission and background
+    // work scheduling. L2/L3 learning continues through the existing Runtime and must
+    // not hold the installed host completion path open.
     this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     let postResponseScene=null;
     try{
@@ -933,8 +936,9 @@ export class DevelopmentDeploymentSillyTavernSession {
       pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'POST_RESPONSE_SCENE_OBSERVATION'},SESSION_BOUNDS.errors);
     }
     const completed={
-      ...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),
-      learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null},
+      ...pending,state:'RESPONSE_COMPLETED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),
+      responseCompletion:{kind:completion?.kind??null,status:completion?.status??null,foregroundWaitMs:completion?.foregroundWaitMs??null,learningScheduled:Boolean(completion?.learningScheduled),feedbackRuntimeTaskId:completion?.feedbackRuntimeTaskId??null,memoryRuntimeTaskId:completion?.memoryRuntimeTaskId??null},
+      learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null,status:learning?.learningLifecycle?.status??null,backgroundPending:Boolean(learning?.learningLifecycle?.backgroundPending)},
       postResponseScene:postResponseScene?{
         status:postResponseScene.status??null,reason:postResponseScene.reason??null,sceneId:postResponseScene.sceneId??postResponseScene.signal?.sceneId??null,
         sceneRevision:postResponseScene.sceneRevision??postResponseScene.signal?.sceneRevision??null,changedFields:[...(postResponseScene.changedFields??[])].slice(0,16),
@@ -1063,7 +1067,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       transactions: { status: 'UNAVAILABLE', reason: 'NO_LIVE_OWNER_BINDING' },
     } : null;
 
-    const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
+    const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeResponseCompleted=this.nativeHistory.filter(row=>row.state==='RESPONSE_COMPLETED'||row.state==='LEARNED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     const installedUiBindings=this.#uiHostBindings(),installedUiReaderNames=Object.entries(installedUiBindings).filter(([name,value])=>typeof value==='function'&&(name.startsWith('read')||name.startsWith('list')||name.startsWith('reconstruct'))).map(([name])=>name).sort();
     let selectedTurnReceipt=null,installedUiSceneReadModelKind=null;
     try{
@@ -1078,7 +1082,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       memory:Boolean(installedUiBindings.memoryIntegrationSurface??installedUiBindings.memoryInterface??installedUiBindings.memoryOwner),
     };
     const nativeLearnedByChat={};for(const row of this.nativeHistory.filter(row=>row.state==='LEARNED'))nativeLearnedByChat[row.chatId]=(nativeLearnedByChat[row.chatId]??0)+1;
-    const nativeMultiTurnChatIds=Object.entries(nativeLearnedByChat).filter(([,count])=>count>=2).map(([chatId])=>chatId);
+    const nativeResponseCompletedByChat={};for(const row of this.nativeHistory.filter(row=>row.state==='RESPONSE_COMPLETED'||row.state==='LEARNED'))nativeResponseCompletedByChat[row.chatId]=(nativeResponseCompletedByChat[row.chatId]??0)+1;
+    const nativeMultiTurnChatIds=Object.entries(nativeResponseCompletedByChat).filter(([,count])=>count>=2).map(([chatId])=>chatId);
     let loreOperatorEvidence=null,resourceOperatorEvidence=null,authoringOperatorEvidence=null,navigationEvidence=null;
     try{
       const loreAdapter=this.uiHost?.ui?.operator?.loreStudy,read=loreAdapter?.read?.(),selected=loreAdapter?.selectedLorebook?.()??{};
@@ -1155,13 +1160,13 @@ export class DevelopmentDeploymentSillyTavernSession {
         chatBoundaryEvents:this.hostNarrativeEvents.filter(row=>row.chatBoundary).length,
       },
       nativeBrainIntegration:{
-        ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
+        ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,responseCompletedCount:nativeResponseCompleted,learnedCount:nativeLearned,
         installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
         pendingCount:this.nativePending.size,retainedDeliveryPayloadCount:this.nativePayloads.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
-        learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
-        exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
+        learnedByChat:clone(nativeLearnedByChat),responseCompletedByChat:clone(nativeResponseCompletedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
+        exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndResponseObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndLearningAccepted:nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         sceneFanOut:{
           observedTurns:this.nativeHistory.filter(row=>row.sceneFanOutReceipt).length,
           physicalExecutionCount:this.nativeHistory.reduce((n,row)=>n+Number(row.sceneFanOutReceipt?.physicalExecutionCount??0),0),
@@ -1261,6 +1266,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       }
     }
     this.nativeOwnerAttachments.graphProviders=graphReceipts;
+    if(typeof this.nativeBrain.startBackgroundLearning==='function')this.nativeBrain.startBackgroundLearning({maxCycles:128});
 
     this.releaseLoreOwnerEvents?.();
     this.releaseLoreOwnerEvents=null;
@@ -1287,7 +1293,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       base.listResources=()=>hostResourceBridge.read.resources();
       base.listResourceProfiles=()=>hostResourceBridge.read.resources();
     }
-    base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
+    base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,responseCompleted:this.nativeHistory.filter(x=>x.state==='RESPONSE_COMPLETED'||x.state==='LEARNED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     base.readHostDeliveryReceipt=(selection={})=>this.#readHostDeliveryReceipt(selection);
     base.readNativeGenerationPerformance=(selection={})=>this.#readNativeGenerationPerformance(selection);
     base.setDetailedGenerationProfiling=(enabled=false)=>this.setDetailedGenerationProfiling(enabled);

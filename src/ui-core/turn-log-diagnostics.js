@@ -102,6 +102,7 @@ export class SelectedTurnLogModel{
 
   exportUnifiedDiagnostics({selection=null}={}){
     const legacy=this.exportDiagnostics({selection}),op=legacy.operationalSnapshot??{},selectedTurn=legacy.selectedTurn??{},manifest=legacy.manifest??{};
+    const ownerTurn=op?.nativeBrainIntegration?.selectedTurnReceipt??op?.generationInspection?.selectedTurnReceipt??op?.selectedTurnReceipt??null;
     return sanitize({
       kind:'Area52UnifiedDiagnosticsExport',
       contractVersion:TURN_LOG_DIAGNOSTICS_VERSION,
@@ -126,6 +127,8 @@ export class SelectedTurnLogModel{
         producers:op.producers??null,
         pipeline:op.pipeline??null,
         generationInspection:op.generationInspection??null,
+        denseRetrieval:ownerTurn?.denseRetrieval??op.generationInspection?.denseRetrieval??op.generationInspection?.memoryDensePrime??null,
+        completionLifecycle:ownerTurn?.completionLifecycle??op.generationInspection?.completionLifecycle??null,
         decision:selectedTurn.brainDecision??null,
         graph:selectedTurn.graphTrace??op.graph??null,
       },
@@ -468,14 +471,22 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   brainDeep.body.append(deepStages);
   brainDeep.body.append(renderSelectedTurnGraphVisibility(d,snapshot.graphTrace??operational?.graph,{compact:false,title:'Selected-turn world graph'}));
   const generationInspection=operational?.generationInspection??null;
-  if(generationInspection){
+  const ownerTurn=operational?.nativeBrainIntegration?.selectedTurnReceipt??generationInspection?.selectedTurnReceipt??operational?.selectedTurnReceipt??null;
+  if(generationInspection||ownerTurn){
+    const dense=ownerTurn?.denseRetrieval??generationInspection?.denseRetrieval??generationInspection?.memoryDensePrime??null;
+    const completion=ownerTurn?.completionLifecycle??generationInspection?.completionLifecycle??null,background=completion?.background??null,responseCompletion=completion?.responseCompletion??null;
     brainDeep.body.append(element(d,'strong',{text:'Owner generation inspection'}),createKeyValue(d,[
-      {key:'Source revision fence',value:String(generationInspection.sourceRevisionFenceCount??0)+' revisions'},
-      {key:'Identity resolution',value:diagnosticReceiptSummary(generationInspection.identityResolution)},
-      {key:'Graph traversal',value:diagnosticReceiptSummary(generationInspection.graphTraversal)},
-      {key:'Retrieval budget',value:diagnosticReceiptSummary(generationInspection.retrievalBudget)},
-      {key:'Rejected evidence',value:generationInspection.rejectedEvidence?String(generationInspection.rejectedEvidence.count??0)+' rejected'+(generationInspection.rejectedEvidence.reasonCode?' · '+generationInspection.rejectedEvidence.reasonCode:''):'No owner rejection receipt'},
-      {key:'Lore / Memory sync',value:[generationInspection.loreSync?.status??generationInspection.loreSync?.kind??'Lore not published',generationInspection.memorySync?.status??generationInspection.memorySync?.kind??'Memory not published'].join(' · ')},
+      {key:'Source revision fence',value:String(generationInspection?.sourceRevisionFenceCount??ownerTurn?.sourceRevisions?.selectedCount??0)+' revisions'},
+      {key:'Identity resolution',value:diagnosticReceiptSummary(generationInspection?.identityResolution)},
+      {key:'Graph traversal',value:diagnosticReceiptSummary(generationInspection?.graphTraversal)},
+      {key:'Retrieval budget',value:diagnosticReceiptSummary(generationInspection?.retrievalBudget)},
+      {key:'Rejected evidence',value:generationInspection?.rejectedEvidence?String(generationInspection.rejectedEvidence.count??0)+' rejected'+(generationInspection.rejectedEvidence.reasonCode?' · '+generationInspection.rejectedEvidence.reasonCode:''):'No owner rejection receipt'},
+      {key:'Lore / Memory sync',value:[generationInspection?.loreSync?.status??generationInspection?.loreSync?.kind??'Lore not published',generationInspection?.memorySync?.status??generationInspection?.memorySync?.kind??'Memory not published'].join(' · ')},
+      {key:'Dense Memory eligibility',value:dense?(String(dense.status??'UNKNOWN')+' · '+String(dense.resultClass??'OPPORTUNISTIC')+(dense.reasonCode?' · '+dense.reasonCode:'')):'No dense retrieval receipt'},
+      {key:'Dense request / attempt / return / admit',value:dense?[dense.requested,dense.providerAttempted,dense.providerReturned,dense.ownerAdmitted].map(value=>value?'YES':'NO').join(' / '):'No evidence'},
+      {key:'Dense foreground / provider',value:dense?diagnosticMs(dense.foregroundWaitMs)+' / '+diagnosticMs(dense.providerExecutionMs):'No evidence'},
+      {key:'Response completion',value:responseCompletion?(String(responseCompletion.status??'UNKNOWN')+' · foreground '+diagnosticMs(responseCompletion.foregroundWaitMs)):'No completion receipt'},
+      {key:'Background learning',value:background?(String(background.status??'UNKNOWN')+' · '+String(background.tasks?.length??0)+' task(s) · execution '+diagnosticMs(background.backgroundExecutionMs)+(background.reasonCode?' · '+background.reasonCode:'')):'No background lifecycle receipt'},
     ]));
   }
   advanced.append(brainDeep.root);

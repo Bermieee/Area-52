@@ -124,8 +124,11 @@ export class BatchEngine {
 
     const after = this.ledger.get(taskId);
     if (after.supersession?.requested) return { status: 'superseded-after-checkpoint', sliceId };
-    if (after.yieldRequested) return { status: 'yield', sliceId };
+    // A yield request only has work to park when uncommitted units remain. If the
+    // atomic slice just committed the final unit, complete the task instead of
+    // leaving a fully committed L2/L3 obligation parked until a later generation.
     if (this.ledger.isComplete(taskId)) return { status: 'complete', sliceId };
+    if (after.yieldRequested) return { status: 'yield', sliceId };
     return { status: 'progress', sliceId, durationMs };
   }
 }

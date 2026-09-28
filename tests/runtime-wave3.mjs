@@ -410,7 +410,11 @@ test('generation pressure yields background cognitive work at a safe checkpoint 
   director.beginGeneration({ turnId: t.turnId });
   gated.release();
   await director.runCycle();
-  assert.equal(director.ledger.get(background.taskId).executionStatus, EXECUTION_STATUS.PARKED);
+  // This job is a single atomic slice. Once that final slice commits, foreground
+  // pressure must not park already-finished work; multi-slice parking/resume is
+  // covered by the Runtime Fabric yield suites.
+  assert.equal(director.ledger.get(background.taskId).executionStatus, EXECUTION_STATUS.COMPLETE);
+  assert.equal(director.ledger.get(background.taskId).lifecycleStatus, LIFECYCLE_STATUS.SATISFIED);
   director.completeGeneration({ turnId: t.turnId });
   await director.drain();
   assert.equal(director.ledger.get(background.taskId).lifecycleStatus, LIFECYCLE_STATUS.SATISFIED);

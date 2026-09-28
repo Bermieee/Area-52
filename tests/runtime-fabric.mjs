@@ -123,6 +123,28 @@ test('cooperative yield waits for the active atomic slice then checkpoints and p
   assert.ok(rec.checkpoint);
 });
 
+test('yield requested during the final atomic slice completes instead of parking finished work', async () => {
+  let release;
+  const gate={
+    wait:()=>new Promise((resolve)=>{release=resolve;}),
+    release:()=>release?.(),
+  };
+  const d = new WorkerDirector({ capacity:{CPU:1}, foregroundReserve:{CPU:1}, batch:{base:1,max:1} });
+  d.registerWorker(cpuWorker('w',[CAPABILITIES.CPU_ANALYSIS]));
+  const commits=new Map();
+  const r=d.submit({taskType:'study',owner:'lore',layer:'L3',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'yield-final'}, {units:units(1),...executor(commits,{gate})});
+  const cycle=d.runCycle();
+  await new Promise((resolve)=>setTimeout(resolve,0));
+  d.beginGeneration();
+  assert.equal(d.ledger.get(r.task.taskId).executionStatus,EXECUTION_STATUS.YIELDING);
+  gate.release();
+  await cycle;
+  const rec=d.ledger.get(r.task.taskId);
+  assert.equal(rec.batch.completedUnitIds.length,1);
+  assert.equal(rec.executionStatus,EXECUTION_STATUS.COMPLETE);
+  assert.equal(rec.lifecycleStatus,LIFECYCLE_STATUS.SATISFIED);
+});
+
 test('parked work resumes from next truthful slice and completed slices do not replay', async () => {
   const d = new WorkerDirector({ capacity:{CPU:1}, foregroundReserve:{CPU:1}, batch:{base:1,max:1} });
   d.registerWorker(cpuWorker('w',[CAPABILITIES.CPU_ANALYSIS]));

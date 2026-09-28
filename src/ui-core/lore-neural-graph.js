@@ -92,7 +92,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
   headActions.append(badge);
   if(graphActive&&renderState){
-    if(renderState.focusHubId)headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
+    headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
       renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;refresh?.();
     }}));
     headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
@@ -548,7 +548,7 @@ function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().val
 
 function canvasFooter(doc,text){
   const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});
-  footer.append(element(doc,'span',{text:'◉ Click a source node for owner metadata'}),element(doc,'span',{text:'Growth: core → cluster → sources → derived'}),element(doc,'span',{text}));
+  footer.append(element(doc,'span',{text:'◉ Click bubble = glow / inspect'}),element(doc,'span',{text:'◎ Click cluster = zoom · Full Graph = reset'}),element(doc,'span',{text}));
   return footer;
 }
 

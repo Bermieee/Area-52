@@ -18,6 +18,10 @@ export class AtmosphereTracker {
   constructor({ttlRevisions=2}={}){this.ttlRevisions=Math.max(1,Math.min(16,Number(ttlRevisions)||2));}
   nextScene({ revision, evidenceRefs = [], dimensions = {}, metadata = {} } = {}) { return this.update({ revision, evidenceRefs, dimensions, metadata }); }
   update({ revision, evidenceRefs = [], dimensions = {}, metadata = {} }) {
+    // Only a documented dimension map carries atmosphere meaning. Anything else (free text,
+    // numbers, arrays) is rejected explicitly instead of throwing or being interpreted.
+    const rejectedDimensionInput = dimensions != null && (typeof dimensions !== 'object' || Array.isArray(dimensions));
+    if (rejectedDimensionInput) { metadata = { ...(metadata ?? {}), rejectedDimensionInput: true }; dimensions = {}; }
     const value = {};
     const sharedRefs=uniq(evidenceRefs);
     let minConfidence = 1;

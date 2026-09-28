@@ -1233,7 +1233,7 @@ export class Area52NativeBrain{
           };
           if(record){
             record.memoryConsolidation=clone(receipt);
-            if(record.memoryConsolidationRuntimeTaskId)this.#recordTaskOwnerDecision(record.memoryConsolidationRuntimeTaskId,{accepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),receiptId:ownerReview?.bundleId??ownerReview?.kind??receipt.kind,reasonCode:receipt.reasonCode??null,consumerId:'MEMORY'});
+            if(record.memoryConsolidationRuntimeTaskId&&ownerReview)this.#recordTaskOwnerDecision(record.memoryConsolidationRuntimeTaskId,{accepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),receiptId:ownerReview?.bundleId??ownerReview?.kind??receipt.kind,reasonCode:receipt.reasonCode??null,consumerId:'MEMORY'});
           }
           receipts.push(receipt);
         }

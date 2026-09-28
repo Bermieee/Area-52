@@ -1,4 +1,4 @@
-import { createKeyValue, element, makeBadge } from './primitives.js';
+import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
 
 const STATE_ORDER=['READY','STUDYING','ACCEPTED','FAILED','REMOVED'];
 const STATE_META={
@@ -10,17 +10,23 @@ const STATE_META={
 };
 
 export function createLoreNeuralRenderState(){
-  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set()};
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0};
+}
+export function replayLoreNeuralGrowth(state){
+  if(!state)return false;
+  state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
+  state.replayCount=Number(state.replayCount??0)+1;
+  return true;
 }
 
 export function renderLoreNeuralWorkspace(doc,{
-  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,
+  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,refresh=null,
 }={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
   const left=renderStudyRail(doc,{data,source,counts,progress,selected});
-  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState});
+  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh});
   const right=renderLoreInsightRail(doc,{data,selected,progress});
   root.append(left,center,right);
   root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
@@ -71,7 +77,7 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   return rail;
 }
 
-function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}={}){
+function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh}={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
@@ -79,7 +85,15 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   const title=element(doc,'div');
   title.append(element(doc,'span',{className:'a52-eyebrow',text:'LIVE LORE GRAPH'}),element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Lore Knowledge Canvas'}));
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
-  head.append(title,badge);panelRoot.append(head);
+  const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
+  headActions.append(badge);
+  if(graphActive&&renderState){
+    headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',onPress:()=>{
+      replayLoreNeuralGrowth(renderState);
+      refresh?.();
+    }}));
+  }
+  head.append(title,headActions);panelRoot.append(head);
 
   const canvas=element(doc,'div',{className:'a52-lore-neural-canvas'});
   if(!entries.length||!graphActive){

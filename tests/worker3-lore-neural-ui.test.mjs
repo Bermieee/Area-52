@@ -3,11 +3,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { createLoreNeuralRenderState, replayLoreNeuralGrowth, renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
+import { FrontFacePresentationState, LoreMotionMode } from '../src/ui-core/wave6-presentation.js';
+import { UIStateStore } from '../src/ui-core/persistence.js';
 import { renderLoreStudySurface } from '../src/ui-core/wave13-operator-surfaces.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
 function walk(node){return[node,...(node?.children??[]).flatMap(walk)];}
 function textOf(node){return walk(node).map(x=>x.textContent??'').join(' ');}
+function memoryStorage(){
+  const map=new Map();
+  return{getItem:key=>map.has(key)?map.get(key):null,setItem:(key,value)=>map.set(key,String(value)),removeItem:key=>map.delete(key),map};
+}
+function listenerScope(){return{listen(node,type,handler){node.addEventListener(type,handler);}};}
 
 function emptyData(){
   return{
@@ -264,7 +271,7 @@ test('reduced-motion omits native Lore reveal animations',()=>{
   const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
   const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state});
   assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
-  assert.match(textOf(root),/MOTION REDUCED/);
+  assert.match(textOf(root),/SYSTEM · REDUCED/);
   const nodes=walk(root).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.ok(nodes.every(x=>!String(x.attributes?.class??'').includes('has-native-reveal')));
 });
@@ -294,6 +301,39 @@ test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
   assert.equal(refreshes,1);
   scope.cleanup();
   assert.equal(releases,1);
+});
+
+test('Lore motion preference persists and defaults to System',()=>{
+  const storage=memoryStorage(),store=new UIStateStore({storage,namespace:'lore-motion-test'});
+  const first=new FrontFacePresentationState({stateStore:store});
+  assert.equal(first.get().loreMotionMode,LoreMotionMode.SYSTEM);
+  first.setLoreMotionMode(LoreMotionMode.FULL);
+  assert.equal(first.get().loreMotionMode,LoreMotionMode.FULL);
+  const restored=new FrontFacePresentationState({stateStore:store});
+  assert.equal(restored.get().loreMotionMode,LoreMotionMode.FULL);
+  restored.setLoreMotionMode(LoreMotionMode.REDUCED);
+  assert.equal(new FrontFacePresentationState({stateStore:store}).get().loreMotionMode,LoreMotionMode.REDUCED);
+});
+
+test('Full Lore motion overrides system reduced-motion and mode change replays growth',()=>{
+  const d=new FakeDocument();d.defaultView={matchMedia:()=>({matches:true})};
+  const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  let changed=null,refreshes=0;
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'FULL',onMotionModeChange:value=>{changed=value;},refresh:()=>{refreshes++;},scope:listenerScope()});
+  assert.match(textOf(root),/MOTION FULL/);
+  assert.ok(walk(root).filter(x=>x.tagName==='ANIMATE').length>0);
+  const select=walk(root).find(x=>x.tagName==='SELECT'&&String(x.className??'').includes('a52-lore-motion-select'));
+  assert.ok(select);assert.equal(select.value,'FULL');
+  select.value='REDUCED';select.dispatch('change');
+  assert.equal(changed,'REDUCED');assert.equal(refreshes,1);assert.equal(state.replayCount,1);
+});
+
+test('Reduced Lore motion overrides a motion-enabled system',()=>{
+  const d=new FakeDocument();d.defaultView={matchMedia:()=>({matches:false})};
+  const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'REDUCED'});
+  assert.match(textOf(root),/MOTION REDUCED/);
+  assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
 });
 
 test('Lore neural animation uses bounded native SVG reveal without JS timer loops and respects reduced motion',()=>{

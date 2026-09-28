@@ -32,7 +32,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   if(registry.has('lore')){
     const current=registry.get('lore');
     registry.update('lore',{preferredWidth:1280,render(host,ctx){
-      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState});
+      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState,frontFacePresentation});
       const d=host.ownerDocument,review=element(d,'details',{className:'a52-wave13-lore-review-details'});
       review.open=ctx.productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
       const summary=element(d,'summary',{className:'a52-wave13-lore-review-summary'});
@@ -837,7 +837,7 @@ function plainMemoryReason(reason){
   return String(reason);
 }
 
-export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null}={}){
+export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null,frontFacePresentation=null}={}){
   const d=host.ownerDocument;
   host.append(header(d,'Lore','Select the SillyTavern Lorebook, accept it for study, then watch Area-52 grow the owner-backed Lore graph as study becomes current.'));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
@@ -903,7 +903,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
   host.append(form);
 
-  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh}));
+  const loreMotionMode=frontFacePresentation?.get?.().loreMotionMode??'SYSTEM';
+  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode:loreMotionMode,onMotionModeChange:mode=>frontFacePresentation?.setLoreMotionMode?.(mode)}));
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});

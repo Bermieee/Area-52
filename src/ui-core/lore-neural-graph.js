@@ -1,4 +1,5 @@
 import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
+import { resolveMotionPolicy } from './wave6-presentation.js';
 
 const STATE_ORDER=['READY','STUDYING','ACCEPTED','FAILED','REMOVED'];
 const REVEAL_RENDER_PASSES=4;
@@ -22,13 +23,13 @@ export function replayLoreNeuralGrowth(state){
 }
 
 export function renderLoreNeuralWorkspace(doc,{
-  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,refresh=null,motionMode='SYSTEM',onMotionModeChange=null,
+  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,refresh=null,motionMode='FULL',
 }={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
   const left=renderStudyRail(doc,{data,source,counts,progress,selected});
-  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode,onMotionModeChange});
+  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode});
   const right=renderLoreInsightRail(doc,{data,selected,progress});
   root.append(left,center,right);
   root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
@@ -79,10 +80,10 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   return rail;
 }
 
-function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode='SYSTEM',onMotionModeChange=null}={}){
+function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode='FULL'}={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
-  const systemReduced=prefersReducedMotion(doc),normalizedMotion=normalizeMotionMode(motionMode),reducedMotion=normalizedMotion==='REDUCED'||(normalizedMotion==='SYSTEM'&&systemReduced),nativeMotion=!reducedMotion;
+  const systemReduced=prefersReducedMotion(doc),motionPolicy=resolveMotionPolicy(motionMode,{systemReduced}),nativeMotion=motionPolicy.enabled;
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
   const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
   const title=element(doc,'div');
@@ -90,26 +91,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
   headActions.append(badge);
-  if(graphActive){
-    const motionText=normalizedMotion==='FULL'?'MOTION FULL':normalizedMotion==='REDUCED'?'MOTION REDUCED':systemReduced?'SYSTEM · REDUCED':'SYSTEM · FULL';
-    headActions.append(makeBadge(doc,motionText,reducedMotion?'warning':'ready'));
-    const motionSelect=element(doc,'select',{className:'a52-lore-motion-select',attrs:{'aria-label':'Lore motion mode',title:'Lore neural graph motion'}});
-    for(const [value,label] of [['SYSTEM','System'],['FULL','Full'],['REDUCED','Reduced']]){
-      const option=element(doc,'option',{text:label,attrs:{value}});
-      if(value===normalizedMotion)option.selected=true;
-      motionSelect.append(option);
-    }
-    motionSelect.value=normalizedMotion;
-    scope?.listen?.(motionSelect,'change',()=>{
-      const next=normalizeMotionMode(motionSelect.value);
-      onMotionModeChange?.(next);
-      replayLoreNeuralGrowth(renderState);
-      refresh?.();
-    });
-    headActions.append(motionSelect);
-  }
   if(graphActive&&renderState){
-    headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',onPress:()=>{
+    headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
       replayLoreNeuralGrowth(renderState);
       refresh?.();
     }}));
@@ -515,10 +498,7 @@ function prefersReducedMotion(doc){
     return Boolean(view?.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
   }catch{return false;}
 }
-function normalizeMotionMode(value){
-  const mode=String(value??'SYSTEM').toUpperCase();
-  return mode==='FULL'||mode==='REDUCED'?mode:'SYSTEM';
-}
+
 function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().value);}
 
 function canvasFooter(doc,text){

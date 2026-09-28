@@ -1086,6 +1086,35 @@ export class DevelopmentDeploymentBrain {
     const n=Math.max(1,Math.min(128,Number(limit)||64));return clone(this.sceneObservationReceipts.slice(-n));
   }
 
+  readSceneObservationRuntime(selection={}){
+    const tasks=this.resourceDirector.ledger.list().filter(row=>{
+      const task=row.obligation?.payload?.cognitiveTask;
+      return row.obligation?.taskType==='SCENE_OBSERVATION'
+        &&(!selection.chatId||task?.metadata?.chatId===selection.chatId)
+        &&(!selection.generationId||task?.metadata?.generationId===selection.generationId);
+    }).slice(-64).map(row=>({
+      taskId:row.taskId,lifecycleStatus:row.lifecycleStatus,executionStatus:row.executionStatus,
+      executionReason:row.executionReason,startedCount:row.startedCount,resumeCount:row.resumeCount,
+      layer:row.obligation.layer,foreground:row.obligation.foreground,
+      requiredCapabilities:[...row.obligation.requiredCapabilities],
+      negotiation:clone(row.negotiation),dependencyState:clone(row.dependencyState),
+      executorAttached:this.resourceDirector.executors.has(row.taskId),
+      inflight:this.resourceDirector.inflight.has(row.taskId),
+    }));
+    return{
+      kind:'SceneObservationRuntimeReadModel',tasks,
+      queueDepth:this.resourceDirector.scheduler.depthByLayer(),
+      resources:this.resourceDirector.governor.snapshot(),pumpScheduled:this.sceneRuntimePumpScheduled,
+      workers:this.resourceDirector.registry.snapshot().slice(0,32).map(row=>({
+        workerId:row.workerId,capabilities:row.capabilities,supportedLayers:row.supportedLayers,
+        resourceProfile:row.resourceProfile,available:row.available,health:row.health,
+        foregroundEligible:row.foregroundEligible,backgroundEligible:row.backgroundEligible,
+        currentLoad:row.currentLoad,concurrencyCapacity:row.concurrencyCapacity,
+      })),
+      metadataOnly:true,authorityGranted:false,
+    };
+  }
+
   #retainSceneEventSpineReceipt(input={}){
     const event=input.event??null,runtimeEvent=input.runtimeEvent??null;
     const receipt=Object.freeze({
@@ -2811,11 +2840,16 @@ export class DevelopmentDeploymentBrain {
       }),
       resourceDirectorBridge: this.resourceDirectorBridge,
       beginOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.beginGeneration(meta),
-      completeOptionalResourceGeneration: (meta) => this.resourceDirectorBridge.completeGeneration(meta),
+      completeOptionalResourceGeneration: (meta) => {
+        const result=this.resourceDirectorBridge.completeGeneration(meta);
+        this.#pumpResourceDirector();
+        return result;
+      },
       readOptionalResourceRuntime: () => clone(this.resourceDirector.snapshot()),
       readMemoryExecutionReceipts: () => clone(this.memoryNearlineReceipts),
       readMemoryVectorReceipts: () => this.memory.vectorIndex.readReceipts({limit:128}),
       readSceneObservationReceipts: () => this.readSceneObservationReceipts({limit:128}),
+      readSceneObservationRuntime: (selection) => this.readSceneObservationRuntime(selection),
       readSceneMemoryLifecycleReceipts: () => this.readSceneMemoryLifecycleReceipts({limit:128}),
       readSpeculativeWarm: () => clone({
         metrics:this.speculativeWarmer.metrics(),receipts:this.speculativeWarmReceipts.slice(-128),

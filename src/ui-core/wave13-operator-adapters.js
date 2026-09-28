@@ -679,6 +679,8 @@ export class Wave13OperationalStatusAdapter{
     const cognition=this.#cognition(selection),generation=this.#generation(selection),hostLifecycle=this.#hostLifecycle(),hostDelivery=this.#hostDelivery(selection);
     const sceneObservationReader=fn(this.hostBindings,['readSceneObservationReceipts']);
     const sceneObservations=sceneObservationReader?safeRead(()=>sceneObservationReader(),[])??[]:[];
+    const sceneRuntimeReader=fn(this.hostBindings,['readSceneObservationRuntime']);
+    const sceneRuntime=sceneRuntimeReader?safeRead(()=>sceneRuntimeReader(selection),null):null;
     const stages=[
       this.#adapterStage('scene','Scene',this.adapters.scene,selection,{turnBound:true,exported:Boolean(this.hostBindings.readScene||this.hostBindings.readSceneModel||this.hostBindings.readSceneUiReadModel)}),
       this.#runtimeStage(selection,cognition),
@@ -720,6 +722,7 @@ export class Wave13OperationalStatusAdapter{
       sceneObservation:{
         counts:Object.fromEntries(['QUEUED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,sceneObservations.filter(row=>row?.status===status).length])),
         recent:cloneSafe(sceneObservations.slice(-32)),
+        runtime:cloneSafe(sceneRuntime),
         metadataOnly:true,
       },
       hostLifecycle:cloneSafe(hostLifecycle),

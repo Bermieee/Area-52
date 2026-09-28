@@ -12,7 +12,7 @@ const STATE_META={
 };
 
 export function createLoreNeuralRenderState(){
-  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0,animationInitialized:false,revealPassesRemaining:0,selectedNodeId:null,selectedNodeKind:null,focusHubId:null};
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0,animationInitialized:false,revealPassesRemaining:0,selectedNodeId:null,selectedNodeKind:null,focusHubId:null,viewport:null,panGesture:null};
 }
 export function replayLoreNeuralGrowth(state){
   if(!state)return false;
@@ -93,7 +93,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   headActions.append(badge);
   if(graphActive&&renderState){
     headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
-      renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;refresh?.();
+      renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;renderState.viewport=null;refresh?.();
     }}));
     headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
       replayLoreNeuralGrowth(renderState);
@@ -111,7 +111,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
 
   const graph=buildLoreGraph({entries,data,selected});
   const growth=growthState(renderState,selected,graph);
-  const viewBox=focusedViewBox(graph,renderState?.focusHubId);
+  const viewBox=formatViewBox(renderState?.viewport??parseViewBox(focusedViewBox(graph,renderState?.focusHubId)));
   const svg=svgEl(doc,'svg',{'viewBox':viewBox,'class':'a52-lore-neural-svg'+(renderState?.focusHubId?' is-focused':''),'role':'img','aria-label':'Circular Lore source and representation graph','data-focus-hub':renderState?.focusHubId??null});
   const defs=svgEl(doc,'defs');
   const filter=svgEl(doc,'filter',{'id':'a52-lore-glow','x':'-60%','y':'-60%','width':'220%','height':'220%'});
@@ -138,7 +138,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const coreCount=svgEl(doc,'text',{'x':'500','y':'394','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' sources';
   const coreProgress=svgEl(doc,'text',{'x':'500','y':'415','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent=String(progress)+'% ready';
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
-  const activateCore=()=>{if(renderState){renderState.selectedNodeId='core';renderState.selectedNodeKind='core';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);};
+  const activateCore=()=>{if(renderState){renderState.selectedNodeId='core';renderState.selectedNodeKind='core';renderState.focusHubId=null;renderState.viewport=null;}applyGraphInteraction(svg,graph,renderState);};
   scope?.listen?.(core,'click',activateCore);scope?.listen?.(core,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateCore();}});
 
   for(const hub of graph.hubs){
@@ -158,7 +158,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
       count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+300,dur:280}));
     }
     g.append(halo,body,t,count);svg.append(g);
-    const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=hub.id;}applyGraphInteraction(svg,graph,renderState);};
+    const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=hub.id;renderState.viewport=parseViewBox(focusedViewBox(graph,hub.id));}applyGraphInteraction(svg,graph,renderState);};
     scope?.listen?.(g,'click',activateHub);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateHub();}});
   }
 
@@ -194,6 +194,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     scope?.listen?.(g,'click',activateArtifact);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateArtifact();}});
   }
   applyGraphInteraction(svg,graph,renderState);
+  installGraphSandbox(svg,graph,renderState,scope);
   canvas.append(svg);
   if(nativeMotion)scheduleNativeAnimations(svg,doc);
   panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
@@ -207,14 +208,33 @@ function focusedViewBox(graph,hubId){
   const points=[hub,...(graph.nodes??[]).filter(row=>row.hubId===hubId),...(graph.artifacts??[]).filter(row=>row.hubId===hubId)];
   const xs=points.map(row=>Number(row.x)).filter(Number.isFinite),ys=points.map(row=>Number(row.y)).filter(Number.isFinite);
   if(!xs.length||!ys.length)return'0 0 1000 760';
-  const padding=95,minX=Math.min(...xs)-padding,maxX=Math.max(...xs)+padding,minY=Math.min(...ys)-padding,maxY=Math.max(...ys)+padding;
-  const width=Math.max(330,maxX-minX),height=Math.max(280,maxY-minY),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
-  return[String(Math.max(0,cx-width/2)),String(Math.max(0,cy-height/2)),String(Math.min(1000,width)),String(Math.min(760,height))].join(' ');
+  const padding=105,minX=Math.min(...xs)-padding,maxX=Math.max(...xs)+padding,minY=Math.min(...ys)-padding,maxY=Math.max(...ys)+padding;
+  const width=Math.max(360,maxX-minX),height=Math.max(300,maxY-minY),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
+  return formatViewBox(clampViewport({x:cx-width/2,y:cy-height/2,width,height}));
+}
+function parseViewBox(value){
+  if(value&&typeof value==='object')return clampViewport(value);
+  const [x=0,y=0,width=1000,height=760]=String(value??'0 0 1000 760').trim().split(/\s+/).map(Number);
+  return clampViewport({x,y,width,height});
+}
+function formatViewBox(view){
+  const row=clampViewport(view);
+  return[round(row.x),round(row.y),round(row.width),round(row.height)].join(' ');
+}
+function clampViewport(view){
+  const minWidth=250,maxWidth=1180,aspect=1000/760;
+  let width=Math.max(minWidth,Math.min(maxWidth,Number(view?.width)||1000));
+  let height=width/aspect;
+  if(Number(view?.height)>0&&Math.abs(Number(view.height)-height)<40)height=Number(view.height);
+  const worldMargin=190,minX=-worldMargin,maxX=1000+worldMargin-width,minY=-worldMargin,maxY=760+worldMargin-height;
+  const x=Math.max(minX,Math.min(maxX,Number(view?.x)||0)),y=Math.max(minY,Math.min(maxY,Number(view?.y)||0));
+  return{x,y,width,height};
 }
 function applyGraphInteraction(svg,graph,state){
   if(!svg)return;
   const selectedId=state?.selectedNodeId??null,focusHubId=state?.focusHubId??null;
-  const viewBox=focusedViewBox(graph,focusHubId);svg.setAttribute?.('viewBox',viewBox);
+  const viewport=state?.viewport??parseViewBox(focusedViewBox(graph,focusHubId));
+  svg.setAttribute?.('viewBox',formatViewBox(viewport));
   if(focusHubId)svg.classList?.add?.('is-focused');else svg.classList?.remove?.('is-focused');
   if(focusHubId)svg.setAttribute?.('data-focus-hub',focusHubId);else svg.removeAttribute?.('data-focus-hub');
 
@@ -230,6 +250,40 @@ function applyGraphInteraction(svg,graph,state){
   };
   visit(svg);
 }
+function installGraphSandbox(svg,graph,state,scope){
+  if(!svg||!state||!scope?.listen)return;
+  const current=()=>parseViewBox(state.viewport??focusedViewBox(graph,state.focusHubId));
+  const apply=view=>{state.viewport=clampViewport(view);svg.setAttribute?.('viewBox',formatViewBox(state.viewport));};
+  scope.listen(svg,'wheel',event=>{
+    event?.preventDefault?.();
+    const view=current(),delta=Number(event?.deltaY)||0,factor=delta<0?.82:1.22;
+    const nextWidth=Math.max(250,Math.min(1180,view.width*factor)),nextHeight=nextWidth/(1000/760);
+    const px=Math.max(0,Math.min(1,(Number(event?.offsetX)||Number(event?.clientX)||0)/Math.max(1,Number(svg.clientWidth)||1000)));
+    const py=Math.max(0,Math.min(1,(Number(event?.offsetY)||Number(event?.clientY)||0)/Math.max(1,Number(svg.clientHeight)||760)));
+    apply({x:view.x+(view.width-nextWidth)*px,y:view.y+(view.height-nextHeight)*py,width:nextWidth,height:nextHeight});
+  });
+  scope.listen(svg,'pointerdown',event=>{
+    if(Number(event?.button??0)!==0)return;
+    const view=current();
+    state.panGesture={pointerId:event?.pointerId??null,startX:Number(event?.clientX)||0,startY:Number(event?.clientY)||0,view};
+    svg.setPointerCapture?.(event?.pointerId);
+    svg.classList?.add?.('is-panning');
+  });
+  scope.listen(svg,'pointermove',event=>{
+    const drag=state.panGesture;if(!drag)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    const scaleX=drag.view.width/Math.max(1,Number(svg.clientWidth)||1000),scaleY=drag.view.height/Math.max(1,Number(svg.clientHeight)||760);
+    const dx=(Number(event?.clientX)||0)-drag.startX,dy=(Number(event?.clientY)||0)-drag.startY;
+    apply({x:drag.view.x-dx*scaleX,y:drag.view.y-dy*scaleY,width:drag.view.width,height:drag.view.height});
+  });
+  const endPan=event=>{
+    const drag=state.panGesture;if(!drag)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    state.panGesture=null;svg.releasePointerCapture?.(event?.pointerId);svg.classList?.remove?.('is-panning');
+  };
+  scope.listen(svg,'pointerup',endPan);scope.listen(svg,'pointercancel',endPan);
+}
+
 
 function renderEmptyCanvas(doc,{loaded=false,accepted=false}={}){
   const empty=element(doc,'div',{className:'a52-lore-neural-empty'});
@@ -281,12 +335,12 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
 const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
 const MAX_VISIBLE_SOURCE_NODES=54;
 const TARGET_NODES_PER_HUB=8;
-const INITIAL_WAVE_SPACING_MS=420;
-const INITIAL_HUB_LINK_MS=90;
-const INITIAL_HUB_BLOOM_MS=210;
-const INITIAL_NODE_START_MS=500;
-const INITIAL_NODE_SPACING_MS=72;
-const INITIAL_ARTIFACT_LAG_MS=245;
+const CENTER_TRUNK_START_MS=420;
+const HUB_BLOOM_START_MS=1180;
+const SOURCE_INNER_START_MS=2050;
+const SOURCE_RING_GAP_MS=650;
+const SOURCE_SLOT_GAP_MS=150;
+const ARTIFACT_LAG_MS=780;
 
 function buildLoreGraph({entries,data,selected}={}){
   const allVisible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED');
@@ -305,17 +359,16 @@ function buildLoreGraph({entries,data,selected}={}){
   grouped.forEach((group,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
     const tone=group.tone??SEMANTIC_TONES[index%SEMANTIC_TONES.length];
-    const waveStart=index*INITIAL_WAVE_SPACING_MS;
     const hub={
       id:group.id,state:group.kind==='semantic'?'SEMANTIC':'STRUCTURE',tone,label:group.label,count:group.items.length,
       presentationOnly:group.kind!=='semantic',wave:index,
       x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,
-      delay:waveStart+INITIAL_HUB_BLOOM_MS,incrementalDelay:100+(index%3)*90,
+      depth:1,delay:HUB_BLOOM_START_MS,incrementalDelay:100+(index%3)*90,
     };
     hubs.push(hub);
     edges.push({
-      id:'edge:hub:'+hub.id,from:center,to:hub,fromId:'core',toId:hub.id,state:hub.state,tone,kind:'hub',wave:index,
-      delay:waveStart+INITIAL_HUB_LINK_MS,incrementalDelay:40+(index%3)*70,
+      id:'edge:hub:'+hub.id,from:center,to:hub,fromId:'core',toId:hub.id,state:hub.state,tone,kind:'hub',wave:index,depth:0,
+      delay:CENTER_TRUNK_START_MS,incrementalDelay:40+(index%3)*70,
     });
 
     group.items.forEach((item,rowIndex)=>{
@@ -326,17 +379,18 @@ function buildLoreGraph({entries,data,selected}={}){
       const hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%13)-6;
       const radius=68+ring*38+jitter;
       const artifactCount=Number(row.artifactIds?.length??0);
-      const nodeDelay=waveStart+INITIAL_NODE_START_MS+rowIndex*INITIAL_NODE_SPACING_MS;
-      const incrementalNodeDelay=180+(rowIndex%6)*62;
+      const nodeDepth=2+ring;
+      const nodeDelay=SOURCE_INNER_START_MS+ring*SOURCE_RING_GAP_MS+slot*SOURCE_SLOT_GAP_MS;
+      const incrementalNodeDelay=180+(ring*4+slot%4)*62;
       const node={
-        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,wave:index,hubId:hub.id,
+        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,wave:index,hubId:hub.id,depth:nodeDepth,
         x:hub.x+Math.cos(nodeAngle)*radius,y:hub.y+Math.sin(nodeAngle)*radius,
         artifactCount,delay:nodeDelay,incrementalDelay:incrementalNodeDelay,payload:row,
       };
       nodes.push(node);
       edges.push({
-        id:'edge:source:'+node.id,from:hub,to:node,fromId:hub.id,toId:node.id,state:sourceState,tone,kind:'source',wave:index,
-        delay:Math.max(waveStart+INITIAL_HUB_BLOOM_MS,nodeDelay-125),
+        id:'edge:source:'+node.id,from:hub,to:node,fromId:hub.id,toId:node.id,state:sourceState,tone,kind:'source',wave:index,depth:nodeDepth-1,
+        delay:Math.max(HUB_BLOOM_START_MS+420,nodeDelay-360),
         incrementalDelay:Math.max(80,incrementalNodeDelay-90),
       });
 
@@ -345,14 +399,14 @@ function buildLoreGraph({entries,data,selected}={}){
         const artifact={
           id:'artifact-group:'+node.id,
           label:artifactCount===1?String(row.artifactIds?.[0]??'derived artifact'):String(artifactCount)+' derived refs',
-          count:artifactCount,state:sourceState,tone,wave:index,hubId:hub.id,parentId:node.id,
+          count:artifactCount,state:sourceState,tone,wave:index,hubId:hub.id,parentId:node.id,depth:nodeDepth+1,
           x:node.x+Math.cos(artifactAngle)*artifactRadius,y:node.y+Math.sin(artifactAngle)*artifactRadius,
-          delay:node.delay+INITIAL_ARTIFACT_LAG_MS,incrementalDelay:node.incrementalDelay+190,
+          delay:node.delay+ARTIFACT_LAG_MS,incrementalDelay:node.incrementalDelay+190,
         };
         artifacts.push(artifact);
         edges.push({
-          id:'edge:artifact:'+artifact.id,from:node,to:artifact,fromId:node.id,toId:artifact.id,state:sourceState,tone,kind:'artifact',wave:index,
-          delay:artifact.delay-90,incrementalDelay:artifact.incrementalDelay-75,
+          id:'edge:artifact:'+artifact.id,from:node,to:artifact,fromId:node.id,toId:artifact.id,state:sourceState,tone,kind:'artifact',wave:index,depth:nodeDepth,
+          delay:artifact.delay-240,incrementalDelay:artifact.incrementalDelay-75,
         });
       }
     });
@@ -548,7 +602,7 @@ function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().val
 
 function canvasFooter(doc,text){
   const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});
-  footer.append(element(doc,'span',{text:'◉ Click bubble = glow / inspect'}),element(doc,'span',{text:'◎ Click cluster = zoom · Full Graph = reset'}),element(doc,'span',{text}));
+  footer.append(element(doc,'span',{text:'◉ Click bubble = glow / inspect'}),element(doc,'span',{text:'Drag = pan · Wheel = zoom · Cluster = focus · Full Graph = reset'}),element(doc,'span',{text}));
   return footer;
 }
 

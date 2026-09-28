@@ -128,6 +128,9 @@ test('#177 real Scene prefetch can execute a physical Historian resource and onl
   assert.equal(selected.sceneFlow.readModel.state,'PUBLISHED');
   assert.equal(selected.sceneFlow.readModel.sceneId,selection.sceneId);
   assert.equal(selected.sceneFlow.fanOut.ingressStatus,'ADMITTED_FOR_RESULT_BUS');
+  assert.equal(selected.sceneFlow.fanOut.plannerConsidered,true);
+  assert.equal(selected.sceneFlow.fanOut.physicalExecutionCount,fanOut.receipt.physicalExecutionCount);
+  assert.deepEqual(selected.sceneFlow.fanOut.admittedResultIds,fanOut.receipt.admittedResultIds);
   assert.ok(selected.sceneFlow.fanOut.candidateCount>=1);
   assert.ok(['ADMITTED_RESULTS','PUBLISHED_NO_WORK'].includes(selected.sceneFlow.gather.state));
   assert.equal(selected.sceneFlow.contextSeal.state,'SEALED');
@@ -148,10 +151,16 @@ test('#177 assembled real-narrative scenarios preserve Scene semantics through N
     const id='scenario-'+(++n);
     const receipt=ingest(brain,host(extra.activity??HostActivity.USER_SEND,id,content,extra));
     const result=await assemble(brain,native,receipt,{query:content,suffix:id});
+    assert.equal(result.prepared.sceneFanOutIngress.status,'ADMITTED_FOR_RESULT_BUS');
+    assert.equal(result.prepared.sceneFanOutIngress.plannerConsidered,true);
+    assert.equal(result.prepared.sceneFanOutIngress.candidateCount,0);
     assert.equal(result.prepared.contextSealReceipt.sealedState,true);
     assert.equal(result.prepared.promptPlan.turnId,result.selection.turnId);
     assert.equal(result.ui.readScene(result.selection)?.sceneId,result.selection.sceneId);
-    assert.equal(result.ui.readSelectedTurnReceipt(result.selection)?.sceneFences.sceneReadModelMatchesSelection,true);
+    const selected=result.ui.readSelectedTurnReceipt(result.selection);
+    assert.equal(selected?.sceneFences.sceneReadModelMatchesSelection,true);
+    assert.equal(selected?.sceneFlow.fanOut.state,'NO_WORK');
+    assert.equal(selected?.sceneFlow.fanOut.ingressStatus,'ADMITTED_FOR_RESULT_BUS');
     return{receipt,...result};
   };
 

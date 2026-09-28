@@ -26,7 +26,7 @@ function snapshot(){
       },
       pipeline:{mappingReceipt:true,logicalJobsMapped:6,mappedResourceCount:1,executionReceipt:true,physicalExecutionAttempts:1,physicalExecutionSucceeded:1,physicalExecutionFailed:0,promptPlanReceipt:true,deliveryReceipt:true,hostDeliveryReceipt:true,hostDeliveryState:'MODEL_REQUEST_PAYLOAD_INJECTED',learningReceipt:true,learningKind:'LearningReceipt'},
     },
-    diagnostics:{resources:{rows:[{id:'resource:one',displayName:'One resource',providerId:'provider:one',modelId:'model:one',workerId:'worker:one',physicalExecutionAttempted:true,physicalExecutionSucceeded:true,lastExecution:{status:'SUCCESS',executionId:'exec:1',latencyMs:42},apiKey:'DO_NOT_PERSIST_KEY'}]}},
+    diagnostics:{resources:{rows:[{id:'resource:one',displayName:'One resource',providerId:'provider:one',modelId:'model:one',workerId:'worker:one',physicalExecutionAttempted:true,physicalExecutionSucceeded:true,lastExecution:{status:'SUCCESS',executionId:'exec:1',latencyMs:42,selection},apiKey:'DO_NOT_PERSIST_KEY'}]}},
     cognition:{data:{
       scatter:{receiptId:'scatter:demo',jobs,rawPrompt:'DO_NOT_PERSIST_PROMPT'},
       gather:{receiptId:'gather:demo',state:'COMPLETE',counts:{ADMITTED:1,LATE:1,STALE:0,REJECTED:0,INVALID:0},results:[

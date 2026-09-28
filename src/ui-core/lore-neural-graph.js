@@ -33,7 +33,7 @@ export function renderLoreNeuralWorkspace(doc,{
   const left=renderStudyRail(doc,{data,source,counts,progress,selected});
   const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode});
   const right=renderLoreInsightRail(doc,{data,selected,progress,renderState});
-  root.append(left,center,right);
+  root.append(center,left,right);
   root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
   return root;
 }
@@ -105,15 +105,9 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const systemReduced=prefersReducedMotion(doc),motionPolicy=resolveMotionPolicy(motionMode,{systemReduced}),nativeMotion=motionPolicy.enabled;
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
   const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
-  const title=element(doc,'div');
-  title.append(
-    element(doc,'span',{className:'a52-eyebrow',text:'WORLD TREE'}),
-    element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Your World'}),
-    element(doc,'p',{className:'a52-muted a52-world-tree-subtitle',text:"Your world's memory, visualized."})
-  );
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
-  title.append(badge);
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
+  headActions.append(badge);
   const search=element(doc,'input',{className:'a52-world-tree-search',attrs:{type:'search',placeholder:'Search world tree…','aria-label':'Search world tree',disabled:'disabled',title:'World Tree search · planned'}});
   headActions.append(search);
   const futureActions=element(doc,'div',{className:'a52-lore-future-actions',attrs:{'aria-label':'Future World Tree tools'}});
@@ -139,7 +133,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     }}));
   }
   headActions.append(viewActions);
-  head.append(title,headActions);panelRoot.append(head);
+  head.append(headActions);panelRoot.append(head);
 
   const canvas=element(doc,'div',{className:'a52-lore-neural-canvas'});
   if(!entries.length||!graphActive){

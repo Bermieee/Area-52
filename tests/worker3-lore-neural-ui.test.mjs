@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
-import { FakeDocument } from './fixtures/wave4-synthetic-extension.mjs';
+import { renderLoreStudySurface } from '../src/ui-core/wave13-operator-surfaces.js';
+import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
 function walk(node){return[node,...(node?.children??[]).flatMap(walk)];}
 function textOf(node){return walk(node).map(x=>x.textContent??'').join(' ');}
@@ -82,6 +83,33 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.equal(inspected[0].kind,'area52-lore-source-node');
   assert.equal(inspected[0].authority,'LORE_OWNER');
   assert.ok(['STUDYING','READY','ACCEPTED','FAILED'].includes(inspected[0].payload.operatorState));
+});
+
+test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
+  const d=new FakeDocument(),host=new FakeNode('section',d);
+  let listener=null,releases=0,refreshes=0,timeouts=0,pending=null;
+  const scope={
+    add(cleanup){this.cleanup=cleanup;return cleanup;},
+    listen(){},
+    timeout(callback){timeouts+=1;pending=callback;return callback;},
+  };
+  const loreStudy={
+    capabilities:()=>({read:true,discover:true,accept:true,run:true,retry:false,summaries:false,subscribe:true}),
+    read:()=>({source:{operationalState:'WORKING',health:'WORKING',statusToken:'observed',impact:'Study active.'},data:emptyData()}),
+    selectedLorebook:()=>({selection:{selected:true,lorebookId:'moon',title:'Moon Harbor'},snapshot:{id:'moon',title:'Moon Harbor',entries:[{uid:'one',content:'One.'}]}}),
+    summaries:()=>null,
+    subscribe(fn){listener=fn;return()=>{releases+=1;};},
+    discoverSelectedLorebook:async()=>null,
+  };
+  renderLoreStudySurface(host,{loreStudy,actionRouter:{route:async()=>({ok:true})},scope,refresh:()=>{refreshes+=1;},notifications:null,productAdapter:null});
+  assert.equal(typeof listener,'function');
+  listener({kind:'LORE_UPDATED'});listener({kind:'LORE_UPDATED'});
+  assert.equal(timeouts,1);
+  assert.equal(refreshes,0);
+  pending();
+  assert.equal(refreshes,1);
+  scope.cleanup();
+  assert.equal(releases,1);
 });
 
 test('Lore neural animation is CSS-only bounded and respects reduced motion',()=>{

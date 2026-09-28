@@ -1149,6 +1149,11 @@ export class DevelopmentDeploymentSillyTavernSession {
         failedLiveAttempt: clone(failedLiveJevExecution ?? null),
       },
       loreStatus: clone(this.brain.readLoreStatus?.() ?? null),
+      sceneMemoryLifecycle:{
+        diagnostics:clone(this.brain.diagnostics?.()?.sceneMemory??null),
+        receipts:clone(this.brain.readSceneMemoryLifecycleReceipts?.({limit:100})??[]),
+        rawStoryTextCaptured:false,providerBodiesCaptured:false,credentialsCaptured:false,hiddenReasoningCaptured:false,
+      },
       operatorReview: this.operatorReview,
       operatorLiveChecksCaptured,
       ui: uiDiagnostics,

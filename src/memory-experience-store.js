@@ -45,13 +45,14 @@ export class MemoryExperienceStore {
     return this.graph.appendEvidence({...input,kind:input.kind??MemoryArtifactKind.EXPERIENCE});
   }
 
-  ingestSceneExperience(proposal,{summary=null,participants=[],knownBy=[],significance=0.5,timeStart=null,timeEnd=null,bridgeResolution=null}={}) {
+  ingestSceneExperience(proposal,{chatId=null,turnId=null,generationId=null,correlationId=null,summary=null,participants=[],knownBy=[],significance=0.5,timeStart=null,timeEnd=null,bridgeResolution=null}={}) {
     if (!proposal || proposal.kind!=='SceneExperienceProposal') throw new TypeError('SceneExperienceProposal required');
     if (proposal.contractVersion!=='1.0.0') throw new Error('MEMORY_SCENE_HANDOFF_CONTRACT_MISMATCH:'+String(proposal.contractVersion));
     if (proposal.authorityGranted || proposal.memoryMutationAuthority || proposal.settlementAuthority) throw new Error('MEMORY_SCENE_HANDOFF_AUTHORITY_VIOLATION');
     const logicalId=proposal.sceneEpisodeRef?.artifactId??proposal.sceneEpisodeRef?.id??('scene:'+proposal.sceneId);
     return this.publishEpisode({
       logicalId,
+      chatId,turnId,generationId,correlationId,
       sceneId:proposal.sceneId,
       sceneRevision:Number(proposal.sceneRevision),
       sourceRevisionRefs:bridgeResolution?.memorySourceRevisionRefs??proposal.sourceRevisionRefs??[],

@@ -22,10 +22,22 @@ export const SceneCoreHandlingReason=Object.freeze({
  AUTHORITY_VIOLATION:'SCENE_AUTHORITY_VIOLATION',CONTRACT_INCOMPATIBLE:'SCENE_CONTRACT_INCOMPATIBLE',MALFORMED:'SCENE_ARTIFACT_MALFORMED',
  BOUNDARY_CANDIDATE_ONLY:'SCENE_BOUNDARY_CANDIDATE_ONLY',EVENT_DIAGNOSTIC_ONLY:'SCENE_EVENT_DIAGNOSTIC_ONLY',
  SEALED_TURN_NEXT_ONLY:'SCENE_EVENT_AFTER_SEAL_NEXT_TURN_ONLY',
+ HANDOFF_APPLIED:'SCENE_TRANSITION_HANDOFF_APPLIED',HANDOFF_INVALIDATED:'SCENE_TRANSITION_HANDOFF_INVALIDATED',
 });
 const REL=new Set(['CONTINUES','PRECEDES','PARALLEL_TO','FLASHBACK_OF','INTERRUPTS','RESUMES','ISOLATED',null,undefined]);
-const initial=chatNamespace=>({chatNamespace,sceneId:null,sceneRevision:0,sourceRevisionRefs:[],provenanceRefs:[],relationship:null,narrativeTime:null,location:null,activeAnchorIds:[],mentionedOnlyIds:[],activeObjectIds:[],lastEventType:null,lastReceiptId:null,lastInvalidationId:null,invalidatedScopes:[],invalidationEpoch:0,retrievalRequired:false,cognitiveNeeds:[],retired:new Map(),fingerprints:new Map(),invalidations:new Set(),lastSealedSceneId:null,lastSealedSceneRevision:0,counters:{signals:0,events:0,invalidations:0,applied:0,noChange:0,duplicates:0,stale:0,rejected:0,lateAfterSeal:0}});
-const snap=s=>frozen({kind:'SceneCoreIntegrationState',chatNamespace:s.chatNamespace,sceneId:s.sceneId,sceneRevision:s.sceneRevision,sourceRevisionRefs:s.sourceRevisionRefs,provenanceRefs:s.provenanceRefs,sceneRelationship:s.relationship,narrativeTime:s.narrativeTime,location:s.location,activeAnchorIds:s.activeAnchorIds,mentionedOnlyIds:s.mentionedOnlyIds,activeObjectIds:s.activeObjectIds,lastEventType:s.lastEventType,lastReceiptId:s.lastReceiptId,lastInvalidationId:s.lastInvalidationId,invalidatedScopes:s.invalidatedScopes,contextInvalidationEpoch:s.invalidationEpoch,retrievalRequired:s.retrievalRequired,cognitiveNeeds:s.cognitiveNeeds,lastSealedSceneId:s.lastSealedSceneId,lastSealedSceneRevision:s.lastSealedSceneRevision,counters:s.counters,authority:'DESCRIPTIVE_ONLY',canonicalMutationAuthority:false,settlementAuthority:false,contextSealBypass:false});
+const initial=chatNamespace=>({chatNamespace,sceneId:null,sceneRevision:0,sourceRevisionRefs:[],provenanceRefs:[],relationship:null,narrativeTime:null,location:null,activeAnchorIds:[],mentionedOnlyIds:[],activeObjectIds:[],transitionHandoff:null,handoffFingerprints:new Map(),invalidatedHandoffIds:new Set(),lastEventType:null,lastReceiptId:null,lastInvalidationId:null,invalidatedScopes:[],invalidationEpoch:0,retrievalRequired:false,cognitiveNeeds:[],retired:new Map(),fingerprints:new Map(),invalidations:new Set(),lastSealedSceneId:null,lastSealedSceneRevision:0,counters:{signals:0,events:0,invalidations:0,applied:0,noChange:0,duplicates:0,stale:0,rejected:0,lateAfterSeal:0}});
+const handoffView=h=>{
+ if(!h)return null;
+ const safe=clone(h);
+ if(safe.continuity){
+  const summary=String(safe.continuity.compactPriorSceneSummary??'');
+  safe.continuity.compactSummaryAvailable=Boolean(summary.trim());
+  safe.continuity.compactSummaryLength=summary.length;
+  delete safe.continuity.compactPriorSceneSummary;
+ }
+ return safe;
+};
+const snap=s=>frozen({kind:'SceneCoreIntegrationState',chatNamespace:s.chatNamespace,sceneId:s.sceneId,sceneRevision:s.sceneRevision,sourceRevisionRefs:s.sourceRevisionRefs,provenanceRefs:s.provenanceRefs,sceneRelationship:s.relationship,narrativeTime:s.narrativeTime,location:s.location,activeAnchorIds:s.activeAnchorIds,mentionedOnlyIds:s.mentionedOnlyIds,activeObjectIds:s.activeObjectIds,transitionHandoff:handoffView(s.transitionHandoff),lastEventType:s.lastEventType,lastReceiptId:s.lastReceiptId,lastInvalidationId:s.lastInvalidationId,invalidatedScopes:s.invalidatedScopes,contextInvalidationEpoch:s.invalidationEpoch,retrievalRequired:s.retrievalRequired,cognitiveNeeds:s.cognitiveNeeds,lastSealedSceneId:s.lastSealedSceneId,lastSealedSceneRevision:s.lastSealedSceneRevision,counters:s.counters,authority:'DESCRIPTIVE_ONLY',canonicalMutationAuthority:false,settlementAuthority:false,contextSealBypass:false});
 
 function signalFacts(x){
  const active=uniq((x.activeCast??[]).filter(v=>presence(v)!=='MENTIONED_ONLY').map(idOf).filter(Boolean));
@@ -61,6 +73,14 @@ function validInvalidation(x){
  if(one(x.contractVersion)!=='1')return SceneCoreHandlingReason.CONTRACT_INCOMPATIBLE;
  if(authorityViolation(x)||x.deleteEvidence!==false)return SceneCoreHandlingReason.AUTHORITY_VIOLATION;
  if(!obj(x.fromSceneRef)||!obj(x.toSceneRef)||!x.fromSceneRef.sceneId||!x.toSceneRef.sceneId||!Number.isInteger(Number(x.fromSceneRef.sceneRevision))||!Number.isInteger(Number(x.toSceneRef.sceneRevision)))return SceneCoreHandlingReason.MALFORMED;
+ return null;
+}
+function validHandoff(x){
+ if(!obj(x)||x.kind!=='SceneTransitionContextHandoff')return SceneCoreHandlingReason.MALFORMED;
+ if(one(x.contractVersion)!=='1')return SceneCoreHandlingReason.CONTRACT_INCOMPATIBLE;
+ if(authorityViolation(x)||authorityViolation(x.continuity)||x.promptInclusionAuthority===true||x.rawDialogueDeletionAuthority===true||x.contextSealAuthority===true||x.continuity?.promptInclusionAuthority===true||x.continuity?.rawDialogueDeletionAuthority===true||x.continuity?.contextSealAuthority===true)return SceneCoreHandlingReason.AUTHORITY_VIOLATION;
+ if(!obj(x.fromSceneRef)||!obj(x.toSceneRef)||!x.handoffId||!x.fromSceneRef.sceneId||!x.toSceneRef.sceneId||!Number.isInteger(Number(x.fromSceneRef.sceneRevision))||!Number.isInteger(Number(x.toSceneRef.sceneRevision)))return SceneCoreHandlingReason.MALFORMED;
+ if(!['ACTIVE','INVALIDATED'].includes(String(x.status??'')))return SceneCoreHandlingReason.MALFORMED;
  return null;
 }
 
@@ -116,6 +136,28 @@ export class SceneCoreIntegrationBridge{
   s.sourceRevisionRefs=uniq([...s.sourceRevisionRefs,...sources]);s.provenanceRefs=uniq([...s.provenanceRefs,...prov]);s.lastEventType=event.eventType;s.counters.events++;
   return this.#receipt(s,{artifactKind:'SceneEvent',artifactId:event.eventId,status:hot.status,sceneId,sceneRevision,eventType:event.eventType,sourceRevisionRefs:sources,provenanceRefs:prov,reasonCode:sealed?SceneCoreHandlingReason.SEALED_TURN_NEXT_ONLY:reason,hotReceipt:hot,details:{...details,lateForSealedTurn:Boolean(sealed),sealedTurnDisposition:sealed?'NEXT_TURN_ONLY':'ACTIVE_OR_FUTURE'}});
  }
+ consumeTransitionHandoff(handoff,{chatNamespace=this.core.hotCognition?.activeChatNamespace}={}){
+  const s=this.#state(chatNamespace),bad=validHandoff(handoff),artifactId=handoff?.handoffId??null;
+  if(bad)return this.#reject(s,{artifactKind:'SceneTransitionContextHandoff',artifactId,sceneId:handoff?.toSceneRef?.sceneId,sceneRevision:handoff?.toSceneRef?.sceneRevision,reasonCode:bad});
+  if(handoff.status==='INVALIDATED'){
+   const matched=s.transitionHandoff?.handoffId===handoff.handoffId;
+   if(matched)s.transitionHandoff=null;
+   s.invalidatedHandoffIds.add(handoff.handoffId);while(s.invalidatedHandoffIds.size>this.maxDedupe)s.invalidatedHandoffIds.delete(s.invalidatedHandoffIds.values().next().value);
+   return this.#receipt(s,{artifactKind:'SceneTransitionContextHandoff',artifactId:handoff.handoffId,status:matched?HotUpdateStatus.APPLIED:HotUpdateStatus.NO_CHANGE,sceneId:handoff.toSceneRef.sceneId,sceneRevision:handoff.toSceneRef.sceneRevision,sourceRevisionRefs:handoff.sourceRevisionRefs??[],provenanceRefs:handoff.evidenceRefs??[],reasonCode:SceneCoreHandlingReason.HANDOFF_INVALIDATED,hotReceipt:{status:matched?HotUpdateStatus.APPLIED:HotUpdateStatus.NO_CHANGE},details:{handoffStatus:'INVALIDATED',dependentOnly:true,historyPreserved:true}});
+  }
+  if(s.invalidatedHandoffIds.has(handoff.handoffId))return this.#stale(s,{artifactKind:'SceneTransitionContextHandoff',artifactId:handoff.handoffId,sceneId:handoff.toSceneRef.sceneId,sceneRevision:handoff.toSceneRef.sceneRevision,sourceRevisionRefs:handoff.sourceRevisionRefs??[],provenanceRefs:handoff.evidenceRefs??[],reasonCode:SceneCoreHandlingReason.STALE_REVISION});
+  const target=handoff.toSceneRef,currentRevision=Number(s.sceneRevision),targetRevision=Number(target.sceneRevision),expiry=Number(handoff.expiryRevision??targetRevision);
+  if(s.sceneId!==target.sceneId||currentRevision<targetRevision||currentRevision>expiry)return this.#stale(s,{artifactKind:'SceneTransitionContextHandoff',artifactId:handoff.handoffId,sceneId:target.sceneId,sceneRevision:targetRevision,sourceRevisionRefs:handoff.sourceRevisionRefs??[],provenanceRefs:handoff.evidenceRefs??[],reasonCode:SceneCoreHandlingReason.STALE_REVISION});
+  const fp=stableHash(handoff,{length:24}),prior=s.handoffFingerprints.get(handoff.handoffId);
+  if(prior)return prior===fp?this.#duplicate(s,{artifactKind:'SceneTransitionContextHandoff',artifactId:handoff.handoffId,sceneId:target.sceneId,sceneRevision:targetRevision,sourceRevisionRefs:handoff.sourceRevisionRefs??[],provenanceRefs:handoff.evidenceRefs??[]}):this.#reject(s,{artifactKind:'SceneTransitionContextHandoff',artifactId:handoff.handoffId,sceneId:target.sceneId,sceneRevision:targetRevision,sourceRevisionRefs:handoff.sourceRevisionRefs??[],provenanceRefs:handoff.evidenceRefs??[],reasonCode:SceneCoreHandlingReason.SAME_REVISION_CONFLICT});
+  s.handoffFingerprints.set(handoff.handoffId,fp);this.#capMap(s.handoffFingerprints);s.transitionHandoff=clone(handoff);
+  return this.#receipt(s,{artifactKind:'SceneTransitionContextHandoff',artifactId:handoff.handoffId,status:HotUpdateStatus.APPLIED,sceneId:target.sceneId,sceneRevision:targetRevision,sourceRevisionRefs:handoff.sourceRevisionRefs??[],provenanceRefs:handoff.evidenceRefs??[],reasonCode:SceneCoreHandlingReason.HANDOFF_APPLIED,hotReceipt:{status:HotUpdateStatus.APPLIED},details:{relationship:handoff.relationship??null,episodeRef:clone(handoff.continuity?.episodeRef??null),recentTailRefs:[...(handoff.continuity?.recentTailRefs??[])],rawDialogueDeletionAuthority:false,promptInclusionAuthority:false,historyPreserved:true}});
+ }
+ transitionContext(chatNamespace=this.core.hotCognition?.activeChatNamespace){
+  const s=this.states.get(String(chatNamespace??'')),h=s?.transitionHandoff;if(!s||!h||h.status!=='ACTIVE')return null;
+  if(s.sceneId!==h.toSceneRef?.sceneId||Number(s.sceneRevision)<Number(h.toSceneRef?.sceneRevision)||Number(s.sceneRevision)>Number(h.expiryRevision??h.toSceneRef?.sceneRevision))return null;
+  return frozen(h);
+ }
  consumeInvalidation(x,{chatNamespace=this.core.hotCognition?.activeChatNamespace}={}){
   const s=this.#state(chatNamespace),bad=validInvalidation(x);if(bad)return this.#reject(s,{artifactKind:'SceneContextInvalidationSignal',artifactId:x?.invalidationId,sceneId:x?.toSceneRef?.sceneId,sceneRevision:x?.toSceneRef?.sceneRevision,reasonCode:bad});
   if(s.invalidations.has(x.invalidationId))return this.#duplicate(s,{artifactKind:'SceneContextInvalidationSignal',artifactId:x.invalidationId,sceneId:x.toSceneRef.sceneId,sceneRevision:x.toSceneRef.sceneRevision,sourceRevisionRefs:x.sourceRevisionRefs,provenanceRefs:x.evidenceRefs});
@@ -125,7 +167,7 @@ export class SceneCoreIntegrationBridge{
   const satisfied=s.sceneId===to.sceneId&&s.sceneRevision===Number(to.sceneRevision),affected=satisfied?[]:this.#segments(x.invalidatedScopes),hot=affected.length?this.core.hotCognition.invalidateKnowledge({chatNamespace:s.chatNamespace,updateId:'scene-context:'+x.invalidationId,affectedSegments:affected,reason:'SCENE_CONTEXT_INVALIDATION:'+(x.reason??'SCENE_TRANSITION')}):{status:HotUpdateStatus.NO_CHANGE,invalidatedSegments:[]};
   return this.#receipt(s,{artifactKind:'SceneContextInvalidationSignal',artifactId:x.invalidationId,status:hot.status,sceneId:to.sceneId,sceneRevision:to.sceneRevision,eventType:'SCENE_CONTEXT_INVALIDATION',sourceRevisionRefs:uniq(x.sourceRevisionRefs??[]),provenanceRefs:uniq(x.evidenceRefs??[]),reasonCode:satisfied?SceneCoreHandlingReason.INVALIDATION_ALREADY_SATISFIED:SceneCoreHandlingReason.INVALIDATION_APPLIED,hotReceipt:hot,details:{fromSceneRef:clone(from),toSceneRef:clone(to),relationship:x.relationship,invalidatedScopes:s.invalidatedScopes,deleteEvidence:false,satisfiedByFreshTarget:satisfied}});
  }
- publicationTrace(chatNamespace=this.core.hotCognition?.activeChatNamespace){const s=this.states.get(String(chatNamespace??''));return !s?.sceneId?null:frozen({kind:'SceneCorePublicationTrace',sceneId:s.sceneId,sceneRevision:s.sceneRevision,sourceRevisionRefs:s.sourceRevisionRefs,provenanceRefs:s.provenanceRefs,sceneRelationship:s.relationship,narrativeTime:s.narrativeTime,activeAnchorIds:s.activeAnchorIds,mentionedOnlyIds:s.mentionedOnlyIds,activeObjectIds:s.activeObjectIds,contextInvalidationEpoch:s.invalidationEpoch,lastInvalidationId:s.lastInvalidationId,invalidatedScopes:s.invalidatedScopes,retrievalRequired:s.retrievalRequired,cognitiveNeeds:s.cognitiveNeeds,lastEventType:s.lastEventType,lastReceiptId:s.lastReceiptId,authority:'DESCRIPTIVE_ONLY',truthAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealBypass:false});}
+ publicationTrace(chatNamespace=this.core.hotCognition?.activeChatNamespace){const s=this.states.get(String(chatNamespace??''));return !s?.sceneId?null:frozen({kind:'SceneCorePublicationTrace',sceneId:s.sceneId,sceneRevision:s.sceneRevision,sourceRevisionRefs:s.sourceRevisionRefs,provenanceRefs:s.provenanceRefs,sceneRelationship:s.relationship,narrativeTime:s.narrativeTime,activeAnchorIds:s.activeAnchorIds,mentionedOnlyIds:s.mentionedOnlyIds,activeObjectIds:s.activeObjectIds,transitionHandoff:handoffView(s.transitionHandoff),contextInvalidationEpoch:s.invalidationEpoch,lastInvalidationId:s.lastInvalidationId,invalidatedScopes:s.invalidatedScopes,retrievalRequired:s.retrievalRequired,cognitiveNeeds:s.cognitiveNeeds,lastEventType:s.lastEventType,lastReceiptId:s.lastReceiptId,authority:'DESCRIPTIVE_ONLY',truthAuthority:false,settlementAuthority:false,canonicalMutationAuthority:false,contextSealBypass:false});}
  noteSeal({chatNamespace=this.core.hotCognition?.activeChatNamespace,sealReceipt}={}){const s=this.states.get(String(chatNamespace??''));if(!s||!sealReceipt||Number(sealReceipt.sceneRevision)!==s.sceneRevision)return s?snap(s):null;s.lastSealedSceneId=s.sceneId;s.lastSealedSceneRevision=s.sceneRevision;s.retrievalRequired=false;return snap(s);}
  snapshot(chatNamespace=this.core.hotCognition?.activeChatNamespace){const s=this.states.get(String(chatNamespace??''));return s?snap(s):null;}
  diagnostics(chatNamespace=this.core.hotCognition?.activeChatNamespace){return frozen({kind:'SceneCoreIntegrationDiagnostics',state:this.snapshot(chatNamespace),recentReceipts:this.receipts.slice(-32),retainsNarrativeEvidence:false,readOnly:true,mutationAuthority:false});}

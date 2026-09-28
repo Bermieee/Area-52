@@ -203,7 +203,7 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
             edgeMeaning:String(row.edgeType??'SCENE_RELATED'),
             sourceKind:'SCENE_OWNER',
             temporalStatus:temporalStatusFor(row),
-            temporal:clone(row.temporalApplicability??null),
+            temporal:{...(clone(row.temporalApplicability??{})??{}),sourceSceneRevision:row.sceneRevision??null,edgeStatus:row.status??'ACTIVE'},
             authorityClass:row.authorityClass??(['EVIDENCE_CAUSES','EVIDENCE_SUPPORTS'].includes(String(row.edgeType))?'INFERRED':'OBSERVED'),
             sourceRevisionRefs:refs,
             dependencyRevisionRefs:bounded([...(row.derivedFrom??[]),...(row.sourceRevisionRefs??[])],32),
@@ -219,7 +219,7 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
             representationText:row.observedState?['Scene',sceneIds[0]??'',String(row.edgeType),String(row.fromRef??row.fromSceneId??''),JSON.stringify(row.observedState)].join(' '):null,
             hardRule:false,
             providerWeight:1,
-            sceneRevision:row.sceneRevision??null,
+            sceneRevision:Number(request.sceneRevision??0),
             status:row.status??'ACTIVE',
           });
           if(edges.length>=maxEdges)break;

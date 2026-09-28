@@ -83,8 +83,17 @@ function fakeNativeBrain(){
       const prepared=await this.prepareTurn(input);
       const response=await generate(prepared.rendered,{selection:prepared.selection,promptPlan:prepared.promptPlan,contextSealReceipt:prepared.contextSealReceipt});
       const learning=await this.completeTurn({turnId:input.turnId,response,...completeOptions});
-      return{prepared,response,learning};
+      const completion={
+        kind:'NativeBrainResponseCompletionReceipt',status:'COMPLETED',
+        chatId:prepared.selection.chatId,turnId:prepared.selection.turnId,generationId:prepared.selection.generationId,correlationId:prepared.selection.correlationId,
+        contextSealId:prepared.contextSealReceipt.id,sourceRevisionId:learning.sourceRevisionId,foregroundWaitMs:1,learningScheduled:true,
+        responseRecordedBeforeBackgroundExecution:true,sealedGenerationImmutable:true,
+      };
+      learning.responseCompletion=completion;
+      learning.learningLifecycle={status:'SCHEDULED',backgroundPending:true,tasks:[],foregroundWaitMs:1,backgroundExecutionMs:null};
+      return{prepared,response,completion,learning};
     },
+    startBackgroundLearning(){return{kind:'NativeBrainBackgroundLearningStartReceipt',status:'SCHEDULED',existingRuntime:true,newQueueCreated:false};},
     snapshot(){return{kind:'FakeNativeBrainSnapshot',turns:calls.complete.length};},
     uiBindings(){
       const empty=()=>null;
@@ -308,15 +317,16 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   const assistantIndex=pushAssistant(context,'The lantern reflects from the sealed compass while the observatory remains quiet.');
   await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
 
-  const learned=ui.readGeneration({generationId:selection.generationId,...selection});
-  assert.equal(learned.state,'LEARNED');
-  assert.equal(learned.learningReceipt?.kind,'NativeBrainLearningReceipt');
-  assert.equal(learned.learningReceipt?.turnId,selection.turnId);
-  assert.ok(learned.learningReceipt?.sourceRevisionId);
+  const completed=ui.readGeneration({generationId:selection.generationId,...selection});
+  assert.ok(['RESPONSE_COMPLETED','LEARNED'].includes(completed.state));
+  assert.equal(completed.responseCompletion?.status,'COMPLETED');
+  assert.equal(completed.learningReceipt?.kind,'NativeBrainLearningReceipt');
+  assert.equal(completed.learningReceipt?.turnId,selection.turnId);
+  assert.ok(completed.learningReceipt?.sourceRevisionId);
 
   const evidence=session.exportEvidence();
   assert.equal(evidence.nativeBrainIntegration.ownerAvailable,true);
-  assert.ok(evidence.nativeBrainIntegration.learnedCount>=1);
+  assert.ok(evidence.nativeBrainIntegration.responseCompletedCount>=1);
   assert.equal(evidence.errors.some(row=>['NATIVE_PREPARE','NATIVE_MODEL_REQUEST','NATIVE_COMPLETE'].includes(row.stage)),false);
 
   session.stop();

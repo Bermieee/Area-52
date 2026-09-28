@@ -73,22 +73,7 @@
 .a52-lore-neural-canvas-head__actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
 .a52-lore-neural-canvas-head__actions .a52-button{min-height:28px;padding:5px 9px;border-color:rgba(72,190,237,.28);background:rgba(20,91,129,.12)}
 .a52-lore-neural-canvas-head__actions .a52-button:hover{border-color:rgba(79,210,255,.44);background:rgba(26,120,168,.16)}
-.a52-lore-motion-select{
-  min-height:28px;
-  padding:4px 24px 4px 8px;
-  border:1px solid rgba(72,190,237,.28);
-  border-radius:6px;
-  background:#071926;
-  color:#cfe8f3;
-  font:inherit;
-  font-size:.58rem;
-  cursor:pointer;
-}
-.a52-lore-motion-select:hover,.a52-lore-motion-select:focus{
-  border-color:rgba(79,210,255,.46);
-  outline:none;
-  box-shadow:0 0 0 2px rgba(59,185,233,.08);
-}
+
 .a52-lore-neural-panel__head p{margin:2px 0 0;font-size:.56rem;line-height:1.25}
 .a52-lore-neural-panel__icon{
   display:grid;

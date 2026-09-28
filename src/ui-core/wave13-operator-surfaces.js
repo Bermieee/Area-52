@@ -503,7 +503,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
 
 export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,scope,refresh}={}){
   const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
-  root.append(header(d,'Settings','Display and density preferences only. Runtime telemetry, evidence, errors, resources, Lore/Memory status, and performance live in Diagnostics.'));
+  root.append(header(d,'Settings','Area-52 display, motion, and density preferences. Runtime telemetry, evidence, errors, resources, Lore/Memory status, and performance live in Diagnostics.'));
   const detail=element(d,'section',{className:'a52-wave13-settings__group'});
   detail.append(element(d,'strong',{text:'Detail level'}),element(d,'p',{className:'a52-muted',text:'Normal keeps product pages concise; Detail and Advanced progressively expose more owner-backed evidence on the pages where it belongs.'}));
   const detailActions=element(d,'div',{className:'a52-wave13-resource-actions'});
@@ -520,6 +520,21 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
     button.setAttribute('aria-pressed',String(state.frontFaceDensity===density));displayActions.append(button);
   }
   display.append(displayActions);root.append(display);
+  const motion=element(d,'section',{className:'a52-wave13-settings__group'});
+  motion.append(
+    element(d,'strong',{text:'Motion & animation'}),
+    element(d,'p',{className:'a52-muted',text:'Full is the Area-52 default and ignores the operating system reduced-motion preference. Switch to System or Reduced if animation causes accessibility or performance issues.'})
+  );
+  const motionActions=element(d,'div',{className:'a52-wave13-resource-actions'});
+  const motionMode=state.motionMode??'FULL';
+  for(const [mode,labelText] of [['FULL','Full (recommended)'],['SYSTEM','System'],['REDUCED','Reduced']]){
+    const button=createButton(d,{label:labelText,scope,size:'sm',onPress:()=>{frontFacePresentation?.setMotionMode?.(mode);refresh?.();}});
+    button.setAttribute('aria-pressed',String(motionMode===mode));
+    button.dataset.motionMode=mode;
+    motionActions.append(button);
+  }
+  motion.append(motionActions,element(d,'p',{className:'a52-muted',text:motionMode==='FULL'?'Area-52 animations run even when Windows/browser reduced-motion is enabled.':motionMode==='SYSTEM'?'Area-52 follows the operating system/browser motion preference.':'Nonessential Area-52 animations are suppressed.'}));
+  root.append(motion);
   host.append(root);
 }
 export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,inspect,navigate,detailLevel=ProductDetailLevel.NORMAL}={}){
@@ -903,8 +918,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
   host.append(form);
 
-  const loreMotionMode=frontFacePresentation?.get?.().loreMotionMode??'SYSTEM';
-  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode:loreMotionMode,onMotionModeChange:mode=>frontFacePresentation?.setLoreMotionMode?.(mode)}));
+  const motionMode=frontFacePresentation?.get?.().motionMode??'FULL';
+  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode}));
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});

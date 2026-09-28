@@ -631,9 +631,15 @@ test('each product workspace keeps an independent scroll position while the pane
   ui.destroy();
 });
 
-test('Settings is a labeled product workspace with explicit display controls',()=>{
+test('Settings is a labeled product workspace with global Full-first motion controls',()=>{
   const owner=liveOwner(),{ui}=mount(owner);ui.shell.selectWorkspace('settings');ui.scheduler.flush(1);
-  const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Resize/);assert.match(body,/telemetry.*Diagnostics/i);assert.doesNotMatch(body,/Show inspector|Hide inspector|Open Diagnostics/);
+  const body=textOf(ui.shell.nodes.workspace);
+  assert.match(body,/Settings/);assert.match(body,/Detail level/);assert.match(body,/Panel display/);assert.match(body,/Motion & animation/);assert.match(body,/Full \(recommended\)/);assert.match(body,/System/);assert.match(body,/Reduced/);assert.match(body,/ignores the operating system reduced-motion preference/i);assert.match(body,/telemetry.*Diagnostics/i);
+  assert.equal(ui.presentation.get().motionMode,'FULL');
+  const reduced=walk(ui.shell.nodes.workspace).find(node=>node.tagName==='BUTTON'&&node.dataset?.motionMode==='REDUCED');
+  assert.ok(reduced);reduced.dispatch('click');ui.scheduler.flush(2);
+  assert.equal(ui.presentation.get().motionMode,'REDUCED');
+  assert.doesNotMatch(textOf(ui.shell.nodes.workspace),/Show inspector|Hide inspector|Open Diagnostics/);
   ui.destroy();
 });
 

@@ -170,7 +170,9 @@ test('ASSEMBLED_HOST_REQUEST: exact rendered roles, sections, seal identity, res
   assert.equal(completed.phases.providerResponse.turnId,selection.turnId);
   assert.equal(completed.phases.providerResponse.generationId,selection.generationId);
   assert.equal(completed.phases.providerResponse.contextSealId,before.contextSealId);
-  assert.equal(ui.readGeneration({generationId:selection.generationId,...selection}).state,'LEARNED');
+  const generation=ui.readGeneration({generationId:selection.generationId,...selection});
+  assert.ok(['RESPONSE_COMPLETED','LEARNED'].includes(generation.state));
+  assert.equal(generation.responseCompletion?.status,'COMPLETED');
   const detailed=session.loadDiagnostics().generationProfiling.latest;
   assert.equal(detailed.kind,'NativeGenerationDetailedPerformanceProfile');
   assert.equal(detailed.generationId,selection.generationId);

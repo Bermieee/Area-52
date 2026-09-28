@@ -45,10 +45,41 @@ export class GenerationPublicationPipeline {
     if(sceneId!=null)this.sceneId=String(sceneId);this.sceneRevision=Math.max(this.sceneRevision,next);return this.sceneRevision;
   }
 
+  prepareChoice({
+    turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
+    budgetBytes=2500,deadline=null,channelIds=null,perspectiveConstraint=null,candidateBudget=64,latencyBudgetMs=100,
+  }={}){
+    const rawHotSnapshot=this.core.hotCognition?.hasMeaningfulState?.()?this.core.hotCognition.snapshot():null;
+    const sceneTrace=this.core.sceneIntegration?.publicationTrace?.(rawHotSnapshot?.chatNamespace)??null;
+    if(sceneTrace?.sceneId)this.setSceneRevision(sceneTrace.sceneRevision,{sceneId:sceneTrace.sceneId});
+    else if(rawHotSnapshot?.sceneId)this.setSceneRevision(rawHotSnapshot.sceneRevision,{sceneId:rawHotSnapshot.sceneId});
+    else if(rawHotSnapshot?.sceneRevision&&rawHotSnapshot.sceneRevision>this.sceneRevision)this.sceneRevision=rawHotSnapshot.sceneRevision;
+    const worldRevision=this.core.graph.revision,sceneRevision=this.sceneRevision;
+    const hotSnapshot=rawHotSnapshot&&Number(rawHotSnapshot.worldRevision)===Number(worldRevision)&&Number(rawHotSnapshot.sceneRevision)===Number(sceneRevision)?rawHotSnapshot:null;
+    const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
+    const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
+    const inputHash=stableHash({
+      turnId:String(turnId),turnRevision:Number(turnRevision)||0,correlationId:String(correlationId),query:String(query),intent:String(intent),
+      anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,budgetBytes,deadline,channelIds:channelIds?uniq(channelIds):null,
+      sceneId:sceneTrace?.sceneId??rawHotSnapshot?.sceneId??null,sceneReceiptId:sceneTrace?.lastReceiptId??null,retrievalRequired:Boolean(sceneTrace?.retrievalRequired),
+      candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),
+    },{length:24});
+    const choiceSession=this.choice?.begin?.({
+      turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
+      budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
+    })??null;
+    return{
+      kind:'GenerationChoicePreparation',contractVersion:1,turnId:String(turnId),correlationId:String(correlationId),turnRevision:Number(turnRevision)||0,
+      inputHash,worldRevision,sceneRevision,sceneId:sceneTrace?.sceneId??rawHotSnapshot?.sceneId??null,effectiveAnchorEntityIds,
+      hotSnapshotId:hotSnapshot?.snapshotId??null,hotOnly:Boolean(choiceSession?.hotOnly),choiceSession,
+      authorityGranted:false,admissionAuthority:false,contextSealAuthority:false,rawQueryRetained:false,
+    };
+  }
+
   publish({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,perspectiveConstraint=null,
-    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,retrievalIntents=null,externalRetrievalCandidates=[],
+    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,retrievalIntents=null,externalRetrievalCandidates=[],choicePreparation=null,
   }){
     const fingerprint=stableHash({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
@@ -98,11 +129,20 @@ export class GenerationPublicationPipeline {
     }):null;
     const compilerProjection=mergeCompilerProjections(hotProjection,transitionProjection);
     const choiceStarted=perfNow();
-    const choiceSession=this.choice?.begin?.({
+    const choiceInputHash=stableHash({
+      turnId:String(turnId),turnRevision:Number(turnRevision)||0,correlationId:String(correlationId),query:String(query),intent:String(intent),
+      anchorEntityIds:effectiveAnchorEntityIds,worldRevision,sceneRevision,budgetBytes,deadline,channelIds:channelIds?uniq(channelIds):null,
+      sceneId:sceneTrace?.sceneId??rawHotSnapshot?.sceneId??null,sceneReceiptId:sceneTrace?.lastReceiptId??null,retrievalRequired:Boolean(sceneTrace?.retrievalRequired),
+      candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),
+    },{length:24});
+    const preparedChoiceUsable=Boolean(choicePreparation?.choiceSession&&choicePreparation.inputHash===choiceInputHash&&
+      choicePreparation.turnId===String(turnId)&&choicePreparation.correlationId===String(correlationId)&&
+      Number(choicePreparation.worldRevision)===Number(worldRevision)&&Number(choicePreparation.sceneRevision)===Number(sceneRevision));
+    const choiceSession=preparedChoiceUsable?choicePreparation.choiceSession:(this.choice?.begin?.({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
       budgetBytes,deadline,channelIds,channelManifest:this.core.retrieval.manifest(),sceneContext:sceneTrace,candidateBudget,latencyBudgetMs,
-    })??null;
-    recordStage('COGNITIVE_CHOICE',choiceStarted,{inputCount:1,outputCount:choiceSession?1:0,retainedObjectCount:choiceSession?1:0,outcome:choiceSession?.hotOnly?'HOT_SUFFICIENT':choiceSession?'CHOICE_ADMITTED':'CHOICE_UNAVAILABLE'});
+    })??null);
+    recordStage('COGNITIVE_CHOICE',choiceStarted,{inputCount:1,outputCount:choiceSession?1:0,retainedObjectCount:choiceSession?1:0,outcome:choiceSession?.hotOnly?'HOT_SUFFICIENT':preparedChoiceUsable?'CHOICE_PREPARED_PRE_RETRIEVAL':'CHOICE_ADMITTED'});
 
     const requestedRetrievalIntents=(retrievalIntents?.length?retrievalIntents:[{kind:intent,query,entityRefs:effectiveAnchorEntityIds,perspective:perspectiveConstraint,metadata:{...(graphTraversal?{graphTraversal}:{}),publicationFallbackIntent:true}}]);
     const resolvedRetrievalIntents=requestedRetrievalIntents.map((row,index)=>({

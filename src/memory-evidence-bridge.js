@@ -140,12 +140,17 @@ export class MemoryExternalEvidenceBridge{
     );
     const bad=authorityViolation(input);
     if(bad)throw new MemoryEvidenceBridgeError('MEMORY_BRIDGE_AUTHORITY_VIOLATION','Mapping request cannot grant authority',{field:bad});
-    if(input.lateForSealedGeneration===true||input.sealedGeneration===true)throw new MemoryEvidenceBridgeError(
+    const sealedGeneration=input.lateForSealedGeneration===true||input.sealedGeneration===true;
+    const ownerArtifactRef=normalizeArtifactRef(input.ownerArtifactRef);
+    const historicalPostSealAllowed=sealedGeneration
+      &&input.historicalLifecycle===true
+      &&String(input.destination??'').toUpperCase()==='BACKGROUND'
+      &&ownerArtifactRef.owner==='SCENE_INTELLIGENCE'
+      &&ownerArtifactRef.artifactType==='SceneEpisode';
+    if(sealedGeneration&&!historicalPostSealAllowed)throw new MemoryEvidenceBridgeError(
       'MEMORY_BRIDGE_LATE_SEALED_GENERATION',
       'Late sealed-generation material cannot be admitted as current evidence',
     );
-
-    const ownerArtifactRef=normalizeArtifactRef(input.ownerArtifactRef);
     const externalEvidenceRef=requiredString(input.externalEvidenceRef,'externalEvidenceRef');
     const source=input.source??{};
     const sourceId=requiredString(source.sourceId,'source.sourceId');
@@ -259,7 +264,11 @@ export class MemoryExternalEvidenceBridge{
       {identity,limit:MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity},
     );
 
-    const memoryEvidenceId='memory-external-evidence:'+stableHash(sourceId+'|'+sourceRevisionId+'|'+contentHash);
+    const existingEvidenceId=[...this.graph.evidenceOrder].find((id)=>{
+      const row=this.graph.evidenceRecord(id);
+      return row?.sourceRevisionId===sourceRevisionId&&row?.contentHash===contentHash;
+    })??null;
+    const memoryEvidenceId=existingEvidenceId??('memory-external-evidence:'+stableHash(sourceRevisionId+'|'+contentHash));
     const evidence=this.graph.appendEvidence({
       id:memoryEvidenceId,
       sourceId,
@@ -435,7 +444,7 @@ export class MemoryExternalEvidenceBridge{
     return deepClone(record);
   }
 
-  acceptSceneEvent(event,{currentSceneRevision=null,sealedGeneration=false}={}){
+  acceptSceneEvent(event,{currentSceneRevision=null,sealedGeneration=false,historicalLifecycle=false,destination=null}={}){
     if(!event||event.kind!=='CognitiveEventEnvelope')return statusReceipt('MemorySceneOwnerEventReceipt',{
       status:'REJECTED',reasonCode:'MEMORY_BRIDGE_SCENE_EVENT_INVALID',
     });
@@ -450,16 +459,20 @@ export class MemoryExternalEvidenceBridge{
     if(bad)return statusReceipt('MemorySceneOwnerEventReceipt',{
       status:'REJECTED',reasonCode:'MEMORY_BRIDGE_AUTHORITY_VIOLATION',details:{field:bad},
     });
-    if(sealedGeneration)return statusReceipt('MemorySceneOwnerEventReceipt',{
+    const eventType=String(event.eventType??'');
+    const historicalPostSealAllowed=sealedGeneration
+      &&historicalLifecycle===true
+      &&String(destination??'').toUpperCase()==='BACKGROUND'
+      &&['SCENE_BOUNDARY_CONFIRMED','SCENE_EPISODE_READY','SCENE_CLOSED'].includes(eventType);
+    if(sealedGeneration&&!historicalPostSealAllowed)return statusReceipt('MemorySceneOwnerEventReceipt',{
       status:'REJECTED',reasonCode:'MEMORY_BRIDGE_LATE_SEALED_GENERATION',
-      details:{eventId:event.eventId,turnId:event.turnId??null},
+      details:{eventId:event.eventId,turnId:event.turnId??null,destination:destination??null,historicalLifecycle:Boolean(historicalLifecycle)},
     });
     const sceneRevision=positiveRevision(event.sceneRevision,'SceneEvent.sceneRevision');
     if(currentSceneRevision!=null&&sceneRevision!==Number(currentSceneRevision))return statusReceipt('MemorySceneOwnerEventReceipt',{
       status:'STALE',reasonCode:'MEMORY_BRIDGE_SCENE_FENCE_MISMATCH',
       details:{eventSceneRevision:sceneRevision,currentSceneRevision:Number(currentSceneRevision)},
     });
-    const eventType=String(event.eventType??'');
     if(!SCENE_EVENT_TYPES.has(eventType))return statusReceipt('MemorySceneOwnerEventReceipt',{
       status:'IGNORED',reasonCode:'MEMORY_BRIDGE_SCENE_EVENT_NOT_REQUIRED',
       eventId:event.eventId,eventType,
@@ -495,6 +508,8 @@ export class MemoryExternalEvidenceBridge{
       turnId:event.turnId??null,
       fingerprint,
       rawOwnerInput:raw,
+      historicalLifecycleEvidence:historicalLifecycle===true&&String(destination??'').toUpperCase()==='BACKGROUND',
+      destination:destination==null?null:String(destination).toUpperCase(),
       state:'CURRENT',
       createdSequence:++this.eventSequence,
     };
@@ -521,7 +536,7 @@ export class MemoryExternalEvidenceBridge{
     const eventId=this.boundaryBySceneRevision.get(sceneKey(proposal.sceneId,proposal.sceneRevision));
     const row=eventId?this.sceneEvents.get(eventId):null;
     if(!row)return {ok:false,reasonCode:'MEMORY_BRIDGE_SCENE_BOUNDARY_UNCONFIRMED'};
-    if(row.sourceRevisionRefs.some((ref)=>!this.graph.isSourceRevisionActive(ref)))return {
+    if(!row.historicalLifecycleEvidence&&row.sourceRevisionRefs.some((ref)=>!this.graph.isSourceRevisionActive(ref)))return {
       ok:false,reasonCode:'MEMORY_BRIDGE_SCENE_BOUNDARY_STALE',eventId:row.eventId,
     };
     return {ok:true,event:deepClone(row)};

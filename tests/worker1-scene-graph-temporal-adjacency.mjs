@@ -109,6 +109,7 @@ test('#110 topology contract preserves parallel, flashback, interruption and res
     assert.equal(edge.edgeType,edgeType);
     assert.equal(edge.causal,false);
     assert.equal(edge.authorityClass,'OBSERVED');
+    assert.equal(edge.temporalStatus,relationship===SceneRelationship.FLASHBACK_OF?'HISTORICAL':'CURRENT');
   }
   assert.equal([...graph.edges.values()].some(edge=>edge.edgeType===SceneGraphEdgeType.EVIDENCE_CAUSES),false);
 });

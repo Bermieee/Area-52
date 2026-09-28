@@ -151,6 +151,25 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
   });
 }
 
+const ATMOSPHERE_CUES=Object.freeze({
+  tension:{pattern:/\b(?:tense|tension|strained|on edge|standoff)\b/i,novelPattern:/\b(?:confronts?|corners?|draws? (?:a |the )?(?:blade|gun|weapon)|weapons? (?:are )?drawn)\b/i,score:.78,confidence:.82},
+  danger:{pattern:/\b(?:danger|dangerous|threat|threatening|peril|unsafe|attacks?|charges?|explodes?)\b/i,novelPattern:/\b(?:attacks?|charges?|threatens?|explodes?|weapon(?:s)? (?:is|are) drawn|blade flashes)\b/i,score:.82,confidence:.86},
+  intimacy:{pattern:/\b(?:intimate|intimacy|tender|tenderness|affectionate|affection|kisses?|embraces?|hugs?)\b/i,novelPattern:/\b(?:kisses?|embraces?|hugs?|holds? (?:him|her|them|each other) close)\b/i,score:.72,confidence:.78},
+  urgency:{pattern:/\b(?:urgent|urgency|hurry|hurried|immediately|no time to lose|deadline|countdown)\b/i,novelPattern:/\b(?:deadline|countdown|before it is too late|must (?:leave|go|escape) now|races? against time)\b/i,score:.82,confidence:.86},
+  uncertainty:{pattern:/\b(?:uncertain|uncertainty|unsure|unclear|ambiguous|cannot see|can't see)\b/i,novelPattern:/\b(?:loses? sight of|searches? blindly|cannot see|can't see|does not know whether)\b/i,score:.70,confidence:.80},
+  humor:{pattern:/\b(?:humor|humorous|joke|jokes|joked|laugh|laughs|laughed|laughter|chuckles?|amused)\b/i,novelPattern:/\b(?:laughs?|laughed|laughing|chuckles?|jokes?|joked)\b/i,score:.68,confidence:.78},
+  grief:{pattern:/\b(?:grief|grieving|grieve|mourn|mourns|mourning|sorrow|sorrowful|weeps?|sobs?)\b/i,novelPattern:/\b(?:mourns?|mourned|weeps?|wept|sobs?|sobbed|funeral)\b/i,score:.82,confidence:.86},
+  hostility:{pattern:/\b(?:hostile|hostility|snarl|snarls|threatens?|menacing|attacks?|glares?)\b/i,novelPattern:/\b(?:glares?|snarls?|threatens?|attacks?|swings? at|lunges? at)\b/i,score:.82,confidence:.86},
+});
+function extractAtmosphereDimensions(raw,evidenceRef){
+  const dimensions={};
+  for(const [name,cue] of Object.entries(ATMOSPHERE_CUES)){
+    if(!cue.pattern.test(raw))continue;
+    dimensions[name]={score:cue.score,confidence:cue.confidence,evidenceRefs:[evidenceRef],novelNarrativeEvidence:Boolean(cue.novelPattern?.test(raw))};
+  }
+  return dimensions;
+}
+
 export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef, currentScene = null, sceneRuntime = null } = {}) {
   const raw = clean(text);
   const fields = {};
@@ -188,6 +207,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
     }
   }
   if (castChanged) fields.activeCast = sceneField([...cast.values()], revision, evidenceRef);
+
+  const atmosphereDimensions=extractAtmosphereDimensions(raw,evidenceRef);
+  if(Object.keys(atmosphereDimensions).length)fields.atmosphere=sceneField(atmosphereDimensions,revision,evidenceRef,ObservationClass.INFERRED,Math.min(...Object.values(atmosphereDimensions).map((row)=>row.confidence)));
 
   const numberWords={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
   const timeMatch=raw.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+(later|earlier)\b/i);
@@ -436,6 +458,25 @@ function sceneOwnerReceiptForNative(scene){
   const safe=clone(scene);
   delete safe.dispatchTimeline;delete safe.signal;delete safe.parsed;
   return safe;
+}
+
+function activeContextForNative(brain,context,chatId){
+  const chat=Array.isArray(context?.chat)?context.chat:[];
+  const currentEvidence=brain?.scene?.narrativeFeed?.currentEvidence?.(chatId)??[];
+  const evidenceByMessage=new Map(currentEvidence.filter(row=>row?.messageId!=null).map(row=>[String(row.messageId),row]));
+  const messages=[];
+  for(let index=0;index<chat.length;index++){
+    const row=chat[index],content=clean(row?.mes??row?.content??row?.text);
+    if(!content)continue;
+    const identity=sourceIdentity(chatId,{index,row,text:content}),evidence=evidenceByMessage.get(identity.messageKey);
+    messages.push({
+      messageId:identity.messageKey,sequence:index,
+      role:row?.role??(row?.is_user===true?'user':'assistant'),content,
+      sourceRevisionRefs:evidence?.sourceRevisionId?[evidence.sourceRevisionId]:[],
+      provenanceRefs:evidence?.sourceRevisionId?[evidence.sourceRevisionId]:[],
+    });
+  }
+  return{messages,coverage:[],recentWindow:6,hostHistoryMutation:false};
 }
 
 async function injectPrompt(context, result) {
@@ -778,6 +819,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     });
     if(!selectionGuard())throw new Error('NATIVE_SCENE_SELECTION_SUPERSEDED_BEFORE_BRAIN');
     const sceneOwnerReceipt=sceneOwnerReceiptForNative(scene);
+    const activeContext=activeContextForNative(this.brain,context,chatId);
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});

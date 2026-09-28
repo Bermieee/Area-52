@@ -1387,7 +1387,11 @@ export class DevelopmentDeploymentBrain {
       },
       validate:async({output})=>Boolean(output?.kind==='DeploymentSceneMemoryPreparedWork'&&['PREPARED','DEFERRED','REJECTED','NO_WORK'].includes(output.status)),
       commit:async({output,task}={})=>{
-        if(output?.status!=='PREPARED')return{kind:'DeploymentSceneMemoryOwnerDecision',status:output?.status??'DEFERRED',reasonCode:output?.reasonCode??'SCENE_MEMORY_PREPARATION_INCOMPLETE',eventId:event.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+        if(output?.status!=='PREPARED'){
+          const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:output?.status??'DEFERRED',reasonCode:output?.reasonCode??'SCENE_MEMORY_PREPARATION_INCOMPLETE',eventId:event.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+          this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event,taskId:task?.taskId??output?.taskId??null,destination:'BACKGROUND'});
+          return decision;
+        }
         const guard=this.#sceneEventObligationGuard(event,{execution:true,ownerPolicy:(row)=>this.#sceneMemoryOwnerPolicy(row)});
         if(!guard.accepted){
           const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'REJECTED',reasonCode:guard.reasonCode,eventId:event.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};

@@ -855,6 +855,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const counts=data?.operatorCounts??{},accepted=Number(counts.ACCEPTED??0),studying=Number(counts.STUDYING??0),ready=Number(counts.READY??0),failed=Number(counts.FAILED??0),removed=Number(counts.REMOVED??0);
   const total=accepted+studying+ready+failed+removed,pending=accepted+studying,denominator=Math.max(1,total-removed),progress=Math.round(ready/denominator*100);
   const selection=selected.selection??{},snapshot=selected.snapshot??null;
+  const snapshotEntryCount=Number(snapshot?.entries?.length??0);
+  const sourceCurrent=Boolean(snapshot&&snapshotEntryCount>0&&ready===snapshotEntryCount&&accepted===0&&studying===0&&failed===0);
 
   const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls a52-lore-command'});
   const commandHead=element(d,'div',{className:'a52-lore-command__head'});
@@ -879,7 +881,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
       status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Verify the source, then accept it for study.';status.dataset.status='ready';refresh?.();
     }catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
   }});
-  const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,variant:'secondary',onPress:async()=>{
+  const accept=createButton(d,{label:sourceCurrent?'Lore current':'Accept for study',disabled:!(caps.accept&&snapshot)||sourceCurrent,scope,variant:'secondary',onPress:async()=>{
     const current=loreStudy.selectedLorebook?.().snapshot??null;
     if(!current){status.textContent='Load the selected SillyTavern Lorebook before accepting it.';status.dataset.status='error';return;}
     status.textContent='Accepting the verified source. Accepted entries become DUE; they are not retrieval-ready yet.';status.dataset.status='loading';
@@ -887,7 +889,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     if(!result.ok){status.textContent=result.error||'Lore acceptance failed';status.dataset.status='error';return;}
     status.textContent='Accepted. The graph core is armed. Run pending study to begin growing owner-backed nodes and links.';status.dataset.status='ready';reportAction(notifications,result,'Lore acceptance');refresh?.();
   }});
-  const run=createButton(d,{label:accepted?'Run '+accepted+' DUE entr'+(accepted===1?'y':'ies'):'Run pending study',disabled:!caps.run,scope,variant:'primary',onPress:async()=>{
+  const runLabel=accepted?'Run '+accepted+' DUE entr'+(accepted===1?'y':'ies'):studying?'Study in progress':sourceCurrent?'Study current':'No DUE entries';
+  const run=createButton(d,{label:runLabel,disabled:!caps.run||accepted===0,scope,variant:'primary',onPress:async()=>{
     status.textContent='Starting study for entries the Lore owner currently reports as DUE…';status.dataset.status='loading';
     const result=await actionRouter.route({type:'wave13.lore.run',payload:{scope:'DUE'}});
     if(!result.ok){status.textContent=result.error||'Lore study failed';status.dataset.status='error';}

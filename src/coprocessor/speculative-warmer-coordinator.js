@@ -216,7 +216,7 @@ export class SpeculativeWarmCoordinator {
     const state={
       started:false,startedAt:null,candidateRefs:[],evidenceRefs:[...request.recommendation.evidenceRefs],
       retrievalReceipts:[],qualityReceipt:null,truthReceipt:null,precisionReceipt:null,compiledRepresentation:null,
-      preparedOwners:new Set(),refDependencies:{},published:false,packetId:null,
+      preparedOwners:new Set(),preparedArtifactRefs:new Set(),refDependencies:{},published:false,packetId:null,
     };
     const referenceBundle=()=>deepFreeze({
       candidateRefs:boundedUniqueStrings(state.candidateRefs,this.limits.maxCandidateRefs),
@@ -262,6 +262,7 @@ export class SpeculativeWarmCoordinator {
           state.retrievalReceipts.push(boundedReceipt(value?.receipt??{status:value?.status??'OK',candidateRefCount:extracted.candidateRefs.length,evidenceRefCount:extracted.evidenceRefs.length},'RETRIEVAL',this.limits));
           while(state.retrievalReceipts.length>Math.ceil(this.limits.maxIntents/this.limits.retrievalBatchSize))state.retrievalReceipts.shift();
           for(const owner of value?.receipt?.preparedOwners??value?.preparedOwners??[])if(typeof owner==='string'&&owner)state.preparedOwners.add(owner);
+          for(const ref of value?.receipt?.preparedArtifactRefs??value?.preparedArtifactRefs??[])if(typeof ref==='string'&&ref)state.preparedArtifactRefs.add(ref);
           mergeRefDependencies(state.refDependencies,value?.refDependencies??{},this.limits);
         }else if(stage==='QUALITY')state.qualityReceipt=boundedReceipt(value,'QUALITY',this.limits);
         else if(stage==='TRUTH')state.truthReceipt=boundedReceipt(value,'TRUTH',this.limits);
@@ -285,6 +286,7 @@ export class SpeculativeWarmCoordinator {
             metadata:{
               coordinatorVersion:SPECULATIVE_WARM_COORDINATOR_VERSION,providerMode:this.adapters.providerMode,
               executionOwner:'COGNITIVE_RUNTIME',stageCoverage,preparedOwners:[...state.preparedOwners].sort(),
+              preparedArtifactRefs:boundedUniqueStrings([...state.preparedArtifactRefs],16),
               refDependencies:boundedRefDependencies(state.refDependencies,[...state.candidateRefs,...state.evidenceRefs],this.limits),
               preparationExecutionMs:Math.max(0,this.clock()-Number(state.startedAt??this.clock())),
               retrievalBatchCount:state.retrievalReceipts.length,intentCount:request.intents.length,authority:'NONE',
@@ -439,6 +441,7 @@ export class SpeculativeWarmCoordinator {
         reusableRefs,
         stageCoverage: structuredClone(coverage),
         preparedOwners: boundedUniqueStrings(packet?.metadata?.preparedOwners??[], 16),
+        preparedArtifactRefs: boundedUniqueStrings(packet?.metadata?.preparedArtifactRefs??[], 16),
         compiledReference: compiledReusable ? compiled.reference : null,
         truthReceipt: boundedReceipt(packet?.truthReceipt, 'TRUTH', this.limits),
         precisionReceipt: boundedReceipt(packet?.precisionReceipt, 'PRECISION', this.limits),

@@ -179,6 +179,135 @@ export class SpeculativeWarmCoordinator {
     return this.enqueuePreparation(input).promise;
   }
 
+  createRuntimePlan(input = {}) {
+    this.#metrics.predictionAttempts += 1;
+    let request;
+    try {
+      request = normalizePreparationRequest(input, this.limits);
+    } catch (error) {
+      this.#metrics.rejectedRecommendations += 1;
+      this.#metrics.foregroundFallbacks += 1;
+      const reason=String(error?.message??error);
+      this.#diag('RUNTIME_RECOMMENDATION_REJECTED',{reason});
+      emitTelemetry(this.telemetry,TelemetryEvent.WARM_MISS,{reason,phase:'RUNTIME_PREFETCH_ACCEPTANCE'});
+      return deepFreeze({kind:'SpeculativeWarmRuntimePlan',contractVersion:1,status:'REJECTED',reason,preparationId:null,dedupeKey:null,request:null,units:[],authority:'NONE'});
+    }
+    const preparationId='warm-runtime:'+(++this.#sequence);
+    const dedupeKey=preparationKey(request);
+    const units=[];
+    for(let offset=0;offset<request.intents.length;offset+=this.limits.retrievalBatchSize){
+      units.push({id:preparationId+':retrieve:'+offset,payload:{stage:'RETRIEVAL',offset,count:Math.min(this.limits.retrievalBatchSize,request.intents.length-offset)}});
+    }
+    units.push({id:preparationId+':quality',payload:{stage:'QUALITY'}});
+    if(this.adapters.truthCheck)units.push({id:preparationId+':truth',payload:{stage:'TRUTH'}});
+    if(this.adapters.precisionRank)units.push({id:preparationId+':precision',payload:{stage:'PRECISION'}});
+    if(this.adapters.compile)units.push({id:preparationId+':compile',payload:{stage:'COMPILE'}});
+    units.push({id:preparationId+':publish',payload:{stage:'PUBLISH'}});
+    this.#diag('RUNTIME_PLAN_CREATED',{preparationId,unitCount:units.length,intentCount:request.intents.length});
+    return deepFreeze({
+      kind:'SpeculativeWarmRuntimePlan',contractVersion:1,status:'PLANNED',preparationId,dedupeKey,
+      request,units,authority:'NONE',canonicalMutationAuthority:false,contextSealAuthority:false,
+    });
+  }
+
+  createRuntimeExecutor(plan) {
+    if(plan?.kind!=='SpeculativeWarmRuntimePlan'||plan?.status!=='PLANNED'||!plan?.request)throw new TypeError('planned speculative warm Runtime plan is required');
+    const request=plan.request;
+    const state={
+      started:false,startedAt:null,candidateRefs:[],evidenceRefs:[...request.recommendation.evidenceRefs],
+      retrievalReceipts:[],qualityReceipt:null,truthReceipt:null,precisionReceipt:null,compiledRepresentation:null,
+      preparedOwners:new Set(),preparedArtifactRefs:new Set(),refDependencies:{},published:false,packetId:null,
+    };
+    const referenceBundle=()=>deepFreeze({
+      candidateRefs:boundedUniqueStrings(state.candidateRefs,this.limits.maxCandidateRefs),
+      evidenceRefs:boundedUniqueStrings(state.evidenceRefs,this.limits.maxEvidenceRefs),
+      retrievalReceipts:structuredClone(state.retrievalReceipts),
+    });
+    const noteAttempt=(stage)=>{
+      if(!state.started){state.started=true;state.startedAt=this.clock();this.#metrics.preparationsStarted+=1;}
+      this.#diag('RUNTIME_STAGE_ATTEMPTED',{preparationId:plan.preparationId,stage});
+    };
+    return {
+      execute:async({units,signal=null}={})=>{
+        const unit=units?.[0],stage=String(unit?.payload?.stage??'');
+        if(!stage)throw new TypeError('speculative warm Runtime stage is required');
+        noteAttempt(stage);
+        try{
+          if(stage==='RETRIEVAL'){
+            const offset=Number(unit.payload.offset??0),count=Number(unit.payload.count??this.limits.retrievalBatchSize);
+            const intentSlice=request.intents.slice(offset,offset+count);
+            return{stage,value:await this.adapters.retrieve({
+              intentSlice:structuredClone(intentSlice),recommendation:request.recommendation,identity:request.identity,
+              context:request.context,checkpoint:deepFreeze({nextIntentOffset:offset,candidateRefs:[...state.candidateRefs],evidenceRefs:[...state.evidenceRefs]}),signal,
+            })};
+          }
+          if(stage==='QUALITY')return{stage,value:await this.adapters.evaluateQuality(referenceBundle(),{recommendation:request.recommendation,identity:request.identity,context:request.context,signal})};
+          if(stage==='TRUTH')return{stage,value:await this.adapters.truthCheck(referenceBundle(),{quality:state.qualityReceipt,recommendation:request.recommendation,identity:request.identity,context:request.context,signal})};
+          if(stage==='PRECISION')return{stage,value:await this.adapters.precisionRank(referenceBundle(),{quality:state.qualityReceipt,truth:state.truthReceipt,recommendation:request.recommendation,identity:request.identity,context:request.context,signal})};
+          if(stage==='COMPILE')return{stage,value:await this.adapters.compile({references:referenceBundle(),quality:state.qualityReceipt,truth:state.truthReceipt,precision:state.precisionReceipt,recommendation:request.recommendation,identity:request.identity,context:request.context,signal})};
+          if(stage==='PUBLISH')return{stage,value:{status:'READY_TO_PUBLISH'}};
+          throw new Error('unsupported speculative warm Runtime stage: '+stage);
+        }catch(error){
+          this.#diag('RUNTIME_STAGE_FAILED',{preparationId:plan.preparationId,stage,reason:String(error?.code??error?.message??error)});
+          throw error;
+        }
+      },
+      validate:async({output})=>Boolean(output&&['RETRIEVAL','QUALITY','TRUTH','PRECISION','COMPILE','PUBLISH'].includes(output.stage)),
+      commit:async({output}={})=>{
+        const stage=output?.stage,value=output?.value;
+        if(stage==='RETRIEVAL'){
+          const extracted=extractRetrievalReferences(value,this.limits);
+          state.candidateRefs=mergeBounded(state.candidateRefs,extracted.candidateRefs,this.limits.maxCandidateRefs,'candidate refs');
+          state.evidenceRefs=mergeBounded(state.evidenceRefs,extracted.evidenceRefs,this.limits.maxEvidenceRefs,'evidence refs');
+          state.retrievalReceipts.push(boundedReceipt(value?.receipt??{status:value?.status??'OK',candidateRefCount:extracted.candidateRefs.length,evidenceRefCount:extracted.evidenceRefs.length},'RETRIEVAL',this.limits));
+          while(state.retrievalReceipts.length>Math.ceil(this.limits.maxIntents/this.limits.retrievalBatchSize))state.retrievalReceipts.shift();
+          for(const owner of value?.receipt?.preparedOwners??value?.preparedOwners??[])if(typeof owner==='string'&&owner)state.preparedOwners.add(owner);
+          for(const ref of value?.receipt?.preparedArtifactRefs??value?.preparedArtifactRefs??[])if(typeof ref==='string'&&ref)state.preparedArtifactRefs.add(ref);
+          mergeRefDependencies(state.refDependencies,value?.refDependencies??{},this.limits);
+        }else if(stage==='QUALITY')state.qualityReceipt=boundedReceipt(value,'QUALITY',this.limits);
+        else if(stage==='TRUTH')state.truthReceipt=boundedReceipt(value,'TRUTH',this.limits);
+        else if(stage==='PRECISION')state.precisionReceipt=boundedReceipt(value,'PRECISION',this.limits);
+        else if(stage==='COMPILE')state.compiledRepresentation=normalizeCompiledResult(value,this.limits,request.identity);
+        else if(stage==='PUBLISH'){
+          if(state.published)return{status:'ALREADY_PUBLISHED',packetId:state.packetId,authority:'NONE'};
+          const compiledRepresentation=state.compiledRepresentation;
+          const stageCoverage={
+            retrieval:this.adapters.providerMode!=='NATIVE_REFERENCE_ONLY',quality:Boolean(state.qualityReceipt),
+            truth:Boolean(this.adapters.truthCheck&&state.truthReceipt),precision:Boolean(this.adapters.precisionRank&&state.precisionReceipt),
+            compile:Boolean(compiledRepresentation?.reusable),
+          };
+          const packet=createWarmPacket({
+            identity:request.identity,recommendation:request.recommendation,
+            candidateRefs:referenceBundle().candidateRefs,evidenceRefs:referenceBundle().evidenceRefs,
+            retrievalQuality:state.qualityReceipt?.quality??state.qualityReceipt?.classification??state.qualityReceipt?.status??null,
+            truthReceipt:state.truthReceipt,precisionReceipt:state.precisionReceipt,compiledRepresentation,
+            createdAt:Number(request.context.createdAt??0),
+            expiresAfterTurns:Number(request.context.expiresAfterTurns??this.cache.defaultTtlTurns??this.limits.defaultTtlTurns),
+            metadata:{
+              coordinatorVersion:SPECULATIVE_WARM_COORDINATOR_VERSION,providerMode:this.adapters.providerMode,
+              executionOwner:'COGNITIVE_RUNTIME',stageCoverage,preparedOwners:[...state.preparedOwners].sort(),
+              preparedArtifactRefs:boundedUniqueStrings([...state.preparedArtifactRefs],16),
+              refDependencies:boundedRefDependencies(state.refDependencies,[...state.candidateRefs,...state.evidenceRefs],this.limits),
+              preparationExecutionMs:Math.max(0,this.clock()-Number(state.startedAt??this.clock())),
+              retrievalBatchCount:state.retrievalReceipts.length,intentCount:request.intents.length,authority:'NONE',
+            },
+          });
+          assertPacketBounds(packet,this.limits);
+          this.cache.put(packet,{turnSequence:request.turnSequence});
+          const targetTurnId=request.context.targetTurnId==null?null:String(request.context.targetTurnId);
+          const late=targetTurnId!=null&&this.#sealedTurns.has(targetTurnId);
+          if(late){this.#metrics.lateAfterSeal+=1;this.#diag('RUNTIME_PACKET_LATE_AFTER_SEAL',{preparationId:plan.preparationId,packetId:packet.packetId,targetTurnId});}
+          if(this.adapters.providerMode==='NATIVE_REFERENCE_ONLY')this.#metrics.nativeReferenceOnlyPreparations+=1;else this.#metrics.optionalProviderPreparations+=1;
+          this.#metrics.preparationsCompleted+=1;state.published=true;state.packetId=packet.packetId;
+          this.#diag('RUNTIME_CACHE_PUBLISHED',{preparationId:plan.preparationId,packetId:packet.packetId,late,dependencyRefCount:Object.keys(packet.metadata.refDependencies??{}).length});
+          return deepFreeze({status:late?'LATE_CACHED_FOR_FUTURE':'WARMED',packetId:packet.packetId,usableForTargetTurn:!late,preparedOwners:[...state.preparedOwners].sort(),authority:'NONE',canonicalMutation:false,contextSealAuthority:false});
+        }
+        this.#diag('RUNTIME_STAGE_COMPLETED',{preparationId:plan.preparationId,stage});
+        return deepFreeze({status:'STAGE_COMMITTED',stage,authority:'NONE'});
+      },
+    };
+  }
+
   onForegroundStart({ turnId = null } = {}) {
     this.#foregroundActive = true;
     this.#diag('FOREGROUND_STARTED', { turnId, activePreparations: this.#activeJobs.size });
@@ -310,6 +439,9 @@ export class SpeculativeWarmCoordinator {
         freshness: WarmState.FRESH,
         packetId: evaluated.packetId,
         reusableRefs,
+        stageCoverage: structuredClone(coverage),
+        preparedOwners: boundedUniqueStrings(packet?.metadata?.preparedOwners??[], 16),
+        preparedArtifactRefs: boundedUniqueStrings(packet?.metadata?.preparedArtifactRefs??[], 16),
         compiledReference: compiledReusable ? compiled.reference : null,
         truthReceipt: boundedReceipt(packet?.truthReceipt, 'TRUTH', this.limits),
         precisionReceipt: boundedReceipt(packet?.precisionReceipt, 'PRECISION', this.limits),
@@ -324,6 +456,13 @@ export class SpeculativeWarmCoordinator {
     if (evaluated.state === WarmState.PARTIALLY_STALE) {
       this.#metrics.partialSalvage += 1;
       const refs = boundedUniqueStrings(evaluated.salvageableRefs ?? [], this.limits.maxCandidateRefs + this.limits.maxEvidenceRefs);
+      const packet=this.#findPacketByIdentity(current);
+      const dependencyMap=packet?.metadata?.refDependencies??{};
+      const reusableCandidates=refs.map((ref)=>({
+        candidateId:ref,
+        sourceRevisionRefs:boundedUniqueStrings(Array.isArray(dependencyMap?.[ref])?dependencyMap[ref]:[],this.limits.maxEvidenceRefs),
+        warmPacketId:evaluated.packetId,
+      }));
       emitTelemetry(this.telemetry, TelemetryEvent.WARM_PARTIAL, {
         packetId: evaluated.packetId,
         salvageableRefCount: refs.length,
@@ -334,6 +473,7 @@ export class SpeculativeWarmCoordinator {
         freshness: WarmState.PARTIALLY_STALE,
         packetId: evaluated.packetId,
         reusableRefs: refs,
+        reusableCandidates,
         compiledReference: null,
         truthReceipt: null,
         precisionReceipt: null,
@@ -372,7 +512,7 @@ export class SpeculativeWarmCoordinator {
     });
   }
 
-  recordCoreRevalidation({ consumptionId, accepted, reason = null } = {}) {
+  recordCoreRevalidation({ consumptionId, accepted, reason = null, reusedStages = null } = {}) {
     const id = required(consumptionId, 'consumptionId');
     const record = this.#consumptions.get(id);
     if (!record) throw new Error('unknown or expired warm consumption');
@@ -393,20 +533,22 @@ export class SpeculativeWarmCoordinator {
       });
     }
     this.#metrics.usefulFreshHits += 1;
-    if (record.coverage.retrieval) this.#metrics.avoidedRetrieval += 1;
-    if (record.coverage.truth) this.#metrics.avoidedTruth += 1;
-    if (record.coverage.precision) this.#metrics.avoidedPrecision += 1;
-    if (record.compiledReusable) this.#metrics.avoidedCompile += 1;
+    const avoidedWork={
+      retrieval:Boolean(reusedStages==null?record.coverage.retrieval:reusedStages.retrieval),
+      truth:Boolean(reusedStages==null?record.coverage.truth:reusedStages.truth),
+      precision:Boolean(reusedStages==null?record.coverage.precision:reusedStages.precision),
+      compile:Boolean(reusedStages==null?record.compiledReusable:reusedStages.compile),
+    };
+    if (avoidedWork.retrieval) this.#metrics.avoidedRetrieval += 1;
+    if (avoidedWork.truth) this.#metrics.avoidedTruth += 1;
+    if (avoidedWork.precision) this.#metrics.avoidedPrecision += 1;
+    if (avoidedWork.compile) this.#metrics.avoidedCompile += 1;
+    this.#diag('CORE_REVALIDATION_ACCEPTED',{packetId:record.packetId,retrievalReused:avoidedWork.retrieval,truthReused:avoidedWork.truth,precisionReused:avoidedWork.precision,compileReused:avoidedWork.compile});
     return deepFreeze({
       status: 'CORE_REVALIDATED',
       packetId: record.packetId,
       reusableDerivedMaterialAccepted: true,
-      avoidedWork: {
-        retrieval: Boolean(record.coverage.retrieval),
-        truth: Boolean(record.coverage.truth),
-        precision: Boolean(record.coverage.precision),
-        compile: Boolean(record.compiledReusable),
-      },
+      avoidedWork,
       admissionAuthority: 'CORE_ONLY',
       warmerAuthority: 'NONE',
     });
@@ -812,6 +954,26 @@ function preparationKey(request) {
     threadRefs: request.recommendation.threadRefs,
     sceneRefs: request.recommendation.sceneRefs,
   }));
+}
+
+function mergeRefDependencies(target,input,limits){
+  if(!input||typeof input!=='object'||Array.isArray(input))return target;
+  const maxRefs=limits.maxCandidateRefs+limits.maxEvidenceRefs;
+  for(const [ref,dependencies] of Object.entries(input)){
+    if(typeof ref!=='string'||!ref.trim()||!Array.isArray(dependencies))continue;
+    if(Object.keys(target).length>=maxRefs&&!Object.hasOwn(target,ref))break;
+    target[ref]=boundedUniqueStrings([...(target[ref]??[]),...dependencies],limits.maxEvidenceRefs);
+  }
+  return target;
+}
+
+function boundedRefDependencies(input,allowedRefs,limits){
+  const allowed=new Set(boundedUniqueStrings(allowedRefs,limits.maxCandidateRefs+limits.maxEvidenceRefs)),out={};
+  for(const ref of [...allowed].sort()){
+    const dependencies=Array.isArray(input?.[ref])?boundedUniqueStrings(input[ref],limits.maxEvidenceRefs):[];
+    if(dependencies.length)out[ref]=dependencies;
+  }
+  return out;
 }
 
 function extractRetrievalReferences(value, limits) {

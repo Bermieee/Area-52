@@ -76,7 +76,9 @@ export function evaluateWarmPacket(packet, currentIdentity, { turnSequence = 0, 
   const source = compareSets(prior.sourceRevisionSet, current.sourceRevisionSet);
   const characterChanged = prior.characterStateRevision !== current.characterStateRevision;
   if (!source.equal || characterChanged) {
-    const salvageable = source.overlap.length ? uniqueStrings([...(packet.candidateRefs ?? []), ...(packet.evidenceRefs ?? [])]) : [];
+    const salvageable = source.overlap.length || characterChanged
+      ? salvageablePacketRefs(packet, current.sourceRevisionSet)
+      : [];
     if (salvageable.length || characterChanged) {
       return deepFreeze({
         ...receipt(WarmState.PARTIALLY_STALE, packet, salvageable, characterChanged ? 'CHARACTER_OR_SOURCE_REVISION_CHANGED' : 'SOURCE_REVISION_CHANGED'),
@@ -149,14 +151,20 @@ export class WarmPacketCache {
     return null;
   }
 
-  invalidate({ sceneRevision = null, intentFingerprint = null, sourceRevisionIds = [] } = {}) {
+  invalidate({ chatId = null, sceneId = null, sceneRevision = null, intentFingerprint = null, sourceRevisionIds = [] } = {}) {
     const sources = new Set(sourceRevisionIds);
     let count = 0;
     for (const [key, entry] of [...this.#entries]) {
       const identity = entry.packet.identity;
-      const invalidate = (sceneRevision != null && identity.sceneRevision !== Number(sceneRevision))
+      const packetSceneId = entry.packet.recommendation?.sceneId ?? null;
+      const inScope = chatId == null || String(identity.chatId ?? '') === String(chatId);
+      const invalidate = inScope && (
+        (sceneId != null && String(packetSceneId ?? '') !== String(sceneId))
+        || (sceneRevision != null && identity.sceneRevision !== Number(sceneRevision))
         || (intentFingerprint != null && identity.intentFingerprint !== String(intentFingerprint))
-        || (sources.size && identity.sourceRevisionSet.some((id) => sources.has(id)));
+        || (sources.size && identity.sourceRevisionSet.some((id) => sources.has(id)))
+        || (chatId != null && sceneId == null && sceneRevision == null && intentFingerprint == null && !sources.size)
+      );
       if (invalidate) { this.#entries.delete(key); count += 1; }
     }
     return count;
@@ -251,6 +259,17 @@ function receipt(state, packet, salvageableRefs, reason) {
     compiledRepresentation: null,
     requiresForegroundRetrieval: state !== WarmState.FRESH,
     authority: 'NONE',
+  });
+}
+function salvageablePacketRefs(packet,currentSourceRevisionSet=[]){
+  const all=uniqueStrings([...(packet?.candidateRefs??[]),...(packet?.evidenceRefs??[])]);
+  const dependencyMap=packet?.metadata?.refDependencies;
+  if(!dependencyMap||typeof dependencyMap!=='object'||Array.isArray(dependencyMap))return all;
+  const current=new Set(uniqueStrings(currentSourceRevisionSet));
+  return all.filter((ref)=>{
+    const dependencies=Array.isArray(dependencyMap[ref])?uniqueStrings(dependencyMap[ref]):[];
+    if(!dependencies.length)return false;
+    return dependencies.every((revisionId)=>current.has(revisionId));
   });
 }
 function warmKey(identity) { return `${identity.chatId ?? "NO_CHAT"}|${identity.sceneRevision}|${identity.intentFingerprint}|${identity.retrievalPolicyRevision}`; }

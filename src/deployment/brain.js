@@ -47,6 +47,8 @@ import { createTurnEnvelope } from '../coprocessor/contracts.js';
 import { plannerInputFromScene } from '../coprocessor/scene-signal-adapter.js';
 import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coprocessor/jev-lore-adapter.js';
 import { ResultDestination, ResultPayloadClass, createCognitiveResult } from '../publication-contracts.js';
+import { SpeculativeWarmCoordinator } from '../coprocessor/speculative-warmer-coordinator.js';
+import { sha256Hex } from '../coprocessor/browser-compat.js';
 
 const CHANNEL_ID = 'NATIVE_LORE_RUNTIME';
 const uniq = (values) => [...new Set((values ?? []).filter(Boolean).map(String))].sort();
@@ -131,11 +133,13 @@ function localJevExecutor() {
 }
 
 class RuntimePreparedLoreChannel {
-  constructor({ loreSystem, core, sourceMap }) {
+  constructor({ loreSystem, core, sourceMap, maxPrepared = 64 }) {
     this.loreSystem = loreSystem;
     this.core = core;
     this.sourceMap = sourceMap;
     this.prepared = new Map();
+    this.speculativePrepared = new Map();
+    this.maxPrepared = Math.max(8, Number(maxPrepared) || 64);
     this.descriptor = createRetrievalChannelDescriptor({
       channelId: CHANNEL_ID,
       capabilities: [RetrievalChannelCapability.SPARSE, RetrievalChannelCapability.RAPTOR, RetrievalChannelCapability.GRAPHRAG_COMMUNITY],
@@ -165,8 +169,28 @@ class RuntimePreparedLoreChannel {
       candidateBusAdmissionAuthority: false,
       settlementAuthority: false,
     });
-    this.prepared.set(String(query), prepared);
+    this.#remember(this.prepared, String(query), prepared);
     return prepared;
+  }
+
+  prepareSpeculative(preparationRef, query, { intent = 'NARROW' } = {}) {
+    const ref=String(preparationRef??'').trim();
+    if(!ref)throw new TypeError('speculative lore preparation ref is required');
+    const prepared=this.prepare(query,{intent});
+    this.#remember(this.speculativePrepared,ref,prepared);
+    return prepared;
+  }
+
+  activateSpeculative(preparationRef, query) {
+    const ref=String(preparationRef??'').trim();
+    const prepared=this.speculativePrepared.get(ref);
+    if(!ref||!prepared)return null;
+    this.#remember(this.prepared,String(query),prepared);
+    return prepared;
+  }
+
+  discardSpeculative(preparationRef) {
+    return this.speculativePrepared.delete(String(preparationRef??''));
   }
 
   admitSceneCandidates(query, handoff) {
@@ -188,7 +212,7 @@ class RuntimePreparedLoreChannel {
     }
     const byId = new Map(original.nominations.map((row) => [row.nominationId, row]));
     for (const row of admitted) byId.set(row.nominationId, row);
-    this.prepared.set(String(query), Object.freeze({ ...original, nominations: [...byId.values()] }));
+    this.#remember(this.prepared,String(query),Object.freeze({ ...original, nominations: [...byId.values()] }));
     return admitted.length;
   }
 
@@ -207,6 +231,12 @@ class RuntimePreparedLoreChannel {
   drillDown(nomination) {
     const lane = nomination?.metadata?.laneNomination;
     return lane ? this.loreSystem.drillDown(lane) : [];
+  }
+
+  #remember(map,key,value){
+    map.delete(key);
+    map.set(key,value);
+    while(map.size>this.maxPrepared)map.delete(map.keys().next().value);
   }
 
   #toCoreNomination(lane) {
@@ -552,6 +582,15 @@ export class DevelopmentDeploymentBrain {
     };
     const adapter = { invoke: (ctx) => this.#invokeRuntime(ctx) };
     for (let i = 0; i < resourceCount; i += 1) this.runtime.registerExecutionResource({ worker: runtimeWorker('area52-local-' + (i + 1)), adapter });
+    this.speculativeWarmReceipts=[];
+    this.speculativeWarmTurnSequence=0;
+    this.speculativeWarmPumpScheduled=false;
+    this.speculativeWarmPumpPromise=Promise.resolve();
+    this.speculativeWarmer=new SpeculativeWarmCoordinator({
+      adapters:this.#createInstalledSpeculativeWarmAdapters(),
+      telemetry:this.coprocessorTelemetry,
+    });
+    this.speculativeWarmOwnerRelease=this.#installSpeculativeWarmOwner();
     this.sceneMemoryOwnerRelease=this.#installSceneMemoryOwnerMapping();
     this.core.registerJevAdapter({
       invoke: (request) => {
@@ -1211,6 +1250,354 @@ export class DevelopmentDeploymentBrain {
     return clone(this.sceneEventObligationReceipts.slice(-n));
   }
 
+  #speculativeWarmPolicyRevision(){
+    const manifest=this.core.sensoryManifest?.()??{};
+    const channels=(manifest.channels??[]).map((row)=>({
+      channelId:row.channelId,available:row.available!==false,health:row.health??null,
+      capabilities:[...(row.capabilities??[])].sort(),
+    })).sort((a,b)=>String(a.channelId).localeCompare(String(b.channelId)));
+    return 'retrieval-policy:'+sha256Hex(JSON.stringify({channelId:CHANNEL_ID,channels})).slice(0,20);
+  }
+
+  #speculativeWarmIntentFingerprint(recommendation){
+    return 'scene-intent:'+sha256Hex(JSON.stringify({
+      sceneId:recommendation?.sceneId??null,sceneRevision:Number(recommendation?.sceneRevision??0),
+      trigger:recommendation?.trigger??null,
+      entityRefs:uniq(recommendation?.entityRefs??[]),locationRefs:uniq(recommendation?.locationRefs??[]),
+      threadRefs:uniq(recommendation?.threadRefs??[]),sceneRefs:uniq(recommendation?.sceneRefs??[]),
+    })).slice(0,24);
+  }
+
+  #speculativeWarmPreparationRef(event,recommendation){
+    return 'lore-warm:'+sha256Hex(JSON.stringify({
+      chatId:event?.chatId??null,sceneId:recommendation?.sceneId??event?.sceneId??null,
+      sceneRevision:Number(recommendation?.sceneRevision??event?.sceneRevision??0),
+      fingerprint:this.#speculativeWarmIntentFingerprint(recommendation),
+      sourceRevisionRefs:uniq(recommendation?.sourceRevisionRefs??event?.sourceRevisionSet??[]),
+    })).slice(0,24);
+  }
+
+  #speculativeWarmRetrievalQuery(recommendation){
+    const refs=uniq([
+      ...(recommendation?.entityRefs??[]),...(recommendation?.locationRefs??[]),
+      ...(recommendation?.threadRefs??[]),...(recommendation?.sceneRefs??[]),
+    ]);
+    return refs.map((ref)=>String(ref).replace(/[:/_\-.]+/g,' ')).join(' ').trim()||String(recommendation?.trigger??'scene context');
+  }
+
+  #speculativeWarmIdentity({chatId,recommendation,sceneSignal=null}={}){
+    const scene=sceneSignal??this.scene.integrationSignal(String(chatId));
+    return{
+      chatId:String(chatId),sceneRevision:Number(recommendation?.sceneRevision??scene?.sceneRevision??0),
+      worldRevision:Number(this.core.graph.revision??0),characterStateRevision:0,
+      sourceRevisionSet:uniq([
+        ...this.core.registry.activeRevisionIds(),
+        ...(scene?.sourceRevisionRefs??scene?.sourceRevisionSet??[]),
+        ...(recommendation?.sourceRevisionRefs??recommendation?.sourceRevisionSet??[]),
+      ]),
+      intentFingerprint:this.#speculativeWarmIntentFingerprint(recommendation),
+      retrievalPolicyRevision:this.#speculativeWarmPolicyRevision(),
+    };
+  }
+
+  #speculativeWarmCompatible({recommendation,query,anchorEntityIds=[],sceneSignal}={}){
+    if(!recommendation||recommendation.status!=='ACTIVE')return false;
+    if(Number(recommendation.sceneRevision)!==Number(sceneSignal?.sceneRevision))return false;
+    const recommendationEntities=new Set(uniq(recommendation.entityRefs??[]));
+    const anchors=uniq(anchorEntityIds);
+    const anchorCompatible=!anchors.length||anchors.every((ref)=>recommendationEntities.has(String(ref)));
+    const text=String(query??'').toLowerCase();
+    const tokens=uniq([
+      ...(recommendation.entityRefs??[]),...(recommendation.locationRefs??[]),
+      ...(recommendation.threadRefs??[]),...(recommendation.sceneRefs??[]),
+    ]).flatMap((ref)=>String(ref).toLowerCase().split(/[^a-z0-9]+/g))
+      .filter((token)=>token.length>=3&&!['char','character','loc','location','thread','scene','story','ref'].includes(token));
+    return anchorCompatible&&tokens.some((token)=>text.includes(token));
+  }
+
+  #createInstalledSpeculativeWarmAdapters(){
+    const retrievalContext=(recommendation,identity,context)=>{
+      const query=this.#speculativeWarmRetrievalQuery(recommendation);
+      const sceneInput=this.scene.fanOutInput(String(identity.chatId));
+      const sourceSet=new Set(identity.sourceRevisionSet??[]);
+      return{query,sceneInput,sourceSet,preparationRef:String(context?.preparationRef??'')};
+    };
+    const retrievalEnvelope=(recommendation,identity,context)=>{
+      const {query}=retrievalContext(recommendation,identity,context);
+      return this.core.retrieval.retrieveEnvelope(query,{
+        intent:'CURRENT',anchorEntityIds:recommendation.entityRefs??[],
+        worldRevision:identity.worldRevision,sceneRevision:identity.sceneRevision,channelIds:[CHANNEL_ID],candidateBudget:48,latencyBudgetMs:100,
+      });
+    };
+    return{
+      providerMode:'INSTALLED_OWNER_BACKED',
+      retrieve:async({recommendation,identity,context})=>{
+        const {query,sceneInput,sourceSet,preparationRef}=retrievalContext(recommendation,identity,context);
+        if(!preparationRef)throw Object.assign(new Error('speculative Lore preparation ref unavailable'),{code:'WARM_PREPARATION_REF_UNAVAILABLE'});
+        const lore=this.loreChannel.prepareSpeculative(preparationRef,query,{intent:'NARROW'});
+        const memory=this.memorySurface.adapters.queryHistorian({
+          query,mode:'CONTINUITY_RECALL',activeEntityIds:recommendation.entityRefs??[],maxCandidates:24,
+          selection:{chatId:identity.chatId,sceneId:recommendation.sceneId,sceneRevision:identity.sceneRevision},
+        });
+        const graphRows=this.scene.graph.references?.({sceneId:recommendation.sceneId,limit:32})??[];
+        const candidateRefs=[],evidenceRefs=uniq(recommendation.evidenceRefs??[]),refDependencies={};
+        const admit=(ref,deps=[])=>{
+          const id=String(ref??'').trim(),revisions=uniq(deps);
+          if(!id||!revisions.length||revisions.some((revisionId)=>!sourceSet.has(revisionId)))return;
+          candidateRefs.push(id);refDependencies[id]=revisions;
+        };
+        for(const row of lore?.nominations??[])admit(row.candidateId,row.sourceRevisionRefs??[]);
+        for(const row of memory?.nominations??[])admit(row.candidateId,row.sourceRevisionRefs??[]);
+        for(const row of graphRows)admit(row.ref??row.edgeId??row.id,row.sourceRevisionRefs??recommendation.sourceRevisionRefs??[]);
+        for(const ref of evidenceRefs){
+          const deps=uniq(recommendation.sourceRevisionRefs??recommendation.sourceRevisionSet??[]);
+          if(deps.length&&deps.every((revisionId)=>sourceSet.has(revisionId)))refDependencies[ref]=deps;
+        }
+        return{
+          status:'OWNER_BACKED',candidateRefs:uniq(candidateRefs),evidenceRefs,refDependencies,
+          receipt:{
+            status:'OWNER_BACKED',semanticRetrievalExecuted:true,loreCandidateCount:lore?.nominations?.length??0,
+            memoryCandidateCount:memory?.nominations?.length??0,graphReferenceCount:graphRows.length,
+            preparedOwners:['LORE','MEMORY','GRAPH'],preparedArtifactRefs:[preparationRef],
+            unavailableChannels:[],authority:'NONE',
+          },
+        };
+      },
+      evaluateQuality:async(referenceBundle)=>({
+        status:'ASSESSED',quality:referenceBundle.candidateRefs.length?'HIGH':'LOW',
+        candidateRefCount:referenceBundle.candidateRefs.length,evidenceRefCount:referenceBundle.evidenceRefs.length,authority:'NONE',
+      }),
+      truthCheck:async(_referenceBundle,{recommendation,identity,context})=>{
+        const envelope=retrievalEnvelope(recommendation,identity,context);
+        const candidates=(envelope?.candidates??[]).filter((row)=>row.freshness===CandidateFreshness.FRESH);
+        const assessment=this.core.publication.truth.assess(candidates,{
+          query:this.#speculativeWarmRetrievalQuery(recommendation),intent:'CURRENT',
+          worldRevision:identity.worldRevision,sceneRevision:identity.sceneRevision,attempt:0,maxCorrectiveAttempts:0,candidateEnvelope:envelope,
+        });
+        return{
+          status:'ASSESSED',quality:assessment?.confidence??'LOW',checked:true,
+          candidateCount:candidates.length,admittedCount:assessment?.admittedCandidateIds?.length??0,
+          supportCount:assessment?.supportCandidateIds?.length??0,
+          unresolved:Boolean((assessment?.truthResults??[]).some((row)=>['CONTRADICTED','UNCERTAIN','UNRESOLVED'].includes(String(row.classification)))),
+          authority:'NONE',
+        };
+      },
+      precisionRank:async(_referenceBundle,{recommendation,identity,context})=>{
+        const envelope=retrievalEnvelope(recommendation,identity,context);
+        const candidates=(envelope?.candidates??[]).filter((row)=>row.freshness===CandidateFreshness.FRESH);
+        let ranked=[],failed=false;
+        try{ranked=this.core.publication.precision.rank(candidates,{query:this.#speculativeWarmRetrievalQuery(recommendation),intent:'CURRENT',worldRevision:identity.worldRevision,sceneRevision:identity.sceneRevision});}
+        catch{failed=true;}
+        return{status:failed?'UNAVAILABLE':'RANKED',ranked:!failed,count:ranked.length,authority:'NONE'};
+      },
+      compile:async({recommendation,identity})=>{
+        const result=this.core.query(this.#speculativeWarmRetrievalQuery(recommendation),{
+          intent:'CURRENT',anchorEntityIds:recommendation.entityRefs??[],worldRevision:identity.worldRevision,
+          sceneRevision:identity.sceneRevision,channelIds:[CHANNEL_ID],candidateBudget:48,
+        });
+        return{
+          status:'COMPILED',packetHash:sha256Hex(JSON.stringify(result?.packet??{})),
+          evidenceCount:(result?.candidates??[]).length,truthQuality:result?.assessment?.confidence??null,
+          reusable:false,authority:'NONE',
+        };
+      },
+    };
+  }
+
+  #retainSpeculativeWarmReceipt(input={}){
+    const receipt=Object.freeze({
+      kind:'DeploymentSpeculativeWarmReceipt',contractVersion:1,stage:String(input.stage??'UNKNOWN'),
+      status:String(input.status??'UNKNOWN'),reasonCode:input.reasonCode??null,
+      recommendationId:input.recommendationId??null,preparationId:input.preparationId??null,packetId:input.packetId??null,
+      taskId:input.taskId??null,chatId:input.chatId??null,turnId:input.turnId??null,generationId:input.generationId??null,
+      sceneId:input.sceneId??null,sceneRevision:input.sceneRevision??null,
+      sourceRevisionRefs:uniq(input.sourceRevisionRefs??[]),preparedOwners:uniq(input.preparedOwners??[]),
+      dependencyRefCount:Number(input.dependencyRefCount??0),physicallyAttempted:Boolean(input.physicallyAttempted),
+      reusedStages:clone(input.reusedStages??null),remainingForegroundStages:uniq(input.remainingForegroundStages??[]),
+      foregroundWorkAvoided:clone(input.foregroundWorkAvoided??null),lateDestination:Boolean(input.lateDestination),
+      unavailable:Boolean(input.unavailable),cancelled:Boolean(input.cancelled),superseded:Boolean(input.superseded),
+      rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+    this.speculativeWarmReceipts.push(receipt);
+    if(this.speculativeWarmReceipts.length>256)this.speculativeWarmReceipts.splice(0,this.speculativeWarmReceipts.length-256);
+    return receipt;
+  }
+
+  #installSpeculativeWarmOwner(){
+    return this.bindSceneEventObligationOwner({
+      producer:{
+        producerId:'SPECULATIVE_CONTEXT_WARM_OWNER',obligationType:'SPECULATIVE_CONTEXT_WARM',requestedLayer:'L2',
+        requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],priority:60,
+        resultContract:{resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+      },
+      eventTypes:[SceneEventType.PREFETCH_RECOMMENDED],
+      mapEvent:(event)=>{
+        const recommendation=event.payload?.recommendation??null;
+        this.#retainSpeculativeWarmReceipt({
+          stage:'RECOMMENDATION_RECEIVED',status:recommendation?.status==='ACTIVE'?'RECEIVED':'REJECTED',
+          reasonCode:recommendation?.status==='ACTIVE'?'SCENE_RECOMMENDATION_RECEIVED':'SCENE_RECOMMENDATION_INACTIVE',
+          recommendationId:recommendation?.recommendationId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+          sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+        });
+        if(!recommendation||recommendation.status!=='ACTIVE'||!(recommendation.evidenceRefs?.length))return null;
+        const sceneSignal=this.scene.integrationSignal(String(event.chatId));
+        const identity=this.#speculativeWarmIdentity({chatId:event.chatId,recommendation,sceneSignal});
+        const preparationRef=this.#speculativeWarmPreparationRef(event,recommendation);
+        const plan=this.speculativeWarmer.createRuntimePlan({
+          recommendation,identity,turnSequence:this.speculativeWarmTurnSequence,
+          context:{preparationRef,createdAt:Number(event.createdSequence??0),expiresAfterTurns:2,originEventId:event.eventId,originTurnId:event.turnId??null},
+        });
+        if(plan.status!=='PLANNED'){
+          this.#retainSpeculativeWarmReceipt({
+            stage:'ELIGIBILITY',status:'REJECTED',reasonCode:plan.reason??'WARM_PLAN_REJECTED',recommendationId:recommendation.recommendationId,
+            chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+          });
+          return null;
+        }
+        this.#retainSpeculativeWarmReceipt({
+          stage:'ELIGIBILITY',status:'ELIGIBLE',reasonCode:'SCENE_PREFETCH_OWNER_ELIGIBLE',recommendationId:recommendation.recommendationId,
+          preparationId:plan.preparationId,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+          sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+        });
+        return{
+          owner:'CORE_PREPARATION',requestedLayer:'L2',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],foreground:false,speculative:true,
+          resultContract:{resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+          dedupeKey:'speculative-warm:'+plan.dedupeKey,conflictKey:'speculative-warm-chat:'+String(event.chatId),
+          revision:Number(event.sceneRevision??0),checkpointPolicy:{maxUnitsPerCheckpoint:1},batchHint:{maxSliceUnits:1},
+          payload:{warmPlan:plan,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+          units:plan.units,
+        };
+      },
+      executorFactory:(event,request)=>{
+        const plan=request.payload?.warmPlan;
+        const base=this.speculativeWarmer.createRuntimeExecutor(plan);
+        return{
+          execute:async(context)=>{
+            const stage=String(context?.units?.[0]?.payload?.stage??'UNKNOWN');
+            this.#retainSpeculativeWarmReceipt({
+              stage:'EXECUTION_ATTEMPTED',status:stage,reasonCode:'RUNTIME_STAGE_ATTEMPTED',recommendationId:event.payload?.recommendation?.recommendationId??null,
+              preparationId:plan.preparationId,taskId:context?.task?.taskId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+              sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],physicallyAttempted:true,
+            });
+            return base.execute(context);
+          },
+          validate:base.validate,
+          commit:async(context)=>{
+            const result=await base.commit(context);
+            const stage=String(context?.output?.stage??'UNKNOWN');
+            if(stage==='PUBLISH'){
+              this.#retainSpeculativeWarmReceipt({
+                stage:'CACHE_PUBLICATION',status:result?.status??'UNKNOWN',reasonCode:result?.status==='WARMED'?'DEPENDENCY_FENCED_PACKET_PUBLISHED':result?.status,
+                recommendationId:event.payload?.recommendation?.recommendationId??null,preparationId:plan.preparationId,packetId:result?.packetId??null,
+                taskId:context?.task?.taskId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+                sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+                preparedOwners:result?.preparedOwners??[],lateDestination:result?.usableForTargetTurn===false,
+              });
+            }
+            return result;
+          },
+        };
+      },
+      onDisposition:(entry)=>{
+        const event=entry.event??{},recommendation=event.payload?.recommendation??null;
+        this.#retainSpeculativeWarmReceipt({
+          stage:'SCHEDULING',status:entry.status,reasonCode:entry.reasonCode,recommendationId:recommendation?.recommendationId??null,
+          taskId:entry.admission?.task?.taskId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+          sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+        });
+        if(['ADMITTED','DEDUPED','COALESCED'].includes(entry.status))this.#pumpSpeculativeWarmRuntime();
+      },
+    });
+  }
+
+  #pumpSpeculativeWarmRuntime(){
+    if(this.speculativeWarmPumpScheduled||this.runtimeDirector.governor.snapshot().generationActive)return;
+    this.speculativeWarmPumpScheduled=true;
+    const timer=setTimeout(()=>{
+      this.speculativeWarmPumpScheduled=false;
+      if(this.runtimeDirector.governor.snapshot().generationActive)return;
+      const run=this.runtimeDirector.drain({maxCycles:256}).catch((error)=>{
+        this.#retainSpeculativeWarmReceipt({stage:'RUNTIME_PUMP',status:'FAILED',reasonCode:String(error?.code??error?.message??'SPECULATIVE_WARM_RUNTIME_FAILED'),unavailable:true});
+      });
+      this.speculativeWarmPumpPromise=run;
+    },0);
+    timer?.unref?.();
+  }
+
+  async flushSpeculativeWarmRuntime({maxCycles=256}={}){
+    await this.speculativeWarmPumpPromise.catch(()=>{});
+    if(this.runtimeDirector.governor.snapshot().generationActive)return{status:'FOREGROUND_ACTIVE'};
+    await this.runtimeDirector.drain({maxCycles});
+    return{status:'DRAINED',metrics:this.speculativeWarmer.metrics()};
+  }
+
+  #consumeSpeculativeWarmForSend({chatId,query,anchorEntityIds=[],sceneSignal,turn}={}){
+    const recommendations=(this.scene.fanOutInput(String(chatId))?.prefetchRecommendations??[])
+      .filter((row)=>this.#speculativeWarmCompatible({recommendation:row,query,anchorEntityIds,sceneSignal}));
+    for(const recommendation of recommendations){
+      const identity=this.#speculativeWarmIdentity({chatId,recommendation,sceneSignal});
+      const use=this.speculativeWarmer.consumeForSend({identity,turnSequence:this.speculativeWarmTurnSequence,turnId:turn?.turnId??null});
+      if(use.status==='REVALIDATE_FOR_CORE_ADMISSION'){
+        const preparationRef=(use.preparedArtifactRefs??[]).find((ref)=>String(ref).startsWith('lore-warm:'))??null;
+        const preparedLore=preparationRef?this.loreChannel.activateSpeculative(preparationRef,String(query)):null;
+        if(!preparedLore){
+          if(use.consumptionId)this.speculativeWarmer.recordCoreRevalidation({consumptionId:use.consumptionId,accepted:false,reason:'LORE_PREPARATION_REFERENCE_UNAVAILABLE'});
+          this.#retainSpeculativeWarmReceipt({
+            stage:'PRE_SEND_CONSUMPTION',status:'MISS',reasonCode:'LORE_PREPARATION_REFERENCE_UNAVAILABLE',packetId:use.packetId,
+            recommendationId:recommendation.recommendationId,chatId,turnId:turn?.turnId??null,sceneId:recommendation.sceneId,sceneRevision:recommendation.sceneRevision,
+            remainingForegroundStages:['RETRIEVAL','TRUTH','PRECISION','COMPILE','CORE_ADMISSION'],
+          });
+          continue;
+        }
+        this.#retainSpeculativeWarmReceipt({
+          stage:'PRE_SEND_CONSUMPTION',status:'FRESH_HIT',reasonCode:'FRESH_DEPENDENCY_FENCED_PREPARATION',packetId:use.packetId,
+          recommendationId:recommendation.recommendationId,chatId,turnId:turn?.turnId??null,sceneId:recommendation.sceneId,sceneRevision:recommendation.sceneRevision,
+          preparedOwners:use.preparedOwners??[],reusedStages:['LORE_PREPARATION'],remainingForegroundStages:['CORE_RETRIEVAL','TRUTH','PRECISION','COMPILE','SEAL'],
+        });
+        return{recommendation,identity,use,preparedLore,reuseLorePreparation:true};
+      }
+      this.#retainSpeculativeWarmReceipt({
+        stage:'PRE_SEND_CONSUMPTION',status:use.freshness==='PARTIALLY_STALE'?'PARTIAL_SALVAGE':use.reason==='MISS'?'MISS':'STALE_DISCARD',
+        reasonCode:use.reason??use.status,packetId:use.packetId??null,recommendationId:recommendation.recommendationId,
+        chatId,turnId:turn?.turnId??null,sceneId:recommendation.sceneId,sceneRevision:recommendation.sceneRevision,
+        remainingForegroundStages:use.requiredForegroundStages??['NORMAL_FOREGROUND_RETRIEVAL','TRUTH','COMPILE','CORE_ADMISSION'],
+      });
+      if(use.freshness==='PARTIALLY_STALE')return{recommendation,identity,use,preparedLore:null,reuseLorePreparation:false};
+    }
+    return null;
+  }
+
+  #cancelSpeculativeWarmTasks({chatId=null,sourceRevisionRefs=[],foreignToChat=null,currentSceneId=null,currentSceneRevision=null,reason='SPECULATIVE_WARM_CANCELLED'}={}){
+    const refs=new Set(uniq(sourceRevisionRefs)),cancelled=[];
+    for(const record of this.runtimeDirector.ledger.list()){
+      if(record?.obligation?.taskType!=='SPECULATIVE_CONTEXT_WARM')continue;
+      if(['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(record.lifecycleStatus)))continue;
+      const cause=record.obligation?.cause??{},sourceRefs=record.obligation?.sourceRevisionIds??[];
+      const warmSceneId=record.obligation?.payload?.warmPlan?.request?.recommendation?.sceneId??null;
+      const sceneSuperseded=currentSceneRevision!=null&&chatId&&String(cause.chatId??'')===String(chatId)&&(
+        (currentSceneId!=null&&String(warmSceneId??'')!==String(currentSceneId))
+        ||Number(record.obligation?.sceneRevision)!==Number(currentSceneRevision)
+      );
+      const match=foreignToChat?String(cause.chatId??'')!==String(foreignToChat)
+        :refs.size?sourceRefs.some((ref)=>refs.has(String(ref)))
+          :sceneSuperseded
+            ?true
+            :chatId&&currentSceneId==null&&currentSceneRevision==null?String(cause.chatId??'')===String(chatId):false;
+      if(!match)continue;
+      const didCancel=this.runtimeDirector.cancelTask(record.taskId,reason);
+      if(didCancel){
+        cancelled.push(record.taskId);
+        this.#retainSpeculativeWarmReceipt({
+          stage:'CANCELLATION',status:'CANCELLED',reasonCode:reason,taskId:record.taskId,chatId:cause.chatId??null,
+          turnId:cause.turnId??null,generationId:cause.generationId??null,sceneRevision:record.obligation?.sceneRevision??null,
+          sourceRevisionRefs:sourceRefs,cancelled:true,superseded:reason.includes('SUPERSEDED'),
+        });
+      }
+    }
+    return cancelled;
+  }
+
   #installSceneMemoryRetrievalObserver(){
     const adapters=this.memorySurface?.adapters??null;
     if(!adapters)return;
@@ -1544,8 +1931,20 @@ export class DevelopmentDeploymentBrain {
       ...(evidence?.invalidates ?? []),
       evidence?.replacesRevisionId,
     ].filter(Boolean).map(String))].sort();
-    if(priorActiveChat&&requestedChatId&&priorActiveChat!==requestedChatId)this.#cancelSceneObservationTasks({foreignToChat:requestedChatId,reason:'SCENE_OBSERVATION_CHAT_SUPERSEDED'});
-    if(invalidatedSourceRevisionRefs.length)this.#cancelSceneObservationTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SCENE_OBSERVATION_SOURCE_INVALIDATED'});
+    if(priorActiveChat&&requestedChatId&&priorActiveChat!==requestedChatId){
+      this.#cancelSceneObservationTasks({foreignToChat:requestedChatId,reason:'SCENE_OBSERVATION_CHAT_SUPERSEDED'});
+      this.#cancelSpeculativeWarmTasks({foreignToChat:requestedChatId,reason:'SPECULATIVE_WARM_CHAT_SUPERSEDED'});
+      this.speculativeWarmer.cache.invalidate({chatId:priorActiveChat});
+    }
+    if(invalidatedSourceRevisionRefs.length){
+      this.#cancelSceneObservationTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SCENE_OBSERVATION_SOURCE_INVALIDATED'});
+      this.#cancelSpeculativeWarmTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SPECULATIVE_WARM_SOURCE_INVALIDATED'});
+      this.speculativeWarmer.cache.invalidate({chatId,sourceRevisionIds:invalidatedSourceRevisionRefs});
+    }
+    if(chatId&&signal?.sceneRevision!=null){
+      this.#cancelSpeculativeWarmTasks({chatId,currentSceneId:signal.sceneId,currentSceneRevision:signal.sceneRevision,reason:'SPECULATIVE_WARM_SCENE_SUPERSEDED'});
+      this.speculativeWarmer.cache.invalidate({chatId,sceneId:signal.sceneId,sceneRevision:signal.sceneRevision});
+    }
     const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
     const memoryInvalidations=[];
     for(const sourceRevisionId of invalidatedSourceRevisionRefs){
@@ -1983,12 +2382,32 @@ export class DevelopmentDeploymentBrain {
       dedupeKey: 'turn:' + turnId,
     };
     const scenePrefetchConsideration=this.#considerScenePrefetch({chatId,turn,query});
+    this.speculativeWarmTurnSequence+=1;
+    const warmConsumption=mode==='simple'?null:this.#consumeSpeculativeWarmForSend({
+      chatId:String(chatId),query,anchorEntityIds,sceneSignal,turn,
+    });
+    const warmPreparedLore=warmConsumption?.reuseLorePreparation?warmConsumption.preparedLore:null;
+    const warmPartialCandidates=(warmConsumption?.use?.reusableCandidates??[]).map((row,index)=>({
+      taskId:'warm-salvage:'+turn.turnId+':'+index,
+      candidateId:row.candidateId,
+      sourceRevisionRefs:[...(row.sourceRevisionRefs??[])],
+      resultClass:RuntimeResultClass.OPPORTUNISTIC,
+      authorityGranted:false,
+    }));
+    const generationMeta={
+      chatId:String(chatId),turnId:turn.turnId,generationId:String(generationId),correlationId:turn.correlationId,
+      sceneId:sceneSignal.sceneId??null,sceneRevision:sceneSignal.sceneRevision,sourceRevisionSet:[...sourceRevisionSet],
+    };
+    this.speculativeWarmer.onForegroundStart({turnId:turn.turnId});
+    this.runtimeDirector.beginGeneration(generationMeta);
+    try{
+      await this.speculativeWarmPumpPromise.catch(()=>{});
 
     let planning = null;
     const jobs = [];
     if (mode !== 'simple') {
-      planning = this.loreSystem.query({ query, intent: 'AUTO' });
-      jobs.push(taskFor({ turn, suffix: 'lore', taskType: 'LORE_RETRIEVAL', capability: CAPABILITIES.CPU_ANALYSIS, metadata: { query, intent: 'AUTO' } }));
+      planning = warmPreparedLore?.laneResult ?? this.loreSystem.query({ query, intent: 'AUTO' });
+      if(!warmPreparedLore)jobs.push(taskFor({ turn, suffix: 'lore', taskType: 'LORE_RETRIEVAL', capability: CAPABILITIES.CPU_ANALYSIS, metadata: { query, intent: 'AUTO' } }));
       jobs.push(taskFor({ turn, suffix: 'graph', taskType: 'GRAPH_LOOKUP', capability: CAPABILITIES.GRAPH, metadata: { query } }));
       if (mode === 'ambiguous' && this.jevAvailable) {
         jobs.push(taskFor({
@@ -2003,8 +2422,8 @@ export class DevelopmentDeploymentBrain {
     }
 
     const publishedRuntime = this.runtime.publishTurn(turn, jobs);
-    const foreground = await this.runtime.native.awaitForeground(turn.turnId);
-    await this.runtimeDirector.drain();
+      const foreground = await this.runtime.native.awaitForeground(turn.turnId);
+      await this.runtimeDirector.drain();
 
     const sceneLore = sceneReceipt && mode !== 'simple'
       ? await this.runSceneLoreHandoff({ sceneReceipt, chatId, turnId, generationId })
@@ -2022,6 +2441,7 @@ export class DevelopmentDeploymentBrain {
       intent,
       anchorEntityIds,
       channelIds: mode === 'simple' ? null : [CHANNEL_ID],
+      externalRetrievalCandidates:warmPartialCandidates,
       budgetBytes: 3000,
       activeThreads: (sceneSignal.activeThreads ?? []).map((thread, index) => {
         if (thread && typeof thread === 'object' && thread.threadId) return thread;
@@ -2043,6 +2463,27 @@ export class DevelopmentDeploymentBrain {
       modelProfileId: 'CACHE_STABLE',
       userInput: query,
     });
+    this.speculativeWarmer.markTurnSealed(turn.turnId);
+    let warmCoreRevalidation=null;
+    if(warmConsumption?.use?.consumptionId){
+      const currentWarmIdentity=this.#speculativeWarmIdentity({chatId:String(chatId),recommendation:warmConsumption.recommendation,sceneSignal:this.scene.integrationSignal(String(chatId))});
+      const accepted=JSON.stringify(currentWarmIdentity)===JSON.stringify(warmConsumption.identity)
+        &&Number(published.worldRevision)===Number(warmConsumption.identity.worldRevision)
+        &&Number(published.sceneRevision)===Number(warmConsumption.identity.sceneRevision);
+      warmCoreRevalidation=this.speculativeWarmer.recordCoreRevalidation({
+        consumptionId:warmConsumption.use.consumptionId,accepted,
+        reason:accepted?null:'CORE_SEND_FENCES_CHANGED',
+        reusedStages:{retrieval:Boolean(warmPreparedLore),truth:false,precision:false,compile:false},
+      });
+      this.#retainSpeculativeWarmReceipt({
+        stage:'CORE_REVALIDATION',status:accepted?'ACCEPTED':'REJECTED',reasonCode:accepted?'CORE_FENCES_REVALIDATED':'CORE_SEND_FENCES_CHANGED',
+        recommendationId:warmConsumption.recommendation?.recommendationId??null,packetId:warmConsumption.use.packetId??null,
+        chatId:String(chatId),turnId:turn.turnId,generationId:String(generationId),sceneId:warmConsumption.recommendation?.sceneId??null,
+        sceneRevision:warmConsumption.recommendation?.sceneRevision??null,reusedStages:warmPreparedLore?['LORE_PREPARATION']:[],
+        remainingForegroundStages:['CORE_RETRIEVAL','TRUTH','PRECISION','COMPILE','SEAL'],
+        foregroundWorkAvoided:{lorePlanningQuery:Boolean(warmPreparedLore),runtimeLorePreparation:Boolean(warmPreparedLore),coreRetrieval:false,truth:false,precision:false,compile:false},
+      });
+    }
 
     const selection = {
       chatId: String(chatId),
@@ -2079,6 +2520,14 @@ export class DevelopmentDeploymentBrain {
       scatter,
       scene: this.scene.uiReadModel(String(chatId)),
       scenePrefetchConsideration: clone(scenePrefetchConsideration),
+      speculativeWarm:{
+        status:warmConsumption?.use?.freshness??(warmConsumption?'MISS':'NOT_CONSIDERED'),
+        packetId:warmConsumption?.use?.packetId??null,recommendationId:warmConsumption?.recommendation?.recommendationId??null,
+        reusableRefs:[...(warmConsumption?.use?.reusableRefs??[])],partialSalvageCount:warmPartialCandidates.length,
+        lorePreparationReused:Boolean(warmPreparedLore),coreRevalidation:clone(warmCoreRevalidation),
+        foregroundWorkAvoided:{lorePlanningQuery:Boolean(warmPreparedLore),runtimeLorePreparation:Boolean(warmPreparedLore),coreRetrieval:false,truth:false,precision:false,compile:false},
+        authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,contextSealAuthority:false,
+      },
       loreStatus: {
         kind: 'DeploymentLoreStatus',
         ...this.loreSystem.diagnostics(),
@@ -2099,6 +2548,11 @@ export class DevelopmentDeploymentBrain {
     this.selectedTurnId = turn.turnId;
     this.#emit({ type: 'TURN_COMMITTED', selection });
     return clone(record);
+    }finally{
+      this.speculativeWarmer.onForegroundEnd();
+      this.runtimeDirector.completeGeneration(generationMeta);
+      this.#pumpSpeculativeWarmRuntime();
+    }
   }
 
   readLoreStatus(selection = {}) {
@@ -2363,6 +2817,11 @@ export class DevelopmentDeploymentBrain {
       readMemoryVectorReceipts: () => this.memory.vectorIndex.readReceipts({limit:128}),
       readSceneObservationReceipts: () => this.readSceneObservationReceipts({limit:128}),
       readSceneMemoryLifecycleReceipts: () => this.readSceneMemoryLifecycleReceipts({limit:128}),
+      readSpeculativeWarm: () => clone({
+        metrics:this.speculativeWarmer.metrics(),receipts:this.speculativeWarmReceipts.slice(-128),
+        diagnostics:this.speculativeWarmer.diagnostics().slice(-128),
+      }),
+      flushSpeculativeWarmRuntime: (input={}) => this.flushSpeculativeWarmRuntime(input),
       cancelSceneObservationWork: (input={}) => this.cancelSceneObservationWork(input),
       loreAuthoringService: this.loreAuthoring,
       loreAuthoringHost,
@@ -2498,6 +2957,21 @@ export class DevelopmentDeploymentBrain {
         last:clone(this.sceneMemoryLifecycleReceipts.at(-1)??null),
         rawStoryTextIncluded:false,providerBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
         authorityGranted:false,canonicalMutationAuthority:false,contextSealAuthority:false,
+      },
+      speculativeWarm: {
+        metrics:this.speculativeWarmer.metrics(),
+        receipts:clone(this.speculativeWarmReceipts.slice(-128)),
+        coordinatorDiagnostics:this.speculativeWarmer.diagnostics().slice(-128),
+        runtimeOpen:this.runtimeDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM'&&!['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(row.lifecycleStatus))).length,
+        runtimeStates:this.runtimeDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM').slice(-64).map(row=>({
+          taskId:row.taskId,lifecycleStatus:row.lifecycleStatus,executionStatus:row.executionStatus,startedCount:row.startedCount,
+          chatId:row.obligation?.cause?.chatId??null,turnId:row.obligation?.cause?.turnId??null,generationId:row.obligation?.cause?.generationId??null,
+          sceneRevision:row.obligation?.sceneRevision??null,sourceRevisionRefs:[...(row.obligation?.sourceRevisionIds??[])],
+          checkpoint:clone(row.checkpoint??null),supersession:clone(row.supersession??null),
+        })),
+        recovery:{persistenceConfigured:false,reloadBehavior:'COLD_START',duplicateListenerGuard:'INSTANCE_SCOPED_CONSTRUCTION'},
+        rawPromptsIncluded:false,storyBodiesIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+        authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,contextSealAuthority:false,
       },
       runtime: this.runtimeDirector.diagnostics?.() ?? null,
       sensory: this.core.sensoryDiagnostics(),

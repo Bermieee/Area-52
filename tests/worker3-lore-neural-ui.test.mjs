@@ -110,6 +110,62 @@ test('Lore neural canvas uses published category metadata without inferring cate
   assert.match(body,/Mara/);assert.match(body,/Moon Harbor/);assert.match(body,/Lantern Guild/);
 });
 
+test('105 READY metadata-poor sources distribute across neutral topology hubs instead of one READY hub',()=>{
+  const d=new FakeDocument();
+  const entries=Array.from({length:105},(_,index)=>({
+    sourceId:'lore:large:'+index,uid:'entry-'+index,operatorState:'READY',
+    artifactIds:index===0?Array.from({length:80},(__,artifact)=>'artifact:'+artifact):[],
+    representations:[],retrievalReady:true,sourceRevisionId:'r'+index,
+  }));
+  const data={
+    kind:'Wave13LoreStudySurface',entries,
+    operatorCounts:{ACCEPTED:0,STUDYING:0,READY:105,FAILED:0,REMOVED:0},
+    artifacts:[],conflicts:[],revision:'hierarchy:a59b5c6ea9e88b85deadbeef',retrievalReady:105,
+  };
+  const selected={selection:{selected:true,title:'Large Lore',lorebookId:'large'},snapshot:{id:'large',title:'Large Lore',entries:Array.from({length:105},(_,index)=>({uid:'entry-'+index}))}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,source:{operationalState:'READY',statusToken:'ready'},progress:100});
+  const nodes=walk(root),body=textOf(root);
+  const hubs=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-hub-node'));
+  const sourceNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-artifact-node'));
+  assert.equal(hubs.length,7);
+  assert.ok(hubs.every(x=>x.attributes?.['data-state']==='STRUCTURE'));
+  assert.ok(sourceNodes.every(x=>x.attributes?.['data-state']==='READY'));
+  assert.equal(sourceNodes.length,54);
+  assert.equal(artifactNodes.length,1);
+  assert.match(body,/Source clusters · layout only/);
+  assert.match(body,/54 of 105 source nodes shown/);
+  assert.doesNotMatch(body,/hierarchy:a59b5c6ea9e88b85deadbeef/);
+  assert.match(body,/hierarchy:a59b5c6e…beef/);
+  const positions=hubs.map(hub=>hub.children?.find?.(child=>child.tagName==='CIRCLE')?.attributes??{});
+  const xs=positions.map(pos=>Number(pos.cx)),ys=positions.map(pos=>Number(pos.cy));
+  assert.ok(Math.min(...xs)<350&&Math.max(...xs)>650);
+  assert.ok(Math.min(...ys)<250&&Math.max(...ys)>500);
+  const artifactTitle=artifactNodes[0].children?.find?.(child=>child.tagName==='TITLE');
+  assert.match(String(artifactTitle?.textContent??''),/80 derived refs/);
+});
+
+test('current fully READY Lore disables redundant accept and study actions',()=>{
+  const d=new FakeDocument(),host=new FakeNode('section',d),entries=Array.from({length:105},(_,index)=>({
+    sourceId:'lore:current:'+index,uid:'entry-'+index,operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r'+index,
+  }));
+  const loreStudy={
+    capabilities:()=>({read:true,discover:true,accept:true,run:true,retry:false,summaries:false,subscribe:false}),
+    read:()=>({source:{operationalState:'READY',health:'READY',statusToken:'ready',impact:'Current.'},data:{
+      kind:'Wave13LoreStudySurface',entries,operatorCounts:{ACCEPTED:0,STUDYING:0,READY:105,FAILED:0,REMOVED:0},artifacts:[],conflicts:[],revision:1,retrievalReady:105,
+    }}),
+    selectedLorebook:()=>({selection:{selected:true,lorebookId:'current',title:'Current Lore'},snapshot:{id:'current',title:'Current Lore',entries:Array.from({length:105},(_,index)=>({uid:'entry-'+index}))}}),
+    summaries:()=>null,
+    discoverSelectedLorebook:async()=>null,
+  };
+  renderLoreStudySurface(host,{loreStudy,actionRouter:{route:async()=>({ok:true})},scope:{listen(){},add(){}},refresh:()=>{},notifications:null,productAdapter:null});
+  const buttons=walk(host).filter(node=>node.tagName==='BUTTON');
+  const accept=buttons.find(node=>node.textContent==='Lore current'),run=buttons.find(node=>node.textContent==='Study current');
+  assert.ok(accept);assert.ok(run);
+  assert.equal(Boolean(accept.disabled||accept.attributes?.disabled),true);
+  assert.equal(Boolean(run.disabled||run.attributes?.disabled),true);
+});
+
 test('Lore neural render state animates only newly published nodes across refreshes',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),base=populatedData();
   const first=renderLoreNeuralWorkspace(d,{data:base,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
@@ -163,6 +219,7 @@ test('Lore neural animation is CSS-only bounded and respects reduced motion',()=
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);
   assert.match(css,/\.a52-lore-neural-workspace\{/);
+  assert.match(css,/padding-bottom:18px/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);
   assert.ok(rootCss.indexOf('ui-core-lore-neural.css')>rootCss.indexOf('ui-core-console-theme.css'));

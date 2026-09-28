@@ -31,9 +31,9 @@
     "src/coprocessor/jev-adapter-matrix.js": "585e176b5530854ce8181ec6ad0836931a0856d1",
     "src/coprocessor/jev-decision-core.js": "3c13b299adaf08c61afb80458c93ee495aa3053b",
     "src/coprocessor/jev-domain-adapter.js": "5222adb783eecd7ed17abdd0e7e6c4717ba5b708",
-    "src/coprocessor/provider-adapters.js": "1a7b404486f0f17d5c30bc8b95878a60cdfa1bf7",
-    "src/coprocessor/provider-execution.js": "0ad7bac1974a0bb2f4d1a78a258c92b58624334a",
-    "src/coprocessor/resource-connections.js": "3d0c6cb8b003a7de0d2966b6fd8fd118779fcf6f",
+    "src/coprocessor/provider-adapters.js": "b2874a57ca05dfb72d84703ec85d4e7221af6db4",
+    "src/coprocessor/provider-execution.js": "9793aa8c8b887724ec5448fbd7ea13042997445a",
+    "src/coprocessor/resource-connections.js": "e0aa4a52f50c01eb168a0a0b93e7a1b78208e108",
     "src/coprocessor/resource-host-adapter.js": "3e35bcc5302a2fcc7104c94a9b22252f5338720c",
     "src/coprocessor/runtime-benchmark.js": "1a438da5e5eaed418e4edf427a20af3846a7f003",
     "src/coprocessor/speculative-warmer-coordinator.js": "9022895bf55355f9f29723459c8ad2e88c28baf3",
@@ -104,8 +104,9 @@
     "src/coprocessor/foreground-specialists.js": "1c523f7316c5933b3e9f55f5a253621c0d0d9c0f",
     "src/coprocessor/scene-signal-adapter.js": "a848deb1496f97dfff297be1e38e3a4eb2ca46ec",
     "src/coprocessor/jev-scene-adapter.js": "8571641716dc93554f1763bd98f9ce228a8e5cde",
-    "src/deployment/brain.js": "243a41397f22ea7bf39ffcdc4cce44f14d0f50df",
-    "src/ui-core/demo-visibility.js": "c36ed35660a72aa2a60e43ef5e004d94cb147342"
+    "src/deployment/brain.js": "7bdadd7e647939dcd247041ca9035e19cfff8658",
+    "src/ui-core/demo-visibility.js": "be77cf1c783a7046629e4fb836d5e471e1078175",
+    "src/coprocessor/scene-observation-specialist.js": "cedd65c5b77926a07320f2a89624492612b3bab3"
   },
   "generationDiagnosticsRepair": {
     "baseMainSha": "d21b552c1d7435fc3bcae95839028c031405a186",
@@ -118,5 +119,17 @@
       "src/ui-core/demo-visibility.js"
     ],
     "reason": "Retain exact resource execution selection, safe completion-failure metadata, and remove false current-turn attribution. Only these repaired paths are requalified; other digests are preserved."
+  },
+  "sceneAdaptiveOutputRepair": {
+    "baseMainSha": "5d120f7ed1f411f808c45fbb8bc2a67c025fba3d",
+    "paths": [
+      "src/coprocessor/provider-execution.js",
+      "src/coprocessor/scene-observation-specialist.js",
+      "src/coprocessor/provider-adapters.js",
+      "src/coprocessor/resource-connections.js",
+      "src/deployment/brain.js",
+      "src/ui-core/demo-visibility.js"
+    ],
+    "reason": "Adaptive Scene generation allowance and independently enforced time budget; unrelated digests preserved."
   }
 }

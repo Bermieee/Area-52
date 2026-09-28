@@ -651,7 +651,8 @@ export class DevelopmentDeploymentBrain {
     const task=createSceneObservationTask({
       chatId:chat,turnId:turn,generationId:generation,correlationId:correlation,sourceRevisionId:sourceRef,
       sceneRevision:current.revision,worldRevision:this.core.graph.revision,phase,parentWorkId,
-      foregroundBudgetMs,now:Date.now(),
+      foregroundBudgetMs,now:Date.now(),narrative:text,
+      sceneWorkload:{cast:current.fields?.activeCast?.value?.length??0,objects:current.fields?.immediateObjects?.value?.length??0,relationships:current.fields?.activeRelationships?.value?.length??0,threads:current.fields?.activeThreads?.value?.length??0},
     });
     this.#syncOptionalDirectorProfiles();
     let workerResult=null,executionError=null;
@@ -672,7 +673,7 @@ export class DevelopmentDeploymentBrain {
     const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(text).length/4));
     const admission=this.resourceDirectorBridge.admit(task,{
       executor,units:[{id:task.taskId+':unit',payload:{sourceRevisionId:sourceRef,sceneRevision:current.revision,phase}}],
-      constraints:{contextTokens,expectedOutputTokens:700,maxCostClass:'HIGH',requireStructuredOutput:true},
+      constraints:{contextTokens,expectedOutputTokens:task.metadata.expectedOutputTokens,maxCostClass:'HIGH',requireStructuredOutput:true},
       owner:'SCENE_OBSERVATION_WORKER',
     });
     if(admission.status!=='ADMITTED'){

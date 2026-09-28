@@ -1,6 +1,6 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
-import { safeCompletionResponseMetadata } from '../coprocessor/provider-adapters.js';
+import { safeCompletionResponseMetadata, safeSceneGenerationBudget } from '../coprocessor/provider-adapters.js';
 
 export const DEMO_EVIDENCE_JOURNAL_VERSION='1.5.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
@@ -298,13 +298,14 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
     if(qualificationProbe||(!row.physicalExecutionAttempted&&!row.lastExecution))continue;
     const succeeded=Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
     const responseMetadata=safeCompletionResponseMetadata(row.lastExecution?.responseMetadata);
+    const generationBudget=safeSceneGenerationBudget(row.lastExecution?.generationBudget);
     out.push(entry({
       type:'RESOURCE_ATTEMPT',status:succeeded?'SUCCEEDED':'FAILED',title:'Physical resource attempt',
       summary:String(row.displayName??row.id??'Resource')+' '+(succeeded?'completed a physical execution attempt.':'reported a physical execution failure.'),
       detail:'This evidence comes from the resource execution read model, not connection or configuration state. QUALIFICATION_PROBE traffic is excluded from cognitive execution.'+(responseMetadata?' Completion: '+String(responseMetadata.finishReason??'unknown finish reason')+'; content '+String(responseMetadata.contentType)+'; reasoning present '+responseMetadata.reasoningPresent+'; output tokens '+String(responseMetadata.completionTokens??'unknown')+'.':''),
       receiptRef:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,selection,at,
       identitySuffix:String(row.id??'resource')+':'+String(row.lastExecution?.at??row.lastExecution?.completedAt??row.lastExecution?.status??succeeded),
-      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,executionPurpose,succeeded,latencyMs:finite(row.lastExecution?.latencyMs),responseMetadata},
+      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,executionPurpose,succeeded,latencyMs:finite(row.lastExecution?.latencyMs),responseMetadata,generationBudget},
     }));
   }
 

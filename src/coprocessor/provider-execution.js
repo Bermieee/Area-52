@@ -45,9 +45,9 @@ export class SpecialistExecutionLayer {
       const expectedOutputTokens=positiveFiniteOrNull(task?.metadata?.expectedOutputTokens);
       const qualifiedOutputLimit=positiveFiniteOrNull(profile.maxOutputTokens);
       const requestedOutputTokens=expectedOutputTokens==null?null:(qualifiedOutputLimit==null?expectedOutputTokens:Math.min(expectedOutputTokens,qualifiedOutputLimit));
-      invocation=sceneBudget
-        ? await invokeSceneBeforeDeadline(adapter,task,providerInput,{signal,attempt,maxOutputTokens:sceneBudget.effectiveGenerationTokens})
-        : await adapter.invoke(task,providerInput,{signal,attempt,maxOutputTokens:requestedOutputTokens});
+      invocation=await adapter.invoke(task,providerInput,{
+        signal,attempt,maxOutputTokens:sceneBudget?.effectiveGenerationTokens??requestedOutputTokens,
+      });
     }catch(error){
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_FAILED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
         taskClass:task.taskType,cognitiveLayer:task.cognitiveLayer,placement:task.placement,attempt,reason:error?.code??FailureCode.PROVIDER_FAILURE});
@@ -145,22 +145,4 @@ function sceneGenerationBudget(task,input,profile,contextTokens){
   const effectiveGenerationTokens=Math.floor(Math.min(requestedGenerationTokens,qualifiedOutputLimit,contextRemaining));
   if(effectiveGenerationTokens<estimatedFinalTokens)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,'Scene output estimate exceeds qualified provider capacity');
   return Object.freeze({policy:'ADAPTIVE_SCENE',estimatedFinalTokens,reasoningAllowanceTokens,requestedGenerationTokens,effectiveGenerationTokens,providerLimited:effectiveGenerationTokens<requestedGenerationTokens});
-}
-
-async function invokeSceneBeforeDeadline(adapter,task,input,{signal,attempt,maxOutputTokens}){
-  const remaining=Math.max(0,Number(task.hardDeadline)-Date.now());
-  if(!Number.isFinite(remaining)||remaining<=0)throw new ProviderInvocationError(FailureCode.PROVIDER_TIMEOUT,'Scene extraction deadline expired before provider execution',{providerId:adapter.providerId,details:{localSceneBudgetExceeded:true}});
-  if(signal?.aborted)throw new ProviderInvocationError(FailureCode.PROVIDER_ABORTED,'Scene extraction aborted',{providerId:adapter.providerId});
-  const controller=new AbortController();let timer,abort;
-  const deadline=new Promise((resolve,reject)=>{
-    timer=setTimeout(()=>{reject(new ProviderInvocationError(FailureCode.PROVIDER_TIMEOUT,'Scene extraction exceeded its time budget',{providerId:adapter.providerId,details:{localSceneBudgetExceeded:true}}));controller.abort('scene-deadline');},remaining);
-    abort=()=>{reject(new ProviderInvocationError(FailureCode.PROVIDER_ABORTED,'Scene extraction aborted',{providerId:adapter.providerId}));controller.abort(signal?.reason);};
-    signal?.addEventListener('abort',abort,{once:true});
-  });
-  try{
-    const result=await Promise.race([adapter.invoke(task,input,{signal:controller.signal,attempt,maxOutputTokens,timeoutMs:remaining}),deadline]);
-    if(Date.now()>=Number(task.hardDeadline))throw new ProviderInvocationError(FailureCode.PROVIDER_TIMEOUT,'Scene response arrived after its time budget',{providerId:adapter.providerId,details:{localSceneBudgetExceeded:true}});
-    return result;
-  }
-  finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
 }

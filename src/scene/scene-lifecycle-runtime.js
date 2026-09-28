@@ -120,7 +120,9 @@ export class SceneLifecycleRuntime{
     const chat=String(chatId??'').trim(),sceneRef=String(sceneId??'').trim(),sourceRef=String(sourceRevisionId??'').trim();
     if(!chat||!sceneRef||!sourceRef)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_FENCE_REQUIRED',receipts:[]};
     const activeSceneId=this.chatScenes.get(chat)??null;
-    if(activeSceneId&&activeSceneId!==sceneRef)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_FOREIGN_SCENE',receipts:[]};
+    const historicalEpisode=episodeRef?.artifactId?this.episodeCompiler.get(String(episodeRef.artifactId)):null;
+    const admittedHistoricalScene=Boolean(historicalEpisode&&historicalEpisode.sceneId===sceneRef&&historicalEpisode.artifactRef?.artifactId===episodeRef.artifactId);
+    if(activeSceneId&&activeSceneId!==sceneRef&&!admittedHistoricalScene)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_FOREIGN_SCENE',receipts:[]};
     const scene=this.registry.current(sceneRef);
     if(!scene||Number(scene.revision)!==Number(sceneRevision))return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_STALE_SCENE_REVISION',receipts:[]};
     const currentRefs=new Set(this.narrativeFeed.currentEvidence(chat).map(row=>String(row.sourceRevisionId)));

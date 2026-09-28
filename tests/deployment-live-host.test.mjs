@@ -236,6 +236,12 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
 
   const installedEvidence=session.exportEvidence().nativeBrainIntegration;
   assert.equal(installedEvidence.installedUiSceneReadModelKind,'SceneUiReadModel');
+  assert.ok(installedEvidence.sceneFanOut.observedTurns>=1);
+  assert.equal(installedEvidence.sceneFanOut.evidenceClass,'INSTALLED_HOST_BOUNDARY');
+  assert.equal(installedEvidence.sceneFanOut.last.chatId,selection.chatId);
+  assert.equal(installedEvidence.sceneFanOut.last.turnId,selection.turnId);
+  assert.equal(installedEvidence.sceneFanOut.last.generationId,selection.generationId);
+  assert.equal(installedEvidence.sceneFanOut.last.plannerConsidered,true);
   const beforeHostObservation=installedEvidence.selectedTurnReceipt;
   assert.equal(beforeHostObservation.chatId,selection.chatId);
   assert.equal(beforeHostObservation.turnId,selection.turnId);

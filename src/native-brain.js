@@ -1547,6 +1547,7 @@ export class Area52NativeBrain{
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
     const memoryEvidence=learning?.memoryWriteback??record.memorySync??null;
+    const memoryRetrievalFeedback=learning?.memoryRetrievalFeedback??record.memoryRetrievalFeedback??null;
     const memoryEpisode=learning?.memoryPostTurn??record.memoryPostTurn??null;
     const memoryConsolidation=learning?.memoryConsolidation??record.memoryConsolidation??null;
     const loreEvidence=record.loreSync??null;

@@ -9,8 +9,8 @@ export class AtmosphereConsumptionPolicy{
     const base={kind:'SceneAtmosphereContribution',contractVersion:'1.0.0',authority:'ADVISORY_INFERENCE',canonical:false,proseStyleAuthority:false,factCreationAuthority:false,settlementAuthority:false,contextSealAuthority:false,recursiveValidationAllowed:false,readOnly:true};
     if(!this.enabled)return Object.freeze({...base,status:'DISABLED',dimensions:{},evidenceRefs:[]});
     if(!atmosphere||atmosphere.observationClass!=='INFERRED')return Object.freeze({...base,status:'UNAVAILABLE',dimensions:{},evidenceRefs:[]});
-    const evidenceRefs=uniq(atmosphere.evidenceRefs??[]),generated=new Set(uniq(generationDerivedEvidenceRefs));
-    if(evidenceRefs.length&&evidenceRefs.every(ref=>generated.has(ref)))return Object.freeze({...base,status:'REJECTED_RECURSIVE_EVIDENCE',dimensions:{},evidenceRefs});
+    const evidenceRefs=uniq(atmosphere.evidenceRefs??[]),generated=new Set(uniq(generationDerivedEvidenceRefs)),novelGenerated=new Set(uniq(atmosphere.metadata?.novelNarrativeEvidenceRefs??[]));
+    if(evidenceRefs.length&&evidenceRefs.every(ref=>generated.has(ref)&&!novelGenerated.has(ref)))return Object.freeze({...base,status:'REJECTED_RECURSIVE_EVIDENCE',dimensions:{},evidenceRefs});
     const revision=Number(atmosphere.revision??0),current=Number(currentSceneRevision??revision),expiry=Number(atmosphere.metadata?.expiresAfterRevision??(revision+this.maxAgeRevisions));
     if(current>expiry||current-revision>this.maxAgeRevisions)return Object.freeze({...base,status:'EXPIRED',dimensions:{},evidenceRefs,revision,expiryRevision:expiry});
     const entries=Object.entries(atmosphere.value??{}).sort((a,b)=>Number(b[1]?.score??0)-Number(a[1]?.score??0)).slice(0,this.maxDimensions);

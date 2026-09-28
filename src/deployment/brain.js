@@ -2380,12 +2380,24 @@ export class DevelopmentDeploymentBrain {
       dedupeKey: 'turn:' + turnId,
     };
     const scenePrefetchConsideration=this.#considerScenePrefetch({chatId,turn,query});
+    this.speculativeWarmTurnSequence+=1;
+    const warmConsumption=mode==='simple'?null:this.#consumeSpeculativeWarmForSend({
+      chatId:String(chatId),query,anchorEntityIds,sceneSignal,turn,
+    });
+    const warmPreparedLore=warmConsumption?.reuseLorePreparation?warmConsumption.preparedLore:null;
+    const warmPartialCandidates=(warmConsumption?.use?.reusableCandidates??[]).map((row,index)=>({
+      taskId:'warm-salvage:'+turn.turnId+':'+index,
+      candidateId:row.candidateId,
+      sourceRevisionRefs:[...(row.sourceRevisionRefs??[])],
+      resultClass:RuntimeResultClass.OPPORTUNISTIC,
+      authorityGranted:false,
+    }));
 
     let planning = null;
     const jobs = [];
     if (mode !== 'simple') {
-      planning = this.loreSystem.query({ query, intent: 'AUTO' });
-      jobs.push(taskFor({ turn, suffix: 'lore', taskType: 'LORE_RETRIEVAL', capability: CAPABILITIES.CPU_ANALYSIS, metadata: { query, intent: 'AUTO' } }));
+      planning = warmPreparedLore?.laneResult ?? this.loreSystem.query({ query, intent: 'AUTO' });
+      if(!warmPreparedLore)jobs.push(taskFor({ turn, suffix: 'lore', taskType: 'LORE_RETRIEVAL', capability: CAPABILITIES.CPU_ANALYSIS, metadata: { query, intent: 'AUTO' } }));
       jobs.push(taskFor({ turn, suffix: 'graph', taskType: 'GRAPH_LOOKUP', capability: CAPABILITIES.GRAPH, metadata: { query } }));
       if (mode === 'ambiguous' && this.jevAvailable) {
         jobs.push(taskFor({
@@ -2399,9 +2411,17 @@ export class DevelopmentDeploymentBrain {
       }
     }
 
-    const publishedRuntime = this.runtime.publishTurn(turn, jobs);
-    const foreground = await this.runtime.native.awaitForeground(turn.turnId);
-    await this.runtimeDirector.drain();
+    const generationMeta={
+      chatId:String(chatId),turnId:turn.turnId,generationId:String(generationId),correlationId:turn.correlationId,
+      sceneId:sceneSignal.sceneId??null,sceneRevision:sceneSignal.sceneRevision,sourceRevisionSet:[...sourceRevisionSet],
+    };
+    this.speculativeWarmer.onForegroundStart({turnId:turn.turnId});
+    this.runtimeDirector.beginGeneration(generationMeta);
+    try{
+      await this.speculativeWarmPumpPromise.catch(()=>{});
+      const publishedRuntime = this.runtime.publishTurn(turn, jobs);
+      const foreground = await this.runtime.native.awaitForeground(turn.turnId);
+      await this.runtimeDirector.drain();
 
     const sceneLore = sceneReceipt && mode !== 'simple'
       ? await this.runSceneLoreHandoff({ sceneReceipt, chatId, turnId, generationId })
@@ -2419,6 +2439,7 @@ export class DevelopmentDeploymentBrain {
       intent,
       anchorEntityIds,
       channelIds: mode === 'simple' ? null : [CHANNEL_ID],
+      externalRetrievalCandidates:warmPartialCandidates,
       budgetBytes: 3000,
       activeThreads: (sceneSignal.activeThreads ?? []).map((thread, index) => {
         if (thread && typeof thread === 'object' && thread.threadId) return thread;
@@ -2440,6 +2461,27 @@ export class DevelopmentDeploymentBrain {
       modelProfileId: 'CACHE_STABLE',
       userInput: query,
     });
+    this.speculativeWarmer.markTurnSealed(turn.turnId);
+    let warmCoreRevalidation=null;
+    if(warmConsumption?.use?.consumptionId){
+      const currentWarmIdentity=this.#speculativeWarmIdentity({chatId:String(chatId),recommendation:warmConsumption.recommendation,sceneSignal:this.scene.integrationSignal(String(chatId))});
+      const accepted=JSON.stringify(currentWarmIdentity)===JSON.stringify(warmConsumption.identity)
+        &&Number(published.worldRevision)===Number(warmConsumption.identity.worldRevision)
+        &&Number(published.sceneRevision)===Number(warmConsumption.identity.sceneRevision);
+      warmCoreRevalidation=this.speculativeWarmer.recordCoreRevalidation({
+        consumptionId:warmConsumption.use.consumptionId,accepted,
+        reason:accepted?null:'CORE_SEND_FENCES_CHANGED',
+        reusedStages:{retrieval:Boolean(warmPreparedLore),truth:false,precision:false,compile:false},
+      });
+      this.#retainSpeculativeWarmReceipt({
+        stage:'CORE_REVALIDATION',status:accepted?'ACCEPTED':'REJECTED',reasonCode:accepted?'CORE_FENCES_REVALIDATED':'CORE_SEND_FENCES_CHANGED',
+        recommendationId:warmConsumption.recommendation?.recommendationId??null,packetId:warmConsumption.use.packetId??null,
+        chatId:String(chatId),turnId:turn.turnId,generationId:String(generationId),sceneId:warmConsumption.recommendation?.sceneId??null,
+        sceneRevision:warmConsumption.recommendation?.sceneRevision??null,reusedStages:warmPreparedLore?['LORE_PREPARATION']:[],
+        remainingForegroundStages:['CORE_RETRIEVAL','TRUTH','PRECISION','COMPILE','SEAL'],
+        foregroundWorkAvoided:{lorePlanningQuery:Boolean(warmPreparedLore),runtimeLorePreparation:Boolean(warmPreparedLore),coreRetrieval:false,truth:false,precision:false,compile:false},
+      });
+    }
 
     const selection = {
       chatId: String(chatId),
@@ -2476,6 +2518,14 @@ export class DevelopmentDeploymentBrain {
       scatter,
       scene: this.scene.uiReadModel(String(chatId)),
       scenePrefetchConsideration: clone(scenePrefetchConsideration),
+      speculativeWarm:{
+        status:warmConsumption?.use?.freshness??(warmConsumption?'MISS':'NOT_CONSIDERED'),
+        packetId:warmConsumption?.use?.packetId??null,recommendationId:warmConsumption?.recommendation?.recommendationId??null,
+        reusableRefs:[...(warmConsumption?.use?.reusableRefs??[])],partialSalvageCount:warmPartialCandidates.length,
+        lorePreparationReused:Boolean(warmPreparedLore),coreRevalidation:clone(warmCoreRevalidation),
+        foregroundWorkAvoided:{lorePlanningQuery:Boolean(warmPreparedLore),runtimeLorePreparation:Boolean(warmPreparedLore),coreRetrieval:false,truth:false,precision:false,compile:false},
+        authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,contextSealAuthority:false,
+      },
       loreStatus: {
         kind: 'DeploymentLoreStatus',
         ...this.loreSystem.diagnostics(),
@@ -2496,6 +2546,11 @@ export class DevelopmentDeploymentBrain {
     this.selectedTurnId = turn.turnId;
     this.#emit({ type: 'TURN_COMMITTED', selection });
     return clone(record);
+    }finally{
+      this.speculativeWarmer.onForegroundEnd();
+      this.runtimeDirector.completeGeneration(generationMeta);
+      this.#pumpSpeculativeWarmRuntime();
+    }
   }
 
   readLoreStatus(selection = {}) {

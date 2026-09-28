@@ -363,7 +363,7 @@ async function applyNativeScene(brain, {
   }else if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
     semantic=await brain.runSceneObservationWork({
       chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:resolvedCorrelationId,
-      sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,
+      sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,hostEvent,
     });
     if(!currentSelection())return superseded(semantic);
     const hasSemanticWork=semantic?.status==='RETURNED'&&(

@@ -854,7 +854,6 @@ function plainMemoryReason(reason){
 
 export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null,frontFacePresentation=null}={}){
   const d=host.ownerDocument;
-  host.append(header(d,'World Tree',"Your world's memory, visualized. Current Lore and UID evidence feed the tree today; future Scene Intelligence will fill the reserved narrative layers."));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
 
   const read=loreStudy.read(),source=read.source,data=read.data,caps=loreStudy.capabilities(),selected=loreStudy.selectedLorebook?.()??{};
@@ -916,10 +915,12 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(!caps.discover)form.append(message(d,'SillyTavern discovery unavailable','The host does not export selected-Lorebook discovery. The UI will not invent a Lorebook identity.','offline'));
   if(!caps.accept)form.append(message(d,'Acceptance action unavailable','The Lore owner acceptance contract is not exported by this assembly.','offline'));
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
-  host.append(form);
-
   const motionMode=frontFacePresentation?.get?.().motionMode??'FULL';
-  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode}));
+  const worldTreeShell=element(d,'section',{className:'a52-world-tree-shell',attrs:{'aria-label':'World Tree visual shell'}});
+  const worldTree=renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode});
+  form.classList?.add?.('a52-world-tree-source-overlay');
+  worldTreeShell.append(worldTree,form);
+  host.append(worldTreeShell);
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});

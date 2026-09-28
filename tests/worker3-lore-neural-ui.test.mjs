@@ -82,7 +82,6 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.match(body,/Graph growth/);
   assert.match(body,/Growth queue/);
   assert.match(body,/WORLD TREE/);
-  assert.match(body,/Your world's memory, visualized/);
   assert.match(body,/Moon Harbor/);
   for(const label of ['Merge','Summarizer','Rebuild']){
     const button=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent===label);
@@ -373,6 +372,11 @@ test('current fully READY Lore disables redundant study while keeping re-accept 
   assert.equal(Boolean(run.disabled||run.attributes?.disabled),true);
   const intake=walk(host).find(node=>String(node.className??'').includes('a52-wave13-lore-controls'));
   assert.ok(intake);assert.equal(intake.dataset?.sourceState,'current');
+  const shell=walk(host).find(node=>String(node.className??'').includes('a52-world-tree-shell'));
+  const workspace=walk(host).find(node=>String(node.className??'').includes('a52-lore-neural-workspace'));
+  assert.ok(shell);assert.ok(workspace);
+  assert.equal(intake.parentNode,shell);assert.equal(workspace.parentNode,shell);
+  assert.match(String(intake.className??''),/a52-world-tree-source-overlay/);
 });
 
 test('Lore neural render state holds reveal across incidental refreshes then animates only newly published nodes',()=>{
@@ -554,6 +558,10 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/hubRadius=grouped\.length<=2\?220:grouped\.length<=4\?240:258/);
   assert.match(js,/const radius=76\+ring\*44\+jitter/);
   assert.match(js,/coreTitle\.textContent='WORLD TREE'/);
+  const surfaces=readFileSync(new URL('../src/ui-core/wave13-operator-surfaces.js',import.meta.url),'utf8');
+  assert.match(surfaces,/className:'a52-world-tree-shell'/);
+  assert.match(surfaces,/worldTreeShell\.append\(worldTree,form\)/);
+  assert.doesNotMatch(surfaces,/host\.append\(header\(d,'World Tree'/);
   assert.doesNotMatch(js,/index\*INITIAL_WAVE_SPACING_MS/);
   assert.doesNotMatch(js,/focusHubId=hub\.id/);
   assert.match(js,/dur:1500/);
@@ -573,7 +581,15 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/\.a52-world-tree-search/);
   assert.match(css,/data-source-state=current/);
   assert.match(css,/\.a52-world-tree-view-actions/);
-  assert.match(css,/grid-template-columns:minmax\(178px,198px\) minmax\(0,1fr\) minmax\(218px,242px\)/);
+  assert.match(css,/\/\* World Tree immersive HUD shell \*\//);
+  assert.match(css,/\.a52-world-tree-shell\{/);
+  assert.match(css,/height:clamp\(680px,calc\(100vh - 78px\),980px\)/);
+  assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-workspace\{[\s\S]*position:absolute/);
+  assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-canvas-card\{[\s\S]*inset:0/);
+  assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-rail--left\{[\s\S]*position/);
+  assert.match(css,/backdrop-filter:blur\(12px\)/);
+  assert.match(css,/\.a52-world-tree-source-overlay\{/);
+  assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-canvas-head\{[\s\S]*position:absolute/);
   assert.match(css,/@keyframes a52-lore-core-pulse\{0%,100%\{r:92/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);

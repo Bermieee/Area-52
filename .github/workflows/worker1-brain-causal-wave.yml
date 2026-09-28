@@ -15,11 +15,32 @@ on:
       - 'src/coprocessor/openrouter-jev-decisions.js'
       - 'src/ui-core/demo-visibility.js'
       - 'src/deployment/sillytavern-live.js'
+      - 'src/deployment/brain.js'
+      - 'src/coprocessor/scene-observation-specialist.js'
+      - 'src/coprocessor/foreground-specialists.js'
+      - 'src/scene/prefetch-trigger.js'
+      - 'src/scene/lifecycle-contracts.js'
+      - 'src/scene/narrative-feed-adapter.js'
+      - 'src/scene/event-publisher.js'
+      - 'src/scene/scene-graph.js'
+      - 'src/scene/scene-episode.js'
+      - 'src/deployment/owner-graph-adapters.js'
+      - 'src/scene/scene-lifecycle-runtime.js'
+      - 'src/scene/transition-manager.js'
+      - 'src/scene/scene-integration-view.js'
+      - 'src/coprocessor/scene-signal-adapter.js'
+      - 'src/coprocessor/speculative-warmer.js'
+      - 'src/coprocessor/fanout-planner.js'
       - 'src/runtime/**'
       - 'tests/worker1-brain-lifecycle-causal-wave.mjs'
       - 'tests/worker1-context-trust-delivery.mjs'
       - 'tests/worker1-brain-context-delivery-completion.mjs'
       - 'tests/worker1-generation-performance-wiring.mjs'
+      - 'tests/worker1-scene-cognition-integration.mjs'
+      - 'tests/worker1-scene-prefetch-trigger.mjs'
+      - 'tests/worker1-scene-event-spine.mjs'
+      - 'tests/worker1-scene-graph-temporal-adjacency.mjs'
+      - 'tests/worker1-scene-ft002-assembly.mjs'
       - 'tests/openrouter-jev-decisions.test.mjs'
       - 'scripts/worker1-generation-performance-benchmark.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
@@ -30,6 +51,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: worker1-brain-causal-wave-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   closure:
@@ -55,6 +80,21 @@ jobs:
         run: node --test tests/worker1-brain-context-delivery-completion.mjs
       - name: Generation performance and causal wiring
         run: node --test tests/worker1-generation-performance-wiring.mjs
+      - name: Scene cognition integration
+        run: node --test tests/worker1-scene-cognition-integration.mjs
+      - name: Scene Prefetch Trigger #112
+        run: node --test tests/worker1-scene-prefetch-trigger.mjs
+      - name: Scene Event Spine #113
+        run: node --test tests/worker1-scene-event-spine.mjs
+      - name: Scene Graph and temporal adjacency #110
+        run: node --test tests/worker1-scene-graph-temporal-adjacency.mjs
+      - name: Scene FT002 production assembly #177
+        run: node --test tests/worker1-scene-ft002-assembly.mjs
+      - name: Preserve Runtime owner event binding
+        run: >-
+          node --test
+          --test-name-pattern="external producer can host L2 post-turn work from GENERATION_COMPLETED"
+          tests/runtime-wave2.mjs
       - name: Qualification probe contract
         run: node --test tests/openrouter-jev-decisions.test.mjs
       - name: Demo telemetry regression
@@ -86,12 +126,35 @@ jobs:
           node --check src/coprocessor/openrouter-jev-decisions.js &&
           node --check src/ui-core/demo-visibility.js &&
           node --check src/deployment/sillytavern-live.js &&
+          node --check src/deployment/brain.js &&
+          node --check src/coprocessor/scene-observation-specialist.js &&
+          node --check src/coprocessor/foreground-specialists.js &&
+          node --check src/scene/prefetch-trigger.js &&
+          node --check src/scene/lifecycle-contracts.js &&
+          node --check src/scene/narrative-feed-adapter.js &&
+          node --check src/scene/event-publisher.js &&
+          node --check src/scene/scene-graph.js &&
+          node --check src/scene/scene-episode.js &&
+          node --check src/deployment/owner-graph-adapters.js &&
+          node --check src/scene/scene-lifecycle-runtime.js &&
+          node --check src/scene/transition-manager.js &&
+          node --check src/scene/scene-integration-view.js &&
+          node --check src/coprocessor/scene-signal-adapter.js &&
+          node --check src/coprocessor/speculative-warmer.js &&
+          node --check src/coprocessor/fanout-planner.js &&
           node --check src/runtime/causal-receipts.js &&
           node --check src/runtime/obligation-reconciler.js &&
           node --check src/runtime/worker-director.js &&
+          node --check src/runtime/event-spine.js &&
+          node --check src/runtime/obligation-producers.js &&
           node --check tests/worker1-brain-lifecycle-causal-wave.mjs &&
           node --check tests/worker1-brain-context-delivery-completion.mjs &&
           node --check tests/worker1-generation-performance-wiring.mjs &&
+          node --check tests/worker1-scene-cognition-integration.mjs &&
+          node --check tests/worker1-scene-prefetch-trigger.mjs &&
+          node --check tests/worker1-scene-event-spine.mjs &&
+          node --check tests/worker1-scene-graph-temporal-adjacency.mjs &&
+          node --check tests/worker1-scene-ft002-assembly.mjs &&
           node --check scripts/worker1-generation-performance-benchmark.mjs
       - name: Browser-facing imports
         run: >-
@@ -101,5 +164,19 @@ jobs:
           import('./src/model-adapters.js'),
           import('./src/prompt-presentation.js'),
           import('./src/native-brain.js'),
+          import('./src/coprocessor/scene-observation-specialist.js'),
+          import('./src/scene/prefetch-trigger.js'),
+          import('./src/scene/lifecycle-contracts.js'),
+          import('./src/scene/narrative-feed-adapter.js'),
+          import('./src/scene/event-publisher.js'),
+          import('./src/scene/scene-graph.js'),
+          import('./src/scene/scene-episode.js'),
+          import('./src/deployment/owner-graph-adapters.js'),
+          import('./src/scene/scene-lifecycle-runtime.js'),
+          import('./src/scene/scene-integration-view.js'),
+          import('./src/coprocessor/scene-signal-adapter.js'),
+          import('./src/coprocessor/fanout-planner.js'),
+          import('./src/runtime/event-spine.js'),
+          import('./src/runtime/obligation-producers.js'),
           import('./src/runtime/index.js')
           ]).then(()=>console.log('WORKER1 BRAIN CAUSAL IMPORT PASS'))"

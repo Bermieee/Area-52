@@ -3,6 +3,7 @@ import { GreenRoomStore, createGreenRoomProviderInput, projectGreenRoomForGenera
 import { wave3SpecialistForTask } from './wave3-specialists.js';
 import { precisionSpecialistForTask } from './precision-specialists.js';
 import { createHistorianProviderInput, validateHistorianProviderOutput } from './historian-retrieval.js';
+import { SCENE_OBSERVATION_TASK_TYPE, SceneObservationSpecialist } from './scene-observation-specialist.js';
 
 const TRUST=['DOWN','STABLE','UP','UNKNOWN'];
 const ASSESS=['SUPPORTED','CONFLICTING','INSUFFICIENT','UNRESOLVED','LOW_CONFIDENCE'];
@@ -14,6 +15,7 @@ export const ForegroundSpecialists=Object.freeze({
   GRAPH_WALK:Object.freeze({taskType:'GRAPH_WALK',buildInput:buildGraphInput,normalize:normalizeGraph}),
   GREEN_ROOM:Object.freeze({taskType:'GREEN_ROOM',buildInput:buildGreenRoomInput,normalize:normalizeGreenRoom}),
   TRUTH_PRECISION:Object.freeze({taskType:'TRUTH_PRECISION',buildInput:buildTruthInput,normalize:normalizeTruth}),
+  [SCENE_OBSERVATION_TASK_TYPE]:SceneObservationSpecialist,
 });
 
 export function specialistForTask(taskType){return ForegroundSpecialists[taskType]??wave3SpecialistForTask(taskType)??precisionSpecialistForTask(taskType);}

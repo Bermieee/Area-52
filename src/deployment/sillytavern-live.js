@@ -1,5 +1,6 @@
 import { CastPresence, ObservationClass, createFieldState } from '../scene/contracts.js';
 import { HostActivity, SceneRelationship } from '../scene/lifecycle-contracts.js';
+import { scenePrefetchIntentsFromNarrative } from '../scene/prefetch-trigger.js';
 import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 import {
@@ -150,6 +151,25 @@ function sceneField(value, revision, evidenceRef, observationClass = Observation
   });
 }
 
+const ATMOSPHERE_CUES=Object.freeze({
+  tension:{pattern:/\b(?:tense|tension|strained|on edge|standoff)\b/i,novelPattern:/\b(?:confronts?|corners?|draws? (?:a |the )?(?:blade|gun|weapon)|weapons? (?:are )?drawn)\b/i,score:.78,confidence:.82},
+  danger:{pattern:/\b(?:danger|dangerous|threat|threatening|peril|unsafe|attacks?|charges?|explodes?)\b/i,novelPattern:/\b(?:attacks?|charges?|threatens?|explodes?|weapon(?:s)? (?:is|are) drawn|blade flashes)\b/i,score:.82,confidence:.86},
+  intimacy:{pattern:/\b(?:intimate|intimacy|tender|tenderness|affectionate|affection|kisses?|embraces?|hugs?)\b/i,novelPattern:/\b(?:kisses?|embraces?|hugs?|holds? (?:him|her|them|each other) close)\b/i,score:.72,confidence:.78},
+  urgency:{pattern:/\b(?:urgent|urgency|hurry|hurried|immediately|no time to lose|deadline|countdown)\b/i,novelPattern:/\b(?:deadline|countdown|before it is too late|must (?:leave|go|escape) now|races? against time)\b/i,score:.82,confidence:.86},
+  uncertainty:{pattern:/\b(?:uncertain|uncertainty|unsure|unclear|ambiguous|cannot see|can't see)\b/i,novelPattern:/\b(?:loses? sight of|searches? blindly|cannot see|can't see|does not know whether)\b/i,score:.70,confidence:.80},
+  humor:{pattern:/\b(?:humor|humorous|joke|jokes|joked|laugh|laughs|laughed|laughter|chuckles?|amused)\b/i,novelPattern:/\b(?:laughs?|laughed|laughing|chuckles?|jokes?|joked)\b/i,score:.68,confidence:.78},
+  grief:{pattern:/\b(?:grief|grieving|grieve|mourn|mourns|mourning|sorrow|sorrowful|weeps?|sobs?)\b/i,novelPattern:/\b(?:mourns?|mourned|weeps?|wept|sobs?|sobbed|funeral)\b/i,score:.82,confidence:.86},
+  hostility:{pattern:/\b(?:hostile|hostility|snarl|snarls|threatens?|menacing|attacks?|glares?)\b/i,novelPattern:/\b(?:glares?|snarls?|threatens?|attacks?|swings? at|lunges? at)\b/i,score:.82,confidence:.86},
+});
+function extractAtmosphereDimensions(raw,evidenceRef){
+  const dimensions={};
+  for(const [name,cue] of Object.entries(ATMOSPHERE_CUES)){
+    if(!cue.pattern.test(raw))continue;
+    dimensions[name]={score:cue.score,confidence:cue.confidence,evidenceRefs:[evidenceRef],novelNarrativeEvidence:Boolean(cue.novelPattern?.test(raw))};
+  }
+  return dimensions;
+}
+
 export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef, currentScene = null, sceneRuntime = null } = {}) {
   const raw = clean(text);
   const fields = {};
@@ -160,6 +180,7 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   const boundarySignals = {};
   let relationship = null;
   let resumeSceneId = null;
+  const prefetchIntents=scenePrefetchIntentsFromNarrative(raw);
 
   const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
     ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
@@ -186,6 +207,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
     }
   }
   if (castChanged) fields.activeCast = sceneField([...cast.values()], revision, evidenceRef);
+
+  const atmosphereDimensions=extractAtmosphereDimensions(raw,evidenceRef);
+  if(Object.keys(atmosphereDimensions).length)fields.atmosphere=sceneField(atmosphereDimensions,revision,evidenceRef,ObservationClass.INFERRED,Math.min(...Object.values(atmosphereDimensions).map((row)=>row.confidence)));
 
   const numberWords={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10};
   const timeMatch=raw.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+(later|earlier)\b/i);
@@ -219,8 +243,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   if(explicitBreak)boundarySignals.explicitBreak=1;
 
   return {
-    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0,
+    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0 || prefetchIntents.length > 0,
     fields,
+    prefetchIntents,
     sourceText: raw,
     boundarySignals:Object.keys(boundarySignals).length?boundarySignals:null,
     relationship,
@@ -278,43 +303,153 @@ function registerNarrativeSource(brain, { chatId, message }) {
   return { ...identity, sourceRevisionId: imported.revision.id };
 }
 
-function applyNativeScene(brain, { chatId, message, sourceRevisionId = null, activity = HostActivity.USER_SEND, messageRevision = 1, turnId = null, hostEventId = null } = {}) {
-  const prior = brain.scene.integrationSignal(chatId);
-  const identity = sourceIdentity(chatId, message);
-  let parsed = null;
-  const receipt = brain.ingestSceneHostEvent({
-    activity,
-    chatId,
-    hostEventId: hostEventId ?? ['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':'),
-    messageId: identity.messageKey,
-    messageRevision,
-    turnId: turnId ?? ['scene-turn',chatId,identity.messageKey,messageRevision].join(':'),
-    content: message.text,
-    role: message.role ?? 'user',
-  },{
-    extract:(e,scene)=>{
-      parsed=extractDevelopmentDeploymentScene(e.content,{
-        revision:scene.revision+1,
-        evidenceRef:e.sourceRevisionId,
-        currentScene:scene,
-        sceneRuntime:brain.scene,
+async function applyNativeScene(brain, {
+  chatId,message,sourceRevisionId=null,activity=HostActivity.USER_SEND,messageRevision=1,turnId=null,hostEventId=null,
+  generationId=null,correlationId=null,causationId=null,phase='FOREGROUND_USER',selectionGuard=null,turnSealed=null,foregroundBudgetMs=1200,
+}={}){
+  const prior=brain.scene.integrationSignal(chatId);
+  const identity=sourceIdentity(chatId,message);
+  const resolvedTurnId=turnId??['scene-turn',chatId,identity.messageKey,messageRevision].join(':');
+  const resolvedGenerationId=generationId??['scene-generation',chatId,identity.messageKey,messageRevision,identity.digest].join(':');
+  const ownerSourceRevisionId=brain.scene?.narrativeFeed?.sourceRevisionIdFor?.({
+    chatId,messageId:identity.messageKey,messageRevision,
+  })??sourceRevisionId;
+  const resolvedHostEventId=hostEventId??['st-scene',chatId,identity.messageKey,messageRevision,identity.digest,activity].join(':');
+  const resolvedCorrelationId=correlationId??('corr:'+resolvedTurnId),resolvedCausationId=causationId??resolvedHostEventId;
+  const hostEvent={
+    activity,chatId,hostEventId:resolvedHostEventId,
+    messageId:identity.messageKey,messageRevision,turnId:resolvedTurnId,generationId:resolvedGenerationId,
+    correlationId:resolvedCorrelationId,causationId:resolvedCausationId,sourceRevisionId:ownerSourceRevisionId,
+    content:message.text,role:message.role??(activity===HostActivity.USER_SEND?'user':'assistant'),
+  };
+  const currentSelection=()=>typeof selectionGuard==='function'?Boolean(selectionGuard()):true;
+  const sealed=()=>typeof turnSealed==='function'?Boolean(turnSealed()):false;
+  const safeParsed=(value)=>{
+    const out=clone(value??{});
+    delete out.sourceText;
+    return out;
+  };
+  const superseded=(semantic=null)=>{
+    const signal=prior??null;
+    return{
+      kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'REJECTED',noWorkReason:'SCENE_SELECTION_SUPERSEDED',
+      chatId,sceneId:signal?.sceneId??null,sceneRevision:signal?.sceneRevision??null,sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],
+      changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
+      semanticObservation:semantic?{...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:'SCENE_PROPOSAL_SELECTION_SUPERSEDED',stale:true}:{status:'SKIPPED',reasonCode:'SCENE_SELECTION_SUPERSEDED',attempted:false,returned:false,ownerAdmitted:false,stale:true},
+      parsed:{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'NO_SCENE_MUTATION_SUPERSEDED_SELECTION'},
+      reason:'SCENE_SELECTION_SUPERSEDED',authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
+    };
+  };
+  if(!currentSelection())return superseded();
+
+  // #213 deterministic path: inspect clear host evidence before scheduling any external Scene worker.
+  const previewScene=prior?.sceneId?brain.scene.registry.current(prior.sceneId):null;
+  const deterministicPreview=ownerSourceRevisionId?extractDevelopmentDeploymentScene(message.text,{
+    revision:(Number(previewScene?.revision??prior?.sceneRevision??1)||1)+1,
+    evidenceRef:ownerSourceRevisionId,currentScene:previewScene,sceneRuntime:brain.scene,
+  }):{explicit:false,fields:{},boundarySignals:null};
+  let semantic=null,admission=null,receipt=null,parsed=null,jevAdvice=null;
+  if(deterministicPreview?.explicit){
+    let ownerParsed=null;
+    receipt=brain.ingestSceneHostEvent(hostEvent,{
+      extract:(e,scene)=>{
+        ownerParsed=extractDevelopmentDeploymentScene(e.content,{
+          revision:scene.revision+1,evidenceRef:e.sourceRevisionId,currentScene:scene,sceneRuntime:brain.scene,
+        });
+        return ownerParsed;
+      },
+    });
+    parsed={...safeParsed(ownerParsed??deterministicPreview),extractionPolicy:'DETERMINISTIC_SCENE_OWNER'};
+  }else if(typeof brain.runSceneObservationWork==='function'&&ownerSourceRevisionId){
+    semantic=await brain.runSceneObservationWork({
+      chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:resolvedCorrelationId,
+      sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,
+    });
+    if(!currentSelection())return superseded(semantic);
+    const hasSemanticWork=semantic?.status==='RETURNED'&&(
+      Object.keys(semantic?.proposal?.fields??{}).length>0||Object.keys(semantic?.boundarySignals??{}).length>0
+    );
+    const hasBoundedAmbiguity=semantic?.status==='RETURNED'&&Array.isArray(semantic?.ambiguities)&&semantic.ambiguities.length>0;
+    if(hasBoundedAmbiguity&&typeof brain.adjudicateSceneObservationAmbiguity==='function'){
+      jevAdvice=await brain.adjudicateSceneObservationAmbiguity({
+        work:semantic,hostEvent,currentSelection,turnSealed,
       });
-      return parsed;
-    },
-  });
-  const signal = receipt.signal ?? prior ?? (sourceRevisionId ? brain.ensureScene({ chatId, sourceRevisionId }) : null);
-  const observed = receipt.status === 'OBSERVED';
-  const initialized = !prior && Boolean(signal);
-  return {
-    ...receipt,
-    observed,
-    initialized,
-    parsed: parsed ?? {explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'},
-    signal,
-    delta: receipt.delta ?? null,
-    reason: observed
-      ? (receipt.transition ? 'HOST_SCENE_TRANSITION_OBSERVED' : 'HOST_SCENE_FIELDS_OBSERVED')
-      : (initialized ? 'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS' : receipt.noWorkReason ?? 'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT'),
+    }
+    if(!currentSelection())return superseded(semantic);
+    if(hasSemanticWork||jevAdvice?.accepted===true){
+      admission=brain.admitSceneObservationProposal({
+        work:semantic,hostEvent,currentSelection:currentSelection(),turnSealed:sealed(),jevAdvice,
+      });
+      receipt=admission?.ownerReceipt??null;
+      parsed={
+        explicit:true,fields:clone(semantic.proposal?.fields??{}),boundarySignals:clone(semantic.boundarySignals??{}),
+        relationship:null,resumeSceneId:null,allowWhenRefreshRequired:false,extractionPolicy:'SEMANTIC_COGNITIVE_RESOURCE',
+        ambiguityCount:Array.isArray(semantic.ambiguities)?Math.min(4,semantic.ambiguities.length):0,
+      };
+      if(!admission?.accepted&&['SCENE_PROPOSAL_SELECTION_SUPERSEDED','SCENE_PROPOSAL_LATE_AFTER_SEAL','SCENE_PROPOSAL_STALE_REVISION','SCENE_PROPOSAL_SOURCE_FENCE_MISMATCH','SCENE_JEV_ADVICE_FENCE_MISMATCH'].includes(admission?.reasonCode)){
+        const signal=prior??brain.scene.integrationSignal(chatId);
+        return{
+          ...(receipt??{}),kind:receipt?.kind??'DeploymentSceneOwnerReceipt',status:'REJECTED',noWorkReason:admission.reasonCode,
+          chatId,sceneId:signal?.sceneId??semantic.proposal?.sceneId??null,sceneRevision:signal?.sceneRevision??semantic.proposal?.baseRevision??null,
+          sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
+          semanticObservation:{
+            ...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:admission.reasonCode,
+            stale:Boolean(admission.receipt?.stale),late:Boolean(admission.receipt?.late),
+            ambiguityReview:jevAdvice?{
+              status:jevAdvice.status??null,reasonCode:jevAdvice.reasonCode??null,ambiguityId:jevAdvice.ambiguityId??null,
+              decisionKind:jevAdvice.decisionKind??null,field:jevAdvice.field??null,selectedOptionId:jevAdvice.selectedOptionId??null,
+              stale:Boolean(jevAdvice.stale),late:Boolean(jevAdvice.late),degraded:Boolean(jevAdvice.degraded),
+            }:null,
+          },
+          parsed,reason:admission.reasonCode,authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
+        };
+      }
+    }
+  }
+
+  if(!receipt){
+    if(!currentSelection())return superseded(semantic);
+    if(semantic&&phase!=='POST_RESPONSE'&&sealed()){
+      const signal=prior??brain.scene.integrationSignal(chatId);
+      return{
+        kind:'DeploymentSceneOwnerReceipt',contractVersion:1,status:'REJECTED',noWorkReason:'SCENE_PROPOSAL_LATE_AFTER_SEAL',
+        chatId,sceneId:signal?.sceneId??semantic.proposal?.sceneId??null,sceneRevision:signal?.sceneRevision??semantic.proposal?.baseRevision??null,
+        sourceRevisionRefs:[...(signal?.sourceRevisionRefs??[])],changedFields:[],signal,observed:false,initialized:!prior&&Boolean(signal),
+        semanticObservation:{...clone(semantic.executionReceipt),ownerAdmitted:false,ownerReasonCode:'SCENE_PROPOSAL_LATE_AFTER_SEAL',late:true},
+        parsed:{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'NO_SCENE_MUTATION_LATE_RESULT'},
+        reason:'SCENE_PROPOSAL_LATE_AFTER_SEAL',authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,rawNarrativeIncluded:false,
+      };
+    }
+    let fallbackParsed=null;
+    receipt=brain.ingestSceneHostEvent(hostEvent,{
+      extract:(e,scene)=>{
+        fallbackParsed=extractDevelopmentDeploymentScene(e.content,{
+          revision:scene.revision+1,evidenceRef:e.sourceRevisionId,currentScene:scene,sceneRuntime:brain.scene,
+        });
+        return fallbackParsed;
+      },
+    });
+    parsed=safeParsed(fallbackParsed??{explicit:false,fields:{},boundarySignals:null,relationship:null,resumeSceneId:null,extractionPolicy:'GENERIC_HOST_EVIDENCE_ONLY'});
+  }
+  const signal=receipt.signal??prior??(ownerSourceRevisionId?brain.ensureScene({chatId,sourceRevisionId:ownerSourceRevisionId}):sourceRevisionId?brain.ensureScene({chatId,sourceRevisionId}):null);
+  const observed=receipt.status==='OBSERVED';
+  const initialized=!prior&&Boolean(signal);
+  const semanticObservation=semantic?{
+    ...clone(semantic.executionReceipt),ownerAdmitted:admission?.accepted??null,ownerReasonCode:admission?.reasonCode??null,
+    changedFields:[...(admission?.ownerReceipt?.changedFields??receipt?.changedFields??[])].slice(0,16),
+    ambiguityCount:Array.isArray(semantic?.ambiguities)?Math.min(4,semantic.ambiguities.length):0,
+    ambiguityReview:jevAdvice?{
+      status:jevAdvice.status??null,reasonCode:jevAdvice.reasonCode??null,ambiguityId:jevAdvice.ambiguityId??null,
+      decisionKind:jevAdvice.decisionKind??null,field:jevAdvice.field??null,selectedOptionId:jevAdvice.selectedOptionId??null,
+      stale:Boolean(jevAdvice.stale),late:Boolean(jevAdvice.late),degraded:Boolean(jevAdvice.degraded),
+    }:null,
+  }:null;
+  return{
+    ...receipt,observed,initialized,parsed,signal,delta:receipt.delta??null,semanticObservation,
+    extractionPolicy:parsed?.extractionPolicy??'GENERIC_HOST_EVIDENCE_ONLY',
+    reason:observed
+      ? (receipt.transition?'HOST_SCENE_TRANSITION_OBSERVED':parsed?.extractionPolicy==='SEMANTIC_COGNITIVE_RESOURCE'?'SEMANTIC_SCENE_FIELDS_ADMITTED':parsed?.extractionPolicy==='DETERMINISTIC_SCENE_OWNER'?'DETERMINISTIC_SCENE_FIELDS_ADMITTED':'HOST_SCENE_FIELDS_OBSERVED')
+      : (initialized?'SCENE_INITIALIZED_WITH_UNKNOWN_FIELDS':receipt.noWorkReason??'NO_EXPLICIT_SCENE_FIELDS_REUSE_CURRENT'),
   };
 }
 
@@ -323,6 +458,25 @@ function sceneOwnerReceiptForNative(scene){
   const safe=clone(scene);
   delete safe.dispatchTimeline;delete safe.signal;delete safe.parsed;
   return safe;
+}
+
+function activeContextForNative(brain,context,chatId){
+  const chat=Array.isArray(context?.chat)?context.chat:[];
+  const currentEvidence=brain?.scene?.narrativeFeed?.currentEvidence?.(chatId)??[];
+  const evidenceByMessage=new Map(currentEvidence.filter(row=>row?.messageId!=null).map(row=>[String(row.messageId),row]));
+  const messages=[];
+  for(let index=0;index<chat.length;index++){
+    const row=chat[index],content=clean(row?.mes??row?.content??row?.text);
+    if(!content)continue;
+    const identity=sourceIdentity(chatId,{index,row,text:content}),evidence=evidenceByMessage.get(identity.messageKey);
+    messages.push({
+      messageId:identity.messageKey,sequence:index,
+      role:row?.role??(row?.is_user===true?'user':'assistant'),content,
+      sourceRevisionRefs:evidence?.sourceRevisionId?[evidence.sourceRevisionId]:[],
+      provenanceRefs:evidence?.sourceRevisionId?[evidence.sourceRevisionId]:[],
+    });
+  }
+  return{messages,coverage:[],recentWindow:6,hostHistoryMutation:false};
 }
 
 async function injectPrompt(context, result) {
@@ -364,7 +518,7 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   const turnSuffix = source.messageKey + ':' + source.digest + ':' + chosenMode;
   const turnId = 'live:' + chatId + ':' + turnSuffix;
   const generationId = 'live-gen:' + chatId + ':' + source.messageKey + ':' + source.digest;
-  const scene = applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId, turnId });
+  const scene = await applyNativeScene(brain, { chatId, message, sourceRevisionId: source.sourceRevisionId, turnId, generationId });
 
   const result = await brain.runTurn({
     chatId,
@@ -425,11 +579,17 @@ async function executeHostTurn(brain, context, message, { mode = null, inject = 
   };
 }
 
+const READY_SCENE_EXTRACTION_POLICIES=new Set([
+  'GENERIC_HOST_EVIDENCE_ONLY',
+  'DETERMINISTIC_SCENE_OWNER',
+  'SEMANTIC_COGNITIVE_RESOURCE',
+]);
+
 function liveTurnReady(row) {
   if (!row?.host?.chatId || !row?.selection?.turnId || !row?.selection?.generationId) return false;
   if (!row.delivery?.ok || !row.delivery?.sealVerified || !row.delivery?.promptInjection?.succeeded) return false;
   if (!row.cognition?.choice || !row.runtime) return false;
-  if (!row.scene?.sceneId || row.scene?.extractionPolicy !== 'GENERIC_HOST_EVIDENCE_ONLY') return false;
+  if (!row.scene?.sceneId || !READY_SCENE_EXTRACTION_POLICIES.has(row.scene?.extractionPolicy)) return false;
   return true;
 }
 
@@ -640,23 +800,41 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(this.nativeRuns.has(chatId))throw new Error('A native Brain generation is already pending for this selected chat');
     const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
+    const correlationId='corr:'+turnId,causationId='host-narrative:'+source.sourceRevisionId;
+    const selectionGuard=()=>{
+      try{
+        const current=this.getContext(),latest=latestUserMessage(current);
+        return clean(current.chatId)===chatId&&Boolean(latest)&&latest.index===message.index&&sourceIdentity(chatId,latest).digest===source.digest;
+      }catch{return false;}
+    };
     const sceneVersion=this.#sceneHostVersion(chatId,message);
-    const scene=applyNativeScene(this.brain,{chatId,message,sourceRevisionId:source.sourceRevisionId,activity:sceneVersion.activity,messageRevision:sceneVersion.messageRevision,turnId});
+    const scene=await applyNativeScene(this.brain,{
+      chatId,message,sourceRevisionId:source.sourceRevisionId,activity:sceneVersion.activity,messageRevision:sceneVersion.messageRevision,
+      turnId,generationId,correlationId,causationId,phase:'FOREGROUND_USER',selectionGuard,
+      turnSealed:()=>Boolean(this.nativeBrain?.core?.publication?.seal?.isTurnSealed?.(turnId)),
+    });
+    const sceneFanOut=await this.brain.assembleSceneFanOutForNativeTurn({
+      chatId,turnId,generationId,correlationId,causationId,query:message.text,worldRevision:this.nativeBrain?.core?.graph?.revision??0,
+      foregroundBudgetMs:1200,selectionGuard,sealed:()=>Boolean(this.nativeBrain?.core?.publication?.seal?.isTurnSealed?.(turnId)),
+    });
+    if(!selectionGuard())throw new Error('NATIVE_SCENE_SELECTION_SUPERSEDED_BEFORE_BRAIN');
     const sceneOwnerReceipt=sceneOwnerReceiptForNative(scene);
+    const activeContext=activeContextForNative(this.brain,context,chatId);
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
     const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted:perfNow(),profileStart:this.#generationProfileSample(),profileAfterInsertion:null};
     this.nativeRuns.set(chatId,run);
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
-      chatId,turnId,generationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,executionLabel:'LIVE_SILLYTAVERN',
+      chatId,turnId,generationId,correlationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,
+      sceneFanOut:sceneFanOut?.coreHandoff??null,executionLabel:'LIVE_SILLYTAVERN',
     },{
       generate:async(rendered,meta={})=>{
         const seal=meta.contextSealReceipt;
         if(!seal?.sealedState)throw new Error('Native Brain did not publish a sealed Context Seal before the model request');
         if(!rendered)throw new Error('Native Brain runTurn did not publish prepared.rendered for the model request');
         this.nativePayloads.set(chatId,clone(rendered));
-        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??null,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
+        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??correlationId,causationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneFanOutReceipt:clone(sceneFanOut?.receipt??null),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
         if(typeof this.nativeBrain?.recordHostObservationEvidence==='function')this.nativeBrain.recordHostObservationEvidence(turnId,{eventId:'host-preparation:'+generationId,chatId,turnId,generationId,correlationId:pending.correlationId,sceneRevision:pending.sceneRevision,sourceRevisionRefs:pending.sceneSourceRevisionRefs,durationMs:Math.max(0,perfNow()-run.hostPrepareStarted),capturedAt:Date.now()});
         this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
         this.#beginOptionalGeneration(pending);
@@ -726,7 +904,40 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;
     if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
-    const completed={...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null}};
+    // Foreground generation is complete once provider-response learning finishes.
+    // Release its reserved cognitive slot before scheduling DEEP/NEXT_TURN Scene work.
+    this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
+    let postResponseScene=null;
+    try{
+      const assistantMessageForScene={...assistant,role:'assistant'};
+      const assistantSource=registerNarrativeSource(this.brain,{chatId,message:assistantMessageForScene});
+      const assistantSceneVersion=this.#sceneHostVersion(chatId,assistantMessageForScene,{activity:HostActivity.ASSISTANT_GENERATION_COMPLETE});
+      const assistantIdentity=sourceIdentity(chatId,assistantMessageForScene);
+      postResponseScene=await applyNativeScene(this.brain,{
+        chatId,message:assistantMessageForScene,sourceRevisionId:assistantSource.sourceRevisionId,
+        activity:HostActivity.ASSISTANT_GENERATION_COMPLETE,messageRevision:assistantSceneVersion.messageRevision,
+        turnId:pending.turnId,generationId:pending.generationId,phase:'POST_RESPONSE',
+        selectionGuard:()=>{
+          try{
+            const current=this.getContext(),currentAssistant=assistantMessage(current,assistant.index);
+            return clean(current.chatId)===chatId&&Boolean(currentAssistant)&&sourceIdentity(chatId,{...currentAssistant,role:'assistant'}).digest===assistantIdentity.digest;
+          }catch{return false;}
+        },
+        turnSealed:()=>true,
+      });
+      if(postResponseScene?.signal&&typeof this.nativeBrain?.observeScene==='function')this.nativeBrain.observeScene(chatId,postResponseScene.signal);
+    }catch(error){
+      pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'POST_RESPONSE_SCENE_OBSERVATION'},SESSION_BOUNDS.errors);
+    }
+    const completed={
+      ...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),
+      learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null},
+      postResponseScene:postResponseScene?{
+        status:postResponseScene.status??null,reason:postResponseScene.reason??null,sceneId:postResponseScene.sceneId??postResponseScene.signal?.sceneId??null,
+        sceneRevision:postResponseScene.sceneRevision??postResponseScene.signal?.sceneRevision??null,changedFields:[...(postResponseScene.changedFields??[])].slice(0,16),
+        semanticObservation:clone(postResponseScene.semanticObservation??null),rawNarrativeIncluded:false,
+      }:null,
+    };
     const profileEnd=this.#generationProfileSample();
     if(run.profileStart||run.profileAfterInsertion||profileEnd){
       const start=run.profileStart,end=profileEnd;
@@ -745,7 +956,6 @@ export class DevelopmentDeploymentSillyTavernSession {
       },SESSION_BOUNDS.nativePerformance);
     }
     this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
-    this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
     this.#notify();return clone(completed);
   }
@@ -816,7 +1026,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       twoUnrelatedStories: stories.filter((row) => row.ready).length >= 2,
       promptDeliveryObserved: this.turnEvidence.some((row) => row.delivery?.promptInjection?.succeeded === true),
       sealedContextObserved: this.turnEvidence.some((row) => row.delivery?.sealVerified === true),
-      genericScenePolicyObserved: this.turnEvidence.some((row) => row.scene?.extractionPolicy === 'GENERIC_HOST_EVIDENCE_ONLY'),
+      genericScenePolicyObserved: this.turnEvidence.some((row) => READY_SCENE_EXTRACTION_POLICIES.has(row.scene?.extractionPolicy)),
     };
     const executionReady = Object.values(liveTurnChecks).every(Boolean);
     const operatorReady = this.operatorReview.promptInspectorConfirmed
@@ -949,6 +1159,15 @@ export class DevelopmentDeploymentSillyTavernSession {
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
+        sceneFanOut:{
+          observedTurns:this.nativeHistory.filter(row=>row.sceneFanOutReceipt).length,
+          physicalExecutionCount:this.nativeHistory.reduce((n,row)=>n+Number(row.sceneFanOutReceipt?.physicalExecutionCount??0),0),
+          admittedResultCount:this.nativeHistory.reduce((n,row)=>n+(row.sceneFanOutReceipt?.admittedResultIds?.length??0),0),
+          rejectedResultCount:this.nativeHistory.reduce((n,row)=>n+(row.sceneFanOutReceipt?.rejectedResultIds?.length??0),0),
+          staleResultCount:this.nativeHistory.reduce((n,row)=>n+(row.sceneFanOutReceipt?.staleResultIds?.length??0),0),
+          last:clone([...this.nativeHistory].reverse().find(row=>row.sceneFanOutReceipt)?.sceneFanOutReceipt??null),
+          evidenceClass:'INSTALLED_HOST_BOUNDARY',authorityGranted:false,truthAuthority:false,contextSealAuthority:false,
+        },
         selectedTurnReceipt:clone(selectedTurnReceipt),rawPromptCaptured:false,rawResponseCaptured:false,
       },
       uiProducerDiagnosticsAreRegistrationOnly: !nativeContract.available,
@@ -1144,7 +1363,18 @@ export class DevelopmentDeploymentSillyTavernSession {
       }:{state:'UNAVAILABLE',reason:sceneReadModel?'SCENE_READ_MODEL_FENCE_MISMATCH':'SCENE_READ_MODEL_UNAVAILABLE'};
       return{
         ...owner,
-        sceneFlow:{...(owner.sceneFlow??{}),readModel:readModelEdge,hostDelivery:hostObserved},
+        sceneFlow:{
+          ...(owner.sceneFlow??{}),readModel:readModelEdge,hostDelivery:hostObserved,
+          semanticObservation:(()=>{
+            const rows=this.brain?.readSceneObservationReceipts?.({limit:128})??[];
+            const matching=rows.filter(row=>
+              (!owner.chatId||row?.chatId===owner.chatId)&&(!owner.turnId||row?.turnId===owner.turnId)&&(!owner.generationId||row?.generationId===owner.generationId)
+            );
+            const execution=[...matching].reverse().find(row=>row?.kind==='DeploymentSceneObservationExecutionReceipt')??null;
+            const ownerAdmission=[...matching].reverse().find(row=>row?.kind==='DeploymentSceneObservationOwnerReceipt')??null;
+            return execution||ownerAdmission?{execution:clone(execution),ownerAdmission:clone(ownerAdmission)}:null;
+          })(),
+        },
         sceneFences:{...(owner.sceneFences??{}),sceneReadModelMatchesSelection:sceneReadMatches},
         delivery:{...(owner.delivery??{}),hostObserved},
         hostDeliveryReceiptId:host?.receiptId??null,

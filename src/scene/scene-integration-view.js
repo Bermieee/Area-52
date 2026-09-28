@@ -1,8 +1,10 @@
 import { createSceneIntegrationSignal, createSceneWhyReferences } from './integration-contracts.js';
 import { createSceneUiReadModel } from './scene-ui-read-model.js';
+import { AtmosphereConsumptionPolicy } from './atmosphere-policy.js';
 
 const clone=(v)=>v==null?v:structuredClone(v);
 const relationEdges=new Set(['SCENE_PRECEDES','SCENE_CONTINUES','SCENE_PARALLEL','SCENE_FLASHBACK','SCENE_INTERRUPTS','SCENE_RESUMES']);
+const atmospherePolicy=new AtmosphereConsumptionPolicy();
 
 function objectTransitionRefs(scene){
   const out=[];
@@ -14,7 +16,7 @@ function objectTransitionRefs(scene){
 }
 
 function atmosphereRef(scene){
-  const field=scene.fields?.atmosphere;if(!field||field.observationClass==='UNKNOWN')return null;
+  const field=scene.fields?.atmosphere;if(!field||field.observationClass!=='INFERRED')return null;
   return Object.freeze({kind:'SceneFieldReference',sceneId:scene.sceneId,sceneRevision:scene.revision,field:'atmosphere',observationClass:field.observationClass,evidenceRefs:[...(field.evidenceRefs??[])],canonical:false});
 }
 
@@ -31,6 +33,14 @@ function diagnosticRefs(runtime,scene,episodeRefs,objectRefs){
   return createSceneWhyReferences({evidenceRefs,sourceRevisionRefs:scene.sourceRevisionRefs??[],proposalIds:[...objectRefs.map((x)=>x.proposalId),...boundaryDecisionRefs.map((x)=>x.candidateId)],transitionIds,eventIds,artifactRefs:episodeRefs,boundaryDecisionRefs});
 }
 
+function currentSourceRevisionRefs(runtime,chatId,scene){
+  const refs=[...new Set((scene?.sourceRevisionRefs??[]).filter(Boolean).map(String))].sort();
+  const evidence=runtime.narrativeFeed?.currentEvidence?.(chatId)??[];
+  const current=new Set(evidence.map(row=>row?.sourceRevisionId).filter(Boolean).map(String));
+  if(!current.size)return refs;
+  return refs.filter(ref=>current.has(ref));
+}
+
 export function buildSceneIntegrationSignal(runtime,chatId){
   const sceneId=runtime.chatScenes.get(chatId);if(!sceneId)return null;
   const scene=runtime.registry.current(sceneId);if(!scene)return null;
@@ -41,17 +51,17 @@ export function buildSceneIntegrationSignal(runtime,chatId){
   const retrieval=runtime.retrieval.retrieve({query,activeEntityRefs:activeCast.filter((x)=>x.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),locationRef:location?.location??location,currentSceneId:sceneId,limit:3});
   const prefetch=runtime.prefetchTrigger.active({sceneId,sceneRevision:scene.revision});const objectRefs=objectTransitionRefs(scene);
   const prev=previousSceneRef(runtime,sceneId);const resumed=frame?.relationshipToPrior==='RESUMES'?{sceneId,sceneRevision:scene.revision}:null;
-  const diag=diagnosticRefs(runtime,scene,recentEpisodeRefs,objectRefs);
+  const diag=diagnosticRefs(runtime,scene,recentEpisodeRefs,objectRefs);const currentSourceRefs=currentSourceRevisionRefs(runtime,chatId,scene);
   const health=scene.health??{status:(scene.unresolvedFields??[]).length?'degraded':'ready',reasons:(scene.unresolvedFields??[]).length?['UNRESOLVED_FIELDS']:[]};
   return createSceneIntegrationSignal({
-    sceneId,sceneRevision:scene.revision,sourceRevisionRefs:scene.sourceRevisionRefs??[],
+    sceneId,sceneRevision:scene.revision,sourceRevisionRefs:currentSourceRefs,
     location,narrativeTime:scene.fields?.narrativeTime?.value??null,activeCast,castObservations:activeCast,
     activeThreads:scene.fields?.activeThreads?.value??[],objects:scene.fields?.immediateObjects?.value??[],
     uncertainFields:scene.unresolvedFields??[],conflictSignals:scene.unresolvedFields??[],boundaryState:scene.fields?.boundaryState?.value??null,
     sceneRelationship:frame?.relationshipToPrior??null,transitionType:frame?.relationshipToPrior??scene.fields?.boundaryState?.value?.type??null,
     previousSceneRef:prev,resumedSceneRef:resumed,latestEpisodeRef:recentEpisodeRefs.at(-1)??null,episodeRefs:recentEpisodeRefs,
     retrievalQuality:runtime.retrieval.quality(retrieval),prefetchRecommendations:prefetch,objectTransitionRefs:objectRefs,
-    atmosphere:scene.fields?.atmosphere??null,atmosphereRef:atmosphereRef(scene),health,
+    atmosphere:scene.fields?.atmosphere??null,atmosphereContribution,atmosphereRef:atmosphereRef(scene),health,
     provenance:[...(scene.provenance??[]),...Object.values(scene.fields??{}).flatMap((x)=>x?.evidenceRefs??[])],diagnosticRefs:diag,
   });
 }
@@ -62,17 +72,22 @@ export function buildSceneUiReadModel(runtime,chatId){
   const episodes=runtime.episodeCompiler.list();const latestEpisodeRef=episodes.at(-1)?.artifactRef??null;
   const prefetch=runtime.prefetchTrigger.active({sceneId,sceneRevision:scene.revision});
   const objectRefs=objectTransitionRefs(scene);const diag=diagnosticRefs(runtime,scene,episodes.slice(-4).map((x)=>x.artifactRef),objectRefs);
-  return createSceneUiReadModel({scene,relationshipToPrior:frame?.relationshipToPrior??null,latestEpisodeRef,latestDelta:record?.deltas?.at(-1)??null,prefetchRecommendations:prefetch,diagnosticRefs:diag});
+  const projectedScene={...clone(scene),sourceRevisionRefs:currentSourceRevisionRefs(runtime,chatId,scene)};
+  return createSceneUiReadModel({scene:projectedScene,relationshipToPrior:frame?.relationshipToPrior??null,latestEpisodeRef,latestDelta:record?.deltas?.at(-1)??null,prefetchRecommendations:prefetch,diagnosticRefs:diag});
 }
 
 export function fanOutSceneInput(runtime,chatId){
   const signal=buildSceneIntegrationSignal(runtime,chatId);if(!signal)return null;
+  const prefetchSourceRevisionSet=[...new Set([
+    ...(signal.sourceRevisionSet??[]),
+    ...(signal.prefetchRecommendations??[]).flatMap((row)=>row.sourceRevisionSet??row.sourceRevisionRefs??[]),
+  ].filter(Boolean).map(String))].sort();
   return Object.freeze({
-    kind:'SceneFanOutInput',contractVersion:'1.0.0',sceneId:signal.sceneId,sceneRevision:signal.sceneRevision,
-    sourceRevisionSet:[...signal.sourceRevisionSet],activeCast:clone(signal.activeCast),location:clone(signal.location),
+    kind:'SceneFanOutInput',contractVersion:'1.0.0',chatId:String(chatId),chatNamespace:String(chatId),sceneId:signal.sceneId,sceneRevision:signal.sceneRevision,
+    sourceRevisionSet:prefetchSourceRevisionSet,activeCast:clone(signal.activeCast),location:clone(signal.location),
     activeThreads:clone(signal.activeThreads),uncertainSceneFields:[...signal.uncertainFields],conflictSignals:[...signal.conflictSignals],
     boundaryState:clone(signal.boundaryState),sceneRelationship:signal.sceneRelationship,sceneTransitionType:signal.transitionType,
     episodeRefs:clone(signal.episodeRefs),retrievalQuality:signal.retrievalQuality,prefetchRecommendations:clone(signal.prefetchRecommendations),
-    objects:clone(signal.objects),authorityGranted:false,
+    atmosphereContribution:clone(signal.atmosphereContribution),objects:clone(signal.objects),authorityGranted:false,
   });
 }

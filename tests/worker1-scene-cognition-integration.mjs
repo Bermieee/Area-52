@@ -216,9 +216,11 @@ test('installed native host queues semantic Scene work without blocking the seal
   await Promise.all([...listeners.get('message_received')].map(fn=>fn(assistantIndex)));
 
   const learned=ui.readGeneration({generationId:selection.generationId,...selection});
-  assert.equal(learned.state,'LEARNED','Scene nearline work must not break native provider-response/learning');
+  assert.ok(['RESPONSE_COMPLETED','LEARNED'].includes(learned.state),'Scene nearline work must not break native provider-response completion');
+  assert.equal(learned.responseCompletion?.status,'COMPLETED');
   const completion=session.exportEvidence().nativeBrainIntegration.last;
-  assert.equal(completion.state,'LEARNED');
+  assert.equal(completion.state,'RESPONSE_COMPLETED');
+  assert.equal(completion.responseCompletion?.status,'COMPLETED');
   assert.ok(['QUEUED','DEDUPED'].includes(completion.postResponseScene?.semanticObservation?.status));
   await waitFor(()=>session.brain.readSceneObservationReceipts({limit:128}).find(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.phase==='POST_RESPONSE'&&row.status==='ADMITTED'));
   assert.ok(session.brain.scene.integrationSignal(context.chatId).sceneRevision>selection.sceneRevision);

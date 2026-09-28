@@ -921,8 +921,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   form.classList?.add?.('a52-world-tree-source-dock');
   worldTreeShell.append(worldTree,form);
   host.append(worldTreeShell);
-
-
+}
 
 function renderLoreDiagnosticsTools(host,{loreStudy,loreAuthoring,actionRouter,scope,refresh,productAdapter,draft=null}={}){
   if(!loreStudy&&!loreAuthoring)return;

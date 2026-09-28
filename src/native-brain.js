@@ -1752,6 +1752,7 @@ export class Area52NativeBrain{
 
   #memoryReadModel(record,selection={}){
     const expected=this.#selection(record),writeback=record.learningReceipt?.memoryWriteback??null,episode=record.learningReceipt?.memoryPostTurn??record.memoryPostTurn??null;
+    const feedbackFields={retrievalFeedbackBatch:clone(record.memoryRetrievalFeedbackBatch??null),retrievalFeedback:clone(record.memoryRetrievalFeedback??null),memoryFeedbackRuntimeTaskId:record.memoryFeedbackRuntimeTaskId??null,supportAdded:false,retrievalUseIsEvidence:false,authorityChanged:false,canonicalMutationAuthority:false};
     const writeStatus=String(writeback?.status??'NO_WRITE').toUpperCase(),episodeStatus=String(episode?.status??'NO_EPISODE').toUpperCase();
     const writePresent=['ADMITTED','REPLAYED'].includes(writeStatus)||['ADMITTED','REPLAYED','COMPLETED'].includes(episodeStatus)||Boolean(episode?.episodeId);
     const baseDiagnosis={writeState:writePresent?'WRITE_PRESENT':'WRITE_ABSENT',writeStatus,episodeStatus,ownerReceiptKind:writeback?.ownerReceipt?.kind??null};
@@ -1764,7 +1765,7 @@ export class Area52NativeBrain{
           const mismatchFields=fields.filter(name=>value?.[name]!=null&&expected?.[name]!=null&&String(value[name])!==String(expected[name]));
           const diagnosis={...baseDiagnosis,state:mismatchFields.length?'READER_SELECTION_MISMATCH':writePresent?'WRITE_PRESENT_READER_AVAILABLE':'WRITE_ABSENT',reasonCode:mismatchFields.length?'MEMORY_READER_SELECTION_MISMATCH':writePresent?'MEMORY_WRITE_PRESENT_READER_AVAILABLE':'MEMORY_WRITE_ABSENT',mismatchFields};
           record.memoryReadDiagnosis=diagnosis;
-          return{...clone(value),evidenceDiagnosis:clone(diagnosis)};
+          return{...clone(value),...feedbackFields,evidenceDiagnosis:clone(diagnosis)};
         }
         const diagnosis={...baseDiagnosis,state:writePresent?'WRITE_PRESENT_READER_EMPTY':'WRITE_ABSENT',reasonCode:writePresent?'MEMORY_WRITE_PRESENT_READER_RETURNED_NO_MODEL':'MEMORY_WRITE_ABSENT',mismatchFields:[]};
         record.memoryReadDiagnosis=diagnosis;
@@ -1774,7 +1775,7 @@ export class Area52NativeBrain{
         record.memoryReadDiagnosis=diagnosis;
       }
     }else record.memoryReadDiagnosis={...baseDiagnosis,state:writePresent?'WRITE_PRESENT_READER_UNAVAILABLE':'WRITE_ABSENT',reasonCode:writePresent?'MEMORY_READER_UNAVAILABLE_AFTER_WRITE':'MEMORY_WRITE_ABSENT',mismatchFields:[]};
-    return{kind:'NativeBrainMemoryStatus',...expected,sync:clone(record.memorySync??null),fallbackStore:this.memoryInterface?null:this.knowledge.diagnostics(),evidenceDiagnosis:clone(record.memoryReadDiagnosis),authorityGranted:false};
+    return{kind:'NativeBrainMemoryStatus',...expected,sync:clone(record.memorySync??null),fallbackStore:this.memoryInterface?null:this.knowledge.diagnostics(),...feedbackFields,evidenceDiagnosis:clone(record.memoryReadDiagnosis),authorityGranted:false};
   }
 
   #memoryOwnerArtifactRef(record,experience){

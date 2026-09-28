@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
+import { createLoreNeuralRenderState, renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
 import { renderLoreStudySurface } from '../src/ui-core/wave13-operator-surfaces.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
@@ -74,15 +74,32 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.doesNotMatch(body,/Character|Faction|Place|Event|Concept|Timeline|Memory/);
   const svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   assert.ok(svg);
-  const entryNodes=nodes.filter(x=>String(x.attributes?.class??'')==='a52-lore-entry-node');
+  const entryNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.equal(entryNodes.length,4);
-  const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'')==='a52-lore-artifact-node');
+  const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-artifact-node'));
   assert.equal(artifactNodes.length,1);
   entryNodes[0].dispatch('click');
   assert.equal(inspected.length,1);
   assert.equal(inspected[0].kind,'area52-lore-source-node');
   assert.equal(inspected[0].authority,'LORE_OWNER');
   assert.ok(['STUDYING','READY','ACCEPTED','FAILED'].includes(inspected[0].payload.operatorState));
+});
+
+test('Lore neural render state animates only newly published nodes across refreshes',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),base=populatedData();
+  const first=renderLoreNeuralWorkspace(d,{data:base,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
+  const firstEntries=walk(first).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.equal(firstEntries.length,4);
+  assert.ok(firstEntries.every(x=>String(x.attributes.class).includes('is-new')));
+
+  const second=renderLoreNeuralWorkspace(d,{data:base,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
+  const secondEntries=walk(second).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(secondEntries.every(x=>String(x.attributes.class).includes('is-steady')));
+
+  const grown={...base,entries:[...base.entries,{sourceId:'lore:book:new',uid:'new-source',operatorState:'STUDYING',artifactIds:[],representations:[],retrievalReady:false,sourceRevisionId:'r5'}],operatorCounts:{...base.operatorCounts,STUDYING:2}};
+  const third=renderLoreNeuralWorkspace(d,{data:grown,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
+  const thirdEntries=walk(third).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.equal(thirdEntries.filter(x=>String(x.attributes.class).includes('is-new')).length,1);
 });
 
 test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{

@@ -155,7 +155,7 @@ export class SceneLifecycleRuntime{
           const destinationHints={
             entityRefs:(fields.activeCast?.value??[]).filter((row)=>row?.state==='PRESENT').map((row)=>row.characterId).filter(Boolean),
             locationRefs:[fields.location?.value?.location??fields.location?.value].filter(Boolean),
-            threadRefs:(fields.activeThreads?.value??[]).filter((row)=>typeof row==='string'),
+            threadRefs:(fields.activeThreads?.value??[]).map((row)=>typeof row==='string'?row:(row?.threadId??row?.id??row?.ref??null)).filter(Boolean),
           };
           const priorSourceRefs=new Set((current.sourceRevisionRefs??[]).map(String));
           const recentTailRefs=(this.narrativeFeed.currentEvidence(evidence.chatId)??[])

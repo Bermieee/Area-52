@@ -730,7 +730,7 @@ export class Wave13OperationalStatusAdapter{
     const adapterData=(adapter)=>safeRead(()=>adapter?.read?.(selection)??adapter?.read?.(),null)?.data??null;
     const data=cognition?.data??{},errors=cognition?.errors??{};
     const values={
-      scene:{readModel:adapterData(this.adapters.scene),semanticExecution:cloneSafe(sceneObservations.slice(-32))},runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
+      scene:adapterData(this.adapters.scene),runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
       choice:data.choice??null,truth:data.truth??null,jev:data.jev??null,gather:data.gather??null,seal:data.seal??null,
       promptPlan:adapterData(this.adapters.promptPlan),generation:hostDelivery??null,learning:generation?.learningReceipt??null,
       scatter:data.scatter??null,

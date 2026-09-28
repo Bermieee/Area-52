@@ -177,22 +177,33 @@ test('current fully READY Lore disables redundant study while keeping re-accept 
   assert.equal(Boolean(run.disabled||run.attributes?.disabled),true);
 });
 
-test('Lore neural render state animates only newly published nodes across refreshes',()=>{
+test('Lore neural render state holds reveal across incidental refreshes then animates only newly published nodes',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),base=populatedData();
-  const first=renderLoreNeuralWorkspace(d,{data:base,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
+  const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const render=()=>renderLoreNeuralWorkspace(d,{data:base,selected,progress:25,renderState:state});
+
+  const first=render();
   const firstEntries=walk(first).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.equal(firstEntries.length,4);
   assert.ok(firstEntries.every(x=>String(x.attributes.class).includes('is-new')));
+  assert.ok(walk(first).filter(x=>x.tagName==='ANIMATE').length>0);
 
-  const second=renderLoreNeuralWorkspace(d,{data:base,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
-  const secondEntries=walk(second).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
-  assert.ok(secondEntries.every(x=>String(x.attributes.class).includes('is-steady')));
+  for(let pass=0;pass<3;pass++){
+    const held=render(),heldEntries=walk(held).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+    assert.ok(heldEntries.every(x=>String(x.attributes.class).includes('is-new')));
+    assert.ok(walk(held).filter(x=>x.tagName==='ANIMATE').length>0);
+  }
+
+  const steady=render(),steadyEntries=walk(steady).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(steadyEntries.every(x=>String(x.attributes.class).includes('is-steady')));
+  assert.equal(walk(steady).filter(x=>x.tagName==='ANIMATE').length,0);
 
   const grown={...base,entries:[...base.entries,{sourceId:'lore:book:new',uid:'new-source',operatorState:'STUDYING',artifactIds:[],representations:[],retrievalReady:false,sourceRevisionId:'r5'}],operatorCounts:{...base.operatorCounts,STUDYING:2}};
-  const third=renderLoreNeuralWorkspace(d,{data:grown,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
+  const third=renderLoreNeuralWorkspace(d,{data:grown,selected,progress:25,renderState:state});
   const thirdEntries=walk(third).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   const newlyPublished=thirdEntries.filter(x=>String(x.attributes.class).includes('is-new'));
   assert.equal(newlyPublished.length,1);
+  assert.ok(walk(third).filter(x=>x.tagName==='ANIMATE').length>0);
   const incrementalDelay=Number(String(newlyPublished[0].attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
   assert.ok(incrementalDelay>=180&&incrementalDelay<=490);
 });
@@ -213,28 +224,43 @@ test('legacy seen render state still gets one visible wave after animation lifec
   assert.equal(legacyState.animationInitialized,true);
 });
 
-test('Lore growth replay replays visuals without mutating Lore data',()=>{
+test('Lore growth replay replays native SVG visuals without mutating Lore data',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData();
   const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
   const original=JSON.stringify(data);
 
   const first=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
-  const firstNodes=walk(first).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
-  assert.ok(firstNodes.every(x=>String(x.attributes?.class??'').includes('is-new')));
+  assert.ok(walk(first).filter(x=>x.tagName==='ANIMATE').length>0);
 
+  for(let pass=0;pass<3;pass++)renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
   const steady=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
   const steadyNodes=walk(steady).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.ok(steadyNodes.every(x=>String(x.attributes?.class??'').includes('is-steady')));
+  assert.equal(walk(steady).filter(x=>x.tagName==='ANIMATE').length,0);
   assert.match(textOf(steady),/Replay Growth/);
 
   assert.equal(replayLoreNeuralGrowth(state),true);
   const replayed=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
   const replayedNodes=walk(replayed).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.ok(replayedNodes.every(x=>String(x.attributes?.class??'').includes('is-new')));
+  const animations=walk(replayed).filter(x=>x.tagName==='ANIMATE');
+  assert.ok(animations.length>0);
+  assert.ok(animations.some(x=>x.attributes?.attributeName==='stroke-dashoffset'));
+  assert.ok(animations.some(x=>x.attributes?.attributeName==='r'));
+  assert.ok(animations.some(x=>x.attributes?.attributeName==='opacity'));
   const replayDelays=replayedNodes.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
   assert.ok(Math.max(...replayDelays)>=500);
   assert.equal(JSON.stringify(data),original);
   assert.equal(state.replayCount,1);
+});
+
+test('reduced-motion omits native Lore reveal animations',()=>{
+  const d=new FakeDocument();d.defaultView={matchMedia:query=>({matches:query.includes('prefers-reduced-motion')})};
+  const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state});
+  assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
+  const nodes=walk(root).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(nodes.every(x=>!String(x.attributes?.class??'').includes('has-native-reveal')));
 });
 
 test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
@@ -264,12 +290,14 @@ test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
   assert.equal(releases,1);
 });
 
-test('Lore neural animation is CSS-only bounded and respects reduced motion',()=>{
+test('Lore neural animation uses bounded native SVG reveal without JS timer loops and respects reduced motion',()=>{
   const js=readFileSync(new URL('../src/ui-core/lore-neural-graph.js',import.meta.url),'utf8');
   const css=readFileSync(new URL('../styles/ui-core-lore-neural.css',import.meta.url),'utf8');
   assert.doesNotMatch(js,/requestAnimationFrame|setInterval|setTimeout/);
-  assert.match(css,/@keyframes a52-lore-link-grow/);
-  assert.match(css,/@keyframes a52-lore-node-grow/);
+  assert.match(js,/function nativeAnimate/);
+  assert.match(js,/attributeName:'stroke-dashoffset'/);
+  assert.match(js,/attributeName:'r'/);
+  assert.match(css,/has-native-reveal/);
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);
   assert.match(css,/\.a52-lore-neural-workspace\{/);

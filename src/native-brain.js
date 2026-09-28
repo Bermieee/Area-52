@@ -473,9 +473,10 @@ export class Area52NativeBrain{
     let memoryDensePrime=choicePreparation.hotOnly
       ?this.ownerMemoryChannel.skipDense('HOT_SUFFICIENT',{selection:ownerSelection,resultClass:'OPPORTUNISTIC'})
       :await this.ownerMemoryChannel.prime({intentId:'memory-dense:'+turn,query:q,intentKind:intent,perspective:perspectiveConstraint},{query:q,selection:ownerSelection,resultClass:'OPPORTUNISTIC'});
-    const postPrimeScene=this.core.sceneIntegrationSnapshot(chat),postPrimeWorld=this.core.graph.revision;
-    if(!choicePreparation.hotOnly&&(Number(postPrimeWorld)!==Number(ownerSelection.worldRevision)||Number(postPrimeScene?.sceneRevision)!==Number(ownerSelection.sceneRevision))){
-      ownerSelection={...ownerSelection,worldRevision:postPrimeWorld,sceneRevision:postPrimeScene?.sceneRevision??ownerSelection.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
+    const postPrimeScene=this.core.sceneIntegrationSnapshot(chat),postPrimeWorld=this.core.graph.revision,postPrimeSourceRefs=this.core.currentSourceRevisionIds();
+    const sourceFenceChanged=stableHash([...(ownerSelection.sourceRevisionRefs??[])].map(String).sort())!==stableHash([...postPrimeSourceRefs].map(String).sort());
+    if(!choicePreparation.hotOnly&&(Number(postPrimeWorld)!==Number(ownerSelection.worldRevision)||Number(postPrimeScene?.sceneRevision)!==Number(ownerSelection.sceneRevision)||sourceFenceChanged)){
+      ownerSelection={...ownerSelection,worldRevision:postPrimeWorld,sceneRevision:postPrimeScene?.sceneRevision??ownerSelection.sceneRevision,sourceRevisionRefs:postPrimeSourceRefs};
       this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
       this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
       memoryDensePrime=this.ownerMemoryChannel.skipDense('DENSE_PRIME_STALE_SELECTED_STATE',{selection:ownerSelection,resultClass:'OPPORTUNISTIC'});
@@ -1113,7 +1114,9 @@ export class Area52NativeBrain{
             receipt=typeof accept==='function'?accept(item):{kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:'MEMORY_COMPLETED_TURN_OWNER_UNAVAILABLE'};
             if(receipt&&typeof receipt.then==='function')receipt=await receipt;
           }catch(error){receipt={kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:error?.code??error?.message??String(error)};}
-          const record=this.turns.get(String(item.turnId));if(record)record.memoryPostTurn=clone(receipt);
+          const candidate=this.turns.get(String(item.turnId));
+          const record=candidate&&candidate.chatId===String(item.chatId)&&candidate.generationId===String(item.generationId)&&candidate.correlationId===String(item.correlationId)?candidate:null;
+          if(record)record.memoryPostTurn=clone(receipt);
           if(record?.memoryRuntimeTaskId)this.#recordTaskOwnerDecision(record.memoryRuntimeTaskId,{accepted:['COMPLETED','REPLAYED'].includes(String(receipt?.status??'').toUpperCase()),receiptId:receipt?.episodeId??receipt?.kind??null,reasonCode:receipt?.reasonCode??null,consumerId:'MEMORY'});
           if(record&&['COMPLETED','REPLAYED'].includes(String(receipt?.status??'').toUpperCase())){
             const consolidationTask=this.#scheduleMemoryConsolidation(record,receipt);
@@ -1199,7 +1202,7 @@ export class Area52NativeBrain{
         for(const proposed of output){
           const selection=proposed?.selection??null;
           const turnId=String(selection?.turnId??proposed?.turnId??'');
-          const record=this.turns.get(turnId);
+          const record=this.#recordForSelection({...selection,turnId,sourceRevisionRefs:[]});
           let ownerReview=null;
           if(proposed?.status==='PROPOSED'&&proposed?.bundle){
             const review=this.memoryInterface?.reviewConsolidationBundle??this.memoryInterface?.adapters?.reviewConsolidationBundle;
@@ -1250,7 +1253,7 @@ export class Area52NativeBrain{
       cause:{eventType:'POST_TURN_LEARNING',eventId:'learning:'+record.generationId,correlationId:record.correlationId,producerId:'NATIVE_BRAIN',consumerId:'COGNITIVE_LEARNING',ownerId:'COGNITIVE_CORE',chatId:record.chatId,turnId:String(turnId),generationId:record.generationId,turnRevision:record.sequence,sourceRevisionRefs:[sourceRevisionId],worldRevision:this.core.graph.revision,sceneRevision:record.sceneRevision},
       batchHint:{maxSliceUnits:1},checkpointPolicy:{maxUnitsPerCheckpoint:1},
     },{
-      units:[{id:'feedback:'+turnId,payload:{turnId:String(turnId)}}],
+      units:[{id:'feedback:'+turnId,payload:{turnId:String(turnId),chatId:record.chatId,generationId:record.generationId,correlationId:record.correlationId}}],
       ...this.#feedbackExecutor(),
     });
   }
@@ -1262,7 +1265,9 @@ export class Area52NativeBrain{
       commit:async({output})=>{
         const receipts=[];
         for(const item of output){
-          const record=this.turns.get(String(item.turnId));if(!record)continue;
+          const candidate=this.turns.get(String(item.turnId));
+          const record=candidate&&(!item?.chatId||candidate.chatId===String(item.chatId))&&(!item?.generationId||candidate.generationId===String(item.generationId))&&(!item?.correlationId||candidate.correlationId===String(item.correlationId))?candidate:null;
+          if(!record)continue;
           if(!record.feedback)record.feedback=this.feedback.observeTurn({
             turnId:record.turnId,candidateEnvelope:record.published?.candidateEnvelope,
             publicationAssessment:record.published?.publicationAssessment,
@@ -1526,7 +1531,7 @@ export class Area52NativeBrain{
       compiledDelivery:producer('compiledDelivery',promptReceipt,{producerId:'CORE_DELIVERY',consumerId:'SILLYTAVERN_HOST',parentReceiptId:planId,metadata:{id:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),providerRoles:uniq(promptReceipt?.providerRoles??[])}}),
       delivery:producer('delivery',observed,{producerId:'SILLYTAVERN_HOST',consumerId:'MODEL_PROVIDER',parentReceiptId:stageId('compiledDelivery',promptReceipt,promptReceipt?.contextSealId??null),status:observed?(hostRequestStatus==='OBSERVED_MATCH'?'OBSERVED':'REJECTED'):null,reasonCode:observed?(hostRequestStatus==='OBSERVED_MATCH'?'HOST_EVIDENCE_MATCH':'HOST_EVIDENCE_MISMATCH'):'NO_EVIDENCE',metadata:{id:observed?.requestId??null,live:Boolean(observed?.live),matching:Boolean(observed?.matching),identityCompatible:observed?.identityCompatible??null,observedRoles:uniq(observed?.observedRoles??[])}}),
       responseCompletion:producer('responseCompletion',responseCompletion,{producerId:'NATIVE_BRAIN',consumerId:'RUNTIME_CORE',parentReceiptId:observed?.requestId??sealId,status:responseCompletion?.status??'NO_EVIDENCE',reasonCode:responseCompletion?'RESPONSE_COMPLETION_RECORDED':'NO_EVIDENCE',durationMs:responseCompletion?.foregroundWaitMs??null,ownerAccepted:responseCompletion?.status==='COMPLETED'?true:null,sourceRevisionRefs:[responseCompletion?.sourceRevisionId].filter(Boolean),metadata:{id:stageId('responseCompletion',responseCompletion,responseCompletion?.contextSealId?('response-complete:'+record.turnId):null),learningScheduled:Boolean(responseCompletion?.learningScheduled),feedbackRuntimeTaskId:responseCompletion?.feedbackRuntimeTaskId??null,memoryRuntimeTaskId:responseCompletion?.memoryRuntimeTaskId??null,sealedGenerationImmutable:Boolean(responseCompletion?.sealedGenerationImmutable)}}),
-      learning:producer('learning',backgroundLearning??learning,{producerId:'COGNITIVE_LEARNING',consumerId:'MEMORY_LORE',parentReceiptId:stageId('responseCompletion',responseCompletion,responseCompletion?.contextSealId?('response-complete:'+record.turnId):null)??observed?.requestId??sealId,status:completionLifecycle.background.status,reasonCode:completionLifecycle.background.reasonCode,ownerAccepted:completionLifecycle.background.status==='ACCEPTED'?true:completionLifecycle.background.status==='FAILED'?false:null,metadata:{id:stageId('learning',learning,learning?.experienceId??null),backgroundPending:completionLifecycle.background.backgroundPending,taskCount:completionLifecycle.background.tasks.length,foregroundWaitMs:completionLifecycle.background.foregroundWaitMs,backgroundExecutionMs:completionLifecycle.background.backgroundExecutionMs}}),
+      learning:producer('learning',learning,{producerId:'COGNITIVE_LEARNING',consumerId:'MEMORY_LORE',parentReceiptId:stageId('responseCompletion',responseCompletion,responseCompletion?.contextSealId?('response-complete:'+record.turnId):null)??observed?.requestId??sealId,ownerAccepted:completionLifecycle.background.status==='ACCEPTED'?true:completionLifecycle.background.status==='FAILED'?false:null,metadata:{id:stageId('learning',learning,learning?.experienceId??null),learningStatus:completionLifecycle.background.status,learningReasonCode:completionLifecycle.background.reasonCode,backgroundPending:completionLifecycle.background.backgroundPending,taskCount:completionLifecycle.background.tasks.length,foregroundWaitMs:completionLifecycle.background.foregroundWaitMs,backgroundExecutionMs:completionLifecycle.background.backgroundExecutionMs}}),
       memory:producer('memory',memoryEvidence,{producerId:'MEMORY_MAPPING',consumerId:'MEMORY_EPISODE',parentReceiptId:stageId('learning',learning,learning?.experienceId??null),status:memoryEvidence?.status==='NOT_ATTACHED'?'SKIPPED':memoryEvidence?.status==='NO_EVIDENCE'?'NO_EVIDENCE':memoryEvidence?.status??null,reasonCode:memoryEvidence?.status==='NOT_ATTACHED'?'OPTIONAL_RESOURCE_UNAVAILABLE':memoryEvidence?.status==='NO_EVIDENCE'?'NO_EVIDENCE':memoryEvidence?.reason??null,ownerAccepted:memoryEvidence?.status==='ADMITTED'&&Boolean(memoryEvidence?.ownerReceipt)?true:null,metadata:{stageSemantics:'EXACT_EVIDENCE_MAPPING_ONLY',readerDiagnosis:clone(record.memoryReadDiagnosis??{state:memoryEvidence?.status==='NO_EVIDENCE'?'WRITE_ABSENT':'READER_NOT_OBSERVED',reasonCode:memoryEvidence?.status==='NO_EVIDENCE'?'MEMORY_WRITE_ABSENT':'MEMORY_READER_NOT_OBSERVED'})}}),
       memoryEpisode:producer('memoryEpisode',memoryEpisode,{producerId:'MEMORY',consumerId:'MEMORY_HIERARCHY_HISTORIAN',parentReceiptId:stageId('memory',memoryEvidence,null),status:memoryEpisode?.status??null,reasonCode:memoryEpisode?.reasonCode??null,ownerAccepted:['COMPLETED','REPLAYED'].includes(String(memoryEpisode?.status??'').toUpperCase()),sourceRevisionRefs:memoryEpisode?.sourceRevisionRefs??[],metadata:{episodeId:memoryEpisode?.episodeId??null,episodeRevision:memoryEpisode?.episodeRevision??null,exactSourceDrillback:Boolean(memoryEpisode?.exactSourceDrillback),stageSemantics:'DURABLE_EPISODE_ADMISSION'}}),
       memoryConsolidation:producer('memoryConsolidation',memoryConsolidation,{producerId:'CONTINUOUS_CONSOLIDATION',consumerId:'MEMORY',parentReceiptId:stageId('memoryEpisode',memoryEpisode,memoryEpisode?.episodeId??null),status:memoryConsolidation?.status??null,reasonCode:memoryConsolidation?.reasonCode??null,ownerAccepted:['COMPLETED','REPLAYED'].includes(String(memoryConsolidation?.ownerReview?.status??memoryConsolidation?.status??'').toUpperCase()),sourceRevisionRefs:memoryEpisode?.sourceRevisionRefs??[],metadata:{runtimeTaskId:record.memoryConsolidationRuntimeTaskId??null,producerStatus:memoryConsolidation?.producerStatus??null,providerAttempted:Boolean(memoryConsolidation?.providerAttempted),stageSemantics:'REFLECTION_CONSOLIDATION_OWNER_REVIEW'}}),

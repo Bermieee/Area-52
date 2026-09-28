@@ -16,6 +16,7 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
+const EXCLUDED_HOST_GENERATION_TYPES=Object.freeze(new Set(['quiet','impersonate']));
 const SESSION_BOUNDS=Object.freeze({turnEvidence:32,processed:32,loreIngestion:32,errors:64,nativePerformance:12});
 const pushBounded=(list,value,limit)=>{list.push(value);if(list.length>limit)list.splice(0,list.length-limit);return value;};
 const safeDiagnosticMessage=(error)=>{
@@ -287,6 +288,18 @@ function sourceIdentity(chatId, message) {
 
 function registerNarrativeSource(brain, { chatId, message }) {
   const identity = sourceIdentity(chatId, message);
+  // Swipe/regenerate/continue legitimately re-prepare against an already registered, unchanged
+  // host message. Reuse its active revision; a same-id source with different content is a genuine
+  // identity collision and still fails. Generation/request identity stays separate (turnId/seq).
+  const existing = brain.core.registry.getSource(identity.sourceId);
+  if (existing) {
+    let active = null;
+    try { active = brain.core.registry.getActiveRevision(identity.sourceId); } catch { active = null; }
+    if (active && active.exactContent === message.text) return { ...identity, sourceRevisionId: active.id, reused: true };
+    const error = new Error('NARRATIVE_SOURCE_IDENTITY_COLLISION: ' + identity.sourceId + (active ? ' content differs from its active revision' : ' has no active revision'));
+    error.code = 'NARRATIVE_SOURCE_IDENTITY_COLLISION';
+    throw error;
+  }
   const imported = brain.core.registry.importSource({
     id: identity.sourceId,
     sourceType: 'EXPERIENCE',
@@ -771,6 +784,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       const stoppedHandler=(...args)=>{this.#recordHostNarrativeEvent('GENERATION_STOPPED',args);this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
+      // Text-completion backends never emit CHAT_COMPLETION_PROMPT_READY; SillyTavern emits
+      // GENERATE_AFTER_COMBINE_PROMPTS {prompt:string} instead (also with prompt '' for chat completion).
+      const combined=context.eventTypes?.GENERATE_AFTER_COMBINE_PROMPTS??context.event_types?.GENERATE_AFTER_COMBINE_PROMPTS;
+      if(combined){
+        const textHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeTextPrompt(eventData);}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_TEXT_PROMPT'},SESSION_BOUNDS.errors);this.#notify();}};
+        context.eventSource.on(combined,textHandler);releases.push(()=>context.eventSource.removeListener?.(combined,textHandler));
+      }
       context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
       if(stopped){context.eventSource.on(stopped,stoppedHandler);releases.push(()=>context.eventSource.removeListener?.(stopped,stoppedHandler));}
     }else{
@@ -797,11 +817,22 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   async prepareNativeGeneration({generationType='normal'}={}){
+    const type=String(generationType??'normal').toLowerCase();
+    if(EXCLUDED_HOST_GENERATION_TYPES.has(type)){
+      // Quiet (other extensions' generateQuietPrompt) and impersonate requests produce no story
+      // reply; they are not Area-52 story turns and must not reserve a run or receive context.
+      pushBounded(this.nativeRejections,{at:Date.now(),code:'HOST_GENERATION_TYPE_EXCLUDED',generationType:type},100);
+      return null;
+    }
     const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
     const context=this.getContext(),message=latestUserMessage(context),chatId=clean(context.chatId);
     if(!message)throw new Error('No current SillyTavern user message is available for native Brain preparation');
     if(!chatId)throw new Error('SillyTavern chatId is unavailable');
-    if(this.nativeRuns.has(chatId))throw new Error('A native Brain generation is already pending for this selected chat');
+    // SillyTavern serializes non-quiet generations per chat, so a run still registered for this chat
+    // at a new GENERATION_AFTER_COMMANDS belongs to a generation that ended without completion
+    // (provider error, aborted stream). Expire exactly that run; never a newer one.
+    const orphan=this.nativeRuns.get(chatId);
+    if(orphan)this.releaseNativeRun(chatId,orphan,'SUPERSEDED_BY_NEW_GENERATION');
     const hostPrepareStarted=perfNow(),profileStart=this.#generationProfileSample();
     const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
@@ -828,6 +859,9 @@ export class DevelopmentDeploymentSillyTavernSession {
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
+    // The generate callback is the only consumer; if preparation fails first, a release-time rejection
+    // must not surface as an unhandled rejection in the host page.
+    responsePromise.catch(()=>{});
     const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted,profileStart,profileAfterInsertion:null};
     pushBounded(this.profileCaptureStates,{chatId,turnId,generationId,correlationId,status:profileStart?'ARMED':'NOT_ARMED',updatedAt:Date.now()},SESSION_BOUNDS.nativePerformance);
     this.nativeRuns.set(chatId,run);
@@ -848,8 +882,47 @@ export class DevelopmentDeploymentSillyTavernSession {
         return responsePromise;
       },
       completeOptions:{autoDrain:false},
-    })).then(result=>({ok:true,result})).catch(error=>{if(!readySettled){readySettled=true;readyReject(error);}return{ok:false,error};});
+    })).then(result=>({ok:true,result})).catch(error=>{if(!readySettled){readySettled=true;this.releaseNativeRun(chatId,run,'NATIVE_PREPARATION_FAILED');readyReject(error);}return{ok:false,error};});
     return readyPromise;
+  }
+
+  /** Text-completion delivery (GENERATE_AFTER_COMBINE_PROMPTS). Inserts the exact sealed
+   *  prepared.rendered sections, in messageMap order, once, immediately before the current user
+   *  message in the combined prompt, and records the same observed-host delivery receipt. */
+  injectNativeTextPrompt(eventData={}){
+    const insertionStarted=perfNow();
+    if(typeof eventData?.prompt!=='string'||!eventData.prompt.length)return null; // chat completion emits prompt ''
+    const context=this.getContext(),chatId=clean(context.chatId),pending=this.nativePending.get(chatId),rendered=this.nativePayloads.get(chatId);
+    if(!pending||!rendered)return null;
+    if(pending.requestInjectedAt)return clone(pending);
+    if(rendered.format!=='messages'||!Array.isArray(rendered.messages))throw new Error('Native Brain prepared.rendered format is not supported by the SillyTavern text-completion hook: '+String(rendered.format??'unknown'));
+    const exactMessages=clone(rendered.messages);
+    const body=exactMessages.map(row=>String(row?.content??'')).filter(Boolean).join('\n\n');
+    const block='[Area-52 sealed context]\n'+body+'\n[/Area-52 sealed context]\n';
+    const userText=clean(context.chat?.[pending.userMessageIndex]?.mes??'');
+    const at=userText?eventData.prompt.lastIndexOf(userText):-1,insertAt=at>=0?at:0;
+    const before=eventData.prompt;
+    eventData.prompt=before.slice(0,insertAt)+block+before.slice(insertAt);
+    const area52PayloadJson=JSON.stringify(exactMessages),requestPayloadDigest=shortHash(area52PayloadJson),area52InputBytes=utf8Bytes(block);
+    const insertionDurationMs=Math.max(0,perfNow()-insertionStarted);
+    const run=this.nativeRuns.get(chatId);if(run)run.profileAfterInsertion=this.#generationProfileSample();
+    let observedReceipt=null,ownerDeliveryReceiptRecorded=false;
+    if(typeof this.nativeBrain?.recordObservedHostPromptEvidence==='function'){
+      try{
+        observedReceipt=this.nativeBrain.recordObservedHostPromptEvidence(pending.turnId,{
+          host:'SILLYTAVERN',hostFormat:'TEXT_COMPLETION',hostObserved:true,live:true,chatId,turnId:pending.turnId,generationId:pending.generationId,
+          contextSealId:pending.contextSealId,requestId:eventData.requestId??null,sealedPacketHash:rendered.sealedPacketHash??null,
+          observedRoles:exactMessages.map(row=>row.role),
+          observedSections:(rendered.messageMap??[]).map(row=>({slot:row.slot,sectionIdentity:row.sectionIdentity??null,providerRole:row.providerRole??null,sourceRevisionIds:[...(row.sourceRevisionIds??[])],semanticManifestIdentity:row.semanticManifestIdentity??null})),
+          promptFingerprint:requestPayloadDigest,capturedAt:Date.now(),insertionDurationMs,area52InputBytes,area52MessageCount:exactMessages.length,hostMessageCount:1,
+        });
+        if(observedReceipt?.phases?.hostRequest?.status!=='OBSERVED_MATCH')throw new Error('HOST_DELIVERY_OBSERVATION_MISMATCH');
+        ownerDeliveryReceiptRecorded=true;
+      }catch(error){eventData.prompt=before;throw error;}
+    }
+    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestId:eventData.requestId??null,requestPayloadDigest,renderedMessageCount:exactMessages.length,area52InputBytes,requestHook:'GENERATE_AFTER_COMBINE_PROMPTS',hostFormat:'TEXT_COMPLETION',deliveryReceiptStatus:ownerDeliveryReceiptRecorded?(observedReceipt?.status??'OBSERVED_MATCH'):'HOST_OBSERVED_OWNER_RECEIPT_UNAVAILABLE',deliveryReceiptContractVersion:observedReceipt?.contractVersion??null,ownerDeliveryReceiptRecorded};
+    this.nativePending.set(chatId,updated);this.nativePayloads.delete(chatId);this.nativeHistory.push(clone(updated));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    this.#notify();return clone(updated);
   }
 
   injectNativeModelRequest(eventData={}){
@@ -891,7 +964,19 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.#notify();return clone(updated);
   }
 
-  async completeNativeGeneration({messageIndex=null}={}){
+  async completeNativeGeneration(options={}){
+    const chatId=(()=>{try{return clean(this.getContext().chatId);}catch{return '';}})();
+    const run=chatId?this.nativeRuns.get(chatId)??null:null;
+    try{return await this.#completeNativeGenerationInner(options);}
+    catch(error){
+      // Any failed completion is terminal for this run: release it (identity-checked) so the
+      // next Send is not blocked, then surface the failure to Diagnostics via the caller.
+      if(run)this.releaseNativeRun(chatId,run,'NATIVE_COMPLETION_FAILED');
+      throw error;
+    }
+  }
+
+  async #completeNativeGenerationInner({messageIndex=null}={}){
     const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
     const context=this.getContext(),chatId=clean(context.chatId),pending=this.nativePending.get(chatId);
     if(!pending){
@@ -1542,7 +1627,23 @@ export class DevelopmentDeploymentSillyTavernSession {
     for(const row of [...this.optionalGenerationActive.values()])this.#completeOptionalGeneration(row.pending,reason);
   }
 
+  /** Release one native run and its pending/payload rows, only if `run` is still the current run
+   *  for `chatId`. A late cleanup of a superseded run cannot erase a newer generation. */
+  releaseNativeRun(chatId,run,reason='NATIVE_RUN_RELEASED'){
+    const key=String(chatId??'');if(!key||!run||this.nativeRuns.get(key)!==run)return false;
+    const pending=this.nativePending.get(key)??null;
+    if(!pending||pending.turnId===run.turnId){
+      this.nativeRejections.push({at:Date.now(),code:String(reason),chatId:key,generationId:run.generationId??pending?.generationId??null,turnId:run.turnId??pending?.turnId??null});
+      while(this.nativeRejections.length>100)this.nativeRejections.shift();
+      try{run.responseReject?.(new Error(String(reason)));}catch{}
+      if(pending)this.#completeOptionalGeneration(pending,String(reason));
+      this.nativePending.delete(key);this.nativePayloads.delete(key);
+    }
+    this.nativeRuns.delete(key);this.#notify();return true;
+  }
+
   #expireNativePending(reason){
+    for(const [chatId,run] of [...this.nativeRuns.entries()])if(!this.nativePending.has(chatId))this.releaseNativeRun(chatId,run,reason);
     for(const [chatId,row] of [...this.nativePending.entries()]){
       this.nativeRejections.push({at:Date.now(),code:String(reason),chatId,generationId:row.generationId,turnId:row.turnId});
       const run=this.nativeRuns.get(chatId);try{run?.responseReject?.(new Error(String(reason)));}catch{}

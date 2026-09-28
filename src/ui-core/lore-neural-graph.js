@@ -516,28 +516,60 @@ function renderLoreInsightRail(doc,{data,selected,renderState}={}){
   const selectedNode=all.find(row=>row.id===selectedId)??null;
 
   if(selectedNode){
+    const isHub=(graph.hubs??[]).includes(selectedNode),isArtifact=(graph.artifacts??[]).includes(selectedNode),isSource=!isHub&&!isArtifact;
+    const exact=selectedNode.sourceMeta??null,row=selectedNode.payload??{},category=selectedNode.category??(isHub?'Cluster':isArtifact?'Derived':'NO_EVIDENCE');
+    const inspector=panel(doc,selectedNode.label??'Selected entity',(isSource?'Source UID':isHub?'World Tree cluster':'Derived artifact')+' · selected','◉');
+    inspector.root.classList?.add?.('a52-world-entity-inspector');
+    inspector.root.dataset.tone=selectedNode.tone??'cyan';
+    const hero=element(doc,'div',{className:'a52-world-entity-inspector__hero'});
+    hero.append(element(doc,'span',{className:'a52-world-entity-inspector__orb',dataset:{tone:selectedNode.tone??'cyan'}}));
+    const heroCopy=element(doc,'div');
+    heroCopy.append(element(doc,'strong',{text:selectedNode.label??selectedNode.id}),makeBadge(doc,category,isSource?'observed':'historical'));
+    hero.append(heroCopy);inspector.body.append(hero);
+    if(isSource){
+      const authored=String(exact?.content??exact?.text??'').trim();
+      if(authored)inspector.body.append(element(doc,'p',{className:'a52-world-entity-inspector__excerpt',text:authored.length>420?authored.slice(0,417)+'…':authored}));
+      inspector.body.append(createKeyValue(doc,[
+        {key:'UID',value:row.uid??selectedNode.id},{key:'Category',value:category},{key:'Owner state',value:selectedNode.state??'NO_EVIDENCE'},
+        {key:'Retrieval-ready',value:row.retrievalReady?'Yes':'No'},{key:'Revision',value:row.sourceRevisionId??'NO_EVIDENCE'},
+        {key:'Representations',value:Array.isArray(row.representations)?row.representations.length:0},{key:'Derived refs',value:Array.isArray(row.artifactIds)?row.artifactIds.length:0},
+      ]));
+    }else if(isHub){
+      inspector.body.append(createKeyValue(doc,[
+        {key:'Grouping',value:selectedNode.presentationOnly?'Presentation-only cluster':'Published semantic category'},
+        {key:'Sources',value:selectedNode.count??0},{key:'Node ID',value:selectedNode.id},
+      ]));
+    }else{
+      const parent=(graph.nodes??[]).find(item=>item.id===selectedNode.parentId);
+      inspector.body.append(createKeyValue(doc,[
+        {key:'Parent UID',value:parent?.payload?.uid??parent?.id??'NO_EVIDENCE'},{key:'Parent source',value:parent?.label??'NO_EVIDENCE'},
+        {key:'Derived refs',value:selectedNode.count??0},{key:'Owner state',value:selectedNode.state??'NO_EVIDENCE'},
+      ]));
+    }
+
     const related=panel(doc,'Connections','Direct graph relationships','⇄');
-    const lookup=new Map([['core',{label:'World core',kind:'Core'}],...(graph.hubs??[]).map(row=>[row.id,{label:row.label,kind:'Cluster'}]),...(graph.nodes??[]).map(row=>[row.id,{label:row.label,kind:'Source UID'}]),...(graph.artifacts??[]).map(row=>[row.id,{label:row.label,kind:'Derived'}])]);
+    const lookup=new Map([['core',{label:'World core',kind:'Core'}],...(graph.hubs??[]).map(item=>[item.id,{label:item.label,kind:'Cluster'}]),...(graph.nodes??[]).map(item=>[item.id,{label:item.label,kind:'Source UID'}]),...(graph.artifacts??[]).map(item=>[item.id,{label:item.label,kind:'Derived'}])]);
     const direct=(graph.edges??[]).filter(edge=>edge.fromId===selectedNode.id||edge.toId===selectedNode.id).slice(0,12);
     if(direct.length){
       for(const edge of direct){
         const otherId=edge.fromId===selectedNode.id?edge.toId:edge.fromId,other=lookup.get(otherId)??{label:otherId,kind:'Node'};
-        const row=element(doc,'div',{className:'a52-lore-related-row',dataset:{tone:edge.tone??selectedNode.tone??'cyan'}});
-        row.append(element(doc,'span',{className:'a52-lore-related-row__dot'}),element(doc,'strong',{text:other.label}),element(doc,'span',{className:'a52-muted',text:other.kind}));
-        related.body.append(row);
+        const relation=element(doc,'div',{className:'a52-lore-related-row',dataset:{tone:edge.tone??selectedNode.tone??'cyan'}});
+        relation.append(element(doc,'span',{className:'a52-lore-related-row__dot'}),element(doc,'strong',{text:other.label}),element(doc,'span',{className:'a52-muted',text:other.kind}));
+        related.body.append(relation);
       }
     }else related.body.append(element(doc,'p',{className:'a52-muted',text:'No direct graph connections are published for this selection.'}));
 
-    const future=panel(doc,'Narrative Intelligence','Future Scene Intelligence sockets','✦');
-    future.root.classList?.add?.('a52-world-future-intelligence');
-    future.body.append(createKeyValue(doc,[
-      {key:'Narrative role',value:'Pending Scene Intelligence'},
-      {key:'Active thread',value:'Not yet published'},
-      {key:'Scene relevance',value:'Pending Scene Intelligence'},
-      {key:'Relationship impact',value:'Not yet published'},
-      {key:'Last narrative change',value:'NO_EVIDENCE'},
-    ]),element(doc,'p',{className:'a52-muted',text:'Reserved for future Scene Intelligence. Area-52 does not infer these fields from Lore text today.'}));
-    rail.append(related.root,future.root);
+    rail.append(inspector.root,related.root);
+    if(isSource){
+      const future=panel(doc,'Scene Intelligence','Reserved narrative sockets','✦');
+      future.root.classList?.add?.('a52-world-future-intelligence');
+      future.body.append(createKeyValue(doc,[
+        {key:'Narrative role',value:'Not yet published'},{key:'Active thread',value:'Not yet published'},
+        {key:'Scene relevance',value:'Not yet published'},{key:'Relationship impact',value:'Not yet published'},
+      ]),element(doc,'p',{className:'a52-muted',text:'Area-52 will populate these only from future Scene Intelligence evidence; Lore text is not used to invent them.'}));
+      rail.append(future.root);
+    }
+    return rail;
   }
 
   const activity=panel(doc,'Graph growth','What the owner has published','⇄');
@@ -545,24 +577,21 @@ function renderLoreInsightRail(doc,{data,selected,renderState}={}){
   const retrieval=entries.filter(row=>row.retrievalReady).length;
   const artifacts=entries.reduce((sum,row)=>sum+Number(row.artifactIds?.length??0),0);
   activity.body.append(createKeyValue(doc,[
-    {key:'Source nodes',value:entries.length},
-    {key:'Displayed in graph',value:String(Math.min(MAX_VISIBLE_SOURCE_NODES,entries.filter(row=>String(row.operatorState??'')!=='REMOVED').length))+' / '+String(entries.length)},
-    {key:'Retrieval-ready',value:retrieval},
-    {key:'Sources with representations',value:represented},
-    {key:'Derived artifact refs',value:artifacts},
-    {key:'Conflicts',value:data?.conflicts?.length??0},
+    {key:'Source nodes',value:entries.length},{key:'Displayed in graph',value:String(Math.min(MAX_VISIBLE_SOURCE_NODES,entries.filter(row=>String(row.operatorState??'')!=='REMOVED').length))+' / '+String(entries.length)},
+    {key:'Retrieval-ready',value:retrieval},{key:'Sources with representations',value:represented},{key:'Derived artifact refs',value:artifacts},{key:'Conflicts',value:data?.conflicts?.length??0},
   ]));
 
-  const queue=panel(doc,'Growth queue','Sources still changing state','◌');
   const active=entries.filter(row=>['STUDYING','ACCEPTED','FAILED'].includes(String(row.operatorState))).slice(0,10);
+  rail.append(activity.root);
   if(active.length){
+    const queue=panel(doc,'Growth queue','Sources still changing state','◌');
     for(const row of active){
       const state=String(row.operatorState??'ACCEPTED'),meta=STATE_META[state]??STATE_META.ACCEPTED,item=element(doc,'div',{className:'a52-lore-growth-row',dataset:{state}});
       item.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'strong',{text:shortLabel(row.uid??row.sourceId)}),makeBadge(doc,meta.label,meta.tone));
       queue.body.append(item);
     }
-  }else queue.body.append(element(doc,'p',{className:'a52-muted',text:entries.length?'No DUE, STUDYING, or FAILED sources are currently published.':'The queue will appear after Lore acceptance.'}));
-  rail.append(activity.root,queue.root);
+    rail.append(queue.root);
+  }
   return rail;
 }
 

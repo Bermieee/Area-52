@@ -238,7 +238,10 @@
 .a52-lore-core-node,
 .a52-lore-hub-node,
 .a52-lore-entry-node,
-.a52-lore-artifact-node{cursor:pointer}
+.a52-lore-artifact-node{cursor:grab}
+.a52-lore-hub-node.is-dragging,
+.a52-lore-entry-node.is-dragging,
+.a52-lore-artifact-node.is-dragging{cursor:grabbing}
 .a52-lore-core-node{color:#28cfff}
 .a52-lore-hub-node[data-tone=violet]{color:#9f63ff}
 .a52-lore-hub-node[data-tone=green]{color:#32dfa0}

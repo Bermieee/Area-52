@@ -1331,7 +1331,7 @@ export class DevelopmentDeploymentBrain {
       sceneId:sceneInput.sceneId,sceneRevision:sceneInput.sceneRevision,sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),
       assemblyStatus:receipt.status,assemblyReasonCode:receipt.reasonCode??null,plannerConsidered:true,physicalExecutionCount,
       admittedResultIds:[...admittedResultIds],rejectedResultIds:[...rejectedResultIds],staleResultIds:[...staleResultIds],
-      candidates:historianTaskId?candidates.map(candidate=>({candidate:clone(candidate),taskId:historianTaskId,causationId:cause,sourceSubsystem:'SCENE_FANOUT_HISTORIAN',workerId:historianWorker?.workerId??'scene-fanout',resultClass:historianWorker?.resultClass??'OPPORTUNISTIC',timing:{latencyMs:historianWorker?.latencyMs??null}})):[],
+      candidates:historianTaskId?candidates.map(candidate=>({candidate:clone(candidate),taskId:historianTaskId,upstreamResultId:historianWorker?.resultId??null,causationId:cause,sourceSubsystem:'SCENE_FANOUT_HISTORIAN',workerId:historianWorker?.workerId??'scene-fanout',resultClass:historianWorker?.resultClass??'OPPORTUNISTIC',timing:{latencyMs:historianWorker?.latencyMs??null}})):[],
       authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
     }):null;
     return{kind:'DeploymentSceneFanOutAssembly',receipt:clone(receipt),coreHandoff};

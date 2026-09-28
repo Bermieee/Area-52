@@ -130,6 +130,10 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-artifact-node'));
   assert.equal(hubs.length,7);
   assert.ok(hubs.every(x=>x.attributes?.['data-state']==='STRUCTURE'));
+  assert.deepEqual(hubs.map(x=>Number(x.attributes?.['data-wave'])),[0,1,2,3,4,5,6]);
+  const hubDelays=hubs.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
+  assert.deepEqual(hubDelays,[210,630,1050,1470,1890,2310,2730]);
+  assert.ok(hubDelays.at(-1)-hubDelays[0]>=2400);
   assert.ok(sourceNodes.every(x=>x.attributes?.['data-state']==='READY'));
   assert.equal(sourceNodes.length,54);
   assert.equal(artifactNodes.length,1);
@@ -143,6 +147,13 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.ok(Math.min(...ys)<250&&Math.max(...ys)>500);
   const artifactTitle=artifactNodes[0].children?.find?.(child=>child.tagName==='TITLE');
   assert.match(String(artifactTitle?.textContent??''),/80 derived refs/);
+  const firstWaveSource=sourceNodes.find(node=>String(node.children?.find?.(child=>child.tagName==='TITLE')?.textContent??'').includes('entry 0'));
+  assert.ok(firstWaveSource);
+  const sourceDelay=Number(String(firstWaveSource.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
+  const artifactDelay=Number(String(artifactNodes[0].attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
+  assert.ok(artifactDelay>sourceDelay);
+  const avgX=xs.reduce((sum,value)=>sum+value,0)/xs.length,avgY=ys.reduce((sum,value)=>sum+value,0)/ys.length;
+  assert.ok(Math.abs(avgX-500)<1);assert.ok(Math.abs(avgY-380)<1);
 });
 
 test('current fully READY Lore disables redundant study while keeping re-accept available',()=>{
@@ -180,7 +191,11 @@ test('Lore neural render state animates only newly published nodes across refres
   const grown={...base,entries:[...base.entries,{sourceId:'lore:book:new',uid:'new-source',operatorState:'STUDYING',artifactIds:[],representations:[],retrievalReady:false,sourceRevisionId:'r5'}],operatorCounts:{...base.operatorCounts,STUDYING:2}};
   const third=renderLoreNeuralWorkspace(d,{data:grown,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});
   const thirdEntries=walk(third).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
-  assert.equal(thirdEntries.filter(x=>String(x.attributes.class).includes('is-new')).length,1);
+  const newlyPublished=thirdEntries.filter(x=>String(x.attributes.class).includes('is-new'));
+  assert.equal(newlyPublished.length,1);
+  const incrementalDelay=Number(String(newlyPublished[0].attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
+  assert.ok(incrementalDelay>=180&&incrementalDelay<=490);
+  assert.ok(thirdEntries.filter(x=>String(x.attributes.class).includes('is-steady')).every(x=>!String(x.attributes?.style??'').includes('--a52-node-delay:500ms')));
 });
 
 test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
@@ -219,7 +234,9 @@ test('Lore neural animation is CSS-only bounded and respects reduced motion',()=
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);
   assert.match(css,/\.a52-lore-neural-workspace\{/);
-  assert.match(css,/padding-bottom:18px/);
+  assert.match(css,/height:clamp\(480px,60vh,620px\)/);
+  assert.match(css,/padding:8px 0 18px/);
+  assert.match(css,/@keyframes a52-lore-hub-arrival/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);
   assert.ok(rootCss.indexOf('ui-core-lore-neural.css')>rootCss.indexOf('ui-core-console-theme.css'));

@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/scene/**'
       - 'src/native-brain.js'
+      - 'src/generation-publication.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
       - 'src/deployment/sillytavern-live.js'
@@ -14,6 +15,7 @@ on:
       - 'tests/scene-completion-wave4-gaps.mjs'
       - 'tests/scene-ft002-host-e2e.mjs'
       - 'tests/worker1-scene-graph-temporal-adjacency.mjs'
+      - 'tests/worker1-scene-ft002-assembly.mjs'
       - 'tests/deployment-live-host.test.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
@@ -30,6 +32,8 @@ on:
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
+      - 'tests/worker1-scene-ft002-assembly.mjs'
+      - 'tests/deployment-live-host.test.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
       - 'docs/SCENE_*'
@@ -64,6 +68,8 @@ jobs:
         run: node --test --test-name-pattern='real native Brain host event publishes Scene and sealed Context Delivery' tests/deployment-live-host.test.mjs
       - name: Scene Graph and temporal adjacency #110
         run: node --test tests/worker1-scene-graph-temporal-adjacency.mjs
+      - name: Scene FT002 production assembly #177
+        run: node --test tests/worker1-scene-ft002-assembly.mjs
       - name: Scene research evaluation
         run: node scripts/scene-research-evaluation.mjs
       - name: Real browser load qualification
@@ -95,5 +101,6 @@ jobs:
           node --check tests/scene-completion-wave4-gaps.mjs
           node --check tests/scene-ft002-host-e2e.mjs
           node --check tests/worker1-scene-graph-temporal-adjacency.mjs
+          node --check tests/worker1-scene-ft002-assembly.mjs
           node --check tests/deployment-live-host.test.mjs
           node --check scripts/scene-research-evaluation.mjs

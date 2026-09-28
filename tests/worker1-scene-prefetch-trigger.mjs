@@ -120,6 +120,25 @@ test('#112 explicit travel destination is intent-only and does not mutate curren
   assert.deepEqual(scenePrefetchIntentsFromNarrative('We travel to South Courtyard.'),[],'current movement is Scene state evidence, not likely-next intent');
 });
 
+test('#112 same host observation keeps likely-next prefetch on the post-observation Scene revision',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const receipt=ingest(brain,event(
+    HostActivity.USER_SEND,
+    'travel-composed',
+    'At North Gallery, Mara waits. We should head to Sunken Archive next.',
+    {chatId:'composed-prefetch'},
+  ));
+  const recommendation=recs(brain,'composed-prefetch').find(row=>row.trigger==='LIKELY_NEXT:EXPLICIT_TRAVEL_DESTINATION');
+  assert.ok(recommendation,'same-message Scene mutation must not cancel its likely-next recommendation');
+  assert.equal(recommendation.status,'ACTIVE');
+  assert.equal(recommendation.sceneId,receipt.sceneId);
+  assert.equal(recommendation.sceneRevision,receipt.sceneRevision);
+  assert.deepEqual(recommendation.locationRefs,['Sunken Archive']);
+  assert.deepEqual(recommendation.sourceRevisionSet,[receipt.evidence.sourceRevisionId]);
+  assert.ok(receipt.publishedPrefetch.some(row=>row.recommendationId===recommendation.recommendationId));
+  assert.ok(receipt.eventTypes.includes(SceneEventType.PREFETCH_RECOMMENDED));
+});
+
 test('#112 confirmed strong boundary transition publishes destination warming on the new Scene',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   const initial=ingest(brain,event(HostActivity.USER_SEND,'boundary0','At North Gallery, Mara waits.'));

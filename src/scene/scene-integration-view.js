@@ -52,6 +52,15 @@ export function buildSceneIntegrationSignal(runtime,chatId){
   const prefetch=runtime.prefetchTrigger.active({sceneId,sceneRevision:scene.revision});const objectRefs=objectTransitionRefs(scene);
   const prev=previousSceneRef(runtime,sceneId);const resumed=frame?.relationshipToPrior==='RESUMES'?{sceneId,sceneRevision:scene.revision}:null;
   const diag=diagnosticRefs(runtime,scene,recentEpisodeRefs,objectRefs);const currentSourceRefs=currentSourceRevisionRefs(runtime,chatId,scene);
+  const generationDerivedEvidenceRefs=(runtime.narrativeFeed.currentEvidence(chatId)??[])
+    .filter((row)=>String(row?.role??'').toLowerCase()==='assistant')
+    .map((row)=>row.sourceRevisionId)
+    .filter(Boolean);
+  const atmosphereContribution=atmospherePolicy.consume({
+    atmosphere:scene.fields?.atmosphere,
+    currentSceneRevision:scene.revision,
+    generationDerivedEvidenceRefs,
+  });
   const health=scene.health??{status:(scene.unresolvedFields??[]).length?'degraded':'ready',reasons:(scene.unresolvedFields??[]).length?['UNRESOLVED_FIELDS']:[]};
   return createSceneIntegrationSignal({
     sceneId,sceneRevision:scene.revision,sourceRevisionRefs:currentSourceRefs,

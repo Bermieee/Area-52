@@ -908,7 +908,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const left=element(d,'aside',{className:'a52-lore-neural-sidebar a52-lore-neural-sidebar--left'});
   const progressCard=lorePanel(d,'Study Progress',currentTitle,currentToken);
   const ring=element(d,'div',{className:'a52-lore-progress-ring',attrs:{style:'--a52-lore-progress:'+Math.max(0,Math.min(100,progress))+'%','aria-label':'Lore readiness '+progress+' percent'}});
-  ring.append(element(d,'div',{className:'a52-lore-progress-ring__inner'},element(d,'strong',{text:String(progress)+'%'}),element(d,'span',{text:String(ready)+' / '+String(denominator)}),element(d,'small',{text:'ready entries'})));
+  const ringInner=element(d,'div',{className:'a52-lore-progress-ring__inner'});ringInner.append(element(d,'strong',{text:String(progress)+'%'}),element(d,'span',{text:String(ready)+' / '+String(denominator)}),element(d,'small',{text:'ready entries'}));ring.append(ringInner);
   const countList=element(d,'div',{className:'a52-lore-state-counts'});
   for(const row of [['DUE',accepted,'due'],['STUDYING',studying,'studying'],['READY',ready,'ready'],['FAILED',failed,'failed'],['REMOVED',removed,'removed']])countList.append(loreStateCount(d,row[0],row[1],row[2]));
   const progressTop=element(d,'div',{className:'a52-lore-study-summary'});progressTop.append(ring,countList);progressCard.body.append(progressTop);
@@ -929,7 +929,6 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     for(const cluster of graph.clusters)legend.append(loreLegendRow(d,cluster.label,cluster.nodes.length,cluster.tone));
   }else legend.append(element(d,'p',{className:'a52-muted',text:'Clusters appear when accepted source metadata provides a tree/category path and study begins.'}));
   legend.append(loreLegendRow(d,'STUDYING / growing',studying,'studying'),loreLegendRow(d,'DUE / ghost node',accepted,'due'));
-  progressCard.body.append();
   legendCard.body.append(legend);left.append(legendCard.root);
   dashboard.append(left);
 
@@ -1100,7 +1099,7 @@ function loreClusterGlyph(labelText){
 }
 function loreActivityRow(d,row){
   const item=element(d,'div',{className:'a52-lore-activity-row',dataset:{state:row.state.toLowerCase()}});
-  item.append(element(d,'span',{className:'a52-lore-activity-row__dot'}),element(d,'div',{className:'a52-lore-activity-row__copy'},element(d,'strong',{text:row.title}),element(d,'small',{text:row.category+' · '+row.state})));return item;
+  const copy=element(d,'div',{className:'a52-lore-activity-row__copy'});copy.append(element(d,'strong',{text:row.title}),element(d,'small',{text:row.category+' · '+row.state}));item.append(element(d,'span',{className:'a52-lore-activity-row__dot'}),copy);return item;
 }
 function loreNodeListRow(d,row,inspect,scope){
   const item=element(d,'button',{className:'a52-lore-node-list__row',attrs:{type:'button'}});

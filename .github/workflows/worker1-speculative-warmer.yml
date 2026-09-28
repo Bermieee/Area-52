@@ -1,0 +1,59 @@
+name: Worker 1 Speculative Warmer Validation
+
+on:
+  push:
+    branches: [Development-Worker-1]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/coprocessor/speculative-warmer.js'
+      - 'src/coprocessor/speculative-warmer-coordinator.js'
+      - 'src/deployment/brain.js'
+      - 'tests/worker1-speculative-warmer-installed.test.mjs'
+      - 'docs/SPECULATIVE_WARMER_INSTALLED_PATH.md'
+      - '.github/workflows/worker1-speculative-warmer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact changed-source syntax
+        run: |
+          node --check src/coprocessor/speculative-warmer.js
+          node --check src/coprocessor/speculative-warmer-coordinator.js
+          node --check src/deployment/brain.js
+          node --check tests/worker1-speculative-warmer-installed.test.mjs
+      - name: Installed warmer acceptance
+        run: node --test tests/worker1-speculative-warmer-installed.test.mjs
+      - name: Scene prefetch and Event Spine regressions
+        run: node --test tests/worker1-scene-prefetch-trigger.mjs tests/worker1-scene-event-spine.mjs
+      - name: Runtime lifecycle and deployment integration
+        run: node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs
+      - name: Dense eligibility retrieval Truth and delivery regressions
+        run: node --test tests/coprocessor-wave7-adaptive-retrieval.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/worker1-brain-context-delivery-completion.mjs tests/worker3-brain-retrieval-completion.mjs
+      - name: Existing Wave 12 warmer regression
+        run: npm run test:wave12
+      - name: Existing Wave 12 measured report
+        run: npm run report:wave12
+
+  broad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Full syntax
+        run: npm run check
+      - name: Full regression
+        run: npm test

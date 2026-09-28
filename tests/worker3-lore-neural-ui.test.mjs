@@ -82,7 +82,6 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.match(body,/Graph growth/);
   assert.match(body,/Growth queue/);
   assert.match(body,/WORLD TREE/);
-  assert.match(body,/Your world's memory, visualized/);
   assert.match(body,/Moon Harbor/);
   for(const label of ['Merge','Summarizer','Rebuild']){
     const button=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent===label);

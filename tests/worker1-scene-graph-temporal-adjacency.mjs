@@ -47,6 +47,11 @@ test('#110 Episode indexing keeps entity/event/object-state links, temporal appl
     scene:observed.scene,record:runtime.registry.get(opened.sceneId),
     events:[{eventId:'event:bell',evidenceRefs:['src:episode:1'],temporalApplicability:{anchor:'dusk',mode:'SCENE_LOCAL'}}],
   });
+  const advanced=runtime.sceneRuntime.observe({
+    sceneId:opened.sceneId,proposalId:'episode-links:later',sourceRevisionRefs:['src:episode:2'],evidenceRefs:['src:episode:2'],
+    fields:{immediateObjects:field([{objectId:'relic',state:ObjectPresence.PRESENT,confidence:1,observationClass:ObservationClass.OBSERVED,evidenceRefs:['src:episode:2'],seenRevision:observed.scene.revision+1}],observed.scene.revision+1,'src:episode:2')},
+  });
+  assert.equal(advanced.applied,true);
   const indexed=runtime.indexEpisodeGraph(episode);
   assert.ok(indexed.length>=5);
 
@@ -94,6 +99,16 @@ test('#110 linear production transition publishes explicit previous/next topolog
   const episode=brain.scene.episodeCompiler.get(travel.transition.episodeRef.artifactId);
   assert.equal(continues.episodeRef.artifactId,episode.episodeId);
   assert.equal(precedes.episodeRef.artifactId,episode.episodeId);
+  const historicalAdmission=brain.admitSceneGraphEvidenceLinks({
+    chatId:'graph-chat',sceneId:first.sceneId,sceneRevision:travel.transition.episodeRef.revision,episodeRef:travel.transition.episodeRef,
+    sourceRevisionId:travel.evidence.sourceRevisionId,
+    links:[{fromRef:'event:departure',toRef:'event:arrival',relation:'SUPPORTS',supportStatus:'SUPPORTED',evidenceRefs:[travel.evidence.sourceRevisionId]}],
+  });
+  assert.equal(historicalAdmission.status,'ADMITTED');
+  assert.equal(historicalAdmission.sceneRevision,travel.transition.episodeRef.revision);
+  const historicalLink=brain.scene.graph.references({sceneId:first.sceneId,limit:32}).find(row=>row.edgeType===SceneGraphEdgeType.EVIDENCE_SUPPORTS&&row.episodeRef?.artifactId===episode.episodeId);
+  assert.ok(historicalLink);
+  assert.equal(historicalLink.temporalStatus,'HISTORICAL');
 });
 
 test('#110 topology contract preserves parallel, flashback, interruption and resume separately without causal promotion',()=>{

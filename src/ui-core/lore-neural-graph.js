@@ -1,0 +1,329 @@
+import { createKeyValue, element, makeBadge } from './primitives.js';
+
+const STATE_ORDER=['READY','STUDYING','ACCEPTED','FAILED','REMOVED'];
+const STATE_META={
+  READY:{label:'Ready',tone:'ready',color:'#3ce4b1',symbol:'✓'},
+  STUDYING:{label:'Studying',tone:'observed',color:'#42c7ff',symbol:'◌'},
+  ACCEPTED:{label:'Due',tone:'warning',color:'#f1bb55',symbol:'•'},
+  FAILED:{label:'Failed',tone:'warning',color:'#ff677e',symbol:'!'},
+  REMOVED:{label:'Removed',tone:'historical',color:'#72899b',symbol:'×'},
+};
+
+export function createLoreNeuralRenderState(){
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set()};
+}
+
+export function renderLoreNeuralWorkspace(doc,{
+  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,
+}={}){
+  const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
+  const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
+  const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
+  const left=renderStudyRail(doc,{data,source,counts,progress,selected});
+  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState});
+  const right=renderLoreInsightRail(doc,{data,selected,progress});
+  root.append(left,center,right);
+  root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
+  return root;
+}
+
+function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
+  const rail=element(doc,'aside',{className:'a52-lore-neural-rail a52-lore-neural-rail--left'});
+  const progressCard=panel(doc,'What Lore is doing now','Owner-reported study progress','◉');
+  progressCard.root.classList?.add?.('a52-lore-neural-progress-card');
+  const total=STATE_ORDER.reduce((sum,key)=>sum+Number(counts?.[key]??0),0);
+  const ring=element(doc,'div',{className:'a52-lore-progress-ring',attrs:{role:'img','aria-label':'Lore readiness '+progress+' percent'},dataset:{progress:String(progress)}});
+  ring.setAttribute?.('style','--a52-lore-progress:'+Math.max(0,Math.min(100,Number(progress)||0))+'%');
+  ring.append(element(doc,'strong',{text:String(progress)+'%'}),element(doc,'span',{text:String(Number(counts?.READY??0))+' / '+String(Math.max(0,total-Number(counts?.REMOVED??0)))+' ready'}));
+  const legend=element(doc,'div',{className:'a52-lore-state-legend'});
+  for(const state of STATE_ORDER){
+    const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-state-legend__row',dataset:{state}});
+    row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'strong',{text:meta.label}),element(doc,'span',{text:String(Number(counts?.[state]??0))}));
+    legend.append(row);
+  }
+  const top=element(doc,'div',{className:'a52-lore-progress-overview'});top.append(ring,legend);progressCard.body.append(top);
+  progressCard.body.append(element(doc,'p',{className:'a52-lore-neural-contract',text:'DUE for study '+String(Number(counts?.ACCEPTED??0))+' · STUDYING now '+String(Number(counts?.STUDYING??0))+' · READY '+String(Number(counts?.READY??0))}),element(doc,'p',{className:'a52-muted a52-lore-neural-explainer',text:
+    Number(counts?.FAILED??0)>0?'Study needs attention. Failed sources stay visible and are not treated as retrieval-ready.'
+    :Number(counts?.STUDYING??0)>0?'Study is active. Nodes and links appear as the Lore owner publishes current learned representations.'
+    :Number(counts?.ACCEPTED??0)>0?'DUE = accepted but not learned/current. Run pending study to grow retrieval-ready nodes.'
+    :Number(counts?.READY??0)>0?'All currently counted learned sources shown in green are owner-reported READY.'
+    :'Load and accept a selected Lorebook to begin growing the graph.'}));
+  const state=source?.operationalState??source?.health??'IDLE';
+  progressCard.body.append(makeBadge(doc,'LORE OWNER · '+String(state),source?.statusToken??'historical'));
+
+  const categoryCounts=semanticCategoryCounts(selected?.snapshot,data?.entries??[]);
+  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Real owner states; no semantic category metadata published','⌘');
+  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length]}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
+  for(const state of STATE_ORDER){
+    const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state}});
+    row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'span',{text:meta.label}),element(doc,'strong',{text:String(Number(counts?.[state]??0))}));
+    legendCard.body.append(row);
+  }
+  const artifactLegend=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state:'ARTIFACT'}});artifactLegend.append(element(doc,'span',{className:'a52-lore-state-dot',text:'◇'}),element(doc,'span',{text:'Derived artifact / representation'}),element(doc,'strong',{text:String(data?.artifacts?.length??0)}));legendCard.body.append(artifactLegend);
+
+  rail.append(progressCard.root,legendCard.root);
+  return rail;
+}
+
+function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}={}){
+  const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
+  const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
+  const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
+  const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
+  const title=element(doc,'div');
+  title.append(element(doc,'span',{className:'a52-eyebrow',text:'LIVE LORE GRAPH'}),element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Lore Knowledge Canvas'}));
+  const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
+  head.append(title,badge);panelRoot.append(head);
+
+  const canvas=element(doc,'div',{className:'a52-lore-neural-canvas'});
+  if(!entries.length||!graphActive){
+    canvas.append(renderEmptyCanvas(doc,{loaded:Boolean(snapshot),accepted:entries.length>0}));
+    panelRoot.append(canvas,canvasFooter(doc,entries.length?'Lore is accepted. Run pending study; source nodes appear only after owner study evidence begins publishing.':'Accept the selected Lorebook, then run study to populate source nodes and learned links.'));
+    return panelRoot;
+  }
+
+  const graph=buildLoreGraph({entries,data,selected});
+  const growth=growthState(renderState,selected,graph);
+  const svg=svgEl(doc,'svg',{'viewBox':'0 0 1000 760','class':'a52-lore-neural-svg','role':'img','aria-label':'Circular Lore source and representation graph'});
+  const defs=svgEl(doc,'defs');
+  const filter=svgEl(doc,'filter',{'id':'a52-lore-glow','x':'-60%','y':'-60%','width':'220%','height':'220%'});
+  filter.append(svgEl(doc,'feGaussianBlur',{'stdDeviation':'4','result':'blur'}),svgEl(doc,'feMerge',{},[svgEl(doc,'feMergeNode',{'in':'blur'}),svgEl(doc,'feMergeNode',{'in':'SourceGraphic'})]));
+  defs.append(filter);svg.append(defs);
+  svg.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'300','class':'a52-lore-orbit a52-lore-orbit--outer'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'228','class':'a52-lore-orbit'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'148','class':'a52-lore-orbit a52-lore-orbit--inner'}));
+
+  for(const edge of graph.edges){
+    const path=svgEl(doc,'path',{
+      d:curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y),
+      class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(growth.newEdges.has(edge.id)?'is-new':'is-steady'),
+      'data-state':edge.state,'data-tone':edge.tone??null,'style':'--a52-link-delay:'+String(edge.delay)+'ms',
+    });
+    svg.append(path);
+  }
+
+  const core=svgEl(doc,'g',{'class':'a52-lore-core-node','tabindex':'0','role':'button','aria-label':'Selected Lorebook core'});
+  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'72','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'55','class':'a52-lore-core-node__body'}));
+  const coreTitle=svgEl(doc,'text',{'x':'500','y':'370','text-anchor':'middle','class':'a52-lore-core-node__title'});coreTitle.textContent='LORE';
+  const coreCount=svgEl(doc,'text',{'x':'500','y':'394','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' sources';
+  const coreProgress=svgEl(doc,'text',{'x':'500','y':'415','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent=String(progress)+'% ready';
+  core.append(coreTitle,coreCount,coreProgress);svg.append(core);
+
+  for(const hub of graph.hubs){
+    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'data-tone':hub.tone??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
+    g.setAttribute('style','--a52-node-delay:'+String(hub.delay)+'ms');
+    g.append(svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'42','class':'a52-lore-hub-node__halo'}),svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'31','class':'a52-lore-hub-node__body'}));
+    const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
+    const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
+    g.append(t,count);svg.append(g);
+  }
+
+  for(const node of graph.nodes){
+    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
+    g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
+    const radius=node.artifactCount?10:8;
+    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius+5),'class':'a52-lore-entry-node__halo'}),svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__body'}));
+    const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
+    const activate=()=>inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});
+    scope?.listen?.(g,'click',activate);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate();}});
+    svg.append(g);
+  }
+  for(const node of graph.artifacts){
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
+    g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
+    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':'5','class':'a52-lore-artifact-node__body'}));
+    const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
+  }
+  canvas.append(svg);
+  panelRoot.append(canvas,canvasFooter(doc,'Nodes grow from accepted sources. Links brighten only when the owner publishes learned/derived evidence.'));
+  return panelRoot;
+}
+
+function renderEmptyCanvas(doc,{loaded=false,accepted=false}={}){
+  const empty=element(doc,'div',{className:'a52-lore-neural-empty'});
+  const rings=element(doc,'div',{className:'a52-lore-neural-empty__rings'});
+  rings.append(element(doc,'span'),element(doc,'span'),element(doc,'span'));
+  const core=element(doc,'div',{className:'a52-lore-neural-empty__core'});
+  core.append(element(doc,'strong',{text:'LORE'}),element(doc,'span',{text:'blank canvas'}));
+  empty.append(rings,core,element(doc,'h3',{text:accepted?'Lore accepted — graph armed':loaded?'Source loaded — ready to accept':'Waiting for a Lorebook'}),element(doc,'p',{className:'a52-muted',text:accepted?'Run pending study. Nodes and links will begin growing only when the Lore owner publishes active/current study evidence.':loaded?'Accept this verified source, then run pending study. The neural graph will grow from owner-published study state.':'Select a SillyTavern Lorebook and load it. Area-52 will not invent nodes before a real source is accepted.'}));
+  return empty;
+}
+
+function renderLoreInsightRail(doc,{data,selected,progress}={}){
+  const rail=element(doc,'aside',{className:'a52-lore-neural-rail a52-lore-neural-rail--right'}),entries=data?.entries??[],snapshot=selected?.snapshot??null;
+  const book=panel(doc,'Selected Lorebook','Current SillyTavern source','▤');
+  book.body.append(createKeyValue(doc,[
+    {key:'Title',value:snapshot?.title??selected?.selection?.title??'Not loaded'},
+    {key:'Lorebook ID',value:snapshot?.id??selected?.selection?.lorebookId??'NO_EVIDENCE'},
+    {key:'Entries',value:snapshot?.entries?.length??entries.length??0},
+    {key:'Readiness',value:String(progress)+'%'},
+    {key:'Graph revision',value:data?.revision??'NO_EVIDENCE'},
+  ]));
+
+  const activity=panel(doc,'Graph growth','What the owner has published','⇄');
+  const represented=entries.filter(row=>Array.isArray(row.representations)&&row.representations.length).length;
+  const retrieval=entries.filter(row=>row.retrievalReady).length;
+  const artifacts=entries.reduce((sum,row)=>sum+Number(row.artifactIds?.length??0),0);
+  activity.body.append(createKeyValue(doc,[
+    {key:'Source nodes',value:entries.length},
+    {key:'Retrieval-ready',value:retrieval},
+    {key:'Sources with representations',value:represented},
+    {key:'Derived artifact refs',value:artifacts},
+    {key:'Conflicts',value:data?.conflicts?.length??0},
+  ]));
+
+  const queue=panel(doc,'Growth queue','Sources still changing state','◌');
+  const active=entries.filter(row=>['STUDYING','ACCEPTED','FAILED'].includes(String(row.operatorState))).slice(0,10);
+  if(active.length){
+    for(const row of active){
+      const state=String(row.operatorState??'ACCEPTED'),meta=STATE_META[state]??STATE_META.ACCEPTED,item=element(doc,'div',{className:'a52-lore-growth-row',dataset:{state}});
+      item.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'strong',{text:shortLabel(row.uid??row.sourceId)}),makeBadge(doc,meta.label,meta.tone));
+      queue.body.append(item);
+    }
+  }else queue.body.append(element(doc,'p',{className:'a52-muted',text:entries.length?'No DUE, STUDYING, or FAILED sources are currently published.':'The queue will appear after Lore acceptance.'}));
+  rail.append(book.root,activity.root,queue.root);
+  return rail;
+}
+
+const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
+
+function buildLoreGraph({entries,data,selected}={}){
+  const visible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED').slice(0,54);
+  const exactByUid=exactSourceMap(selected?.snapshot);
+  const decorated=visible.map((row,index)=>{
+    const exact=exactByUid.get(String(row.uid??index))??null;
+    return{row,index,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
+  });
+  const semantic=decorated.some(item=>item.category);
+  const groups=new Map();
+
+  if(semantic){
+    for(const item of decorated){
+      const key=item.category??'Other Lore';
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(item);
+    }
+  }else{
+    for(const state of STATE_ORDER){
+      const rows=decorated.filter(item=>String(item.row.operatorState??'ACCEPTED')===state);
+      if(rows.length)groups.set(state,rows);
+    }
+  }
+
+  let grouped=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length||String(a[0]).localeCompare(String(b[0])));
+  if(semantic&&grouped.length>7){
+    const keep=grouped.slice(0,6),rest=grouped.slice(6).flatMap(([,rows])=>rows);
+    grouped=[...keep,['Other Lore',rest]];
+  }
+
+  const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380},hubRadius=215;
+  grouped.forEach(([groupLabel,items],index)=>{
+    const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
+    const state=semantic?'SEMANTIC':String(groupLabel);
+    const tone=semantic?SEMANTIC_TONES[index%SEMANTIC_TONES.length]:null;
+    const hub={
+      id:'hub:'+(semantic?'category:':'state:')+String(groupLabel),
+      state,tone,label:semantic?String(groupLabel):(STATE_META[state]?.label??state),count:items.length,
+      x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70,
+    };
+    hubs.push(hub);
+    edges.push({id:'edge:hub:'+hub.id,from:center,to:hub,state,tone,kind:'hub',delay:hub.delay});
+
+    items.forEach((item,rowIndex)=>{
+      const row=item.row,sourceState=String(row.operatorState??'ACCEPTED');
+      const spread=Math.min(Math.PI*.72,.24+items.length*.045),offset=items.length===1?0:(rowIndex/(items.length-1)-.5)*spread;
+      const nodeAngle=angle+offset,radius=72+(rowIndex%3)*26,hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%19)-9;
+      const node={
+        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,
+        x:hub.x+Math.cos(nodeAngle)*(radius+jitter),y:hub.y+Math.sin(nodeAngle)*(radius+jitter),
+        artifactCount:Number(row.artifactIds?.length??0),delay:220+index*90+rowIndex*26,payload:row,
+      };
+      nodes.push(node);
+      edges.push({id:'edge:source:'+node.id,from:hub,to:node,state:sourceState,tone,kind:'source',delay:node.delay-70});
+
+      const artifactRefs=[...(row.artifactIds??[])].slice(0,2);
+      artifactRefs.forEach((artifactId,artifactIndex)=>{
+        const artifactAngle=nodeAngle+(artifactIndex===0?-.28:.28);
+        const artifact={
+          id:String(artifactId),label:String(artifactId),state:sourceState,tone,
+          x:node.x+Math.cos(artifactAngle)*28,y:node.y+Math.sin(artifactAngle)*28,delay:node.delay+90+artifactIndex*45,
+        };
+        artifacts.push(artifact);
+        edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state:sourceState,tone,kind:'artifact',delay:artifact.delay-50});
+      });
+    });
+  });
+  return{hubs,nodes,artifacts,edges,semantic};
+}
+
+function exactSourceMap(snapshot){
+  return new Map((snapshot?.entries??[]).map((entry,index)=>[String(entry?.uid??index),entry]));
+}
+function sourceTreePath(entry){
+  const value=entry?.metadata?.treePath??entry?.treePath??entry?.metadata?.path??null;
+  if(Array.isArray(value))return value.filter(Boolean).map(x=>String(x).trim()).filter(Boolean).slice(0,8);
+  if(typeof value==='string')return value.split(/[\\/>]+/).map(x=>x.trim()).filter(Boolean).slice(0,8);
+  return[];
+}
+function publishedSemanticCategory(entry){
+  const explicit=entry?.metadata?.category??entry?.category??entry?.metadata?.type??entry?.type??null;
+  const value=explicit??sourceTreePath(entry)[0]??null;
+  return value?String(value).trim().slice(0,28):null;
+}
+function publishedSourceTitle(entry,fallback){
+  return shortLabel(entry?.title??entry?.comment??entry?.name??entry?.metadata?.title??entry?.metadata?.name??fallback);
+}
+function semanticCategoryCounts(snapshot,entries=[]){
+  const exactByUid=exactSourceMap(snapshot),counts=new Map();
+  entries.forEach((row,index)=>{
+    const category=publishedSemanticCategory(exactByUid.get(String(row?.uid??index)));
+    if(category)counts.set(category,(counts.get(category)??0)+1);
+  });
+  return[...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
+}
+
+function growthState(state,selected,graph){
+  const key=String(selected?.snapshot?.id??selected?.selection?.lorebookId??'unselected');
+  if(!state)return{
+    newHubs:new Set(graph.hubs.map(row=>row.id)),newNodes:new Set(graph.nodes.map(row=>row.id)),
+    newArtifacts:new Set(graph.artifacts.map(row=>row.id)),newEdges:new Set(graph.edges.map(row=>row.id)),
+  };
+  if(state.lorebookKey!==key){
+    state.lorebookKey=key;
+    state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
+  }
+  const classify=(rows,seen)=>{const fresh=new Set();for(const row of rows){if(!seen.has(row.id))fresh.add(row.id);seen.add(row.id);}trimSeen(seen,192);return fresh;};
+  return{
+    newHubs:classify(graph.hubs,state.seenHubs),
+    newNodes:classify(graph.nodes,state.seenNodes),
+    newArtifacts:classify(graph.artifacts,state.seenArtifacts),
+    newEdges:classify(graph.edges,state.seenEdges),
+  };
+}
+function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().value);}
+
+function canvasFooter(doc,text){
+  const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});
+  footer.append(element(doc,'span',{text:'◉ Click a source node for owner metadata'}),element(doc,'span',{text:'Neural growth animation respects reduced-motion'}),element(doc,'span',{text}));
+  return footer;
+}
+
+function panel(doc,title,subtitle,icon){
+  const root=element(doc,'section',{className:'a52-lore-neural-panel'}),head=element(doc,'header',{className:'a52-lore-neural-panel__head'}),copy=element(doc,'div');
+  copy.append(element(doc,'h3',{text:title}),element(doc,'p',{className:'a52-muted',text:subtitle}));
+  head.append(element(doc,'span',{className:'a52-lore-neural-panel__icon',text:icon}),copy);
+  const body=element(doc,'div',{className:'a52-lore-neural-panel__body'});root.append(head,body);return{root,body};
+}
+
+function svgEl(doc,tag,attrs={},children=[]){
+  const node=typeof doc.createElementNS==='function'?doc.createElementNS('http://www.w3.org/2000/svg',tag):doc.createElement(tag);
+  for(const [key,value] of Object.entries(attrs??{}))if(value!=null)node.setAttribute?.(key,String(value));
+  for(const child of children)node.append?.(child);
+  return node;
+}
+
+function curve(x1,y1,x2,y2){
+  const mx=(x1+x2)/2,my=(y1+y2)/2,dx=x2-x1,dy=y2-y1,len=Math.max(1,Math.hypot(dx,dy)),bend=Math.min(32,len*.12),cx=mx-(dy/len)*bend,cy=my+(dx/len)*bend;
+  return'M '+round(x1)+' '+round(y1)+' Q '+round(cx)+' '+round(cy)+' '+round(x2)+' '+round(y2);
+}
+function round(value){return Math.round(Number(value)*10)/10;}
+function shortLabel(value){const s=String(value??'Lore source').replace(/^lore:/i,'').replace(/[_-]+/g,' ');return s.length>28?s.slice(0,25)+'…':s;}
+function hashText(value){let h=2166136261;for(let i=0;i<value.length;i++){h^=value.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}

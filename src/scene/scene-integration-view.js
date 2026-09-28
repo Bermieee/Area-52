@@ -1,8 +1,10 @@
 import { createSceneIntegrationSignal, createSceneWhyReferences } from './integration-contracts.js';
 import { createSceneUiReadModel } from './scene-ui-read-model.js';
+import { AtmosphereConsumptionPolicy } from './atmosphere-policy.js';
 
 const clone=(v)=>v==null?v:structuredClone(v);
 const relationEdges=new Set(['SCENE_PRECEDES','SCENE_CONTINUES','SCENE_PARALLEL','SCENE_FLASHBACK','SCENE_INTERRUPTS','SCENE_RESUMES']);
+const atmospherePolicy=new AtmosphereConsumptionPolicy();
 
 function objectTransitionRefs(scene){
   const out=[];
@@ -14,7 +16,7 @@ function objectTransitionRefs(scene){
 }
 
 function atmosphereRef(scene){
-  const field=scene.fields?.atmosphere;if(!field||field.observationClass==='UNKNOWN')return null;
+  const field=scene.fields?.atmosphere;if(!field||field.observationClass!=='INFERRED')return null;
   return Object.freeze({kind:'SceneFieldReference',sceneId:scene.sceneId,sceneRevision:scene.revision,field:'atmosphere',observationClass:field.observationClass,evidenceRefs:[...(field.evidenceRefs??[])],canonical:false});
 }
 
@@ -59,7 +61,7 @@ export function buildSceneIntegrationSignal(runtime,chatId){
     sceneRelationship:frame?.relationshipToPrior??null,transitionType:frame?.relationshipToPrior??scene.fields?.boundaryState?.value?.type??null,
     previousSceneRef:prev,resumedSceneRef:resumed,latestEpisodeRef:recentEpisodeRefs.at(-1)??null,episodeRefs:recentEpisodeRefs,
     retrievalQuality:runtime.retrieval.quality(retrieval),prefetchRecommendations:prefetch,objectTransitionRefs:objectRefs,
-    atmosphere:scene.fields?.atmosphere??null,atmosphereRef:atmosphereRef(scene),health,
+    atmosphere:scene.fields?.atmosphere??null,atmosphereContribution,atmosphereRef:atmosphereRef(scene),health,
     provenance:[...(scene.provenance??[]),...Object.values(scene.fields??{}).flatMap((x)=>x?.evidenceRefs??[])],diagnosticRefs:diag,
   });
 }
@@ -86,6 +88,6 @@ export function fanOutSceneInput(runtime,chatId){
     activeThreads:clone(signal.activeThreads),uncertainSceneFields:[...signal.uncertainFields],conflictSignals:[...signal.conflictSignals],
     boundaryState:clone(signal.boundaryState),sceneRelationship:signal.sceneRelationship,sceneTransitionType:signal.transitionType,
     episodeRefs:clone(signal.episodeRefs),retrievalQuality:signal.retrievalQuality,prefetchRecommendations:clone(signal.prefetchRecommendations),
-    objects:clone(signal.objects),authorityGranted:false,
+    atmosphereContribution:clone(signal.atmosphereContribution),objects:clone(signal.objects),authorityGranted:false,
   });
 }

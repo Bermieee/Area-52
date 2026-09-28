@@ -389,7 +389,10 @@ export class Area52NativeBrain{
     let sceneFanOutIngress={kind:'NativeBrainSceneFanOutIngressReceipt',status:'UNAVAILABLE',reasonCode:'SCENE_FANOUT_HANDOFF_ABSENT',candidateCount:0,candidateIds:[],authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false};
     let externalRetrievalCandidates=[];
     if(sceneFanOut){
-      const expectedSources=uniq(sceneState.sourceRevisionRefs??[]),actualSources=uniq(sceneFanOut.sourceRevisionSet??[]);
+      const expectedSources=uniq([
+        ...(sceneState.sourceRevisionRefs??[]),
+        ...(sceneState.prefetchRecommendations??[]).flatMap(row=>row?.sourceRevisionSet??row?.sourceRevisionRefs??[]),
+      ]),actualSources=uniq(sceneFanOut.sourceRevisionSet??[]);
       const identityMismatch=[];
       if(String(sceneFanOut.chatId??'')!==chat)identityMismatch.push('chatId');
       if(String(sceneFanOut.turnId??'')!==turn)identityMismatch.push('turnId');

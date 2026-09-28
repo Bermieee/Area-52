@@ -138,8 +138,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const isNew=growth.newHubs.has(hub.id),delay=animationDelay(hub,growth);
     const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':''),'data-state':hub.state,'data-tone':hub.tone??null,'data-wave':hub.wave??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
-    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'42','class':'a52-lore-hub-node__halo'});
-    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'31','class':'a52-lore-hub-node__body'});
+    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'42','class':'a52-lore-hub-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'31','class':'a52-lore-hub-node__body'});
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
     if(isNew&&nativeMotion){
@@ -157,8 +157,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':''),'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
     const radius=node.artifactCount?10:8;
-    const halo=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius+5),'class':'a52-lore-entry-node__halo'});
-    const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__body'});
+    const halo=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'1':String(radius+5),'class':'a52-lore-entry-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-entry-node__body'});
     if(isNew&&nativeMotion){
       halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:420}));
       body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+35,dur:360}));
@@ -174,12 +174,13 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':''),'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact group '+node.label});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
     const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
-    const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-artifact-node__body'});
+    const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-artifact-node__body'});
     if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:320}));
     g.append(body);
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
   }
   canvas.append(svg);
+  if(nativeMotion)startNativeAnimations(svg);
   panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
   return panelRoot;
 }
@@ -456,10 +457,32 @@ function nativeAnimate(doc,{attributeName,from,to,begin=0,dur=400}={}){
     attributeName:String(attributeName),
     from:String(from),
     to:String(to),
-    begin:String(Math.max(0,Number(begin)||0))+'ms',
+    begin:'indefinite',
     dur:String(Math.max(1,Number(dur)||1))+'ms',
     fill:'freeze',
+    'data-a52-start-ms':String(Math.max(0,Number(begin)||0)),
   });
+}
+function startNativeAnimations(root){
+  const animations=[];
+  const visit=node=>{
+    for(const child of node?.children??[]){
+      if(String(child?.tagName??'').toLowerCase()==='animate'&&readSvgAttr(child,'data-a52-start-ms')!=null)animations.push(child);
+      visit(child);
+    }
+  };
+  visit(root);
+  for(const animation of animations){
+    const offsetMs=Math.max(0,Number(readSvgAttr(animation,'data-a52-start-ms'))||0);
+    try{
+      if(typeof animation.beginElementAt==='function')animation.beginElementAt(offsetMs/1000);
+      else if(typeof animation.beginElement==='function'&&offsetMs===0)animation.beginElement();
+    }catch{}
+  }
+  return animations.length;
+}
+function readSvgAttr(node,key){
+  try{return node?.getAttribute?.(key)??node?.attributes?.[key]??null;}catch{return node?.attributes?.[key]??null;}
 }
 function prefersReducedMotion(doc){
   try{

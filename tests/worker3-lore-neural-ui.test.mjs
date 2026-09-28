@@ -39,26 +39,26 @@ function populatedData(){
   };
 }
 
-test('Lore neural canvas starts blank before a source is accepted',()=>{
+test('Lore neural canvas starts blank with a centered text-free visual core',()=>{
   const d=new FakeDocument();
   const root=renderLoreNeuralWorkspace(d,{data:emptyData(),selected:{selection:{selected:false},snapshot:null},source:{operationalState:'IDLE',statusToken:'historical'},progress:0});
-  const body=textOf(root);
+  const nodes=walk(root),empty=nodes.find(x=>String(x.className??'').includes('a52-lore-neural-empty'));
+  const core=nodes.find(x=>String(x.className??'').includes('a52-lore-neural-empty__core'));
   assert.equal(root.dataset.graphState,'blank');
-  assert.match(body,/Waiting for a Lorebook/);
-  assert.match(body,/blank canvas/);
-  assert.match(body,/Waiting for a Lorebook/);
-  assert.match(body,/Accept the selected Lorebook, then run study to populate source nodes and learned links/);
-  assert.equal(walk(root).some(x=>String(x.className??'').includes('a52-lore-neural-svg')),false);
+  assert.ok(empty);assert.ok(core);
+  assert.equal(textOf(empty).trim(),'');
+  assert.equal(textOf(core).trim(),'');
+  assert.equal(nodes.some(x=>String(x.className??'').includes('a52-lore-neural-svg')),false);
 });
 
-test('Lore neural canvas stays quiet after discovery until acceptance creates owner entries',()=>{
+test('Lore neural canvas stays visually quiet after discovery until acceptance creates owner entries',()=>{
   const d=new FakeDocument();
   const root=renderLoreNeuralWorkspace(d,{data:emptyData(),selected:{selection:{selected:true,title:'Moon Harbor',lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor',entries:[{uid:'one'}]}},source:{operationalState:'IDLE',statusToken:'historical'},progress:0});
-  const body=textOf(root);
+  const nodes=walk(root),empty=nodes.find(x=>String(x.className??'').includes('a52-lore-neural-empty'));
   assert.equal(root.dataset.graphState,'loaded');
-  assert.match(body,/Moon Harbor/);
-  assert.match(body,/Source loaded — ready to accept/);
-  assert.match(body,/Accept this verified source, then run pending study/);
+  assert.ok(empty);
+  assert.equal(textOf(empty).trim(),'');
+  assert.equal(nodes.some(x=>String(x.className??'').includes('a52-lore-neural-svg')),false);
 });
 
 test('Lore neural canvas grows bounded owner-state nodes and artifact links from real study data',()=>{
@@ -74,15 +74,15 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   });
   const nodes=walk(root),body=textOf(root);
   assert.equal(root.dataset.graphState,'populated');
+  assert.match(body,/Selected UID/);
   assert.match(body,/World Overview/);
   assert.match(body,/Categories/);
   assert.match(body,/Filters/);
   assert.match(body,/Study State/);
-  assert.match(body,/Selected Lorebook/);
   assert.match(body,/Graph growth/);
   assert.match(body,/Growth queue/);
-  assert.match(body,/WORLD TREE/);
-  assert.match(body,/Moon Harbor/);
+  assert.doesNotMatch(body,/Selected Lorebook/);
+  assert.doesNotMatch(body,/WORLD TREE/);
   for(const label of ['Merge','Summarizer','Rebuild']){
     const button=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent===label);
     assert.ok(button);assert.equal(Boolean(button.disabled||button.attributes?.disabled),true);assert.equal(button.dataset?.futureFeature,'true');
@@ -93,6 +93,9 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.doesNotMatch(body,/Character|Faction|Place|Event|Concept|Memory/);
   const svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   assert.ok(svg);
+  const core=nodes.find(x=>x.attributes?.['data-node-id']==='core');
+  assert.ok(core);assert.equal(textOf(core).trim(),'');
+  assert.ok(nodes.some(x=>String(x.className??'').includes('a52-world-tree-filter-dock')));
   const entryNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.equal(entryNodes.length,4);
   const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-artifact-node'));
@@ -176,7 +179,7 @@ test('cluster click selects and updates detail state without snapping the camera
   assert.match(rerenderBody,/Direct graph relationships/);
 });
 
-test('source click renders truthful UID details in the right rail without moving viewport',()=>{
+test('source click renders truthful UID details in the left rail without moving viewport',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),refreshes=[];
   const data={
     kind:'Wave13LoreStudySurface',
@@ -376,7 +379,7 @@ test('current fully READY Lore disables redundant study while keeping re-accept 
   const workspace=walk(host).find(node=>String(node.className??'').includes('a52-lore-neural-workspace'));
   assert.ok(shell);assert.ok(workspace);
   assert.equal(intake.parentNode,shell);assert.equal(workspace.parentNode,shell);
-  assert.match(String(intake.className??''),/a52-world-tree-source-overlay/);
+  assert.match(String(intake.className??''),/a52-world-tree-source-dock/);
 });
 
 test('Lore neural render state holds reveal across incidental refreshes then animates only newly published nodes',()=>{
@@ -557,7 +560,8 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/DEFAULT_WORLD_VIEW=\{x:90,y:-14,width:820,height:788\}/);
   assert.match(js,/hubRadius=grouped\.length<=2\?220:grouped\.length<=4\?240:258/);
   assert.match(js,/const radius=76\+ring\*44\+jitter/);
-  assert.match(js,/coreTitle\.textContent='WORLD TREE'/);
+  assert.doesNotMatch(js,/coreTitle\\.textContent='WORLD TREE'/);
+  assert.match(js,/className:'a52-world-tree-filter-dock'/);
   const surfaces=readFileSync(new URL('../src/ui-core/wave13-operator-surfaces.js',import.meta.url),'utf8');
   assert.match(surfaces,/className:'a52-world-tree-shell'/);
   assert.match(surfaces,/worldTreeShell\.append\(worldTree,form\)/);
@@ -588,8 +592,10 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-canvas-card\{[\s\S]*inset:0/);
   assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-rail--left\{[\s\S]*position/);
   assert.match(css,/backdrop-filter:blur\(12px\)/);
-  assert.match(css,/\.a52-world-tree-source-overlay\{/);
-  assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-canvas-head\{[\s\S]*position:absolute/);
+  assert.match(css,/\.a52-world-tree-source-dock\{/);
+  assert.match(css,/\/\* World Tree HUD declutter pass \*\/[\s\S]*\.a52-world-tree-shell \.a52-lore-neural-canvas-head\{[\s\S]*background:transparent/);
+  assert.match(css,/\.a52-world-tree-filter-dock\{/);
+  assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-empty\{[\s\S]*padding:0/);
   assert.match(css,/@keyframes a52-lore-core-pulse\{0%,100%\{r:92/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);

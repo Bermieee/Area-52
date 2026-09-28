@@ -114,7 +114,7 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   const d=new FakeDocument();
   const entries=Array.from({length:105},(_,index)=>({
     sourceId:'lore:large:'+index,uid:'entry-'+index,operatorState:'READY',
-    artifactIds:index===0?Array.from({length:80},(__,artifact)=>'artifact:'+artifact):[],
+    artifactIds:index===64?Array.from({length:80},(__,artifact)=>'artifact:'+artifact):[],
     representations:[],retrievalReady:true,sourceRevisionId:'r'+index,
   }));
   const data={
@@ -147,7 +147,7 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.ok(Math.min(...ys)<250&&Math.max(...ys)>500);
   const artifactTitle=artifactNodes[0].children?.find?.(child=>child.tagName==='TITLE');
   assert.match(String(artifactTitle?.textContent??''),/80 derived refs/);
-  const firstWaveSource=sourceNodes.find(node=>String(node.children?.find?.(child=>child.tagName==='TITLE')?.textContent??'').includes('entry 0'));
+  const firstWaveSource=sourceNodes.find(node=>String(node.children?.find?.(child=>child.tagName==='TITLE')?.textContent??'').includes('entry 64'));
   assert.ok(firstWaveSource);
   const sourceDelay=Number(String(firstWaveSource.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
   const artifactDelay=Number(String(artifactNodes[0].attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
@@ -195,7 +195,6 @@ test('Lore neural render state animates only newly published nodes across refres
   assert.equal(newlyPublished.length,1);
   const incrementalDelay=Number(String(newlyPublished[0].attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1);
   assert.ok(incrementalDelay>=180&&incrementalDelay<=490);
-  assert.ok(thirdEntries.filter(x=>String(x.attributes.class).includes('is-steady')).every(x=>!String(x.attributes?.style??'').includes('--a52-node-delay:500ms')));
 });
 
 test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{

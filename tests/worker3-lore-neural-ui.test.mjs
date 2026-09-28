@@ -158,6 +158,40 @@ test('cluster bubbles glow and zoom while Full Graph clears focus',()=>{
   assert.equal(state.focusHubId,null);assert.equal(state.selectedNodeId,null);assert.equal(refreshes.length,1);
 });
 
+test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),refreshes=[];
+  const data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>refreshes.push('refresh'),scope:listenerScope()});
+  const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
+  assert.ok(svg);assert.equal(svg.attributes?.viewBox,'0 0 1000 760');
+
+  svg.dispatch('pointerdown',{button:0,pointerId:3,clientX:500,clientY:350});
+  svg.dispatch('pointermove',{pointerId:3,clientX:650,clientY:430});
+  svg.dispatch('pointerup',{pointerId:3,clientX:650,clientY:430});
+  assert.ok(state.viewport);
+  assert.notEqual(svg.attributes?.viewBox,'0 0 1000 760');
+  const panned=String(svg.attributes?.viewBox);
+
+  svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
+  assert.notEqual(svg.attributes?.viewBox,panned);
+  const zoomed=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
+  assert.ok(zoomed[2]<1000);assert.ok(zoomed[2]>=250);
+
+  for(let i=0;i<20;i++)svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
+  const minZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
+  assert.ok(minZoom[2]>=250);
+  for(let i=0;i<30;i++)svg.dispatch('wheel',{deltaY:120,offsetX:640,offsetY:300});
+  const maxZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
+  assert.ok(maxZoom[2]<=1180);
+
+  const fullGraph=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent==='Full Graph');
+  assert.ok(fullGraph);fullGraph.dispatch('click');
+  assert.equal(state.viewport,null);assert.equal(state.focusHubId,null);assert.equal(refreshes.length,1);
+  const rerender=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{},scope:listenerScope()});
+  const resetSvg=walk(rerender).find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
+  assert.equal(resetSvg.attributes?.viewBox,'0 0 1000 760');
+});
+
 test('artifact bubbles lock fluorescent selection without mutating Lore data',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData(),original=JSON.stringify(data);
   const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
@@ -192,8 +226,15 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.ok(hubs.every(x=>x.attributes?.['data-state']==='STRUCTURE'));
   assert.deepEqual(hubs.map(x=>Number(x.attributes?.['data-wave'])),[0,1,2,3,4,5,6]);
   const hubDelays=hubs.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
-  assert.deepEqual(hubDelays,[210,630,1050,1470,1890,2310,2730]);
-  assert.ok(hubDelays.at(-1)-hubDelays[0]>=2400);
+  assert.deepEqual([...new Set(hubDelays)],[1180]);
+  const trunkLinks=nodes.filter(x=>x.tagName==='PATH'&&x.attributes?.['data-from-id']==='core');
+  assert.equal(trunkLinks.length,7);
+  const trunkDelays=trunkLinks.map(x=>Number(String(x.attributes?.style??'').match(/--a52-link-delay:(\d+)ms/)?.[1]??-1));
+  assert.deepEqual([...new Set(trunkDelays)],[420]);
+  const sourceDelays=sourceNodes.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
+  assert.ok(Math.min(...sourceDelays)>=2050);
+  assert.ok(Math.max(...sourceDelays)>=2700);
+  assert.ok(Math.max(...sourceDelays)-Math.min(...sourceDelays)>=650);
   assert.ok(sourceNodes.every(x=>x.attributes?.['data-state']==='READY'));
   assert.equal(sourceNodes.length,54);
   assert.equal(artifactNodes.length,1);
@@ -407,6 +448,14 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/beginElementAt/);
   assert.match(js,/attributeName:'stroke-dashoffset'/);
   assert.match(js,/attributeName:'r'/);
+  assert.match(js,/CENTER_TRUNK_START_MS=420/);
+  assert.match(js,/HUB_BLOOM_START_MS=1180/);
+  assert.match(js,/SOURCE_INNER_START_MS=2050/);
+  assert.match(js,/SOURCE_RING_GAP_MS=650/);
+  assert.doesNotMatch(js,/index\*INITIAL_WAVE_SPACING_MS/);
+  assert.match(js,/dur:1150/);
+  assert.match(js,/dur:980/);
+  assert.match(js,/dur:760/);
   assert.match(css,/has-native-reveal/);
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);

@@ -256,6 +256,25 @@ test('source edit invalidates only dependent handoff and stale handoff cannot re
   assert.ok(brain.scene.narrativeFeed.findSourceRevision('stale-chat',original.evidence.sourceRevisionId));
 });
 
+test('host delete invalidates dependent handoff without destroying prior evidence history',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const original=ingest(brain,event(HostActivity.USER_SEND,'delete-1','At North Gallery, Mara waits.',{
+    chatId:'delete-chat',messageId:'delete-message',messageRevision:1,
+  }));
+  const moved=ingest(brain,event(HostActivity.USER_SEND,'delete-2','We arrive at South Courtyard.',{chatId:'delete-chat'}));
+  assert.ok(brain.core.sceneTransitionContext('delete-chat'));
+
+  const deleted=ingest(brain,event(HostActivity.DELETE,'delete-event','',{
+    chatId:'delete-chat',messageId:'delete-message',messageRevision:2,
+  }));
+  assert.ok(deleted.invalidatedTransitionHandoffs.some(row=>row.handoffId===moved.transitionHandoff.handoffId&&row.status==='INVALIDATED'));
+  assert.equal(brain.core.sceneTransitionContext('delete-chat'),null);
+  const historical=brain.scene.narrativeFeed.findSourceRevision('delete-chat',original.evidence.sourceRevisionId);
+  assert.ok(historical,'deleted host message revision must remain reconstructable as evidence history');
+  assert.equal(historical.current,false);
+  assert.equal(brain.scene.narrativeFeed.currentEvidence('delete-chat').some(row=>row.sourceRevisionId===original.evidence.sourceRevisionId),false);
+});
+
 test('source edit invalidates only the handoff that depends on the replaced revision',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   ingest(brain,event(HostActivity.USER_SEND,'dep-a1','At North Gallery, Mara waits.',{chatId:'dep-a',messageId:'shared-a',messageRevision:1}));

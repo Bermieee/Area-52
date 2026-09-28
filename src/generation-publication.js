@@ -6,7 +6,7 @@ import { TruthPublicationGate,inferTruthNeed } from './truth-publication-gate.js
 import { DeterministicPrecisionStub } from './precision-contract.js';
 import { PublicationContextCompiler } from './publication-context-compiler.js';
 import { GenerationContextSeal } from './context-seal.js';
-import { buildHotCognitionCompilerProjection,attachHotCognitionToPacket } from './hot-cognition-context.js';
+import { buildHotCognitionCompilerProjection,buildSceneTransitionContinuityProjection,mergeCompilerProjections,attachHotCognitionToPacket } from './hot-cognition-context.js';
 import { stableHash,utf8ByteLength } from './browser-runtime-utils.js';
 
 const uniq=(values)=>[...new Set(values)].sort();
@@ -90,6 +90,12 @@ export class GenerationPublicationPipeline {
     const sceneAnchors=sceneTrace?.retrievalRequired?uniq([...(sceneTrace.activeAnchorIds??[]),...(sceneTrace.activeObjectIds??[])]):[];
     const effectiveAnchorEntityIds=uniq([...anchorEntityIds,...sceneAnchors]);
     const hotProjection=hotSnapshot?buildHotCognitionCompilerProjection(hotSnapshot,{perspectiveConstraint}):null;
+    const sceneNamespace=rawHotSnapshot?.chatNamespace??this.core.hotCognition?.activeChatNamespace??null;
+    const transitionHandoff=sceneNamespace?this.core.sceneIntegration?.transitionContext?.(sceneNamespace):null;
+    const transitionProjection=transitionHandoff?buildSceneTransitionContinuityProjection(transitionHandoff,{
+      chatNamespace:sceneNamespace,sceneId:sceneTrace?.sceneId??rawHotSnapshot?.sceneId??null,sceneRevision,
+    }):null;
+    const compilerProjection=mergeCompilerProjections(hotProjection,transitionProjection);
     const choiceStarted=perfNow();
     const choiceSession=this.choice?.begin?.({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:effectiveAnchorEntityIds,hotSnapshot,worldRevision,sceneRevision,
@@ -237,10 +243,14 @@ export class GenerationPublicationPipeline {
       rawEvidence:lowAbstention||choiceSession?.hotOnly?[]:candidates,activeThreads,knowledgeEvidence:admittedKnowledgeEvidence,
     });
     let hotContributions=[];
-    if(hotProjection?.facts?.length){
-      const attached=attachHotCognitionToPacket(compiled.packet,hotProjection);
+    if(compilerProjection?.facts?.length){
+      const attached=attachHotCognitionToPacket(compiled.packet,compilerProjection);
       hotContributions=attached.contributions;
-      compiled={...compiled,packet:attached.packet,receipt:{...compiled.receipt,packetId:attached.packet.id,compiledBytes:utf8ByteLength(JSON.stringify(attached.packet)),reason:compiled.receipt.reason+'; Hot Cognition snapshot '+hotProjection.snapshotId+' attached through sealed semantic contributions'}};
+      const transitionAttached=Boolean(transitionProjection?.facts?.length);
+      compiled={...compiled,packet:attached.packet,receipt:{
+        ...compiled.receipt,packetId:attached.packet.id,compiledBytes:utf8ByteLength(JSON.stringify(attached.packet)),
+        reason:compiled.receipt.reason+'; '+(hotProjection?.facts?.length?'Hot Cognition snapshot '+hotProjection.snapshotId+' attached':'Core context projection attached')+(transitionAttached?'; Scene transition continuity '+transitionHandoff.handoffId+' attached before Context Seal':'')+' through sealed semantic contributions',
+      }};
     }
     if(sceneTrace){
       const packet=structuredClone(compiled.packet);
@@ -337,6 +347,10 @@ export class GenerationPublicationPipeline {
       candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,hotFreshnessReceipt,
       hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,
+      sceneTransitionContinuity:transitionProjection?.facts?.length?{
+        handoffId:transitionHandoff?.handoffId??null,factId:transitionProjection.facts[0]?.id??null,
+        sealed:true,sourceRevisionRefs:[...(transitionProjection.dependencies??[])],contextSealBypass:false,
+      }:null,
       retrievalIntents:structuredClone(resolvedRetrievalIntents),
       retrievalQualityReceipt:structuredClone(assessment?.retrievalQuality??null),
       correctiveRetrievalReceipt:{

@@ -147,7 +147,8 @@ export function mergeCompilerProjections(...rows){
   const first=projections[0];
   return{
     kind:'MergedContextCompilerProjection',
-    snapshotId:projections.map(row=>row.snapshotId).filter(Boolean).join('+')||null,
+    snapshotId:first.snapshotId??projections.map(row=>row.snapshotId).find(Boolean)??null,
+    projectionIds:projections.map(row=>row.snapshotId).filter(Boolean),
     hotRevision:first.hotRevision??null,chatNamespace:first.chatNamespace??null,
     sceneRevision:first.sceneRevision??null,worldRevision:first.worldRevision??null,
     facts:projections.flatMap(row=>row.facts??[]),

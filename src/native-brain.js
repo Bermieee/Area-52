@@ -1267,7 +1267,11 @@ export class Area52NativeBrain{
         physicalExecutionCount:Number(sceneFanOutIngress.physicalExecutionCount??0),admittedResultIds:[...(sceneFanOutIngress.admittedResultIds??[])].slice(0,32),
         rejectedResultIds:[...(sceneFanOutIngress.rejectedResultIds??[])].slice(0,32),staleResultIds:[...(sceneFanOutIngress.staleResultIds??[])].slice(0,32),
         candidateCount:Number(sceneFanOutIngress.candidateCount??0),candidateIds:[...(sceneFanOutIngress.candidateIds??[])].slice(0,32),
-        coreBinding:sceneFanOutBinding?{status:sceneFanOutBinding.status,boundCandidateIds:[...(sceneFanOutBinding.boundCandidateIds??[])].slice(0,32),rejectedCandidateIds:[...(sceneFanOutBinding.rejectedCandidateIds??[])].slice(0,32),rows:clone((sceneFanOutBinding.rows??[]).slice(0,32))}:null,
+        coreBinding:sceneFanOutBinding?{
+          status:sceneFanOutBinding.status,boundCandidateIds:[...(sceneFanOutBinding.boundCandidateIds??[])].slice(0,32),rejectedCandidateIds:[...(sceneFanOutBinding.rejectedCandidateIds??[])].slice(0,32),
+          selectionResultIds:[...(sceneFanOutBinding.selectionResultIds??[])].slice(0,32),gatheredSelectionResultIds:[...(sceneFanOutBinding.gatheredSelectionResultIds??[])].slice(0,32),
+          selectionResultRoutes:clone((sceneFanOutBinding.selectionResultRoutes??[]).slice(0,32)),rows:clone((sceneFanOutBinding.rows??[]).slice(0,32)),
+        }:null,
         coreChoice:{admittedJobs:fanOutAdmitted.slice(0,16),skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)},
       }:fanOutAdmitted.length?{state:'ADMITTED',ingressStatus:'NO_EXTERNAL_HANDOFF',candidateCount:0,candidateIds:[],coreBinding:sceneFanOutBinding?clone(sceneFanOutBinding):null,coreChoice:{admittedJobs:fanOutAdmitted.slice(0,16),skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}}:{state:'NO_WORK',ingressStatus:'NO_EXTERNAL_HANDOFF',candidateCount:0,candidateIds:[],coreBinding:sceneFanOutBinding?clone(sceneFanOutBinding):null,coreChoice:{admittedJobs:[],skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}},
       gather:gather?{state:(gather.admittedResultIds??[]).length?'ADMITTED_RESULTS':'PUBLISHED_NO_WORK',receiptId:gather.receiptId??gather.kind??null,admittedResultCount:(gather.admittedResultIds??[]).length,staleResultCount:(gather.staleResultIds??[]).length,rejectedResultCount:(gather.rejectedResultIds??[]).length}:{state:'UNAVAILABLE',reason:'GATHER_RECEIPT_UNAVAILABLE'},

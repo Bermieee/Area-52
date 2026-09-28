@@ -56,6 +56,8 @@ export class Area52CognitiveCore {
   activateHotCognitionChat(chatNamespace,options){const snapshot=this.hotCognition.activateChat(chatNamespace,options);this.sceneIntegration.activateChat(chatNamespace);return snapshot;}
   consumeSceneSignal(signal,options={}){const receipt=this.sceneIntegration.consumeSignal(signal,options);const trace=this.sceneIntegration.publicationTrace(options.chatNamespace??this.hotCognition.activeChatNamespace);if(trace)this.publication.setSceneRevision(trace.sceneRevision,{sceneId:trace.sceneId});return receipt;}
   consumeSceneContextInvalidation(signal,options={}){const receipt=this.sceneIntegration.consumeInvalidation(signal,options);const trace=this.sceneIntegration.publicationTrace(options.chatNamespace??this.hotCognition.activeChatNamespace);if(trace)this.publication.setSceneRevision(trace.sceneRevision,{sceneId:trace.sceneId});return receipt;}
+  consumeSceneTransitionHandoff(handoff,options={}){return this.sceneIntegration.consumeTransitionHandoff(handoff,options);}
+  sceneTransitionContext(chatNamespace){return this.sceneIntegration.transitionContext(chatNamespace);}
   consumeCognitiveEvent(event,options={}){
     if(SUPPORTED_SCENE_EVENT_TYPES.includes(String(event?.eventType??''))){
       const receipt=this.sceneIntegration.consumeEvent(event,options),trace=this.sceneIntegration.publicationTrace(options.chatNamespace??this.hotCognition.activeChatNamespace);

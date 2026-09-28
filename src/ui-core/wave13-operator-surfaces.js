@@ -881,7 +881,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
       status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Verify the source, then accept it for study.';status.dataset.status='ready';refresh?.();
     }catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
   }});
-  const accept=createButton(d,{label:sourceCurrent?'Lore current':'Accept for study',disabled:!(caps.accept&&snapshot)||sourceCurrent,scope,variant:'secondary',onPress:async()=>{
+  const accept=createButton(d,{label:sourceCurrent?'Re-accept source':'Accept for study',disabled:!(caps.accept&&snapshot),scope,variant:'secondary',onPress:async()=>{
     const current=loreStudy.selectedLorebook?.().snapshot??null;
     if(!current){status.textContent='Load the selected SillyTavern Lorebook before accepting it.';status.dataset.status='error';return;}
     status.textContent='Accepting the verified source. Accepted entries become DUE; they are not retrieval-ready yet.';status.dataset.status='loading';

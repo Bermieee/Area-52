@@ -1064,7 +1064,7 @@
   transform-origin:center;
 }
 .a52-lore-core-node__body{
-  fill:radial-gradient(circle,rgba(14,77,112,.98),rgba(3,23,38,.99));
+  fill:#061f34;
   stroke:#36d9ff;
   stroke-width:4;
   filter:drop-shadow(0 0 6px rgba(48,216,255,.8)) drop-shadow(0 0 20px rgba(35,177,255,.36));

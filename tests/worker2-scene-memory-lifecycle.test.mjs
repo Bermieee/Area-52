@@ -258,3 +258,18 @@ test('Worker 2: source edit or delete before historical execution prevents stale
     ));
   }
 });
+
+
+test('Worker 2: interrupted historical work produces an explicit deferred Memory owner decision',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const {ready}=finalizedEpisode(brain,{suffix:'interrupted'});
+  brain.sceneOwnerTimeline.length=0;
+  await brain.runtimeDirector.drain({maxCycles:128});
+
+  const decision=brain.readSceneMemoryLifecycleReceipts({limit:256}).find(row=>
+    row.eventId===ready.eventId&&row.stage==='MEMORY_OWNER_DECISION'
+  );
+  assert.equal(decision?.status,'DEFERRED');
+  assert.equal(decision?.reasonCode,'SCENE_MEMORY_OWNER_EVENT_UNAVAILABLE');
+  assert.equal(brain.memory.experienceStore.currentEpisodes({freshOnly:false}).length,0);
+});

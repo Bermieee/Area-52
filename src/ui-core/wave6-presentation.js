@@ -4,9 +4,10 @@ import { ProductDataMode, Wave6Health, authorityDescriptor, createProductSourceS
 export const FrontFaceMode=Object.freeze({COLLAPSED:'COLLAPSED',EXPANDED:'EXPANDED'});
 export const FrontFaceDensity=Object.freeze({COMPACT:'COMPACT',COMFORTABLE:'COMFORTABLE'});
 export const WorkspaceComposition=Object.freeze({COMPACT:'COMPACT',DASHBOARD:'DASHBOARD',INSPECTOR_HEAVY:'INSPECTOR_HEAVY'});
+export const LoreMotionMode=Object.freeze({SYSTEM:'SYSTEM',FULL:'FULL',REDUCED:'REDUCED'});
 
-const MODES=new Set(Object.values(FrontFaceMode)),DENSITIES=new Set(Object.values(FrontFaceDensity));
-const DEFAULTS=Object.freeze({frontFaceMode:FrontFaceMode.COLLAPSED,frontFaceWidth:560,frontFaceDensity:FrontFaceDensity.COMPACT,inspectorVisible:false,inspectorWidth:320,lastProductWorkspace:'home'});
+const MODES=new Set(Object.values(FrontFaceMode)),DENSITIES=new Set(Object.values(FrontFaceDensity)),LORE_MOTION_MODES=new Set(Object.values(LoreMotionMode));
+const DEFAULTS=Object.freeze({frontFaceMode:FrontFaceMode.COLLAPSED,frontFaceWidth:560,frontFaceDensity:FrontFaceDensity.COMPACT,inspectorVisible:false,inspectorWidth:320,lastProductWorkspace:'home',loreMotionMode:LoreMotionMode.SYSTEM});
 
 export class FrontFacePresentationState{
   #listeners=new Set();
@@ -24,6 +25,7 @@ export class FrontFacePresentationState{
   setWidth(width){return this.patch({frontFaceWidth:width});}
   setInspector(visible,width=this.state.inspectorWidth){return this.patch({inspectorVisible:Boolean(visible),inspectorWidth:width});}
   setDensity(density){return this.patch({frontFaceDensity:density});}
+  setLoreMotionMode(mode){return this.patch({loreMotionMode:mode});}
   subscribe(listener){if(typeof listener!=='function')throw new TypeError('presentation listener must be a function');this.#listeners.add(listener);return()=>this.#listeners.delete(listener);}
 }
 
@@ -75,6 +77,7 @@ function normalize(value){
   const density=DENSITIES.has(value.frontFaceDensity)?value.frontFaceDensity:DEFAULTS.frontFaceDensity;
   const width=Math.max(360,Math.min(1440,Number(value.frontFaceWidth)||DEFAULTS.frontFaceWidth));
   const inspectorWidth=Math.max(240,Math.min(560,Number(value.inspectorWidth)||DEFAULTS.inspectorWidth));
-  return{frontFaceMode:mode,frontFaceWidth:width,frontFaceDensity:density,inspectorVisible:Boolean(value.inspectorVisible),inspectorWidth,lastProductWorkspace:String(value.lastProductWorkspace||'home')};
+  const loreMotionMode=LORE_MOTION_MODES.has(value.loreMotionMode)?value.loreMotionMode:DEFAULTS.loreMotionMode;
+  return{frontFaceMode:mode,frontFaceWidth:width,frontFaceDensity:density,inspectorVisible:Boolean(value.inspectorVisible),inspectorWidth,lastProductWorkspace:String(value.lastProductWorkspace||'home'),loreMotionMode};
 }
 function structuredCloneSafe(value){return typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value));}

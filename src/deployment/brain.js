@@ -15,6 +15,7 @@ import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
 import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
+import { createExperienceProposalFromScene } from '../scene/scene-memory-handoff.js';
 import { SceneLifecycleRuntime } from '../scene/scene-lifecycle-runtime.js';
 import { SceneStateExtractor } from '../scene/scene-state-extractor.js';
 import { SceneEventPublisher } from '../scene/event-publisher.js';
@@ -72,6 +73,12 @@ const SCENE_ACTIVE_AT_EXECUTION_EVENT_TYPES=new Set([
   SceneEventType.SCENE_BOUNDARY_CONFIRMED,SceneEventType.SCENE_OPENED,SceneEventType.VIBE_CHANGED,
   SceneEventType.PREFETCH_RECOMMENDED,SceneEventType.OBJECT_TRANSITION,
 ]);
+const SCENE_MEMORY_OWNER_PRODUCER_ID='MEMORY_SCENE_LIFECYCLE_OWNER';
+const SCENE_MEMORY_ELIGIBLE_EVENT_TYPES=new Set([SceneEventType.SCENE_EPISODE_READY]);
+const SCENE_MEMORY_HISTORICAL_EVENT_TYPES=new Set([
+  SceneEventType.SCENE_BOUNDARY_CONFIRMED,SceneEventType.SCENE_EPISODE_READY,SceneEventType.SCENE_CLOSED,
+]);
+const sameRefs=(left,right)=>JSON.stringify(uniq(left).sort())===JSON.stringify(uniq(right).sort());
 
 
 function field(value, revision, evidenceRef, observationClass = ObservationClass.OBSERVED, confidence = 1) {
@@ -353,6 +360,7 @@ export class DevelopmentDeploymentBrain {
     this.sceneOwnerTimeline = [];
     this.sceneEventSpineReceipts = [];
     this.sceneEventObligationReceipts = [];
+    this.sceneMemoryLifecycleReceipts = [];
     const sceneTimelineSink = (type) => (value) => {
       this.sceneOwnerTimeline.push({ type, value: clone(value) });
       if (this.sceneOwnerTimeline.length > 256) this.sceneOwnerTimeline.splice(0, this.sceneOwnerTimeline.length - 256);
@@ -373,6 +381,7 @@ export class DevelopmentDeploymentBrain {
     this.sceneObservationReceipts = [];
     this.memory = new MemoryTemporalProducer({ snapshot: memoryOwnerSnapshot });
     this.memorySurface = createMemoryIntegrationSurface(this.memory);
+    this.#installSceneMemoryRetrievalObserver();
     this.sourceMap = new Map();
     this.loreChannel = new RuntimePreparedLoreChannel({ loreSystem: this.loreSystem, core: this.core, sourceMap: this.sourceMap });
     this.core.registerRetrievalChannel(this.loreChannel);
@@ -534,6 +543,7 @@ export class DevelopmentDeploymentBrain {
     };
     const adapter = { invoke: (ctx) => this.#invokeRuntime(ctx) };
     for (let i = 0; i < resourceCount; i += 1) this.runtime.registerExecutionResource({ worker: runtimeWorker('area52-local-' + (i + 1)), adapter });
+    this.sceneMemoryOwnerRelease=this.#installSceneMemoryOwnerMapping();
     this.core.registerJevAdapter({
       invoke: (request) => {
         const proposal = this.turns.get(request.turnId)?.jevProposal ?? this.pendingJev?.get?.(request.turnId) ?? null;
@@ -1065,38 +1075,68 @@ export class DevelopmentDeploymentBrain {
     return receipt;
   }
 
-  #sceneEventObligationGuard(event,{execution=false}={}){
+  #sceneEventObligationGuard(event,{execution=false,ownerPolicy=null}={}){
     if(event?.producer!=='SCENE_INTELLIGENCE')return{accepted:false,reasonCode:'SCENE_EVENT_PRODUCER_MISMATCH'};
     if(!event?.chatId)return{accepted:false,reasonCode:'SCENE_EVENT_CHAT_ID_MISSING'};
+    const sealed=Boolean(event.turnId&&this.core.publication.seal.isTurnSealed(event.turnId));
+    const resolvedPolicy=typeof ownerPolicy==='function'?ownerPolicy(clone(event),{execution,sealed}):(ownerPolicy??null);
+    const historicalLifecycle=Boolean(
+      resolvedPolicy?.historicalLifecycle===true
+      &&SCENE_MEMORY_HISTORICAL_EVENT_TYPES.has(event.eventType)
+      &&String(resolvedPolicy?.destination??'').toUpperCase()==='BACKGROUND'
+    );
     const activeChat=String(this.core.hotCognition?.activeChatNamespace??this.scene.narrativeFeed.activeChatId??'');
-    if(activeChat&&String(event.chatId)!==activeChat)return{accepted:false,reasonCode:'SCENE_EVENT_FOREIGN_CHAT'};
-    if(event.turnId&&this.core.publication.seal.isTurnSealed(event.turnId))return{accepted:false,reasonCode:'SCENE_EVENT_POST_SEAL'};
+    if(!historicalLifecycle&&activeChat&&String(event.chatId)!==activeChat)return{accepted:false,reasonCode:'SCENE_EVENT_FOREIGN_CHAT'};
+    if(sealed&&!historicalLifecycle)return{accepted:false,reasonCode:'SCENE_EVENT_POST_SEAL'};
     const refs=uniq(event.revisionFences?.sourceRevisionIds??Object.keys(event.sourceRevisions??{}));
-    const currentSources=new Set(this.scene.narrativeFeed.currentEvidence(String(event.chatId)).map(row=>String(row.sourceRevisionId)));
-    if(refs.length&&refs.some(ref=>!currentSources.has(String(ref))))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SOURCE'};
-    if(SCENE_EXACT_REVISION_OBLIGATION_EVENT_TYPES.has(event.eventType)){
+    for(const ref of refs){
+      const source=this.scene.narrativeFeed.findSourceRevision(String(event.chatId),String(ref));
+      if(!source||source.current!==true)return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SOURCE'};
+    }
+    if(historicalLifecycle){
+      const record=this.scene.registry.get(String(event.sceneId??''));
+      const snapshot=(record?.snapshots??[]).find(row=>Number(row?.revision)===Number(event.sceneRevision))??null;
+      if(!snapshot)return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SCENE_REVISION'};
+      const snapshotRefs=uniq(snapshot.sourceRevisionRefs??[]);
+      for(const ref of snapshotRefs){
+        const source=this.scene.narrativeFeed.findSourceRevision(String(event.chatId),String(ref));
+        if(!source||source.current!==true)return{accepted:false,reasonCode:'SCENE_EVENT_HISTORICAL_SOURCE_INVALID'};
+      }
+      if(event.eventType===SceneEventType.SCENE_EPISODE_READY){
+        const episodeRef=event.payload?.episodeRef??null;
+        const episode=episodeRef?.artifactId?this.scene.episodeCompiler.get(String(episodeRef.artifactId)):null;
+        if(!episode)return{accepted:false,reasonCode:'SCENE_EVENT_EPISODE_UNAVAILABLE'};
+        if(String(episode.sceneId)!==String(event.sceneId)||Number(episode.sceneRevision)!==Number(event.sceneRevision))return{accepted:false,reasonCode:'SCENE_EVENT_EPISODE_REVISION_MISMATCH'};
+        if(Number(episodeRef.revision)!==Number(episode.artifactRef?.revision)||!sameRefs(episodeRef.sourceRevisionSet??[],episode.artifactRef?.sourceRevisionSet??[]))return{accepted:false,reasonCode:'SCENE_EVENT_EPISODE_REF_MISMATCH'};
+        for(const ref of uniq(episode.sourceRevisionRefs??episodeRef.sourceRevisionSet??[])){
+          const source=this.scene.narrativeFeed.findSourceRevision(String(event.chatId),String(ref));
+          if(!source||source.current!==true)return{accepted:false,reasonCode:'SCENE_EVENT_EPISODE_SOURCE_INVALID'};
+        }
+      }
+    }else if(SCENE_EXACT_REVISION_OBLIGATION_EVENT_TYPES.has(event.eventType)){
       const current=this.scene.registry.current(String(event.sceneId??''));
       if(!current||Number(current.revision)!==Number(event.sceneRevision))return{accepted:false,reasonCode:'SCENE_EVENT_STALE_SCENE_REVISION'};
     }
-    if(execution&&SCENE_ACTIVE_AT_EXECUTION_EVENT_TYPES.has(event.eventType)){
+    if(!historicalLifecycle&&execution&&SCENE_ACTIVE_AT_EXECUTION_EVENT_TYPES.has(event.eventType)){
       const activeSceneId=this.scene.chatScenes.get(String(event.chatId))??null;
       if(activeSceneId&&String(activeSceneId)!==String(event.sceneId??''))return{accepted:false,reasonCode:'SCENE_EVENT_SUPERSEDED_SCENE'};
     }
-    return{accepted:true,reasonCode:'SCENE_EVENT_CURRENT'};
+    return{accepted:true,reasonCode:historicalLifecycle?'SCENE_EVENT_HISTORICAL_BACKGROUND_ALLOWED':'SCENE_EVENT_CURRENT',historicalLifecycle,destination:resolvedPolicy?.destination??null};
   }
 
-  bindSceneEventObligationOwner({producer,eventTypes,mapEvent,executorFactory}={}){
+  bindSceneEventObligationOwner({producer,eventTypes,mapEvent,executorFactory,ownerPolicy=null,onDisposition=null}={}){
     const producerId=String(producer?.producerId??'').trim();
     if(!producerId)throw new TypeError('Scene event obligation owner requires producer.producerId');
     if(typeof mapEvent!=='function')throw new TypeError('Scene event obligation owner requires mapEvent');
     if(typeof executorFactory!=='function')throw new TypeError('Scene event obligation owner requires executorFactory');
+    if(onDisposition!==null&&typeof onDisposition!=='function')throw new TypeError('Scene event obligation owner onDisposition must be a function');
     if(!this.runtime.producers.list().some(row=>row.producerId===producerId))this.runtime.registerProducer(producer);
     const types=uniq(eventTypes??[]);
     if(!types.length)throw new TypeError('Scene event obligation owner requires eventTypes');
     for(const eventType of types)if(!Object.values(SceneEventType).includes(eventType))throw new TypeError('Unsupported Scene event obligation type: '+eventType);
     const releases=types.map(eventType=>this.runtime.producers.bindEvent({
       eventType,producerId,
-      guardEvent:(event)=>this.#sceneEventObligationGuard(event),
+      guardEvent:(event)=>this.#sceneEventObligationGuard(event,{ownerPolicy}),
       mapEvent:(event)=>{
         const request=mapEvent(clone(event));
         if(!request)return null;
@@ -1116,7 +1156,7 @@ export class DevelopmentDeploymentBrain {
         return{
           ...ownerExecutor,
           execute:async(context={})=>{
-            const guard=this.#sceneEventObligationGuard(event,{execution:true});
+            const guard=this.#sceneEventObligationGuard(event,{execution:true,ownerPolicy});
             if(!guard.accepted){
               const reasonCode=guard.reasonCode+':BEFORE_EXECUTION';
               this.#retainSceneEventObligationReceipt({status:'REJECTED',reasonCode,producerId,event});
@@ -1146,6 +1186,7 @@ export class DevelopmentDeploymentBrain {
           generationId:entry.event?.generationId??null,sceneId:entry.event?.sceneId??null,sceneRevision:entry.event?.sceneRevision??null,
           taskId:entry.admission?.task?.taskId??null,authorityGranted:false,canonicalMutation:false,
         });
+        try{onDisposition?.(clone({...entry,reasonCode,producerId}));}catch{}
       },
     }));
     return()=>{for(const release of releases)try{release();}catch{}};
@@ -1159,6 +1200,278 @@ export class DevelopmentDeploymentBrain {
   readSceneEventObligationReceipts({limit=64}={}){
     const n=Math.max(1,Math.min(256,Number(limit)||64));
     return clone(this.sceneEventObligationReceipts.slice(-n));
+  }
+
+  #installSceneMemoryRetrievalObserver(){
+    const adapters=this.memorySurface?.adapters??null;
+    if(!adapters)return;
+    for(const method of ['queryHistorian','resolveHistorian']){
+      const original=adapters[method];
+      if(typeof original!=='function')continue;
+      adapters[method]=(...args)=>{
+        const result=original(...args);
+        if(result&&typeof result.then==='function')return result.then((value)=>{this.#recordSceneMemoryRetrieval(value,args[0],method);return value;});
+        this.#recordSceneMemoryRetrieval(result,args[0],method);
+        return result;
+      };
+    }
+  }
+
+  #recordSceneMemoryRetrieval(result,request,method='queryHistorian'){
+    const rows=[...(result?.nominations??[]),...(result?.artifacts??[])];
+    const seen=new Set();
+    const selection=request?.selection??{};
+    for(const row of rows){
+      const artifactId=row?.artifactRef?.artifactId??row?.episodeId??null;
+      if(!artifactId||seen.has(String(artifactId)))continue;
+      seen.add(String(artifactId));
+      const episode=this.memory.experienceStore.artifact(String(artifactId));
+      if(!episode||episode.admissionSource!=='SCENE_EXPERIENCE_PROPOSAL')continue;
+      if(selection?.chatId!=null&&episode.chatId!=null&&String(selection.chatId)!==String(episode.chatId))continue;
+      this.#retainSceneMemoryLifecycleReceipt({
+        stage:'EXPERIENCE_RETRIEVED',status:'RETRIEVED',reasonCode:'SCENE_MEMORY_HISTORIAN_RETRIEVED',
+        chatId:episode.chatId??selection?.chatId??null,turnId:selection?.turnId??null,generationId:selection?.generationId??null,
+        correlationId:selection?.correlationId??null,sceneId:episode.sceneId,sceneRevision:episode.sceneRevision,
+        sourceRevisionRefs:episode.sourceRevisionRefs??[],episodeRef:episode.sceneEpisodeRef??null,memoryEpisode:episode,
+        destination:'FOREGROUND_CANDIDATE',deduplicationOutcome:method,
+      });
+    }
+  }
+
+  #retainSceneMemoryLifecycleReceipt(input={}){
+    const event=input.event??null,proposal=input.proposal??null,memoryEpisode=input.memoryEpisode??null;
+    const receipt=Object.freeze({
+      kind:'DeploymentSceneMemoryLifecycleReceipt',contractVersion:1,
+      stage:String(input.stage??'UNKNOWN'),status:String(input.status??'UNKNOWN'),reasonCode:input.reasonCode==null?null:String(input.reasonCode),
+      eventId:event?.eventId??input.eventId??null,eventType:event?.eventType??input.eventType??null,
+      chatId:event?.chatId??input.chatId??null,turnId:event?.turnId??input.turnId??null,generationId:event?.generationId??input.generationId??null,
+      correlationId:event?.correlationId??input.correlationId??null,causationId:event?.causationId??input.causationId??null,
+      sceneId:event?.sceneId??proposal?.sceneId??input.sceneId??null,sceneRevision:event?.sceneRevision??proposal?.sceneRevision??input.sceneRevision??null,
+      sourceRevisionRefs:uniq(input.sourceRevisionRefs??proposal?.sourceRevisionRefs??event?.sourceRevisionSet??event?.revisionFences?.sourceRevisionIds??[]),
+      episodeRef:clone(input.episodeRef??proposal?.sceneEpisodeRef??null),proposalId:proposal?.proposalId??input.proposalId??null,
+      taskId:input.taskId??null,destination:input.destination??'BACKGROUND',deduplicationOutcome:input.deduplicationOutcome??null,
+      mappingIds:uniq(input.mappingIds??[]),memoryEvidenceIds:uniq(input.memoryEvidenceIds??[]),
+      memoryEpisodeId:memoryEpisode?.id??input.memoryEpisodeId??null,memoryEpisodeRevision:memoryEpisode?.revision??input.memoryEpisodeRevision??null,
+      experiencePersisted:Boolean(input.experiencePersisted),sealedGeneration:Boolean(input.sealedGeneration),
+      rawStoryTextIncluded:false,providerBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+    this.sceneMemoryLifecycleReceipts.push(clone(receipt));
+    if(this.sceneMemoryLifecycleReceipts.length>256)this.sceneMemoryLifecycleReceipts.splice(0,this.sceneMemoryLifecycleReceipts.length-256);
+    return receipt;
+  }
+
+  readSceneMemoryLifecycleReceipts({limit=64}={}){
+    const n=Math.max(1,Math.min(256,Number(limit)||64));
+    return clone(this.sceneMemoryLifecycleReceipts.slice(-n));
+  }
+
+  #sceneOwnerEventById(eventId){
+    const id=String(eventId??'');
+    for(let i=this.sceneOwnerTimeline.length-1;i>=0;i-=1){
+      const row=this.sceneOwnerTimeline[i];
+      if(row?.type==='EVENT'&&String(row?.value?.eventId??'')===id)return clone(row.value);
+    }
+    return null;
+  }
+
+  #sceneMemoryOwnerPolicy(event){
+    const historicalLifecycle=SCENE_MEMORY_HISTORICAL_EVENT_TYPES.has(event?.eventType);
+    return{historicalLifecycle,destination:historicalLifecycle?'BACKGROUND':null};
+  }
+
+  #resolveSceneMemoryLifecycleEvidence(event){
+    if(!SCENE_MEMORY_ELIGIBLE_EVENT_TYPES.has(event?.eventType))return{ok:false,status:'NO_WORK',reasonCode:'SCENE_MEMORY_EVENT_NOT_ELIGIBLE'};
+    const ownerEvent=this.#sceneOwnerEventById(event.eventId);
+    if(!ownerEvent)return{ok:false,status:'DEFERRED',reasonCode:'SCENE_MEMORY_OWNER_EVENT_UNAVAILABLE'};
+    const episodeRef=ownerEvent.payload?.episodeRef??null;
+    if(!episodeRef?.artifactId)return{ok:false,status:'NO_WORK',reasonCode:'SCENE_MEMORY_EPISODE_REF_MISSING'};
+    const episode=this.scene.episodeCompiler.get(String(episodeRef.artifactId));
+    if(!episode)return{ok:false,status:'DEFERRED',reasonCode:'SCENE_MEMORY_EPISODE_UNAVAILABLE'};
+    const record=this.scene.registry.get(String(ownerEvent.sceneId??''));
+    const scene=(record?.snapshots??[]).find(row=>Number(row?.revision)===Number(ownerEvent.sceneRevision))??null;
+    if(!scene)return{ok:false,status:'REJECTED',reasonCode:'SCENE_MEMORY_SCENE_REVISION_UNAVAILABLE'};
+    if(String(episode.sceneId)!==String(scene.sceneId)||Number(episode.sceneRevision)!==Number(scene.revision))return{ok:false,status:'REJECTED',reasonCode:'SCENE_MEMORY_EPISODE_SCENE_FENCE_MISMATCH'};
+    if(String(episodeRef.artifactId)!==String(episode.artifactRef?.artifactId)||Number(episodeRef.revision)!==Number(episode.artifactRef?.revision)||!sameRefs(episodeRef.sourceRevisionSet??[],episode.artifactRef?.sourceRevisionSet??[]))return{ok:false,status:'REJECTED',reasonCode:'SCENE_MEMORY_EPISODE_REF_MISMATCH'};
+    const boundaryRuntime=[...this.runtimeDirector.events.events].reverse().find(row=>
+      row.eventType===SceneEventType.SCENE_BOUNDARY_CONFIRMED
+      &&String(row.sceneId)===String(ownerEvent.sceneId)
+      &&Number(row.sceneRevision)===Number(ownerEvent.sceneRevision)
+      &&String(row.chatId??'')===String(ownerEvent.chatId??'')
+    )??null;
+    const boundaryEvent=boundaryRuntime?this.#sceneOwnerEventById(boundaryRuntime.eventId):null;
+    if(!boundaryEvent)return{ok:false,status:'DEFERRED',reasonCode:'SCENE_MEMORY_BOUNDARY_EVENT_UNAVAILABLE'};
+    const sourceRefs=uniq([...(episode.sourceRevisionRefs??[]),...(ownerEvent.sourceRevisionSet??[]),...(boundaryEvent.sourceRevisionSet??[])]);
+    for(const ref of sourceRefs){
+      const source=this.scene.narrativeFeed.findSourceRevision(String(ownerEvent.chatId),String(ref));
+      if(!source||source.current!==true)return{ok:false,status:'REJECTED',reasonCode:'SCENE_MEMORY_SOURCE_REVISION_INVALID',sourceRevisionRefs:sourceRefs};
+    }
+    return{ok:true,status:'PREPARED',event:ownerEvent,boundaryEvent,episode,scene,episodeRef,sourceRevisionRefs:sourceRefs};
+  }
+
+  #sceneMemoryMappingRequest({event,episode,externalEvidenceRef,sourceRevisionId,sealedGeneration=false}={}){
+    const source=this.scene.narrativeFeed.findSourceRevision(String(event.chatId),String(sourceRevisionId));
+    if(!source||source.current!==true)return null;
+    const participants=uniq((episode.participants??[]).map(row=>typeof row==='string'?row:row?.characterId??row?.entityId??null).filter(Boolean));
+    return{
+      kind:'MemoryExternalEvidenceMappingRequest',contractVersion:'1.0.0',
+      ownerArtifactRef:clone(episode.artifactRef),externalEvidenceRef:String(externalEvidenceRef),
+      sealedGeneration:Boolean(sealedGeneration),lateForSealedGeneration:Boolean(sealedGeneration),historicalLifecycle:true,destination:'BACKGROUND',
+      source:{
+        sourceId:'scene-narrative:'+String(event.chatId)+':'+String(source.messageId??sourceRevisionId),
+        sourceRevisionId:String(sourceRevisionId),exactContent:String(source.content??''),evidenceKind:'NARRATIVE_EXPERIENCE',
+        occurredAt:Number(source.sequence??event.createdSequence??0),sceneRevision:Number(event.sceneRevision),
+        participants,knownBy:[],perspective:'WORLD',
+        metadata:{chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,messageId:source.messageId??null,messageRevision:source.messageRevision??null,role:source.role??null},
+        provenance:['scene-owner:'+String(event.sceneId),'scene-event:'+String(event.eventId)],
+      },
+      revisionProof:{sourceRevisionId:String(sourceRevisionId),ownerArtifactRevision:Number(episode.artifactRef.revision),sceneRevision:Number(event.sceneRevision)},
+      provenanceRefs:['scene-memory-owner:'+String(event.eventId)],
+    };
+  }
+
+  #installSceneMemoryOwnerMapping(){
+    return this.bindSceneEventObligationOwner({
+      producer:{
+        producerId:SCENE_MEMORY_OWNER_PRODUCER_ID,obligationType:'MEMORY_SCENE_LIFECYCLE_ADMISSION',requestedLayer:'L2',
+        requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],priority:42,
+        resultContract:{resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+      },
+      eventTypes:[...SCENE_MEMORY_ELIGIBLE_EVENT_TYPES],
+      ownerPolicy:(event)=>this.#sceneMemoryOwnerPolicy(event),
+      mapEvent:(event)=>{
+        const episodeRef=event.payload?.episodeRef??null;
+        if(!episodeRef?.artifactId){
+          this.#retainSceneMemoryLifecycleReceipt({stage:'EVENT_PUBLISHED',status:'NO_WORK',reasonCode:'SCENE_MEMORY_EPISODE_REF_MISSING',event,destination:'BACKGROUND'});
+          return null;
+        }
+        this.#retainSceneMemoryLifecycleReceipt({stage:'EVENT_PUBLISHED',status:'ELIGIBLE',reasonCode:'SCENE_MEMORY_EPISODE_READY',event,episodeRef,destination:'BACKGROUND'});
+        const stableKey=['scene-memory',event.chatId,episodeRef.artifactId,episodeRef.revision].join(':');
+        return{
+          owner:'MEMORY',requestedLayer:'L2',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],foreground:false,
+          resultContract:{resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+          dedupeKey:stableKey,batchHint:{maxSliceUnits:1},resourceLimits:{maxSliceUnits:1},
+          payload:{chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision,episodeRef:clone(episodeRef),resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+          units:[{id:stableKey+':unit',payload:{eventId:event.eventId,episodeRef:clone(episodeRef)}}],
+        };
+      },
+      executorFactory:(event)=>this.#sceneMemoryOwnerExecutor(event),
+      onDisposition:(entry)=>{
+        const stage=entry.status==='SKIPPED'?'NO_WORK':'WORK_SCHEDULED';
+        const status=entry.status==='ADMITTED'?'SCHEDULED':entry.status;
+        this.#retainSceneMemoryLifecycleReceipt({
+          stage,status,reasonCode:entry.reasonCode,event:entry.event,taskId:entry.admission?.task?.taskId??null,
+          episodeRef:entry.event?.payload?.episodeRef??null,destination:'BACKGROUND',
+          deduplicationOutcome:entry.status==='DEDUPED'?'REPLAY_DEDUPED':entry.status==='COALESCED'?'COALESCED':entry.status==='ADMITTED'?'NEW_OBLIGATION':null,
+          sealedGeneration:Boolean(entry.event?.turnId&&this.core.publication.seal.isTurnSealed(entry.event.turnId)),
+        });
+      },
+    });
+  }
+
+  #sceneMemoryOwnerExecutor(event){
+    return{
+      execute:async({task}={})=>{
+        this.#retainSceneMemoryLifecycleReceipt({stage:'EXECUTION_ATTEMPTED',status:'ATTEMPTED',reasonCode:'SCENE_MEMORY_EXECUTION_STARTED',event,taskId:task?.taskId??null,destination:'BACKGROUND',sealedGeneration:Boolean(event.turnId&&this.core.publication.seal.isTurnSealed(event.turnId))});
+        const resolved=this.#resolveSceneMemoryLifecycleEvidence(event);
+        if(!resolved.ok){
+          this.#retainSceneMemoryLifecycleReceipt({stage:'EXECUTION_ATTEMPTED',status:resolved.status,reasonCode:resolved.reasonCode,event,taskId:task?.taskId??null,destination:'BACKGROUND',sourceRevisionRefs:resolved.sourceRevisionRefs??[]});
+          return{kind:'DeploymentSceneMemoryPreparedWork',status:resolved.status,reasonCode:resolved.reasonCode,eventId:event.eventId,taskId:task?.taskId??null};
+        }
+        const proposal=createExperienceProposalFromScene({
+          scene:resolved.scene,episode:resolved.episode,graph:this.scene.graph,
+          proposalId:'scene-experience:'+String(event.chatId)+':'+String(resolved.scene.sceneId)+':'+String(resolved.scene.revision),
+        });
+        this.#retainSceneMemoryLifecycleReceipt({stage:'PROPOSAL_CREATED',status:'PREPARED',reasonCode:'SCENE_MEMORY_PROPOSAL_PREPARED',event,proposal,taskId:task?.taskId??null,episodeRef:resolved.episodeRef,destination:'BACKGROUND'});
+        return{kind:'DeploymentSceneMemoryPreparedWork',status:'PREPARED',reasonCode:null,eventId:event.eventId,taskId:task?.taskId??null,proposal,boundaryEventId:resolved.boundaryEvent.eventId,episodeRef:clone(resolved.episodeRef)};
+      },
+      validate:async({output})=>Boolean(output?.kind==='DeploymentSceneMemoryPreparedWork'&&['PREPARED','DEFERRED','REJECTED','NO_WORK'].includes(output.status)),
+      commit:async({output,task}={})=>{
+        if(output?.status!=='PREPARED'){
+          const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:output?.status??'DEFERRED',reasonCode:output?.reasonCode??'SCENE_MEMORY_PREPARATION_INCOMPLETE',eventId:event.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+          this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event,taskId:task?.taskId??output?.taskId??null,destination:'BACKGROUND'});
+          return decision;
+        }
+        const guard=this.#sceneEventObligationGuard(event,{execution:true,ownerPolicy:(row)=>this.#sceneMemoryOwnerPolicy(row)});
+        if(!guard.accepted){
+          const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'REJECTED',reasonCode:guard.reasonCode,eventId:event.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+          this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event,proposal:output.proposal,taskId:task?.taskId??output.taskId??null,destination:'BACKGROUND'});
+          return decision;
+        }
+        return this.#commitSceneMemoryLifecycle(event,output,{taskId:task?.taskId??output.taskId??null});
+      },
+    };
+  }
+
+  #commitSceneMemoryLifecycle(runtimeEvent,prepared,{taskId=null}={}){
+    const resolved=this.#resolveSceneMemoryLifecycleEvidence(runtimeEvent);
+    if(!resolved.ok){
+      const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:resolved.status,reasonCode:resolved.reasonCode,eventId:runtimeEvent.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+      this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:runtimeEvent,proposal:prepared.proposal,taskId,destination:'BACKGROUND'});
+      return decision;
+    }
+    const adapters=this.memorySurface?.adapters??null;
+    if(typeof adapters?.admitExternalEvidenceMapping!=='function'||typeof adapters?.acceptSceneOwnerEvent!=='function'||typeof adapters?.acceptSceneExperience!=='function'){
+      const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'DEFERRED',reasonCode:'SCENE_MEMORY_OWNER_UNAVAILABLE',eventId:runtimeEvent.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+      this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:runtimeEvent,proposal:prepared.proposal,taskId,destination:'BACKGROUND'});
+      return decision;
+    }
+    const sealedGeneration=Boolean(runtimeEvent.turnId&&this.core.publication.seal.isTurnSealed(runtimeEvent.turnId));
+    const proposal=prepared.proposal;
+    const mappingReceipts=[];
+    const sourceRefs=uniq(proposal.sourceRevisionRefs??[]);
+    const evidenceRefs=uniq(proposal.evidenceRefs??[]);
+    const mappingPlan=[];
+    for(const externalEvidenceRef of evidenceRefs){
+      const sourceRevisionId=sourceRefs.includes(String(externalEvidenceRef))?String(externalEvidenceRef):String(externalEvidenceRef);
+      mappingPlan.push({externalEvidenceRef:String(externalEvidenceRef),sourceRevisionId});
+    }
+    for(const sourceRevisionId of sourceRefs)if(!mappingPlan.some(row=>row.sourceRevisionId===String(sourceRevisionId)))mappingPlan.push({externalEvidenceRef:String(sourceRevisionId),sourceRevisionId:String(sourceRevisionId)});
+    for(const row of mappingPlan){
+      const request=this.#sceneMemoryMappingRequest({event:resolved.event,episode:resolved.episode,...row,sealedGeneration});
+      if(!request){
+        const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'DEFERRED',reasonCode:'SCENE_MEMORY_EXACT_SOURCE_UNAVAILABLE',eventId:runtimeEvent.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+        this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:resolved.event,proposal,taskId,destination:'BACKGROUND',sourceRevisionRefs:sourceRefs,sealedGeneration});
+        return decision;
+      }
+      try{mappingReceipts.push(adapters.admitExternalEvidenceMapping(request));}
+      catch(error){
+        const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'REJECTED',reasonCode:String(error?.code??error?.message??'SCENE_MEMORY_MAPPING_REJECTED'),eventId:runtimeEvent.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+        this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:resolved.event,proposal,taskId,destination:'BACKGROUND',sourceRevisionRefs:sourceRefs,sealedGeneration});
+        return decision;
+      }
+    }
+    const ownerOptions={currentSceneRevision:null,sealedGeneration,historicalLifecycle:true,destination:'BACKGROUND'};
+    const boundaryReceipt=adapters.acceptSceneOwnerEvent(resolved.boundaryEvent,ownerOptions);
+    const readyReceipt=adapters.acceptSceneOwnerEvent(resolved.event,ownerOptions);
+    const rejectedEvent=[boundaryReceipt,readyReceipt].find(row=>['REJECTED','STALE'].includes(String(row?.status??'').toUpperCase()));
+    if(rejectedEvent){
+      const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'REJECTED',reasonCode:rejectedEvent.reasonCode??'SCENE_MEMORY_OWNER_EVENT_REJECTED',eventId:runtimeEvent.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+      this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:resolved.event,proposal,taskId,destination:'BACKGROUND',mappingIds:mappingReceipts.map(row=>row?.mappingId).filter(Boolean),memoryEvidenceIds:mappingReceipts.map(row=>row?.memoryEvidenceId).filter(Boolean),sealedGeneration});
+      return decision;
+    }
+    const participants=uniq((resolved.episode.participants??[]).map(row=>typeof row==='string'?row:row?.characterId??row?.entityId??null).filter(Boolean));
+    let memoryEpisode;
+    try{
+      memoryEpisode=adapters.acceptSceneExperience(proposal,{
+        chatId:resolved.event.chatId,turnId:resolved.event.turnId,generationId:resolved.event.generationId,correlationId:resolved.event.correlationId,
+        summary:resolved.episode.compactSummary??'',participants,knownBy:[],significance:0.65,timeStart:null,timeEnd:null,currentSceneRevision:null,
+      });
+    }catch(error){
+      const decision={kind:'DeploymentSceneMemoryOwnerDecision',status:'REJECTED',reasonCode:String(error?.code??error?.message??'SCENE_MEMORY_PROPOSAL_REJECTED'),eventId:runtimeEvent.eventId,destination:'BACKGROUND',authorityGranted:false,canonicalMutation:false};
+      this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:resolved.event,proposal,taskId,destination:'BACKGROUND',mappingIds:mappingReceipts.map(row=>row?.mappingId).filter(Boolean),memoryEvidenceIds:mappingReceipts.map(row=>row?.memoryEvidenceId).filter(Boolean),sealedGeneration});
+      return decision;
+    }
+    const accepted=memoryEpisode?.freshness==='FRESH'&&memoryEpisode?.bridgeResolutionStatus==='RESOLVED';
+    const decision={
+      kind:'DeploymentSceneMemoryOwnerDecision',status:accepted?'ACCEPTED':'DEFERRED',reasonCode:accepted?'SCENE_MEMORY_EXPERIENCE_ACCEPTED':(memoryEpisode?.bridgeReasonCodes?.[0]??'SCENE_MEMORY_EXPERIENCE_WITHHELD'),
+      eventId:runtimeEvent.eventId,proposalId:proposal.proposalId,episodeId:memoryEpisode?.id??null,episodeRevision:memoryEpisode?.revision??null,
+      mappingIds:mappingReceipts.map(row=>row?.mappingId).filter(Boolean),memoryEvidenceIds:mappingReceipts.map(row=>row?.memoryEvidenceId).filter(Boolean),
+      destination:'BACKGROUND',sealedGeneration,authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    };
+    this.#retainSceneMemoryLifecycleReceipt({stage:'MEMORY_OWNER_DECISION',status:decision.status,reasonCode:decision.reasonCode,event:resolved.event,proposal,memoryEpisode,taskId,destination:'BACKGROUND',mappingIds:decision.mappingIds,memoryEvidenceIds:decision.memoryEvidenceIds,sealedGeneration,experiencePersisted:accepted});
+    this.#retainSceneMemoryLifecycleReceipt({stage:'EXPERIENCE_PERSISTED',status:accepted?'PERSISTED':'NOT_PERSISTED',reasonCode:decision.reasonCode,event:resolved.event,proposal,memoryEpisode,taskId,destination:'BACKGROUND',mappingIds:decision.mappingIds,memoryEvidenceIds:decision.memoryEvidenceIds,sealedGeneration,experiencePersisted:accepted,deduplicationOutcome:mappingReceipts.every(row=>row?.status==='REPLAYED')?'REPLAYED':'OWNER_ADMITTED'});
+    return decision;
   }
 
   admitSceneGraphEvidenceLinks(input={}){
@@ -1225,6 +1538,25 @@ export class DevelopmentDeploymentBrain {
     if(priorActiveChat&&requestedChatId&&priorActiveChat!==requestedChatId)this.#cancelSceneObservationTasks({foreignToChat:requestedChatId,reason:'SCENE_OBSERVATION_CHAT_SUPERSEDED'});
     if(invalidatedSourceRevisionRefs.length)this.#cancelSceneObservationTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SCENE_OBSERVATION_SOURCE_INVALIDATED'});
     const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
+    const memoryInvalidations=[];
+    for(const sourceRevisionId of invalidatedSourceRevisionRefs){
+      try{
+        const replacementRef=evidence?.sourceRevisionId&&String(evidence.sourceRevisionId)!==String(sourceRevisionId)?String(evidence.sourceRevisionId):null;
+        const removed=String(evidence?.activity??'').toUpperCase()==='DELETE';
+        const receipt=this.memory.invalidateSourceRevision(sourceRevisionId,{
+          replacedBy:replacementRef,removed,reason:removed?'SCENE_SOURCE_DELETED':'SCENE_SOURCE_REVISION_INVALIDATED',
+        });
+        memoryInvalidations.push(clone(receipt));
+        this.#retainSceneMemoryLifecycleReceipt({
+          stage:'SOURCE_INVALIDATED',status:'INVALIDATED',reasonCode:removed?'SCENE_SOURCE_DELETED':'SCENE_SOURCE_REVISION_INVALIDATED',
+          chatId,turnId:evidence?.turnId??null,generationId:evidence?.generationId??null,correlationId:evidence?.correlationId??null,
+          sceneId:signal?.sceneId??outcome?.scene?.sceneId??null,sceneRevision:signal?.sceneRevision??outcome?.scene?.revision??null,
+          sourceRevisionRefs:[sourceRevisionId],destination:'BACKGROUND',
+        });
+      }catch(error){
+        memoryInvalidations.push({kind:'MemoryDependencyInvalidationReceipt',sourceRevisionId,status:'REJECTED',reasonCode:String(error?.code??error?.message??error),unrelatedMemoryMutation:false});
+      }
+    }
     const boundaryStatus = outcome?.boundary?.decision?.status ?? null;
     const status = changedFields.length || outcome?.transition ? 'OBSERVED' : 'NO_WORK';
     const boundaryCueObserved = Boolean(extracted?.boundarySignals && Object.keys(extracted.boundarySignals).length);
@@ -1255,6 +1587,7 @@ export class DevelopmentDeploymentBrain {
       sceneRevision: signal?.sceneRevision ?? outcome?.scene?.revision ?? null,
       sourceRevisionRefs,
       invalidatedSourceRevisionRefs,
+      memoryInvalidations:clone(memoryInvalidations),
       changedFields,
       delta: clone(outcome?.delta ?? null),
       dispatchTimeline: clone(timeline),
@@ -2020,6 +2353,7 @@ export class DevelopmentDeploymentBrain {
       readMemoryExecutionReceipts: () => clone(this.memoryNearlineReceipts),
       readMemoryVectorReceipts: () => this.memory.vectorIndex.readReceipts({limit:128}),
       readSceneObservationReceipts: () => this.readSceneObservationReceipts({limit:128}),
+      readSceneMemoryLifecycleReceipts: () => this.readSceneMemoryLifecycleReceipts({limit:128}),
       cancelSceneObservationWork: (input={}) => this.cancelSceneObservationWork(input),
       loreAuthoringService: this.loreAuthoring,
       loreAuthoringHost,
@@ -2140,6 +2474,21 @@ export class DevelopmentDeploymentBrain {
         runtimeSubscriberFailureCount: this.runtimeDirector.events.subscriberFailures.length,
         authorityGranted: false,
         canonicalMutationAuthority: false,
+      },
+      sceneMemory: {
+        retainedReceipts:this.sceneMemoryLifecycleReceipts.length,
+        eventPublished:this.sceneMemoryLifecycleReceipts.filter(row=>row.stage==='EVENT_PUBLISHED'&&row.status==='ELIGIBLE').length,
+        workScheduled:this.sceneMemoryLifecycleReceipts.filter(row=>row.stage==='WORK_SCHEDULED'&&['SCHEDULED','DEDUPED','COALESCED'].includes(row.status)).length,
+        executionAttempted:this.sceneMemoryLifecycleReceipts.filter(row=>row.stage==='EXECUTION_ATTEMPTED'&&row.status==='ATTEMPTED').length,
+        memoryAccepted:this.sceneMemoryLifecycleReceipts.filter(row=>row.stage==='MEMORY_OWNER_DECISION'&&row.status==='ACCEPTED').length,
+        experiencePersisted:this.sceneMemoryLifecycleReceipts.filter(row=>row.stage==='EXPERIENCE_PERSISTED'&&row.status==='PERSISTED').length,
+        experienceRetrieved:this.sceneMemoryLifecycleReceipts.filter(row=>row.stage==='EXPERIENCE_RETRIEVED'&&row.status==='RETRIEVED').length,
+        rejected:this.sceneMemoryLifecycleReceipts.filter(row=>row.status==='REJECTED').length,
+        deferred:this.sceneMemoryLifecycleReceipts.filter(row=>row.status==='DEFERRED').length,
+        noWork:this.sceneMemoryLifecycleReceipts.filter(row=>row.status==='NO_WORK').length,
+        last:clone(this.sceneMemoryLifecycleReceipts.at(-1)??null),
+        rawStoryTextIncluded:false,providerBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+        authorityGranted:false,canonicalMutationAuthority:false,contextSealAuthority:false,
       },
       runtime: this.runtimeDirector.diagnostics?.() ?? null,
       sensory: this.core.sensoryDiagnostics(),

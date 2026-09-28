@@ -91,7 +91,8 @@ export class SceneLifecycleRuntime{
 
   indexEpisodeGraph(episode){
     if(!episode?.sceneId)return[];
-    const scene=this.registry.current(episode.sceneId);if(!scene)return[];
+    const record=this.registry.get(episode.sceneId),current=this.registry.current(episode.sceneId);if(!record||!current)return[];
+    const scene=(record.snapshots??[]).find(row=>Number(row?.revision)===Number(episode.sceneRevision))??current;
     const refs=[],episodeRef=episode.artifactRef??null,sourceRevisionRefs=episode.sourceRevisionRefs??scene.sourceRevisionRefs??[];
     this.graph.addScene({sceneId:episode.sceneId,episodeRef,revision:episode.sceneRevision,metadata:{episodeId:episode.episodeId,sourceRevisionRefs:[...sourceRevisionRefs]}});
     for(const p of episode.participants??[]){const id=p.characterId??p.entityId;if(id)refs.push(this.graph.addMembership({sceneId:episode.sceneId,refId:id,kind:'ENTITY',evidenceRefs:p.evidenceRefs??scene.fields?.activeCast?.evidenceRefs??[],sourceRevisionRefs,provenance:[episode.episodeId],sceneRevision:episode.sceneRevision,episodeRef,temporalStatus:'HISTORICAL'}));}
@@ -123,12 +124,13 @@ export class SceneLifecycleRuntime{
     const admittedHistoricalScene=Boolean(historicalEpisode&&historicalEpisode.sceneId===sceneRef&&historicalEpisode.artifactRef?.artifactId===episodeRef.artifactId);
     if(activeSceneId&&activeSceneId!==sceneRef&&!admittedHistoricalScene)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_FOREIGN_SCENE',receipts:[]};
     const scene=this.registry.current(sceneRef);
-    if(!scene||Number(scene.revision)!==Number(sceneRevision))return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_STALE_SCENE_REVISION',receipts:[]};
+    const expectedRevision=historicalEpisode?Number(historicalEpisode.sceneRevision):Number(scene?.revision);
+    if(!scene||Number(sceneRevision)!==expectedRevision)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_STALE_SCENE_REVISION',receipts:[]};
     const currentRefs=new Set(this.narrativeFeed.currentEvidence(chat).map(row=>String(row.sourceRevisionId)));
     if(!currentRefs.has(sourceRef))return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_STALE_SOURCE_REVISION',receipts:[]};
     const evidence={chatId:chat,sourceRevisionId:sourceRef};
     const receipts=this.#admitGraphEvidenceLinks(scene,evidence,links,episodeRef);
-    return{kind:'SceneGraphEvidenceAdmission',status:receipts.some(row=>row.status==='ADMITTED')?'ADMITTED':receipts.length?'REJECTED':'NO_WORK',reasonCode:receipts.some(row=>row.status==='ADMITTED')?'SCENE_GRAPH_OWNER_LINKS_ADMITTED':receipts.length?'SCENE_GRAPH_OWNER_LINKS_REJECTED':'SCENE_GRAPH_OWNER_NO_LINKS',sceneId:sceneRef,sceneRevision:scene.revision,sourceRevisionId:sourceRef,receipts:clone(receipts),authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,temporalStateAuthority:false,memoryMutationAuthority:false};
+    return{kind:'SceneGraphEvidenceAdmission',status:receipts.some(row=>row.status==='ADMITTED')?'ADMITTED':receipts.length?'REJECTED':'NO_WORK',reasonCode:receipts.some(row=>row.status==='ADMITTED')?'SCENE_GRAPH_OWNER_LINKS_ADMITTED':receipts.length?'SCENE_GRAPH_OWNER_LINKS_REJECTED':'SCENE_GRAPH_OWNER_NO_LINKS',sceneId:sceneRef,sceneRevision:expectedRevision,sourceRevisionId:sourceRef,receipts:clone(receipts),authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,temporalStateAuthority:false,memoryMutationAuthority:false};
   }
 
   ingestHostEvent(input,{extract=null}={}){
@@ -193,7 +195,7 @@ export class SceneLifecycleRuntime{
       }
     }
     const graphLinkScene=transition?.episodeRef?(this.registry.current(transition.fromSceneId)??observed.scene):observed.scene;
-    const graphEvidenceAdmission=graphEvidenceLinks.length?(graphEvidenceOwnerApproved?this.admitGraphEvidenceLinks({chatId:evidence.chatId,sceneId:graphLinkScene.sceneId,sceneRevision:graphLinkScene.revision,sourceRevisionId:evidence.sourceRevisionId,links:graphEvidenceLinks,episodeRef:transition?.episodeRef??null}):{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',receipts:graphEvidenceLinks.slice(0,32).map(raw=>({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation:String(raw?.relation??'SUPPORTS').toUpperCase(),fromRef:raw?.fromRef??null,toRef:raw?.toRef??null}))}):{kind:'SceneGraphEvidenceAdmission',status:'NO_WORK',reasonCode:'SCENE_GRAPH_OWNER_NO_LINKS',receipts:[]};
+    const graphEvidenceAdmission=graphEvidenceLinks.length?(graphEvidenceOwnerApproved?this.admitGraphEvidenceLinks({chatId:evidence.chatId,sceneId:graphLinkScene.sceneId,sceneRevision:transition?.episodeRef?.revision??graphLinkScene.revision,sourceRevisionId:evidence.sourceRevisionId,links:graphEvidenceLinks,episodeRef:transition?.episodeRef??null}):{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',receipts:graphEvidenceLinks.slice(0,32).map(raw=>({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation:String(raw?.relation??'SUPPORTS').toUpperCase(),fromRef:raw?.fromRef??null,toRef:raw?.toRef??null}))}):{kind:'SceneGraphEvidenceAdmission',status:'NO_WORK',reasonCode:'SCENE_GRAPH_OWNER_NO_LINKS',receipts:[]};
     const graphEvidenceReceipts=graphEvidenceAdmission.receipts;
     return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceAdmission,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }

@@ -55,7 +55,7 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
     Number(counts?.FAILED??0)>0?'Study needs attention. Failed sources stay visible and are not treated as retrieval-ready.'
     :Number(counts?.STUDYING??0)>0?'Study is active. Nodes and links appear as the Lore owner publishes current learned representations.'
     :Number(counts?.ACCEPTED??0)>0?'DUE = accepted but not learned/current. Run pending study to grow retrieval-ready nodes.'
-    :Number(counts?.READY??0)>0?'All currently counted learned sources shown in green are owner-reported READY.'
+    :Number(counts?.READY??0)>0?'All currently counted learned sources are owner-reported READY. Category color stays independent of study state.'
     :'Load and accept a selected Lorebook to begin growing the graph.'}));
   const state=source?.operationalState??source?.health??'IDLE';
   progressCard.body.append(makeBadge(doc,'LORE OWNER · '+String(state),source?.statusToken??'historical'));

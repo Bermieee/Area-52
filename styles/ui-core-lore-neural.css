@@ -237,7 +237,7 @@
   animation:a52-lore-hub-arrival 1.05s ease-out both;
   animation-delay:calc(var(--a52-node-delay,0ms) + 120ms);
 }
-.a52-lore-hub-node__halo{fill:rgba(57,190,236,.06);stroke:rgba(67,195,242,.18);stroke-width:1}\n.a52-lore-hub-node__halo{transform-box:fill-box;transform-origin:center}
+.a52-lore-hub-node__halo{fill:rgba(57,190,236,.06);stroke:rgba(67,195,242,.18);stroke-width:1;transform-box:fill-box;transform-origin:center}
 .a52-lore-hub-node__body{fill:#082033;stroke:#48c9ff;stroke-width:1.8;filter:url(#a52-lore-glow)}
 .a52-lore-hub-node[data-state=READY] .a52-lore-hub-node__body{fill:#08261f;stroke:#42dfaa}
 .a52-lore-hub-node[data-state=STUDYING] .a52-lore-hub-node__body{fill:#09263b;stroke:#48caff;animation:a52-lore-study-pulse 2.2s ease-in-out infinite}

@@ -63,7 +63,7 @@ export function buildMemoryRetrievalFeedbackBatch({selection={},candidateEnvelop
       const key=String(artifactId)+'@'+String(artifactRevision);
       mapped.set(key,mergeMapped(mapped.get(key),{
         outcomeId:null,artifactRef:clone(nomination.artifactRef),artifactId:String(artifactId),artifactRevision,candidateIds:[String(candidate.candidateId)],nominationIds:uniq([nomination.nominationId]),
-        sourceRevisionRefs:uniq(nomination.sourceRevisionRefs??[]),dependencyRevisions:uniq(nomination.dependencyRevisions??[]),representationRef:nomination.representationRef??null,
+        sourceRevisionRefs:uniq((nomination.sourceRevisionRefs??[]).length?nomination.sourceRevisionRefs:(nomination.artifactRef?.sourceRevisionSet??[])),dependencyRevisions:uniq(nomination.dependencyRevisions??[]),representationRef:nomination.representationRef??null,
         representationRevision:nomination.representationRevision??null,outcome:classification.outcome,outcomeStage:classification.stage,signal:classification.signal,
         reasonCodes:classification.reasonCodes.slice(0,MAX_REASON_CODES),gathered:Boolean(trace?.gathered),includedInSeal:Boolean(trace?.sealed),retrieved:true,nominated:true,
         deliveryKnown:false,providerDeliveryEvidence:false,supportAdded:false,retrievalUseIsEvidence:false,authorityChanged:false,canonicalMutationAuthority:false,
@@ -104,13 +104,15 @@ export class MemoryRetrievalFeedbackOwner{
       if(!before){decisions.push(this.#decision(input,'REJECTED','MEMORY_ARTIFACT_REVISION_MISSING'));continue;}
       if(before.stale||before.current===false||!this.producer.plasticity.retrievable(artifactId,artifactRevision)){decisions.push(this.#decision(input,'REJECTED','MEMORY_ARTIFACT_REVISION_STALE',{before}));continue;}
       const exactSourceRefs=uniq(before.sourceRevisionRefs??[]),requestedSourceRefs=uniq(input?.sourceRevisionRefs??[]);
+      if(exactSourceRefs.length&&!requestedSourceRefs.length){decisions.push(this.#decision(input,'REJECTED','MEMORY_SOURCE_REVISION_FENCE_MISSING',{before}));continue;}
       if(requestedSourceRefs.length&&requestedSourceRefs.some(ref=>!exactSourceRefs.includes(ref))){decisions.push(this.#decision(input,'REJECTED','MEMORY_SOURCE_REVISION_FENCE_MISMATCH',{before}));continue;}
       const evidenceRows=uniq(before.evidenceRefs??[]).map(id=>this.producer.graph.evidenceRecord(id)).filter(Boolean);
       if(evidenceRows.some(row=>!this.producer.graph.evidenceFresh(row.id))){decisions.push(this.#decision(input,'REJECTED','MEMORY_DEPENDENT_EVIDENCE_STALE',{before}));continue;}
       if(selection?.chatId&&!evidenceRows.length){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
-      const evidenceChats=uniq(evidenceRows.map(evidenceChatId));
-      if(selection?.chatId&&evidenceChats.length&&evidenceChats.some(id=>id!==String(selection.chatId))){decisions.push(this.#decision(input,'REJECTED','MEMORY_FOREIGN_STORY_MAPPING',{before}));continue;}
-      if(selection?.chatId&&!evidenceRows.some(row=>evidenceChatId(row)===String(selection.chatId))){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
+      const selectedChat=selection?.chatId==null?null:String(selection.chatId),evidenceChatValues=evidenceRows.map(evidenceChatId);
+      if(selectedChat&&evidenceChatValues.some(id=>id!=null&&id!==selectedChat)){decisions.push(this.#decision(input,'REJECTED','MEMORY_FOREIGN_STORY_MAPPING',{before}));continue;}
+      if(selectedChat&&evidenceChatValues.some(id=>id==null)){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
+      if(selectedChat&&!evidenceChatValues.every(id=>id===selectedChat)){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
       const signal=String(input?.signal??'NONE').toUpperCase();let effect=null;
       if(signal==='ACCEPTED'||signal==='REJECTED'){
         effect=this.producer.plasticity.recordRetrievalUse({artifactId,artifactRevision,accepted:signal==='ACCEPTED',rejected:signal==='REJECTED',countRetrieval:false,strictRevision:true});

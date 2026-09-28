@@ -143,6 +143,20 @@ test('Worker 2 #39: quality rejection is bounded while omission, missing evidenc
   assert.equal(memory.plasticity.record(ep.id,ep.revision).rejectedUses,negativeBeforeNeutral);
 
   const acceptedBeforeForeign=memory.plasticity.record(ep.id,ep.revision).acceptedUses;
+  const missingFenceCandidate=nomination(ep,ev,{candidateId:'memory:candidate:missing-fence',nominationId:'memory:nomination:missing-fence'});
+  missingFenceCandidate.channelNominations[0].sourceRevisionRefs=[];
+  missingFenceCandidate.channelNominations[0].artifactRef.sourceRevisionSet=[];
+  const missingFence=batchFor({
+    selection:{chatId:'chat:feedback',turnId:'missing-fence',generationId:'missing-fence:g',correlationId:'missing-fence:c'},
+    candidates:[missingFenceCandidate],
+    truthResults:[{candidateId:missingFenceCandidate.candidateId,usableForIntent:true,classification:'CURRENT',reasons:['current-usable-for-current']}],
+    admittedCandidateIds:[missingFenceCandidate.candidateId],traceRows:[{candidateId:missingFenceCandidate.candidateId,gathered:true,sealed:true}],
+  });
+  const missingFenceReceipt=memory.admitRetrievalFeedback(missingFence);
+  assert.equal(missingFenceReceipt.status,'REJECTED');
+  assert.ok(missingFenceReceipt.outcomes[0].reasonCodes.includes('MEMORY_SOURCE_REVISION_FENCE_MISSING'));
+  assert.equal(memory.plasticity.record(ep.id,ep.revision).acceptedUses,acceptedBeforeForeign);
+
   const foreignCandidate=nomination(ep,ev,{candidateId:'memory:candidate:foreign',nominationId:'memory:nomination:foreign'});
   const foreign=batchFor({
     selection:{chatId:'chat:other-story',turnId:'foreign',generationId:'foreign:g',correlationId:'foreign:c'},

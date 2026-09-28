@@ -109,7 +109,15 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   assert.equal(safeRetirementJson.includes(handoff.continuity.compactPriorSceneSummary),false);
   assert.equal(JSON.stringify(prepared.sceneOwnerReceipt).includes(handoff.continuity.compactPriorSceneSummary),false);
   assert.equal(JSON.stringify(prepared.scene).includes(handoff.continuity.compactPriorSceneSummary),false,'prepared Scene read model must not expose compact story summary');
-  assert.ok(JSON.stringify(prepared.promptPlan).includes(handoff.continuity.compactPriorSceneSummary),'Core-approved compact Scene continuity must remain available to the prompt planner');
+  const currentSceneSection=prepared.promptPlan.sections.find(row=>row.slot==='CURRENT_SCENE');
+  const recentNarrativeSection=prepared.promptPlan.sections.find(row=>row.slot==='RECENT_NARRATIVE');
+  assert.ok(currentSceneSection,'sealed CURRENT_SCENE section must exist');
+  assert.ok(currentSceneSection.semanticManifest?.some(row=>row.semanticKey===`scene-transition-continuity:${handoff.handoffId}`),'transition continuity must be a sealed semantic fact');
+  assert.ok(String(currentSceneSection.text??currentSceneSection.richText??'').includes(handoff.continuity.compactPriorSceneSummary),'sealed CURRENT_SCENE must contain Core-approved compact continuity');
+  assert.equal(String(recentNarrativeSection?.text??recentNarrativeSection?.richText??'').includes(handoff.continuity.compactPriorSceneSummary),false,'compact Scene continuity must not use the post-seal Generation Envelope');
+  const sealRefs=new Set(prepared.contextSealReceipt.sourceRevisionIds??[]);
+  for(const ref of handoff.continuity.sourceRevisionRefs)assert.ok(sealRefs.has(ref),`Context Seal must fence transition continuity source ${ref}`);
+  assert.equal(prepared.promptPlan.integrityReceipt?.violations?.some?.(row=>row.code==='POST_SEAL_SEMANTIC_INJECTION')??false,false);
 });
 
 test('flashback and resume preserve conceptual Scene identity and finalize only the temporary Scene on resume',()=>{

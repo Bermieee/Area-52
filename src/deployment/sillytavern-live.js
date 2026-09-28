@@ -183,12 +183,23 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   let resumeSceneId = null;
   const prefetchIntents=scenePrefetchIntentsFromNarrative(raw);
 
-  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
-    ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  // Clear location evidence is an explicit travel/arrival phrase or a clause-initial preposition
+  // ("At North Gallery, ..."). A preposition in the middle of a clause ("looks at Kael", "sits near
+  // Tomas") is as likely to name a person or object, so it is only weak, INFERRED evidence and never
+  // pre-empts semantic extraction.
+  const locationName = String.raw`([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})`;
+  const prepositionMatch = raw.match(new RegExp(String.raw`\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?` + locationName, 'u'));
+  const travelMatch = raw.match(new RegExp(String.raw`\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?` + locationName, 'u'));
+  const clauseInitial = prepositionMatch ? /(?:^|[.!?"”\n]\s*|[,;]\s*)$/.test(raw.slice(0, prepositionMatch.index)) : false;
+  const locationMatch = clauseInitial ? prepositionMatch : (travelMatch ?? prepositionMatch);
+  const locationIsClear = clauseInitial || Boolean(travelMatch);
+  const TIME_OF_DAY = /^(?:dawn|dusk|noon|midnight|morning|evening|night|nightfall|daybreak|sunrise|sunset|twilight)$/i;
   let location = null;
   if (locationMatch?.[1]) {
-    location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
-    if (location) fields.location = sceneField({ location }, revision, evidenceRef);
+    location = locationMatch[1].replace(/[.,!?;:]+$/, '').replace(/(?:\s+(?:and|of|the))+$/i, '').trim();
+    if (location && !TIME_OF_DAY.test(location)) {
+      fields.location = locationIsClear ? sceneField({ location }, revision, evidenceRef) : sceneField({ location }, revision, evidenceRef, ObservationClass.INFERRED, 0.5);
+    } else location = null;
   }
 
   const person = String.raw`[\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’_-]*)?`;
@@ -244,7 +255,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   if(explicitBreak)boundarySignals.explicitBreak=1;
 
   return {
-    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0 || prefetchIntents.length > 0,
+    // Only structural evidence is "clear": atmosphere cues, prefetch intents and weak locations alone
+    // leave semantic extraction in charge (deterministic fields stay as the fallback when no resource answers).
+    explicit: (Boolean(fields.location) && locationIsClear) || Boolean(fields.activeCast) || Boolean(fields.narrativeTime) || Object.keys(boundarySignals).length > 0,
     fields,
     prefetchIntents,
     sourceText: raw,

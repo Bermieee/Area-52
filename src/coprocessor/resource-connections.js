@@ -448,6 +448,14 @@ export class CoprocessorResourceConnections{
     return true;
   }
 
+  // Resolves once a cancelled task has released its resource slot (or after timeoutMs). Lets the
+  // caller admit a replacement without seeing the superseded call's slot as still occupied.
+  async whenTaskSettled(taskId,{timeoutMs=1000}={}){
+    const active=this.taskControllers.get(String(taskId??'').trim());if(!active)return true;
+    let timer;const timeout=new Promise(resolve=>{timer=setTimeout(()=>resolve(false),Math.max(1,Number(timeoutMs)||1000));});
+    try{return await Promise.race([active.settled.then(()=>true),timeout]);}finally{clearTimeout(timer);}
+  }
+
   async executeTask(task,{input={},profileId=null,signal=null,attempt=1,maxCostClass='HIGH'}={}){
     const eligible=this.profiles.eligibleProfiles(task,{contextTokens:taskContextTokens(task),maxCostClass,requireStructuredOutput:true,
       expectedOutputTokens:Number(task?.metadata?.expectedOutputTokens??0),
@@ -458,7 +466,8 @@ export class CoprocessorResourceConnections{
     const row=this.#resourceByProfile(profile.profileId);
     if(row.activeExecutions>=row.maxConcurrency)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Resource capacity exhausted',{providerId:row.providerId});
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
-    this.taskControllers.set(String(task.taskId),{controller,resourceId:row.resourceId});
+    let settle;const settled=new Promise(resolve=>{settle=resolve;});
+    this.taskControllers.set(String(task.taskId),{controller,resourceId:row.resourceId,settled,settle});
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now();
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'SIDECAR',requestPurpose:'COGNITIVE_EXECUTION',taskId:task.taskId,taskType:task.taskType,turnId:task.turnId,correlationId:task.correlationId,physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(profile)});
@@ -480,6 +489,7 @@ export class CoprocessorResourceConnections{
       row.activeExecutions=Math.max(0,row.activeExecutions-1);
       this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
       this.#notify('RESOURCE_EXECUTION',row);
+      settle();
     }
   }
 
@@ -602,6 +612,13 @@ export class CoprocessorResourceConnections{
       this.#diagnostic(row,'EXECUTION_REJECTED_CAPABILITY',row.lastFailure.message,{code});
       return;
     }
+    if(code===FailureCode.PROVIDER_ABORTED){
+      // PROVIDER_ABORTED is only raised when Area-52's own signal aborted the call (supersession,
+      // operator cancel, disconnect). A cancelled or superseded call is dropped, never scored as a
+      // provider failure (PROVIDER_HEALTH_AND_FALLBACK: "cancelled, superseded or stale result: DROP").
+      this.#diagnostic(row,'EXECUTION_ABORTED',safeMessage(error?.message??'Execution aborted by Area-52.'),{code});
+      return;
+    }
     const timeout=code===FailureCode.PROVIDER_TIMEOUT,transport=[FailureCode.PROVIDER_UNAVAILABLE,FailureCode.PROVIDER_FAILURE].includes(code),validation=[FailureCode.MALFORMED_OUTPUT,FailureCode.SCHEMA_INVALID,FailureCode.SCHEMA_VALIDATION_FAILED,FailureCode.SEMANTIC_VALIDATION_FAILED].includes(code);
     const snapshot=this.health.observe(row.providerProfileId,{outcome:'FAIL',timeout,transportFailure:transport,validationFailure:validation,activeConcurrency:Math.max(0,row.activeExecutions-1),latencyMs:row.lastExecution?.latencyMs??row.lastTest?.latencyMs??null,now:this.now()});
     row.lastFailure={code,message:safeMessage(error?.message??String(error)),at:this.now(),responseMetadata:safeCompletionResponseMetadata(error?.details?.responseMetadata),generationBudget:safeSceneGenerationBudget(error?.details?.generationBudget)};
@@ -611,6 +628,36 @@ export class CoprocessorResourceConnections{
       row.reasonCode=reasonFromError(error);row.reason=row.lastFailure.message;
     }
     this.#diagnostic(row,'EXECUTION_FAILED',row.lastFailure.message,{code,responseMetadata:row.lastFailure.responseMetadata});
+    if(snapshot.health==='COOLDOWN')this.#scheduleCooldownRecovery(row,snapshot.cooldownUntil);
+  }
+
+  // Documented recovery (PROVIDER_HEALTH_AND_FALLBACK): after COOLDOWN a later probe tests recovery.
+  // Re-qualification goes through the normal connect path (real authenticated probe); a failed probe
+  // re-enters COOLDOWN with a fresh window.
+  async recoverResourcesAfterCooldown({signal=null}={}){
+    const recovered=[];
+    for(const row of [...this.resources.values()]){
+      if(row.state!==ResourceConnectionState.UNAVAILABLE||row.credentialRequired&&!row.credentialConfigured)continue;
+      const snapshot=this.health.snapshot(row.providerProfileId);
+      if(snapshot.health!=='COOLDOWN'||snapshot.manualDisabled||this.now()<Number(snapshot.cooldownUntil??0))continue;
+      try{const result=await this.connectResource(row.resourceId,{signal});recovered.push({resourceId:row.resourceId,state:result?.state??null});}
+      catch(error){this.#diagnostic(row,'COOLDOWN_RECOVERY_FAILED',safeMessage(error?.message??String(error)),{code:error?.code??null});}
+    }
+    return recovered;
+  }
+
+  #scheduleCooldownRecovery(row,cooldownUntil){
+    if(typeof setTimeout!=='function')return;
+    this.recoveryTimers??=new Map();
+    const existing=this.recoveryTimers.get(row.resourceId);if(existing)clearTimeout(existing);
+    const timer=setTimeout(()=>{
+      this.recoveryTimers.delete(row.resourceId);
+      this.recoverResourcesAfterCooldown().then(results=>{
+        const still=this.resources.get(row.resourceId);
+        if(still?.state===ResourceConnectionState.UNAVAILABLE&&!results.some(r=>r.resourceId===row.resourceId)&&this.health.snapshot(row.providerProfileId).health==='COOLDOWN')this.#scheduleCooldownRecovery(still,this.health.snapshot(row.providerProfileId).cooldownUntil);
+      }).catch(()=>{});
+    },Math.max(1,Number(cooldownUntil??0)-this.now()+1));
+    timer.unref?.();this.recoveryTimers.set(row.resourceId,timer);
   }
 
   #resourceByProfile(profileId){for(const row of this.resources.values())if(row.providerProfileId===profileId)return row;return null;}

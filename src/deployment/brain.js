@@ -742,7 +742,11 @@ export class DevelopmentDeploymentBrain {
       foregroundBudgetMs,now:Date.now(),narrative:text,
       sceneWorkload:{cast:current.fields?.activeCast?.value?.length??0,objects:current.fields?.immediateObjects?.value?.length??0,relationships:current.fields?.activeRelationships?.value?.length??0,threads:current.fields?.activeThreads?.value?.length??0},
     });
-    this.#cancelSceneObservationTasks({chatId:chat,phase,exceptTaskId:task.taskId,reason:'SCENE_OBSERVATION_SUPERSEDED'});
+    const superseded=this.#cancelSceneObservationTasks({chatId:chat,phase,exceptTaskId:task.taskId,reason:'SCENE_OBSERVATION_SUPERSEDED'});
+    // The superseded call still holds the resource slot until its aborted request unwinds; admit the
+    // replacement only after that release (bounded short wait: a cooperative abort unwinds in milliseconds;
+    // a provider that ignores the abort keeps its slot and the replacement is truthfully SKIPPED).
+    await Promise.all(superseded.filter(row=>row.physicalCancellationRequested).map(row=>this.resourceConnections.whenTaskSettled?.(row.workId,{timeoutMs:Math.max(25,Math.min(250,Number(foregroundBudgetMs)||250))})));
     this.#syncOptionalDirectorProfiles();
     const baseExecutor=createResourceDirectorExecutor({
       connections:this.resourceConnections,task,

@@ -170,10 +170,10 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   }
 
   const core=svgEl(doc,'g',{'class':'a52-lore-core-node'+(renderState?.selectedNodeKind==='core'?' is-selected':''),'data-node-id':'core','tabindex':'0','role':'button','aria-label':'Selected Lorebook core'});
-  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'72','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'55','class':'a52-lore-core-node__body'}));
-  const coreTitle=svgEl(doc,'text',{'x':'500','y':'370','text-anchor':'middle','class':'a52-lore-core-node__title'});coreTitle.textContent='WORLD TREE';
-  const coreCount=svgEl(doc,'text',{'x':'500','y':'394','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' nodes';
-  const coreProgress=svgEl(doc,'text',{'x':'500','y':'415','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent='Area-52 · '+String(progress)+'% ready';
+  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'92','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'70','class':'a52-lore-core-node__body'}));
+  const coreTitle=svgEl(doc,'text',{'x':'500','y':'366','text-anchor':'middle','class':'a52-lore-core-node__title'});coreTitle.textContent='WORLD TREE';
+  const coreCount=svgEl(doc,'text',{'x':'500','y':'397','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' nodes';
+  const coreProgress=svgEl(doc,'text',{'x':'500','y':'421','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent='Area-52 · '+String(progress)+'% ready';
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
   const activateCore=()=>{if(renderState){renderState.selectedNodeId='core';renderState.selectedNodeKind='core';renderState.focusHubId=null;renderState.viewport=null;}applyGraphInteraction(svg,graph,renderState);};
   scope?.listen?.(core,'click',activateCore);scope?.listen?.(core,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateCore();}});
@@ -183,13 +183,13 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const selected=renderState?.selectedNodeId===hub.id;
     const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':hub.id,'data-node-kind':'hub','data-state':hub.state,'data-tone':hub.tone??null,'data-wave':hub.wave??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
-    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'42','class':'a52-lore-hub-node__halo'});
-    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'31','class':'a52-lore-hub-node__body'});
+    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'48','class':'a52-lore-hub-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'36','class':'a52-lore-hub-node__body'});
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:1250}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+120,dur:1100}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'48',begin:delay,dur:1250}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'36',begin:delay+120,dur:1100}));
       t.setAttribute('opacity','0');count.setAttribute('opacity','0');
       t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+480,dur:420}));
       count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
@@ -599,7 +599,7 @@ function buildLoreGraph({entries,data,selected}={}){
   const semantic=decorated.some(item=>item.category);
   const grouped=semantic?semanticTopologyGroups(decorated):neutralTopologyGroups(decorated);
   const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380};
-  const hubRadius=grouped.length<=2?190:grouped.length<=4?210:225;
+  const hubRadius=grouped.length<=2?220:grouped.length<=4?240:258;
 
   grouped.forEach((group,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
@@ -622,7 +622,7 @@ function buildLoreGraph({entries,data,selected}={}){
       const slotOffset=ringSize<=1?0:(slot/(ringSize-1)-.5)*Math.min(1.18,.46+ringSize*.13);
       const nodeAngle=angle+slotOffset;
       const hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%13)-6;
-      const radius=68+ring*38+jitter;
+      const radius=76+ring*44+jitter;
       const artifactCount=Number(row.artifactIds?.length??0);
       const nodeDepth=2+ring;
       const nodeDelay=SOURCE_INNER_START_MS+ring*SOURCE_RING_GAP_MS+slot*SOURCE_SLOT_GAP_MS;

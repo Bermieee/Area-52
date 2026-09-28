@@ -13,12 +13,13 @@ export function renderLoreNeuralWorkspace(doc,{
   data=null,source=null,selected=null,progress=0,scope=null,inspect=null,
 }={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
+  const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
   const left=renderStudyRail(doc,{data,source,counts,progress});
   const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect});
   const right=renderLoreInsightRail(doc,{data,selected,progress});
   root.append(left,center,right);
-  root.dataset.graphState=entries.length?'populated':snapshot?'loaded':'blank';
+  root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
   return root;
 }
 
@@ -37,7 +38,7 @@ function renderStudyRail(doc,{data,source,counts,progress}={}){
     legend.append(row);
   }
   const top=element(doc,'div',{className:'a52-lore-progress-overview'});top.append(ring,legend);progressCard.body.append(top);
-  progressCard.body.append(element(doc,'p',{className:'a52-muted a52-lore-neural-explainer',text:
+  progressCard.body.append(element(doc,'p',{className:'a52-lore-neural-contract',text:'DUE for study '+String(Number(counts?.ACCEPTED??0))+' · STUDYING now '+String(Number(counts?.STUDYING??0))+' · READY '+String(Number(counts?.READY??0))}),element(doc,'p',{className:'a52-muted a52-lore-neural-explainer',text:
     Number(counts?.FAILED??0)>0?'Study needs attention. Failed sources stay visible and are not treated as retrieval-ready.'
     :Number(counts?.STUDYING??0)>0?'Study is active. Nodes and links appear as the Lore owner publishes current learned representations.'
     :Number(counts?.ACCEPTED??0)>0?'DUE = accepted but not learned/current. Run pending study to grow retrieval-ready nodes.'
@@ -60,17 +61,18 @@ function renderStudyRail(doc,{data,source,counts,progress}={}){
 
 function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
+  const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
   const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
   const title=element(doc,'div');
   title.append(element(doc,'span',{className:'a52-eyebrow',text:'LIVE LORE GRAPH'}),element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Lore Knowledge Canvas'}));
-  const badge=makeBadge(doc,entries.length?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):'BLANK CANVAS',entries.length?'observed':'historical');
+  const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
   head.append(title,badge);panelRoot.append(head);
 
   const canvas=element(doc,'div',{className:'a52-lore-neural-canvas'});
-  if(!entries.length){
-    canvas.append(renderEmptyCanvas(doc,{loaded:Boolean(snapshot)}));
-    panelRoot.append(canvas,canvasFooter(doc,'Accept the selected Lorebook, then run study to populate source nodes and learned links.'));
+  if(!entries.length||!graphActive){
+    canvas.append(renderEmptyCanvas(doc,{loaded:Boolean(snapshot),accepted:entries.length>0}));
+    panelRoot.append(canvas,canvasFooter(doc,entries.length?'Lore is accepted. Run pending study; source nodes appear only after owner study evidence begins publishing.':'Accept the selected Lorebook, then run study to populate source nodes and learned links.'));
     return panelRoot;
   }
 
@@ -128,13 +130,13 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
   return panelRoot;
 }
 
-function renderEmptyCanvas(doc,{loaded=false}={}){
+function renderEmptyCanvas(doc,{loaded=false,accepted=false}={}){
   const empty=element(doc,'div',{className:'a52-lore-neural-empty'});
   const rings=element(doc,'div',{className:'a52-lore-neural-empty__rings'});
   rings.append(element(doc,'span'),element(doc,'span'),element(doc,'span'));
   const core=element(doc,'div',{className:'a52-lore-neural-empty__core'});
   core.append(element(doc,'strong',{text:'LORE'}),element(doc,'span',{text:'blank canvas'}));
-  empty.append(rings,core,element(doc,'h3',{text:loaded?'Source loaded — ready to accept':'Waiting for a Lorebook'}),element(doc,'p',{className:'a52-muted',text:loaded?'Accept this verified source, then run pending study. The neural graph will grow from owner-published study state.':'Select a SillyTavern Lorebook and load it. Area-52 will not invent nodes before a real source is accepted.'}));
+  empty.append(rings,core,element(doc,'h3',{text:accepted?'Lore accepted — graph armed':loaded?'Source loaded — ready to accept':'Waiting for a Lorebook'}),element(doc,'p',{className:'a52-muted',text:accepted?'Run pending study. Nodes and links will begin growing only when the Lore owner publishes active/current study evidence.':loaded?'Accept this verified source, then run pending study. The neural graph will grow from owner-published study state.':'Select a SillyTavern Lorebook and load it. Area-52 will not invent nodes before a real source is accepted.'}));
   return empty;
 }
 

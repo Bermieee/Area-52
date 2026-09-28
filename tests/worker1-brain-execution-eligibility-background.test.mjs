@@ -109,10 +109,13 @@ test('Worker 1 dense eligibility: unavailable and stale dense results fall back 
     });
     assert.equal(attempts,1);
     const dense=selected(brain,prepared).denseRetrieval;
-    assert.equal(dense.status,'SKIPPED');
+    assert.equal(dense.status,'STALE');
     assert.equal(dense.reasonCode,'DENSE_PRIME_STALE_SELECTED_STATE');
-    assert.equal(dense.providerAttempted,false);
+    assert.equal(dense.requested,true);
+    assert.equal(dense.providerAttempted,true);
+    assert.equal(dense.providerReturned,true);
     assert.equal(dense.ownerAdmitted,false);
+    assert.equal(dense.executionId,'exec:stale:1');
     assert.equal(brain.core.publication.seal.verify('dense-stale:1').sealed,true);
   }
 });

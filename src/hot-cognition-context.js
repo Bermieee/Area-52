@@ -100,6 +100,63 @@ export function buildHotCognitionCompilerProjection(snapshot,{perspectiveConstra
   };
 }
 
+export function buildSceneTransitionContinuityProjection(handoff,{chatNamespace=null,sceneId=null,sceneRevision=null}={}){
+  const continuity=handoff?.continuity??null;
+  const compactSummary=String(continuity?.compactPriorSceneSummary??'').trim();
+  const episodeRef=continuity?.episodeRef??null;
+  if(handoff?.kind!=='SceneTransitionContextHandoff'||handoff.status!=='ACTIVE'||!compactSummary||!episodeRef){
+    return{kind:'SceneTransitionContinuityProjection',snapshotId:null,hotRevision:null,chatNamespace:chatNamespace??null,sceneRevision:Number(sceneRevision??0),worldRevision:null,facts:[],contributions:[],dependencies:[]};
+  }
+  const targetSceneId=String(sceneId??handoff.toSceneRef?.sceneId??'').trim();
+  const targetRevision=Number(sceneRevision??handoff.toSceneRef?.sceneRevision??0);
+  if(!targetSceneId||!Number.isInteger(targetRevision)||targetRevision<1||targetSceneId!==String(handoff.toSceneRef?.sceneId??'')||targetRevision<Number(handoff.toSceneRef?.sceneRevision??0)||targetRevision>Number(handoff.expiryRevision??targetRevision)){
+    return{kind:'SceneTransitionContinuityProjection',snapshotId:null,hotRevision:null,chatNamespace:chatNamespace??null,sceneRevision:targetRevision,worldRevision:null,facts:[],contributions:[],dependencies:[]};
+  }
+  const sourceRevisionRefs=uniq([...(handoff.sourceRevisionRefs??[]),...(continuity.sourceRevisionRefs??[])]);
+  const provenanceRefs=uniq([...(handoff.evidenceRefs??[]),episodeRef.artifactId??episodeRef.id].filter(Boolean));
+  const fact={
+    id:'scene-transition-continuity:'+String(handoff.handoffId),
+    e:'scene-transition:'+String(chatNamespace??targetSceneId),
+    p:'scene_transition_continuity',
+    v:{
+      handoffId:String(handoff.handoffId),relationship:handoff.relationship??null,
+      previousSceneRef:clone(handoff.fromSceneRef??null),destinationSceneRef:clone(handoff.toSceneRef??null),
+      episodeRef:clone(episodeRef),compactSummary,
+      recentTailRefs:uniq(continuity.recentTailRefs??[]),
+    },
+    a:AuthorityClass.UNRESOLVED,cf:1,t:currentT,hotSlot:PromptSlot.CURRENT_SCENE,hotSegment:HotSegmentKind.CONTINUITY,
+    segmentRevision:targetRevision,sourceRevisionRefs,dependencyRevisionRefs:[],provenanceRefs,
+    owner:'COGNITIVE_CORE',freshness:HotFreshness.FRESH,
+  };
+  const projectionId='scene-transition-projection:'+stableHash({handoffId:handoff.handoffId,targetSceneId,targetRevision,sourceRevisionRefs},{length:20});
+  const contribution=createPromptContribution({
+    id:'scene-transition-contribution:'+String(handoff.handoffId),slot:PromptSlot.CURRENT_SCENE,sourceCategory:ContributionSource.SEALED_PACKET,
+    owner:'CONTEXT_COMPILER',semantic:true,semanticRefs:[fact.id],content:null,sourceRevisionIds:sourceRevisionRefs,
+    authorityClass:AuthorityClass.UNRESOLVED,temporalStatus:'CURRENT',role:'context',required:true,priority:10,
+    metadata:{sceneTransitionHandoffId:String(handoff.handoffId),sceneId:targetSceneId,sceneRevision:targetRevision,contextSealRequired:true},
+  });
+  return{
+    kind:'SceneTransitionContinuityProjection',snapshotId:projectionId,hotRevision:null,chatNamespace:chatNamespace??null,
+    sceneRevision:targetRevision,worldRevision:null,facts:[fact],contributions:[contribution],dependencies:sourceRevisionRefs,
+  };
+}
+
+export function mergeCompilerProjections(...rows){
+  const projections=rows.flat().filter(row=>row?.facts?.length);
+  if(!projections.length)return null;
+  const first=projections[0];
+  return{
+    kind:'MergedContextCompilerProjection',
+    snapshotId:first.snapshotId??projections.map(row=>row.snapshotId).find(Boolean)??null,
+    projectionIds:projections.map(row=>row.snapshotId).filter(Boolean),
+    hotRevision:first.hotRevision??null,chatNamespace:first.chatNamespace??null,
+    sceneRevision:first.sceneRevision??null,worldRevision:first.worldRevision??null,
+    facts:projections.flatMap(row=>row.facts??[]),
+    contributions:projections.flatMap(row=>row.contributions??[]),
+    dependencies:uniq(projections.flatMap(row=>row.dependencies??[])),
+  };
+}
+
 export function attachHotCognitionToPacket(packet,projection){
   if(!projection?.facts?.length)return{packet:clone(packet),contributions:[],attached:false};
   const next=clone(packet),provenanceIndex={...(next.provenanceIndex??{})},dependencies=new Set(next.dependencies??[]);

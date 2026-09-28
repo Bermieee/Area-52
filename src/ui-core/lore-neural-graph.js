@@ -101,7 +101,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
     const path=svgEl(doc,'path',{
       d:curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y),
       class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(growth.newEdges.has(edge.id)?'is-new':'is-steady'),
-      'data-state':edge.state,'data-tone':edge.tone??null,'style':'--a52-link-delay:'+String(edge.delay)+'ms',
+      'data-state':edge.state,'data-tone':edge.tone??null,'data-wave':edge.wave??null,'style':'--a52-link-delay:'+String(animationDelay(edge,growth))+'ms',
     });
     svg.append(path);
   }
@@ -114,8 +114,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
 
   for(const hub of graph.hubs){
-    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'data-tone':hub.tone??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
-    g.setAttribute('style','--a52-node-delay:'+String(hub.delay)+'ms');
+    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'data-tone':hub.tone??null,'data-wave':hub.wave??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
+    g.setAttribute('style','--a52-node-delay:'+String(animationDelay(hub,growth))+'ms');
     g.append(svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'42','class':'a52-lore-hub-node__halo'}),svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'31','class':'a52-lore-hub-node__body'}));
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
@@ -123,8 +123,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   }
 
   for(const node of graph.nodes){
-    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
-    g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
+    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
+    g.setAttribute('style','--a52-node-delay:'+String(animationDelay(node,growth))+'ms');
     const radius=node.artifactCount?10:8;
     g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius+5),'class':'a52-lore-entry-node__halo'}),svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__body'}));
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
@@ -133,8 +133,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
     svg.append(g);
   }
   for(const node of graph.artifacts){
-    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact group '+node.label});
-    g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact group '+node.label});
+    g.setAttribute('style','--a52-node-delay:'+String(animationDelay(node,growth))+'ms');
     const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
     g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-artifact-node__body'}));
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
@@ -194,6 +194,12 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
 const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
 const MAX_VISIBLE_SOURCE_NODES=54;
 const TARGET_NODES_PER_HUB=8;
+const INITIAL_WAVE_SPACING_MS=420;
+const INITIAL_HUB_LINK_MS=90;
+const INITIAL_HUB_BLOOM_MS=210;
+const INITIAL_NODE_START_MS=500;
+const INITIAL_NODE_SPACING_MS=72;
+const INITIAL_ARTIFACT_LAG_MS=245;
 
 function buildLoreGraph({entries,data,selected}={}){
   const allVisible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED');
@@ -212,13 +218,18 @@ function buildLoreGraph({entries,data,selected}={}){
   grouped.forEach((group,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
     const tone=group.tone??SEMANTIC_TONES[index%SEMANTIC_TONES.length];
+    const waveStart=index*INITIAL_WAVE_SPACING_MS;
     const hub={
       id:group.id,state:group.kind==='semantic'?'SEMANTIC':'STRUCTURE',tone,label:group.label,count:group.items.length,
-      presentationOnly:group.kind!=='semantic',
-      x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70,
+      presentationOnly:group.kind!=='semantic',wave:index,
+      x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,
+      delay:waveStart+INITIAL_HUB_BLOOM_MS,incrementalDelay:100+(index%3)*90,
     };
     hubs.push(hub);
-    edges.push({id:'edge:hub:'+hub.id,from:center,to:hub,state:hub.state,tone,kind:'hub',delay:hub.delay});
+    edges.push({
+      id:'edge:hub:'+hub.id,from:center,to:hub,state:hub.state,tone,kind:'hub',wave:index,
+      delay:waveStart+INITIAL_HUB_LINK_MS,incrementalDelay:40+(index%3)*70,
+    });
 
     group.items.forEach((item,rowIndex)=>{
       const row=item.row,sourceState=String(row.operatorState??'ACCEPTED');
@@ -228,24 +239,34 @@ function buildLoreGraph({entries,data,selected}={}){
       const hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%13)-6;
       const radius=68+ring*38+jitter;
       const artifactCount=Number(row.artifactIds?.length??0);
+      const nodeDelay=waveStart+INITIAL_NODE_START_MS+rowIndex*INITIAL_NODE_SPACING_MS;
+      const incrementalNodeDelay=180+(rowIndex%6)*62;
       const node={
-        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,
+        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,wave:index,
         x:hub.x+Math.cos(nodeAngle)*radius,y:hub.y+Math.sin(nodeAngle)*radius,
-        artifactCount,delay:220+index*90+rowIndex*26,payload:row,
+        artifactCount,delay:nodeDelay,incrementalDelay:incrementalNodeDelay,payload:row,
       };
       nodes.push(node);
-      edges.push({id:'edge:source:'+node.id,from:hub,to:node,state:sourceState,tone,kind:'source',delay:node.delay-70});
+      edges.push({
+        id:'edge:source:'+node.id,from:hub,to:node,state:sourceState,tone,kind:'source',wave:index,
+        delay:Math.max(waveStart+INITIAL_HUB_BLOOM_MS,nodeDelay-125),
+        incrementalDelay:Math.max(80,incrementalNodeDelay-90),
+      });
 
       if(artifactCount>0){
         const artifactAngle=nodeAngle+(rowIndex%2===0?.30:-.30),artifactRadius=30+Math.min(10,Math.log2(artifactCount+1)*2);
         const artifact={
           id:'artifact-group:'+node.id,
           label:artifactCount===1?String(row.artifactIds?.[0]??'derived artifact'):String(artifactCount)+' derived refs',
-          count:artifactCount,state:sourceState,tone,
-          x:node.x+Math.cos(artifactAngle)*artifactRadius,y:node.y+Math.sin(artifactAngle)*artifactRadius,delay:node.delay+90,
+          count:artifactCount,state:sourceState,tone,wave:index,
+          x:node.x+Math.cos(artifactAngle)*artifactRadius,y:node.y+Math.sin(artifactAngle)*artifactRadius,
+          delay:node.delay+INITIAL_ARTIFACT_LAG_MS,incrementalDelay:node.incrementalDelay+190,
         };
         artifacts.push(artifact);
-        edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state:sourceState,tone,kind:'artifact',delay:artifact.delay-50});
+        edges.push({
+          id:'edge:artifact:'+artifact.id,from:node,to:artifact,state:sourceState,tone,kind:'artifact',wave:index,
+          delay:artifact.delay-90,incrementalDelay:artifact.incrementalDelay-75,
+        });
       }
     });
   });
@@ -360,20 +381,27 @@ function semanticCategoryCounts(snapshot,entries=[]){
 function growthState(state,selected,graph){
   const key=String(selected?.snapshot?.id??selected?.selection?.lorebookId??'unselected');
   if(!state)return{
+    initialBuild:true,
     newHubs:new Set(graph.hubs.map(row=>row.id)),newNodes:new Set(graph.nodes.map(row=>row.id)),
     newArtifacts:new Set(graph.artifacts.map(row=>row.id)),newEdges:new Set(graph.edges.map(row=>row.id)),
   };
+  let reset=false;
   if(state.lorebookKey!==key){
-    state.lorebookKey=key;
+    state.lorebookKey=key;reset=true;
     state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
   }
+  const hadGraph=Boolean(state.seenHubs?.size||state.seenNodes?.size||state.seenEdges?.size);
   const classify=(rows,seen)=>{const fresh=new Set();for(const row of rows){if(!seen.has(row.id))fresh.add(row.id);seen.add(row.id);}trimSeen(seen,192);return fresh;};
   return{
+    initialBuild:reset||!hadGraph,
     newHubs:classify(graph.hubs,state.seenHubs),
     newNodes:classify(graph.nodes,state.seenNodes),
     newArtifacts:classify(graph.artifacts,state.seenArtifacts),
     newEdges:classify(graph.edges,state.seenEdges),
   };
+}
+function animationDelay(row,growth){
+  return Number(growth?.initialBuild?row?.delay:row?.incrementalDelay) || 0;
 }
 function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().value);}
 

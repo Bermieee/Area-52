@@ -12,13 +12,15 @@ import { SceneRetrievalAdapter } from './scene-retrieval.js';
 import { ClapperboardTransitionManager } from './transition-manager.js';
 import { SceneContextInvalidationPublisher } from './context-invalidation.js';
 import { buildSceneIntegrationSignal, buildSceneUiReadModel, fanOutSceneInput } from './scene-integration-view.js';
+import { AtmosphereTracker } from './atmosphere.js';
 
 const clone=(v)=>structuredClone(v);
 const relationForBoundary=(type)=>type===BoundaryType.FLASHBACK?SceneRelationship.FLASHBACK_OF:type===BoundaryType.PARALLEL?SceneRelationship.PARALLEL_TO:SceneRelationship.CONTINUES;
+const atmosphereDimensions=(input)=>input?.observationClass?clone(input.value??{}):clone(input?.dimensions??input?.value??input??{});
 
 export class SceneLifecycleRuntime{
-  constructor({registry=new SceneRegistry(),stack=new SceneStack(),episodeCompiler=new SceneEpisodeCompiler(),graph=new SceneGraph(),publisher=new SceneEventPublisher(),prefetchTrigger=new ScenePrefetchTrigger(),narrativeFeed=new NarrativeFeedAdapter(),contextInvalidationPublisher=new SceneContextInvalidationPublisher()}={}){
-    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.narrativeFeed=narrativeFeed;this.contextInvalidationPublisher=contextInvalidationPublisher;
+  constructor({registry=new SceneRegistry(),stack=new SceneStack(),episodeCompiler=new SceneEpisodeCompiler(),graph=new SceneGraph(),publisher=new SceneEventPublisher(),prefetchTrigger=new ScenePrefetchTrigger(),narrativeFeed=new NarrativeFeedAdapter(),contextInvalidationPublisher=new SceneContextInvalidationPublisher(),atmosphereTracker=new AtmosphereTracker()}={}){
+    this.registry=registry;this.stack=stack;this.episodeCompiler=episodeCompiler;this.graph=graph;this.publisher=publisher;this.prefetchTrigger=prefetchTrigger;this.narrativeFeed=narrativeFeed;this.contextInvalidationPublisher=contextInvalidationPublisher;this.atmosphereTracker=atmosphereTracker;
     this.sceneRuntime=new SceneIntelligenceRuntime({registry});
     this.transitionManager=new ClapperboardTransitionManager({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,sceneRuntime:this.sceneRuntime,contextInvalidationPublisher});
     this.retrieval=new SceneRetrievalAdapter({episodeProvider:()=>episodeCompiler.list(),graph});
@@ -74,6 +76,56 @@ export class SceneLifecycleRuntime{
       const activated=threadIds(fieldArray(changed.activeThreads.after)).filter((x)=>!before.has(x));
       if(activated.length)this.#publishRecommendation(scene,evidence,{trigger:'THREAD_ACTIVATED',entityRefs,locationRefs,threadRefs:activated,priority:'NORMAL'});
     }
+  }
+
+  publishOperatorDelta({scene,delta,evidenceRefs=[],sourceRevisionRefs=[],operation='SCENE_OPERATOR',reason=null,chatId=null,turnId=null,generationId=null,correlationId=null,causationId=null}={}){
+    if(!scene?.sceneId||!delta?.toRevision)return null;
+    const refs=[...new Set(((sourceRevisionRefs?.length?sourceRevisionRefs:scene.sourceRevisionRefs)??[]).filter(Boolean).map(String))];
+    const evidence=[...new Set((evidenceRefs??[]).filter(Boolean).map(String))];
+    this.prefetchTrigger.cancelSuperseded({sceneId:scene.sceneId,sceneRevision:scene.revision});
+    const base={sceneId:scene.sceneId,sceneRevision:scene.revision,sourceRevisionRefs:refs,chatId,turnId,generationId,correlationId,causationId};
+    const published=[];
+    published.push(this.publisher.publish({
+      ...base,eventType:SceneEventType.SCENE_STATE_DELTA,
+      payload:{delta,operation,reason:reason??delta?.reason??null,operatorInitiated:true},
+      dedupeKey:`delta:${scene.sceneId}:${delta.toRevision}:${operation}`,
+    }));
+    const map={location:SceneEventType.LOCATION_CHANGED,narrativeTime:SceneEventType.TIME_SHIFT_DETECTED,activeCast:SceneEventType.ACTIVE_CAST_CHANGED,activeRelationships:SceneEventType.RELATIONSHIP_SIGNAL,atmosphere:SceneEventType.VIBE_CHANGED,immediateObjects:SceneEventType.OBJECT_TRANSITION};
+    for(const [name,change] of Object.entries(delta.changedFields??{})){
+      const eventType=map[name];if(!eventType)continue;
+      published.push(this.publisher.publish({
+        ...base,eventType,payload:{field:name,change,operation,reason:reason??delta?.reason??null},
+        dedupeKey:`${eventType}:${scene.sceneId}:${delta.toRevision}:${operation}`,
+      }));
+    }
+    const changed=Object.keys(delta.changedFields??{});
+    let recommendation=null;
+    const retrievalFields=changed.filter((x)=>['location','activeCast','activeThreads'].includes(x));
+    if(retrievalFields.length){
+      const f=scene.fields;
+      recommendation=this.prefetchTrigger.recommend({
+        sceneId:scene.sceneId,sceneRevision:scene.revision,
+        trigger:`SCENE_OPERATOR_DELTA:${retrievalFields.join('+')}`,
+        entityRefs:(f.activeCast?.value??[]).filter((x)=>x?.state==='PRESENT').map((x)=>x.characterId).filter(Boolean),
+        locationRefs:[f.location?.value?.location??f.location?.value].filter(Boolean),
+        threadRefs:(f.activeThreads?.value??[]).map((x)=>typeof x==='string'?x:(x?.threadId??x?.id??x?.ref??null)).filter(Boolean),
+        priority:changed.includes('location')?'HIGH':'NORMAL',
+        evidenceRefs:evidence,sourceRevisionRefs:refs,
+      });
+      published.push(this.publisher.publish({
+        ...base,eventType:SceneEventType.PREFETCH_RECOMMENDED,
+        payload:{recommendation,operation,reason:reason??delta?.reason??null},
+        dedupeKey:recommendation.recommendationId,
+      }));
+    }
+    return clone({
+      kind:'SceneOperatorPublicationReceipt',operation,sceneId:scene.sceneId,sceneRevision:scene.revision,
+      changedFields:changed.sort(),eventIds:published.map((x)=>x?.eventId).filter(Boolean),
+      eventTypes:published.map((x)=>x?.eventType).filter(Boolean),
+      prefetchRecommendationId:recommendation?.recommendationId??null,
+      prefetchNeeded:Boolean(recommendation),sourceRevisionRefs:refs,evidenceRefs:evidence,
+      authority:'SIGNAL_ONLY',runtimeSchedulingAuthority:false,settlementAuthority:false,contextSealAuthority:false,
+    });
   }
 
   #publishLikelyNext(scene,evidence,intents){
@@ -146,7 +198,33 @@ export class SceneLifecycleRuntime{
     const invalidatedGraph=[];for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedGraph.push(...this.graph.invalidateBySource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
-    const extracted=extract(evidence,current)??{};const fields=extractSceneFields(extracted);
+    const extracted=extract(evidence,current)??{};const fields=clone(extractSceneFields(extracted));
+    let atmosphereDisposition='UNAVAILABLE';
+    if(Object.prototype.hasOwnProperty.call(fields,'atmosphere')){
+      const dimensions=atmosphereDimensions(fields.atmosphere);
+      const generatedWording=String(evidence.role??'').toLowerCase()==='assistant';
+      const acceptedDimensions=generatedWording
+        ? Object.fromEntries(Object.entries(dimensions).filter(([,row])=>Boolean(row?.novelNarrativeEvidence)))
+        : dimensions;
+      if(generatedWording&&!Object.keys(acceptedDimensions).length){
+        delete fields.atmosphere;
+        atmosphereDisposition='REJECTED_RECURSIVE_GENERATED_WORDING';
+      }else{
+        const sourceRef=evidence.sourceRevisionId;
+        fields.atmosphere=this.atmosphereTracker.update({
+          revision:current.revision+1,
+          evidenceRefs:[sourceRef],
+          dimensions:acceptedDimensions,
+          metadata:{
+            sourceRole:evidence.role??null,
+            sourceActivity:evidence.activity??null,
+            generationDerivedEvidenceRefs:generatedWording?[sourceRef]:[],
+            novelNarrativeEvidenceRefs:generatedWording?[sourceRef]:[],
+          },
+        });
+        atmosphereDisposition=fields.atmosphere.observationClass==='INFERRED'?(generatedWording?'UPDATED_FROM_NOVEL_GENERATED_NARRATIVE':'UPDATED'):'UNAVAILABLE';
+      }
+    }
     const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];const graphEvidenceLinks=extracted.graphEvidenceLinks??[],graphEvidenceOwnerApproved=extracted.graphEvidenceLinksOwnerApproved===true;
     const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(current,evidence,likelyNextIntents):[];
     let boundary=null,transition=null,observed=null;
@@ -160,12 +238,18 @@ export class SceneLifecycleRuntime{
           const destinationHints={
             entityRefs:(fields.activeCast?.value??[]).filter((row)=>row?.state==='PRESENT').map((row)=>row.characterId).filter(Boolean),
             locationRefs:[fields.location?.value?.location??fields.location?.value].filter(Boolean),
-            threadRefs:(fields.activeThreads?.value??[]).filter((row)=>typeof row==='string'),
+            threadRefs:(fields.activeThreads?.value??[]).map((row)=>typeof row==='string'?row:(row?.threadId??row?.id??row?.ref??null)).filter(Boolean),
           };
+          const priorSourceRefs=new Set((current.sourceRevisionRefs??[]).map(String));
+          const recentTailRefs=(this.narrativeFeed.currentEvidence(evidence.chatId)??[])
+            .filter(row=>priorSourceRefs.has(String(row.sourceRevisionId)))
+            .sort((x,y)=>Number(x.sequence??0)-Number(y.sequence??0))
+            .slice(-2)
+            .map(row=>row.sourceRevisionId);
           transition=this.transitionManager.transition({
             decision:boundary.decision,fromSceneId:current.sceneId,nextSceneId,relationship,
             evidenceRefs:[evidence.sourceRevisionId],sourceRevisionRefs:[evidence.sourceRevisionId],
-            sourceRange:{start:evidence.messageId,end:evidence.messageId},destinationHints,destinationFields:fields,
+            sourceRange:{start:evidence.messageId,end:evidence.messageId},recentTailRefs,destinationHints,destinationFields:fields,
             allowDestinationRefresh:Boolean(extracted.allowWhenRefreshRequired),expectedSceneRevision:current.revision,
             chatId:evidence.chatId,turnId:evidence.turnId,generationId:evidence.generationId,correlationId:evidence.correlationId,causationId:evidence.causationId,
           });
@@ -197,7 +281,7 @@ export class SceneLifecycleRuntime{
     const graphLinkScene=transition?.episodeRef?(this.registry.current(transition.fromSceneId)??observed.scene):observed.scene;
     const graphEvidenceAdmission=graphEvidenceLinks.length?(graphEvidenceOwnerApproved?this.admitGraphEvidenceLinks({chatId:evidence.chatId,sceneId:graphLinkScene.sceneId,sceneRevision:transition?.episodeRef?.revision??graphLinkScene.revision,sourceRevisionId:evidence.sourceRevisionId,links:graphEvidenceLinks,episodeRef:transition?.episodeRef??null}):{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',receipts:graphEvidenceLinks.slice(0,32).map(raw=>({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation:String(raw?.relation??'SUPPORTS').toUpperCase(),fromRef:raw?.fromRef??null,toRef:raw?.toRef??null}))}):{kind:'SceneGraphEvidenceAdmission',status:'NO_WORK',reasonCode:'SCENE_GRAPH_OWNER_NO_LINKS',receipts:[]};
     const graphEvidenceReceipts=graphEvidenceAdmission.receipts;
-    return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceAdmission,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
+    return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceAdmission,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition,atmosphereDisposition};
   }
 
   integrationSignal(chatId){return buildSceneIntegrationSignal(this,chatId);}

@@ -151,17 +151,19 @@ export class WarmPacketCache {
     return null;
   }
 
-  invalidate({ chatId = null, sceneRevision = null, intentFingerprint = null, sourceRevisionIds = [] } = {}) {
+  invalidate({ chatId = null, sceneId = null, sceneRevision = null, intentFingerprint = null, sourceRevisionIds = [] } = {}) {
     const sources = new Set(sourceRevisionIds);
     let count = 0;
     for (const [key, entry] of [...this.#entries]) {
       const identity = entry.packet.identity;
+      const packetSceneId = entry.packet.recommendation?.sceneId ?? null;
       const inScope = chatId == null || String(identity.chatId ?? '') === String(chatId);
       const invalidate = inScope && (
-        (sceneRevision != null && identity.sceneRevision !== Number(sceneRevision))
+        (sceneId != null && String(packetSceneId ?? '') !== String(sceneId))
+        || (sceneRevision != null && identity.sceneRevision !== Number(sceneRevision))
         || (intentFingerprint != null && identity.intentFingerprint !== String(intentFingerprint))
         || (sources.size && identity.sourceRevisionSet.some((id) => sources.has(id)))
-        || (chatId != null && sceneRevision == null && intentFingerprint == null && !sources.size)
+        || (chatId != null && sceneId == null && sceneRevision == null && intentFingerprint == null && !sources.size)
       );
       if (invalidate) { this.#entries.delete(key); count += 1; }
     }

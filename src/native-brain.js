@@ -327,7 +327,7 @@ export class Area52NativeBrain{
 
   async prepareTurn({
     chatId,turnId,generationId,correlationId=null,query,intent='CURRENT',
-    scene=null,sceneSignal=null,sceneTimeline=[],sceneOwnerReceipt=null,anchorEntityIds=[],perspectiveConstraint=null,
+    scene=null,sceneSignal=null,sceneTimeline=[],sceneOwnerReceipt=null,sceneFanOut=null,anchorEntityIds=[],perspectiveConstraint=null,
     budgetBytes=5000,budgetTokens=null,deadline=null,modelProfileId=null,
     providerId=null,modelId=null,routeId=null,observedCacheBehavior=null,
     systemPolicy=null,activeThreads=[],activeContext=null,precisionAvailable=true,channelIds=null,
@@ -386,13 +386,32 @@ export class Area52NativeBrain{
     // owner channel consumes only the cached nomination result; provider failure
     // leaves sparse/graph/Memory retrieval fully available.
     const memoryDensePrime=await this.ownerMemoryChannel.prime({intentId:'memory-dense:'+turn,query:q,intentKind:intent,perspective:perspectiveConstraint},{query:q,selection:ownerSelection});
+    let sceneFanOutIngress={kind:'NativeBrainSceneFanOutIngressReceipt',status:'UNAVAILABLE',reasonCode:'SCENE_FANOUT_HANDOFF_ABSENT',candidateCount:0,candidateIds:[],authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false};
+    let externalRetrievalCandidates=[];
+    if(sceneFanOut){
+      const expectedSources=uniq(sceneState.sourceRevisionRefs??[]),actualSources=uniq(sceneFanOut.sourceRevisionSet??[]);
+      const identityMismatch=[];
+      if(String(sceneFanOut.chatId??'')!==chat)identityMismatch.push('chatId');
+      if(String(sceneFanOut.turnId??'')!==turn)identityMismatch.push('turnId');
+      if(String(sceneFanOut.generationId??'')!==generation)identityMismatch.push('generationId');
+      if(String(sceneFanOut.correlationId??'')!==corr)identityMismatch.push('correlationId');
+      if(String(sceneFanOut.sceneId??'')!==String(sceneState.sceneId??''))identityMismatch.push('sceneId');
+      if(Number(sceneFanOut.sceneRevision)!==Number(sceneState.sceneRevision))identityMismatch.push('sceneRevision');
+      if(JSON.stringify(actualSources)!==JSON.stringify(expectedSources))identityMismatch.push('sourceRevisionSet');
+      if(identityMismatch.length){
+        sceneFanOutIngress={kind:'NativeBrainSceneFanOutIngressReceipt',status:'REJECTED',reasonCode:'SCENE_FANOUT_SELECTION_FENCE_MISMATCH',identityMismatch,candidateCount:0,candidateIds:[],authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false};
+      }else{
+        externalRetrievalCandidates=(sceneFanOut.candidates??[]).slice(0,64).filter(row=>row?.candidate?.candidateId);
+        sceneFanOutIngress={kind:'NativeBrainSceneFanOutIngressReceipt',status:'ADMITTED_FOR_RESULT_BUS',reasonCode:null,identityMismatch:[],causationId:sceneFanOut.causationId??null,candidateCount:externalRetrievalCandidates.length,candidateIds:uniq(externalRetrievalCandidates.map(row=>row.candidate.candidateId)),authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false};
+      }
+    }
 
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
     const published=this.core.publishGenerationContext({
       turnId:turn,turnRevision:sequence,correlationId:corr,query:q,intent,
       anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,precisionAvailable,
-      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,
+      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,externalRetrievalCandidates,
     });
     this.#recordSceneExpectedWork({chatId:chat,turnId:turn,generationId:generation,correlationId:corr,turnRevision:sequence,sceneState,published});
     const contextRetirement=activeContext?this.contextRetirement.evaluate({chatId:chat,...clone(activeContext)}):null;
@@ -427,7 +446,7 @@ export class Area52NativeBrain{
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet,sceneSourceRevisionRefs,ownerSourceRevisionSet,
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
-      sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:{
+      sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneFanOutIngress:clone(sceneFanOutIngress),sceneIngress:{
         kind:'NativeBrainSceneIngressReceipt',
         timelineCount:sceneIngressReceipts.length,
         timelineReceipts:clone(sceneIngressReceipts),
@@ -459,7 +478,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),sceneFanOutIngress:clone(sceneFanOutIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       retrievalQualityReceipt:published.retrievalQualityReceipt??null,
       correctiveRetrievalReceipt:published.correctiveRetrievalReceipt??null,
@@ -1445,10 +1464,6 @@ export class Area52NativeBrain{
         cause:{eventType:'SCENE_COGNITIVE_NEED',eventId:String(need.needId??expectedId),producerId:'SCENE',consumerId:'COGNITIVE_CHOICE',ownerId:'SCENE',chatId,turnId,generationId,correlationId,turnRevision,sourceRevisionRefs:sceneState.sourceRevisionRefs??[],worldRevision:published?.worldRevision??null,sceneRevision:sceneState.sceneRevision},
         obligation:{taskType:'SCENE_RETRIEVAL_NEED',layer:'L1',requiredCapabilities:['RETRIEVAL'],dedupeKey:expectedId},
       });
-      if((choice?.admittedJobs??[]).includes('RETRIEVAL')){
-        const started=this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'SENSORY_NET',consumerId:'TRUTH',durationMs:choice?.latencyResourceBudget?.retrievalElapsedMs??null,metadata:{channelCount:(choice?.sensoryChannelsUsed??[]).length}});
-        if(candidate)this.obligationReconciler.recordEvidence(expectedId,{kind:CausalReceiptKind.RESULT_RETURNED,producerId:'SENSORY_NET',consumerId:'COGNITIVE_CHOICE',parentReceiptId:started.id,durationMs:choice?.latencyResourceBudget?.retrievalElapsedMs??null,metadata:{candidateEnvelopeId:candidate.envelopeId??candidate.id??null,candidateCount:candidate.candidates?.length??0}});
-      }
       results.push(this.obligationReconciler.reconcile(expectedId,{admit:false}));
     }
     return results;

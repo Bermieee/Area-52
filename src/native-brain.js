@@ -1632,6 +1632,7 @@ export class Area52NativeBrain{
       kind:'NativeBrainSelectedTurnReceipt',contractVersion:2,...selection,
       sourceRevisions:{selectedCount:selection.sourceRevisionRefs.length,selectedRefs,sceneCount:sceneRefs.length,sceneRefs,sealCount:sealRefs.length,sealRefs,ownerCount:selection.ownerSourceRevisionRefs.length,generationPreSealRefs:selectedRefs,postResponseLearnedNarrativeRefs:learnedNarrativeRefs,postResponseNarrativeExcludedFromGenerationFence:true},
       producers,causalOwnerEvents,expectedWork,sceneFlow,sceneFences,denseRetrieval,completionLifecycle,
+      memoryRetrievalFeedback:clone(memoryRetrievalFeedback),memoryRetrievalFeedbackBatch:clone(record.memoryRetrievalFeedbackBatch??null),
       performance:clone(record.performance??record.published?.performanceReceipt??null),
       counts:{
         admittedJobs:(choice?.admittedJobs??[]).length,skippedJobs:(choice?.skippedJobs??[]).length,

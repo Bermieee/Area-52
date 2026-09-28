@@ -753,7 +753,12 @@ export class Area52NativeBrain{
     };
     this.#refreshLearningLifecycle(record);
     this.#notify('TURN_RESPONSE_COMPLETED',record);
-    if(autoDrain)await this.drainBackgroundLearning({maxCycles:128});
+    if(autoDrain){
+      await this.drainBackgroundLearning({maxCycles:128});
+      const refreshed=this.#refreshLearningLifecycle(record)??record.learningReceipt;
+      this.#notifyLearningAccepted(record,refreshed);
+      return clone(refreshed);
+    }
     return clone(this.#refreshLearningLifecycle(record)??record.learningReceipt);
   }
 
@@ -778,7 +783,7 @@ export class Area52NativeBrain{
     if(!taskId)return null;
     const task=this.runtimeDirector.ledger.get(taskId);
     if(!task)return null;
-    const existing=(task.causalReceipts??[]).find(row=>[CausalReceiptKind.OWNER_ADMISSION,CausalReceiptKind.OWNER_REJECTED].includes(row?.kind));
+    const existing=(task.causalReceipts??[]).find(row=>[CausalReceiptKind.OWNER_ADMISSION,CausalReceiptKind.OWNER_REJECTED].includes(row?.eventKind??row?.kind));
     if(existing)return existing;
     return this.runtimeDirector.recordOwnerAdmission(taskId,{accepted:Boolean(accepted),receiptId,reasonCode,consumerId,durationMs});
   }
@@ -787,8 +792,8 @@ export class Area52NativeBrain{
     if(!record?.learningReceipt||!record?.responseCompletionReceipt)return record?.learningReceipt??null;
     const ids=uniq([record.feedbackRuntimeTaskId,record.memoryRuntimeTaskId,record.memoryConsolidationRuntimeTaskId]);
     const tasks=ids.map(taskId=>this.runtimeDirector.ledger.get(taskId)).filter(Boolean).map(task=>{
-      const owner=(task.causalReceipts??[]).slice().reverse().find(row=>[CausalReceiptKind.OWNER_ADMISSION,CausalReceiptKind.OWNER_REJECTED].includes(row?.kind))??null;
-      const returned=(task.causalReceipts??[]).slice().reverse().find(row=>[CausalReceiptKind.RESULT_RETURNED,CausalReceiptKind.RESULT_LATE,CausalReceiptKind.WORK_FAILED].includes(row?.kind))??null;
+      const owner=(task.causalReceipts??[]).slice().reverse().find(row=>[CausalReceiptKind.OWNER_ADMISSION,CausalReceiptKind.OWNER_REJECTED].includes(row?.eventKind??row?.kind))??null;
+      const returned=(task.causalReceipts??[]).slice().reverse().find(row=>[CausalReceiptKind.RESULT_RETURNED,CausalReceiptKind.RESULT_LATE,CausalReceiptKind.WORK_FAILED].includes(row?.eventKind??row?.kind))??null;
       return{
         taskId:task.taskId,taskType:task.obligation?.taskType??null,layer:task.obligation?.layer??null,runtimeClass:task.obligation?.runtimeClass??null,
         lifecycleStatus:task.lifecycleStatus,executionStatus:task.executionStatus,reasonCode:task.executionReason??task.lifecycleReason??null,
@@ -813,6 +818,15 @@ export class Area52NativeBrain{
     };
     record.state=status==='ACCEPTED'?'LEARNED':status==='FAILED'?'LEARNING_FAILED':status==='DEFERRED'?'LEARNING_DEFERRED':'RESPONSE_COMPLETED';
     return record.learningReceipt;
+  }
+
+  #notifyLearningAccepted(record,learning=null){
+    if(!record||record.learningAcceptedNotified)return false;
+    const receipt=learning??record.learningReceipt;
+    if(receipt?.learningLifecycle?.status!=='ACCEPTED')return false;
+    record.learningAcceptedNotified=true;
+    this.#notify('TURN_LEARNED',record);
+    return true;
   }
 
   correctTurn({turnId,response,observations=[],knownBy=[],reflections=[]}={}){
@@ -1297,8 +1311,9 @@ export class Area52NativeBrain{
     this.runtimeResults.push(clone(envelope));if(this.runtimeResults.length>128)this.runtimeResults.splice(0,this.runtimeResults.length-128);
     const record=this.turns.get(String(envelope?.turnId??''));
     if(record&&record.generationId===String(envelope?.generationId??record.generationId)&&record.correlationId===String(envelope?.correlationId??record.correlationId)){
-      this.#refreshLearningLifecycle(record);
+      const learning=this.#refreshLearningLifecycle(record);
       this.#notify('TURN_LEARNING_UPDATED',record);
+      this.#notifyLearningAccepted(record,learning);
     }
     return envelope;
   }

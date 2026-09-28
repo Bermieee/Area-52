@@ -111,8 +111,23 @@ export class GenerationPublicationPipeline {
     let assessment=null,publicationAssessment=null;
     let corrective={executed:false,terminated:true,candidates:[],failed:false,error:null,action:null,correctivePasses:0,maxCorrectiveAttempts:1};
     let precisionResults=[],precisionFailed=false;
+    const fanOutSelections=(externalRetrievalCandidates??[]).slice(0,64).map(row=>({
+      candidateId:row?.candidate?.candidateId??row?.candidateId??null,
+      sourceRevisionRefs:uniq(row?.candidate?.sourceRevisionRefs??row?.sourceRevisionRefs??[]),
+      taskId:row?.taskId??null,causationId:row?.causationId??null,workerId:row?.workerId??null,
+    })).filter(row=>row.candidateId);
+    let sceneFanOutResultBusReceipt={
+      kind:'SceneFanOutResultBusBindingReceipt',contractVersion:1,turnId,correlationId,
+      status:fanOutSelections.length?'PENDING':'NO_WORK',
+      selectedCandidateIds:uniq(fanOutSelections.map(row=>row.candidateId)),boundCandidateIds:[],rejectedCandidateIds:[],rows:[],
+      authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
+    };
 
     if(choiceSession?.hotOnly){
+      sceneFanOutResultBusReceipt={...sceneFanOutResultBusReceipt,status:fanOutSelections.length?'SKIPPED_HOT_ONLY':'NO_WORK',
+        rejectedCandidateIds:uniq(fanOutSelections.map(row=>row.candidateId)),
+        rows:fanOutSelections.map(row=>({candidateId:row.candidateId,taskId:row.taskId,status:'SKIPPED_HOT_ONLY',reasonCode:'HOT_COGNITION_SATISFIED_TURN',resultId:null})),
+      };
       publicationAssessment=emptyAssessment({turnId,query,intent,reason:'long-term retrieval and Truth were skipped because Hot Cognition satisfied the turn'});
     }else{
       const retrievalStarted=perfNow();
@@ -125,21 +140,36 @@ export class GenerationPublicationPipeline {
         taskId:`retrieve:${turnId}`,turnId,correlationId,sourceSubsystem:'SENSORY_NET',
         resultClass:ResultClass.REQUIRED,destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
       });
-      const externalRoutes=[];
-      for(const row of (externalRetrievalCandidates??[]).slice(0,64)){
-        const candidate=row?.candidate??row;
-        if(!candidate?.candidateId)continue;
-        const route=this.resultBus.receiveCandidate(candidate,{
-          taskId:row?.taskId??`scene-fanout:${turnId}`,turnId,correlationId,causationId:row?.causationId??null,
-          sourceSubsystem:row?.sourceSubsystem??'SCENE_FANOUT_HISTORIAN',workerId:row?.workerId??'scene-fanout',
-          resultClass:row?.resultClass??ResultClass.OPPORTUNISTIC,destination:ResultDestination.FOREGROUND,
-          worldRevision,sceneRevision,timing:row?.timing??{},
-        });
-        externalRoutes.push(route);
+      const primaryById=new Map(primary.map(candidate=>[candidate.candidateId,candidate]));
+      const fanOutRows=[];
+      for(const row of fanOutSelections){
+        const canonical=primaryById.get(row.candidateId)??null;
+        if(!canonical){
+          fanOutRows.push({candidateId:row.candidateId,taskId:row.taskId,status:'REJECTED',reasonCode:'OWNER_CANDIDATE_NOT_IN_PRIMARY_RETRIEVAL',resultId:null});
+          continue;
+        }
+        const canonicalSources=uniq(canonical.sourceRevisionRefs??canonical.legacyProvenance?.sourceRevisionIds??canonical.provenance?.sourceRevisionIds??[]);
+        if(!row.sourceRevisionRefs.length||row.sourceRevisionRefs.some(ref=>!canonicalSources.includes(ref))){
+          fanOutRows.push({candidateId:row.candidateId,taskId:row.taskId,status:'REJECTED',reasonCode:!row.sourceRevisionRefs.length?'SOURCE_REVISION_FENCE_MISSING':'SOURCE_REVISION_FENCE_MISMATCH',resultId:null});
+          continue;
+        }
+        const resultId=`result:${row.candidateId}:${correlationId}`;
+        const existing=this.resultBus.get(resultId);
+        if(!existing?.route?.accepted||existing.route.freshness!=='FRESH'||existing.route.effectiveDestination!==ResultDestination.FOREGROUND){
+          fanOutRows.push({candidateId:row.candidateId,taskId:row.taskId,status:'REJECTED',reasonCode:'CANONICAL_RESULT_BUS_ROUTE_NOT_FRESH_FOREGROUND',resultId:existing?.result?.id??null});
+          continue;
+        }
+        fanOutRows.push({candidateId:row.candidateId,taskId:row.taskId,status:'BOUND',reasonCode:'BOUND_TO_CANONICAL_OWNER_CANDIDATE',resultId:existing.result.id,causationId:row.causationId??null,workerId:row.workerId??null});
       }
-      if(externalRoutes.length)recordStage('SCENE_FANOUT_RESULTS',candidateBusStarted,{inputCount:externalRetrievalCandidates.length,outputCount:externalRoutes.filter(row=>row.route?.accepted&&row.route?.freshness==='FRESH').length,retainedObjectCount:externalRoutes.length,outcome:'RESULT_BUS_ROUTED'});
+      const boundCandidateIds=uniq(fanOutRows.filter(row=>row.status==='BOUND').map(row=>row.candidateId));
+      const rejectedCandidateIds=uniq(fanOutRows.filter(row=>row.status!=='BOUND').map(row=>row.candidateId));
+      sceneFanOutResultBusReceipt={
+        ...sceneFanOutResultBusReceipt,status:fanOutRows.length?(boundCandidateIds.length?'BOUND':'REJECTED'):'NO_WORK',
+        boundCandidateIds,rejectedCandidateIds,rows:fanOutRows.slice(0,64),
+      };
+      if(fanOutRows.length)recordStage('SCENE_FANOUT_RESULTS',candidateBusStarted,{inputCount:fanOutRows.length,outputCount:boundCandidateIds.length,retainedObjectCount:fanOutRows.length,outcome:boundCandidateIds.length?'BOUND_TO_OWNER_RESULTS':'NO_OWNER_MATCH'});
       candidates=this.#freshForegroundCandidates(turnId);
-      recordStage('CANDIDATE_BUS',candidateBusStarted,{inputCount:(primaryEnvelope?.candidates?.length??0)+externalRoutes.length,outputCount:candidates.length,retainedObjectCount:candidates.length,outcome:'FRESH_FOREGROUND_MATERIALIZED'});
+      recordStage('CANDIDATE_BUS',candidateBusStarted,{inputCount:primaryEnvelope?.candidates?.length??0,outputCount:candidates.length,retainedObjectCount:candidates.length,outcome:'FRESH_FOREGROUND_MATERIALIZED'});
       const truthStarted=perfNow();
       assessment=this.truth.assess(candidates,{
         query,intent,worldRevision,sceneRevision,attempt:0,maxCorrectiveAttempts:1,
@@ -350,6 +380,7 @@ export class GenerationPublicationPipeline {
       candidateEnvelope:primaryEnvelope,candidateEnvelopes:[primaryEnvelope,correctiveEnvelope].filter(Boolean),
       hotCognition:hotSnapshot?{snapshotId:hotSnapshot.snapshotId,hotRevision:hotSnapshot.hotRevision,chatNamespace:hotSnapshot.chatNamespace}:null,hotFreshnessReceipt,
       hotContributions,resultRoutes:finalRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration:sceneTrace,
+      sceneFanOutResultBusReceipt:structuredClone(sceneFanOutResultBusReceipt),
       retrievalIntents:structuredClone(resolvedRetrievalIntents),
       retrievalQualityReceipt:structuredClone(assessment?.retrievalQuality??null),
       correctiveRetrievalReceipt:{

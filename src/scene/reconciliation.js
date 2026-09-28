@@ -45,15 +45,27 @@ export class SceneReconciler {
 
   applyCorrection(scene, fieldName, fieldState, { evidenceRefs = [] } = {}) {
     const before=scene?.fields?.[fieldName]??null;
+    const priorHistory={
+      sceneRevision:scene.revision,
+      fieldRevision:before?.revision??null,
+      observationClass:before?.observationClass??ObservationClass.UNKNOWN,
+      evidenceRefs:uniq(before?.evidenceRefs??[]),
+      provenance:uniq(before?.provenance??[]),
+      value:clone(before?.value??null),
+    };
     const supersededEvidenceRefs=uniq([...(before?.evidenceRefs??[]),...(before?.metadata?.correctionFence?.supersededEvidenceRefs??[])]);
     const next=clone(scene); next.revision+=1; next.updatedAt=Date.now();
     next.fields[fieldName]=createFieldState({
       ...fieldState,revision:next.revision,evidenceRefs:uniq([...(fieldState.evidenceRefs??[]),...evidenceRefs]),
-      metadata:{...(fieldState.metadata??{}),operatorOrSourceCorrection:true,correctionFence:{atRevision:next.revision,supersededEvidenceRefs,correctionEvidenceRefs:uniq(evidenceRefs)}}
+      metadata:{
+        ...(fieldState.metadata??{}),operatorOrSourceCorrection:true,
+        correctionFence:{atRevision:next.revision,supersededEvidenceRefs,correctionEvidenceRefs:uniq(evidenceRefs)},
+        correctionHistory:[...((before?.metadata?.correctionHistory??[]).slice(-15)),priorHistory],
+      }
     });
     next.fieldEvidence[fieldName]=uniq([...(next.fieldEvidence?.[fieldName]??[]),...evidenceRefs]).slice(-64);
     next.provenance=uniq([...next.provenance,...evidenceRefs]).slice(-128);next.unresolvedFields=next.unresolvedFields.filter((x)=>x!==fieldName);next.health={status:'ready',reasons:[]};
-    return{scene:next,reconciliation:{kind:'SceneReconciliation',reason:DeltaReason.CORRECTION,fields:[fieldName],fromRevision:scene.revision,toRevision:next.revision,evidenceRefs:uniq(evidenceRefs),correctionFence:true}};
+    return{scene:next,reconciliation:{kind:'SceneReconciliation',reason:DeltaReason.CORRECTION,fields:[fieldName],fromRevision:scene.revision,toRevision:next.revision,evidenceRefs:uniq(evidenceRefs),correctionFence:true,priorFieldHistory:priorHistory,historyPreserved:true}};
   }
 
   trimRegistryRecord(record) { if(record.snapshots?.length>this.maxHistory) record.snapshots.splice(0,record.snapshots.length-this.maxHistory); if(record.deltas?.length>this.maxHistory*2) record.deltas.splice(0,record.deltas.length-this.maxHistory*2); return record; }

@@ -5,8 +5,12 @@ on:
     branches: [Development-Scene-Scanner]
     paths:
       - 'src/scene/**'
-      - 'src/native-brain.js'
+      - 'src/scene-core-integration.js'
+      - 'src/cognitive-core.js'
+      - 'src/context-retirement-policy.js'
+      - 'src/hot-cognition-context.js'
       - 'src/generation-publication.js'
+      - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
       - 'src/deployment/sillytavern-live.js'
@@ -16,6 +20,9 @@ on:
       - 'tests/scene-ft002-host-e2e.mjs'
       - 'tests/worker1-scene-graph-temporal-adjacency.mjs'
       - 'tests/worker1-scene-ft002-assembly.mjs'
+      - 'tests/scene-advanced-scanner-ops.mjs'
+      - 'tests/scene-atmosphere-production.mjs'
+      - 'tests/scene-clapperboard-handoff.mjs'
       - 'tests/deployment-live-host.test.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
@@ -25,6 +32,11 @@ on:
     branches: [main]
     paths:
       - 'src/scene/**'
+      - 'src/scene-core-integration.js'
+      - 'src/cognitive-core.js'
+      - 'src/context-retirement-policy.js'
+      - 'src/hot-cognition-context.js'
+      - 'src/generation-publication.js'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
@@ -32,7 +44,8 @@ on:
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
-      - 'tests/worker1-scene-ft002-assembly.mjs'
+      - 'tests/scene-atmosphere-production.mjs'
+      - 'tests/scene-clapperboard-handoff.mjs'
       - 'tests/deployment-live-host.test.mjs'
       - 'tests/scene-browser-load-harness.html'
       - 'scripts/scene-research-evaluation.mjs'
@@ -68,6 +81,12 @@ jobs:
         run: node --test tests/scene-completion-wave4-gaps.mjs
       - name: FT002 host lifecycle acceptance
         run: node --test tests/scene-ft002-host-e2e.mjs
+      - name: Advanced Scanner operator acceptance
+        run: node --test tests/scene-advanced-scanner-ops.mjs
+      - name: Scene atmosphere production acceptance
+        run: node --test tests/scene-atmosphere-production.mjs
+      - name: Clapperboard transition handoff acceptance
+        run: node --test tests/scene-clapperboard-handoff.mjs
       - name: Assembled selected-turn Scene delivery seam
         run: node --test --test-name-pattern='real native Brain host event publishes Scene and sealed Context Delivery' tests/deployment-live-host.test.mjs
       - name: Scene Graph and temporal adjacency #110
@@ -96,6 +115,11 @@ jobs:
       - name: Changed-surface syntax
         run: |
           find src/scene -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check src/scene-core-integration.js
+          node --check src/cognitive-core.js
+          node --check src/context-retirement-policy.js
+          node --check src/hot-cognition-context.js
+          node --check src/generation-publication.js
           node --check src/native-brain.js
           node --check src/deployment/owner-graph-adapters.js
           node --check src/deployment/brain.js
@@ -104,6 +128,9 @@ jobs:
           node --check tests/scene-completion-wave4-stress.mjs
           node --check tests/scene-completion-wave4-gaps.mjs
           node --check tests/scene-ft002-host-e2e.mjs
+          node --check tests/scene-advanced-scanner-ops.mjs
+          node --check tests/scene-atmosphere-production.mjs
+          node --check tests/scene-clapperboard-handoff.mjs
           node --check tests/worker1-scene-graph-temporal-adjacency.mjs
           node --check tests/worker1-scene-ft002-assembly.mjs
           node --check tests/deployment-live-host.test.mjs

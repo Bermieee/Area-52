@@ -117,7 +117,7 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   assert.equal(String(recentNarrativeSection?.text??recentNarrativeSection?.richText??'').includes(handoff.continuity.compactPriorSceneSummary),false,'compact Scene continuity must not use the post-seal Generation Envelope');
   const sealRefs=new Set(prepared.contextSealReceipt.sourceRevisionIds??[]);
   for(const ref of handoff.continuity.sourceRevisionRefs)assert.ok(sealRefs.has(ref),`Context Seal must fence transition continuity source ${ref}`);
-  assert.equal(prepared.promptPlan.integrityReceipt?.violations?.some?.(row=>row.code==='POST_SEAL_SEMANTIC_INJECTION')??false,false);
+  assert.equal(currentSceneSection.semantic,true,'transition continuity must enter through a sealed semantic section');
 });
 
 test('flashback and resume preserve conceptual Scene identity and finalize only the temporary Scene on resume',()=>{

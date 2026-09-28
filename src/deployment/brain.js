@@ -1568,16 +1568,22 @@ export class DevelopmentDeploymentBrain {
     return null;
   }
 
-  #cancelSpeculativeWarmTasks({chatId=null,sourceRevisionRefs=[],foreignToChat=null,currentSceneRevision=null,reason='SPECULATIVE_WARM_CANCELLED'}={}){
+  #cancelSpeculativeWarmTasks({chatId=null,sourceRevisionRefs=[],foreignToChat=null,currentSceneId=null,currentSceneRevision=null,reason='SPECULATIVE_WARM_CANCELLED'}={}){
     const refs=new Set(uniq(sourceRevisionRefs)),cancelled=[];
     for(const record of this.runtimeDirector.ledger.list()){
       if(record?.obligation?.taskType!=='SPECULATIVE_CONTEXT_WARM')continue;
       if(['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(record.lifecycleStatus)))continue;
       const cause=record.obligation?.cause??{},sourceRefs=record.obligation?.sourceRevisionIds??[];
+      const warmSceneId=record.obligation?.payload?.warmPlan?.request?.recommendation?.sceneId??null;
+      const sceneSuperseded=currentSceneRevision!=null&&chatId&&String(cause.chatId??'')===String(chatId)&&(
+        (currentSceneId!=null&&String(warmSceneId??'')!==String(currentSceneId))
+        ||Number(record.obligation?.sceneRevision)!==Number(currentSceneRevision)
+      );
       const match=foreignToChat?String(cause.chatId??'')!==String(foreignToChat)
         :refs.size?sourceRefs.some((ref)=>refs.has(String(ref)))
-          :currentSceneRevision!=null&&chatId?String(cause.chatId??'')===String(chatId)&&Number(record.obligation?.sceneRevision)!==Number(currentSceneRevision)
-            :chatId?String(cause.chatId??'')===String(chatId):false;
+          :sceneSuperseded
+            ?true
+            :chatId&&currentSceneId==null&&currentSceneRevision==null?String(cause.chatId??'')===String(chatId):false;
       if(!match)continue;
       const didCancel=this.runtimeDirector.cancelTask(record.taskId,reason);
       if(didCancel){
@@ -1936,8 +1942,8 @@ export class DevelopmentDeploymentBrain {
       this.speculativeWarmer.cache.invalidate({chatId,sourceRevisionIds:invalidatedSourceRevisionRefs});
     }
     if(chatId&&signal?.sceneRevision!=null){
-      this.#cancelSpeculativeWarmTasks({chatId,currentSceneRevision:signal.sceneRevision,reason:'SPECULATIVE_WARM_SCENE_SUPERSEDED'});
-      this.speculativeWarmer.cache.invalidate({chatId,sceneRevision:signal.sceneRevision});
+      this.#cancelSpeculativeWarmTasks({chatId,currentSceneId:signal.sceneId,currentSceneRevision:signal.sceneRevision,reason:'SPECULATIVE_WARM_SCENE_SUPERSEDED'});
+      this.speculativeWarmer.cache.invalidate({chatId,sceneId:signal.sceneId,sceneRevision:signal.sceneRevision});
     }
     const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
     const memoryInvalidations=[];

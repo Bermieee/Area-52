@@ -592,7 +592,7 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-canvas-card\{[\s\S]*inset:0/);
   assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-rail--left\{[\s\S]*position/);
   assert.match(css,/backdrop-filter:blur\(12px\)/);
-  assert.match(css,/\.a52-world-tree-source-dock\{/);
+  assert.match(css,/\.a52-world-tree-source-dock\{[\s\S]*top:auto;[\s\S]*max-height:148px/);
   assert.match(css,/\/\* World Tree HUD declutter pass \*\/[\s\S]*\.a52-world-tree-shell \.a52-lore-neural-canvas-head\{[\s\S]*background:transparent/);
   assert.match(css,/\.a52-world-tree-filter-dock\{/);
   assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-empty\{[\s\S]*padding:0/);

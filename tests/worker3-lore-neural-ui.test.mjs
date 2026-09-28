@@ -85,6 +85,31 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.ok(['STUDYING','READY','ACCEPTED','FAILED'].includes(inspected[0].payload.operatorState));
 });
 
+test('Lore neural canvas uses published category metadata without inferring categories from prose',()=>{
+  const d=new FakeDocument(),data={
+    kind:'Wave13LoreStudySurface',
+    entries:[
+      {sourceId:'lore:semantic:mara',uid:'mara',operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r1'},
+      {sourceId:'lore:semantic:harbor',uid:'harbor',operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r2'},
+      {sourceId:'lore:semantic:guild',uid:'guild',operatorState:'STUDYING',artifactIds:[],representations:[],retrievalReady:false,sourceRevisionId:'r3'},
+    ],
+    operatorCounts:{ACCEPTED:0,STUDYING:1,READY:2,FAILED:0,REMOVED:0},artifacts:[],conflicts:[],revision:10,retrievalReady:2,
+  };
+  const selected={selection:{selected:true,title:'Semantic Lore',lorebookId:'semantic'},snapshot:{id:'semantic',title:'Semantic Lore',entries:[
+    {uid:'mara',content:'Prose is not classified.',metadata:{title:'Mara',treePath:['Character','Mara']}},
+    {uid:'harbor',content:'Prose is not classified.',metadata:{title:'Moon Harbor',category:'Place'}},
+    {uid:'guild',content:'Prose is not classified.',metadata:{title:'Lantern Guild',type:'Faction'}},
+  ]}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,source:{operationalState:'WORKING',statusToken:'observed'},progress:67});
+  const nodes=walk(root),body=textOf(root);
+  assert.match(body,/Character/);assert.match(body,/Place/);assert.match(body,/Faction/);
+  const hubs=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-hub-node'));
+  assert.equal(hubs.length,3);
+  assert.ok(hubs.every(x=>String(x.attributes?.['data-state'])==='SEMANTIC'));
+  assert.ok(hubs.every(x=>Boolean(x.attributes?.['data-tone'])));
+  assert.match(body,/Mara/);assert.match(body,/Moon Harbor/);assert.match(body,/Lantern Guild/);
+});
+
 test('Lore neural render state animates only newly published nodes across refreshes',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),base=populatedData();
   const first=renderLoreNeuralWorkspace(d,{data:base,selected:{selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}},progress:25,renderState:state});

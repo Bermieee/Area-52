@@ -148,7 +148,7 @@ export class LoreStudyRuntime {
     const previousLearned = this.store.currentLearnedRevision(obligation.sourceId);
     const previousArtifacts = previousLearned ? this.store.artifactsForLearnedRevision(previousLearned.id) : [];
     const impactPreview = this.store.impactPreview(obligation.sourceId);
-    impactPreview.unrelatedReusableArtifactCount = this.store.currentArtifacts(this.registry).filter((artifact) => artifact.sourceId !== obligation.sourceId).length;
+    impactPreview.unrelatedReusableArtifactCount = this.store.countCurrentArtifacts(this.registry, {excludeSourceId: obligation.sourceId});
 
     if (currentRevision.state === 'REMOVED') {
       const diff = semanticDiff(previousArtifacts, []);

@@ -103,7 +103,7 @@ export class LoreRepresentationRegistry {
       if (row.state !== 'CURRENT' || row.profile !== profile) continue;
       if (sourceId && row.sourceId !== sourceId) continue;
       if (capCharacters !== undefined && (row.capCharacters ?? null) !== capCharacters) continue;
-      const source = sourceRegistry.currentRevision(row.sourceId, {allowMissing: true});
+      const source = sourceRegistry.currentRevisionState(row.sourceId);
       let reason = null;
       if (!source || source.state === 'REMOVED') reason = 'SOURCE_REMOVED';
       else if (source.id !== row.sourceRevisionId) reason = 'SOURCE_REVISION_CHANGED';
@@ -132,7 +132,7 @@ export class LoreRepresentationRegistry {
     const changed = [];
     for (const row of this.representations.values()) {
       if (row.state !== 'CURRENT') continue;
-      const source = sourceRegistry.currentRevision(row.sourceId, {allowMissing: true});
+      const source = sourceRegistry.currentRevisionState(row.sourceId);
       let reason = null;
       if (!source || source.state === 'REMOVED') reason = 'SOURCE_REMOVED';
       else if (source.id !== row.sourceRevisionId) reason = 'SOURCE_REVISION_CHANGED';

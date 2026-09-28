@@ -169,6 +169,15 @@ export class LoreSourceRegistry {
     return this.getRevision(entry.currentRevisionId);
   }
 
+  // Identity/state of the current revision without cloning its exact authored content. For hot loops
+  // that only compare ids or check REMOVED (freshness, corpus counts).
+  currentRevisionState(sourceId) {
+    const entry = this.entries.get(sourceId);
+    if (!entry || !entry.currentRevisionId) return null;
+    const revision = this.revisions.get(entry.currentRevisionId);
+    return revision ? {id: revision.id, sourceId: revision.sourceId, state: revision.state} : null;
+  }
+
   revisionHistory(sourceId) {
     const entry = this.entries.get(sourceId);
     if (!entry) return [];
@@ -293,12 +302,30 @@ export class LoreDerivedStore {
     return learned.artifactIds.map((id) => deepClone(this.artifacts.get(id))).filter(Boolean);
   }
 
+  // Same selection rule as currentArtifacts, counted without cloning any artifact.
+  countCurrentArtifacts(registry, {types = null, excludeSourceId = null} = {}) {
+    const allowed = types ? new Set(types) : null;
+    let count = 0;
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      if (excludeSourceId != null && sourceId === excludeSourceId) continue;
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      for (const id of learned.artifactIds) {
+        const artifact = this.artifacts.get(id);
+        if (artifact && (!allowed || allowed.has(artifact.artifactType))) count += 1;
+      }
+    }
+    return count;
+  }
+
   currentArtifacts(registry, {types = null} = {}) {
     const allowed = types ? new Set(types) : null;
     const rows = [];
     for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
       const learned = this.learnedRevisions.get(learnedId);
-      const sourceRevision = registry.currentRevision(sourceId, {allowMissing: true});
+      const sourceRevision = registry.currentRevisionState(sourceId);
       if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
       if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
       for (const id of learned.artifactIds) {

@@ -60,7 +60,7 @@ function sessionBindings({heapSupported=true,longTaskSupported=true,foreignDetai
       rawPromptCaptured:false,storyTextCaptured:false,credentialsCaptured:false,hiddenReasoningCaptured:false,
     }),
   };
-  return{bindings,secret,get enabled(){return enabled;}};
+  return{bindings,secret,detailed,get enabled(){return enabled;}};
 }
 
 function diagnosticsAdapter(session){
@@ -169,4 +169,13 @@ test('Worker 1 live session publishes profiler controls through UI bindings and 
   assert.equal(bindings.loadDiagnostics().generationProfiling.detailedEnabled,true);
   assert.equal(second.loadDiagnostics().generationProfiling.detailedEnabled,false);
   first.destroy();second.destroy();
+});
+
+
+test('Diagnostics exports bounded long-task intervals without browser attribution URLs',()=>{
+  const fixture=sessionBindings();
+  fixture.detailed.longTasks=[{startAt:1020,durationMs:75,phase:'PRE_INSERTION',name:'PRIVATE_URL'}];
+  const read=diagnosticsAdapter(fixture).read();
+  assert.equal(read.generationPerformance.detailed.longTasks[0].durationMs,75);
+  assert.doesNotMatch(JSON.stringify(read.generationPerformance),/PRIVATE_URL/);
 });

@@ -132,9 +132,12 @@ export class NativeGraphNeighborhoodRetriever{
 
   referenceSet(intent,context={}){
     const started=now(),request=this.#request(intent,context),edges=[],providerDiagnostics=[],staleEdges=[];
-    edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
+    if(request.anchorEntityIds.length)edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
     for(const provider of [...this.providers.values()].sort((a,b)=>a.providerId.localeCompare(b.providerId)).slice(0,this.limits.maxProviders)){
-      if(request.latencyBudgetMs>=0&&now()-started>=request.latencyBudgetMs){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_LATENCY_BUDGET',edgeCount:0});continue;}
+      if(!request.anchorEntityIds.length){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_NO_ENTITY_ANCHORS',edgeCount:0});continue;}
+      // Every registered synchronous owner query is count-bounded. Elapsed time
+      // is diagnostic: an earlier owner must not erase later owners' consideration.
+      if(request.latencyBudgetMs===0){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_LATENCY_BUDGET',edgeCount:0});continue;}
       try{
         const value=provider.query(clone({...request,kind:'CoreGraphQueryRequest',contractVersion:'1.0.0',graphMutationAuthority:false,truthAuthority:false,settlementAuthority:false}));
         if(value&&typeof value.then==='function')throw new Error('GRAPH_PROVIDER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
@@ -168,9 +171,12 @@ export class NativeGraphNeighborhoodRetriever{
 
   retrieve(intent,context={}){
     const started=now(),request=this.#request(intent,context),edges=[],providerDiagnostics=[],staleEdges=[],trustedSourceRevisionRefs=[];
-    edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
+    if(request.anchorEntityIds.length)edges.push(...this.#temporalEdges(request),...this.#sceneEdges(request));
     for(const provider of [...this.providers.values()].sort((a,b)=>a.providerId.localeCompare(b.providerId)).slice(0,this.limits.maxProviders)){
-      if(request.latencyBudgetMs>=0&&now()-started>=request.latencyBudgetMs){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_LATENCY_BUDGET',edgeCount:0});continue;}
+      if(!request.anchorEntityIds.length){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_NO_ENTITY_ANCHORS',edgeCount:0});continue;}
+      // Every registered synchronous owner query is count-bounded. Elapsed time
+      // is diagnostic: an earlier owner must not erase later owners' consideration.
+      if(request.latencyBudgetMs===0){providerDiagnostics.push({providerId:provider.providerId,status:'SKIPPED_LATENCY_BUDGET',edgeCount:0});continue;}
       try{
         const value=provider.query(clone({...request,kind:'CoreGraphQueryRequest',contractVersion:'1.0.0',graphMutationAuthority:false,truthAuthority:false,settlementAuthority:false}));
         if(value&&typeof value.then==='function')throw new Error('GRAPH_PROVIDER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
@@ -247,6 +253,8 @@ export class NativeGraphNeighborhoodRetriever{
       referenceSummary:traversed.rows.slice(0,32).map(row=>this.#referenceEdge(row)),
       boundedOut:{edges:traversed.boundedEdges,nodes:traversed.boundedNodes,candidates:traversed.boundedCandidates},
       limits:{maxDepth:request.maxDepth,maxNodes:request.maxNodes,maxEdges:request.maxEdges,maxCandidates:request.maxCandidates,latencyBudgetMs:request.latencyBudgetMs},
+      noWorkReason:!request.anchorEntityIds.length?'NO_ENTITY_ANCHORS':nominations.length?null:'NO_MATCHING_EDGES',
+      budgetPolicy:'COUNT_BOUNDED_OWNER_FAIR',
       elapsedMs,latencyBudgetExceeded:elapsedMs>=request.latencyBudgetMs&&request.latencyBudgetMs>=0,
       authority:{graphMutation:false,truth:false,settlement:false,contextSeal:false},
     };

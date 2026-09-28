@@ -35,6 +35,7 @@ export function createMemoryIntegrationSurface(producer) {
       consolidationWork:MEMORY_CONSOLIDATION_WORK_VERSION,
     },
     adapters:{
+      activeSourceRevisionRefs:()=>[...producer.graph.sourceRevisionState].filter(([,row])=>row?.state==='ACTIVE').map(([id])=>id),
       applyCoreSettlement:(envelope,options={})=>producer.applyCoreSettlement(envelope,options),
       applyMemoryNativeSettlement:(envelope)=>producer.applySettlement(envelope),
       admitExternalEvidenceMapping:(input)=>producer.admitExternalEvidenceMapping(input),

@@ -236,3 +236,24 @@ test('provider/network failure is retained as physical execution failure and nev
   assert.equal(failed.returned,false);
   assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===work.executionReceipt.workId),false);
 });
+
+
+test('configured HTTP Sidecar JSON observation reaches the actual Scene owner',async()=>{
+  const brain=new DevelopmentDeploymentBrain();let request=null;
+  brain.resourceConnections.fetchImpl=async(url,init)=>{
+    if(String(url).endsWith('/models'))return{ok:true,status:200,json:async()=>({data:[{id:'fixture-json'}]})};
+    request=JSON.parse(init.body);
+    return{ok:true,status:200,headers:{get:()=>null},json:async()=>({model:'fixture-json',choices:[{message:{content:JSON.stringify(VALID_PAYLOAD)},finish_reason:'stop'}],usage:{prompt_tokens:100,completion_tokens:80,total_tokens:180}})};
+  };
+  brain.optionalResources.actions.addResource({resourceId:'scene:http',kind:'OPENAI_COMPATIBLE',endpoint:'https://fixture.invalid',modelId:'fixture-json',apiKey:'fixture',capabilities:['STRUCTURED_EXTRACTION']});
+  await brain.optionalResources.actions.connectResource('scene:http');
+  const event=sceneEvent(brain,{chatId:'chat:http',content:'Mira studies the courier note at Greyharbor Observatory.'});
+  brain.ingestSceneHostEvent(event,{extract:()=>({})});
+  const work=await brain.runSceneObservationWork({chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,sourceRevisionId:event.sourceRevisionId,narrative:event.content,hostEvent:event});
+  await waitFor(()=>brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===work.executionReceipt.workId&&row.status==='ADMITTED'));
+  assert.deepEqual(request.response_format,{type:'json_object'});
+  assert.match(request.messages[0].content,/observationClass/);
+  const scene=brain.scene.registry.current(brain.scene.integrationSignal(event.chatId).sceneId);
+  assert.equal(scene.fields.location.value.location,'Greyharbor Observatory');
+  assert.ok(scene.fields.activeThreads.value.includes('courier-note'));
+});

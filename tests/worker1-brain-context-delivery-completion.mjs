@@ -171,7 +171,10 @@ test('ASSEMBLED_HOST_REQUEST: exact rendered roles, sections, seal identity, res
   assert.equal(completed.phases.providerResponse.generationId,selection.generationId);
   assert.equal(completed.phases.providerResponse.contextSealId,before.contextSealId);
   const generation=ui.readGeneration({generationId:selection.generationId,...selection});
-  assert.ok(['RESPONSE_COMPLETED','LEARNED'].includes(generation.state));
+  // Detailed profiling yields after persistence, so background learning can
+  // already publish its truthful deferred outcome before this read.
+  assert.ok(['RESPONSE_COMPLETED','LEARNED','LEARNING_DEFERRED'].includes(generation.state));
+  if(generation.state==='LEARNING_DEFERRED')assert.equal(generation.learningReceipt.learningLifecycle.status,'DEFERRED');
   assert.equal(generation.responseCompletion?.status,'COMPLETED');
   const detailed=session.loadDiagnostics().generationProfiling.latest;
   assert.equal(detailed.kind,'NativeGenerationDetailedPerformanceProfile');

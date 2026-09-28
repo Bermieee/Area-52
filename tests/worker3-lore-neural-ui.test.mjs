@@ -86,6 +86,9 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.equal(entryNodes.length,4);
   const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-artifact-node'));
   assert.equal(artifactNodes.length,1);
+  entryNodes[0].dispatch('pointerdown',{button:0,pointerId:17,clientX:300,clientY:300});
+  assert.ok(renderState.nodeDrag);assert.equal(renderState.panGesture,null);
+  entryNodes[0].dispatch('pointerup',{pointerId:17,clientX:300,clientY:300});
   entryNodes[0].dispatch('click');
   assert.equal(inspected.length,1);
   assert.equal(inspected[0].kind,'area52-lore-source-node');
@@ -158,6 +161,47 @@ test('cluster bubbles glow and zoom while Full Graph clears focus',()=>{
   assert.equal(state.focusHubId,null);assert.equal(state.selectedNodeId,null);assert.equal(refreshes.length,1);
 });
 
+test('dragging a Lore bubble moves it keeps live connections and persists without Lore mutation',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData(),original=JSON.stringify(data);
+  const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,scope:listenerScope()});
+  const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
+  const source=nodes.find(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(svg);assert.ok(source);
+  const id=source.attributes?.['data-node-id'];
+  const circle=source.children.find(child=>child.tagName==='CIRCLE'&&String(child.attributes?.class??'').includes('a52-lore-entry-node__body'));
+  const beforeX=Number(circle.attributes?.cx),beforeY=Number(circle.attributes?.cy);
+  const edge=nodes.find(x=>x.tagName==='PATH'&&(x.attributes?.['data-from-id']===id||x.attributes?.['data-to-id']===id));
+  assert.ok(edge);const beforePath=String(edge.attributes?.d);
+
+  source.dispatch('pointerdown',{button:0,pointerId:22,clientX:300,clientY:250});
+  assert.ok(state.nodeDrag);assert.equal(state.panGesture,null);
+  source.dispatch('pointermove',{pointerId:22,clientX:420,clientY:330});
+  source.dispatch('pointerup',{pointerId:22,clientX:420,clientY:330});
+  assert.equal(state.nodeDrag,null);
+  assert.ok(state.nodePositions[id]);
+  assert.notEqual(Number(circle.attributes?.cx),beforeX);
+  assert.notEqual(Number(circle.attributes?.cy),beforeY);
+  assert.notEqual(String(edge.attributes?.d),beforePath);
+  assert.equal(JSON.stringify(data),original);
+
+  source.dispatch('click');
+  assert.notEqual(state.selectedNodeId,id);
+  source.dispatch('click');
+  assert.equal(state.selectedNodeId,id);
+
+  const rerender=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,scope:listenerScope()});
+  const moved=walk(rerender).find(x=>x.attributes?.['data-node-id']===id);
+  const movedCircle=moved.children.find(child=>child.tagName==='CIRCLE'&&String(child.attributes?.class??'').includes('a52-lore-entry-node__body'));
+  assert.equal(Number(movedCircle.attributes?.cx),Number(state.nodePositions[id].x));
+  assert.equal(Number(movedCircle.attributes?.cy),Number(state.nodePositions[id].y));
+  assert.equal(JSON.stringify(data),original);
+
+  const reset=walk(rerender).find(x=>x.tagName==='BUTTON'&&x.textContent==='Reset Layout');
+  assert.ok(reset);reset.dispatch('click');
+  assert.deepEqual(state.nodePositions,{});
+});
+
 test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),refreshes=[];
   const data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
@@ -226,15 +270,15 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.ok(hubs.every(x=>x.attributes?.['data-state']==='STRUCTURE'));
   assert.deepEqual(hubs.map(x=>Number(x.attributes?.['data-wave'])),[0,1,2,3,4,5,6]);
   const hubDelays=hubs.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
-  assert.deepEqual([...new Set(hubDelays)],[1180]);
+  assert.deepEqual([...new Set(hubDelays)],[1750]);
   const trunkLinks=nodes.filter(x=>x.tagName==='PATH'&&x.attributes?.['data-from-id']==='core');
   assert.equal(trunkLinks.length,7);
   const trunkDelays=trunkLinks.map(x=>Number(String(x.attributes?.style??'').match(/--a52-link-delay:(\d+)ms/)?.[1]??-1));
-  assert.deepEqual([...new Set(trunkDelays)],[420]);
+  assert.deepEqual([...new Set(trunkDelays)],[650]);
   const sourceDelays=sourceNodes.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
-  assert.ok(Math.min(...sourceDelays)>=2050);
-  assert.ok(Math.max(...sourceDelays)>=2700);
-  assert.ok(Math.max(...sourceDelays)-Math.min(...sourceDelays)>=650);
+  assert.ok(Math.min(...sourceDelays)>=3200);
+  assert.ok(Math.max(...sourceDelays)>=4100);
+  assert.ok(Math.max(...sourceDelays)-Math.min(...sourceDelays)>=900);
   assert.ok(sourceNodes.every(x=>x.attributes?.['data-state']==='READY'));
   assert.equal(sourceNodes.length,54);
   assert.equal(artifactNodes.length,1);
@@ -448,14 +492,14 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/beginElementAt/);
   assert.match(js,/attributeName:'stroke-dashoffset'/);
   assert.match(js,/attributeName:'r'/);
-  assert.match(js,/CENTER_TRUNK_START_MS=420/);
-  assert.match(js,/HUB_BLOOM_START_MS=1180/);
-  assert.match(js,/SOURCE_INNER_START_MS=2050/);
-  assert.match(js,/SOURCE_RING_GAP_MS=650/);
+  assert.match(js,/CENTER_TRUNK_START_MS=650/);
+  assert.match(js,/HUB_BLOOM_START_MS=1750/);
+  assert.match(js,/SOURCE_INNER_START_MS=3200/);
+  assert.match(js,/SOURCE_RING_GAP_MS=900/);
   assert.doesNotMatch(js,/index\*INITIAL_WAVE_SPACING_MS/);
-  assert.match(js,/dur:1150/);
-  assert.match(js,/dur:980/);
-  assert.match(js,/dur:760/);
+  assert.match(js,/dur:1500/);
+  assert.match(js,/dur:1250/);
+  assert.match(js,/dur:950/);
   assert.match(css,/has-native-reveal/);
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);

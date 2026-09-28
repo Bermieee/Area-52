@@ -110,7 +110,7 @@ test('Worker 2 #39: quality rejection is bounded while omission, missing evidenc
   const quality=batchFor({
     selection:{chatId:'chat:feedback',turnId:'quality',generationId:'quality:g',correlationId:'quality:c'},
     candidates:[baseCandidate],
-    truthResults:[{candidateId:baseCandidate.candidateId,usableForIntent:false,classification:'UNRESOLVED',reasons:['claim-missing-or-invalid']}],
+    truthResults:[{candidateId:baseCandidate.candidateId,usableForIntent:false,classification:'UNRESOLVED',reasons:['relevance-below-admission-floor']}],
   });
   assert.equal(quality.outcomes[0].signal,'REJECTED');
   const rejectedBefore=memory.plasticity.record(ep.id,ep.revision).rejectedUses;
@@ -255,8 +255,8 @@ test('Worker 2 #39: installed Brain schedules exact Memory feedback after respon
 
   const selected=brain.uiBindings().readSelectedTurnReceipt(prepared.selection);
   assert.equal(selected.memoryRetrievalFeedback.status,'COMPLETED');
-  assert.equal(selected.producers.memoryRetrievalFeedback.metadata.supportAdded,false);
-  assert.equal(selected.producers.memoryRetrievalFeedback.metadata.deliveryKnown,false);
+  assert.equal(selected.producers.memoryRetrievalFeedback.supportAdded,false);
+  assert.equal(selected.producers.memoryRetrievalFeedback.deliveryKnown,false);
 
   const brainSnapshot=brain.snapshot(),memorySnapshot=memory.snapshot(),acceptedUses=after.acceptedUses;
   memory=MemoryTemporalProducer.fromSnapshot(memorySnapshot);

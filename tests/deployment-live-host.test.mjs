@@ -550,3 +550,26 @@ test('two unrelated live stories satisfy the live gate without scripted mode cov
   assert.equal(evidence.liveEvidenceComplete, false);
   session.destroy();
 });
+
+
+test('detailed profile begins before Scene admission and includes checkpoint persistence',async()=>{
+  const old=globalThis.performance;let heap=100;
+  Object.defineProperty(globalThis,'performance',{configurable:true,value:{now:()=>Date.now(),memory:{get usedJSHeapSize(){return heap;}}}});
+  const {sillyTavern,context}=makeHost(),nativeBrain=fakeNativeBrain();
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,persistNativeBrain:async()=>{setTimeout(()=>{heap=300;},0);assert.equal(session.nativePending.size,0);}});
+  try{
+    session.setDetailedGenerationProfiling(true);
+    const original=session.brain.ingestSceneHostEvent.bind(session.brain);
+    session.brain.ingestSceneHostEvent=(...args)=>{heap=200;return original(...args);};
+    pushUser(context,'At Moonlit Observatory, Ilya enters.');
+    await session.prepareNativeGeneration();
+    await session.injectNativeModelRequest({chat:[{role:'user',content:'Hello'}],dryRun:false});
+    const index=pushAssistant(context,'Ilya examines the lantern.');
+    await session.completeNativeGeneration({messageIndex:index});
+    const profile=session.nativePerformance.at(-1);
+    assert.equal(profile.start.heapBytes,100);
+    assert.equal(profile.end.heapBytes,300);
+    assert.equal(profile.checkpointPersistence.status,'PERSISTED');
+    assert.ok(profile.checkpointPersistence.wallMs>=0);
+  }finally{session.stop();Object.defineProperty(globalThis,'performance',{configurable:true,value:old});}
+});

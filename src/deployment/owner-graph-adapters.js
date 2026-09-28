@@ -15,6 +15,7 @@ function currentMemoryRevisionSet(memoryInterface){
   const refs=new Set();
   try{
     const adapters=memoryInterface?.adapters??memoryInterface;
+    if(typeof adapters?.activeSourceRevisionRefs==='function')return new Set(adapters.activeSourceRevisionRefs().map(String));
     const snapshot=typeof adapters?.snapshot==='function'?adapters.snapshot():null;
     for(const [revisionId,state] of snapshot?.graph?.sourceRevisionState??[]){
       if(state?.state==='ACTIVE')refs.add(String(revisionId));
@@ -118,7 +119,9 @@ export function createLoreOwnerGraphProvider(loreInterface){
     owner:'LORE_INTELLIGENCE',
     semanticsVersion:'LORE_OWNER_GRAPH_V1',
     metadata:{sourceKind:'LORE_OWNER',authority:'REFERENCE_ONLY'},
-    isRevisionCurrent:(revisionId)=>(queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(String(revisionId)),
+    isRevisionCurrent:(revisionId)=>typeof loreInterface?.isSourceRevisionCurrent==='function'
+      ? Boolean(loreInterface.isSourceRevisionCurrent(String(revisionId)))
+      : (queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(String(revisionId)),
     query(request={}){
       queryRevisionSet=null;
       try{

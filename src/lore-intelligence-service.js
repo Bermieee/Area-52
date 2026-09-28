@@ -832,6 +832,10 @@ export class LoreIntelligenceService {
       storyScope: (chatId) => this.storyAuthority.scopeReceipt(chatId),
       summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
+      isSourceRevisionCurrent: (revisionId) => {
+        const registry=this.runtime.registry,revision=registry.revisions.get(revisionId);
+        return Boolean(revision&&!registry.entries.get(revision.sourceId)?.removed&&registry.isCurrentRevision(revisionId));
+      },
     });
   }
 

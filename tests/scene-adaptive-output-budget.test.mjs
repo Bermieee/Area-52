@@ -116,10 +116,23 @@ test('real OpenAI-compatible Scene request and strict response normalization agr
   const normalized=SceneObservationSpecialist.normalize(invocation.text);
   assert.equal(requestBody.model,'glm-scene-fixture');
   assert.equal(requestBody.max_tokens,2048);
+  assert.deepEqual(requestBody.response_format,{type:'json_object'});
   assert.match(requestBody.messages[0].content,/strict JSON/i);
   assert.match(requestBody.messages[1].content,/UNTRUSTED_SCENE_EVIDENCE_JSON/);
   assert.match(requestBody.messages[1].content,/Mira studies the sealed note/);
   assert.equal(normalized.fields.location.value.location,'Glass Dome');
   assert.equal(normalized.fields.location.observationClass,'OBSERVED');
   assert.equal(invocation.metadata.requestId,'request-1');
+});
+
+
+test('malformed Scene JSON retains completion diagnostics without retaining response text',async()=>{
+  const f=fixture({handler:async()=>({text:'PRIVATE_INVALID_OUTPUT',finishReason:'length',usage:{completion_tokens:99},metadata:{},latencyMs:1})});
+  await assert.rejects(f.layer.execute(task('Mara enters.'),{input:input('Mara enters.')}),error=>{
+    assert.equal(error.code,'MALFORMED_OUTPUT');
+    assert.equal(error.details.responseMetadata.finishReason,'length');
+    assert.equal(error.details.generationBudget.policy,'ADAPTIVE_SCENE');
+    assert.doesNotMatch(JSON.stringify(error.details),/PRIVATE_INVALID_OUTPUT/);
+    return true;
+  });
 });

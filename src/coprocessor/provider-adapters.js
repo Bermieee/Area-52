@@ -156,6 +156,7 @@ export class OpenAICompatibleProviderAdapter {
     try{
       const messages=normalizeMessages(input);
       const body={model:this.modelId,messages};
+      if(input?.responseFormat?.type==='json_object')body.response_format={type:'json_object'};
       if(temperature!=null&&Number.isFinite(Number(temperature)))body.temperature=Number(temperature);
       const limit=maxOutputTokens??this.outputLimit;if(Number.isFinite(Number(limit))&&Number(limit)>0&&Number(limit)<Number.MAX_SAFE_INTEGER)body.max_tokens=Math.trunc(Number(limit));
       const response=await providerFetch(this.fetchImpl,`${this.endpoint}/chat/completions`,{

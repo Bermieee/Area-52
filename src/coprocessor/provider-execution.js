@@ -56,7 +56,11 @@ export class SpecialistExecutionLayer {
     }
     const validationStarted=Date.now();let payload;
     try{payload=specialist.normalize(invocation.text,{input:input??{},task,providerInput});}
-    catch(error){throw executionError(error?.code??FailureCode.SCHEMA_INVALID,error?.message??String(error),{cause:error,providerId:profile.providerId});}
+    catch(error){
+      const failure=executionError(error?.code??FailureCode.SCHEMA_INVALID,error?.message??String(error),{cause:error,providerId:profile.providerId});
+      failure.details={generationBudget:sceneBudget,responseMetadata:{finishReason:invocation.finishReason??null,contentType:typeof invocation.text,promptTokens:invocation.usage?.prompt_tokens??null,completionTokens:invocation.usage?.completion_tokens??null,totalTokens:invocation.usage?.total_tokens??null},validationStage:'SPECIALIST_NORMALIZATION'};
+      throw failure;
+    }
     const validationLatency=Math.max(0,Date.now()-validationStarted);
     const actualModelId=invocation.modelId??profile.modelId;
     const measurementClass=invocation.metadata?.measurementClass??adapter.measurementClass??profile.profileMetadata?.measurementClass??null;

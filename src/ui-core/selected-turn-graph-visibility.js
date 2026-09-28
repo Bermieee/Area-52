@@ -59,7 +59,7 @@ export class SelectedTurnGraphVisibilityAdapter{
       :zeroWork?'ZERO_WORK'
       :degraded?'DEGRADED':'READY';
     const reason=state==='ZERO_WORK'
-      ?'Graph traversal executed for this exact selected turn but published no traversed edge, nomination, or stale rejection.'
+      ?(traversal?.noWorkReason==='NO_ENTITY_ANCHORS'?'The selected retrieval intent supplied no entity anchors; no graph neighborhood could be traversed.':'Graph traversal executed for this exact selected turn but published no traversed edge, nomination, or stale rejection.')
       :state==='UNAVAILABLE'
         ?'The host assembly does not export GraphTraversalReceipt or selected-turn worldGraphReferences readers.'
         :state==='NO_EVIDENCE'
@@ -74,6 +74,7 @@ export class SelectedTurnGraphVisibilityAdapter{
       generationTraversal:traversal?{
         kind:text(traversal.kind),contractVersion:text(traversal.contractVersion),intentId:text(traversal.intentId),traversedEdgeCount:traversedCount,
         visitedNodeCount:Number(traversal.visitedNodeCount??0),examinedEdgeCount:Number(traversal.examinedEdgeCount??0),nominationCount,
+        noWorkReason:text(traversal.noWorkReason),budgetPolicy:text(traversal.budgetPolicy),elapsedMs:Number(traversal.elapsedMs??0),latencyBudgetExceeded:Boolean(traversal.latencyBudgetExceeded),
         staleRejectedCount:Number(traversal.staleRejectedCount??0),providers,limits:clone(traversal.limits??null),boundedOut:clone(traversal.boundedOut??null),
         authority:clone(traversal.authority??null),evidenceClass:'GENERATION_TIME_RECEIPT',
       }:null,

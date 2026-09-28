@@ -653,7 +653,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
-    this.destroyed=false;this.hostListenerCount=0;this.notifyScheduled=false;this.notifyHandle=null;this.longTaskObserver=null;
+    this.destroyed=false;this.hostListenerCount=0;this.notifyScheduled=false;this.notifyHandle=null;this.longTaskObserver=null;this.longTaskEntries=[];
     this.loadMetrics={notifyRequested:0,notifyDelivered:0,notifyCoalesced:0,notifyTotalMs:0,notifyMaxMs:0,lastNotifyMs:0,longTaskCount:0,longTaskTotalMs:0,longTaskMaxMs:0,heapMinBytes:null,heapMaxBytes:null,heapLastBytes:null};
     this.release = null;
     this.processing = null;
@@ -801,6 +801,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!message)throw new Error('No current SillyTavern user message is available for native Brain preparation');
     if(!chatId)throw new Error('SillyTavern chatId is unavailable');
     if(this.nativeRuns.has(chatId))throw new Error('A native Brain generation is already pending for this selected chat');
+    const hostPrepareStarted=perfNow(),profileStart=this.#generationProfileSample();
     const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
     const correlationId='corr:'+turnId,causationId='host-narrative:'+source.sourceRevisionId;
@@ -826,7 +827,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
-    const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted:perfNow(),profileStart:this.#generationProfileSample(),profileAfterInsertion:null};
+    const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted,profileStart,profileAfterInsertion:null};
     this.nativeRuns.set(chatId,run);
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
       chatId,turnId,generationId,correlationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,
@@ -945,6 +946,13 @@ export class DevelopmentDeploymentSillyTavernSession {
         semanticObservation:clone(postResponseScene.semanticObservation??null),rawNarrativeIncluded:false,
       }:null,
     };
+    this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    const checkpointStarted=perfNow(),checkpointStart=this.#generationProfileSample();
+    const checkpointReceipt=await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
+    const checkpointWallMs=Math.max(0,perfNow()-checkpointStarted);
+    // Long Tasks are published after the current browser task ends. Sampling
+    // in the persistence microtask would omit synchronous checkpoint stalls.
+    if(this.detailedGenerationProfiling)await new Promise(resolve=>setTimeout(resolve,0));
     const profileEnd=this.#generationProfileSample();
     if(run.profileStart||run.profileAfterInsertion||profileEnd){
       const start=run.profileStart,end=profileEnd;
@@ -952,6 +960,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       pushBounded(this.nativePerformance,{
         kind:'NativeGenerationDetailedPerformanceProfile',chatId,turnId:pending.turnId,generationId:pending.generationId,correlationId:pending.correlationId,
         start,afterInsertion:run.profileAfterInsertion,end:profileEnd,providerLatencyMs,
+        checkpointPersistence:{status:checkpointReceipt.status,wallMs:checkpointWallMs,startAt:checkpointStart?.at??null,endAt:profileEnd?.at??null,heapDeltaBytes:checkpointStart&&profileEnd?profileEnd.heapBytes-checkpointStart.heapBytes:null},
+        longTasks:this.longTaskEntries.filter(row=>row.startAt>=start?.at&&row.startAt<=end?.at).slice(-64).map(row=>({...row,phase:row.startAt>=(checkpointStart?.at??Infinity)?'CHECKPOINT_PERSISTENCE':row.startAt<(run.profileAfterInsertion?.at??end?.at)?'PRE_INSERTION':'PROVIDER_WAIT_OR_LEARNING'})),
         deltas:{
           heapBytes:delta(start?.heapBytes,end?.heapBytes),
           longTaskCount:delta(start?.longTaskCount,end?.longTaskCount),
@@ -962,8 +972,6 @@ export class DevelopmentDeploymentSillyTavernSession {
         rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       },SESSION_BOUNDS.nativePerformance);
     }
-    this.nativePending.delete(chatId);this.nativePayloads.delete(chatId);this.nativeRuns.delete(chatId);this.nativeHistory.push(clone(completed));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
-    await this.#persistNativeBrainCheckpoint({chatId,turnId:pending.turnId,generationId:pending.generationId});
     this.#notify();return clone(completed);
   }
 
@@ -1550,6 +1558,7 @@ export class DevelopmentDeploymentSillyTavernSession {
 
   #generationProfileSample(){
     if(!this.detailedGenerationProfiling)return null;
+    this.#recordLongTasks(this.longTaskObserver?.takeRecords?.()??[]);
     const heap=Number(globalThis.performance?.memory?.usedJSHeapSize);
     return{
       at:Date.now(),heapBytes:Number.isFinite(heap)?heap:null,
@@ -1565,10 +1574,21 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(this.longTaskObserver||typeof globalThis.PerformanceObserver!=='function'||!globalThis.PerformanceObserver.supportedEntryTypes?.includes?.('longtask'))return;
     try{
       this.longTaskObserver=new globalThis.PerformanceObserver((list)=>{
-        for(const row of list.getEntries?.()??[]){const duration=Number(row.duration)||0;this.loadMetrics.longTaskCount+=1;this.loadMetrics.longTaskTotalMs+=duration;this.loadMetrics.longTaskMaxMs=Math.max(this.loadMetrics.longTaskMaxMs,duration);}
+        this.#recordLongTasks(list.getEntries?.()??[]);
       });
       this.longTaskObserver.observe({type:'longtask',buffered:true});
     }catch{this.longTaskObserver=null;}
+  }
+
+  #recordLongTasks(rows){
+    for(const row of rows){
+      const duration=Number(row.duration)||0;
+      this.loadMetrics.longTaskCount+=1;this.loadMetrics.longTaskTotalMs+=duration;this.loadMetrics.longTaskMaxMs=Math.max(this.loadMetrics.longTaskMaxMs,duration);
+      if(this.detailedGenerationProfiling){
+        const origin=Number(globalThis.performance?.timeOrigin);
+        if(Number.isFinite(origin)&&Number.isFinite(Number(row.startTime)))pushBounded(this.longTaskEntries,{startAt:origin+Number(row.startTime),durationMs:duration},64);
+      }
+    }
   }
 
   #stopLoadObserver(){try{this.longTaskObserver?.disconnect?.();}catch{}this.longTaskObserver=null;}

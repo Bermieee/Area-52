@@ -1030,6 +1030,8 @@ export class Wave13DiagnosticsCenterAdapter{
       kind:'NativeGenerationDetailedPerformanceProfile',
       chatId:detailed.chatId??null,turnId:detailed.turnId??null,generationId:detailed.generationId??null,correlationId:detailed.correlationId??null,
       providerLatencyMs:finiteOrNull(detailed.providerLatencyMs),start,afterInsertion,end,
+      checkpointPersistence:detailed.checkpointPersistence?{status:String(detailed.checkpointPersistence.status??'UNKNOWN').slice(0,32),wallMs:finiteOrNull(detailed.checkpointPersistence.wallMs),startAt:finiteOrNull(detailed.checkpointPersistence.startAt),endAt:finiteOrNull(detailed.checkpointPersistence.endAt),heapDeltaBytes:heapSupported?finiteOrNull(detailed.checkpointPersistence.heapDeltaBytes):null}:null,
+      longTasks:(Array.isArray(detailed.longTasks)?detailed.longTasks:[]).slice(-64).map(row=>({startAt:finiteOrNull(row.startAt),durationMs:finiteOrNull(row.durationMs),phase:['PRE_INSERTION','PROVIDER_WAIT_OR_LEARNING','CHECKPOINT_PERSISTENCE'].includes(row.phase)?row.phase:'UNATTRIBUTED'})),
       phases:{preGenerationToHostInsertion:phaseDelta(start,afterInsertion),hostInsertionToLearningComplete:phaseDelta(afterInsertion,end),overall:phaseDelta(start,end)},
       deltas:{
         heapBytes:heapSupported?finiteOrNull(detailed.deltas?.heapBytes):null,

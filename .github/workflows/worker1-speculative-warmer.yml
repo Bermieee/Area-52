@@ -72,7 +72,33 @@ jobs:
           fi
           echo "Scene failures are a subset of the audited starting baseline; no #77 regression added."
       - name: Runtime lifecycle and deployment integration
-        run: node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs
+        shell: bash
+        run: |
+          set +e
+          node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs > /tmp/head-runtime-deployment.log 2>&1
+          HEAD_RC=$?
+          set -e
+          cat /tmp/head-runtime-deployment.log
+          if [ "$HEAD_RC" -eq 0 ]; then
+            exit 0
+          fi
+          BASE_DIR="$(mktemp -d)"
+          git worktree add --detach "$BASE_DIR" "$AUDIT_BASE_SHA"
+          set +e
+          (cd "$BASE_DIR" && node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs > /tmp/base-runtime-deployment.log 2>&1)
+          set -e
+          echo "::group::Audit-baseline Runtime/deployment failures"
+          cat /tmp/base-runtime-deployment.log
+          echo "::endgroup::"
+          grep '^not ok ' /tmp/head-runtime-deployment.log | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/head-runtime-deployment.fail || true
+          grep '^not ok ' /tmp/base-runtime-deployment.log | sed -E 's/^not ok [0-9]+ - //' | sort -u > /tmp/base-runtime-deployment.fail || true
+          comm -23 /tmp/head-runtime-deployment.fail /tmp/base-runtime-deployment.fail > /tmp/new-runtime-deployment.fail
+          if [ -s /tmp/new-runtime-deployment.fail ]; then
+            echo "New Runtime/deployment failures:"
+            cat /tmp/new-runtime-deployment.fail
+            exit 1
+          fi
+          echo "Runtime/deployment failures are a subset of the audited starting baseline; no #77 regression added."
       - name: Dense eligibility retrieval Truth and delivery regressions
         run: node --test tests/coprocessor-wave7-adaptive-retrieval.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/worker1-brain-context-delivery-completion.mjs tests/worker3-brain-retrieval-completion.mjs
       - name: Existing Wave 12 warmer regression

@@ -205,3 +205,56 @@ test('Worker 2: no eligible Scene lifecycle event produces no installed Memory o
   assert.equal(tasks.length,0);
   assert.equal(brain.diagnostics().sceneMemory.experiencePersisted,0);
 });
+
+
+test('Worker 2: historical Scene Memory stays bound to its originating story across a chat switch',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const {ready}=finalizedEpisode(brain,{chatId:'worker2-origin-story',suffix:'switch'});
+  brain.ingestSceneHostEvent(hostEvent({
+    chatId:'worker2-foreign-story',id:'switch',activity:HostActivity.CHAT_SWITCH,content:'',
+    turnId:'turn:switch:foreign',generationId:'gen:switch:foreign',
+  }),{extract:()=>({fields:{}})});
+  await brain.runtimeDirector.drain({maxCycles:128});
+
+  const persisted=brain.readSceneMemoryLifecycleReceipts({limit:256}).find(row=>
+    row.eventId===ready.eventId&&row.stage==='EXPERIENCE_PERSISTED'&&row.status==='PERSISTED'
+  );
+  assert.ok(persisted,'historical work may complete after the operator switches chats');
+  const episode=brain.memory.experienceStore.artifact(persisted.memoryEpisodeId);
+  assert.equal(episode.chatId,'worker2-origin-story');
+  assert.equal(brain.memory.readMemoryUi({chatId:'worker2-foreign-story'}).episodes.length,0,'background Scene work must never cross-admit into the newly active story');
+});
+
+test('Worker 2: source edit or delete before historical execution prevents stale Episode admission',async()=>{
+  for(const mode of [HostActivity.EDIT,HostActivity.DELETE]){
+    const suffix=mode===HostActivity.EDIT?'preexec-edit':'preexec-delete';
+    const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+    const {start,ready}=finalizedEpisode(brain,{suffix});
+    const mutation=brain.ingestSceneHostEvent(hostEvent({
+      chatId:ready.chatId,id:'start-'+suffix,revision:2,activity:mode,
+      content:mode===HostActivity.DELETE?'':'At North Gallery, Mara enters after the brass astrolabe was removed.',
+      turnId:'turn:'+suffix+':mutation',generationId:'gen:'+suffix+':mutation',
+    }),{extract:()=>({fields:{}})});
+    assert.ok(mutation.invalidatedSourceRevisionRefs.includes(start.evidence.sourceRevisionId));
+    await brain.runtimeDirector.drain({maxCycles:128});
+
+    assert.equal(
+      brain.readSceneMemoryLifecycleReceipts({limit:256}).some(row=>
+        row.eventId===ready.eventId&&row.stage==='EXPERIENCE_PERSISTED'&&row.status==='PERSISTED'
+      ),
+      false,
+      mode+' must not admit the superseded finalized Episode',
+    );
+    assert.equal(
+      brain.memory.experienceStore.currentEpisodes({freshOnly:true}).some(row=>row.sceneId===ready.sceneId),
+      false,
+      mode+' must leave no fresh durable Scene episode for the invalidated source',
+    );
+    assert.ok(brain.readSceneEventObligationReceipts({limit:256}).some(row=>
+      row.producerId==='MEMORY_SCENE_LIFECYCLE_OWNER'
+      &&row.eventId===ready.eventId
+      &&row.status==='REJECTED'
+      &&String(row.reasonCode).endsWith(':BEFORE_EXECUTION')
+    ));
+  }
+});

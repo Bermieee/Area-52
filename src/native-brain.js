@@ -187,6 +187,7 @@ export class Area52NativeBrain{
     this.turnSequence=Number(snapshot?.turnSequence??0);
     this.runtimeResults=clone(snapshot?.runtimeResults??[]).slice(-128);
     this.listeners=new Set();
+    this.backgroundDrainPromise=null;
 
     for(const [chatId,signal] of this.sceneSignals){
       this.core.activateHotCognitionChat(chatId,{reason:'IMPORT_OR_RELOAD'});
@@ -667,14 +668,21 @@ export class Area52NativeBrain{
     this.#notify('PROVIDER_RESPONSE_RECEIVED',record);
     const learningStarted=perfNow();
     const learning=await this.completeTurn({turnId:input.turnId,response,...completeOptions});
-    this.#appendPerformanceStage(record,{stage:'LEARNING',wallMs:Math.max(0,perfNow()-learningStarted),queueWaitMs:0,inputCount:1,outputCount:learning?1:0,outcome:learning?'COMPLETED':'NO_RECEIPT'});
-    return{prepared,response,learning};
+    const foregroundCompletionMs=Math.max(0,perfNow()-learningStarted);
+    this.#appendPerformanceStage(record,{stage:'LEARNING',wallMs:foregroundCompletionMs,queueWaitMs:0,inputCount:1,outputCount:learning?1:0,outcome:learning?.learningLifecycle?.status??(learning?'COMPLETED':'NO_RECEIPT')});
+    if(completeOptions?.autoDrain===false)this.startBackgroundLearning({maxCycles:128});
+    return{prepared,response,completion:clone(record.responseCompletionReceipt??null),learning};
   }
 
   async completeTurn({turnId,response,knownBy=[],observations=[],reflections=[],autoDrain=true}={}){
+    const completionStarted=perfNow();
     const id=req(turnId,'turnId'),text=req(response,'response'),record=this.turns.get(id);
     if(!record)throw new Error('Unknown native Brain turn: '+id);
-    if(record.state==='LEARNED')return clone(record.learningReceipt);
+    if(record.responseCompletionReceipt){
+      if(record.response!==text)throw new Error('DUPLICATE_RESPONSE_MISMATCH:'+id);
+      if(autoDrain)await this.drainBackgroundLearning({maxCycles:128});
+      return clone(this.#refreshLearningLifecycle(record)??record.learningReceipt);
+    }
 
     const experience=this.knowledge.admitExperience({
       sourceId:'narrative:'+record.chatId+':'+id+':assistant',
@@ -712,32 +720,98 @@ export class Area52NativeBrain{
     }
 
     record.response=text;record.experience=clone(experience);record.settlements=clone(settlements);record.reflections=clone(reflectionRows);
-    record.state='OBSERVED';
+    record.state='RESPONSE_ACCEPTED';
     this.runtimeDirector.completeGeneration({turnId:id,correlationId:record.correlationId,generationId:record.generationId});
     const feedbackTask=this.#scheduleFeedback(id,experience.sourceRevisionId);
     const memoryTask=this.#scheduleMemoryPostTurn(record,experience,memoryWriteback,{knownBy,reflections,memoryExpectedId});
-    if(autoDrain)await this.runtimeDirector.drain({maxCycles:128});
-    const latest=this.turns.get(id);
     const feedbackTaskId=feedbackTask?.task?.taskId??null;
     const memoryTaskId=memoryTask?.task?.taskId??null;
-    if(feedbackTaskId&&latest.feedback){
-      const feedbackReceiptId=latest.feedback.receiptId??latest.feedback.id??latest.feedback.kind??('feedback:'+id);
-      this.runtimeDirector.recordOwnerAdmission(feedbackTaskId,{accepted:true,receiptId:feedbackReceiptId,consumerId:'COGNITIVE_CORE'});
-    }
-    latest.state='LEARNED';
-    latest.learningReceipt={
+    record.feedbackRuntimeTaskId=feedbackTaskId;
+    record.memoryRuntimeTaskId=memoryTaskId;
+    record.responseCompletionReceipt={
+      kind:'NativeBrainResponseCompletionReceipt',contractVersion:1,status:'COMPLETED',
+      chatId:record.chatId,turnId:id,generationId:record.generationId,correlationId:record.correlationId,
+      contextSealId:record.published?.sealReceipt?.id??null,sourceRevisionId:experience.sourceRevisionId,
+      foregroundWaitMs:Math.max(0,perfNow()-completionStarted),
+      boundedOwnerAcknowledgement:{memoryWritebackStatus:memoryWriteback?.status??'NO_EVIDENCE',memoryOwnerAccepted:['ADMITTED','REPLAYED'].includes(String(memoryWriteback?.status??'').toUpperCase()),settlementCount:settlements.length},
+      learningScheduled:Boolean(feedbackTaskId||memoryTaskId),feedbackRuntimeTaskId:feedbackTaskId,memoryRuntimeTaskId:memoryTaskId,
+      responseRecordedBeforeBackgroundExecution:true,sealedGenerationImmutable:true,
+      rawResponseIncluded:false,rawPromptIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+    };
+    record.learningReceipt={
       kind:'NativeBrainLearningReceipt',turnId:id,experienceId:experience.evidenceId,sourceRevisionId:experience.sourceRevisionId,
       settlementDecisions:settlements.map(x=>x?.decision?.decision??'REJECTED'),
       reflectionEvidenceIds:reflectionRows.map(x=>x.evidenceId),
-      feedback:clone(latest.feedback),runtimeTaskId:feedbackTaskId,memoryRuntimeTaskId:memoryTaskId,
-      memoryWriteback:clone(memoryWriteback),memoryPostTurn:clone(latest.memoryPostTurn??null),
-      memoryConsolidation:clone(latest.memoryConsolidation??null),memoryConsolidationRuntimeTaskId:latest.memoryConsolidationRuntimeTaskId??null,
-      memorySettlementReceipts:clone(memorySettlementReceipts),
+      feedback:clone(record.feedback),runtimeTaskId:feedbackTaskId,memoryRuntimeTaskId:memoryTaskId,
+      memoryWriteback:clone(memoryWriteback),memoryPostTurn:clone(record.memoryPostTurn??null),
+      memoryConsolidation:clone(record.memoryConsolidation??null),memoryConsolidationRuntimeTaskId:record.memoryConsolidationRuntimeTaskId??null,
+      memorySettlementReceipts:clone(memorySettlementReceipts),responseCompletion:clone(record.responseCompletionReceipt),
+      learningLifecycle:{status:(feedbackTaskId||memoryTaskId)?'SCHEDULED':'ACCEPTED',backgroundPending:Boolean(feedbackTaskId||memoryTaskId),tasks:[],backgroundExecutionMs:null},
       rawExperienceRecoverable:Boolean(this.core.registry.getRevision(experience.sourceRevisionId)?.exactContent===text),
-      canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
+      sealedGenerationImmutable:true,canonicalMutationAuthority:'CORE_SETTLEMENT_ONLY',
     };
-    this.#notify('TURN_LEARNED',latest);
-    return clone(latest.learningReceipt);
+    this.#refreshLearningLifecycle(record);
+    this.#notify('TURN_RESPONSE_COMPLETED',record);
+    if(autoDrain)await this.drainBackgroundLearning({maxCycles:128});
+    return clone(this.#refreshLearningLifecycle(record)??record.learningReceipt);
+  }
+
+  startBackgroundLearning({maxCycles=128}={}){
+    void this.drainBackgroundLearning({maxCycles}).catch(()=>{});
+    return{kind:'NativeBrainBackgroundLearningStartReceipt',status:'SCHEDULED',maxCycles:Number(maxCycles)||128,existingRuntime:true,newQueueCreated:false};
+  }
+
+  async drainBackgroundLearning({maxCycles=128}={}){
+    if(this.backgroundDrainPromise)return this.backgroundDrainPromise;
+    const run=(async()=>{
+      const started=perfNow();
+      const result=await this.runtimeDirector.drain({maxCycles});
+      for(const row of this.turns.values())if(row?.responseCompletionReceipt)this.#refreshLearningLifecycle(row);
+      return{kind:'NativeBrainBackgroundDrainReceipt',...result,backgroundExecutionMs:Math.max(0,perfNow()-started),existingRuntime:true};
+    })();
+    this.backgroundDrainPromise=run;
+    try{return await run;}finally{if(this.backgroundDrainPromise===run)this.backgroundDrainPromise=null;}
+  }
+
+  #recordTaskOwnerDecision(taskId,{accepted,receiptId=null,reasonCode=null,consumerId=null,durationMs=null}={}){
+    if(!taskId)return null;
+    const task=this.runtimeDirector.ledger.get(taskId);
+    if(!task)return null;
+    const existing=(task.causalReceipts??[]).find(row=>[CausalReceiptKind.OWNER_ADMISSION,CausalReceiptKind.OWNER_REJECTED].includes(row?.kind));
+    if(existing)return existing;
+    return this.runtimeDirector.recordOwnerAdmission(taskId,{accepted:Boolean(accepted),receiptId,reasonCode,consumerId,durationMs});
+  }
+
+  #refreshLearningLifecycle(record){
+    if(!record?.learningReceipt||!record?.responseCompletionReceipt)return record?.learningReceipt??null;
+    const ids=uniq([record.feedbackRuntimeTaskId,record.memoryRuntimeTaskId,record.memoryConsolidationRuntimeTaskId]);
+    const tasks=ids.map(taskId=>this.runtimeDirector.ledger.get(taskId)).filter(Boolean).map(task=>{
+      const owner=(task.causalReceipts??[]).slice().reverse().find(row=>[CausalReceiptKind.OWNER_ADMISSION,CausalReceiptKind.OWNER_REJECTED].includes(row?.kind))??null;
+      const returned=(task.causalReceipts??[]).slice().reverse().find(row=>[CausalReceiptKind.RESULT_RETURNED,CausalReceiptKind.RESULT_LATE,CausalReceiptKind.WORK_FAILED].includes(row?.kind))??null;
+      return{
+        taskId:task.taskId,taskType:task.obligation?.taskType??null,layer:task.obligation?.layer??null,runtimeClass:task.obligation?.runtimeClass??null,
+        lifecycleStatus:task.lifecycleStatus,executionStatus:task.executionStatus,reasonCode:task.executionReason??task.lifecycleReason??null,
+        startedCount:Number(task.startedCount??0),ownerAccepted:owner?.ownerAccepted??null,ownerReceiptId:owner?.metadata?.ownerReceiptId??null,
+        executionReturned:Boolean(returned),executionDurationMs:returned?.durationMs??null,recoveryState:task.recoveryState??null,
+      };
+    });
+    const running=tasks.some(row=>['ACTIVE','YIELDING'].includes(String(row.executionStatus)));
+    const pending=tasks.some(row=>['PENDING','ELIGIBLE'].includes(String(row.lifecycleStatus))||['QUEUED','ACTIVE','YIELDING','PARKED','RECOVERING','BLOCKED'].includes(String(row.executionStatus)));
+    const failed=tasks.some(row=>row.executionStatus==='FAILED'||row.ownerAccepted===false);
+    const consolidationStatus=String(record.memoryConsolidation?.status??'').toUpperCase();
+    const deferred=['DEFERRED','STALE','SKIPPED'].includes(consolidationStatus)&&Boolean(record.memoryConsolidation);
+    let status=running?'RUNNING':pending?'SCHEDULED':failed?'FAILED':deferred?'DEFERRED':'ACCEPTED';
+    const knownDurations=tasks.map(row=>Number(row.executionDurationMs)).filter(Number.isFinite);
+    const providerMs=Number(record.memoryConsolidation?.sidecarExecution?.providerLatencyMs);
+    const backgroundExecutionMs=Number.isFinite(providerMs)?providerMs:(knownDurations.length?knownDurations.reduce((a,b)=>a+b,0):null);
+    record.learningReceipt={
+      ...record.learningReceipt,feedback:clone(record.feedback),memoryPostTurn:clone(record.memoryPostTurn??null),memoryConsolidation:clone(record.memoryConsolidation??null),
+      memoryConsolidationRuntimeTaskId:record.memoryConsolidationRuntimeTaskId??null,responseCompletion:clone(record.responseCompletionReceipt),
+      learningLifecycle:{status,backgroundPending:pending||running,tasks,backgroundExecutionMs,foregroundWaitMs:record.responseCompletionReceipt.foregroundWaitMs,
+        responseCompletionStatus:record.responseCompletionReceipt.status,sealedGenerationImmutable:true},
+    };
+    record.state=status==='ACCEPTED'?'LEARNED':status==='FAILED'?'LEARNING_FAILED':status==='DEFERRED'?'LEARNING_DEFERRED':'RESPONSE_COMPLETED';
+    return record.learningReceipt;
   }
 
   correctTurn({turnId,response,observations=[],knownBy=[],reflections=[]}={}){
@@ -1040,6 +1114,7 @@ export class Area52NativeBrain{
             if(receipt&&typeof receipt.then==='function')receipt=await receipt;
           }catch(error){receipt={kind:'MemoryCompletedTurnAdmissionReceipt',status:'FAILED',reasonCode:error?.code??error?.message??String(error)};}
           const record=this.turns.get(String(item.turnId));if(record)record.memoryPostTurn=clone(receipt);
+          if(record?.memoryRuntimeTaskId)this.#recordTaskOwnerDecision(record.memoryRuntimeTaskId,{accepted:['COMPLETED','REPLAYED'].includes(String(receipt?.status??'').toUpperCase()),receiptId:receipt?.episodeId??receipt?.kind??null,reasonCode:receipt?.reasonCode??null,consumerId:'MEMORY'});
           if(record&&['COMPLETED','REPLAYED'].includes(String(receipt?.status??'').toUpperCase())){
             const consolidationTask=this.#scheduleMemoryConsolidation(record,receipt);
             record.memoryConsolidationRuntimeTaskId=consolidationTask?.task?.taskId??record.memoryConsolidationRuntimeTaskId??null;
@@ -1153,7 +1228,10 @@ export class Area52NativeBrain{
             rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
             authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
           };
-          if(record)record.memoryConsolidation=clone(receipt);
+          if(record){
+            record.memoryConsolidation=clone(receipt);
+            if(record.memoryConsolidationRuntimeTaskId)this.#recordTaskOwnerDecision(record.memoryConsolidationRuntimeTaskId,{accepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),receiptId:ownerReview?.bundleId??ownerReview?.kind??receipt.kind,reasonCode:receipt.reasonCode??null,consumerId:'MEMORY'});
+          }
           receipts.push(receipt);
         }
         return{output:receipts,validation:{valid:true},authorityGranted:false,canonicalMutation:false};
@@ -1190,6 +1268,7 @@ export class Area52NativeBrain{
             publicationAssessment:record.published?.publicationAssessment,
             cognitiveChoiceReceipt:record.published?.cognitiveChoiceReceipt,packet:record.published?.packet,
           });
+          if(record.feedbackRuntimeTaskId)this.#recordTaskOwnerDecision(record.feedbackRuntimeTaskId,{accepted:true,receiptId:record.feedback?.receiptId??record.feedback?.id??record.feedback?.kind??('feedback:'+record.turnId),consumerId:'COGNITIVE_CORE'});
           receipts.push(clone(record.feedback));
         }
         return{output:receipts,validation:{valid:true},authorityGranted:false,canonicalMutation:false};
@@ -1211,6 +1290,11 @@ export class Area52NativeBrain{
 
   #recordRuntimeResult(envelope){
     this.runtimeResults.push(clone(envelope));if(this.runtimeResults.length>128)this.runtimeResults.splice(0,this.runtimeResults.length-128);
+    const record=this.turns.get(String(envelope?.turnId??''));
+    if(record&&record.generationId===String(envelope?.generationId??record.generationId)&&record.correlationId===String(envelope?.correlationId??record.correlationId)){
+      this.#refreshLearningLifecycle(record);
+      this.#notify('TURN_LEARNING_UPDATED',record);
+    }
     return envelope;
   }
 

@@ -128,7 +128,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
       'style':'--a52-link-delay:'+String(delay)+'ms'+(isNew&&nativeMotion?';stroke-dasharray:1;stroke-dashoffset:1;animation:none':''),
       'pathLength':isNew&&nativeMotion?'1':null,
     });
-    if(isNew&&nativeMotion)path.append(nativeAnimate(doc,{attributeName:'stroke-dashoffset',from:'1',to:'0',begin:delay,dur:760}));
+    if(isNew&&nativeMotion)path.append(nativeAnimate(doc,{attributeName:'stroke-dashoffset',from:'1',to:'0',begin:delay,dur:1150}));
     svg.append(path);
   }
 
@@ -151,11 +151,11 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:620}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+55,dur:520}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:980}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+90,dur:860}));
       t.setAttribute('opacity','0');count.setAttribute('opacity','0');
-      t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+250,dur:280}));
-      count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+300,dur:280}));
+      t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+480,dur:420}));
+      count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
     }
     g.append(halo,body,t,count);svg.append(g);
     const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=hub.id;renderState.viewport=parseViewBox(focusedViewBox(graph,hub.id));}applyGraphInteraction(svg,graph,renderState);};
@@ -171,8 +171,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const halo=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'1':String(radius+5),'class':'a52-lore-entry-node__halo'});
     const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-entry-node__body'});
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:420}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+35,dur:360}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:760}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+70,dur:640}));
     }
     g.append(halo,body);
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
@@ -187,7 +187,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
     const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
     const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-artifact-node__body'});
-    if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:320}));
+    if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:560}));
     g.append(body);
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
     const activateArtifact=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';}applyGraphInteraction(svg,graph,renderState);};

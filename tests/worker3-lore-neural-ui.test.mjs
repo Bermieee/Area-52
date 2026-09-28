@@ -71,11 +71,11 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.match(body,/Growth queue/);
   assert.match(body,/Moon Harbor/);
   assert.doesNotMatch(body,/Character|Faction|Place|Event|Concept|Timeline|Memory/);
-  const svg=nodes.find(x=>String(x.getAttribute?.('class')??'').includes('a52-lore-neural-svg'));
+  const svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
   assert.ok(svg);
-  const entryNodes=nodes.filter(x=>String(x.getAttribute?.('class')??'').includes('a52-lore-entry-node'));
+  const entryNodes=nodes.filter(x=>String(x.attributes?.class??'').includes('a52-lore-entry-node'));
   assert.equal(entryNodes.length,4);
-  const artifactNodes=nodes.filter(x=>String(x.getAttribute?.('class')??'').includes('a52-lore-artifact-node'));
+  const artifactNodes=nodes.filter(x=>String(x.attributes?.class??'').includes('a52-lore-artifact-node'));
   assert.equal(artifactNodes.length,1);
   entryNodes[0].dispatch('click');
   assert.equal(inspected.length,1);

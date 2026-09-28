@@ -1301,26 +1301,27 @@ export class DevelopmentDeploymentBrain {
       selection:{chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr},gather,
     });
     const bundle=gather.close({at:Date.now(),reason:gather.quorumSatisfied()?'FOREGROUND_QUORUM':'ASSEMBLY_EXECUTION_COMPLETE'});
+    const selectionCurrent=guard();
     const historianTaskIds=new Set((prepared.fanOutPlan.tasks??[]).filter(task=>task.taskType==='HISTORIAN_RETRIEVAL').map(task=>task.taskId));
     const historianSummary=(execution.contribution?.resultSummary??[]).filter(row=>historianTaskIds.has(row.taskId));
     const acceptedHistorianTaskIds=new Set(historianSummary.filter(row=>row.ownerAdmissionAttempted&&row.ownerAccepted).map(row=>row.taskId));
     const historianTaskId=[...acceptedHistorianTaskIds][0]??null;
     const historianWorker=historianSummary.find(row=>row.taskId===historianTaskId)??null;
-    const candidates=(bundle.loreEvidence??[]).flatMap(row=>row?.candidateSet?.candidates??row?.candidates??[]).slice(0,64);
+    const candidates=selectionCurrent?(bundle.loreEvidence??[]).flatMap(row=>row?.candidateSet?.candidates??row?.candidates??[]).slice(0,64):[];
     const resultSummary=execution.contribution?.resultSummary??[];
     const admittedResultIds=uniq((execution.contribution?.continuousOwnerAdmissions??[]).filter(row=>row.acceptedByOwner).map(row=>row.resultId));
     const rejectedResultIds=uniq(resultSummary.filter(row=>row.ownerAdmissionAttempted&&!row.ownerAccepted&&!row.stale).map(row=>row.resultId).filter(Boolean));
     const staleResultIds=uniq(resultSummary.filter(row=>row.stale||row.state==='REJECTED_STALE').map(row=>row.resultId).filter(Boolean));
     const physicalExecutionCount=resultSummary.filter(row=>row.providerProfileId&&row.startedAt!=null).length;
     const receipt=Object.freeze({
-      kind:'DeploymentSceneFanOutAssemblyReceipt',contractVersion:1,status:'ASSEMBLED',reasonCode:null,
+      kind:'DeploymentSceneFanOutAssemblyReceipt',contractVersion:1,status:selectionCurrent?'ASSEMBLED':'REJECTED',reasonCode:selectionCurrent?null:'SCENE_SELECTION_SUPERSEDED_AFTER_EXECUTION',
       chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr,causationId:cause,
       sceneId:sceneInput.sceneId,sceneRevision:sceneInput.sceneRevision,sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),
       plannedTaskIds:(prepared.fanOutPlan.tasks??[]).map(task=>task.taskId),plannedRoles:uniq((prepared.fanOutPlan.nominations??[]).map(row=>row.roleId)),
       physicalExecutionCount,executionResults:resultSummary.slice(0,32).map(row=>({taskId:row.taskId,taskType:row.taskType,resultId:row.resultId,state:row.state,providerProfileId:row.providerProfileId,workerId:row.workerId,ownerAdmissionAttempted:row.ownerAdmissionAttempted,ownerAccepted:row.ownerAccepted,ownerDestination:row.ownerDestination,failureCode:row.failureCode})),
       admittedResultIds,rejectedResultIds,staleResultIds,candidateIds:uniq(candidates.map(row=>row.candidateId)),
       gather:{acceptedResultIds:[...(bundle.acceptedResultIds??[])],rejectedResultIds:[...(bundle.rejectedResultIds??[])],staleResultIds:[...(bundle.staleResultIds??[])],missingRequired:[...(bundle.missingRequired??[])]},
-      plannerConsidered:true,workerExecutionAttempted:physicalExecutionCount>0,checkpointExecutionPerformed:true,
+      plannerConsidered:true,workerExecutionAttempted:physicalExecutionCount>0,checkpointExecutionPerformed:true,selectionCurrentAfterExecution:selectionCurrent,
       authorityGranted:false,retrievalAuthority:false,truthAuthority:false,contextSealAuthority:false,canonicalMutation:false,settlementAuthority:false,
     });
     this.sceneFanOutAssemblies.push(clone(receipt));if(this.sceneFanOutAssemblies.length>128)this.sceneFanOutAssemblies.splice(0,this.sceneFanOutAssemblies.length-128);
@@ -1839,6 +1840,15 @@ export class DevelopmentDeploymentBrain {
         settlementEventCount: this.loreSettlementEvents.length,
       },
       sceneCount: this.scene.registry.list().length,
+      sceneFanOut: {
+        assemblyCount:this.sceneFanOutAssemblies.length,
+        last:clone(this.sceneFanOutAssemblies.at(-1)??null),
+        physicalExecutionCount:this.sceneFanOutAssemblies.reduce((n,row)=>n+Number(row.physicalExecutionCount??0),0),
+        admittedResultCount:this.sceneFanOutAssemblies.reduce((n,row)=>n+(row.admittedResultIds?.length??0),0),
+        rejectedResultCount:this.sceneFanOutAssemblies.reduce((n,row)=>n+(row.rejectedResultIds?.length??0),0),
+        staleResultCount:this.sceneFanOutAssemblies.reduce((n,row)=>n+(row.staleResultIds?.length??0),0),
+        authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,contextSealAuthority:false,
+      },
       sceneEvents: {
         publishedAccepted: this.sceneEventSpineReceipts.filter(row=>row.status==='ACCEPTED').length,
         publishedRejected: this.sceneEventSpineReceipts.filter(row=>row.status==='REJECTED').length,

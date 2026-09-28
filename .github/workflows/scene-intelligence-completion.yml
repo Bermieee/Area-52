@@ -14,6 +14,13 @@ on:
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
       - 'src/deployment/sillytavern-live.js'
+      - 'src/coprocessor/scene-observation-specialist.js'
+      - 'src/coprocessor/provider-execution.js'
+      - 'src/coprocessor/runtime-director-bridge.js'
+      - 'src/coprocessor/resource-connections.js'
+      - 'src/ui-core/wave13-operator-adapters.js'
+      - 'tests/scene-async-runtime-lifecycle.mjs'
+      - 'tests/scene-adaptive-output-budget.test.mjs'
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
@@ -41,6 +48,13 @@ on:
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
       - 'src/deployment/sillytavern-live.js'
+      - 'src/coprocessor/scene-observation-specialist.js'
+      - 'src/coprocessor/provider-execution.js'
+      - 'src/coprocessor/runtime-director-bridge.js'
+      - 'src/coprocessor/resource-connections.js'
+      - 'src/ui-core/wave13-operator-adapters.js'
+      - 'tests/scene-async-runtime-lifecycle.mjs'
+      - 'tests/scene-adaptive-output-budget.test.mjs'
       - 'tests/scene-completion-wave4.mjs'
       - 'tests/scene-completion-wave4-stress.mjs'
       - 'tests/scene-completion-wave4-gaps.mjs'
@@ -85,6 +99,10 @@ jobs:
         run: node --test tests/scene-advanced-scanner-ops.mjs
       - name: Scene atmosphere production acceptance
         run: node --test tests/scene-atmosphere-production.mjs
+      - name: Scene async Runtime lifecycle
+        run: node --test tests/scene-async-runtime-lifecycle.mjs
+      - name: Scene adaptive provider lifetime
+        run: node --test tests/scene-adaptive-output-budget.test.mjs
       - name: Clapperboard transition handoff acceptance
         run: node --test tests/scene-clapperboard-handoff.mjs
       - name: Assembled selected-turn Scene delivery seam
@@ -124,6 +142,13 @@ jobs:
           node --check src/deployment/owner-graph-adapters.js
           node --check src/deployment/brain.js
           node --check src/deployment/sillytavern-live.js
+          node --check src/coprocessor/scene-observation-specialist.js
+          node --check src/coprocessor/provider-execution.js
+          node --check src/coprocessor/runtime-director-bridge.js
+          node --check src/coprocessor/resource-connections.js
+          node --check src/ui-core/wave13-operator-adapters.js
+          node --check tests/scene-async-runtime-lifecycle.mjs
+          node --check tests/scene-adaptive-output-budget.test.mjs
           node --check tests/scene-completion-wave4.mjs
           node --check tests/scene-completion-wave4-stress.mjs
           node --check tests/scene-completion-wave4-gaps.mjs

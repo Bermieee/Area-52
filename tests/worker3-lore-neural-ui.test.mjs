@@ -93,4 +93,7 @@ test('Lore neural animation is CSS-only bounded and respects reduced motion',()=
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);
   assert.match(css,/\.a52-lore-neural-workspace\{/);
+  const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
+  assert.match(rootCss,/ui-core-lore-neural\.css/);
+  assert.ok(rootCss.indexOf('ui-core-lore-neural.css')>rootCss.indexOf('ui-core-console-theme.css'));
 });

@@ -99,6 +99,7 @@ export class CoprocessorResourceConnections{
     this.resources=new Map();
     this.privateConfig=new Map();
     this.controllers=new Map();
+    this.taskControllers=new Map();
     this.subscribers=new Set();
     this.sequence=0;
     this.executionSessionId=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
@@ -381,6 +382,7 @@ export class CoprocessorResourceConnections{
     if(row.activeExecutions>=row.maxConcurrency)throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Embedding resource capacity exhausted',{providerId:row.providerId});
     const adapter=this.adapters.get(row.providerId);if(typeof adapter?.embed!=='function')throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Resource adapter does not expose embeddings creation',{providerId:row.providerId});
     const controller=new AbortController();const detach=linkAbort(signal,controller);const set=this.controllers.get(row.resourceId)??new Set();set.add(controller);this.controllers.set(row.resourceId,set);
+    this.taskControllers.set(String(task.taskId),{controller,resourceId:row.resourceId});
     row.activeExecutions+=1;this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});
     const started=this.now(),executionId='vector-execution:'+this.executionSessionId+':'+row.resourceId+':'+(++this.sequence),executionOrigin=normalizeVectorOrigin(origin);
     emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION_ATTEMPT,{...this.#telemetryRow(row),executionKind:'VECTORING',requestPurpose:'COGNITIVE_EXECUTION',taskId:null,taskType:'EMBEDDING',physicalAttempt:true,qualified:Boolean(row.selectedModelQualified),concurrency:row.activeExecutions,maxConcurrency:row.maxConcurrency,costClass:profileCostClass(this.profiles.get(row.providerProfileId))});
@@ -405,7 +407,9 @@ export class CoprocessorResourceConnections{
       emitTelemetry(this.telemetry,TelemetryEvent.EMBEDDING_EXECUTION,{...this.#telemetryRow(row),status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});
       emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'VECTORING',taskId:null,taskType:'EMBEDDING',status:'FAIL',failureCode:row.lastExecution.failureCode,latencyMs:row.lastExecution.latencyMs});throw error;
     }finally{
-      detach();set.delete(controller);if(!set.size)this.controllers.delete(row.resourceId);row.activeExecutions=Math.max(0,row.activeExecutions-1);
+      detach();set.delete(controller);if(!set.size)this.controllers.delete(row.resourceId);
+      if(this.taskControllers.get(String(task.taskId))?.controller===controller)this.taskControllers.delete(String(task.taskId));
+      row.activeExecutions=Math.max(0,row.activeExecutions-1);
       this.profiles.setLoad(row.providerProfileId,row.activeExecutions);this.health.setConcurrency(row.providerProfileId,row.activeExecutions,{now:this.now()});this.#notify('RESOURCE_EXECUTION',row);
     }
   }
@@ -432,6 +436,18 @@ export class CoprocessorResourceConnections{
       }),
       authority:'NONE',truthAuthority:false,settlementAuthority:false,contextSealAuthority:false,finalChoiceAuthority:false,
     });
+  }
+
+  cancelTask(taskId,{reason='Task cancelled by owner.'}={}){
+    const id=String(taskId??'').trim();if(!id)return false;
+    const active=this.taskControllers.get(id);if(!active)return false;
+    if(!active.controller.signal.aborted)active.controller.abort(reason);
+    const row=this.resources.get(active.resourceId)??null;
+    if(row){
+      this.#diagnostic(row,'EXECUTION_CANCEL_REQUESTED','Cognitive execution cancellation requested.',{taskId:id});
+      emitTelemetry(this.telemetry,TelemetryEvent.RESOURCE_EXECUTION,{...this.#telemetryRow(row),executionKind:'SIDECAR',taskId:id,status:'CANCEL_REQUESTED'});
+    }
+    return true;
   }
 
   async executeTask(task,{input={},profileId=null,signal=null,attempt=1,maxCostClass='HIGH'}={}){

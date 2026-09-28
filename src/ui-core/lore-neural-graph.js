@@ -107,8 +107,10 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   }
   const toolRow=element(doc,'div',{className:'a52-world-tree-tool-row'});
   toolRow.append(futureActions);
-  const viewActions=element(doc,'div',{className:'a52-world-tree-view-actions'});
   if(graphActive&&renderState){
+    const viewMenu=element(doc,'details',{className:'a52-world-tree-view-menu'});
+    const viewSummary=element(doc,'summary',{text:'View'});
+    const viewActions=element(doc,'div',{className:'a52-world-tree-view-actions'});
     viewActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
       renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;renderState.viewport=null;refresh?.();
     }}));
@@ -119,8 +121,9 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
       replayLoreNeuralGrowth(renderState);
       refresh?.();
     }}));
+    viewMenu.append(viewSummary,viewActions);
+    toolRow.append(viewMenu);
   }
-  toolRow.append(viewActions);
   headActions.append(search,toolRow);
   head.append(headActions);panelRoot.append(head);
 
@@ -199,7 +202,17 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     }
     const label=svgEl(doc,'text',{'x':String(node.x),'y':String(node.y+2),'text-anchor':'middle','class':'a52-lore-entry-node__label'});
     label.textContent=bubbleLabel(node.label);
-    g.append(halo,body,label);
+    g.append(halo,body);
+    const imageHref=publishedSourceImage(node.sourceMeta);
+    if(imageHref){
+      const clipId='a52-lore-image-'+String(hashText(node.id));
+      const clip=svgEl(doc,'clipPath',{'id':clipId});
+      clip.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(Math.max(3,radius-1))}));
+      defs.append(clip);
+      g.append(svgEl(doc,'image',{'href':imageHref,'x':String(node.x-radius),'y':String(node.y-radius),'width':String(radius*2),'height':String(radius*2),'preserveAspectRatio':'xMidYMid slice','clip-path':'url(#'+clipId+')','class':'a52-lore-entry-node__image'}));
+      g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__image-ring'}));
+    }
+    g.append(label);
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
     const activate=()=>{settleGrowthReveal(renderState,graph);if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activate(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate(event);}});
@@ -773,6 +786,13 @@ function publishedSemanticCategory(entry){
 }
 function publishedSourceTitle(entry,fallback){
   return shortLabel(entry?.title??entry?.comment??entry?.name??entry?.metadata?.title??entry?.metadata?.name??fallback);
+}
+function publishedSourceImage(entry){
+  const value=entry?.image??entry?.avatar??entry?.thumbnail??entry?.metadata?.image??entry?.metadata?.avatar??entry?.metadata?.thumbnail??null;
+  if(typeof value!=='string')return null;
+  const normalized=value.trim();
+  if(!normalized||/^(?:javascript|vbscript):/i.test(normalized))return null;
+  return /^(?:https?:|data:image\/|blob:|\/|\.\.?\/)/i.test(normalized)?normalized:null;
 }
 function shortGraphRevision(value){
   if(value==null||value==='')return'NO_EVIDENCE';

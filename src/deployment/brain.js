@@ -582,6 +582,15 @@ export class DevelopmentDeploymentBrain {
     };
     const adapter = { invoke: (ctx) => this.#invokeRuntime(ctx) };
     for (let i = 0; i < resourceCount; i += 1) this.runtime.registerExecutionResource({ worker: runtimeWorker('area52-local-' + (i + 1)), adapter });
+    this.speculativeWarmReceipts=[];
+    this.speculativeWarmTurnSequence=0;
+    this.speculativeWarmPumpScheduled=false;
+    this.speculativeWarmPumpPromise=Promise.resolve();
+    this.speculativeWarmer=new SpeculativeWarmCoordinator({
+      adapters:this.#createInstalledSpeculativeWarmAdapters(),
+      telemetry:this.coprocessorTelemetry,
+    });
+    this.speculativeWarmOwnerRelease=this.#installSpeculativeWarmOwner();
     this.sceneMemoryOwnerRelease=this.#installSceneMemoryOwnerMapping();
     this.core.registerJevAdapter({
       invoke: (request) => {
@@ -1239,6 +1248,351 @@ export class DevelopmentDeploymentBrain {
   readSceneEventObligationReceipts({limit=64}={}){
     const n=Math.max(1,Math.min(256,Number(limit)||64));
     return clone(this.sceneEventObligationReceipts.slice(-n));
+  }
+
+  #speculativeWarmPolicyRevision(){
+    const manifest=this.core.sensoryManifest?.()??{};
+    const channels=(manifest.channels??[]).map((row)=>({
+      channelId:row.channelId,available:row.available!==false,health:row.health??null,
+      capabilities:[...(row.capabilities??[])].sort(),
+    })).sort((a,b)=>String(a.channelId).localeCompare(String(b.channelId)));
+    return 'retrieval-policy:'+sha256Hex(JSON.stringify({channelId:CHANNEL_ID,channels})).slice(0,20);
+  }
+
+  #speculativeWarmIntentFingerprint(recommendation){
+    return 'scene-intent:'+sha256Hex(JSON.stringify({
+      sceneId:recommendation?.sceneId??null,sceneRevision:Number(recommendation?.sceneRevision??0),
+      trigger:recommendation?.trigger??null,
+      entityRefs:uniq(recommendation?.entityRefs??[]),locationRefs:uniq(recommendation?.locationRefs??[]),
+      threadRefs:uniq(recommendation?.threadRefs??[]),sceneRefs:uniq(recommendation?.sceneRefs??[]),
+    })).slice(0,24);
+  }
+
+  #speculativeWarmPreparationRef(event,recommendation){
+    return 'lore-warm:'+sha256Hex(JSON.stringify({
+      chatId:event?.chatId??null,sceneId:recommendation?.sceneId??event?.sceneId??null,
+      sceneRevision:Number(recommendation?.sceneRevision??event?.sceneRevision??0),
+      fingerprint:this.#speculativeWarmIntentFingerprint(recommendation),
+      sourceRevisionRefs:uniq(recommendation?.sourceRevisionRefs??event?.sourceRevisionSet??[]),
+    })).slice(0,24);
+  }
+
+  #speculativeWarmRetrievalQuery(recommendation){
+    const refs=uniq([
+      ...(recommendation?.entityRefs??[]),...(recommendation?.locationRefs??[]),
+      ...(recommendation?.threadRefs??[]),...(recommendation?.sceneRefs??[]),
+    ]);
+    return refs.map((ref)=>String(ref).replace(/[:/_\-.]+/g,' ')).join(' ').trim()||String(recommendation?.trigger??'scene context');
+  }
+
+  #speculativeWarmIdentity({chatId,recommendation,sceneSignal=null}={}){
+    const scene=sceneSignal??this.scene.integrationSignal(String(chatId));
+    return{
+      chatId:String(chatId),sceneRevision:Number(recommendation?.sceneRevision??scene?.sceneRevision??0),
+      worldRevision:Number(this.core.graph.revision??0),characterStateRevision:0,
+      sourceRevisionSet:uniq([
+        ...this.core.registry.activeRevisionIds(),
+        ...(scene?.sourceRevisionRefs??scene?.sourceRevisionSet??[]),
+        ...(recommendation?.sourceRevisionRefs??recommendation?.sourceRevisionSet??[]),
+      ]),
+      intentFingerprint:this.#speculativeWarmIntentFingerprint(recommendation),
+      retrievalPolicyRevision:this.#speculativeWarmPolicyRevision(),
+    };
+  }
+
+  #speculativeWarmCompatible({recommendation,query,anchorEntityIds=[],sceneSignal}={}){
+    if(!recommendation||recommendation.status!=='ACTIVE')return false;
+    if(Number(recommendation.sceneRevision)!==Number(sceneSignal?.sceneRevision))return false;
+    const anchors=new Set(uniq(anchorEntityIds));
+    if((recommendation.entityRefs??[]).some((ref)=>anchors.has(String(ref))))return true;
+    const text=String(query??'').toLowerCase();
+    const tokens=uniq([
+      ...(recommendation.entityRefs??[]),...(recommendation.locationRefs??[]),
+      ...(recommendation.threadRefs??[]),...(recommendation.sceneRefs??[]),
+    ]).flatMap((ref)=>String(ref).toLowerCase().split(/[^a-z0-9]+/g))
+      .filter((token)=>token.length>=3&&!['char','character','loc','location','thread','scene','story','ref'].includes(token));
+    return tokens.some((token)=>text.includes(token));
+  }
+
+  #createInstalledSpeculativeWarmAdapters(){
+    const retrievalContext=(recommendation,identity,context)=>{
+      const query=this.#speculativeWarmRetrievalQuery(recommendation);
+      const sceneInput=this.scene.fanOutInput(String(identity.chatId));
+      const sourceSet=new Set(identity.sourceRevisionSet??[]);
+      return{query,sceneInput,sourceSet,preparationRef:String(context?.preparationRef??'')};
+    };
+    const retrievalEnvelope=(recommendation,identity,context)=>{
+      const {query}=retrievalContext(recommendation,identity,context);
+      return this.core.retrieval.retrieveEnvelope(query,{
+        intent:'CURRENT',anchorEntityIds:recommendation.entityRefs??[],
+        worldRevision:identity.worldRevision,sceneRevision:identity.sceneRevision,channelIds:[CHANNEL_ID],candidateBudget:48,latencyBudgetMs:100,
+      });
+    };
+    return{
+      providerMode:'INSTALLED_OWNER_BACKED',
+      retrieve:async({recommendation,identity,context})=>{
+        const {query,sceneInput,sourceSet,preparationRef}=retrievalContext(recommendation,identity,context);
+        if(!preparationRef)throw Object.assign(new Error('speculative Lore preparation ref unavailable'),{code:'WARM_PREPARATION_REF_UNAVAILABLE'});
+        const lore=this.loreChannel.prepareSpeculative(preparationRef,query,{intent:'NARROW'});
+        const memory=this.memorySurface.adapters.queryHistorian({
+          query,mode:'CONTINUITY_RECALL',activeEntityIds:recommendation.entityRefs??[],maxCandidates:24,
+          selection:{chatId:identity.chatId,sceneId:recommendation.sceneId,sceneRevision:identity.sceneRevision},
+        });
+        const graphRows=this.scene.graph.references?.({sceneId:recommendation.sceneId,limit:32})??[];
+        const candidateRefs=[],evidenceRefs=uniq(recommendation.evidenceRefs??[]),refDependencies={};
+        const admit=(ref,deps=[])=>{
+          const id=String(ref??'').trim(),revisions=uniq(deps);
+          if(!id||!revisions.length||revisions.some((revisionId)=>!sourceSet.has(revisionId)))return;
+          candidateRefs.push(id);refDependencies[id]=revisions;
+        };
+        for(const row of lore?.nominations??[])admit(row.candidateId,row.sourceRevisionRefs??[]);
+        for(const row of memory?.nominations??[])admit(row.candidateId,row.sourceRevisionRefs??[]);
+        for(const row of graphRows)admit(row.ref??row.edgeId??row.id,row.sourceRevisionRefs??recommendation.sourceRevisionRefs??[]);
+        for(const ref of evidenceRefs){
+          const deps=uniq(recommendation.sourceRevisionRefs??recommendation.sourceRevisionSet??[]);
+          if(deps.length&&deps.every((revisionId)=>sourceSet.has(revisionId)))refDependencies[ref]=deps;
+        }
+        return{
+          status:'OWNER_BACKED',candidateRefs:uniq(candidateRefs),evidenceRefs,refDependencies,
+          receipt:{
+            status:'OWNER_BACKED',semanticRetrievalExecuted:true,loreCandidateCount:lore?.nominations?.length??0,
+            memoryCandidateCount:memory?.nominations?.length??0,graphReferenceCount:graphRows.length,
+            preparedOwners:['LORE','MEMORY','GRAPH'],preparedArtifactRefs:[preparationRef],
+            unavailableChannels:[],authority:'NONE',
+          },
+        };
+      },
+      evaluateQuality:async(referenceBundle)=>({
+        status:'ASSESSED',quality:referenceBundle.candidateRefs.length?'HIGH':'LOW',
+        candidateRefCount:referenceBundle.candidateRefs.length,evidenceRefCount:referenceBundle.evidenceRefs.length,authority:'NONE',
+      }),
+      truthCheck:async(_referenceBundle,{recommendation,identity,context})=>{
+        const envelope=retrievalEnvelope(recommendation,identity,context);
+        const candidates=(envelope?.candidates??[]).filter((row)=>row.freshness===CandidateFreshness.FRESH);
+        const assessment=this.core.publication.truth.assess(candidates,{
+          query:this.#speculativeWarmRetrievalQuery(recommendation),intent:'CURRENT',
+          worldRevision:identity.worldRevision,sceneRevision:identity.sceneRevision,attempt:0,maxCorrectiveAttempts:0,candidateEnvelope:envelope,
+        });
+        return{
+          status:'ASSESSED',quality:assessment?.confidence??'LOW',checked:true,
+          candidateCount:candidates.length,admittedCount:assessment?.admittedCandidateIds?.length??0,
+          supportCount:assessment?.supportCandidateIds?.length??0,
+          unresolved:Boolean((assessment?.truthResults??[]).some((row)=>['CONTRADICTED','UNCERTAIN','UNRESOLVED'].includes(String(row.classification)))),
+          authority:'NONE',
+        };
+      },
+      precisionRank:async(_referenceBundle,{recommendation,identity,context})=>{
+        const envelope=retrievalEnvelope(recommendation,identity,context);
+        const candidates=(envelope?.candidates??[]).filter((row)=>row.freshness===CandidateFreshness.FRESH);
+        let ranked=[],failed=false;
+        try{ranked=this.core.publication.precision.rank(candidates,{query:this.#speculativeWarmRetrievalQuery(recommendation),intent:'CURRENT',worldRevision:identity.worldRevision,sceneRevision:identity.sceneRevision});}
+        catch{failed=true;}
+        return{status:failed?'UNAVAILABLE':'RANKED',ranked:!failed,count:ranked.length,authority:'NONE'};
+      },
+      compile:async({recommendation,identity})=>{
+        const result=this.core.query(this.#speculativeWarmRetrievalQuery(recommendation),{
+          intent:'CURRENT',anchorEntityIds:recommendation.entityRefs??[],worldRevision:identity.worldRevision,
+          sceneRevision:identity.sceneRevision,channelIds:[CHANNEL_ID],candidateBudget:48,
+        });
+        return{
+          status:'COMPILED',packetHash:sha256Hex(JSON.stringify(result?.packet??{})),
+          evidenceCount:(result?.candidates??[]).length,truthQuality:result?.assessment?.confidence??null,
+          reusable:false,authority:'NONE',
+        };
+      },
+    };
+  }
+
+  #retainSpeculativeWarmReceipt(input={}){
+    const receipt=Object.freeze({
+      kind:'DeploymentSpeculativeWarmReceipt',contractVersion:1,stage:String(input.stage??'UNKNOWN'),
+      status:String(input.status??'UNKNOWN'),reasonCode:input.reasonCode??null,
+      recommendationId:input.recommendationId??null,preparationId:input.preparationId??null,packetId:input.packetId??null,
+      taskId:input.taskId??null,chatId:input.chatId??null,turnId:input.turnId??null,generationId:input.generationId??null,
+      sceneId:input.sceneId??null,sceneRevision:input.sceneRevision??null,
+      sourceRevisionRefs:uniq(input.sourceRevisionRefs??[]),preparedOwners:uniq(input.preparedOwners??[]),
+      dependencyRefCount:Number(input.dependencyRefCount??0),physicallyAttempted:Boolean(input.physicallyAttempted),
+      reusedStages:clone(input.reusedStages??null),remainingForegroundStages:uniq(input.remainingForegroundStages??[]),
+      foregroundWorkAvoided:clone(input.foregroundWorkAvoided??null),lateDestination:Boolean(input.lateDestination),
+      unavailable:Boolean(input.unavailable),cancelled:Boolean(input.cancelled),superseded:Boolean(input.superseded),
+      rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+      authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
+    });
+    this.speculativeWarmReceipts.push(receipt);
+    if(this.speculativeWarmReceipts.length>256)this.speculativeWarmReceipts.splice(0,this.speculativeWarmReceipts.length-256);
+    return receipt;
+  }
+
+  #installSpeculativeWarmOwner(){
+    return this.bindSceneEventObligationOwner({
+      producer:{
+        producerId:'SPECULATIVE_CONTEXT_WARM_OWNER',obligationType:'SPECULATIVE_CONTEXT_WARM',requestedLayer:'L2',
+        requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],priority:60,
+        resultContract:{resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+      },
+      eventTypes:[SceneEventType.PREFETCH_RECOMMENDED],
+      mapEvent:(event)=>{
+        const recommendation=event.payload?.recommendation??null;
+        this.#retainSpeculativeWarmReceipt({
+          stage:'RECOMMENDATION_RECEIVED',status:recommendation?.status==='ACTIVE'?'RECEIVED':'REJECTED',
+          reasonCode:recommendation?.status==='ACTIVE'?'SCENE_RECOMMENDATION_RECEIVED':'SCENE_RECOMMENDATION_INACTIVE',
+          recommendationId:recommendation?.recommendationId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+          sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+        });
+        if(!recommendation||recommendation.status!=='ACTIVE'||!(recommendation.evidenceRefs?.length))return null;
+        const sceneSignal=this.scene.integrationSignal(String(event.chatId));
+        const identity=this.#speculativeWarmIdentity({chatId:event.chatId,recommendation,sceneSignal});
+        const preparationRef=this.#speculativeWarmPreparationRef(event,recommendation);
+        const plan=this.speculativeWarmer.createRuntimePlan({
+          recommendation,identity,turnSequence:this.speculativeWarmTurnSequence,
+          context:{preparationRef,createdAt:Number(event.createdSequence??0),expiresAfterTurns:2,originEventId:event.eventId,originTurnId:event.turnId??null},
+        });
+        if(plan.status!=='PLANNED'){
+          this.#retainSpeculativeWarmReceipt({
+            stage:'ELIGIBILITY',status:'REJECTED',reasonCode:plan.reason??'WARM_PLAN_REJECTED',recommendationId:recommendation.recommendationId,
+            chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+          });
+          return null;
+        }
+        this.#retainSpeculativeWarmReceipt({
+          stage:'ELIGIBILITY',status:'ELIGIBLE',reasonCode:'SCENE_PREFETCH_OWNER_ELIGIBLE',recommendationId:recommendation.recommendationId,
+          preparationId:plan.preparationId,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+          sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+        });
+        return{
+          owner:'CORE_PREPARATION',requestedLayer:'L2',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],foreground:false,speculative:true,
+          resultContract:{resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+          dedupeKey:'speculative-warm:'+plan.dedupeKey,conflictKey:'speculative-warm-chat:'+String(event.chatId),
+          revision:Number(event.sceneRevision??0),checkpointPolicy:{maxUnitsPerCheckpoint:1},batchHint:{maxSliceUnits:1},
+          payload:{warmPlan:plan,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,resultClass:RuntimeResultClass.DEFERRED,requestedDestination:'BACKGROUND'},
+          units:plan.units,
+        };
+      },
+      executorFactory:(event,request)=>{
+        const plan=request.payload?.warmPlan;
+        const base=this.speculativeWarmer.createRuntimeExecutor(plan);
+        return{
+          execute:async(context)=>{
+            const stage=String(context?.units?.[0]?.payload?.stage??'UNKNOWN');
+            this.#retainSpeculativeWarmReceipt({
+              stage:'EXECUTION_ATTEMPTED',status:stage,reasonCode:'RUNTIME_STAGE_ATTEMPTED',recommendationId:event.payload?.recommendation?.recommendationId??null,
+              preparationId:plan.preparationId,taskId:context?.task?.taskId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+              sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],physicallyAttempted:true,
+            });
+            return base.execute(context);
+          },
+          validate:base.validate,
+          commit:async(context)=>{
+            const result=await base.commit(context);
+            const stage=String(context?.output?.stage??'UNKNOWN');
+            if(stage==='PUBLISH'){
+              this.#retainSpeculativeWarmReceipt({
+                stage:'CACHE_PUBLICATION',status:result?.status??'UNKNOWN',reasonCode:result?.status==='WARMED'?'DEPENDENCY_FENCED_PACKET_PUBLISHED':result?.status,
+                recommendationId:event.payload?.recommendation?.recommendationId??null,preparationId:plan.preparationId,packetId:result?.packetId??null,
+                taskId:context?.task?.taskId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+                sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+                preparedOwners:result?.preparedOwners??[],lateDestination:result?.usableForTargetTurn===false,
+              });
+            }
+            return result;
+          },
+        };
+      },
+      onDisposition:(entry)=>{
+        const event=entry.event??{},recommendation=event.payload?.recommendation??null;
+        this.#retainSpeculativeWarmReceipt({
+          stage:'SCHEDULING',status:entry.status,reasonCode:entry.reasonCode,recommendationId:recommendation?.recommendationId??null,
+          taskId:entry.admission?.task?.taskId??null,chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,
+          sceneId:event.sceneId,sceneRevision:event.sceneRevision,sourceRevisionRefs:event.sourceRevisionSet??[],
+        });
+        if(['ADMITTED','DEDUPED','COALESCED'].includes(entry.status))this.#pumpSpeculativeWarmRuntime();
+      },
+    });
+  }
+
+  #pumpSpeculativeWarmRuntime(){
+    if(this.speculativeWarmPumpScheduled||this.runtimeDirector.governor.snapshot().generationActive)return;
+    this.speculativeWarmPumpScheduled=true;
+    setTimeout(()=>{
+      this.speculativeWarmPumpScheduled=false;
+      if(this.runtimeDirector.governor.snapshot().generationActive)return;
+      const run=this.runtimeDirector.drain({maxCycles:256}).catch((error)=>{
+        this.#retainSpeculativeWarmReceipt({stage:'RUNTIME_PUMP',status:'FAILED',reasonCode:String(error?.code??error?.message??'SPECULATIVE_WARM_RUNTIME_FAILED'),unavailable:true});
+      });
+      this.speculativeWarmPumpPromise=run;
+      void run.finally(()=>{
+        if(!this.runtimeDirector.governor.snapshot().generationActive){
+          const open=this.runtimeDirector.ledger.list().some((row)=>row?.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM'&&!['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(row.lifecycleStatus)));
+          if(open)this.#pumpSpeculativeWarmRuntime();
+        }
+      });
+    },0);
+  }
+
+  async flushSpeculativeWarmRuntime({maxCycles=256}={}){
+    await this.speculativeWarmPumpPromise.catch(()=>{});
+    if(this.runtimeDirector.governor.snapshot().generationActive)return{status:'FOREGROUND_ACTIVE'};
+    await this.runtimeDirector.drain({maxCycles});
+    return{status:'DRAINED',metrics:this.speculativeWarmer.metrics()};
+  }
+
+  #consumeSpeculativeWarmForSend({chatId,query,anchorEntityIds=[],sceneSignal,turn}={}){
+    const recommendations=(this.scene.fanOutInput(String(chatId))?.prefetchRecommendations??[])
+      .filter((row)=>this.#speculativeWarmCompatible({recommendation:row,query,anchorEntityIds,sceneSignal}));
+    for(const recommendation of recommendations){
+      const identity=this.#speculativeWarmIdentity({chatId,recommendation,sceneSignal});
+      const use=this.speculativeWarmer.consumeForSend({identity,turnSequence:this.speculativeWarmTurnSequence,turnId:turn?.turnId??null});
+      if(use.status==='REVALIDATE_FOR_CORE_ADMISSION'){
+        const preparationRef=(use.preparedArtifactRefs??[]).find((ref)=>String(ref).startsWith('lore-warm:'))??null;
+        const preparedLore=preparationRef?this.loreChannel.activateSpeculative(preparationRef,String(query)):null;
+        if(!preparedLore){
+          if(use.consumptionId)this.speculativeWarmer.recordCoreRevalidation({consumptionId:use.consumptionId,accepted:false,reason:'LORE_PREPARATION_REFERENCE_UNAVAILABLE'});
+          this.#retainSpeculativeWarmReceipt({
+            stage:'PRE_SEND_CONSUMPTION',status:'MISS',reasonCode:'LORE_PREPARATION_REFERENCE_UNAVAILABLE',packetId:use.packetId,
+            recommendationId:recommendation.recommendationId,chatId,turnId:turn?.turnId??null,sceneId:recommendation.sceneId,sceneRevision:recommendation.sceneRevision,
+            remainingForegroundStages:['RETRIEVAL','TRUTH','PRECISION','COMPILE','CORE_ADMISSION'],
+          });
+          continue;
+        }
+        this.#retainSpeculativeWarmReceipt({
+          stage:'PRE_SEND_CONSUMPTION',status:'FRESH_HIT',reasonCode:'FRESH_DEPENDENCY_FENCED_PREPARATION',packetId:use.packetId,
+          recommendationId:recommendation.recommendationId,chatId,turnId:turn?.turnId??null,sceneId:recommendation.sceneId,sceneRevision:recommendation.sceneRevision,
+          preparedOwners:use.preparedOwners??[],reusedStages:['LORE_PREPARATION'],remainingForegroundStages:['CORE_RETRIEVAL','TRUTH','PRECISION','COMPILE','SEAL'],
+        });
+        return{recommendation,identity,use,preparedLore,reuseLorePreparation:true};
+      }
+      this.#retainSpeculativeWarmReceipt({
+        stage:'PRE_SEND_CONSUMPTION',status:use.freshness==='PARTIALLY_STALE'?'PARTIAL_SALVAGE':use.reason==='MISS'?'MISS':'STALE_DISCARD',
+        reasonCode:use.reason??use.status,packetId:use.packetId??null,recommendationId:recommendation.recommendationId,
+        chatId,turnId:turn?.turnId??null,sceneId:recommendation.sceneId,sceneRevision:recommendation.sceneRevision,
+        remainingForegroundStages:use.requiredForegroundStages??['NORMAL_FOREGROUND_RETRIEVAL','TRUTH','COMPILE','CORE_ADMISSION'],
+      });
+      if(use.freshness==='PARTIALLY_STALE')return{recommendation,identity,use,preparedLore:null,reuseLorePreparation:false};
+    }
+    return null;
+  }
+
+  #cancelSpeculativeWarmTasks({chatId=null,sourceRevisionRefs=[],foreignToChat=null,reason='SPECULATIVE_WARM_CANCELLED'}={}){
+    const refs=new Set(uniq(sourceRevisionRefs)),cancelled=[];
+    for(const record of this.runtimeDirector.ledger.list()){
+      if(record?.obligation?.taskType!=='SPECULATIVE_CONTEXT_WARM')continue;
+      if(['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(record.lifecycleStatus)))continue;
+      const cause=record.obligation?.cause??{},sourceRefs=record.obligation?.sourceRevisionIds??[];
+      const match=foreignToChat?String(cause.chatId??'')!==String(foreignToChat)
+        :refs.size?sourceRefs.some((ref)=>refs.has(String(ref)))
+          :chatId?String(cause.chatId??'')===String(chatId):false;
+      if(!match)continue;
+      const didCancel=this.runtimeDirector.cancelTask(record.taskId,reason);
+      if(didCancel){
+        cancelled.push(record.taskId);
+        this.#retainSpeculativeWarmReceipt({
+          stage:'CANCELLATION',status:'CANCELLED',reasonCode:reason,taskId:record.taskId,chatId:cause.chatId??null,
+          turnId:cause.turnId??null,generationId:cause.generationId??null,sceneRevision:record.obligation?.sceneRevision??null,
+          sourceRevisionRefs:sourceRefs,cancelled:true,superseded:reason.includes('SUPERSEDED'),
+        });
+      }
+    }
+    return cancelled;
   }
 
   #installSceneMemoryRetrievalObserver(){

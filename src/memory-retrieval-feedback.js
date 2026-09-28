@@ -4,7 +4,6 @@ const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
 const artifactIdOf=(ref)=>typeof ref==='string'?ref:(ref?.artifactId??ref?.id??null);
 const artifactRevisionOf=(nomination)=>Number(nomination?.artifactRevision??nomination?.artifactRef?.revision??1)||1;
-const signalPriority=Object.freeze({ACCEPTED:3,REJECTED:2,NONE:1});
 const MAX_OUTCOMES=64;
 const MAX_REASON_CODES=16;
 
@@ -35,9 +34,14 @@ function truthOutcome(candidate,truth,publicationAssessment,trace){
 
 function mergeMapped(existing,next){
   if(!existing)return next;
-  const pick=signalPriority[next.signal]>signalPriority[existing.signal]?next:existing;
-  return{...pick,candidateIds:uniq([...(existing.candidateIds??[]),...(next.candidateIds??[])]),nominationIds:uniq([...(existing.nominationIds??[]),...(next.nominationIds??[])]),
-    sourceRevisionRefs:uniq([...(existing.sourceRevisionRefs??[]),...(next.sourceRevisionRefs??[])]),reasonCodes:uniq([...(existing.reasonCodes??[]),...(next.reasonCodes??[])]).slice(0,MAX_REASON_CODES),
+  const evidenceSignals=new Set([existing.signal,next.signal].filter(signal=>signal&&signal!=='NONE'));
+  const mixed=evidenceSignals.size>1;
+  const base=mixed?{
+    ...existing,signal:'NONE',outcome:'MIXED_DOWNSTREAM_OUTCOME_NEUTRAL',outcomeStage:'MULTI_STAGE',
+  }:(next.signal!=='NONE'&&existing.signal==='NONE'?next:existing);
+  return{...base,candidateIds:uniq([...(existing.candidateIds??[]),...(next.candidateIds??[])]),nominationIds:uniq([...(existing.nominationIds??[]),...(next.nominationIds??[])]),
+    sourceRevisionRefs:uniq([...(existing.sourceRevisionRefs??[]),...(next.sourceRevisionRefs??[])]),
+    reasonCodes:uniq([...(existing.reasonCodes??[]),...(next.reasonCodes??[]),...(mixed?['CONFLICTING_EXACT_OUTCOMES_NEUTRALIZED']:[])]).slice(0,MAX_REASON_CODES),
     includedInSeal:Boolean(existing.includedInSeal||next.includedInSeal),gathered:Boolean(existing.gathered||next.gathered)};
 }
 
@@ -49,8 +53,11 @@ export function buildMemoryRetrievalFeedbackBatch({selection={},candidateEnvelop
     const memoryNominations=(candidate.channelNominations??[]).filter(row=>String(row?.channelId)==='OWNER_MEMORY');
     if(!memoryNominations.length)continue;
     const trace=traceByCandidate.get(String(candidate.candidateId))??null,truth=truthByCandidate.get(String(candidate.candidateId))??null;
-    const classification=truthOutcome(candidate,truth,publicationAssessment,trace);
+    const candidateClassification=truthOutcome(candidate,truth,publicationAssessment,trace);
     for(const nomination of memoryNominations){
+      const classification=String(nomination?.freshness??'').toUpperCase()&&String(nomination?.freshness??'').toUpperCase()!=='FRESH'
+        ?{outcome:'REJECTED_STALE_OR_INVALID',stage:'CANDIDATE_BUS',signal:'NONE',reasonCodes:['MEMORY_NOMINATION_NOT_FRESH']}
+        :candidateClassification;
       const artifactId=artifactIdOf(nomination.artifactRef),artifactRevision=artifactRevisionOf(nomination);
       if(!artifactId){mappingRejects.push({candidateId:candidate.candidateId,nominationId:nomination.nominationId??null,status:'REJECTED',reasonCode:'MEMORY_ARTIFACT_REF_MISSING'});continue;}
       const key=String(artifactId)+'@'+String(artifactRevision);

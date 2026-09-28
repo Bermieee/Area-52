@@ -1514,20 +1514,15 @@ export class DevelopmentDeploymentBrain {
   #pumpSpeculativeWarmRuntime(){
     if(this.speculativeWarmPumpScheduled||this.runtimeDirector.governor.snapshot().generationActive)return;
     this.speculativeWarmPumpScheduled=true;
-    setTimeout(()=>{
+    const timer=setTimeout(()=>{
       this.speculativeWarmPumpScheduled=false;
       if(this.runtimeDirector.governor.snapshot().generationActive)return;
       const run=this.runtimeDirector.drain({maxCycles:256}).catch((error)=>{
         this.#retainSpeculativeWarmReceipt({stage:'RUNTIME_PUMP',status:'FAILED',reasonCode:String(error?.code??error?.message??'SPECULATIVE_WARM_RUNTIME_FAILED'),unavailable:true});
       });
       this.speculativeWarmPumpPromise=run;
-      void run.finally(()=>{
-        if(!this.runtimeDirector.governor.snapshot().generationActive){
-          const open=this.runtimeDirector.ledger.list().some((row)=>row?.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM'&&!['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(row.lifecycleStatus)));
-          if(open)this.#pumpSpeculativeWarmRuntime();
-        }
-      });
     },0);
+    timer?.unref?.();
   }
 
   async flushSpeculativeWarmRuntime({maxCycles=256}={}){

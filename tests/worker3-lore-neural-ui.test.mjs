@@ -46,7 +46,8 @@ test('Lore neural canvas starts blank before a source is accepted',()=>{
   assert.equal(root.dataset.graphState,'blank');
   assert.match(body,/Waiting for a Lorebook/);
   assert.match(body,/blank canvas/);
-  assert.match(body,/Load and accept a selected Lorebook to begin growing the graph/);
+  assert.match(body,/Waiting for a Lorebook/);
+  assert.match(body,/Accept the selected Lorebook, then run study to populate source nodes and learned links/);
   assert.equal(walk(root).some(x=>String(x.className??'').includes('a52-lore-neural-svg')),false);
 });
 
@@ -331,7 +332,8 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.ok(sourceNodes.every(x=>x.attributes?.['data-state']==='READY'));
   assert.equal(sourceNodes.length,54);
   assert.equal(artifactNodes.length,1);
-  assert.match(body,/Source clusters · layout only/);
+  assert.match(body,/Presentation clusters until categories are published/);
+  assert.match(body,/Layout-only clusters do not add semantic meaning to Lore/);
   assert.match(body,/54 of 105 source nodes shown/);
   assert.doesNotMatch(body,/hierarchy:a59b5c6ea9e88b85deadbeef/);
   assert.match(body,/hierarchy:a59b5c6e…beef/);

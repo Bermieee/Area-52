@@ -1006,6 +1006,20 @@ export class DevelopmentDeploymentBrain {
     return clone(this.sceneEventObligationReceipts.slice(-n));
   }
 
+  admitSceneGraphEvidenceLinks(input={}){
+    const result=this.scene.admitGraphEvidenceLinks(input);
+    return clone({
+      kind:'DeploymentSceneGraphEvidenceAdmission',
+      ...result,
+      authorityGranted:false,
+      canonicalMutationAuthority:false,
+      truthAuthority:false,
+      temporalStateAuthority:false,
+      memoryMutationAuthority:false,
+      contextSealAuthority:false,
+    });
+  }
+
   ingestSceneHostEvent(input = {}, { extract = null } = {}) {
     const start = this.sceneOwnerTimeline.length;
     const spineStart=this.sceneEventSpineReceipts.length,obligationStart=this.sceneEventObligationReceipts.length;

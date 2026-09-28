@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {DevelopmentDeploymentBrain} from '../src/deployment/brain.js';
 import {createDevelopmentDeploymentSillyTavernSession,extractDevelopmentDeploymentScene} from '../src/deployment/sillytavern-live.js';
 import {Area52NativeBrain} from '../src/native-brain.js';
-import {HostActivity,SceneRelationship,SceneEventType} from '../src/scene/index.js';
+import {HostActivity,SceneRelationship,SceneEventType,ObservationClass,createFieldState} from '../src/scene/index.js';
 
 const event=(activity,id,content,extra={})=>({
   activity,
@@ -60,6 +60,37 @@ test('real close-open production path finalizes Episode, invalidates working con
   const coreHandoff=brain.core.sceneTransitionContext(moved.chatId);
   assert.equal(coreHandoff?.handoffId,moved.transitionHandoff.handoffId);
   for(const ref of sourceRefs)assert.ok(brain.scene.narrativeFeed.findSourceRevision(moved.chatId,ref),'raw narrative evidence must remain recoverable');
+});
+
+test('transition prefetch preserves destination cast, location, structured thread, and Scene refs',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const start=ingest(brain,event(HostActivity.USER_SEND,'prefetch-start','At North Gallery, Mara waits.',{chatId:'prefetch-chat'}));
+  const moved=brain.ingestSceneHostEvent(event(HostActivity.USER_SEND,'prefetch-move','Scene break.',{chatId:'prefetch-chat'}),{
+    extract:(e,scene)=>{
+      const revision=scene.revision+1,ref=e.sourceRevisionId;
+      const field=(value)=>createFieldState({value,confidence:1,evidenceRefs:[ref],observationClass:ObservationClass.OBSERVED,revision});
+      return{
+        fields:{
+          location:field({location:'South Courtyard'}),
+          activeCast:field([{characterId:'Mara',state:'PRESENT',evidenceRefs:[ref]}]),
+          activeThreads:field([{threadId:'thread:escape',status:'OPEN',evidenceRefs:[ref]}]),
+        },
+        boundarySignals:{explicitBreak:1},
+        relationship:SceneRelationship.CONTINUES,
+        allowWhenRefreshRequired:true,
+      };
+    },
+  });
+  assert.equal(moved.transition?.status,'COMPLETE');
+  const rows=brain.scene.prefetchTrigger.active({sceneId:moved.sceneId,sceneRevision:moved.sceneRevision});
+  const recommendation=rows.find(row=>row.recommendationId===moved.transition.prefetchRef);
+  assert.ok(recommendation,'confirmed transition must publish destination prefetch recommendation');
+  assert.ok(recommendation.entityRefs.includes('Mara'));
+  assert.ok(recommendation.locationRefs.includes('South Courtyard'));
+  assert.ok(recommendation.threadRefs.includes('thread:escape'),'structured active thread must survive transition hint normalization');
+  assert.ok(recommendation.sceneRefs.includes(start.sceneId));
+  assert.ok(recommendation.sceneRefs.includes(moved.sceneId));
+  assert.equal(recommendation.authority,'NONE');
 });
 
 test('Core context owner decides raw-turn retirement and preserves transition recent tail',async()=>{

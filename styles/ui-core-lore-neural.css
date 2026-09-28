@@ -837,13 +837,22 @@
 .a52-world-tree-shell .a52-world-tree-source-dock{
   position:absolute;
   z-index:9;
+  top:auto;
+  right:auto;
   left:10px;
   bottom:10px;
   width:188px;
+  height:auto;
+  min-height:0;
+  max-height:148px;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
   display:grid;
   grid-template-columns:1fr;
   gap:4px;
   align-items:stretch;
+  align-content:start;
   padding:7px;
   margin:0;
   border:1px solid rgba(60,181,226,.16)!important;

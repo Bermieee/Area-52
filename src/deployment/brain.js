@@ -1326,10 +1326,12 @@ export class DevelopmentDeploymentBrain {
     });
     this.sceneFanOutAssemblies.push(clone(receipt));if(this.sceneFanOutAssemblies.length>128)this.sceneFanOutAssemblies.splice(0,this.sceneFanOutAssemblies.length-128);
     this.#emit({type:'SCENE_FT002_ASSEMBLED',receipt:clone(receipt)});
-    const coreHandoff=candidates.length&&historianTaskId?Object.freeze({
+    const coreHandoff=selectionCurrent?Object.freeze({
       kind:'SceneFanOutCoreHandoff',contractVersion:1,chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr,causationId:cause,
       sceneId:sceneInput.sceneId,sceneRevision:sceneInput.sceneRevision,sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),
-      candidates:candidates.map(candidate=>({candidate:clone(candidate),taskId:historianTaskId,causationId:cause,sourceSubsystem:'SCENE_FANOUT_HISTORIAN',workerId:historianWorker?.workerId??'scene-fanout',resultClass:historianWorker?.resultClass??'OPPORTUNISTIC',timing:{latencyMs:historianWorker?.latencyMs??null}})),
+      assemblyStatus:receipt.status,assemblyReasonCode:receipt.reasonCode??null,plannerConsidered:true,physicalExecutionCount,
+      admittedResultIds:[...admittedResultIds],rejectedResultIds:[...rejectedResultIds],staleResultIds:[...staleResultIds],
+      candidates:historianTaskId?candidates.map(candidate=>({candidate:clone(candidate),taskId:historianTaskId,causationId:cause,sourceSubsystem:'SCENE_FANOUT_HISTORIAN',workerId:historianWorker?.workerId??'scene-fanout',resultClass:historianWorker?.resultClass??'OPPORTUNISTIC',timing:{latencyMs:historianWorker?.latencyMs??null}})):[],
       authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
     }):null;
     return{kind:'DeploymentSceneFanOutAssembly',receipt:clone(receipt),coreHandoff};

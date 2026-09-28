@@ -249,6 +249,20 @@ export class MemoryOwnerRetrievalChannel extends OwnerChannelBase{
     return clone(this.lastDensePrime);
   }
 
+  markDenseStale(receipt,{selection=null,reason='DENSE_PRIME_STALE_SELECTED_STATE',resultClass=null}={}){
+    const prior=clone(receipt??this.lastDensePrime??{});
+    const selected=clone(selection??this.turnContext?.selection??prior?.selection??{});
+    this.lastDensePrime={
+      ...prior,
+      kind:prior?.kind??'MemoryDensePrimeReceipt',status:'STALE',reasonCode:String(reason),
+      requestPurpose:prior?.requestPurpose??'COGNITIVE_EXECUTION',
+      resultClass:String(resultClass??prior?.resultClass??'OPPORTUNISTIC'),selection:selected,
+      requested:Boolean(prior?.requested),providerAttempted:Boolean(prior?.providerAttempted),providerReturned:Boolean(prior?.providerReturned),
+      ownerAdmitted:false,authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
+    };
+    return clone(this.lastDensePrime);
+  }
+
   async prime(intent,context={}){
     const owner=this.getInterface();
     const primeDense=owner?.primeDenseHistorian??owner?.adapters?.primeDenseHistorian;

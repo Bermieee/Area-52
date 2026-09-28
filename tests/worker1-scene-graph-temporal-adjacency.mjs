@@ -187,6 +187,21 @@ test('#110 deployment Scene owner exposes explicit evidence-link admission witho
   const edge=brain.scene.graph.references({sceneId:observed.sceneId,limit:16}).find(row=>row.edgeType===SceneGraphEdgeType.EVIDENCE_SUPPORTS);
   assert.ok(edge);
   assert.deepEqual(edge.sourceRevisionRefs,[observed.evidence.sourceRevisionId]);
+
+  const provider=createSceneOwnerGraphProvider(brain.scene);
+  const walker=new NativeGraphNeighborhoodRetriever({
+    temporalGraph:{allClaims:()=>[]},
+    limits:{maxDepth:1,maxNodes:8,maxEdges:8,maxCandidates:2,latencyBudgetMs:100},
+  });
+  walker.registerProvider(provider);
+  const nominations=walker.retrieve({
+    intentId:'intent:approved-support',query:'warning',intentKind:'CURRENT',entityRefs:['event:bell'],
+    metadata:{graphTraversal:{allowedEdgeMeanings:[SceneGraphEdgeType.EVIDENCE_SUPPORTS],maxDepth:1,maxEdges:8,maxCandidates:2,latencyBudgetMs:100}},
+  },{
+    query:'warning',sceneRevision:observed.sceneRevision,worldRevision:0,sourceRevisionSet:[observed.evidence.sourceRevisionId],
+    graphTraversal:{allowedEdgeMeanings:[SceneGraphEdgeType.EVIDENCE_SUPPORTS],maxDepth:1,maxEdges:8,maxCandidates:2,latencyBudgetMs:100},
+  });
+  assert.ok(nominations.some(row=>row.graphMetadata.edgeMeaning===SceneGraphEdgeType.EVIDENCE_SUPPORTS&&row.sourceRevisionRefs.includes(observed.evidence.sourceRevisionId)));
 });
 
 test('#110 source correction retires dependent current links, keeps historical evidence, versions replacement edges and survives reload',()=>{

@@ -40,6 +40,10 @@ on:
       - '.github/workflows/scene-intelligence-completion.yml'
   workflow_dispatch:
 
+concurrency:
+  group: scene-intelligence-completion-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   exact-head:
     runs-on: ubuntu-latest

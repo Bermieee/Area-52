@@ -19,8 +19,8 @@ const BOUNDARY_SIGNAL_NAMES=new Set([
 ]);
 
 export function createSceneObservationTask({
-  chatId,turnId,generationId,correlationId,sourceRevisionId,sceneRevision,
-  worldRevision=0,phase='FOREGROUND_USER',parentWorkId=null,now=Date.now(),
+  chatId,turnId,generationId,correlationId,sourceRevisionId,sceneRevision,sceneId=null,
+  worldRevision=0,phase='FOREGROUND_USER',parentWorkId=null,hostIdentity=null,now=Date.now(),
   foregroundBudgetMs=1200,
   narrative='',sceneWorkload={},
 }={}){
@@ -46,11 +46,17 @@ export function createSceneObservationTask({
     compilerLane:'sceneObservation',
     intentFingerprint:`scene-observation:${sceneRevision}:${sourceRevisionId}:${phase}`,
     metadata:{
-      chatId:String(chatId),generationId:String(generationId),sourceRevisionId:String(sourceRevisionId),
+      chatId:String(chatId),generationId:String(generationId),sourceRevisionId:String(sourceRevisionId),sceneId:sceneId==null?null:String(sceneId),
       parentWorkId:parentWorkId==null?null:String(parentWorkId),phase,
+      hostIdentity:hostIdentity&&typeof hostIdentity==='object'?{
+        activity:hostIdentity.activity??null,messageId:hostIdentity.messageId??null,messageRevision:hostIdentity.messageRevision??null,
+        causationId:hostIdentity.causationId??null,
+      }:null,
       expectedOutputTokens:sceneObservationOutputEstimate(narrative,sceneWorkload),outputBudgetPolicy:'ADAPTIVE_SCENE',sceneWorkload,
       latencyBudgetMs:foreground?budget:null,
       foregroundBudgetMs:foreground?budget:null,
+      foregroundQuorumDeadline:foreground?now+budget:null,
+      providerLifetimePolicy:'RESOURCE_TRANSPORT_TIMEOUT',
       retainedNarrative:false,rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,
       credentialsIncluded:false,hiddenReasoningIncluded:false,
     },

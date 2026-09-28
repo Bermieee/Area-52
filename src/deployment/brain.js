@@ -393,7 +393,15 @@ export class DevelopmentDeploymentBrain {
       resultSink: (result) => {
         this.resourceDirectorResults.push(clone(result));
         if(this.resourceDirectorResults.length>256)this.resourceDirectorResults.splice(0,this.resourceDirectorResults.length-256);
-        if(result?.taskType==='SCENE_OBSERVATION')void this.#considerSceneObservationRuntimeResult(result);
+        if(result?.taskType==='SCENE_OBSERVATION')void this.#considerSceneObservationRuntimeResult(result).catch(error=>{
+          this.#retainSceneObservationReceipt({
+            kind:'DeploymentSceneObservationRuntimeReceipt',contractVersion:1,status:'FAILED',
+            reasonCode:error?.code??'SCENE_RESULT_CONSIDERATION_FAILED',workId:result.taskId??null,
+            errorMessage:String(error?.message??error).slice(0,240),
+            rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+            authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,
+          });
+        });
         this.#pumpResourceDirector();
       },
     });
@@ -698,6 +706,7 @@ export class DevelopmentDeploymentBrain {
       task,admission,status:deduped?'DEDUPED':'QUEUED',reasonCode:deduped?'SCENE_OBSERVATION_RUNTIME_DEDUPED':'SCENE_OBSERVATION_RUNTIME_QUEUED',
       attempted:false,returned:false,workerResult:null,sourceRevisionId:sourceRef,sceneRevision:current.revision,parentWorkId,
     });
+    receipt.foregroundDisposition=phase==='POST_RESPONSE'?'BACKGROUND':'DETERMINISTIC_FALLBACK_AND_FORWARD_RESULT';
     this.#retainSceneObservationReceipt(receipt);
     this.#pumpResourceDirector();
     return{
@@ -2103,6 +2112,12 @@ export class DevelopmentDeploymentBrain {
         receipts:clone(this.sceneObservationReceipts.slice(-128)),
         counts:Object.fromEntries(['QUEUED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,this.sceneObservationReceipts.filter(row=>row.status===status).length])),
         runtimeOpen:this.resourceDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SCENE_OBSERVATION'&&!['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(row.lifecycleStatus))).length,
+        runtimeStates:this.resourceDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SCENE_OBSERVATION').slice(-64).map(row=>({
+          taskId:row.taskId,lifecycleStatus:row.lifecycleStatus,executionStatus:row.executionStatus,startedCount:row.startedCount,
+          chatId:row.obligation?.payload?.cognitiveTask?.metadata?.chatId??null,turnId:row.obligation?.payload?.cognitiveTask?.turnId??null,
+          generationId:row.obligation?.payload?.cognitiveTask?.metadata?.generationId??null,phase:row.obligation?.payload?.cognitiveTask?.metadata?.phase??null,
+          deadline:row.obligation?.deadline??null,resultClass:row.obligation?.resultContract?.resultClass??null,
+        })),
         authorityGranted:false,canonicalMutationAuthority:false,contextSealAuthority:false,
       },
       sceneFanOut: {
@@ -2212,10 +2227,15 @@ export class DevelopmentDeploymentBrain {
     task,admission,status,reasonCode,attempted,returned,workerResult,sourceRevisionId,sceneRevision,parentWorkId,
     fieldNames=[],ambiguityCount=0,invalid=false,
   }={}){
+    const resources=this.resourceConnections.readModel().resources??[];
+    const directResource=workerResult?resources.find(row=>
+      (workerResult.workerId&&row.workerId===workerResult.workerId)
+      ||(workerResult.providerId&&row.providerId===workerResult.providerId&&(!workerResult.modelId||row.actualModelId===workerResult.modelId||row.modelId===workerResult.modelId))
+    )??null:null;
     const profileId=workerResult?.workerId
-      ? admission?.plan?.capabilityAdmission?.candidates?.find(row=>row.sourceWorkerId===workerResult.workerId)?.profileId??admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null
-      : admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null;
-    const resource=(this.resourceConnections.readModel().resources??[]).find(row=>row.providerProfileId===profileId)??null;
+      ? admission?.plan?.capabilityAdmission?.candidates?.find(row=>row.sourceWorkerId===workerResult.workerId)?.profileId??directResource?.providerProfileId??admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null
+      : directResource?.providerProfileId??admission?.plan?.capabilityAdmission?.candidates?.[0]?.profileId??null;
+    const resource=directResource??resources.find(row=>row.providerProfileId===profileId)??null;
     return{
       kind:'DeploymentSceneObservationExecutionReceipt',contractVersion:1,
       status,reasonCode,workId:task?.taskId??null,parentWorkId:parentWorkId??task?.metadata?.parentWorkId??null,
@@ -2226,6 +2246,9 @@ export class DevelopmentDeploymentBrain {
       resultId:workerResult?.resultId??null,resourceId:resource?.resourceId??null,providerProfileId:profileId,
       providerId:workerResult?.providerId??resource?.providerId??null,workerId:workerResult?.workerId??resource?.workerId??null,modelId:workerResult?.modelId??resource?.actualModelId??resource?.modelId??null,
       latencyMs:Number.isFinite(Number(workerResult?.latency))?Number(workerResult.latency):null,
+      generationBudget:clone(workerResult?.providerMetadata?.generationBudget??resource?.lastExecution?.generationBudget??null),
+      foregroundQuorumDeadline:task?.hardDeadline??task?.metadata?.foregroundQuorumDeadline??null,
+      providerLifetimePolicy:task?.metadata?.providerLifetimePolicy??null,
       fieldNames:[...new Set(fieldNames)].sort().slice(0,16),ambiguityCount:Math.max(0,Math.min(4,Number(ambiguityCount)||0)),
       rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,

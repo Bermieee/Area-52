@@ -149,7 +149,7 @@ test('source edit cancels exact in-flight Scene work and obsolete output cannot 
     sourceRevisionId:first.sourceRevisionId,narrative:first.content,hostEvent:first,parentWorkId:'generation:'+first.generationId,
   });
   await waitFor(()=>brain.resourceConnections.taskControllers.has(work.executionReceipt.workId));
-  const edited=sceneEvent(brain,{chatId:first.chatId,messageId:'m1',messageRevision:2,turnId:'turn:edit2',generationId:'gen:edit2',content:'Mira leaves the sealed note untouched.'});
+  const edited=sceneEvent(brain,{chatId:first.chatId,messageId:'m1',messageRevision:2,turnId:'turn:edit2',generationId:'gen:edit2',content:'Mira leaves the sealed note untouched.',activity:HostActivity.EDIT});
   const editReceipt=brain.ingestSceneHostEvent(edited,{extract:()=>({})});
   assert.ok(editReceipt.invalidatedSourceRevisionRefs.includes(first.sourceRevisionId));
   assert.ok(brain.readSceneObservationReceipts({limit:128}).some(row=>row.status==='CANCELLED'&&row.workId===work.executionReceipt.workId&&row.reasonCode==='SCENE_OBSERVATION_SOURCE_INVALIDATED'));
@@ -177,7 +177,7 @@ test('explicit operator cancellation is truthful and does not fabricate owner ac
 });
 
 
-test('newer same-lane Scene work supersedes and cancels the older Runtime task',async()=>{
+test('newer same-lane Scene work supersedes older work without oversubscribing a still-occupied provider slot',async()=>{
   const brain=new DevelopmentDeploymentBrain(),firstGate=deferred(),secondGate=deferred();let calls=0;
   await connectScene(brain,()=>++calls===1?firstGate.promise:secondGate.promise,{id:'scene:supersede'});
   const first=sceneEvent(brain,{chatId:'chat:supersede',messageId:'m1',turnId:'turn:supersede:1',generationId:'gen:supersede:1'});
@@ -194,12 +194,14 @@ test('newer same-lane Scene work supersedes and cancels the older Runtime task',
     chatId:second.chatId,turnId:second.turnId,generationId:second.generationId,correlationId:second.correlationId,
     sourceRevisionId:second.sourceRevisionId,narrative:second.content,hostEvent:second,parentWorkId:'generation:'+second.generationId,
   });
-  assert.equal(secondWork.status,'QUEUED');
+  assert.equal(secondWork.status,'SKIPPED','provider capacity must remain truthful until the cancelled physical call actually exits');
+  assert.match(secondWork.executionReceipt.reasonCode,/SCENE_OBSERVATION_/);
   assert.ok(brain.readSceneObservationReceipts({limit:128}).some(row=>row.status==='CANCELLED'&&row.workId===firstWork.executionReceipt.workId&&row.reasonCode==='SCENE_OBSERVATION_SUPERSEDED'));
 
   firstGate.resolve(VALID_PAYLOAD);secondGate.resolve({fields:{activeThreads:{value:['second-note'],confidence:.9,observationClass:'OBSERVED'}},boundarySignals:{}});
-  await waitFor(()=>brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===secondWork.executionReceipt.workId));
+  await new Promise(resolve=>setTimeout(resolve,40));
   assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===firstWork.executionReceipt.workId&&row.status==='ADMITTED'),false);
+  assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===secondWork.executionReceipt.workId&&row.status==='ADMITTED'),false);
 });
 
 test('chat change cancels foreign in-flight Scene work before it can mutate the new active chat',async()=>{

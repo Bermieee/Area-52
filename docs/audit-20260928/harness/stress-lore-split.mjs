@@ -1,0 +1,15 @@
+import { makeSession, normalTurn } from './host.mjs';
+const N=Number(process.env.N||1200), chatId='chat:split';
+const places=['Ember Tavern','Silver Keep','Greyharbor','River District','Ashfall Pass','Moonwell','Thornwood','Saint Veyra'];
+const names=Array.from({length:150},(_,i)=>['Mara','Eris','Kael','Lyra','Tomas','Anya','Rhys','Selene','Dorian','Mira'][i%10]+(i>=10?' '+String.fromCharCode(65+(i%26))+(i>>4):''));
+const entries=Array.from({length:N},(_,i)=>{const a=names[i%names.length],b=names[(i*7+3)%names.length],p=places[i%places.length];return{uid:'e'+i,content:`${a} guards the vault of ${p}. ${a} distrusts ${b} after the incident of year ${900+(i%97)}. The sigil of ${p} marks entry ${i}.`,metadata:{title:`${a} — ${p} #${i}`,treePath:['People',a],at:i}};});
+const h=makeSession({chatId}); const b=h.session.brain;
+let t=performance.now(); b.acceptLorebook({id:'syn',title:'syn',chatId,discovery:{kind:'Audit',stableId:'syn',exactAuthoredSource:true},entries}); const acc=performance.now()-t;
+t=performance.now(); b.runLoreStudy({scope:'DUE'}); const study=performance.now()-t;
+console.log(JSON.stringify({N,acceptMs:Math.round(acc),studyMs:Math.round(study)}));
+h.session.start();
+await normalTurn(h,'Kael asks Mara about the sigil of Silver Keep.','Mara hesitates.');
+const sel=h.nativeBrain.uiBindings().readSelection({chatId}); const tr=h.nativeBrain.readTurn(sel.turnId);
+console.log('stages ms:',tr.performance.stages.filter(s=>s.wallMs>5).map(s=>s.stage+'='+Math.round(s.wallMs)).join(' '));
+console.log('slow channels:',tr.performance.retrievalChannels.filter(c=>c.elapsedMs>5).map(c=>c.channelId+'='+Math.round(c.elapsedMs)+'ms/'+c.nominationCount).join(' '));
+h.session.destroy();

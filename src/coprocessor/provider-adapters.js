@@ -163,7 +163,7 @@ export class OpenAICompatibleProviderAdapter {
       },{signal,timeoutMs,providerId:this.providerId,operation:'chat completion'});
       if(!response?.ok)throw httpError(Number(response?.status??0),{providerId:this.providerId,operation:'chat completion'});
       const json=await parseProviderJson(response,this.providerId,'chat completion');const text=completionText(json);
-      if(typeof text!=='string')throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'provider response did not contain final completion text',{providerId:this.providerId});
+      if(typeof text!=='string')throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,'provider response did not contain final completion text',{providerId:this.providerId,details:{responseMetadata:completionResponseMetadata(json)}});
       const completedAt=Date.now();const actualModelId=typeof json?.model==='string'&&json.model?json.model:this.modelId;
       return Object.freeze({providerId:this.providerId,modelId:actualModelId,text,usage:structuredClone(json.usage??{}),
         finishReason:json?.choices?.[0]?.finish_reason??null,startedAt,completedAt,latencyMs:completedAt-startedAt,
@@ -270,6 +270,26 @@ function normalizeTransportError(error,{providerId=null,operation='provider requ
 async function parseProviderJson(response,providerId,operation){
   try{return await response.json();}
   catch(error){throw new ProviderInvocationError(FailureCode.MALFORMED_OUTPUT,`${operation} returned invalid JSON`,{providerId,cause:error});}
+}
+export function safeCompletionResponseMetadata(value){
+  if(!value||typeof value!=='object')return null;
+  const count=x=>Number.isSafeInteger(x)&&x>=0?x:null;
+  return Object.freeze({
+    choiceCount:count(value.choiceCount),
+    finishReason:['stop','length','tool_calls','function_call','content_filter','error'].includes(value.finishReason)?value.finishReason:null,
+    contentType:['null','undefined','string','array','object','number','boolean'].includes(value.contentType)?value.contentType:null,
+    reasoningPresent:value.reasoningPresent===true,toolCallCount:count(value.toolCallCount),
+    promptTokens:count(value.promptTokens),completionTokens:count(value.completionTokens),totalTokens:count(value.totalTokens),reasoningTokens:count(value.reasoningTokens),
+  });
+}
+function completionResponseMetadata(json){
+  const choices=Array.isArray(json?.choices)?json.choices:[],choice=choices[0],message=choice?.message,content=message?.content,usage=json?.usage;
+  return safeCompletionResponseMetadata({choiceCount:choices.length,finishReason:choice?.finish_reason,
+    contentType:content===null?'null':Array.isArray(content)?'array':typeof content,
+    reasoningPresent:Boolean(message?.reasoning||message?.reasoning_content||message?.reasoning_details?.length),
+    toolCallCount:Array.isArray(message?.tool_calls)?message.tool_calls.length:0,
+    promptTokens:usage?.prompt_tokens,completionTokens:usage?.completion_tokens,totalTokens:usage?.total_tokens,reasoningTokens:usage?.completion_tokens_details?.reasoning_tokens,
+  });
 }
 function completionText(json){
   const choice=Array.isArray(json?.choices)?json.choices[0]:null;

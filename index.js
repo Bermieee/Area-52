@@ -79,7 +79,7 @@ export async function init() {
 
   try {
     session = createDevelopmentDeploymentSillyTavernSession({
-      onEvidence: (evidence) => renderEvidence(root, evidence),
+      // Diagnostics reads evidence on demand; the retired demo has no listener.
       nativeBrain: globalThis.Area52NativeBrainOwner ?? new Area52NativeBrain(),
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
       memoryOwnerSnapshot: globalThis.Area52MemoryOwnerSnapshot ?? null,

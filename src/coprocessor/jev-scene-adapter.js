@@ -92,7 +92,7 @@ export function createSceneJevAdapter() {
         domainAdapterId: 'jev.adapter.scene.v1',
         domainAdapterVersion: '1.0.0',
         routing: normalized.routing,
-        metadata: { domain: JevDomain.SCENE, decisionKind: normalized.decisionKind, precheckStatus: precheckReceipt.status, episodeRefs: normalized.episodeRefs, mentionedOnlyRefs: normalized.mentionedOnlyRefs, observedLocationRef: normalized.observedLocationRef },
+        metadata: { domain: JevDomain.SCENE, selection: normalized.adapterMetadata?.selection??null, decisionKind: normalized.decisionKind, precheckStatus: precheckReceipt.status, episodeRefs: normalized.episodeRefs, mentionedOnlyRefs: normalized.mentionedOnlyRefs, observedLocationRef: normalized.observedLocationRef },
       });
     },
 

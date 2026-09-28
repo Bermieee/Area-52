@@ -782,7 +782,7 @@ export class DevelopmentDeploymentBrain {
       provenanceRefs:[hostSource],sourceRevisionSet:[hostSource],worldRevision:this.core.graph.revision,
       sceneRevision:proposal.baseRevision,characterStateRevision:0,ownerRevision:proposal.baseRevision,
       freshnessToken,deadline:now+1200,softDeadline:now+900,maxRetries:0,
-      adapterMetadata:{sceneId:proposal.sceneId,field:String(ambiguity.field),sourceRevisionId:hostSource},
+      adapterMetadata:{sceneId:proposal.sceneId,field:String(ambiguity.field),sourceRevisionId:hostSource,selection:{chatId:execution?.chatId??null,generationId:execution?.generationId??null}},
     };
     let review;
     try{

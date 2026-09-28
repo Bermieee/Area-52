@@ -91,8 +91,8 @@ test('optional lifecycle separates intentional skip, provider failure, and succe
   const journal=new DemoEvidenceJournal({storage:memoryStorage(),now:()=>++now});
   const rows=[
     {id:'jev:openrouter',kind:'JEV',state:'READY',callable:true,physicalExecutionAttempted:false,measurementClass:'MEASURED_LIVE'},
-    {id:'sidecar:failed',kind:'SIDECAR',state:'DEGRADED',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:false,lastExecution:{status:'FAIL',receiptId:'exec:fail'},lastFailure:{code:'PROVIDER_TIMEOUT'},measurementClass:'MEASURED_LIVE'},
-    {id:'sidecar:success',kind:'SIDECAR',state:'READY',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,lastExecution:{status:'SUCCESS',receiptId:'exec:success'},ownerAccepted:false,ownerAcceptanceSource:null,measurementClass:'MEASURED_LIVE'},
+    {id:'sidecar:failed',kind:'SIDECAR',state:'DEGRADED',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:false,lastExecution:{status:'FAIL',receiptId:'exec:fail',selection:baseSelection},lastFailure:{code:'PROVIDER_TIMEOUT'},measurementClass:'MEASURED_LIVE'},
+    {id:'sidecar:success',kind:'SIDECAR',state:'READY',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,lastExecution:{status:'SUCCESS',receiptId:'exec:success',selection:baseSelection},ownerAccepted:false,ownerAcceptanceSource:null,measurementClass:'MEASURED_LIVE'},
   ];
   journal.recordSnapshot(snapshot({optionalRows:rows}));
   const log=new SelectedTurnLogModel({journal,selectionProvider:()=>baseSelection,now:()=>now}).read();
@@ -319,4 +319,25 @@ test('Diagnostics aggregates retained history and current operational telemetry 
   assert.ok(paths.some(path=>path.endsWith('/performance/ui-load.json')));
   assert.ok(paths.some(path=>path.endsWith('/errors/errors.json')));
   assert.ok(paths.some(path=>path.endsWith('/operational-snapshot.json')));
+});
+
+test('foreign or unfenced resource attempts cannot be assigned to the selected turn',()=>{
+  for(const kind of ['SIDECAR','JEV','VECTORING']){
+    for(const selection of [undefined,{...baseSelection,generationId:'older-generation'},{...baseSelection,correlationId:'foreign-correlation'}]){
+      const journal=new DemoEvidenceJournal({storage:memoryStorage()});
+      journal.recordSnapshot(snapshot({optionalRows:[{id:'resource:old',kind,state:'UNAVAILABLE',physicalExecutionAttempted:true,physicalExecutionSucceeded:false,lastExecution:{status:'FAIL',selection},lastFailure:{code:'MALFORMED_OUTPUT'}}]}));
+      const log=new SelectedTurnLogModel({journal,selectionProvider:()=>baseSelection}).read();
+      assert.equal(log.summary.optionalAttempts,0,kind+' must not reattribute an old attempt');
+      assert.equal(log.rows.some(row=>row.resourceId==='resource:old'&&row.status==='FAILED'),false);
+    }
+  }
+});
+
+test('safe provider failure details reach the existing Diagnostics journal and export',()=>{
+  const journal=new DemoEvidenceJournal({storage:memoryStorage()});
+  journal.recordSnapshot(snapshot({optionalRows:[{id:'sidecar:current',kind:'SIDECAR',physicalExecutionAttempted:true,lastExecution:{status:'FAIL',selection:baseSelection,responseMetadata:{choiceCount:1,finishReason:'length',contentType:'null',reasoningPresent:true,completionTokens:64,rawBody:'PRIVATE STORY',reasoning:'PRIVATE REASONING'}}}]}));
+  const turn=journal.readTurn(baseSelection),attempt=turn.entries.find(row=>row.type==='RESOURCE_ATTEMPT');
+  assert.equal(attempt.metadata.responseMetadata.finishReason,'length');
+  assert.match(attempt.detail,/output tokens 64/);
+  assert.doesNotMatch(JSON.stringify(attempt),/PRIVATE/);
 });

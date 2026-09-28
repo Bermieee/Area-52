@@ -1,5 +1,6 @@
 import { ResourceScope } from './lifecycle.js';
 import { element } from './primitives.js';
+import { safeCompletionResponseMetadata } from '../coprocessor/provider-adapters.js';
 
 export const DEMO_EVIDENCE_JOURNAL_VERSION='1.5.0';
 const DEFAULT_NAMESPACE='area52.demo.evidence.v1';
@@ -291,18 +292,19 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
   }
 
   for(const row of diag.resources?.rows??[]){
-    if(String(row.kind??'').toUpperCase()==='VECTORING'&&!exactResourceExecution(row.lastExecution,selection))continue;
+    if(!exactResourceExecution(row.lastExecution,selection))continue;
     const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
     const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
     if(qualificationProbe||(!row.physicalExecutionAttempted&&!row.lastExecution))continue;
     const succeeded=Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
+    const responseMetadata=safeCompletionResponseMetadata(row.lastExecution?.responseMetadata);
     out.push(entry({
       type:'RESOURCE_ATTEMPT',status:succeeded?'SUCCEEDED':'FAILED',title:'Physical resource attempt',
       summary:String(row.displayName??row.id??'Resource')+' '+(succeeded?'completed a physical execution attempt.':'reported a physical execution failure.'),
-      detail:'This evidence comes from the resource execution read model, not connection or configuration state. QUALIFICATION_PROBE traffic is excluded from cognitive execution.',
+      detail:'This evidence comes from the resource execution read model, not connection or configuration state. QUALIFICATION_PROBE traffic is excluded from cognitive execution.'+(responseMetadata?' Completion: '+String(responseMetadata.finishReason??'unknown finish reason')+'; content '+String(responseMetadata.contentType)+'; reasoning present '+responseMetadata.reasoningPresent+'; output tokens '+String(responseMetadata.completionTokens??'unknown')+'.':''),
       receiptRef:row.lastExecution?.receiptId??row.lastExecution?.executionId??null,selection,at,
       identitySuffix:String(row.id??'resource')+':'+String(row.lastExecution?.at??row.lastExecution?.completedAt??row.lastExecution?.status??succeeded),
-      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,executionPurpose,succeeded,latencyMs:finite(row.lastExecution?.latencyMs)},
+      metadata:{resourceId:row.id??null,providerId:row.providerId??null,modelId:row.modelId??null,workerId:row.workerId??null,measurementClass:row.measurementClass??null,executionPurpose,succeeded,latencyMs:finite(row.lastExecution?.latencyMs),responseMetadata},
     }));
   }
 
@@ -314,12 +316,12 @@ function deriveEntries({selection,operations,diagnostics,cognition,promptPlan,ow
       const kind=String(row.kind??'').toUpperCase();
       const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
       const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
-      const attempted=!qualificationProbe&&(kind!=='VECTORING'||exactResourceExecution(row.lastExecution,selection))&&Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=attempted&&Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
+      const attempted=!qualificationProbe&&exactResourceExecution(row.lastExecution,selection)&&Boolean(row.physicalExecutionAttempted||row.lastExecution),succeeded=attempted&&Boolean(row.physicalExecutionSucceeded??row.lastExecution?.status==='SUCCESS');
       const returned=attempted?(typeof row.physicalExecutionReturned==='boolean'?row.physicalExecutionReturned:typeof row.lastExecution?.returned==='boolean'?row.lastExecution.returned:null):null;
       const failed=attempted&&!succeeded&&Boolean(row.lastFailure||row.lastExecution?.status==='FAIL');
       const skipReason=qualificationProbe?'QUALIFICATION_PROBE':kind==='JEV'&&jevReason==='JEV_NOT_REQUIRED'?'JEV_NOT_REQUIRED':null;
-      const ownerAcceptanceState=typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE';
-      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:row.ownerAcceptanceSource??null,skipReason,executionPurpose,qualificationProbe,measurementClass:row.measurementClass??null};
+      const ownerAcceptanceState=attempted&&typeof row.ownerAccepted==='boolean'?(row.ownerAccepted?'ACCEPTED':'REJECTED'):'NO_EVIDENCE';
+      return{id:row.id??null,kind,state:row.state??null,configured:true,qualifiedCallable:Boolean(row.callable),attempted,returned,succeeded,failed,ownerAccepted:attempted&&row.ownerAccepted===true,ownerAcceptanceState,ownerAcceptanceSource:attempted?row.ownerAcceptanceSource??null:null,skipReason,executionPurpose,qualificationProbe,measurementClass:row.measurementClass??null};
     });
     out.push(entry({
       type:'OPTIONAL_RESOURCE_LIFECYCLE',status:'RECORDED',title:'Optional resource lifecycle',
@@ -505,7 +507,7 @@ function readModelEvidence(value,inspection,stage,selectedRefs,selection,overrid
 }
 function optionalResourceEvidence(row,stage,selectedRefs,selection){
   if(!row)return null;
-  if(stage==='vectoring'&&!exactResourceExecution(row.lastExecution,selection))return null;
+  if(!exactResourceExecution(row.lastExecution,selection))return null;
   const executionPurpose=technicalReason(row.lastExecution?.purpose??row.lastExecution?.executionPurpose??row.lastProbe?.purpose??row.lastQualification?.purpose);
   const qualificationProbe=executionPurpose==='QUALIFICATION_PROBE';
   const attempted=!qualificationProbe&&Boolean(row.physicalExecutionAttempted||row.lastExecution);
@@ -520,7 +522,8 @@ function optionalResourceEvidence(row,stage,selectedRefs,selection){
 }
 function exactResourceExecution(execution,selection){
   return Boolean(selection?.chatId&&selection?.turnId&&selection?.generationId&&
-    execution?.selection?.chatId===selection.chatId&&execution?.selection?.turnId===selection.turnId&&execution?.selection?.generationId===selection.generationId);
+    execution?.selection?.chatId===selection.chatId&&execution?.selection?.turnId===selection.turnId&&execution?.selection?.generationId===selection.generationId&&
+    (!selection.correlationId||execution.selection.correlationId===selection.correlationId));
 }
 
 function expectedWorkJournalEntry(expectedWork,selection,at){

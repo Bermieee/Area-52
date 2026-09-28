@@ -21,7 +21,7 @@ export function createJevCognitiveTask(requestInput,{prefilter=null}={}){
     softDeadline:request.softDeadline,hardDeadline:request.deadline,dedupeKey:jevRequestFingerprint(request),intentFingerprint:`jev:${request.decisionId}:${request.freshnessToken}`,
     fallbackPolicy:{type:'DETERMINISTIC',maxRetries:request.escalationPolicy.maxRetries},
     outputSchema:{type:'object',required:PROVIDER_KEYS},
-    metadata:{decisionId:request.decisionId,decisionType:request.decisionType,decisionShape:request.decisionShape,resourceClass:request.resourceClass,
+    metadata:{selection:{chatId:request.metadata?.selection?.chatId??request.metadata?.chatId??null,generationId:request.metadata?.selection?.generationId??request.metadata?.generationId??null},decisionId:request.decisionId,decisionType:request.decisionType,decisionShape:request.decisionShape,resourceClass:request.resourceClass,
       viableOptionCount:prefilter?.viableOptions?.length??request.options.length,expectedOutputTokens:700,truthAuthorityGranted:false,durableMutationAllowed:false},
   });
 }

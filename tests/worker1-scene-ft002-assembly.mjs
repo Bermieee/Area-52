@@ -123,9 +123,15 @@ test('#177 real Scene prefetch can execute a physical Historian resource and onl
   assert.ok(prepared.sceneFanOutResultBusReceipt.boundCandidateIds.length>=1);
   const boundRow=prepared.sceneFanOutResultBusReceipt.rows.find(row=>row.status==='BOUND');
   assert.ok(boundRow?.resultId);
+  assert.ok(boundRow?.upstreamResultId);
+  assert.ok(fanOut.receipt.admittedResultIds.includes(boundRow.upstreamResultId));
+  assert.ok(prepared.sceneFanOutResultBusReceipt.selectionResultIds.includes(boundRow.upstreamResultId));
+  assert.ok(prepared.sceneFanOutResultBusReceipt.gatheredSelectionResultIds.includes(boundRow.upstreamResultId));
   assert.ok(prepared.gatherReceipt.admittedCandidateIds.includes(boundRow.candidateId));
   assert.ok(prepared.gatherReceipt.admittedResultIds.includes(boundRow.resultId));
+  assert.ok(prepared.gatherReceipt.admittedResultIds.includes(boundRow.upstreamResultId));
   assert.ok(prepared.contextSealReceipt.admittedResultIds.includes(boundRow.resultId));
+  assert.ok(prepared.contextSealReceipt.admittedResultIds.includes(boundRow.upstreamResultId));
   assert.equal(prepared.contextSealReceipt.sealedState,true);
   assert.equal(prepared.promptPlan.turnId,selection.turnId);
   assert.equal(prepared.promptPlan.generationId,selection.generationId);
@@ -140,6 +146,8 @@ test('#177 real Scene prefetch can execute a physical Historian resource and onl
   assert.deepEqual(selected.sceneFlow.fanOut.admittedResultIds,fanOut.receipt.admittedResultIds);
   assert.equal(selected.sceneFlow.fanOut.coreBinding.status,'BOUND');
   assert.ok(selected.sceneFlow.fanOut.coreBinding.boundCandidateIds.includes(boundRow.candidateId));
+  assert.ok(selected.sceneFlow.fanOut.coreBinding.selectionResultIds.includes(boundRow.upstreamResultId));
+  assert.ok(selected.sceneFlow.fanOut.coreBinding.gatheredSelectionResultIds.includes(boundRow.upstreamResultId));
   assert.ok(selected.sceneFlow.fanOut.candidateCount>=1);
   assert.ok(['ADMITTED_RESULTS','PUBLISHED_NO_WORK'].includes(selected.sceneFlow.gather.state));
   assert.equal(selected.sceneFlow.contextSeal.state,'SEALED');

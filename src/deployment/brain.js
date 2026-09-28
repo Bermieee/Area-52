@@ -47,6 +47,8 @@ import { createTurnEnvelope } from '../coprocessor/contracts.js';
 import { plannerInputFromScene } from '../coprocessor/scene-signal-adapter.js';
 import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coprocessor/jev-lore-adapter.js';
 import { ResultDestination, ResultPayloadClass, createCognitiveResult } from '../publication-contracts.js';
+import { SpeculativeWarmCoordinator } from '../coprocessor/speculative-warmer-coordinator.js';
+import { sha256Hex } from '../coprocessor/browser-compat.js';
 
 const CHANNEL_ID = 'NATIVE_LORE_RUNTIME';
 const uniq = (values) => [...new Set((values ?? []).filter(Boolean).map(String))].sort();
@@ -131,11 +133,13 @@ function localJevExecutor() {
 }
 
 class RuntimePreparedLoreChannel {
-  constructor({ loreSystem, core, sourceMap }) {
+  constructor({ loreSystem, core, sourceMap, maxPrepared = 64 }) {
     this.loreSystem = loreSystem;
     this.core = core;
     this.sourceMap = sourceMap;
     this.prepared = new Map();
+    this.speculativePrepared = new Map();
+    this.maxPrepared = Math.max(8, Number(maxPrepared) || 64);
     this.descriptor = createRetrievalChannelDescriptor({
       channelId: CHANNEL_ID,
       capabilities: [RetrievalChannelCapability.SPARSE, RetrievalChannelCapability.RAPTOR, RetrievalChannelCapability.GRAPHRAG_COMMUNITY],
@@ -165,8 +169,28 @@ class RuntimePreparedLoreChannel {
       candidateBusAdmissionAuthority: false,
       settlementAuthority: false,
     });
-    this.prepared.set(String(query), prepared);
+    this.#remember(this.prepared, String(query), prepared);
     return prepared;
+  }
+
+  prepareSpeculative(preparationRef, query, { intent = 'NARROW' } = {}) {
+    const ref=String(preparationRef??'').trim();
+    if(!ref)throw new TypeError('speculative lore preparation ref is required');
+    const prepared=this.prepare(query,{intent});
+    this.#remember(this.speculativePrepared,ref,prepared);
+    return prepared;
+  }
+
+  activateSpeculative(preparationRef, query) {
+    const ref=String(preparationRef??'').trim();
+    const prepared=this.speculativePrepared.get(ref);
+    if(!ref||!prepared)return false;
+    this.#remember(this.prepared,String(query),prepared);
+    return true;
+  }
+
+  discardSpeculative(preparationRef) {
+    return this.speculativePrepared.delete(String(preparationRef??''));
   }
 
   admitSceneCandidates(query, handoff) {
@@ -188,7 +212,7 @@ class RuntimePreparedLoreChannel {
     }
     const byId = new Map(original.nominations.map((row) => [row.nominationId, row]));
     for (const row of admitted) byId.set(row.nominationId, row);
-    this.prepared.set(String(query), Object.freeze({ ...original, nominations: [...byId.values()] }));
+    this.#remember(this.prepared,String(query),Object.freeze({ ...original, nominations: [...byId.values()] }));
     return admitted.length;
   }
 
@@ -207,6 +231,12 @@ class RuntimePreparedLoreChannel {
   drillDown(nomination) {
     const lane = nomination?.metadata?.laneNomination;
     return lane ? this.loreSystem.drillDown(lane) : [];
+  }
+
+  #remember(map,key,value){
+    map.delete(key);
+    map.set(key,value);
+    while(map.size>this.maxPrepared)map.delete(map.keys().next().value);
   }
 
   #toCoreNomination(lane) {

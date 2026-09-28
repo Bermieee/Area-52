@@ -40,6 +40,8 @@ import { CoprocessorTelemetry } from '../coprocessor/telemetry.js';
 import { JevDecisionShape, JevOutcome } from '../coprocessor/jev-contracts.js';
 import { JevDomain } from '../coprocessor/jev-domain-adapter.js';
 import { NativeSidecarSwarm } from '../coprocessor/native-sidecar-swarm.js';
+import { GatherCoordinator } from '../coprocessor/gather-coordinator.js';
+import { createTurnEnvelope } from '../coprocessor/contracts.js';
 import { plannerInputFromScene } from '../coprocessor/scene-signal-adapter.js';
 import { LoreJevDecisionKind, LoreReconciliationClassification } from '../coprocessor/jev-lore-adapter.js';
 
@@ -369,6 +371,7 @@ export class DevelopmentDeploymentBrain {
     this.resourceConnections = new CoprocessorResourceConnections({ telemetry: this.coprocessorTelemetry });
     this.scenePrefetchSwarm = new NativeSidecarSwarm({ connections: this.resourceConnections, telemetry: this.coprocessorTelemetry });
     this.scenePrefetchConsiderations = [];
+    this.sceneFanOutAssemblies = [];
     this.resourceDirectorResults = [];
     this.resourceOwnerReceipts = [];
     this.resourceDirector = new WorkerDirector({
@@ -1216,6 +1219,124 @@ export class DevelopmentDeploymentBrain {
   readScenePrefetchConsiderations({limit=32}={}){
     const count=Math.max(1,Math.min(128,Number(limit)||32));
     return this.scenePrefetchConsiderations.slice(-count).map(clone);
+  }
+
+  #sceneFanOutTaskInput(task,{sceneInput,query,gather}={}){
+    const activeEntityIds=uniq(sceneInput?.sceneEntities??[]);
+    if(task.taskType==='HISTORIAN_RETRIEVAL'){
+      const result=this.memorySurface.adapters.queryHistorian({
+        query:String(query??''),mode:'CONTINUITY_RECALL',activeEntityIds,maxCandidates:24,
+        chatId:sceneInput?.chatId??null,sceneId:sceneInput?.sceneId??null,sceneRevision:sceneInput?.sceneRevision??null,
+      });
+      const candidates=(result?.nominations??[]).slice(0,24).map(row=>({
+        candidateId:row.candidateId,summary:row.representationText??'',value:row.representationText??null,
+        semanticKey:row.evidenceIdentity??row.candidateId,temporalStatus:row.truthStatusHint??'UNRESOLVED',
+        authority:row.authorityClass??'UNRESOLVED',retrievalIntentIds:[...(row.retrievalIntentIds??[])],
+        entityRefs:[...(row.entityRefs??[])],relationshipRefs:[...(row.relationshipRefs??[])],
+        eventRefs:[...(row.eventRefs??[])],claimRefs:[...(row.claimRefs??[])],temporalHints:[...(row.temporalHints??[])],
+        authorityClass:row.authorityClass??'UNRESOLVED',truthStatusHint:row.truthStatusHint??'UNRESOLVED',
+        perspective:clone(row.metadata?.perspective??{scope:'WORLD'}),evidenceRefs:[...(row.evidenceRefs??[])],
+        sourceRevisionRefs:[...(row.sourceRevisionRefs??[])],channel:row.metadata?.historianChannel??'EPISODIC_MEMORY',
+        representationText:row.representationText??'',
+      }));
+      return{intent:'CONTINUITY_RECALL',activeEntities:activeEntityIds,sceneRefs:[sceneInput?.sceneId].filter(Boolean),candidates,maxRefs:Math.min(8,candidates.length||8)};
+    }
+    if(task.taskType==='GRAPH_WALK'){
+      const refs=this.scene.graph.references?.({sceneId:sceneInput?.sceneId,limit:64})??[];
+      const nodes=new Map(),edges=[],states=[];
+      for(const row of refs){
+        const from=row.fromRef??row.fromSceneId??null,to=row.toRef??row.toSceneId??null;
+        if(from)nodes.set(String(from),{ref:String(from),type:row.edgeType?.startsWith('SCENE_')?'SCENE':'ENTITY'});
+        if(to)nodes.set(String(to),{ref:String(to),type:row.edgeType?.startsWith('SCENE_')?'SCENE':'ENTITY'});
+        if(from&&to)edges.push({ref:String(row.edgeId),from:String(from),to:String(to),relation:String(row.edgeType??'RELATED')});
+        if(row.observedState){
+          states.push({ref:String(row.edgeId)+':state',entityRef:String(row.fromRef??from??row.edgeId),temporalStatus:String(row.temporalStatus??'UNRESOLVED'),summary:JSON.stringify(row.observedState).slice(0,600)});
+        }
+      }
+      return{nodes:[...nodes.values()].slice(0,64),edges:edges.slice(0,64),states:states.slice(0,64),conflicts:[]};
+    }
+    if(task.taskType==='GREEN_ROOM'){
+      return{characters:(sceneInput?.activeCast??[]).map(row=>typeof row==='string'?{characterRef:row,presence:'PRESENT',sceneEvidenceRefs:[...(sceneInput?.sourceRevisionSet??[])]}:{...clone(row),characterRef:row.characterRef??row.characterId??row.ref,presence:row.presence??row.state??'PRESENT',sceneEvidenceRefs:uniq([...(row.sceneEvidenceRefs??row.evidenceRefs??[]),...(sceneInput?.sourceRevisionSet??[])])}).filter(row=>row.characterRef),sceneRevision:sceneInput?.sceneRevision,expiry:{onSceneRevisionChange:true,ttlTurns:1,onCharacterExit:true}};
+    }
+    if(task.taskType==='TRUTH_PRECISION'){
+      const compiler=gather.compilerInput(),evidence=[];
+      for(const payload of compiler.evidence??[])for(const row of payload?.evidence??[]){
+        const ref=row?.id??row?.ref;if(!ref)continue;
+        evidence.push({ref:String(ref),statement:String(row.statement??row.value??row.representationText??''),semanticKey:row.semanticKey??null,temporalStatus:row.temporalStatus??'UNRESOLVED',authority:row.authority??'UNRESOLVED'});
+      }
+      return{intent:'SCENE_FANOUT',evidence:evidence.slice(0,64),conflictSets:[],requiredRefs:evidence.slice(0,16).map(row=>row.ref)};
+    }
+    return{};
+  }
+
+  async assembleSceneFanOutForNativeTurn({
+    chatId,turnId,generationId,correlationId=null,causationId=null,query,worldRevision=0,characterStateRevision=0,
+    foregroundBudgetMs=1200,selectionGuard=null,sealed=false,
+  }={}){
+    const chat=String(chatId??''),turnRef=String(turnId??''),generationRef=String(generationId??''),q=String(query??'');
+    if(!chat||!turnRef||!generationRef||!q)throw new TypeError('chatId, turnId, generationId and query are required');
+    const guard=()=>typeof selectionGuard==='function'?Boolean(selectionGuard()):true;
+    const sceneInput=this.scene.fanOutInput(chat);
+    if(!sceneInput?.sceneId)throw new Error('SCENE_FANOUT_SELECTED_SCENE_REQUIRED');
+    const corr=String(correlationId??('corr:'+turnRef)),cause=String(causationId??('scene-owner:'+sceneInput.sceneId+':r'+sceneInput.sceneRevision));
+    const selected=guard();
+    if(!selected)return{kind:'DeploymentSceneFanOutAssembly',receipt:{kind:'DeploymentSceneFanOutAssemblyReceipt',status:'REJECTED',reasonCode:'SCENE_SELECTION_SUPERSEDED',chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr,causationId:cause,sceneId:sceneInput.sceneId,sceneRevision:sceneInput.sceneRevision,sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),plannerConsidered:false,physicalExecutionCount:0,admittedResultIds:[],rejectedResultIds:[],staleResultIds:[],candidateIds:[],authorityGranted:false,truthAuthority:false,contextSealAuthority:false},coreHandoff:null};
+    const now=Date.now(),turn=createTurnEnvelope({
+      turnId:turnRef,eventId:cause,eventType:'SCENE_FANOUT',correlationId:corr,causationId:cause,
+      sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),worldRevision:Number(worldRevision)||0,
+      sceneRevision:Number(sceneInput.sceneRevision)||0,characterStateRevision:Number(characterStateRevision)||0,
+      createdAt:now,deadline:now+Math.max(50,Number(foregroundBudgetMs)||1200),cognitiveLayer:'L1',dedupeKey:'scene-fanout:'+generationRef,
+    });
+    const plannerInput=plannerInputFromScene({publicSignals:sceneInput,base:{text:q,queryIntent:'CURRENT',trigger:'SCENE_FT002_ASSEMBLY',selection:{chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr}}});
+    const prepared=this.scenePrefetchSwarm.prepareTurn({turnEvent:turn,plannerInput});
+    const gather=new GatherCoordinator({turnEvent:turn,plan:prepared.fanOutPlan,currentRevisionSet:turn});
+    const currentRevisionState=()=>({
+      sourceRevisionSet:uniq(this.scene.fanOutInput(chat)?.sourceRevisionSet??[]),
+      worldRevision:Number(worldRevision)||0,sceneRevision:Number(this.scene.fanOutInput(chat)?.sceneRevision??0),
+      characterStateRevision:Number(characterStateRevision)||0,
+    });
+    const execution=await this.scenePrefetchSwarm.executeCheckpoint(prepared.checkpoint,{
+      inputResolver:(task)=>this.#sceneFanOutTaskInput(task,{sceneInput,query:q,gather}),
+      currentRevisionState,sealed:()=>typeof sealed==='function'?Boolean(sealed()):Boolean(sealed),
+      selection:{chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr},gather,
+    });
+    const bundle=gather.close({at:Date.now(),reason:gather.quorumSatisfied()?'FOREGROUND_QUORUM':'ASSEMBLY_EXECUTION_COMPLETE'});
+    const historianTaskIds=new Set((prepared.fanOutPlan.tasks??[]).filter(task=>task.taskType==='HISTORIAN_RETRIEVAL').map(task=>task.taskId));
+    const historianSummary=(execution.contribution?.resultSummary??[]).filter(row=>historianTaskIds.has(row.taskId));
+    const acceptedHistorianTaskIds=new Set(historianSummary.filter(row=>row.ownerAdmissionAttempted&&row.ownerAccepted).map(row=>row.taskId));
+    const historianTaskId=[...acceptedHistorianTaskIds][0]??null;
+    const historianWorker=historianSummary.find(row=>row.taskId===historianTaskId)??null;
+    const candidates=(bundle.loreEvidence??[]).flatMap(row=>row?.candidateSet?.candidates??row?.candidates??[]).slice(0,64);
+    const resultSummary=execution.contribution?.resultSummary??[];
+    const admittedResultIds=uniq((execution.contribution?.continuousOwnerAdmissions??[]).filter(row=>row.acceptedByOwner).map(row=>row.resultId));
+    const rejectedResultIds=uniq(resultSummary.filter(row=>row.ownerAdmissionAttempted&&!row.ownerAccepted&&!row.stale).map(row=>row.resultId).filter(Boolean));
+    const staleResultIds=uniq(resultSummary.filter(row=>row.stale||row.state==='REJECTED_STALE').map(row=>row.resultId).filter(Boolean));
+    const physicalExecutionCount=resultSummary.filter(row=>row.providerProfileId&&row.startedAt!=null).length;
+    const receipt=Object.freeze({
+      kind:'DeploymentSceneFanOutAssemblyReceipt',contractVersion:1,status:'ASSEMBLED',reasonCode:null,
+      chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr,causationId:cause,
+      sceneId:sceneInput.sceneId,sceneRevision:sceneInput.sceneRevision,sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),
+      plannedTaskIds:(prepared.fanOutPlan.tasks??[]).map(task=>task.taskId),plannedRoles:uniq((prepared.fanOutPlan.nominations??[]).map(row=>row.roleId)),
+      physicalExecutionCount,executionResults:resultSummary.slice(0,32).map(row=>({taskId:row.taskId,taskType:row.taskType,resultId:row.resultId,state:row.state,providerProfileId:row.providerProfileId,workerId:row.workerId,ownerAdmissionAttempted:row.ownerAdmissionAttempted,ownerAccepted:row.ownerAccepted,ownerDestination:row.ownerDestination,failureCode:row.failureCode})),
+      admittedResultIds,rejectedResultIds,staleResultIds,candidateIds:uniq(candidates.map(row=>row.candidateId)),
+      gather:{acceptedResultIds:[...(bundle.acceptedResultIds??[])],rejectedResultIds:[...(bundle.rejectedResultIds??[])],staleResultIds:[...(bundle.staleResultIds??[])],missingRequired:[...(bundle.missingRequired??[])]},
+      plannerConsidered:true,workerExecutionAttempted:physicalExecutionCount>0,checkpointExecutionPerformed:true,
+      authorityGranted:false,retrievalAuthority:false,truthAuthority:false,contextSealAuthority:false,canonicalMutation:false,settlementAuthority:false,
+    });
+    this.sceneFanOutAssemblies.push(clone(receipt));if(this.sceneFanOutAssemblies.length>128)this.sceneFanOutAssemblies.splice(0,this.sceneFanOutAssemblies.length-128);
+    this.#emit({type:'SCENE_FT002_ASSEMBLED',receipt:clone(receipt)});
+    const coreHandoff=candidates.length&&historianTaskId?Object.freeze({
+      kind:'SceneFanOutCoreHandoff',contractVersion:1,chatId:chat,turnId:turnRef,generationId:generationRef,correlationId:corr,causationId:cause,
+      sceneId:sceneInput.sceneId,sceneRevision:sceneInput.sceneRevision,sourceRevisionSet:uniq(sceneInput.sourceRevisionSet??[]),
+      candidates:candidates.map(candidate=>({candidate:clone(candidate),taskId:historianTaskId,causationId:cause,sourceSubsystem:'SCENE_FANOUT_HISTORIAN',workerId:historianWorker?.workerId??'scene-fanout',resultClass:historianWorker?.resultClass??'OPPORTUNISTIC',timing:{latencyMs:historianWorker?.latencyMs??null}})),
+      authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
+    }):null;
+    return{kind:'DeploymentSceneFanOutAssembly',receipt:clone(receipt),coreHandoff};
+  }
+
+  readSceneFanOutAssemblies({limit=32}={}){
+    const count=Math.max(1,Math.min(128,Number(limit)||32));
+    return this.sceneFanOutAssemblies.slice(-count).map(clone);
   }
 
   async runTurn({

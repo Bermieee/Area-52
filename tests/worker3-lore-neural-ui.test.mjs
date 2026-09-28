@@ -334,7 +334,7 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.equal(artifactNodes.length,1);
   assert.match(body,/Presentation clusters until categories are published/);
   assert.match(body,/Layout-only clusters do not add semantic meaning to Lore/);
-  assert.match(body,/54 of 105 source nodes shown/);
+  assert.match(body,/54 of 105 nodes shown/);
   assert.doesNotMatch(body,/hierarchy:a59b5c6ea9e88b85deadbeef/);
   assert.match(body,/hierarchy:a59b5c6e…beef/);
   const positions=hubs.map(hub=>hub.children?.find?.(child=>child.tagName==='CIRCLE')?.attributes??{});

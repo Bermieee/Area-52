@@ -31,7 +31,7 @@ function nativeFor(brain){
   });
 }
 
-async function assemble(brain,native,receipt,{query=receipt?.evidence?.content??'Continue.',suffix='x'}={}){
+async function assemble(brain,native,receipt,{query=receipt?.evidence?.content??'Continue.',suffix='x',intent='CURRENT'}={}){
   const chatId=receipt.chatId,turnId=`assembled:${suffix}`,generationId=`assembled-gen:${suffix}`;
   const correlationId=`corr:${turnId}`,causationId=`host:${suffix}`;
   const fanOut=await brain.assembleSceneFanOutForNativeTurn({
@@ -39,7 +39,7 @@ async function assemble(brain,native,receipt,{query=receipt?.evidence?.content??
     worldRevision:native.core.graph.revision,selectionGuard:()=>true,sealed:false,
   });
   const prepared=await native.prepareTurn({
-    chatId,turnId,generationId,correlationId,query,
+    chatId,turnId,generationId,correlationId,query,intent,
     sceneSignal:receipt.signal,sceneTimeline:receipt.dispatchTimeline??[],sceneOwnerReceipt:receipt,
     sceneFanOut:fanOut.coreHandoff??null,executionLabel:'FT002_ASSEMBLED_TEST',
   });
@@ -103,7 +103,7 @@ test('#177 real Scene prefetch can execute a physical Historian resource and onl
   assert.equal(sceneReceipt.status,'OBSERVED');
   assert.ok(sceneReceipt.eventTypes.includes('LOCATION_CHANGED'));
   const native=nativeFor(brain);
-  const {fanOut,prepared,ui,selection}=await assemble(brain,native,sceneReceipt,{query:'Where was the glass compass stored earlier?',suffix:'physical'});
+  const {fanOut,prepared,ui,selection}=await assemble(brain,native,sceneReceipt,{query:'Where was the glass compass stored earlier?',suffix:'physical',intent:'HISTORICAL'});
 
   assert.equal(fanOut.receipt.status,'ASSEMBLED');
   assert.equal(fanOut.receipt.plannerConsidered,true);
@@ -119,6 +119,13 @@ test('#177 real Scene prefetch can execute a physical Historian resource and onl
 
   assert.equal(prepared.sceneFanOutIngress.status,'ADMITTED_FOR_RESULT_BUS');
   assert.ok(prepared.sceneFanOutIngress.candidateCount>=1);
+  assert.equal(prepared.sceneFanOutResultBusReceipt.status,'BOUND');
+  assert.ok(prepared.sceneFanOutResultBusReceipt.boundCandidateIds.length>=1);
+  const boundRow=prepared.sceneFanOutResultBusReceipt.rows.find(row=>row.status==='BOUND');
+  assert.ok(boundRow?.resultId);
+  assert.ok(prepared.gatherReceipt.admittedCandidateIds.includes(boundRow.candidateId));
+  assert.ok(prepared.gatherReceipt.admittedResultIds.includes(boundRow.resultId));
+  assert.ok(prepared.contextSealReceipt.admittedResultIds.includes(boundRow.resultId));
   assert.equal(prepared.contextSealReceipt.sealedState,true);
   assert.equal(prepared.promptPlan.turnId,selection.turnId);
   assert.equal(prepared.promptPlan.generationId,selection.generationId);
@@ -131,6 +138,8 @@ test('#177 real Scene prefetch can execute a physical Historian resource and onl
   assert.equal(selected.sceneFlow.fanOut.plannerConsidered,true);
   assert.equal(selected.sceneFlow.fanOut.physicalExecutionCount,fanOut.receipt.physicalExecutionCount);
   assert.deepEqual(selected.sceneFlow.fanOut.admittedResultIds,fanOut.receipt.admittedResultIds);
+  assert.equal(selected.sceneFlow.fanOut.coreBinding.status,'BOUND');
+  assert.ok(selected.sceneFlow.fanOut.coreBinding.boundCandidateIds.includes(boundRow.candidateId));
   assert.ok(selected.sceneFlow.fanOut.candidateCount>=1);
   assert.ok(['ADMITTED_RESULTS','PUBLISHED_NO_WORK'].includes(selected.sceneFlow.gather.state));
   assert.equal(selected.sceneFlow.contextSeal.state,'SEALED');

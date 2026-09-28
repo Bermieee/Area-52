@@ -195,6 +195,18 @@
   animation:a52-lore-link-grow .75s cubic-bezier(.2,.7,.2,1) forwards;
   animation-delay:var(--a52-link-delay,0ms);
 }
+.a52-lore-neural-link.has-native-reveal.is-new{
+  animation:none!important;
+  stroke-dasharray:1!important;
+  stroke-dashoffset:1;
+}
+.a52-lore-hub-node.has-native-reveal.is-new,
+.a52-lore-entry-node.has-native-reveal.is-new,
+.a52-lore-artifact-node.has-native-reveal.is-new{
+  animation:none!important;
+  opacity:1!important;
+}
+.a52-lore-hub-node.has-native-reveal.is-new .a52-lore-hub-node__halo{animation:none!important}
 .a52-lore-neural-link[data-state=READY]{stroke:#39dca7;opacity:.52}
 .a52-lore-neural-link[data-state=STUDYING]{stroke:#42c8ff;opacity:.62;filter:url(#a52-lore-glow)}
 .a52-lore-neural-link[data-state=ACCEPTED]{stroke:#dfac4d;opacity:.30;stroke-dasharray:4 6}

@@ -487,24 +487,6 @@ export class Area52NativeBrain{
       sourceRevisionIds:[...new Set(narrativeMessages.flatMap(row=>row.sourceRevisionRefs??[]))].sort(),role:'context',
       required:false,priority:8,metadata:{contextRetirementReceiptId:contextRetirement.receiptId,hostHistoryMutation:false},
     }]:[];
-    const transitionCarry=contextRetirement?.sceneTransition??null;
-    if(transitionCarry?.episodeRef&&String(transitionCarry.compactPreviousSceneSummary??'').trim()){
-      contributions.push({
-        id:'scene-transition-continuity:'+stableHash({chatId:chat,turnId:turn,handoffId:transitionCarry.handoffId,episodeId:transitionCarry.episodeRef?.artifactId??null},{length:20}),
-        slot:'RECENT_NARRATIVE',sourceCategory:'GENERATION_ENVELOPE',owner:'GENERATION_ENVELOPE',semantic:false,semanticRefs:[],
-        content:[{
-          kind:'SceneTransitionContinuity',relationship:transitionCarry.relationship??null,
-          previousSceneId:transitionCarry.previousSceneId??null,destinationSceneId:transitionCarry.destinationSceneId??null,
-          compactSummary:transitionCarry.compactPreviousSceneSummary,
-          episodeRef:clone(transitionCarry.episodeRef),recentTailRefs:[...(transitionCarry.recentTailRefs??[])],
-        }],
-        sourceRevisionIds:[...(transitionCarry.sourceRevisionRefs??[])],role:'context',
-        required:false,priority:9,metadata:{
-          contextRetirementReceiptId:contextRetirement.receiptId,sceneHandoffId:transitionCarry.handoffId??null,
-          eligibilityDecisionOwner:'CORE_CONTEXT_POLICY',hostHistoryMutation:false,promptInclusionAuthority:false,contextSealBypass:false,
-        },
-      });
-    }
     const contextRetirementReceipt=redactContextRetirement(contextRetirement);
     const deliveryStarted=perfNow();
     const delivery=this.core.deliverGenerationContext({

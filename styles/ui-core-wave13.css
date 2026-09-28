@@ -147,6 +147,22 @@
 @media(prefers-reduced-motion:reduce){.a52-wave13-rail,.a52-wave13-popout,.a52-activity-feed__item{transition:none!important}}
 
 
+
+/* Worker 3 Lore command bar; neural graph visuals live in ui-core-lore-neural.css */
+.a52-lore-command{
+  position:sticky;top:0;z-index:8;gap:10px;margin-top:0;padding:13px 14px;
+  border-color:rgba(53,189,240,.34);
+  background:radial-gradient(circle at 0 0,rgba(31,153,214,.10),transparent 36%),linear-gradient(180deg,rgba(6,24,38,.98),rgba(3,15,25,.98));
+  box-shadow:0 12px 30px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.025);
+}
+.a52-lore-command__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.a52-lore-command__copy{display:grid;gap:3px;min-width:0}
+.a52-lore-command__copy h2{margin:0;color:#edf8fe;font-size:1rem;letter-spacing:-.01em}
+.a52-lore-command__copy p{max-width:760px;margin:0;font-size:.68rem;line-height:1.45}
+.a52-lore-command__actions{gap:7px}
+.a52-lore-command__actions .a52-button[data-variant=primary]{border-color:rgba(66,199,255,.52);background:linear-gradient(180deg,rgba(31,135,223,.92),rgba(17,92,171,.92));box-shadow:0 0 18px rgba(38,158,232,.18)}
+@media(max-width:620px){.a52-lore-command__head{display:grid}}
+
 /* Worker 3 Lore authoring/review workspace */
 .a52-lore-review-workspace{display:grid;gap:12px;min-width:0}
 .a52-lore-review-workspace__header{display:grid;gap:6px}

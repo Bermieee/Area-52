@@ -197,6 +197,22 @@ test('Lore neural render state animates only newly published nodes across refres
   assert.ok(incrementalDelay>=180&&incrementalDelay<=490);
 });
 
+test('legacy seen render state still gets one visible wave after animation lifecycle upgrade',()=>{
+  const d=new FakeDocument(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const legacyState={
+    lorebookKey:'moon',
+    seenHubs:new Set(['legacy-hub']),
+    seenNodes:new Set(data.entries.map(row=>String(row.sourceId))),
+    seenArtifacts:new Set(['legacy-artifact']),
+    seenEdges:new Set(['legacy-edge']),
+  };
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:legacyState,refresh:()=>{}});
+  const nodes=walk(root).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(nodes.length>0);
+  assert.ok(nodes.every(x=>String(x.attributes?.class??'').includes('is-new')));
+  assert.equal(legacyState.animationInitialized,true);
+});
+
 test('Lore growth replay replays visuals without mutating Lore data',()=>{
   const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData();
   const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};

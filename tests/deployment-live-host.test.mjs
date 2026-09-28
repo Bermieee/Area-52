@@ -559,6 +559,7 @@ test('detailed profile begins before Scene admission and includes checkpoint per
   const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain,persistNativeBrain:async()=>{setTimeout(()=>{heap=300;},0);assert.equal(session.nativePending.size,0);}});
   try{
     session.setDetailedGenerationProfiling(true);
+    const updates=[];const release=session.uiBindings().subscribe(update=>updates.push(update));
     const original=session.brain.ingestSceneHostEvent.bind(session.brain);
     session.brain.ingestSceneHostEvent=(...args)=>{heap=200;return original(...args);};
     pushUser(context,'At Moonlit Observatory, Ilya enters.');
@@ -571,5 +572,7 @@ test('detailed profile begins before Scene admission and includes checkpoint per
     assert.equal(profile.end.heapBytes,300);
     assert.equal(profile.checkpointPersistence.status,'PERSISTED');
     assert.ok(profile.checkpointPersistence.wallMs>=0);
+    assert.ok(updates.some(update=>update.stage==='HOST_PROFILE_COMPLETED'&&update.selection?.generationId===profile.generationId));
+    release();
   }finally{session.stop();Object.defineProperty(globalThis,'performance',{configurable:true,value:old});}
 });

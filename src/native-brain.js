@@ -558,6 +558,7 @@ export class Area52NativeBrain{
       kind:'NativeBrainTurnRecord',turnId:turn,sequence,chatId:chat,generationId:generation,correlationId:corr,
       query:q,intent,executionLabel,sceneId:sceneState.sceneId,sceneRevision:sceneState.sceneRevision,
       worldRevision:published.worldRevision,sourceRevisionSet,sceneSourceRevisionRefs,ownerSourceRevisionSet,
+      sceneReadModel:createSceneUiReadModelFromIntegrationState(sceneState),
       perspectiveConstraint:clone(perspectiveConstraint),anchorEntityIds:uniq(anchorEntityIds),
       sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneFanOutIngress:clone(sceneFanOutIngress),sceneIngress:{
         kind:'NativeBrainSceneIngressReceipt',
@@ -900,7 +901,7 @@ export class Area52NativeBrain{
     return Object.freeze({
       readSelection:({chatId}={})=>this.#selectionForChat(chatId),
       subscribe:(listener)=>this.subscribe(listener),
-      readScene:(selection={})=>this.#readStage(selection,record=>createSceneUiReadModelFromIntegrationState(this.core.sceneIntegrationSnapshot(record.chatId))),
+      readScene:(selection={})=>this.#readStage(selection,record=>this.#generationSceneReadModel(record)),
       readHotCognition:(selection={})=>this.#readStage(selection,record=>this.#generationHotSnapshot(record)),
       readCognitiveChoice:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt??null),
       readScatter:(selection={})=>this.#readStage(selection,record=>this.#uiScatterReceipt(record)),
@@ -1415,6 +1416,14 @@ export class Area52NativeBrain{
     return record;
   }
 
+  #generationSceneReadModel(record){
+    if(record.sceneReadModel)return record.sceneReadModel;
+    // Older checkpoints can only project a Scene when its exact fence remains current.
+    const state=this.core.sceneIntegrationSnapshot(record.chatId);
+    if(state?.sceneId!==record.sceneId||Number(state.sceneRevision)!==Number(record.sceneRevision))return null;
+    return createSceneUiReadModelFromIntegrationState(state);
+  }
+
   #readStage(selection,reader){const record=this.#recordForSelection(selection);if(!record)return null;const value=reader(record);return value==null?null:clone(value);}
 
   #listGenerations({limit=50,selection={}}={}){
@@ -1555,7 +1564,7 @@ export class Area52NativeBrain{
     const includedSlots=(context?.includedSections??[]).slice(0,32),selectedRefs=selection.sourceRevisionRefs.slice(0,128),sceneRefs=uniq(record.sceneSourceRevisionRefs??scene?.sourceRevisionRefs??[]).slice(0,32),sealRefs=uniq(seal?.sourceRevisionIds??[]).slice(0,128);
     const sceneOwner=record.sceneOwnerReceipt??null,sceneIngress=record.sceneIngress??null,sceneFanOutIngress=record.sceneFanOutIngress??null;
     const sceneTimelineReceipts=(sceneIngress?.timelineReceipts??[]).slice(0,32);
-    const sceneReadModel=createSceneUiReadModelFromIntegrationState(this.core.sceneIntegrationSnapshot(record.chatId));
+    const sceneReadModel=this.#generationSceneReadModel(record);
     const fanOutAdmitted=[...(choice?.admittedJobs??[])],fanOutSkipped=[...(choice?.skippedJobs??[])];
     const sceneFlow={
       kind:'NativeBrainSceneFlowReceipt',

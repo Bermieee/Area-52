@@ -230,6 +230,7 @@ export class Wave13LoreStudyUIAdapter{
     this.host=bindings.loreOperatorHost??bindings.loreStudyHost??bindings.loreHost??operatorHostFromService(this.service);
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
     this.readFn=fn(this.host?.read,['surface','status','loreStudy'])??fn(bindings,['readLoreStudySurface','readLoreStatus','readLoreStudyStatus']);
+    this.metadataReadFn=fn(this.host?.read,['metadataSurface']);
     this.selectionFn=fn(bindings,['readSelectedLorebookSelection']);
     this.discoverFn=fn(bindings,['discoverSelectedLorebook']);
     this.acceptFn=fn(this.host?.actions,['acceptLorebook','submitLorebook','ingestLorebook'])??fn(bindings,['acceptLorebook','submitLorebook','enqueueLorebook','ingestLorebook']);
@@ -259,11 +260,12 @@ export class Wave13LoreStudyUIAdapter{
       return cloneSafe(result);
     }catch(error){this.lastError=error;throw error;}
   }
-  read(){
+  readStatus(){return this.read({metadataOnly:true});}
+  read({metadataOnly=false}={}){
     const selection=this.selectionProvider?.()??{};
     if(!this.readFn)return unavailable('Lore Study','Lore Study read contract is not exported by the host assembly.','LoreStudyRuntime');
     try{
-      const raw=this.readFn(selection);
+      const raw=(metadataOnly&&this.metadataReadFn?this.metadataReadFn:this.readFn)(selection);
       if(raw==null)return idle('Lore Study','Lore Study is connected; no Lore has been accepted yet.','LoreStudyRuntime',selection);
       if(selection.turnId)assertSelection(raw,selection,'Lore Study',{allowMissingIdentity:true});
       const data=normalizeLoreSurface(raw);
@@ -689,7 +691,7 @@ export class Wave13OperationalStatusAdapter{
       this.#adapterStage('promptPlan','PromptPlan',this.adapters.promptPlan,selection,{turnBound:true,exported:Boolean(this.hostBindings.readPromptPlan||this.hostBindings.readPromptPlanReadModel||this.hostBindings.readGeneration)}),
       this.#generationStage(selection,generation,hostDelivery),
       this.#learningStage(selection,generation),
-      this.#sourceStage('lore','Lore Study',this.loreStudy?.read?.(),selection),
+      this.#sourceStage('lore','Lore Study',this.loreStudy?.readStatus?.()??this.loreStudy?.read?.(),selection),
       this.#memoryStage(selection),
       this.#forensicsStage(selection),
     ];
@@ -884,7 +886,7 @@ export class Wave13DiagnosticsCenterAdapter{
     const operations=safeRead(()=>this.operations?.read?.(),null);
     const selection=cloneSafe(this.live?.selection?.()??operations?.selection??{});
     const resourceRead=safeRead(()=>this.resources?.read?.(),null);
-    const loreRead=safeRead(()=>this.loreStudy?.read?.(),null);
+    const loreRead=safeRead(()=>this.loreStudy?.readStatus?.()??this.loreStudy?.read?.(),null);
     const memoryRead=safeRead(()=>this.memory?.read?.(),null);
     const cognitionRead=safeRead(()=>this.cognition?.read?.(selection),null);
     const runtimeRead=safeRead(()=>this.adapters.runtime?.read?.(selection)??this.adapters.runtime?.read?.(),null);
@@ -1041,12 +1043,15 @@ export class Wave13DiagnosticsCenterAdapter{
         diagnosticsUiRefreshTotalMs:finiteOrNull(detailed.deltas?.diagnosticsUiRefreshTotalMs),
       },
     }):null;
+    const captureState=(profiling.captureStates??[]).find(row=>row.chatId===selection.chatId&&row.turnId===selection.turnId&&row.generationId===selection.generationId&&(!selection.correlationId||row.correlationId===selection.correlationId))??null;
+    const captureReason=safeDetailed?'PROFILE_PUBLISHED':selectionError?'PROFILE_SELECTION_REJECTED':!detailReader?'PROFILE_READER_MISSING':captureState?.status==='AVAILABLE'?'PROFILE_READER_SELECTION_MISMATCH':captureState?.status==='CHECKPOINT_PENDING'?'PROFILE_CHECKPOINT_PENDING':captureState?.status==='NOT_ARMED'?'PROFILE_NOT_ARMED_AT_GENERATION':captureState?.status==='ARMED'?'PROFILE_CAPTURE_PENDING':'PROFILE_NOT_RETAINED_FOR_SELECTED_GENERATION';
     return deepFreeze({
       kind:'Wave13GenerationPerformanceDiagnostics',selection:cloneSafe(selection),
       control:{available:Boolean(setter&&loadReader&&detailReader),enabled:load?Boolean(profiling.detailedEnabled):null,sessionScoped:true,defaultOff:true,persisted:false},
       retention:{retainedProfiles:Number(profiling.retainedProfiles??load?.retained?.nativePerformance??0)||0,maxProfiles:Number(load?.bounds?.nativePerformance??0)||null},
       support:{heap:heapSupported?'SUPPORTED':'NO_EVIDENCE',longTasks:longTaskSupported?'SUPPORTED':'NO_EVIDENCE',diagnosticsUiRefresh:loadReader?'SUPPORTED':'NO_EVIDENCE'},
       exactSelection,selectionError,loadError,brainStages,retrievalChannels,detailed:safeDetailed,
+      capture:{status:safeDetailed?'AVAILABLE':captureState?.status??'NO_EVIDENCE',reasonCode:captureReason,updatedAt:finiteOrNull(captureState?.updatedAt)},
       status:selectionError?'NO_EVIDENCE':safeDetailed?'DETAILED_AVAILABLE':brainStages.length?'BRAIN_TIMINGS_ONLY':'NO_EVIDENCE',
       safety:{metadataOnly:true,rawPrompts:false,storyLoreBodies:false,providerBodies:false,credentials:false,hiddenReasoning:false},
     });

@@ -7,7 +7,7 @@ import {
   HostActivity,ObservationClass,SceneEventType,createFieldState,scenePrefetchIntentsFromNarrative,
 } from '../src/scene/index.js';
 import {
-  Capability,DynamicFanOutPlanner,NativeSidecarSwarm,ResultClass,createTurnEnvelope,plannerInputFromScene,
+  Capability,DynamicFanOutPlanner,NativeSidecarSwarm,ResultClass,SpeculativeWarmCoordinator,createTurnEnvelope,normalizePrefetchRecommendation,plannerInputFromScene,
 } from '../src/coprocessor/index.js';
 
 const event=(activity,id,content,extra={})=>({
@@ -252,4 +252,59 @@ test('#112 production contract route reaches Dynamic Fan-Out consideration witho
   const stale=planner.plan({turnEvent:staleTurn,...plannerInput,text:'Okay.'});
   assert.equal(stale.inputSignals.freshPrefetchRecommendationCount,0);
   assert.equal(stale.tasks.some(task=>task.metadata.roleId==='historian'&&task.metadata.reasonCodes?.includes('SCENE_PREFETCH_RECOMMENDATION')),false,'stale Scene recommendation must contribute no prefetch-driven work');
+});
+
+
+test('#112 exact source fences survive publication, normalization, planner consideration, and warmer consumption',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  ingest(brain,event(HostActivity.USER_SEND,'fence0','At North Gallery, Mara waits.',{chatId:'fence-chat'}));
+  const receipt=ingest(brain,event(HostActivity.USER_SEND,'fence1','We should head to Sunken Archive next.',{chatId:'fence-chat'}));
+  const expected=[receipt.evidence.sourceRevisionId];
+
+  const sceneInput=brain.scene.fanOutInput('fence-chat');
+  const published=sceneInput.prefetchRecommendations.find(row=>row.trigger==='LIKELY_NEXT:EXPLICIT_TRAVEL_DESTINATION');
+  assert.ok(published);
+  assert.deepEqual(published.sourceRevisionRefs,expected);
+  assert.deepEqual(published.sourceRevisionSet,expected);
+
+  const normalized=normalizePrefetchRecommendation(published);
+  assert.deepEqual(normalized.sourceRevisionRefs,expected);
+  assert.deepEqual(normalized.sourceRevisionSet,expected);
+
+  const plannerInput=plannerInputFromScene({publicSignals:sceneInput});
+  const planned=plannerInput.prefetchRecommendations.find(row=>row.recommendationId===published.recommendationId);
+  assert.ok(planned);
+  assert.deepEqual(planned.sourceRevisionRefs,expected);
+  assert.deepEqual(planned.sourceRevisionSet,expected);
+
+  const turn=turnFor(sceneInput,'prefetch-fence');
+  const fanout=new DynamicFanOutPlanner().plan({turnEvent:turn,...plannerInput,text:'Continue.'});
+  assert.equal(fanout.inputSignals.freshPrefetchRecommendationCount>=1,true);
+
+  const seen=[];
+  const warmer=new SpeculativeWarmCoordinator({
+    adapters:{
+      providerMode:'OPTIONAL_INJECTED',
+      retrieve:async({recommendation,identity})=>{
+        seen.push({sourceRevisionRefs:[...recommendation.sourceRevisionRefs],sourceRevisionSet:[...recommendation.sourceRevisionSet],identitySources:[...identity.sourceRevisionSet]});
+        return{status:'OK',candidateRefs:['candidate:fence'],evidenceRefs:[...recommendation.evidenceRefs]};
+      },
+      evaluateQuality:async()=>({status:'OK',quality:'HIGH'}),
+    },
+  });
+  const warmed=await warmer.prepare({
+    recommendation:planned,
+    identity:{
+      chatId:'fence-chat',sceneRevision:sceneInput.sceneRevision,worldRevision:1,characterStateRevision:1,
+      sourceRevisionSet:[...sceneInput.sourceRevisionSet],intentFingerprint:'scene-prefetch-fence',retrievalPolicyRevision:'1',
+    },
+    turnSequence:1,
+  });
+  assert.equal(warmed.status,'WARMED');
+  assert.ok(seen.length>=1);
+  assert.deepEqual(seen[0].sourceRevisionRefs,expected);
+  assert.deepEqual(seen[0].sourceRevisionSet,expected);
+  assert.deepEqual(seen[0].identitySources,[...sceneInput.sourceRevisionSet]);
+  assert.deepEqual(warmed.packet.recommendation.sourceRevisionRefs,expected);
+  assert.deepEqual(warmed.packet.recommendation.sourceRevisionSet,expected);
 });

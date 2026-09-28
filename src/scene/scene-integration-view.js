@@ -72,7 +72,7 @@ export function fanOutSceneInput(runtime,chatId){
     ...(signal.prefetchRecommendations??[]).flatMap((row)=>row.sourceRevisionSet??row.sourceRevisionRefs??[]),
   ].filter(Boolean).map(String))].sort();
   return Object.freeze({
-    kind:'SceneFanOutInput',contractVersion:'1.0.0',sceneId:signal.sceneId,sceneRevision:signal.sceneRevision,
+    kind:'SceneFanOutInput',contractVersion:'1.0.0',chatId:String(chatId),chatNamespace:String(chatId),sceneId:signal.sceneId,sceneRevision:signal.sceneRevision,
     sourceRevisionSet:prefetchSourceRevisionSet,activeCast:clone(signal.activeCast),location:clone(signal.location),
     activeThreads:clone(signal.activeThreads),uncertainSceneFields:[...signal.uncertainFields],conflictSignals:[...signal.conflictSignals],
     boundaryState:clone(signal.boundaryState),sceneRelationship:signal.sceneRelationship,sceneTransitionType:signal.transitionType,

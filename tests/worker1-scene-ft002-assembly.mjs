@@ -225,6 +225,37 @@ test('#177 assembled real-narrative scenarios preserve Scene semantics through N
   assert.equal(corrected.prepared.contextSealReceipt.sourceRevisionIds.includes(beforeEdit.receipt.evidence.sourceRevisionId),false);
 });
 
+test('#177 source edit rejects a pre-edit Fan-Out handoff before Core publication',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const native=nativeFor(brain);
+  const before=ingest(brain,host(HostActivity.USER_SEND,'edit-race','At North Gallery, Mara carries the brass key.',{messageId:'edit-race',messageRevision:1}));
+  const turnId='edit-race-turn',generationId='edit-race-generation',correlationId='corr:edit-race-turn';
+  const staleFanOut=await brain.assembleSceneFanOutForNativeTurn({
+    chatId:before.chatId,turnId,generationId,correlationId,causationId:'host:edit-race',
+    query:'What key is Mara carrying?',worldRevision:native.core.graph.revision,selectionGuard:()=>true,sealed:false,
+  });
+  assert.ok(staleFanOut.coreHandoff);
+  const oldSource=before.evidence.sourceRevisionId;
+  assert.ok(staleFanOut.coreHandoff.sourceRevisionSet.includes(oldSource));
+
+  const corrected=ingest(brain,host(HostActivity.EDIT,'edit-race','At North Gallery, Mara carries the silver key.',{
+    messageId:'edit-race',messageRevision:2,turnId:'turn:edit-race:2',generationId:'gen:edit-race:2',correlationId:'corr:turn:edit-race:2',
+  }));
+  assert.equal(corrected.evidence.replacesRevisionId,oldSource);
+  assert.ok(corrected.invalidatedSourceRevisionRefs.includes(oldSource));
+  assert.equal(corrected.signal.sourceRevisionRefs.includes(oldSource),false);
+
+  const prepared=await native.prepareTurn({
+    chatId:corrected.chatId,turnId,generationId,correlationId,query:'What key is Mara carrying?',
+    sceneSignal:corrected.signal,sceneTimeline:corrected.dispatchTimeline??[],sceneOwnerReceipt:corrected,
+    sceneFanOut:staleFanOut.coreHandoff,executionLabel:'FT002_SOURCE_EDIT_RACE',
+  });
+  assert.equal(prepared.sceneFanOutIngress.status,'REJECTED');
+  assert.equal(prepared.sceneFanOutIngress.reasonCode,'SCENE_FANOUT_SELECTION_FENCE_MISMATCH');
+  assert.ok(prepared.sceneFanOutIngress.identityMismatch.includes('sourceRevisionSet'));
+  assert.equal(prepared.contextSealReceipt.sourceRevisionIds.includes(oldSource),false);
+});
+
 test('#177 Scene Fan-Out handoff fails closed on selected-turn identity mismatch before Core publication',async()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   const receipt=ingest(brain,host(HostActivity.USER_SEND,'mismatch','At North Gallery, Mara waits.'));

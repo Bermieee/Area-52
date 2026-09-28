@@ -1020,6 +1020,7 @@ export class Area52NativeBrain{
       },
       memoryInterface:{attached:Boolean(this.memoryInterface),kind:this.memoryInterface?.kind??null,contractVersion:this.memoryInterface?.contractVersion??null},
       memoryConsolidationInterface:{attached:Boolean(this.memoryConsolidationInterface),kind:this.memoryConsolidationInterface?.kind??null,contractVersion:this.memoryConsolidationInterface?.contractVersion??null},
+      memoryRetrievalFeedback:{scheduled:[...this.turns.values()].filter(row=>row.memoryFeedbackRuntimeTaskId).length,applied:[...this.turns.values()].filter(row=>row.memoryRetrievalFeedback).length,last:clone([...this.turns.values()].map(row=>row.memoryRetrievalFeedback).filter(Boolean).at(-1)??null),supportAdded:false,retrievalUseIsEvidence:false,authorityChanged:false,canonicalMutationAuthority:false},
       ownerEvidence:{retained:this.ownerEvidence.size,currentSourceRevisionRefs:this.core.externalCurrentSourceRevisionIds()},
       sceneFanOut:{
         turnCount:[...this.turns.values()].filter(row=>row.sceneFanOutIngress).length,

@@ -253,7 +253,7 @@ test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   const data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
   const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>refreshes.push('refresh'),scope:listenerScope()});
   const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
-  assert.ok(svg);assert.equal(svg.attributes?.viewBox,'0 0 1000 760');
+  assert.ok(svg);assert.equal(svg.attributes?.viewBox,'90 -14 820 788');
   assert.equal(svg.attributes?.['data-zoom-level'],'overview');
   const sourceLabels=nodes.filter(x=>String(x.attributes?.class??'').includes('a52-lore-entry-node__label'));
   assert.ok(sourceLabels.length>0);
@@ -262,13 +262,13 @@ test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   svg.dispatch('pointermove',{pointerId:3,clientX:650,clientY:430});
   svg.dispatch('pointerup',{pointerId:3,clientX:650,clientY:430});
   assert.ok(state.viewport);
-  assert.notEqual(svg.attributes?.viewBox,'0 0 1000 760');
+  assert.notEqual(svg.attributes?.viewBox,'90 -14 820 788');
   const panned=String(svg.attributes?.viewBox);
 
   svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
   assert.notEqual(svg.attributes?.viewBox,panned);
   const zoomed=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
-  assert.ok(zoomed[2]<1000);assert.ok(zoomed[2]>=250);
+  assert.ok(zoomed[2]<820);assert.ok(zoomed[2]>=250);
 
   for(let i=0;i<20;i++)svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
   const minZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
@@ -283,7 +283,7 @@ test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   assert.equal(state.viewport,null);assert.equal(state.focusHubId,null);assert.equal(refreshes.length,1);
   const rerender=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{},scope:listenerScope()});
   const resetSvg=walk(rerender).find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
-  assert.equal(resetSvg.attributes?.viewBox,'0 0 1000 760');
+  assert.equal(resetSvg.attributes?.viewBox,'90 -14 820 788');
 });
 
 test('artifact bubbles lock fluorescent selection without mutating Lore data',()=>{
@@ -371,6 +371,8 @@ test('current fully READY Lore disables redundant study while keeping re-accept 
   assert.ok(accept);assert.ok(run);
   assert.equal(Boolean(accept.disabled||accept.attributes?.disabled),false);
   assert.equal(Boolean(run.disabled||run.attributes?.disabled),true);
+  const intake=walk(host).find(node=>String(node.className??'').includes('a52-wave13-lore-controls'));
+  assert.ok(intake);assert.equal(intake.dataset?.sourceState,'current');
 });
 
 test('Lore neural render state holds reveal across incidental refreshes then animates only newly published nodes',()=>{
@@ -547,6 +549,8 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(js,/HUB_BLOOM_START_MS=1750/);
   assert.match(js,/SOURCE_INNER_START_MS=3200/);
   assert.match(js,/SOURCE_RING_GAP_MS=900/);
+  assert.match(js,/WORLD_VIEW_ASPECT=1\.04/);
+  assert.match(js,/DEFAULT_WORLD_VIEW=\{x:90,y:-14,width:820,height:788\}/);
   assert.match(js,/hubRadius=grouped\.length<=2\?220:grouped\.length<=4\?240:258/);
   assert.match(js,/const radius=76\+ring\*44\+jitter/);
   assert.match(js,/coreTitle\.textContent='WORLD TREE'/);
@@ -559,7 +563,7 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
   assert.match(css,/animation:none!important/);
   assert.match(css,/\.a52-lore-neural-workspace\{/);
-  assert.match(css,/height:clamp\(620px,72vh,820px\)/);
+  assert.match(css,/height:clamp\(520px,64vh,680px\)/);
   assert.match(css,/padding:8px 0 18px/);
   assert.match(css,/@keyframes a52-lore-hub-arrival/);
   assert.match(css,/\.a52-lore-neural-canvas-head__actions/);
@@ -567,6 +571,9 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/\.a52-world-category-row/);
   assert.match(css,/\.a52-world-filter-row/);
   assert.match(css,/\.a52-world-tree-search/);
+  assert.match(css,/data-source-state=current/);
+  assert.match(css,/\.a52-world-tree-view-actions/);
+  assert.match(css,/grid-template-columns:minmax\(178px,198px\) minmax\(0,1fr\) minmax\(218px,242px\)/);
   assert.match(css,/@keyframes a52-lore-core-pulse\{0%,100%\{r:92/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);

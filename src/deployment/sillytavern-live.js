@@ -841,6 +841,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         readySettled=true;readyResolve(clone(pending));this.#notify();
         return responsePromise;
       },
+      completeOptions:{autoDrain:false},
     })).then(result=>({ok:true,result})).catch(error=>{if(!readySettled){readySettled=true;readyReject(error);}return{ok:false,error};});
     return readyPromise;
   }
@@ -903,9 +904,11 @@ export class DevelopmentDeploymentSillyTavernSession {
     const outcome=await run.runPromise;
     if(!outcome?.ok)throw outcome?.error??new Error('Native Brain runTurn failed after provider response');
     const learning=outcome.result?.learning??null;
-    if(!learning)throw new Error('Native Brain runTurn returned no learning receipt after the provider response');
-    // Foreground generation is complete once provider-response learning finishes.
-    // Release its reserved cognitive slot before scheduling DEEP/NEXT_TURN Scene work.
+    const completion=outcome.result?.completion??learning?.responseCompletion??null;
+    if(!learning||completion?.status!=='COMPLETED')throw new Error('Native Brain runTurn returned no response-completion receipt after the provider response');
+    // Foreground response ownership ends after bounded response admission and background
+    // work scheduling. L2/L3 learning continues through the existing Runtime and must
+    // not hold the installed host completion path open.
     this.#completeOptionalGeneration(pending,'GENERATION_COMPLETED');
     let postResponseScene=null;
     try{
@@ -930,8 +933,9 @@ export class DevelopmentDeploymentSillyTavernSession {
       pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'POST_RESPONSE_SCENE_OBSERVATION'},SESSION_BOUNDS.errors);
     }
     const completed={
-      ...pending,state:'LEARNED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),
-      learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null},
+      ...pending,state:'RESPONSE_COMPLETED',completedAt:Date.now(),assistantMessageIndex:assistant.index,responseDigest:shortHash(assistant.text),
+      responseCompletion:{kind:completion?.kind??null,status:completion?.status??null,foregroundWaitMs:completion?.foregroundWaitMs??null,learningScheduled:Boolean(completion?.learningScheduled),feedbackRuntimeTaskId:completion?.feedbackRuntimeTaskId??null,memoryRuntimeTaskId:completion?.memoryRuntimeTaskId??null},
+      learning:{kind:learning?.kind??null,sourceRevisionId:learning?.sourceRevisionId??null,rawExperienceRecoverable:Boolean(learning?.rawExperienceRecoverable),settlementCount:learning?.settlements?.length??learning?.settlementDecisions?.length??0,runtimeTaskId:learning?.runtimeTaskId??null,status:learning?.learningLifecycle?.status??null,backgroundPending:Boolean(learning?.learningLifecycle?.backgroundPending)},
       postResponseScene:postResponseScene?{
         status:postResponseScene.status??null,reason:postResponseScene.reason??null,sceneId:postResponseScene.sceneId??postResponseScene.signal?.sceneId??null,
         sceneRevision:postResponseScene.sceneRevision??postResponseScene.signal?.sceneRevision??null,changedFields:[...(postResponseScene.changedFields??[])].slice(0,16),
@@ -1258,6 +1262,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       }
     }
     this.nativeOwnerAttachments.graphProviders=graphReceipts;
+    if(typeof this.nativeBrain.startBackgroundLearning==='function')this.nativeBrain.startBackgroundLearning({maxCycles:128});
 
     this.releaseLoreOwnerEvents?.();
     this.releaseLoreOwnerEvents=null;

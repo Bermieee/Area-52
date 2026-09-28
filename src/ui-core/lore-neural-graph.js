@@ -147,7 +147,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const isNew=growth.newEdges.has(edge.id),delay=animationDelay(edge,growth);
     const path=svgEl(doc,'path',{
       d:curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y),
-      class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':''),
+      class:'a52-lore-neural-link a52-lore-neural-link--'+edge.kind+' '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':''),
       'data-state':edge.state,'data-tone':edge.tone??null,'data-wave':edge.wave??null,'data-edge-id':edge.id,'data-from-id':edge.fromId??null,'data-to-id':edge.toId??null,
       'style':'--a52-link-delay:'+String(delay)+'ms'+(isNew&&nativeMotion?';stroke-dasharray:1;stroke-dashoffset:1;animation:none':''),
       'pathLength':isNew&&nativeMotion?'1':null,
@@ -157,7 +157,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   }
 
   const core=svgEl(doc,'g',{'class':'a52-lore-core-node'+(renderState?.selectedNodeKind==='core'?' is-selected':''),'data-node-id':'core','tabindex':'0','role':'button','aria-label':'World Tree core'});
-  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'92','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'70','class':'a52-lore-core-node__body'}));
+  core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'110','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'88','class':'a52-lore-core-node__ring'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'74','class':'a52-lore-core-node__body'}));
   svg.append(core);
   const activateCore=()=>{if(renderState){renderState.selectedNodeId='core';renderState.selectedNodeKind='core';renderState.focusHubId=null;renderState.viewport=null;}applyGraphInteraction(svg,graph,renderState);};
   scope?.listen?.(core,'click',activateCore);scope?.listen?.(core,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateCore();}});
@@ -167,19 +167,19 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const selected=renderState?.selectedNodeId===hub.id;
     const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':hub.id,'data-node-kind':'hub','data-state':hub.state,'data-tone':hub.tone??null,'data-wave':hub.wave??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
-    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'48','class':'a52-lore-hub-node__halo'});
-    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'36','class':'a52-lore-hub-node__body'});
+    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'58','class':'a52-lore-hub-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'43','class':'a52-lore-hub-node__body'});
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'48',begin:delay,dur:1250}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'36',begin:delay+120,dur:1100}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'58',begin:delay,dur:1250}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'43',begin:delay+120,dur:1100}));
       t.setAttribute('opacity','0');count.setAttribute('opacity','0');
       t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+480,dur:420}));
       count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
     }
     g.append(halo,body,t,count);svg.append(g);
-    const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
+    const activateHub=()=>{settleGrowthReveal(renderState,graph);if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,hub.id))return;activateHub(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateHub(event);}});
     installDraggableBubble(g,hub,svg,graph,renderState,scope);
   }
@@ -189,7 +189,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const selected=renderState?.selectedNodeId===node.id;
     const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':node.id,'data-node-kind':'source','data-hub-id':node.hubId??null,'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
-    const radius=node.artifactCount?10:8;
+    const representationCount=Array.isArray(node.payload?.representations)?node.payload.representations.length:0;
+    const radius=Math.min(14,7.5+(node.artifactCount?Math.log2(node.artifactCount+1)*1.15:0)+(representationCount?1.25:0));
     const halo=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'1':String(radius+5),'class':'a52-lore-entry-node__halo'});
     const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-entry-node__body'});
     if(isNew&&nativeMotion){
@@ -200,7 +201,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     label.textContent=bubbleLabel(node.label);
     g.append(halo,body,label);
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
-    const activate=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});refresh?.();};
+    const activate=()=>{settleGrowthReveal(renderState,graph);if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activate(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate(event);}});
     installDraggableBubble(g,node,svg,graph,renderState,scope);
     svg.append(g);
@@ -215,7 +216,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:720}));
     g.append(body);
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
-    const activateArtifact=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
+    const activateArtifact=()=>{settleGrowthReveal(renderState,graph);if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activateArtifact(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateArtifact(event);}});
     installDraggableBubble(g,node,svg,graph,renderState,scope);
   }
@@ -259,11 +260,11 @@ function formatViewBox(view){
   return[round(row.x),round(row.y),round(row.width),round(row.height)].join(' ');
 }
 function clampViewport(view){
-  const minWidth=250,maxWidth=1180,aspect=WORLD_VIEW_ASPECT;
+  const minWidth=220,maxWidth=1600,aspect=WORLD_VIEW_ASPECT;
   let width=Math.max(minWidth,Math.min(maxWidth,Number(view?.width)||DEFAULT_WORLD_VIEW.width));
   let height=width/aspect;
   if(Number(view?.height)>0&&Math.abs(Number(view.height)-height)<40)height=Number(view.height);
-  const worldMargin=190,minX=-worldMargin,maxX=1000+worldMargin-width,minY=-worldMargin,maxY=760+worldMargin-height;
+  const worldMargin=520,minX=-worldMargin,maxX=1000+worldMargin-width,minY=-worldMargin,maxY=760+worldMargin-height;
   const x=Math.max(minX,Math.min(maxX,Number.isFinite(Number(view?.x))?Number(view.x):DEFAULT_WORLD_VIEW.x)),y=Math.max(minY,Math.min(maxY,Number.isFinite(Number(view?.y))?Number(view.y):DEFAULT_WORLD_VIEW.y));
   return{x,y,width,height};
 }
@@ -379,7 +380,7 @@ function installDraggableBubble(element,row,svg,graph,state,scope){
     event?.stopPropagation?.();
     const point=graphPointFromPointer(svg,state,event),dx=point.x-drag.startPointer.x,dy=point.y-drag.startPointer.y;
     if(Math.hypot(dx,dy)>4)drag.moved=true;
-    row.x=Math.max(-140,Math.min(1140,drag.startX+dx));row.y=Math.max(-140,Math.min(900,drag.startY+dy));
+    row.x=Math.max(-500,Math.min(1500,drag.startX+dx));row.y=Math.max(-420,Math.min(1180,drag.startY+dy));
     state.nodePositions[row.id]={x:row.x,y:row.y};
     updateGraphGeometry(svg,graph,row);
   });
@@ -399,7 +400,7 @@ function installGraphSandbox(svg,graph,state,scope){
   scope.listen(svg,'wheel',event=>{
     event?.preventDefault?.();
     const view=current(),delta=Number(event?.deltaY)||0,factor=delta<0?.82:1.22;
-    const nextWidth=Math.max(250,Math.min(1180,view.width*factor)),nextHeight=nextWidth/WORLD_VIEW_ASPECT;
+    const nextWidth=Math.max(220,Math.min(1600,view.width*factor)),nextHeight=nextWidth/WORLD_VIEW_ASPECT;
     const px=Math.max(0,Math.min(1,(Number(event?.offsetX)||Number(event?.clientX)||0)/Math.max(1,Number(svg.clientWidth)||1000)));
     const py=Math.max(0,Math.min(1,(Number(event?.offsetY)||Number(event?.clientY)||0)/Math.max(1,Number(svg.clientHeight)||760)));
     apply({x:view.x+(view.width-nextWidth)*px,y:view.y+(view.height-nextHeight)*py,width:nextWidth,height:nextHeight});
@@ -794,6 +795,16 @@ function growthState(state,selected,graph){
   if(revealAll)state.revealPassesRemaining=Math.max(0,Number(state.revealPassesRemaining)-1);
   return result;
 }
+function settleGrowthReveal(state,graph){
+  if(!state)return false;
+  state.animationInitialized=true;
+  state.revealPassesRemaining=0;
+  for(const [rows,seen] of [[graph?.hubs,state.seenHubs],[graph?.nodes,state.seenNodes],[graph?.artifacts,state.seenArtifacts],[graph?.edges,state.seenEdges]]){
+    for(const row of rows??[])seen?.add?.(row.id);
+    if(seen)trimSeen(seen,192);
+  }
+  return true;
+}
 function animationDelay(row,growth){
   return Number(growth?.initialBuild?row?.delay:row?.incrementalDelay) || 0;
 }
@@ -866,8 +877,10 @@ function svgEl(doc,tag,attrs={},children=[]){
 }
 
 function curve(x1,y1,x2,y2){
-  const mx=(x1+x2)/2,my=(y1+y2)/2,dx=x2-x1,dy=y2-y1,len=Math.max(1,Math.hypot(dx,dy)),bend=Math.min(32,len*.12),cx=mx-(dy/len)*bend,cy=my+(dx/len)*bend;
-  return'M '+round(x1)+' '+round(y1)+' Q '+round(cx)+' '+round(cy)+' '+round(x2)+' '+round(y2);
+  const dx=x2-x1,dy=y2-y1,len=Math.max(1,Math.hypot(dx,dy)),nx=-dy/len,ny=dx/len,bend=Math.min(62,len*.19);
+  const c1x=x1+dx*.32+nx*bend,c1y=y1+dy*.32+ny*bend;
+  const c2x=x1+dx*.68+nx*bend*.55,c2y=y1+dy*.68+ny*bend*.55;
+  return'M '+round(x1)+' '+round(y1)+' C '+round(c1x)+' '+round(c1y)+' '+round(c2x)+' '+round(c2y)+' '+round(x2)+' '+round(y2);
 }
 function round(value){return Math.round(Number(value)*10)/10;}
 function shortLabel(value){const s=String(value??'Lore source').replace(/^lore:/i,'').replace(/[_-]+/g,' ');return s.length>28?s.slice(0,25)+'…':s;}

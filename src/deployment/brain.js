@@ -405,19 +405,28 @@ export class DevelopmentDeploymentBrain {
     this.memory.attachVectorExecutor(async(request)=>{
       const resources=this.resourceConnections.readModel().resources??[];
       const vector=resources.find((row)=>row.transportMode==='EMBEDDINGS'&&row.callable===true&&row.selectedModelQualified===true);
-      if(!vector)return{status:'UNAVAILABLE',reasonCode:'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:request.operation==='EMBED_QUERY'?1200:null};
       const foreground=request.operation==='EMBED_QUERY';
-      const controller=foreground?new AbortController():null;
-      const timer=foreground?setTimeout(()=>controller.abort('MEMORY_VECTOR_QUERY_BUDGET_EXCEEDED'),1200):null;
-      try{
-        return await this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input,signal:controller?.signal??null,
-          origin:{operation:request.operation,selection:request.selection??{chatId:request.chatId??null},workId:request.workId??null,artifactId:request.artifactId??null,artifactRevision:request.artifactRevision??null}});
-      }catch(error){
-        if(foreground&&controller.signal.aborted)return{status:'UNAVAILABLE',executionId:error?.executionId??null,reasonCode:'VECTOR_QUERY_BUDGET_EXCEEDED',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:1200};
-        throw error;
-      }finally{
-        if(timer)clearTimeout(timer);
-      }
+      if(!vector)return{status:'UNAVAILABLE',reasonCode:'VECTOR_PROVIDER_UNAVAILABLE',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:foreground?1200:null,providerAttempted:false,providerReturned:false};
+      const executeEmbedding=async()=>{
+        const controller=foreground?new AbortController():null;
+        const timer=foreground?setTimeout(()=>controller.abort('MEMORY_VECTOR_QUERY_BUDGET_EXCEEDED'),1200):null;
+        try{
+          const result=await this.resourceConnections.executeEmbedding(vector.resourceId,{input:request.input,signal:controller?.signal??null,
+            origin:{operation:request.operation,selection:request.selection??{chatId:request.chatId??null},workId:request.workId??null,artifactId:request.artifactId??null,artifactRevision:request.artifactRevision??null}});
+          return{...result,providerAttempted:true,providerReturned:Boolean(Array.isArray(result?.embeddings)&&result.embeddings.length)};
+        }catch(error){
+          if(foreground&&controller.signal.aborted)return{status:'UNAVAILABLE',executionId:error?.executionId??null,reasonCode:'VECTOR_QUERY_BUDGET_EXCEEDED',requestPurpose:'COGNITIVE_EXECUTION',foregroundBudgetMs:1200,providerAttempted:true,providerReturned:false};
+          if(error&&typeof error==='object')error.providerAttempted=true;
+          throw error;
+        }finally{
+          if(timer)clearTimeout(timer);
+        }
+      };
+      if(!foreground)return executeEmbedding();
+      const selection=request.selection??{};
+      const workId='memory-dense-query:'+String(selection.turnId??'turn')+':'+String(selection.generationId??'generation');
+      const hot=await this.resourcePlacementScheduler.runHot(workId,executeEmbedding,{metadata:{operation:'EMBED_QUERY',resultClass:'OPPORTUNISTIC',chatId:selection.chatId??null,turnId:selection.turnId??null,generationId:selection.generationId??null}});
+      return{...(hot.result??{}),foregroundBudgetMs:1200,foregroundQueueWaitMs:hot.queueMs,providerExecutionMs:hot.executionMs,foregroundBlockedMs:Math.max(0,Number(hot.queueMs??0)+Number(hot.executionMs??0))};
     });
     this.memory.subscribeMemory((event)=>{
       if(event?.type==='MEMORY_COMPLETED_TURN_ADMITTED')this.#scheduleMemoryVectorMaintenance('MEMORY_COMPLETED_TURN_ADMITTED');

@@ -269,6 +269,7 @@ export class NativeGraphNeighborhoodRetriever{
     const maxDepth=clampInt(opts.maxDepth,this.limits.maxDepth,1,this.limits.maxDepth),maxNodes=clampInt(opts.maxNodes,this.limits.maxNodes,1,this.limits.maxNodes),maxEdges=clampInt(opts.maxEdges,this.limits.maxEdges,1,this.limits.maxEdges),maxCandidates=clampInt(opts.maxCandidates,this.limits.maxCandidates,1,this.limits.maxCandidates);
     const latencyBudgetMs=Math.max(0,Math.min(this.limits.latencyBudgetMs,Number(opts.latencyBudgetMs??context.latencyBudgetMs??this.limits.latencyBudgetMs)));
     return{
+      chatId:String(context.chatId??this.sceneSnapshot()?.chatNamespace??'')||null,
       query:String(intent?.query??context.query??''),intentKind:String(intent?.intentKind??intent?.kind??'CURRENT').toUpperCase(),
       anchorEntityIds:uniq((intent?.entityRefs??context.anchorEntityIds??[]).map(ref=>{const n=this.#normalizeRef(ref,{providerId:'GRAPH_ANCHOR'});return n?.resolved?n.entityId:ref;})),allowedEdgeMeanings:uniq(opts.allowedEdgeMeanings??intent?.relationshipRefs??[]),
       maxDepth,maxNodes,maxEdges,maxCandidates,latencyBudgetMs,

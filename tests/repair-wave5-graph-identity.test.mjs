@@ -63,3 +63,13 @@ test('identity sync is reported in the Identity Resolution diagnostics read mode
   assert.equal(model.loreIdentitySync.authorityGranted, false);
   h.session.destroy();
 });
+
+test('Lore graph edges respect the story read scope: an unbound chat gets no Lore graph edges', async () => {
+  const h = makeInstalled({ chatId: 'chat:w5-unbound' });
+  h.session.ingestLorebook(createGoldenDeploymentLorebook()); // accepted without a chat binding
+  h.user('Hello there.'); await h.generate('normal', 'Hi.');
+  const r = h.nativeBrain.worldGraphReferences('Mara', { anchorEntityIds: ['entity:mara'] });
+  const lore = r.providers.find((p) => p.providerId === 'LORE_OWNER_GRAPH');
+  assert.equal(lore?.edgeCount ?? 0, 0, 'no Lore edges outside the story read scope');
+  h.session.destroy();
+});

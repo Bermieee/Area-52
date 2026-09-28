@@ -133,7 +133,8 @@ export function createLoreOwnerGraphProvider(loreInterface){
     query(request={}){
       queryRevisionSet=null;derivedRefs=null;
       try{
-        const packet=loreInterface.query({query:String(request.query??''),intent:'AUTO'});
+        // Story read scope: with a chat the Lore interface answers only from sources that chat may read.
+        const packet=loreInterface.query({query:String(request.query??''),intent:'AUTO',...(request.chatId?{chatId:String(request.chatId)}:{})});
         return {
           providerRevision:packet?.indexRevision??packet?.ontologyRevision??null,
           edges:candidateEdges({providerId:'LORE_OWNER_GRAPH',owner:'LORE_INTELLIGENCE',sourceKind:'LORE',rows:packet?.nominations,maxEdges:request.maxEdges}),

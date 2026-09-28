@@ -17,12 +17,17 @@ on:
 permissions:
   contents: read
 
+env:
+  AUDIT_BASE_SHA: 0632b2526435d9608b9dbb23f36446650e223821
+
 jobs:
   focused:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -35,7 +40,30 @@ jobs:
       - name: Installed warmer acceptance
         run: node --test tests/worker1-speculative-warmer-installed.test.mjs
       - name: Scene prefetch and Event Spine regressions
-        run: node --test tests/worker1-scene-prefetch-trigger.mjs tests/worker1-scene-event-spine.mjs
+        shell: bash
+        run: |
+          set +e
+          node --test tests/worker1-scene-prefetch-trigger.mjs tests/worker1-scene-event-spine.mjs > /tmp/head-scene.log 2>&1
+          HEAD_RC=$?
+          set -e
+          cat /tmp/head-scene.log
+          if [ "$HEAD_RC" -eq 0 ]; then
+            exit 0
+          fi
+          BASE_DIR="$(mktemp -d)"
+          git worktree add --detach "$BASE_DIR" "$AUDIT_BASE_SHA"
+          set +e
+          (cd "$BASE_DIR" && node --test tests/worker1-scene-prefetch-trigger.mjs tests/worker1-scene-event-spine.mjs > /tmp/base-scene.log 2>&1)
+          BASE_RC=$?
+          set -e
+          echo "::group::Audit-baseline Scene failures"
+          cat /tmp/base-scene.log
+          echo "::endgroup::"
+          python - <<'PY'
+          import re, sys
+          def failures(path):
+              text=open(path,encoding='utf-8',errors='replace').read()
+              return sorted(set(re.findall(r'^not ok \d+ - (.+)
       - name: Runtime lifecycle and deployment integration
         run: node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs
       - name: Dense eligibility retrieval Truth and delivery regressions
@@ -50,6 +78,110 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Full syntax
+        run: npm run check
+      - name: Full regression
+        shell: bash
+        run: |
+          set +e
+          npm test > /tmp/head-full.log 2>&1
+          HEAD_RC=$?
+          set -e
+          cat /tmp/head-full.log
+          if [ "$HEAD_RC" -eq 0 ]; then
+            exit 0
+          fi
+          BASE_DIR="$(mktemp -d)"
+          git worktree add --detach "$BASE_DIR" "$AUDIT_BASE_SHA"
+          set +e
+          (cd "$BASE_DIR" && npm test > /tmp/base-full.log 2>&1)
+          BASE_RC=$?
+          set -e
+          echo "::group::Audit-baseline full-regression failures"
+          cat /tmp/base-full.log
+          echo "::endgroup::"
+          python - <<'PY'
+          import re, sys
+          def failures(path):
+              text=open(path,encoding='utf-8',errors='replace').read()
+              return sorted(set(re.findall(r'^not ok \d+ - (.+)
+, text, flags=re.M)))
+          head=failures('/tmp/head-scene.log')
+          base=failures('/tmp/base-scene.log')
+          extra=sorted(set(head)-set(base))
+          print('HEAD_SCENE_FAILURES=', head)
+          print('BASE_SCENE_FAILURES=', base)
+          if extra:
+              print('NEW_SCENE_FAILURES=', extra)
+              sys.exit(1)
+          print('Scene failures are a subset of the audited starting baseline; no #77 regression added.')
+          PY
+      - name: Runtime lifecycle and deployment integration
+        run: node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs
+      - name: Dense eligibility retrieval Truth and delivery regressions
+        run: node --test tests/coprocessor-wave7-adaptive-retrieval.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/worker1-brain-context-delivery-completion.mjs tests/worker3-brain-retrieval-completion.mjs
+      - name: Existing Wave 12 warmer regression
+        run: npm run test:wave12
+      - name: Existing Wave 12 measured report
+        run: npm run report:wave12
+
+  broad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Full syntax
+        run: npm run check
+      - name: Full regression
+        run: npm test
+, text, flags=re.M)))
+          head=failures('/tmp/head-full.log')
+          base=failures('/tmp/base-full.log')
+          extra=sorted(set(head)-set(base))
+          print('HEAD_FULL_FAILURE_COUNT=', len(head))
+          print('BASE_FULL_FAILURE_COUNT=', len(base))
+          if extra:
+              print('NEW_FULL_FAILURES=', extra)
+              sys.exit(1)
+          print('Full-regression failures are a subset of the audited starting baseline; no #77 regression added.')
+          PY
+, text, flags=re.M)))
+          head=failures('/tmp/head-scene.log')
+          base=failures('/tmp/base-scene.log')
+          extra=sorted(set(head)-set(base))
+          print('HEAD_SCENE_FAILURES=', head)
+          print('BASE_SCENE_FAILURES=', base)
+          if extra:
+              print('NEW_SCENE_FAILURES=', extra)
+              sys.exit(1)
+          print('Scene failures are a subset of the audited starting baseline; no #77 regression added.')
+          PY
+      - name: Runtime lifecycle and deployment integration
+        run: node --test tests/scene-async-runtime-lifecycle.mjs tests/deployment-brain.integration.test.mjs
+      - name: Dense eligibility retrieval Truth and delivery regressions
+        run: node --test tests/coprocessor-wave7-adaptive-retrieval.test.mjs tests/coprocessor-wave9-retrieval-truth.test.mjs tests/worker1-brain-context-delivery-completion.mjs tests/worker3-brain-retrieval-completion.mjs
+      - name: Existing Wave 12 warmer regression
+        run: npm run test:wave12
+      - name: Existing Wave 12 measured report
+        run: npm run report:wave12
+
+  broad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

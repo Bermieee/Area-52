@@ -231,7 +231,13 @@ export function normalizePrefetchRecommendation(input = {}) {
     priority: String(input.priority ?? 'NORMAL'),
     expiryRevision: finite(input.expiryRevision ?? input.sceneRevision, 'expiryRevision'),
     evidenceRefs: boundedStrings(input.evidenceRefs ?? [], 64, 'evidenceRefs'),
+    sourceRevisionRefs: boundedStrings(input.sourceRevisionRefs ?? input.sourceRevisionSet ?? [], 64, 'sourceRevisionRefs'),
+    sourceRevisionSet: boundedStrings(input.sourceRevisionSet ?? input.sourceRevisionRefs ?? [], 64, 'sourceRevisionSet'),
     authority: 'NONE',
+    runtimeSchedulingAuthority: false,
+    retrievalAuthority: false,
+    truthAuthority: false,
+    contextSealAuthority: false,
     status: String(input.status ?? 'ACTIVE'),
   });
 }

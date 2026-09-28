@@ -18,7 +18,9 @@ export const SUPPORTED_SCENE_EVENTS = Object.freeze([
 export function adaptScenePublicSignals(input = {}) {
   if (!input || typeof input !== 'object') throw new TypeError('Scene public signal artifact is required');
   return Object.freeze({
+    sceneId: input.sceneId ?? null,
     sceneRevision: finiteOrNull(input.sceneRevision),
+    sourceRevisionSet: Object.freeze([...(input.sourceRevisionSet ?? input.sourceRevisionRefs ?? [])].filter(Boolean).map(String).sort()),
     sceneEntities: Object.freeze(entityRefs(input)),
     activeCast: Object.freeze([...(input.activeCast ?? [])]),
     location: structuredClone(input.location ?? null),
@@ -108,6 +110,8 @@ export function plannerInputFromScene({ publicSignals = null, events = [], base 
     output.sceneOpened = Boolean(output.sceneOpened || patch.sceneOpened);
     output.majorTimeShift = Boolean(output.majorTimeShift || patch.majorTimeShift);
     if (patch.sceneRevision != null) output.sceneRevision = patch.sceneRevision;
+    if (patch.sceneId != null) output.sceneId = patch.sceneId;
+    if (patch.sourceRevisionSet?.length) output.sourceRevisionSet = unique([...(output.sourceRevisionSet ?? []), ...patch.sourceRevisionSet]).sort();
   }
   return deepFreeze(output);
 }

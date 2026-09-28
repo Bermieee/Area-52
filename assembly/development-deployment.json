@@ -153,6 +153,17 @@
       ],
       "reason": "Restore omitted accepted Jev evaluation assets and reconcile bounded #211 replay retention with accepted Wave 8 stress.",
       "ownerAuthorityChanged": false
+    },
+    {
+      "id": "WORKERS-314-315-20260928",
+      "commits": [
+        "cb7ccca9ea03337a0f257f62a7e6ef45c8934d46",
+        "bdb705a4e987a9f20f9f50aa4ed4c26df9f39d43",
+        "3f9be871b71bfb5d5fff5c9519c2a88de9b4bad8",
+        "979d7743096a4d52a04fe67342e1650f8508440b"
+      ],
+      "reason": "Reconcile only the Scene/Runtime/Memory copied-checkpoint digests legitimately changed by PR #314/#315 integration; preserve frozen-main assembly debt and authority boundaries.",
+      "ownerAuthorityChanged": false
     }
   ],
   "mainReview": {
@@ -273,5 +284,5 @@
       "nativeBrainRequiresOptionalResources": false
     }
   },
-  "reconciliationDigestOverlay": "assembly/reconciliations/scene-async-runtime-worker4-20260927.json"
+  "reconciliationDigestOverlay": "assembly/reconciliations/workers-314-315-20260928.json"
 }

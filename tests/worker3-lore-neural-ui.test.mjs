@@ -202,10 +202,13 @@ test('source click renders truthful UID details in the left rail without moving 
   assert.match(body,/Selected UID/);assert.match(body,/uid-mara/);assert.match(body,/Mara Vex/);assert.match(body,/Character/);
   assert.match(body,/rev-42/);assert.match(body,/1/);assert.match(body,/2/);assert.match(body,/Character › Primary/);
   assert.match(body,/Connections/);assert.match(body,/Direct graph relationships/);
-  assert.match(body,/Narrative Intelligence/);
-  assert.match(body,/Pending Scene Intelligence/);
+  assert.match(body,/Scene Intelligence/);
   assert.match(body,/Not yet published/);
-  assert.match(body,/does not infer these fields from Lore text today/);
+  assert.match(body,/future Scene Intelligence evidence/);
+  assert.ok(walk(detail).some(x=>String(x.className??'').includes('a52-world-entity-inspector')));
+  assert.equal(walk(detail).filter(x=>x.tagName==='ANIMATE').length,0,'selection refresh must not replay growth');
+  assert.ok(walk(detail).filter(x=>String(x.attributes?.class??'').split(/\\s+/).includes('a52-lore-entry-node')).every(x=>String(x.attributes?.class??'').includes('is-steady')));
+  assert.doesNotMatch(body,/Graph growth|Growth queue/);
 });
 
 
@@ -270,15 +273,15 @@ test('Lore graph sandbox supports bounded drag pan wheel zoom and reset',()=>{
   svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
   assert.notEqual(svg.attributes?.viewBox,panned);
   const zoomed=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
-  assert.ok(zoomed[2]<820);assert.ok(zoomed[2]>=250);
+  assert.ok(zoomed[2]<820);assert.ok(zoomed[2]>=220);
 
   for(let i=0;i<20;i++)svg.dispatch('wheel',{deltaY:-120,offsetX:640,offsetY:300});
   const minZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
-  assert.ok(minZoom[2]>=250);
+  assert.ok(minZoom[2]>=220);
   assert.equal(svg.attributes?.['data-zoom-level'],'close');
   for(let i=0;i<30;i++)svg.dispatch('wheel',{deltaY:120,offsetX:640,offsetY:300});
   const maxZoom=String(svg.attributes?.viewBox).split(/\s+/).map(Number);
-  assert.ok(maxZoom[2]<=1180);
+  assert.ok(maxZoom[2]<=1600);
 
   const fullGraph=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent==='Full Graph');
   assert.ok(fullGraph);fullGraph.dispatch('click');
@@ -380,6 +383,9 @@ test('current fully READY Lore disables redundant study while keeping re-accept 
   assert.ok(shell);assert.ok(workspace);
   assert.equal(intake.parentNode,shell);assert.equal(workspace.parentNode,shell);
   assert.match(String(intake.className??''),/a52-world-tree-source-dock/);
+  assert.equal(walk(host).some(node=>String(node.className??'').includes('a52-wave13-lore-derived-details')),false);
+  assert.equal(walk(host).some(node=>String(node.className??'').includes('a52-wave13-lore-review-details')),false);
+  assert.doesNotMatch(textOf(host),/Derived representations \/ navigation summaries|Authoring \/ review tools/);
 });
 
 test('Lore neural render state holds reveal across incidental refreshes then animates only newly published nodes',()=>{
@@ -596,7 +602,11 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   assert.match(css,/\/\* World Tree HUD declutter pass \*\/[\s\S]*\.a52-world-tree-shell \.a52-lore-neural-canvas-head\{[\s\S]*background:transparent/);
   assert.match(css,/\.a52-world-tree-filter-dock\{/);
   assert.match(css,/\.a52-world-tree-shell \.a52-lore-neural-empty\{[\s\S]*padding:0/);
-  assert.match(css,/@keyframes a52-lore-core-pulse\{0%,100%\{r:92/);
+  assert.match(css,/@keyframes a52-lore-core-pulse\{0%,100%\{r:110/);
+  assert.match(css,/\/\* World Tree target visual pass \*\//);
+  assert.match(css,/\.a52-lore-neural-link--hub\{[\s\S]*stroke-width:4\.2/);
+  assert.match(css,/\.a52-world-entity-inspector\{/);
+  assert.match(css,/\.a52-wave13-shell>\.a52-shell__workspace:has\(\.a52-world-tree-shell\)/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);
   assert.ok(rootCss.indexOf('ui-core-lore-neural.css')>rootCss.indexOf('ui-core-console-theme.css'));

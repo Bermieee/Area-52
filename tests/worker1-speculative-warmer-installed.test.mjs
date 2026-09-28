@@ -165,3 +165,106 @@ test('#77 source edit invalidates cached preparation and cancels obsolete pendin
   assert.equal(diagnostics.authorityGranted,false);
   assert.equal(diagnostics.contextSealAuthority,false);
 });
+
+
+test('#77 conceptual Scene switch invalidates same-revision warm packets instead of keying only by revision number',()=>{
+  const cache=new WarmPacketCache({capacity:4,maxCandidateRefs:64,defaultTtlTurns:3});
+  const ident={
+    chatId:'scene-fence-chat',sceneRevision:1,worldRevision:3,characterStateRevision:0,
+    sourceRevisionSet:['src:scene:old'],intentFingerprint:'intent:old-scene',retrievalPolicyRevision:'policy:1',
+  };
+  cache.put(createWarmPacket({
+    identity:ident,
+    recommendation:{
+      kind:'PrefetchRecommendation',recommendationId:'rec:old-scene',sceneId:'scene:old',sceneRevision:1,
+      trigger:'LOCATION_CHANGED',entityRefs:[],locationRefs:['Old Hall'],threadRefs:[],sceneRefs:['scene:old'],
+      priority:'HIGH',expiryRevision:3,evidenceRefs:['src:scene:old'],sourceRevisionRefs:['src:scene:old'],
+      sourceRevisionSet:['src:scene:old'],authority:'NONE',status:'ACTIVE',
+    },
+    candidateRefs:['cand:old'],evidenceRefs:['src:scene:old'],createdAt:1,expiresAfterTurns:3,
+  }),{turnSequence:1});
+  assert.equal(cache.size(),1);
+  assert.equal(cache.invalidate({chatId:'scene-fence-chat',sceneId:'scene:new',sceneRevision:1}),1);
+  assert.equal(cache.size(),0);
+});
+
+test('#77 foreground generation pressure leaves speculative work pending and it resumes after foreground release',async()=>{
+  const brain=seeded();
+  const foreground={chatId:'warm-pressure',turnId:'turn:foreground',generationId:'gen:foreground',correlationId:'corr:foreground'};
+  brain.runtimeDirector.beginGeneration(foreground);
+  const receipt=ingestDeterministic(brain,hostEvent({
+    chatId:'warm-pressure',id:'pressure',turnId:'turn:pressure-source',generationId:'gen:pressure-source',
+  }));
+  const {event}=recommendationFrom(receipt);
+  const task=brain.runtimeDirector.ledger.list().find((row)=>
+    row.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM'&&row.obligation?.cause?.eventId===event.eventId
+  );
+  assert.ok(task);
+  assert.equal(task.startedCount,0);
+  const blocked=await brain.flushSpeculativeWarmRuntime();
+  assert.equal(blocked.status,'FOREGROUND_ACTIVE');
+  assert.equal(brain.runtimeDirector.ledger.get(task.taskId).startedCount,0);
+
+  brain.runtimeDirector.completeGeneration(foreground);
+  const resumed=await brain.flushSpeculativeWarmRuntime();
+  assert.equal(resumed.status,'DRAINED');
+  const completed=brain.runtimeDirector.ledger.get(task.taskId);
+  assert.equal(completed.lifecycleStatus,'SATISFIED');
+  assert.equal(completed.executionStatus,'COMPLETE');
+  assert.ok(completed.startedCount>=1);
+  assert.ok(brain.diagnostics().speculativeWarm.metrics.cache.size>=1);
+});
+
+test('#77 chat switch cancels foreign pending warm work and invalidates prior-chat cache state',async()=>{
+  const brain=seeded();
+  const first=ingestDeterministic(brain,hostEvent({chatId:'warm-chat-a',id:'a1'}));
+  recommendationFrom(first);
+  await brain.flushSpeculativeWarmRuntime();
+  assert.ok(brain.diagnostics().speculativeWarm.metrics.cache.size>=1);
+
+  const foreground={chatId:'warm-chat-a',turnId:'turn:hold',generationId:'gen:hold',correlationId:'corr:hold'};
+  brain.runtimeDirector.beginGeneration(foreground);
+  const pendingReceipt=ingestDeterministic(brain,hostEvent({
+    chatId:'warm-chat-a',id:'a2',content:'At Crystal Harbor, Mara searches for the Sun Blade.',
+    turnId:'turn:a2',generationId:'gen:a2',
+  }));
+  const pendingEvent=pendingReceipt.dispatchTimeline.find((row)=>
+    row.type==='EVENT'&&row.value?.eventType===SceneEventType.PREFETCH_RECOMMENDED
+  )?.value;
+  const pendingTask=pendingEvent?brain.runtimeDirector.ledger.list().find((row)=>
+    row.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM'&&row.obligation?.cause?.eventId===pendingEvent.eventId
+  ):null;
+
+  brain.ingestSceneHostEvent(hostEvent({
+    chatId:'warm-chat-b',id:'switch',activity:HostActivity.CHAT_SWITCH,content:'',
+    turnId:'turn:switch',generationId:'gen:switch',
+  }),{extract:()=>({fields:{}})});
+
+  assert.equal(brain.diagnostics().speculativeWarm.metrics.cache.size,0);
+  if(pendingTask){
+    assert.equal(brain.runtimeDirector.ledger.get(pendingTask.taskId).lifecycleStatus,'CANCELLED');
+  }
+  brain.runtimeDirector.completeGeneration(foreground);
+});
+
+test('#77 new Brain construction is an explicit cold start and does not inherit warm cache or duplicate owner binding',async()=>{
+  const first=seeded();
+  const firstReceipt=ingestDeterministic(first,hostEvent({chatId:'warm-reload-a'}));
+  recommendationFrom(firstReceipt);
+  await first.flushSpeculativeWarmRuntime();
+  assert.ok(first.diagnostics().speculativeWarm.metrics.cache.size>=1);
+
+  const restarted=seeded();
+  const cold=restarted.diagnostics().speculativeWarm;
+  assert.equal(cold.metrics.cache.size,0);
+  assert.equal(cold.recovery.persistenceConfigured,false);
+  assert.equal(cold.recovery.reloadBehavior,'COLD_START');
+  assert.equal(cold.recovery.duplicateListenerGuard,'INSTANCE_SCOPED_CONSTRUCTION');
+
+  const receipt=ingestDeterministic(restarted,hostEvent({chatId:'warm-reload-b'}));
+  const {event}=recommendationFrom(receipt);
+  const eventTasks=restarted.runtimeDirector.ledger.list().filter((row)=>
+    row.obligation?.taskType==='SPECULATIVE_CONTEXT_WARM'&&row.obligation?.cause?.eventId===event.eventId
+  );
+  assert.equal(eventTasks.length,1);
+});

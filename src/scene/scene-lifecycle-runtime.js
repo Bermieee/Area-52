@@ -188,13 +188,31 @@ export class SceneLifecycleRuntime{
   ingestHostEvent(input,{extract=null}={}){
     const normalized=this.narrativeFeed.normalize(input);
     if(normalized.status!==HostEventStatus.ACCEPTED)return normalized;
-    const evidence=normalized.evidence;
+    return this.#applyAcceptedEvidence(normalized,normalized.evidence,extract,{applyInvalidations:true});
+  }
+
+  applyExistingEvidence(input,{extract=null}={}){
+    const chatId=String(input?.chatId??'').trim(),sourceRevisionId=String(input?.sourceRevisionId??'').trim();
+    if(!chatId||!sourceRevisionId)return{status:HostEventStatus.INVALID,reason:'chatId-and-sourceRevisionId-required'};
+    const stored=this.narrativeFeed.findSourceRevision(chatId,sourceRevisionId);
+    const current=this.narrativeFeed.currentEvidence(chatId).find(row=>String(row.sourceRevisionId)===sourceRevisionId)??null;
+    if(!stored||!current)return{status:HostEventStatus.INVALID,reason:'source-revision-not-current',stale:true,sourceRevisionId};
+    const evidence={
+      ...clone(stored),chatId,sourceRevisionId,current:true,historical:false,
+      turnId:input.turnId??null,generationId:input.generationId??null,correlationId:input.correlationId??null,causationId:input.causationId??null,
+      activity:input.activity??stored.activity,role:input.role??stored.role,content:stored.content,
+    };
+    const normalized={status:HostEventStatus.ACCEPTED,evidence,reusedExistingEvidence:true};
+    return this.#applyAcceptedEvidence(normalized,evidence,extract,{applyInvalidations:false});
+  }
+
+  #applyAcceptedEvidence(normalized,evidence,extract,{applyInvalidations=true}={}){
     if([HostActivity.CHAT_LOAD,HostActivity.CHAT_SWITCH,HostActivity.NEW_CHAT,HostActivity.IMPORT_OR_RELOAD].includes(evidence.activity)){
       const scene=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
       const invalidatedPrefetch=this.prefetchTrigger.cancelOtherScenes({sceneId:scene.sceneId,reason:'CHAT_CHANGE:'+evidence.activity});
       return {...normalized,scene:clone(scene),invalidatedPrefetch};
     }
-    const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[],invalidationRefs=[...new Set([...(evidence.invalidates??[]),evidence.replacesRevisionId].filter(Boolean))];
+    const invalidated=[],invalidatedHandoffs=[],invalidatedPrefetch=[],invalidationRefs=applyInvalidations?[...new Set([...(evidence.invalidates??[]),evidence.replacesRevisionId].filter(Boolean))]:[];
     const invalidatedGraph=[];for(const source of invalidationRefs){invalidated.push(...this.#invalidateSource(source,evidence.sourceRevisionId));invalidatedGraph.push(...this.graph.invalidateBySource(source,evidence.sourceRevisionId));invalidatedHandoffs.push(...this.transitionManager.invalidateHandoffs({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));invalidatedPrefetch.push(...this.prefetchTrigger.invalidateBySource({sourceRevisionRefs:[source],replacementRef:evidence.sourceRevisionId}));}
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});

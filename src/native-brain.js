@@ -681,7 +681,13 @@ export class Area52NativeBrain{
     if(!record)throw new Error('Unknown native Brain turn: '+id);
     if(record.responseCompletionReceipt){
       if(record.response!==text)throw new Error('DUPLICATE_RESPONSE_MISMATCH:'+id);
-      if(autoDrain)await this.drainBackgroundLearning({maxCycles:128});
+      if(autoDrain){
+        await this.drainBackgroundLearning({maxCycles:128});
+        record.explicitLearningDrainCompleted=true;
+        const refreshed=this.#refreshLearningLifecycle(record)??record.learningReceipt;
+        this.#notifyLearningAccepted(record,refreshed);
+        return clone(refreshed);
+      }
       return clone(this.#refreshLearningLifecycle(record)??record.learningReceipt);
     }
 
@@ -755,6 +761,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_RESPONSE_COMPLETED',record);
     if(autoDrain){
       await this.drainBackgroundLearning({maxCycles:128});
+      record.explicitLearningDrainCompleted=true;
       const refreshed=this.#refreshLearningLifecycle(record)??record.learningReceipt;
       this.#notifyLearningAccepted(record,refreshed);
       return clone(refreshed);
@@ -814,16 +821,19 @@ export class Area52NativeBrain{
       ...record.learningReceipt,feedback:clone(record.feedback),memoryPostTurn:clone(record.memoryPostTurn??null),memoryConsolidation:clone(record.memoryConsolidation??null),
       memoryConsolidationRuntimeTaskId:record.memoryConsolidationRuntimeTaskId??null,responseCompletion:clone(record.responseCompletionReceipt),
       learningLifecycle:{status,backgroundPending:pending||running,tasks,backgroundExecutionMs,foregroundWaitMs:record.responseCompletionReceipt.foregroundWaitMs,
-        responseCompletionStatus:record.responseCompletionReceipt.status,sealedGenerationImmutable:true},
+        responseCompletionStatus:record.responseCompletionReceipt.status,sealedGenerationImmutable:true,
+        explicitDrainCompleted:Boolean(record.explicitLearningDrainCompleted),
+        compatibilityTerminalLearned:Boolean(record.explicitLearningDrainCompleted&&!pending&&!running&&!failed)},
     };
-    record.state=status==='ACCEPTED'?'LEARNED':status==='FAILED'?'LEARNING_FAILED':status==='DEFERRED'?'LEARNING_DEFERRED':'RESPONSE_COMPLETED';
+    const compatibilityTerminalLearned=Boolean(record.explicitLearningDrainCompleted&&!pending&&!running&&!failed);
+    record.state=(status==='ACCEPTED'||compatibilityTerminalLearned)?'LEARNED':status==='FAILED'?'LEARNING_FAILED':status==='DEFERRED'?'LEARNING_DEFERRED':'RESPONSE_COMPLETED';
     return record.learningReceipt;
   }
 
   #notifyLearningAccepted(record,learning=null){
     if(!record||record.learningAcceptedNotified)return false;
     const receipt=learning??record.learningReceipt;
-    if(receipt?.learningLifecycle?.status!=='ACCEPTED')return false;
+    if(receipt?.learningLifecycle?.status!=='ACCEPTED'&&!receipt?.learningLifecycle?.compatibilityTerminalLearned)return false;
     record.learningAcceptedNotified=true;
     this.#notify('TURN_LEARNED',record);
     return true;

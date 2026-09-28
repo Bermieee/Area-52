@@ -110,6 +110,10 @@ function compatibleOwnerValue(values,fallback){const unique=uniq(values.filter(B
 function trimText(text,max){if(text==null)return null;return String(text).slice(0,max);}
 function nominationView(n,lim){return {
   nominationId:n.nominationId,channelId:n.channelId,channelVersion:n.channelVersion,retrievalIntentIds:[...n.retrievalIntentIds],
+  artifactRef:clone(n.artifactRef??null),artifactRevision:n.artifactRevision??null,
+  sourceRevisionRefs:[...(n.sourceRevisionRefs??[])].slice(0,Math.min(32,lim.maxEvidenceRefsPerCandidate)),
+  dependencyRevisions:[...(n.dependencyRevisions??[])].slice(0,32),
+  representationRef:n.representationRef??null,representationRevision:n.representationRevision??null,
   rankSignals:clone(n.rankSignals),normalizedRank:n.normalizedRank,graphMetadata:clone(n.graphMetadata),
   temporalHints:clone(n.temporalHints).slice(0,16),continuitySignals:clone(n.continuitySignals).slice(0,16),freshness:n.freshness,
   provenance:uniqueObjects(n.provenance??[],Math.min(16,lim.maxProvenanceRefsPerCandidate)),

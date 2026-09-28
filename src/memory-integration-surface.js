@@ -54,6 +54,7 @@ export function createMemoryIntegrationSurface(producer) {
       invalidateCausalIdentityRevision:(identityRevisionId)=>producer.invalidateCausalIdentityRevision(identityRevisionId),
       recordRetrievalUse:(input)=>producer.recordRetrievalUse(input),
       recordCoRetrieval:(input)=>producer.recordCoRetrieval(input),
+      admitRetrievalFeedback:(input)=>producer.admitRetrievalFeedback(input),
       recoverDerivedArtifact:(input)=>producer.recoverDerivedArtifact(input),
       proposeDerivedReorganization:(input)=>producer.proposeDerivedReorganization(input),
       runReconsolidation:(options={})=>producer.runReconsolidation(options),
@@ -121,6 +122,11 @@ export function createMemoryIntegrationSurface(producer) {
         seam:'HISTORIAN',
         status:'DIRECT_COMPATIBLE',
         behavior:'Memory emits HistorianMemoryResolution v1.0.0 and CandidateNomination v1.0.0 compatible records. When assembly supplies a chat selection, exact and hierarchical candidates are fenced to that chat before ranking; summary nominations remain navigation-only.',
+      },
+      {
+        seam:'MEMORY_RETRIEVAL_OUTCOME_FEEDBACK',
+        status:'OWNER_ADMISSION_READY',
+        behavior:'Post-Truth/Gather/Seal outcome receipts may return exact OWNER_MEMORY artifact/revision lineage to Memory. Memory revalidates story and revision ownership, deduplicates exact outcomes, and applies bounded plasticity only; retrieval feedback never adds factual support or canonical authority.',
       },
       {
         seam:'UI_CORE_MEMORY',

@@ -15,6 +15,7 @@ import {MemoryExternalEvidenceBridge} from './memory-evidence-bridge.js';
 import {MemoryPlasticityManager} from './memory-plasticity.js';
 import {MemoryCausalEventStore} from './memory-causal-events.js';
 import {MemoryVectorIndex} from './memory-vector-index.js';
+import {MemoryRetrievalFeedbackOwner} from './memory-retrieval-feedback.js';
 import {
   MemoryUiReadModelProducer,
   evidenceBelongsToChat,
@@ -42,6 +43,7 @@ export class MemoryTemporalProducer {
     this.causalEvents=new MemoryCausalEventStore({graph:this.graph});
     this.uiReadModel=uiReadModel??new MemoryUiReadModelProducer({producer:this});
     this.vectorIndex=new MemoryVectorIndex({producer:this});
+    this.retrievalFeedback=new MemoryRetrievalFeedbackOwner({producer:this});
     this.diagnostics=[];
     this.consolidationProposalReviews=new Map();
     if (snapshot) this.restore(snapshot);
@@ -907,6 +909,7 @@ export class MemoryTemporalProducer {
   primeDenseHistorian(request={}){return this.vectorIndex.primeQuery(request);}
   recordRetrievalUse(input={}){return this.plasticity.recordRetrievalUse(input);}
   recordCoRetrieval(input={}){return this.plasticity.recordCoRetrieval(input);}
+  admitRetrievalFeedback(input={}){return this.retrievalFeedback.admit(input);}
   recoverDerivedArtifact(input={}){return this.plasticity.recoverArtifact(input);}
   proposeDerivedReorganization(input={}){return this.plasticity.proposeReorganization(input);}
   runReconsolidation(options={}){return this.plasticity.reconsolidate(options);}
@@ -1070,6 +1073,7 @@ export class MemoryTemporalProducer {
       summaryHierarchy:this.summaryHierarchy.status(),
       evidenceBridge:this.evidenceBridge.status(),
       plasticity:this.plasticity.status(),
+      retrievalFeedback:this.retrievalFeedback.status(),
       causalEvents:this.causalEvents.status(),
       vectorIndex:this.vectorIndex.status(),
       uiReadModel:{
@@ -1098,6 +1102,7 @@ export class MemoryTemporalProducer {
       summaryHierarchy:this.summaryHierarchy.snapshot(),
       evidenceBridge:this.evidenceBridge.snapshot(),
       plasticity:this.plasticity.snapshot(),
+      retrievalFeedback:this.retrievalFeedback.snapshot(),
       causalEvents:this.causalEvents.snapshot(),
       vectorIndex:this.vectorIndex.snapshot(),
       uiReadModel:this.uiReadModel.snapshot(),
@@ -1114,6 +1119,7 @@ export class MemoryTemporalProducer {
     this.summaryHierarchy=new MemorySummaryHierarchy({graph:this.graph,experienceStore:this.experienceStore,snapshot:snapshot?.summaryHierarchy??null});
     this.evidenceBridge=new MemoryExternalEvidenceBridge({graph:this.graph,snapshot:snapshot?.evidenceBridge??null});
     this.plasticity=new MemoryPlasticityManager({graph:this.graph,snapshot:snapshot?.plasticity??null});
+    this.retrievalFeedback=new MemoryRetrievalFeedbackOwner({producer:this,snapshot:snapshot?.retrievalFeedback??null});
     this.causalEvents=new MemoryCausalEventStore({graph:this.graph,snapshot:snapshot?.causalEvents??null});
     this.uiReadModel=new MemoryUiReadModelProducer({producer:this,snapshot:snapshot?.uiReadModel??null});
     this.vectorIndex=new MemoryVectorIndex({producer:this,snapshot:snapshot?.vectorIndex??null});

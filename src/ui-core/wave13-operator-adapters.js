@@ -675,6 +675,8 @@ export class Wave13OperationalStatusAdapter{
   read(){
     const selection=this.live?.selection?.()??{};
     const cognition=this.#cognition(selection),generation=this.#generation(selection),hostLifecycle=this.#hostLifecycle(),hostDelivery=this.#hostDelivery(selection);
+    const sceneObservationReader=fn(this.hostBindings,['readSceneObservationReceipts']);
+    const sceneObservations=sceneObservationReader?safeRead(()=>sceneObservationReader(),[])??[]:[];
     const stages=[
       this.#adapterStage('scene','Scene',this.adapters.scene,selection,{turnBound:true,exported:Boolean(this.hostBindings.readScene||this.hostBindings.readSceneModel||this.hostBindings.readSceneUiReadModel)}),
       this.#runtimeStage(selection,cognition),
@@ -713,17 +715,22 @@ export class Wave13OperationalStatusAdapter{
       promptPlanReceipt:Boolean(generation?.promptPlan),hostDeliveryReader:Boolean(fn(this.hostBindings,['readHostDeliveryReceipt'])),
       hostPrepared,hostInjected,deliveryReceipt:hostInjected,hostDeliveryReceipt:Boolean(hostDelivery),hostDeliveryState:hostDelivery?.state??null,completionReceipt:Boolean(hostDelivery?.responseCompleted??hostDelivery?.completedAt),
       learningReceipt:Boolean(learning),learningKind:learning?.kind??null,
+      sceneObservation:{
+        counts:Object.fromEntries(['QUEUED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,sceneObservations.filter(row=>row?.status===status).length])),
+        recent:cloneSafe(sceneObservations.slice(-32)),
+        metadataOnly:true,
+      },
       hostLifecycle:cloneSafe(hostLifecycle),
     });
-    const inspections=this.#inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead});
-    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,inspections,inspection:generationInspectionSummary(generation,selection),waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
+    const inspections=this.#inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead,sceneObservations});
+    return deepFreeze({kind:'Wave13OperationalStatus',selection:cloneSafe(selection),stages,active,failures,pipeline,sceneObservation:cloneSafe(pipeline.sceneObservation),inspections,inspection:generationInspectionSummary(generation,selection),waitingForTurn:Boolean(selection.chatId&&!selection.turnId),hostConnected:Boolean(selection.chatId),rawPromptTelemetry:false});
   }
-  #inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead}={}){
+  #inspections({selection,cognition,generation,hostDelivery,stages,coprocessorRead,sceneObservations=[]}={}){
     const stageById=new Map((stages??[]).map(row=>[row.id,row]));
     const adapterData=(adapter)=>safeRead(()=>adapter?.read?.(selection)??adapter?.read?.(),null)?.data??null;
     const data=cognition?.data??{},errors=cognition?.errors??{};
     const values={
-      scene:adapterData(this.adapters.scene),runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
+      scene:{readModel:adapterData(this.adapters.scene),semanticExecution:cloneSafe(sceneObservations.slice(-32))},runtime:adapterData(this.adapters.runtime),coprocessor:coprocessorRead?.data??null,
       choice:data.choice??null,truth:data.truth??null,jev:data.jev??null,gather:data.gather??null,seal:data.seal??null,
       promptPlan:adapterData(this.adapters.promptPlan),generation:hostDelivery??null,learning:generation?.learningReceipt??null,
       scatter:data.scatter??null,

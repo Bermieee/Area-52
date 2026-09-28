@@ -1,4 +1,4 @@
-import {deepClone, StudyState} from './lore-contracts.js';
+import {ArtifactType, deepClone, StudyState} from './lore-contracts.js';
 import {LoreStudyRuntime} from './lore-study-runtime.js';
 import {LoreMultiResolutionSystem} from './lore-multi-resolution.js';
 import {LoreRepresentationRegistry} from './lore-representation-registry.js';
@@ -570,6 +570,19 @@ export class LoreIntelligenceService {
     };
   }
 
+  // Derived Lore refs that are current right now: active navigation summaries (content-addressed by
+  // their source revisions and child summaries, so a superseded summary disappears) and the structure
+  // revisions of the live hierarchy. Owner graph edges built from summaries depend on these refs.
+  currentDerivedRefs() {
+    const refs = new Set();
+    for (const summary of this.hierarchy.summaryRegistry.activeSummaries()) {
+      refs.add(String(summary.id));
+      if (summary.structureRevision) refs.add(String(summary.structureRevision));
+    }
+    for (const scope of this.hierarchy.hierarchy?.scopes || []) if (scope.structureRevision) refs.add(String(scope.structureRevision));
+    return [...refs];
+  }
+
   summarySurface() {
     const scopes = new Map((this.hierarchy.hierarchy?.scopes || []).map((scope) => [scope.id, scope]));
     const summaries = this.hierarchy.summaryRegistry.activeSummaries().map((summary) => {
@@ -617,40 +630,7 @@ export class LoreIntelligenceService {
     };
   }
 
-  queryForStory({chatId, query, intent = 'AUTO', intentId = null, profile = null} = {}) {
-    const scope = this.storyAuthority.scopeReceipt(chatId);
-    const blocked = (reason) => ({
-      kind: 'LoreBrainRetrievalPacket',
-      contractVersion: 1,
-      status: 'EXCLUDED',
-      reason,
-      query: String(query || ''),
-      intent: String(intent || 'AUTO'),
-      retrievalIntentId: intentId,
-      indexRevision: this.hierarchy.retrievalIndex.revision,
-      ontologyRevision: this.ontology.current().ontologyRevision,
-      desiredProfile: profile,
-      sourceRevisionFence: [],
-      nominations: [],
-      candidateReceipts: [],
-      exclusionReceipts: [],
-      storyScope: deepClone(scope),
-      thematicCommunities: [],
-      summaries: [],
-      conflicts: [],
-      provenanceRequired: true,
-      exactSourceDrillbackAvailable: true,
-      retainedDiagnosticsMetadataOnly: true,
-      rawLoreIncludedInDiagnostics: false,
-      candidateBusAdmissionAuthority: false,
-      truthGateAuthority: false,
-      settlementAuthority: false,
-      contextSealAuthority: false,
-    });
-    if (scope.state !== 'BOUND') return this._rememberStoryQuery(blocked('LORE_STORY_SCOPE_REQUIRED'));
-    const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(scope.chatId));
-    if (!allowedBooks.size) return this._rememberStoryQuery(blocked('LORE_STORY_READ_SCOPE_EMPTY'));
-
+  _storyReadableSources(scope, allowedBooks) {
     const allowedSourceIds = [];
     const exclusionReceipts = [];
     for (const source of this.runtime.registry.listEntries({includeRemoved: true})) {
@@ -687,6 +667,76 @@ export class LoreIntelligenceService {
         });
       }
     }
+
+    return {allowedSourceIds, exclusionReceipts};
+  }
+
+  // Read-only owner surface: the entity identities Lore has learned from sources the story may read.
+  // The consumer (Native Brain) registers them as owner-explicit identities with source links; Lore
+  // grants no Truth, Settlement or merge authority. `knownRevisionKey` lets callers skip unchanged reads.
+  entityIdentitiesForStory({chatId, knownRevisionKey = null} = {}) {
+    const scope = this.storyAuthority.scopeReceipt(chatId);
+    const base = {kind: 'LoreEntityIdentitySurface', contractVersion: 1, chatId: scope.chatId ?? (chatId == null ? null : String(chatId)), mutationAuthority: false, settlementAuthority: false, truthGateAuthority: false, contextSealAuthority: false};
+    if (scope.state !== 'BOUND') return {...base, status: 'EXCLUDED', reason: 'LORE_STORY_SCOPE_REQUIRED', revisionKey: null, unchanged: false, entities: []};
+    const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(scope.chatId));
+    if (!allowedBooks.size) return {...base, status: 'EXCLUDED', reason: 'LORE_STORY_READ_SCOPE_EMPTY', revisionKey: null, unchanged: false, entities: []};
+    const revisionKey = ['lore-entities', this.hierarchy.retrievalIndex.revision, [...allowedBooks].sort().join(',')].join(':');
+    if (knownRevisionKey && knownRevisionKey === revisionKey) return {...base, status: 'UNCHANGED', reason: null, revisionKey, unchanged: true, entities: []};
+    const {allowedSourceIds} = this._storyReadableSources(scope, allowedBooks);
+    const byId = new Map();
+    for (const sourceId of allowedSourceIds) {
+      const learned = this.runtime.store.currentLearnedRevision(sourceId);
+      if (!learned) continue;
+      for (const artifact of this.runtime.store.artifactsForLearnedRevision(learned.id)) {
+        if (artifact.artifactType !== ArtifactType.ENTITY) continue;
+        const payload = artifact.payload || {};
+        const entityId = String(payload.entityId || '');
+        if (!entityId) continue;
+        const row = byId.get(entityId) ?? {entityId, canonicalName: String(payload.canonicalName || ''), entityType: String(payload.entityType || 'UNKNOWN'), aliases: [], sourceRevisionRefs: [], artifactRefs: []};
+        for (const alias of [payload.canonicalName, ...(payload.aliases || [])]) if (alias && !row.aliases.includes(String(alias))) row.aliases.push(String(alias));
+        if (!row.sourceRevisionRefs.includes(learned.sourceRevisionId)) row.sourceRevisionRefs.push(learned.sourceRevisionId);
+        row.artifactRefs.push(artifact.id);
+        byId.set(entityId, row);
+      }
+    }
+    return {...base, status: 'OK', reason: null, revisionKey, unchanged: false, entities: [...byId.values()].sort((a, b) => a.entityId.localeCompare(b.entityId))};
+  }
+
+  queryForStory({chatId, query, intent = 'AUTO', intentId = null, profile = null} = {}) {
+    const scope = this.storyAuthority.scopeReceipt(chatId);
+    const blocked = (reason) => ({
+      kind: 'LoreBrainRetrievalPacket',
+      contractVersion: 1,
+      status: 'EXCLUDED',
+      reason,
+      query: String(query || ''),
+      intent: String(intent || 'AUTO'),
+      retrievalIntentId: intentId,
+      indexRevision: this.hierarchy.retrievalIndex.revision,
+      ontologyRevision: this.ontology.current().ontologyRevision,
+      desiredProfile: profile,
+      sourceRevisionFence: [],
+      nominations: [],
+      candidateReceipts: [],
+      exclusionReceipts: [],
+      storyScope: deepClone(scope),
+      thematicCommunities: [],
+      summaries: [],
+      conflicts: [],
+      provenanceRequired: true,
+      exactSourceDrillbackAvailable: true,
+      retainedDiagnosticsMetadataOnly: true,
+      rawLoreIncludedInDiagnostics: false,
+      candidateBusAdmissionAuthority: false,
+      truthGateAuthority: false,
+      settlementAuthority: false,
+      contextSealAuthority: false,
+    });
+    if (scope.state !== 'BOUND') return this._rememberStoryQuery(blocked('LORE_STORY_SCOPE_REQUIRED'));
+    const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(scope.chatId));
+    if (!allowedBooks.size) return this._rememberStoryQuery(blocked('LORE_STORY_READ_SCOPE_EMPTY'));
+
+    const {allowedSourceIds, exclusionReceipts} = this._storyReadableSources(scope, allowedBooks);
 
     const result = this.hierarchy.query({query, intent, intentId, allowedSourceIds});
     const desiredProfile = profile || (result.intent === 'BROAD' ? RepresentationProfile.LEAN : RepresentationProfile.HEAVY);
@@ -831,6 +881,8 @@ export class LoreIntelligenceService {
       queryScoped: (request = {}) => this.queryForStory(request),
       status: (request = {}) => this.status({chatId: request?.chatId ?? null}),
       storyScope: (chatId) => this.storyAuthority.scopeReceipt(chatId),
+      entityIdentities: (request = {}) => this.entityIdentitiesForStory(request),
+      currentDerivedRefs: () => this.currentDerivedRefs(),
       summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
       isSourceRevisionCurrent: (revisionId) => {

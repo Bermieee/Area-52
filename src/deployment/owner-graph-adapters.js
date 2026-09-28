@@ -113,17 +113,25 @@ function candidateEdges({providerId,owner,sourceKind,rows,maxEdges=128}){
 
 export function createLoreOwnerGraphProvider(loreInterface){
   if(typeof loreInterface?.query!=='function')return null;
-  let queryRevisionSet=null;
+  let queryRevisionSet=null,derivedRefs=null;
   return Object.freeze({
     providerId:'LORE_OWNER_GRAPH',
     owner:'LORE_INTELLIGENCE',
     semanticsVersion:'LORE_OWNER_GRAPH_V1',
     metadata:{sourceKind:'LORE_OWNER',authority:'REFERENCE_ONLY'},
-    isRevisionCurrent:(revisionId)=>typeof loreInterface?.isSourceRevisionCurrent==='function'
-      ? Boolean(loreInterface.isSourceRevisionCurrent(String(revisionId)))
-      : (queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(String(revisionId)),
+    isRevisionCurrent:(revisionId)=>{
+      const id=String(revisionId);
+      const source=typeof loreInterface?.isSourceRevisionCurrent==='function'
+        ? Boolean(loreInterface.isSourceRevisionCurrent(id))
+        : (queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(id);
+      if(source)return true;
+      // Summary/structure dependencies are derived refs, not source revisions: they are current only while
+      // Lore still publishes them (a changed input yields a new content-addressed ref).
+      if(typeof loreInterface?.currentDerivedRefs!=='function')return false;
+      try{return (derivedRefs??=new Set((loreInterface.currentDerivedRefs()??[]).map(String))).has(id);}catch{return false;}
+    },
     query(request={}){
-      queryRevisionSet=null;
+      queryRevisionSet=null;derivedRefs=null;
       try{
         const packet=loreInterface.query({query:String(request.query??''),intent:'AUTO'});
         return {

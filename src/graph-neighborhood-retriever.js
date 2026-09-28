@@ -270,7 +270,7 @@ export class NativeGraphNeighborhoodRetriever{
     const latencyBudgetMs=Math.max(0,Math.min(this.limits.latencyBudgetMs,Number(opts.latencyBudgetMs??context.latencyBudgetMs??this.limits.latencyBudgetMs)));
     return{
       query:String(intent?.query??context.query??''),intentKind:String(intent?.intentKind??intent?.kind??'CURRENT').toUpperCase(),
-      anchorEntityIds:uniq(intent?.entityRefs??context.anchorEntityIds??[]),allowedEdgeMeanings:uniq(opts.allowedEdgeMeanings??intent?.relationshipRefs??[]),
+      anchorEntityIds:uniq((intent?.entityRefs??context.anchorEntityIds??[]).map(ref=>{const n=this.#normalizeRef(ref,{providerId:'GRAPH_ANCHOR'});return n?.resolved?n.entityId:ref;})),allowedEdgeMeanings:uniq(opts.allowedEdgeMeanings??intent?.relationshipRefs??[]),
       maxDepth,maxNodes,maxEdges,maxCandidates,latencyBudgetMs,
       worldRevision:Number(context.worldRevision??0),sceneRevision:Number(context.sceneRevision??0),
       sourceRevisionSet:uniq(context.sourceRevisionSet??[]),perspective:clone(intent?.perspective??null),

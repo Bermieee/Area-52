@@ -456,6 +456,7 @@ export class Area52NativeBrain{
         reason:sparseUnavailable?sparseRetrievalReceipt.reason:null,
       });
     }
+    this.#syncLoreEntityIdentities(chat);
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
@@ -608,6 +609,44 @@ export class Area52NativeBrain{
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });
+  }
+
+  // Lore owns its ontology; the Native identity registry is where Graph Walker resolves anchors and
+  // owner-graph endpoints. Source owners may register stable identities (entityIdentityContract), so the
+  // story-readable Lore entities are registered as owner-explicit identities with source links. Nothing
+  // here settles a merge/split, and a failed or conflicting registration stays a receipt row.
+  #syncLoreEntityIdentities(chatId){
+    const iface=this.loreInterface;
+    if(typeof iface?.entityIdentities!=='function')return null;
+    this.loreIdentitySync??={keys:new Map(),refs:new Map(),last:null};
+    const state=this.loreIdentitySync;
+    let surface;
+    try{surface=iface.entityIdentities({chatId,knownRevisionKey:state.keys.get(chatId)??null});}
+    catch(error){state.last={kind:'NativeLoreIdentitySyncReceipt',chatId,status:'FAILED',reason:String(error?.message??error).slice(0,200)};return state.last;}
+    if(surface?.status==='UNCHANGED')return state.last;
+    const receipt={kind:'NativeLoreIdentitySyncReceipt',chatId,status:surface?.status??'UNAVAILABLE',reason:surface?.reason??null,revisionKey:surface?.revisionKey??null,registered:0,conflicts:[],invalidatedRevisionRefs:[],authorityGranted:false,settlementAuthority:false};
+    const nextRefs=new Set();
+    if(surface?.status==='OK'){
+      for(const entity of surface.entities??[]){
+        for(const ref of entity.sourceRevisionRefs??[])nextRefs.add(ref);
+        try{
+          this.core.registerEntityIdentity({
+            entityId:entity.entityId,canonicalLabel:entity.canonicalName||entity.entityId,entityType:entity.entityType,
+            providerId:'LORE_OWNER_GRAPH',sourceEntityId:entity.entityId,aliases:entity.aliases??[],
+            sourceRevisionRefs:entity.sourceRevisionRefs,provenanceRefs:entity.artifactRefs,authorityOrigin:'OWNER_EXPLICIT',
+            metadata:{ownerAuthority:'LORE_ONTOLOGY',derivation:'LORE_ENTITY_EXTRACTION'},
+          });
+          receipt.registered+=1;
+        }catch(error){receipt.conflicts.push({entityId:entity.entityId,reason:String(error?.message??error).slice(0,120)});}
+      }
+      for(const ref of state.refs.get(chatId)??[]){
+        if(nextRefs.has(ref))continue;
+        try{this.core.invalidateEntityIdentityRevision(ref,{reason:'LORE_SOURCE_REVISION_CHANGED'});receipt.invalidatedRevisionRefs.push(ref);}catch{}
+      }
+      state.keys.set(chatId,surface.revisionKey);state.refs.set(chatId,nextRefs);
+    }
+    state.last=receipt;
+    return receipt;
   }
 
   #selectedTurnRetrievalIntents({chatId,query,intent='CURRENT',perspectiveConstraint=null,anchorEntityIds=[],graphTraversal=null}={}){
@@ -940,7 +979,7 @@ export class Area52NativeBrain{
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
-      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel(),authorityGranted:false})),
+      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel(),loreIdentitySync:clone(this.loreIdentitySync?.last??null),authorityGranted:false})),
       readGraphTraversal:(selection={})=>this.#readStage(selection,record=>record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??null),
       readWorldGraphReferences:(selection={})=>this.#readStage(selection,record=>this.#worldGraphReferenceReadModel(record)),
       readRetrievalBudget:(selection={})=>this.#readStage(selection,record=>this.#uiRetrievalBudgetReceipt(record)),

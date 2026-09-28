@@ -8,6 +8,8 @@ on:
       - 'src/scene-core-integration.js'
       - 'src/cognitive-core.js'
       - 'src/context-retirement-policy.js'
+      - 'src/hot-cognition-context.js'
+      - 'src/generation-publication.js'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
@@ -31,6 +33,8 @@ on:
       - 'src/scene-core-integration.js'
       - 'src/cognitive-core.js'
       - 'src/context-retirement-policy.js'
+      - 'src/hot-cognition-context.js'
+      - 'src/generation-publication.js'
       - 'src/native-brain.js'
       - 'src/deployment/owner-graph-adapters.js'
       - 'src/deployment/brain.js'
@@ -103,6 +107,8 @@ jobs:
           node --check src/scene-core-integration.js
           node --check src/cognitive-core.js
           node --check src/context-retirement-policy.js
+          node --check src/hot-cognition-context.js
+          node --check src/generation-publication.js
           node --check src/native-brain.js
           node --check src/deployment/owner-graph-adapters.js
           node --check src/deployment/brain.js

@@ -365,7 +365,10 @@ async function applyNativeScene(brain, {
       chatId,turnId:resolvedTurnId,generationId:resolvedGenerationId,correlationId:resolvedCorrelationId,
       sourceRevisionId:ownerSourceRevisionId,narrative:message.text,phase,parentWorkId:'generation:'+resolvedGenerationId,foregroundBudgetMs,hostEvent,
     });
-    if(!currentSelection())return superseded(semantic);
+    if(!currentSelection()){
+      if(semantic?.executionReceipt?.workId&&typeof brain.cancelSceneObservationWork==='function')brain.cancelSceneObservationWork({taskId:semantic.executionReceipt.workId,reason:'SCENE_OBSERVATION_SELECTION_SUPERSEDED'});
+      return superseded(semantic);
+    }
     const hasSemanticWork=semantic?.status==='RETURNED'&&(
       Object.keys(semantic?.proposal?.fields??{}).length>0||Object.keys(semantic?.boundarySignals??{}).length>0
     );

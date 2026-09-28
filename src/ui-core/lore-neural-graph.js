@@ -282,8 +282,16 @@ function consumeSuppressedClick(state,id){
 function graphPointFromPointer(svg,state,event){
   const view=parseViewBox(state?.viewport??svg?.getAttribute?.('viewBox')??svg?.attributes?.viewBox??'0 0 1000 760');
   const width=Math.max(1,Number(svg?.clientWidth)||1000),height=Math.max(1,Number(svg?.clientHeight)||760);
-  const px=Math.max(0,Math.min(width,Number(event?.offsetX??event?.clientX??0)));
-  const py=Math.max(0,Math.min(height,Number(event?.offsetY??event?.clientY??0)));
+  let px=Number(event?.offsetX),py=Number(event?.offsetY);
+  try{
+    const rect=svg?.getBoundingClientRect?.();
+    if(rect&&Number.isFinite(Number(event?.clientX))&&Number.isFinite(Number(event?.clientY))){
+      px=Number(event.clientX)-Number(rect.left||0);py=Number(event.clientY)-Number(rect.top||0);
+    }
+  }catch{}
+  if(!Number.isFinite(px))px=Number(event?.clientX)||0;
+  if(!Number.isFinite(py))py=Number(event?.clientY)||0;
+  px=Math.max(0,Math.min(width,px));py=Math.max(0,Math.min(height,py));
   return{x:view.x+(px/width)*view.width,y:view.y+(py/height)*view.height};
 }
 function updateGraphGeometry(svg,graph,row){
@@ -327,7 +335,7 @@ function installDraggableBubble(element,row,svg,graph,state,scope){
   if(!element||!row||!state||!scope?.listen)return;
   scope.listen(element,'pointerdown',event=>{
     if(Number(event?.button??0)!==0)return;
-    event?.stopPropagation?.();event?.preventDefault?.();
+    event?.stopPropagation?.();
     const start=graphPointFromPointer(svg,state,event);
     state.nodeDrag={id:row.id,pointerId:event?.pointerId??null,startPointer:start,startX:Number(row.x),startY:Number(row.y),moved:false};
     element.setPointerCapture?.(event?.pointerId);

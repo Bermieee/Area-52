@@ -4,6 +4,7 @@ const clone=(v)=>structuredClone(v);
 const uniq=(v)=>[...new Set((v??[]).filter(Boolean).map(String))];
 const relationEdge={CONTINUES:SceneGraphEdgeType.SCENE_CONTINUES,PRECEDES:SceneGraphEdgeType.SCENE_PRECEDES,PARALLEL_TO:SceneGraphEdgeType.SCENE_PARALLEL,FLASHBACK_OF:SceneGraphEdgeType.SCENE_FLASHBACK,INTERRUPTS:SceneGraphEdgeType.SCENE_INTERRUPTS,RESUMES:SceneGraphEdgeType.SCENE_RESUMES};
 const replacementId=(base,prior,sceneRevision,refs=[])=>prior?.status==='RETIRED'?`${base}@${sceneRevision??uniq(refs)[0]??'replacement'}`:base;
+const relationshipTemporalStatus=(relationship)=>relationship===SceneRelationship.FLASHBACK_OF?'HISTORICAL':'CURRENT';
 
 export class SceneGraph{
   constructor(){this.nodes=new Map();this.edges=new Map();}
@@ -13,7 +14,7 @@ export class SceneGraph{
     if(relationship===SceneRelationship.ISOLATED)throw new TypeError('ISOLATED host contexts are not narrative graph relationships');
     this.addScene({sceneId:fromSceneId});this.addScene({sceneId:toSceneId});
     const edgeType=relationEdge[relationship],baseId=`${edgeType}:${fromSceneId}->${toSceneId}`,basePrior=this.edges.get(baseId),id=replacementId(baseId,basePrior,sceneRevision,sourceRevisionRefs.length?sourceRevisionRefs:evidenceRefs),prior=id===baseId?basePrior:this.edges.get(id);
-    const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,fromSceneId,toSceneId,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...evidenceRefs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),derivedFrom:uniq([...(prior?.derivedFrom??[]),...derivedFrom]),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),temporalStatus:prior?.temporalStatus??'CURRENT',status:'ACTIVE',causal:false,authorityClass:'OBSERVED'};
+    const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,fromSceneId,toSceneId,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...evidenceRefs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),derivedFrom:uniq([...(prior?.derivedFrom??[]),...derivedFrom]),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),temporalStatus:prior?.temporalStatus??relationshipTemporalStatus(relationship),status:'ACTIVE',causal:false,authorityClass:'OBSERVED'};
     this.edges.set(id,edge);return clone(edge);
   }
   addMembership({sceneId,refId,kind,evidenceRefs=[],sourceRevisionRefs=[],provenance=[],sceneRevision=null,episodeRef=null,observedState=null,temporalApplicability=null,temporalStatus='CURRENT',metadata={}}){
@@ -33,7 +34,7 @@ export class SceneGraph{
     if(!['SUPPORTED','UNRESOLVED'].includes(support))throw new TypeError('unsupported evidence supportStatus');
     const edgeType=kind==='CAUSES'?SceneGraphEdgeType.EVIDENCE_CAUSES:SceneGraphEdgeType.EVIDENCE_SUPPORTS;
     const suffix=interpretationId?':'+String(interpretationId):'',baseId=`${edgeType}:${from}->${to}${suffix}`,basePrior=this.edges.get(baseId),id=replacementId(baseId,basePrior,sceneRevision,sourceRevisionRefs.length?sourceRevisionRefs:refs),prior=id===baseId?basePrior:this.edges.get(id);
-    const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,sceneId:sceneId==null?prior?.sceneId??null:String(sceneId),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),fromRef:from,toRef:to,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...refs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),derivedFrom:uniq([...(prior?.derivedFrom??[]),...derivedFrom]),supportStatus:support,interpretationId:interpretationId==null?null:String(interpretationId),temporalApplicability:clone(temporalApplicability),temporalStatus:support==='SUPPORTED'?'CURRENT':'UNRESOLVED',status:'ACTIVE',causal:kind==='CAUSES',evidenceBacked:true,ownerApproved:true,authorityClass:support==='SUPPORTED'?'INFERRED':'UNRESOLVED'};
+    const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,sceneId:sceneId==null?prior?.sceneId??null:String(sceneId),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),fromRef:from,toRef:to,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...refs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),derivedFrom:uniq([...(prior?.derivedFrom??[]),...derivedFrom]),supportStatus:support,interpretationId:interpretationId==null?null:String(interpretationId),temporalApplicability:clone(temporalApplicability),temporalStatus:support==='SUPPORTED'?(episodeRef?'HISTORICAL':'CURRENT'):'UNRESOLVED',status:'ACTIVE',causal:kind==='CAUSES',evidenceBacked:true,ownerApproved:true,authorityClass:support==='SUPPORTED'?'INFERRED':'UNRESOLVED'};
     this.edges.set(id,edge);return clone(edge);
   }
   invalidateBySource(sourceRevisionId,replacementRef=null){

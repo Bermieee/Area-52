@@ -803,6 +803,14 @@ export class Area52NativeBrain{
       memoryInterface:{attached:Boolean(this.memoryInterface),kind:this.memoryInterface?.kind??null,contractVersion:this.memoryInterface?.contractVersion??null},
       memoryConsolidationInterface:{attached:Boolean(this.memoryConsolidationInterface),kind:this.memoryConsolidationInterface?.kind??null,contractVersion:this.memoryConsolidationInterface?.contractVersion??null},
       ownerEvidence:{retained:this.ownerEvidence.size,currentSourceRevisionRefs:this.core.externalCurrentSourceRevisionIds()},
+      sceneFanOut:{
+        turnCount:[...this.turns.values()].filter(row=>row.sceneFanOutIngress).length,
+        admittedTurnCount:[...this.turns.values()].filter(row=>row.sceneFanOutIngress?.status==='ADMITTED_FOR_RESULT_BUS').length,
+        rejectedTurnCount:[...this.turns.values()].filter(row=>row.sceneFanOutIngress?.status==='REJECTED').length,
+        admittedCandidateCount:[...this.turns.values()].reduce((n,row)=>n+Number(row.sceneFanOutIngress?.candidateCount??0),0),
+        last:clone([...this.turns.values()].map(row=>row.sceneFanOutIngress).filter(Boolean).at(-1)??null),
+        authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
+      },
       expectedWork:{count:this.obligationReconciler.list().length},runtime:this.runtimeDirector.snapshot(),
       nativeRequirements:{jevRequired:false,sidecarRequired:false,externalDatabaseRequired:false,sqlRequired:false,remoteModelRequired:false,userOrchestratorRequired:false},
     };

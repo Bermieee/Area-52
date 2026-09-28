@@ -324,7 +324,7 @@ function neutralTopologyGroups(items=[]){
     groups.push({
       id:'hub:structure:'+index,
       kind:'structure',
-      label:'Source Cluster '+String(index+1),
+      label:'Cluster '+String(index+1),
       tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length],
       items:chunk,
     });
@@ -407,7 +407,7 @@ function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().val
 
 function canvasFooter(doc,text){
   const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});
-  footer.append(element(doc,'span',{text:'◉ Click a source node for owner metadata'}),element(doc,'span',{text:'Neural growth animation respects reduced-motion'}),element(doc,'span',{text}));
+  footer.append(element(doc,'span',{text:'◉ Click a source node for owner metadata'}),element(doc,'span',{text:'Growth: core → cluster → sources → derived'}),element(doc,'span',{text}));
   return footer;
 }
 

@@ -444,13 +444,11 @@ function renderLoreInsightRail(doc,{data,selected,progress,renderState}={}){
     const detail=panel(doc,'Selected UID',kind+' · graph selection','◉');
     detail.root.classList?.add?.('a52-lore-selected-detail');
     detail.root.dataset.tone=selectedNode.tone??'cyan';
-    detail.body.append(element(doc,'div',{className:'a52-lore-selected-detail__hero'},[
-      element(doc,'span',{className:'a52-lore-selected-detail__orb',dataset:{tone:selectedNode.tone??'cyan'}}),
-      element(doc,'div',{},[
-        element(doc,'strong',{text:selectedNode.label??selectedNode.id}),
-        element(doc,'span',{className:'a52-muted',text:kind}),
-      ]),
-    ]));
+    const hero=element(doc,'div',{className:'a52-lore-selected-detail__hero'});
+    const heroCopy=element(doc,'div');
+    heroCopy.append(element(doc,'strong',{text:selectedNode.label??selectedNode.id}),element(doc,'span',{className:'a52-muted',text:kind}));
+    hero.append(element(doc,'span',{className:'a52-lore-selected-detail__orb',dataset:{tone:selectedNode.tone??'cyan'}}),heroCopy);
+    detail.body.append(hero);
 
     if(isHub){
       detail.body.append(createKeyValue(doc,[

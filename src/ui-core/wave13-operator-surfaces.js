@@ -921,7 +921,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     lorePipelineStep(d,'Retrieval representations',ready>0,ready===denominator&&denominator>0?'Current':ready>0?'Growing':'Pending',ready>0&&ready<denominator),
     lorePipelineStep(d,'Neural graph projection',graph.active,graph.active?'Live':'Waiting',graph.active&&progress<100),
   );
-  progressCard.body.append(element(d,'h3',{text:'Processing pipeline'}),pipeline);
+  progressCard.body.append(element(d,'p',{className:'a52-lore-progress-contract',text:'DUE for study '+accepted+' · STUDYING now '+studying+' · READY '+ready}),element(d,'p',{className:'a52-muted a52-lore-progress-contract',text:'DUE = accepted but not learned/current · STUDYING = owner work in progress · READY = current retrieval representation published.'}),element(d,'h3',{text:'Processing pipeline'}),pipeline);
   left.append(progressCard.root);
 
   const legendCard=lorePanel(d,'Graph Legend','Owner-backed source clusters','historical');

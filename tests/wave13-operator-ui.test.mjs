@@ -352,10 +352,10 @@ test('Lore neural canvas stays quiet until study and then grows from published s
     {uid:'guild',content:'The Lantern Guild trades charts.',metadata:{title:'Lantern Guild',treePath:['Faction','Lantern Guild'],keywords:['guild']}},
   ],fullSnapshot:true});
   const{ui}=mount(owner,{width:1500,height:900});await ui.operator.loreStudy.discoverSelectedLorebook();ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
-  assert.equal(ui.workspaceRegistry.get('lore').preferredWidth,1240);
+  assert.equal(ui.workspaceRegistry.get('lore').preferredWidth,1280);
   let nodes=walk(ui.shell.nodes.workspace),body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Source loaded — canvas waiting|Blank Lore canvas/);
-  assert.equal(nodes.filter(x=>String(x.className??'').includes('a52-lore-graph-node')).length,0);
+  assert.equal(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-entry-node')).length,0);
 
   const snapshot=ui.operator.loreStudy.selectedLorebook().snapshot;await ui.operator.loreStudy.accept(snapshot);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   nodes=walk(ui.shell.nodes.workspace);body=textOf(ui.shell.nodes.workspace);
@@ -366,10 +366,10 @@ test('Lore neural canvas stays quiet until study and then grows from published s
   nodes=walk(ui.shell.nodes.workspace);body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/LIVE GRAPH/);
   assert.match(body,/Character/);assert.match(body,/Place/);assert.match(body,/Faction/);
-  assert.ok(nodes.filter(x=>String(x.className??'').includes('a52-lore-graph-hub')).length>=3);
+  assert.ok(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-hub-node')).length>=3);
   assert.ok(nodes.filter(x=>String(x.className??'').includes('a52-lore-graph-node')).length>=3);
-  assert.ok(nodes.filter(x=>String(x.className??'').includes('a52-lore-graph-edge')).length>=6);
-  const css=readFileSync(new URL('../styles/ui-core-wave13.css',import.meta.url),'utf8');
+  assert.ok(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-neural-link')).length>=6);
+  const css=readFileSync(new URL('../styles/ui-core-lore-neural.css',import.meta.url),'utf8');
   assert.match(css,/@keyframes a52-lore-link-grow/);assert.match(css,/@keyframes a52-lore-node-grow/);assert.match(css,/prefers-reduced-motion:reduce/);
   ui.destroy();
 });

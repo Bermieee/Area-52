@@ -240,6 +240,12 @@ test('Worker 2 #39: installed Brain schedules exact Memory feedback after respon
   assert.equal(completion.memoryRetrievalFeedback??null,null);
   assert.equal(completion.responseCompletion.responseRecordedBeforeBackgroundExecution,true);
 
+  const pendingBrainSnapshot=brain.snapshot(),pendingMemorySnapshot=memory.snapshot();
+  memory=MemoryTemporalProducer.fromSnapshot(pendingMemorySnapshot);
+  surface=createMemoryIntegrationSurface(memory);
+  brain=Area52NativeBrain.fromSnapshot(pendingBrainSnapshot,{memoryInterface:surface});
+  assert.equal(brain.readTurn('brain-feedback:B').memoryRetrievalFeedback??null,null);
+
   await brain.drainBackgroundLearning({maxCycles:128});
   const learnedB=brain.readTurn('brain-feedback:B');
   assert.equal(learnedB.memoryRetrievalFeedback?.status,'COMPLETED');
@@ -249,21 +255,17 @@ test('Worker 2 #39: installed Brain schedules exact Memory feedback after respon
   assert.equal(learnedB.memoryRetrievalFeedback.supportAdded,false);
   assert.equal(learnedB.memoryRetrievalFeedback.authorityChanged,false);
   assert.equal(learnedB.memoryRetrievalFeedback.deliveryKnown,false);
+  const recoveredTask=brain.runtimeDirector.ledger.get(completion.memoryFeedbackRuntimeTaskId);
+  assert.equal(recoveredTask.startedCount,1);
 
   await brain.drainBackgroundLearning({maxCycles:128});
   assert.equal(memory.plasticity.record(episodeId).acceptedUses,after.acceptedUses);
+  assert.equal(brain.runtimeDirector.ledger.get(completion.memoryFeedbackRuntimeTaskId).startedCount,1);
 
   const selected=brain.uiBindings().readSelectedTurnReceipt(prepared.selection);
   assert.equal(selected.memoryRetrievalFeedback.status,'COMPLETED');
   assert.equal(selected.producers.memoryRetrievalFeedback.supportAdded,false);
   assert.equal(selected.producers.memoryRetrievalFeedback.deliveryKnown,false);
-
-  const brainSnapshot=brain.snapshot(),memorySnapshot=memory.snapshot(),acceptedUses=after.acceptedUses;
-  memory=MemoryTemporalProducer.fromSnapshot(memorySnapshot);
-  surface=createMemoryIntegrationSurface(memory);
-  brain=Area52NativeBrain.fromSnapshot(brainSnapshot,{memoryInterface:surface});
-  await brain.drainBackgroundLearning({maxCycles:128});
-  assert.equal(memory.plasticity.record(episodeId).acceptedUses,acceptedUses);
 });
 
 test('Worker 2 #39: generic channel learning treats unadmitted-but-not-rejected candidates as neutral',()=>{

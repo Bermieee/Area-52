@@ -95,16 +95,22 @@ export class MemoryRetrievalFeedbackOwner{
       const outcomeId=String(input?.outcomeId??'');
       if(!outcomeId){decisions.push(this.#decision(input,'REJECTED','OUTCOME_ID_MISSING'));continue;}
       if(this.seenOutcomeIds.has(outcomeId)){replayed++;decisions.push(this.#decision(input,'REPLAYED','OUTCOME_ALREADY_APPLIED'));continue;}
-      const artifactId=String(input?.artifactId??''),artifactRevision=Number(input?.artifactRevision??0),before=this.producer.plasticity.record(artifactId,artifactRevision);
+      const artifactId=String(input?.artifactId??''),artifactRevision=Number(input?.artifactRevision??0);
+      const artifactRefId=artifactIdOf(input?.artifactRef),artifactRefRevision=Number(input?.artifactRef?.revision??input?.artifactRevision??0);
+      if(!artifactRefId||String(artifactRefId)!==artifactId||artifactRefRevision!==artifactRevision){
+        decisions.push(this.#decision(input,'REJECTED','MEMORY_ARTIFACT_REF_MISMATCH'));continue;
+      }
+      const before=this.producer.plasticity.record(artifactId,artifactRevision);
       if(!before){decisions.push(this.#decision(input,'REJECTED','MEMORY_ARTIFACT_REVISION_MISSING'));continue;}
       if(before.stale||before.current===false||!this.producer.plasticity.retrievable(artifactId,artifactRevision)){decisions.push(this.#decision(input,'REJECTED','MEMORY_ARTIFACT_REVISION_STALE',{before}));continue;}
       const exactSourceRefs=uniq(before.sourceRevisionRefs??[]),requestedSourceRefs=uniq(input?.sourceRevisionRefs??[]);
       if(requestedSourceRefs.length&&requestedSourceRefs.some(ref=>!exactSourceRefs.includes(ref))){decisions.push(this.#decision(input,'REJECTED','MEMORY_SOURCE_REVISION_FENCE_MISMATCH',{before}));continue;}
       const evidenceRows=uniq(before.evidenceRefs??[]).map(id=>this.producer.graph.evidenceRecord(id)).filter(Boolean);
       if(evidenceRows.some(row=>!this.producer.graph.evidenceFresh(row.id))){decisions.push(this.#decision(input,'REJECTED','MEMORY_DEPENDENT_EVIDENCE_STALE',{before}));continue;}
+      if(selection?.chatId&&!evidenceRows.length){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
       const evidenceChats=uniq(evidenceRows.map(evidenceChatId));
       if(selection?.chatId&&evidenceChats.length&&evidenceChats.some(id=>id!==String(selection.chatId))){decisions.push(this.#decision(input,'REJECTED','MEMORY_FOREIGN_STORY_MAPPING',{before}));continue;}
-      if(selection?.chatId&&evidenceRows.length&&!evidenceRows.some(row=>evidenceChatId(row)===String(selection.chatId))){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
+      if(selection?.chatId&&!evidenceRows.some(row=>evidenceChatId(row)===String(selection.chatId))){decisions.push(this.#decision(input,'REJECTED','MEMORY_STORY_SCOPE_UNPROVEN',{before}));continue;}
       const signal=String(input?.signal??'NONE').toUpperCase();let effect=null;
       if(signal==='ACCEPTED'||signal==='REJECTED'){
         effect=this.producer.plasticity.recordRetrievalUse({artifactId,artifactRevision,accepted:signal==='ACCEPTED',rejected:signal==='REJECTED',countRetrieval:false,strictRevision:true});

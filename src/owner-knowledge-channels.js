@@ -239,18 +239,30 @@ export class MemoryOwnerRetrievalChannel extends OwnerChannelBase{
     this.lastDensePrime=null;
   }
 
+  skipDense(reason='COGNITIVE_CHOICE_SKIPPED_DENSE',{selection=null,resultClass='OPPORTUNISTIC'}={}){
+    const selected=clone(selection??this.turnContext?.selection??{});
+    this.lastDensePrime={
+      kind:'MemoryDensePrimeReceipt',status:'SKIPPED',reasonCode:String(reason),requestPurpose:'COGNITIVE_EXECUTION',resultClass:String(resultClass),
+      selection:selected,requested:false,providerAttempted:false,providerReturned:false,ownerAdmitted:false,
+      authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
+    };
+    return clone(this.lastDensePrime);
+  }
+
   async prime(intent,context={}){
     const owner=this.getInterface();
     const primeDense=owner?.primeDenseHistorian??owner?.adapters?.primeDenseHistorian;
+    const selection=clone(this.turnContext?.selection??context.selection??{}),resultClass=String(context.resultClass??'OPPORTUNISTIC');
     if(typeof primeDense!=='function'){
-      this.lastDensePrime={kind:'MemoryDensePrimeReceipt',status:'UNAVAILABLE',reasonCode:'MEMORY_DENSE_PRIME_NOT_ATTACHED',requestPurpose:'COGNITIVE_EXECUTION'};
+      this.lastDensePrime={kind:'MemoryDensePrimeReceipt',status:'UNAVAILABLE',reasonCode:'MEMORY_DENSE_PRIME_NOT_ATTACHED',requestPurpose:'COGNITIVE_EXECUTION',resultClass,selection,requested:true,providerAttempted:false,providerReturned:false,ownerAdmitted:false};
       return clone(this.lastDensePrime);
     }
-    const selection=clone(this.turnContext?.selection??context.selection??{});
     try{
-      this.lastDensePrime=await primeDense({query:intent?.query??context.query??'',selection,maxCandidates:this.descriptor.maxCandidates});
+      const receipt=await primeDense({query:intent?.query??context.query??'',selection,maxCandidates:this.descriptor.maxCandidates});
+      this.lastDensePrime={...clone(receipt),kind:receipt?.kind??'MemoryDensePrimeReceipt',resultClass,selection,requested:true,
+        providerAttempted:Boolean(receipt?.providerAttempted),providerReturned:Boolean(receipt?.providerReturned),ownerAdmitted:Boolean(receipt?.ownerAdmitted)};
     }catch(error){
-      this.lastDensePrime={kind:'MemoryDensePrimeReceipt',status:'UNAVAILABLE',reasonCode:error?.code??'MEMORY_DENSE_PRIME_FAILED',requestPurpose:'COGNITIVE_EXECUTION'};
+      this.lastDensePrime={kind:'MemoryDensePrimeReceipt',status:'UNAVAILABLE',reasonCode:error?.code??'MEMORY_DENSE_PRIME_FAILED',requestPurpose:'COGNITIVE_EXECUTION',resultClass,selection,requested:true,providerAttempted:Boolean(error?.executionId),providerReturned:false,ownerAdmitted:false};
     }
     return clone(this.lastDensePrime);
   }

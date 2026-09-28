@@ -61,13 +61,14 @@ test('Lore neural canvas stays quiet after discovery until acceptance creates ow
 });
 
 test('Lore neural canvas grows bounded owner-state nodes and artifact links from real study data',()=>{
-  const d=new FakeDocument(),inspected=[];
+  const d=new FakeDocument(),inspected=[],renderState=createLoreNeuralRenderState();
   const root=renderLoreNeuralWorkspace(d,{
     data:populatedData(),
     selected:{selection:{selected:true,title:'Moon Harbor',lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor',entries:new Array(4).fill({})}},
     source:{operationalState:'WORKING',statusToken:'observed'},
     progress:25,
     inspect:value=>inspected.push(value),
+    renderState,
     scope:{listen(node,type,handler){node.addEventListener(type,handler);}},
   });
   const nodes=walk(root),body=textOf(root);
@@ -90,6 +91,11 @@ test('Lore neural canvas grows bounded owner-state nodes and artifact links from
   assert.equal(inspected[0].kind,'area52-lore-source-node');
   assert.equal(inspected[0].authority,'LORE_OWNER');
   assert.ok(['STUDYING','READY','ACCEPTED','FAILED'].includes(inspected[0].payload.operatorState));
+  assert.equal(renderState.selectedNodeId,entryNodes[0].attributes?.['data-node-id']);
+  assert.equal(renderState.selectedNodeKind,'source');
+  assert.match(String(entryNodes[0].className??''),/is-selected/);
+  const connected=nodes.filter(x=>String(x.className??'').includes('is-connected'));
+  assert.ok(connected.length>=1);
 });
 
 test('Lore neural canvas uses published category metadata without inferring categories from prose',()=>{
@@ -115,6 +121,53 @@ test('Lore neural canvas uses published category metadata without inferring cate
   assert.ok(hubs.every(x=>String(x.attributes?.['data-state'])==='SEMANTIC'));
   assert.ok(hubs.every(x=>Boolean(x.attributes?.['data-tone'])));
   assert.match(body,/Mara/);assert.match(body,/Moon Harbor/);assert.match(body,/Lantern Guild/);
+});
+
+test('cluster bubbles glow and zoom while Full Graph clears focus',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),refreshes=[];
+  const data={
+    kind:'Wave13LoreStudySurface',
+    entries:[
+      {sourceId:'lore:zoom:a',uid:'a',operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r1'},
+      {sourceId:'lore:zoom:b',uid:'b',operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r2'},
+      {sourceId:'lore:zoom:c',uid:'c',operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r3'},
+      {sourceId:'lore:zoom:d',uid:'d',operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r4'},
+    ],
+    operatorCounts:{ACCEPTED:0,STUDYING:0,READY:4,FAILED:0,REMOVED:0},artifacts:[],conflicts:[],revision:1,retrievalReady:4,
+  };
+  const selected={selection:{selected:true,title:'Zoom Lore',lorebookId:'zoom'},snapshot:{id:'zoom',title:'Zoom Lore',entries:[
+    {uid:'a',metadata:{title:'A',category:'Character'}},{uid:'b',metadata:{title:'B',category:'Character'}},
+    {uid:'c',metadata:{title:'C',category:'Place'}},{uid:'d',metadata:{title:'D',category:'Place'}},
+  ]}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:100,renderState:state,refresh:()=>refreshes.push('refresh'),scope:listenerScope()});
+  const nodes=walk(root),svg=nodes.find(x=>x.tagName==='SVG'&&String(x.attributes?.class??'').includes('a52-lore-neural-svg'));
+  const hubs=nodes.filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-hub-node'));
+  assert.equal(hubs.length,2);
+  assert.equal(svg.attributes?.viewBox,'0 0 1000 760');
+  hubs[0].dispatch('click');
+  assert.equal(state.selectedNodeKind,'hub');
+  assert.equal(state.selectedNodeId,hubs[0].attributes?.['data-node-id']);
+  assert.equal(state.focusHubId,hubs[0].attributes?.['data-node-id']);
+  assert.match(String(hubs[0].className??''),/is-selected/);
+  assert.notEqual(svg.attributes?.viewBox,'0 0 1000 760');
+  assert.match(String(svg.className??''),/is-focused/);
+  const connected=nodes.filter(x=>String(x.className??'').includes('is-connected'));
+  assert.ok(connected.length>=3);
+  const fullGraph=nodes.find(x=>x.tagName==='BUTTON'&&x.textContent==='Full Graph');
+  assert.ok(fullGraph);fullGraph.dispatch('click');
+  assert.equal(state.focusHubId,null);assert.equal(state.selectedNodeId,null);assert.equal(refreshes.length,1);
+});
+
+test('artifact bubbles lock fluorescent selection without mutating Lore data',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData(),original=JSON.stringify(data);
+  const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,scope:listenerScope()});
+  const nodes=walk(root),artifact=nodes.find(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-artifact-node'));
+  assert.ok(artifact);artifact.dispatch('click');
+  assert.equal(state.selectedNodeKind,'artifact');assert.equal(state.selectedNodeId,artifact.attributes?.['data-node-id']);
+  assert.match(String(artifact.className??''),/is-selected/);
+  assert.ok(nodes.some(x=>String(x.className??'').includes('is-connected')));
+  assert.equal(JSON.stringify(data),original);
 });
 
 test('105 READY metadata-poor sources distribute across neutral topology hubs instead of one READY hub',()=>{

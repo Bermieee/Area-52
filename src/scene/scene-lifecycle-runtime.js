@@ -104,12 +104,12 @@ export class SceneLifecycleRuntime{
   }
 
   #admitGraphEvidenceLinks(scene,evidence,links=[],episodeRef=null){
-    const receipts=[];
+    const receipts=[],originSceneRevision=Number(episodeRef?.revision??episodeRef?.sceneRevision??scene.revision);
     for(const raw of (Array.isArray(links)?links:[]).slice(0,32)){
       const relation=String(raw?.relation??'SUPPORTS').toUpperCase(),evidenceRefs=[...new Set((raw?.evidenceRefs??[]).filter(Boolean).map(String))];
       if(!evidenceRefs.length||!evidenceRefs.includes(String(evidence.sourceRevisionId))){receipts.push({status:'REJECTED',reasonCode:'SCENE_GRAPH_CURRENT_EVIDENCE_REQUIRED',relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});continue;}
       try{
-        const edge=this.graph.addEvidenceLink({sceneId:scene.sceneId,sceneRevision:scene.revision,episodeRef,fromRef:raw.fromRef,toRef:raw.toRef,relation,evidenceRefs,sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[evidence.sourceRevisionId,...(raw.provenance??[])],derivedFrom:raw.derivedFrom??[],ownerApproved:true,supportStatus:raw.supportStatus??'SUPPORTED',interpretationId:raw.interpretationId??null,temporalApplicability:raw.temporalApplicability??{sceneId:scene.sceneId,sceneRevision:scene.revision}});
+        const edge=this.graph.addEvidenceLink({sceneId:scene.sceneId,sceneRevision:originSceneRevision,episodeRef,fromRef:raw.fromRef,toRef:raw.toRef,relation,evidenceRefs,sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[evidence.sourceRevisionId,...(raw.provenance??[])],derivedFrom:raw.derivedFrom??[],ownerApproved:true,supportStatus:raw.supportStatus??'SUPPORTED',interpretationId:raw.interpretationId??null,temporalApplicability:raw.temporalApplicability??{sceneId:scene.sceneId,sceneRevision:originSceneRevision}});
         receipts.push({status:'ADMITTED',reasonCode:'SCENE_GRAPH_OWNER_LINK_ADMITTED',edgeId:edge.edgeId,relation,causal:Boolean(edge.causal),authorityClass:edge.authorityClass});
       }catch(error){receipts.push({status:'REJECTED',reasonCode:String(error?.message??'SCENE_GRAPH_LINK_REJECTED'),relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});}
     }

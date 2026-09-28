@@ -699,7 +699,13 @@ export class DevelopmentDeploymentBrain {
       activeThreads: field(activeThreads, nextRevision, evidenceRef),
       immediateObjects: field(objects, nextRevision, evidenceRef),
     };
-    if (atmosphere != null) fields.atmosphere = this.scene.atmosphereTracker.update({revision:nextRevision,evidenceRefs:[evidenceRef],dimensions:atmosphere?.value??atmosphere});
+    if (atmosphere != null) {
+      // Public rehearsal/operator boundary: a dimension map (or {value: map}) is atmosphere
+      // evidence; free text is retained only as a description and never becomes dimensions.
+      const description = typeof atmosphere === 'string' ? atmosphere : null;
+      const dimensions = description == null ? (atmosphere?.value ?? atmosphere) : {};
+      fields.atmosphere = this.scene.atmosphereTracker.update({revision:nextRevision,evidenceRefs:[evidenceRef],dimensions,metadata:description==null?{}:{description}});
+    }
     const observed = this.scene.sceneRuntime.observe({
       sceneId: scene.sceneId,
       proposalId: 'deployment-scene:' + evidenceRef,

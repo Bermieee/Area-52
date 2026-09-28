@@ -245,9 +245,14 @@ test('Lore growth replay replays native SVG visuals without mutating Lore data',
   assert.ok(replayedNodes.every(x=>String(x.attributes?.class??'').includes('is-new')));
   const animations=walk(replayed).filter(x=>x.tagName==='ANIMATE');
   assert.ok(animations.length>0);
+  assert.ok(animations.every(x=>x.attributes?.begin==='indefinite'));
+  assert.ok(animations.every(x=>Number(x.attributes?.['data-a52-start-ms'])>=0));
   assert.ok(animations.some(x=>x.attributes?.attributeName==='stroke-dashoffset'));
   assert.ok(animations.some(x=>x.attributes?.attributeName==='r'));
   assert.ok(animations.some(x=>x.attributes?.attributeName==='opacity'));
+  const replayCircles=walk(replayed).filter(x=>x.tagName==='CIRCLE');
+  assert.ok(replayCircles.some(x=>String(x.attributes?.class??'').includes('a52-lore-entry-node__body')&&Number(x.attributes?.r)===0.5));
+  assert.ok(replayCircles.some(x=>String(x.attributes?.class??'').includes('a52-lore-hub-node__body')&&Number(x.attributes?.r)===2));
   const replayDelays=replayedNodes.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
   assert.ok(Math.max(...replayDelays)>=500);
   assert.equal(JSON.stringify(data),original);
@@ -259,6 +264,7 @@ test('reduced-motion omits native Lore reveal animations',()=>{
   const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
   const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state});
   assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
+  assert.match(textOf(root),/MOTION REDUCED/);
   const nodes=walk(root).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.ok(nodes.every(x=>!String(x.attributes?.class??'').includes('has-native-reveal')));
 });
@@ -295,6 +301,11 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   const css=readFileSync(new URL('../styles/ui-core-lore-neural.css',import.meta.url),'utf8');
   assert.doesNotMatch(js,/requestAnimationFrame|setInterval|setTimeout/);
   assert.match(js,/function nativeAnimate/);
+  assert.match(js,/begin:'indefinite'/);
+  assert.match(js,/function startNativeAnimations/);
+  assert.match(js,/function scheduleNativeAnimations/);
+  assert.match(js,/queueMicrotask/);
+  assert.match(js,/beginElementAt/);
   assert.match(js,/attributeName:'stroke-dashoffset'/);
   assert.match(js,/attributeName:'r'/);
   assert.match(css,/has-native-reveal/);

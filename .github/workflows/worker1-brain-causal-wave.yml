@@ -22,6 +22,9 @@ on:
       - 'src/scene/lifecycle-contracts.js'
       - 'src/scene/narrative-feed-adapter.js'
       - 'src/scene/event-publisher.js'
+      - 'src/scene/scene-graph.js'
+      - 'src/scene/scene-episode.js'
+      - 'src/deployment/owner-graph-adapters.js'
       - 'src/scene/scene-lifecycle-runtime.js'
       - 'src/scene/transition-manager.js'
       - 'src/scene/scene-integration-view.js'
@@ -36,6 +39,7 @@ on:
       - 'tests/worker1-scene-cognition-integration.mjs'
       - 'tests/worker1-scene-prefetch-trigger.mjs'
       - 'tests/worker1-scene-event-spine.mjs'
+      - 'tests/worker1-scene-graph-temporal-adjacency.mjs'
       - 'tests/openrouter-jev-decisions.test.mjs'
       - 'scripts/worker1-generation-performance-benchmark.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
@@ -77,6 +81,8 @@ jobs:
         run: node --test tests/worker1-scene-prefetch-trigger.mjs
       - name: Scene Event Spine #113
         run: node --test tests/worker1-scene-event-spine.mjs
+      - name: Scene Graph and temporal adjacency #110
+        run: node --test tests/worker1-scene-graph-temporal-adjacency.mjs
       - name: Preserve Runtime owner event binding
         run: >-
           node --test
@@ -120,6 +126,9 @@ jobs:
           node --check src/scene/lifecycle-contracts.js &&
           node --check src/scene/narrative-feed-adapter.js &&
           node --check src/scene/event-publisher.js &&
+          node --check src/scene/scene-graph.js &&
+          node --check src/scene/scene-episode.js &&
+          node --check src/deployment/owner-graph-adapters.js &&
           node --check src/scene/scene-lifecycle-runtime.js &&
           node --check src/scene/transition-manager.js &&
           node --check src/scene/scene-integration-view.js &&
@@ -137,6 +146,7 @@ jobs:
           node --check tests/worker1-scene-cognition-integration.mjs &&
           node --check tests/worker1-scene-prefetch-trigger.mjs &&
           node --check tests/worker1-scene-event-spine.mjs &&
+          node --check tests/worker1-scene-graph-temporal-adjacency.mjs &&
           node --check scripts/worker1-generation-performance-benchmark.mjs
       - name: Browser-facing imports
         run: >-
@@ -151,6 +161,9 @@ jobs:
           import('./src/scene/lifecycle-contracts.js'),
           import('./src/scene/narrative-feed-adapter.js'),
           import('./src/scene/event-publisher.js'),
+          import('./src/scene/scene-graph.js'),
+          import('./src/scene/scene-episode.js'),
+          import('./src/deployment/owner-graph-adapters.js'),
           import('./src/scene/scene-lifecycle-runtime.js'),
           import('./src/scene/scene-integration-view.js'),
           import('./src/coprocessor/scene-signal-adapter.js'),

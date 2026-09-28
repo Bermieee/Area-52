@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { createLoreNeuralRenderState, renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
+import { createLoreNeuralRenderState, replayLoreNeuralGrowth, renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
 import { renderLoreStudySurface } from '../src/ui-core/wave13-operator-surfaces.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
 
@@ -197,6 +197,30 @@ test('Lore neural render state animates only newly published nodes across refres
   assert.ok(incrementalDelay>=180&&incrementalDelay<=490);
 });
 
+test('Lore growth replay replays visuals without mutating Lore data',()=>{
+  const d=new FakeDocument(),state=createLoreNeuralRenderState(),data=populatedData();
+  const selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const original=JSON.stringify(data);
+
+  const first=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
+  const firstNodes=walk(first).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(firstNodes.every(x=>String(x.attributes?.class??'').includes('is-new')));
+
+  const steady=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
+  const steadyNodes=walk(steady).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(steadyNodes.every(x=>String(x.attributes?.class??'').includes('is-steady')));
+  assert.match(textOf(steady),/Replay Growth/);
+
+  assert.equal(replayLoreNeuralGrowth(state),true);
+  const replayed=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,refresh:()=>{}});
+  const replayedNodes=walk(replayed).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
+  assert.ok(replayedNodes.every(x=>String(x.attributes?.class??'').includes('is-new')));
+  const replayDelays=replayedNodes.map(x=>Number(String(x.attributes?.style??'').match(/--a52-node-delay:(\d+)ms/)?.[1]??-1));
+  assert.ok(Math.max(...replayDelays)>=500);
+  assert.equal(JSON.stringify(data),original);
+  assert.equal(state.replayCount,1);
+});
+
 test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
   const d=new FakeDocument(),host=new FakeNode('section',d);
   let listener=null,releases=0,refreshes=0,timeouts=0,pending=null;
@@ -236,6 +260,7 @@ test('Lore neural animation is CSS-only bounded and respects reduced motion',()=
   assert.match(css,/height:clamp\(480px,60vh,620px\)/);
   assert.match(css,/padding:8px 0 18px/);
   assert.match(css,/@keyframes a52-lore-hub-arrival/);
+  assert.match(css,/\.a52-lore-neural-canvas-head__actions/);
   const rootCss=readFileSync(new URL('../style.css',import.meta.url),'utf8');
   assert.match(rootCss,/ui-core-lore-neural\.css/);
   assert.ok(rootCss.indexOf('ui-core-lore-neural.css')>rootCss.indexOf('ui-core-console-theme.css'));

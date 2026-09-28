@@ -662,6 +662,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
+    this.hostAssistantTurns = new Map();
+    this.hostRevisionReconciliations = [];
     this.sceneHostMessageState = new Map();
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
@@ -833,6 +835,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     // (provider error, aborted stream). Expire exactly that run; never a newer one.
     const orphan=this.nativeRuns.get(chatId);
     if(orphan)this.releaseNativeRun(chatId,orphan,'SUPERSEDED_BY_NEW_GENERATION');
+    this.#reconcileHostRevisions('PREPARE_GENERATION');
     const hostPrepareStarted=perfNow(),profileStart=this.#generationProfileSample();
     const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
@@ -1010,6 +1013,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       const assistantSource=registerNarrativeSource(this.brain,{chatId,message:assistantMessageForScene});
       const assistantSceneVersion=this.#sceneHostVersion(chatId,assistantMessageForScene,{activity:HostActivity.ASSISTANT_GENERATION_COMPLETE});
       const assistantIdentity=sourceIdentity(chatId,assistantMessageForScene);
+      this.hostAssistantTurns.set(assistantIdentity.sourceId,{chatId,turnId:pending.turnId,messageKey:assistantIdentity.messageKey,digest:assistantIdentity.digest});
+      this.#reconcileHostRevisions('ASSISTANT_COMPLETED');
       postResponseScene=await applyNativeScene(this.brain,{
         chatId,message:assistantMessageForScene,sourceRevisionId:assistantSource.sourceRevisionId,
         activity:HostActivity.ASSISTANT_GENERATION_COMPLETE,messageRevision:assistantSceneVersion.messageRevision,
@@ -1266,6 +1271,8 @@ export class DevelopmentDeploymentSillyTavernSession {
         rawTextCaptured:false,
         revisionMutationEvents:this.hostNarrativeEvents.filter(row=>row.revisionAffecting).length,
         chatBoundaryEvents:this.hostNarrativeEvents.filter(row=>row.chatBoundary).length,
+        revisionReconciliations:clone(this.hostRevisionReconciliations.slice(-20)),
+        revisionReconciliationCount:this.hostRevisionReconciliations.length,
       },
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,responseCompletedCount:nativeResponseCompleted,learnedCount:nativeLearned,
@@ -1581,6 +1588,67 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
   }
 
+  // Host history is the authority on which messages exist. Anything learned from a message that was
+  // deleted, or whose text changed, is retired or superseded at the owner that holds it: Core source
+  // registry (dependent artifacts), Scene NarrativeFeed (revision evidence) and the Native Brain turn
+  // narrative (claims, Hot tail, Memory mapping). Source history is preserved; nothing is erased.
+  #reconcileHostRevisions(cause){
+    let context;try{context=this.getContext();}catch{return null;}
+    const chatId=clean(context?.chatId),registry=this.brain?.core?.registry;
+    if(!chatId||!registry||typeof registry.listSources!=='function')return null;
+    const chat=Array.isArray(context.chat)?context.chat:[],live=new Map(),byKey=new Map();
+    chat.forEach((row,index)=>{
+      const text=clean(row?.mes??row?.content??row?.text);if(!text)return;
+      const message={index,row,text},identity=sourceIdentity(chatId,message);
+      live.set(identity.sourceId,message);byKey.set(identity.messageKey,{message,identity});
+    });
+    const receipt={kind:'HostRevisionReconciliation',cause:String(cause),chatId,at:Date.now(),retiredSources:[],sceneEvents:[],nativeTurns:[],errors:[]};
+    const fail=(stage,error)=>{receipt.errors.push({stage,message:safeDiagnosticMessage(error)});pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'HOST_REVISION_'+stage},SESSION_BOUNDS.errors);};
+    for(const source of registry.listSources()){
+      const meta=source.metadata??{};
+      if(meta.host!=='SILLYTAVERN'||meta.chatId!==chatId||live.has(source.id)||registry.isSourceRetired(source.id))continue;
+      const key=String(meta.messageId??''),replacement=byKey.get(key)??null,edited=Boolean(replacement);
+      try{
+        const retired=registry.retireSource(source.id,{reason:edited?'HOST_MESSAGE_EDITED':'HOST_MESSAGE_DELETED'});
+        receipt.retiredSources.push({sourceId:source.id,messageKey:key,reason:edited?'HOST_MESSAGE_EDITED':'HOST_MESSAGE_DELETED',invalidatedArtifactCount:(retired?.invalidatedArtifactIds??[]).length});
+      }catch(error){fail('CORE_RETIRE',error);}
+      try{
+        const hasFeedEvidence=(this.brain.scene?.narrativeFeed?.currentEvidence?.(chatId)??[]).some(row=>String(row.messageId)===key);
+        if(hasFeedEvidence&&typeof this.brain.ingestSceneHostEvent==='function'){
+          const stateKey=chatId+'|'+key,prior=this.sceneHostMessageState.get(stateKey)??null,messageRevision=(prior?.messageRevision??1)+1;
+          const activity=edited?HostActivity.EDIT:HostActivity.DELETE;
+          this.brain.ingestSceneHostEvent({
+            activity,chatId,messageId:key,messageRevision,hostEventId:'st-revision:'+chatId+':'+source.id+':'+activity,
+            turnId:'host-revision:'+chatId+':'+key+':'+messageRevision,correlationId:'corr:host-revision:'+source.id,
+            role:meta.role==='assistant'?'assistant':'user',...(edited?{content:replacement.message.text}:{}),
+          });
+          this.sceneHostMessageState.set(stateKey,{messageRevision,digest:edited?replacement.identity.digest:null,activity,messageKey:key});
+          receipt.sceneEvents.push({activity,messageKey:key,messageRevision});
+        }
+      }catch(error){fail('SCENE_FEED',error);}
+    }
+    for(const [sourceId,entry] of [...this.hostAssistantTurns.entries()]){
+      if(entry.chatId!==chatId||live.has(sourceId))continue;
+      const replacement=byKey.get(entry.messageKey)??null;
+      const superseded=replacement&&[...this.hostAssistantTurns.values()].some(other=>other!==entry&&other.chatId===chatId&&other.messageKey===entry.messageKey&&other.digest===replacement.identity.digest);
+      try{
+        if(replacement&&!superseded&&typeof this.nativeBrain?.correctTurn==='function'){
+          this.nativeBrain.correctTurn({turnId:entry.turnId,response:replacement.message.text});
+          this.hostAssistantTurns.delete(sourceId);
+          this.hostAssistantTurns.set(replacement.identity.sourceId,{...entry,digest:replacement.identity.digest});
+          receipt.nativeTurns.push({turnId:entry.turnId,action:'CORRECTED'});
+        }else if(typeof this.nativeBrain?.retireTurnNarrative==='function'){
+          this.nativeBrain.retireTurnNarrative(entry.turnId,{reason:superseded?'HOST_MESSAGE_SUPERSEDED':'HOST_MESSAGE_DELETED'});
+          this.hostAssistantTurns.delete(sourceId);
+          receipt.nativeTurns.push({turnId:entry.turnId,action:superseded?'SUPERSEDED':'RETIRED'});
+        }
+      }catch(error){fail('NATIVE_TURN',error);}
+    }
+    if(!receipt.retiredSources.length&&!receipt.nativeTurns.length&&!receipt.errors.length)return null;
+    pushBounded(this.hostRevisionReconciliations,receipt,100);
+    return receipt;
+  }
+
   #recordHostNarrativeEvent(type,args=[]){
     let context=null;try{context=this.getContext();}catch{}
     const eventType=String(type),revisionAffecting=['MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED'].includes(eventType);
@@ -1601,6 +1669,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       rawTextIncluded:false,rawPayloadIncluded:false,
     };
     this.hostNarrativeEvents.push(row);if(this.hostNarrativeEvents.length>200)this.hostNarrativeEvents.shift();
+    if(revisionAffecting)this.#reconcileHostRevisions(eventType);
     if(this.nativePending.size&&(revisionAffecting||chatBoundary))this.#expireNativePending('HOST_'+eventType+'_INVALIDATED_PENDING_GENERATION');
     this.#notify();return clone(row);
   }

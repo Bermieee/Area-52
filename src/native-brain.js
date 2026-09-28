@@ -488,7 +488,9 @@ export class Area52NativeBrain{
     if(sceneFanOut){
       const expectedSources=uniq([
         ...(sceneState.sourceRevisionRefs??[]),
-        ...(sceneState.prefetchRecommendations??[]).flatMap(row=>row?.sourceRevisionSet??row?.sourceRevisionRefs??[]),
+        // The Core integration snapshot does not retain prefetch recommendations, so the admitted
+        // Scene owner signal is the authority for the prefetch part of the Fan-Out source set.
+        ...(this.sceneSignals.get(chat)?.prefetchRecommendations??sceneState.prefetchRecommendations??[]).flatMap(row=>row?.sourceRevisionSet??row?.sourceRevisionRefs??[]),
       ]),actualSources=uniq(sceneFanOut.sourceRevisionSet??[]);
       const identityMismatch=[];
       if(String(sceneFanOut.chatId??'')!==chat)identityMismatch.push('chatId');
@@ -845,6 +847,35 @@ export class Area52NativeBrain{
     record.learningAcceptedNotified=true;
     this.#notify('TURN_LEARNED',record);
     return true;
+  }
+
+  // Host deleted the message this turn's response was learned from. History is preserved (the source
+  // is retired, not erased); every current-state consumer of that revision is invalidated.
+  retireTurnNarrative(turnId,{reason='HOST_MESSAGE_DELETED'}={}){
+    const id=req(turnId,'turnId'),record=this.turns.get(id);
+    if(!record?.experience)return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'NO_LEARNED_NARRATIVE',historyPreserved:true};
+    const prior=this.knowledge.currentRecordForSource(record.experience.sourceId);
+    if(!prior)return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'ALREADY_RETIRED',historyPreserved:true};
+    const removal=this.knowledge.removeSource(record.experience.sourceId,{reason});
+    const invalidatedClaimIds=this.core.graph.invalidateClaimsBySourceRevision(prior.sourceRevisionId);
+    let memoryInvalidation=null;
+    const invalidate=this.memoryInterface?.invalidateExternalEvidenceMapping??this.memoryInterface?.adapters?.invalidateExternalEvidenceMapping;
+    if(typeof invalidate==='function'){
+      const ownerArtifactRef=this.#memoryOwnerArtifactRef(record,prior);
+      memoryInvalidation=invalidate({ownerArtifactRef,externalEvidenceRef:ownerArtifactRef.artifactId,replacedBySourceRevisionId:null,removed:true,reason});
+      if(memoryInvalidation&&typeof memoryInvalidation.then==='function')throw new Error('MEMORY_ASYNC_INVALIDATION_UNSUPPORTED_IN_SYNC_COMMIT');
+    }
+    this.core.hotCognition.invalidateKnowledge({
+      chatNamespace:record.chatId,updateId:'narrative-retired:'+prior.sourceRevisionId,
+      invalidatedSourceRevisionRefs:[prior.sourceRevisionId],reason,
+    });
+    this.core.consumeNarrativeEvidence({
+      kind:'NarrativeEvidence',chatId:record.chatId,turnId:id,messageId:'assistant:'+id,messageRevision:2,
+      sequence:record.sequence,activity:'DELETE',role:'assistant',sourceRevisionId:prior.sourceRevisionId,
+      content:null,current:false,invalidates:[prior.sourceRevisionId],knownBy:[],publicToAll:false,
+    });
+    record.retiredNarrative={reason,sourceRevisionId:prior.sourceRevisionId};
+    return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'RETIRED',reason,sourceRevisionId:prior.sourceRevisionId,invalidatedClaimIds:clone(invalidatedClaimIds),removal:clone(removal),memoryInvalidation:clone(memoryInvalidation),historyPreserved:true};
   }
 
   correctTurn({turnId,response,observations=[],knownBy=[],reflections=[]}={}){

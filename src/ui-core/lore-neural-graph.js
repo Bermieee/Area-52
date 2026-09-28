@@ -12,7 +12,7 @@ const STATE_META={
 };
 
 export function createLoreNeuralRenderState(){
-  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0,animationInitialized:false,revealPassesRemaining:0,selectedNodeId:null,selectedNodeKind:null,focusHubId:null,viewport:null,panGesture:null};
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0,animationInitialized:false,revealPassesRemaining:0,selectedNodeId:null,selectedNodeKind:null,focusHubId:null,viewport:null,panGesture:null,nodeDrag:null,nodePositions:{}};
 }
 export function replayLoreNeuralGrowth(state){
   if(!state)return false;
@@ -95,6 +95,9 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
       renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;renderState.viewport=null;refresh?.();
     }}));
+    headActions.append(createButton(doc,{label:'Reset Layout',scope,size:'sm',variant:'secondary',onPress:()=>{
+      renderState.nodePositions={};renderState.nodeDrag=null;refresh?.();
+    }}));
     headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
       replayLoreNeuralGrowth(renderState);
       refresh?.();
@@ -110,6 +113,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   }
 
   const graph=buildLoreGraph({entries,data,selected});
+  applyPersistedNodePositions(graph,renderState);
   const growth=growthState(renderState,selected,graph);
   const viewBox=formatViewBox(renderState?.viewport??parseViewBox(focusedViewBox(graph,renderState?.focusHubId)));
   const svg=svgEl(doc,'svg',{'viewBox':viewBox,'class':'a52-lore-neural-svg'+(renderState?.focusHubId?' is-focused':''),'role':'img','aria-label':'Circular Lore source and representation graph','data-focus-hub':renderState?.focusHubId??null});
@@ -128,7 +132,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
       'style':'--a52-link-delay:'+String(delay)+'ms'+(isNew&&nativeMotion?';stroke-dasharray:1;stroke-dashoffset:1;animation:none':''),
       'pathLength':isNew&&nativeMotion?'1':null,
     });
-    if(isNew&&nativeMotion)path.append(nativeAnimate(doc,{attributeName:'stroke-dashoffset',from:'1',to:'0',begin:delay,dur:1150}));
+    if(isNew&&nativeMotion)path.append(nativeAnimate(doc,{attributeName:'stroke-dashoffset',from:'1',to:'0',begin:delay,dur:1500}));
     svg.append(path);
   }
 
@@ -151,15 +155,16 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:980}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+90,dur:860}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:1250}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+120,dur:1100}));
       t.setAttribute('opacity','0');count.setAttribute('opacity','0');
       t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+480,dur:420}));
       count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
     }
     g.append(halo,body,t,count);svg.append(g);
     const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=hub.id;renderState.viewport=parseViewBox(focusedViewBox(graph,hub.id));}applyGraphInteraction(svg,graph,renderState);};
-    scope?.listen?.(g,'click',activateHub);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateHub();}});
+    scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,hub.id))return;activateHub(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateHub(event);}});
+    installDraggableBubble(g,hub,svg,graph,renderState,scope);
   }
 
   for(const node of graph.nodes){
@@ -171,13 +176,14 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const halo=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'1':String(radius+5),'class':'a52-lore-entry-node__halo'});
     const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-entry-node__body'});
     if(isNew&&nativeMotion){
-      halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:760}));
-      body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+70,dur:640}));
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:950}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+90,dur:820}));
     }
     g.append(halo,body);
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
     const activate=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});};
-    scope?.listen?.(g,'click',activate);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate();}});
+    scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activate(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate(event);}});
+    installDraggableBubble(g,node,svg,graph,renderState,scope);
     svg.append(g);
   }
   for(const node of graph.artifacts){
@@ -187,11 +193,12 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
     const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
     const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-artifact-node__body'});
-    if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:560}));
+    if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:720}));
     g.append(body);
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
     const activateArtifact=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';}applyGraphInteraction(svg,graph,renderState);};
-    scope?.listen?.(g,'click',activateArtifact);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateArtifact();}});
+    scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activateArtifact(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateArtifact(event);}});
+    installDraggableBubble(g,node,svg,graph,renderState,scope);
   }
   applyGraphInteraction(svg,graph,renderState);
   installGraphSandbox(svg,graph,renderState,scope);
@@ -250,6 +257,101 @@ function applyGraphInteraction(svg,graph,state){
   };
   visit(svg);
 }
+function applyPersistedNodePositions(graph,state){
+  const positions=state?.nodePositions??{};
+  for(const row of [...(graph?.hubs??[]),...(graph?.nodes??[]),...(graph?.artifacts??[])]){
+    const saved=positions?.[row.id];
+    if(saved&&Number.isFinite(Number(saved.x))&&Number.isFinite(Number(saved.y))){
+      row.x=Number(saved.x);row.y=Number(saved.y);
+    }
+  }
+}
+function findGraphBubble(target){
+  let node=target;
+  while(node){
+    const id=node?.getAttribute?.('data-node-id')??node?.attributes?.['data-node-id']??null;
+    if(id)return node;
+    node=node.parentNode;
+  }
+  return null;
+}
+function consumeSuppressedClick(state,id){
+  if(!state?.suppressClickId||state.suppressClickId!==id)return false;
+  state.suppressClickId=null;return true;
+}
+function graphPointFromPointer(svg,state,event){
+  const view=parseViewBox(state?.viewport??svg?.getAttribute?.('viewBox')??svg?.attributes?.viewBox??'0 0 1000 760');
+  const width=Math.max(1,Number(svg?.clientWidth)||1000),height=Math.max(1,Number(svg?.clientHeight)||760);
+  const px=Math.max(0,Math.min(width,Number(event?.offsetX??event?.clientX??0)));
+  const py=Math.max(0,Math.min(height,Number(event?.offsetY??event?.clientY??0)));
+  return{x:view.x+(px/width)*view.width,y:view.y+(py/height)*view.height};
+}
+function updateGraphGeometry(svg,graph,row){
+  const setCirclePosition=node=>{
+    const cls=String(node?.getAttribute?.('class')??node?.attributes?.class??'');
+    if(node?.tagName?.toLowerCase?.()==='circle'&&(/a52-lore-(hub|entry|artifact)-node__/.test(cls))){
+      node.setAttribute?.('cx',String(row.x));node.setAttribute?.('cy',String(row.y));
+    }
+    if(node?.tagName?.toLowerCase?.()==='text'&&row.label){
+      const clsText=String(node?.getAttribute?.('class')??node?.attributes?.class??'');
+      node.setAttribute?.('x',String(row.x));
+      if(clsText.includes('a52-lore-hub-node__title'))node.setAttribute?.('y',String(row.y-2));
+      if(clsText.includes('a52-lore-hub-node__count'))node.setAttribute?.('y',String(row.y+16));
+    }
+    for(const child of node?.children??[])setCirclePosition(child);
+  };
+  let bubble=null;
+  const visit=node=>{
+    const id=node?.getAttribute?.('data-node-id')??node?.attributes?.['data-node-id']??null;
+    if(id===row.id)bubble=node;
+    for(const child of node?.children??[])visit(child);
+  };
+  visit(svg);if(bubble)setCirclePosition(bubble);
+  for(const edge of graph?.edges??[]){
+    if(edge.fromId!==row.id&&edge.toId!==row.id)continue;
+    const path=findSvgByData(svg,'data-edge-id',edge.id);
+    path?.setAttribute?.('d',curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y));
+  }
+}
+function findSvgByData(root,key,value){
+  let found=null;
+  const visit=node=>{
+    if(found)return;
+    const current=node?.getAttribute?.(key)??node?.attributes?.[key]??null;
+    if(current===value){found=node;return;}
+    for(const child of node?.children??[])visit(child);
+  };
+  visit(root);return found;
+}
+function installDraggableBubble(element,row,svg,graph,state,scope){
+  if(!element||!row||!state||!scope?.listen)return;
+  scope.listen(element,'pointerdown',event=>{
+    if(Number(event?.button??0)!==0)return;
+    event?.stopPropagation?.();event?.preventDefault?.();
+    const start=graphPointFromPointer(svg,state,event);
+    state.nodeDrag={id:row.id,pointerId:event?.pointerId??null,startPointer:start,startX:Number(row.x),startY:Number(row.y),moved:false};
+    element.setPointerCapture?.(event?.pointerId);
+    element.classList?.add?.('is-dragging');
+  });
+  scope.listen(element,'pointermove',event=>{
+    const drag=state.nodeDrag;if(!drag||drag.id!==row.id)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    event?.stopPropagation?.();
+    const point=graphPointFromPointer(svg,state,event),dx=point.x-drag.startPointer.x,dy=point.y-drag.startPointer.y;
+    if(Math.hypot(dx,dy)>4)drag.moved=true;
+    row.x=Math.max(-140,Math.min(1140,drag.startX+dx));row.y=Math.max(-140,Math.min(900,drag.startY+dy));
+    state.nodePositions[row.id]={x:row.x,y:row.y};
+    updateGraphGeometry(svg,graph,row);
+  });
+  const finish=event=>{
+    const drag=state.nodeDrag;if(!drag||drag.id!==row.id)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    event?.stopPropagation?.();
+    if(drag.moved)state.suppressClickId=row.id;
+    state.nodeDrag=null;element.releasePointerCapture?.(event?.pointerId);element.classList?.remove?.('is-dragging');
+  };
+  scope.listen(element,'pointerup',finish);scope.listen(element,'pointercancel',finish);
+}
 function installGraphSandbox(svg,graph,state,scope){
   if(!svg||!state||!scope?.listen)return;
   const current=()=>parseViewBox(state.viewport??focusedViewBox(graph,state.focusHubId));
@@ -264,6 +366,7 @@ function installGraphSandbox(svg,graph,state,scope){
   });
   scope.listen(svg,'pointerdown',event=>{
     if(Number(event?.button??0)!==0)return;
+    if(findGraphBubble(event?.target))return;
     const view=current();
     state.panGesture={pointerId:event?.pointerId??null,startX:Number(event?.clientX)||0,startY:Number(event?.clientY)||0,view};
     svg.setPointerCapture?.(event?.pointerId);
@@ -335,12 +438,12 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
 const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
 const MAX_VISIBLE_SOURCE_NODES=54;
 const TARGET_NODES_PER_HUB=8;
-const CENTER_TRUNK_START_MS=420;
-const HUB_BLOOM_START_MS=1180;
-const SOURCE_INNER_START_MS=2050;
-const SOURCE_RING_GAP_MS=650;
-const SOURCE_SLOT_GAP_MS=150;
-const ARTIFACT_LAG_MS=780;
+const CENTER_TRUNK_START_MS=650;
+const HUB_BLOOM_START_MS=1750;
+const SOURCE_INNER_START_MS=3200;
+const SOURCE_RING_GAP_MS=900;
+const SOURCE_SLOT_GAP_MS=220;
+const ARTIFACT_LAG_MS=1150;
 
 function buildLoreGraph({entries,data,selected}={}){
   const allVisible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED');
@@ -602,7 +705,7 @@ function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().val
 
 function canvasFooter(doc,text){
   const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});
-  footer.append(element(doc,'span',{text:'◉ Click bubble = glow / inspect'}),element(doc,'span',{text:'Drag = pan · Wheel = zoom · Cluster = focus · Full Graph = reset'}),element(doc,'span',{text}));
+  footer.append(element(doc,'span',{text:'◉ Click bubble = glow / inspect'}),element(doc,'span',{text:'Drag background = pan · Drag bubble = move · Wheel = zoom'}),element(doc,'span',{text}));
   return footer;
 }
 

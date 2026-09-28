@@ -205,11 +205,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     g.append(halo,body);
     const imageHref=publishedSourceImage(node.sourceMeta);
     if(imageHref){
-      const clipId='a52-lore-image-'+String(hashText(node.id));
-      const clip=svgEl(doc,'clipPath',{'id':clipId});
-      clip.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(Math.max(3,radius-1))}));
-      defs.append(clip);
-      g.append(svgEl(doc,'image',{'href':imageHref,'x':String(node.x-radius),'y':String(node.y-radius),'width':String(radius*2),'height':String(radius*2),'preserveAspectRatio':'xMidYMid slice','clip-path':'url(#'+clipId+')','class':'a52-lore-entry-node__image'}));
+      g.append(svgEl(doc,'image',{'href':imageHref,'x':String(node.x-radius),'y':String(node.y-radius),'width':String(radius*2),'height':String(radius*2),'preserveAspectRatio':'xMidYMid slice','data-radius':String(radius),'class':'a52-lore-entry-node__image'}));
       g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__image-ring'}));
     }
     g.append(label);
@@ -351,6 +347,13 @@ function updateGraphGeometry(svg,graph,row){
       if(clsText.includes('a52-lore-hub-node__title'))node.setAttribute?.('y',String(row.y-2));
       if(clsText.includes('a52-lore-hub-node__count'))node.setAttribute?.('y',String(row.y+16));
       if(clsText.includes('a52-lore-entry-node__label'))node.setAttribute?.('y',String(row.y+2));
+    }
+    if(node?.tagName?.toLowerCase?.()==='image'){
+      const clsImage=String(node?.getAttribute?.('class')??node?.attributes?.class??'');
+      if(clsImage.includes('a52-lore-entry-node__image')){
+        const radius=Number(node?.getAttribute?.('data-radius')??node?.attributes?.['data-radius']??0)||0;
+        node.setAttribute?.('x',String(row.x-radius));node.setAttribute?.('y',String(row.y-radius));
+      }
     }
     for(const child of node?.children??[])setCirclePosition(child);
   };

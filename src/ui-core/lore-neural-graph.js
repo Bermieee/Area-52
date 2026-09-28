@@ -30,7 +30,7 @@ export function renderLoreNeuralWorkspace(doc,{
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
   const left=renderStudyRail(doc,{data,source,counts,progress,selected});
   const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode});
-  const right=renderLoreInsightRail(doc,{data,selected,progress});
+  const right=renderLoreInsightRail(doc,{data,selected,progress,renderState});
   root.append(left,center,right);
   root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
   return root;
@@ -63,7 +63,7 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   const categoryCounts=semanticCategoryCounts(selected?.snapshot,data?.entries??[]);
   const neutralClusterCount=categoryCounts.length?0:presentationClusterCount(data?.entries??[]);
   const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Presentation clusters + real owner study states','⌘');
-  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length]}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
+  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:semanticToneForCategory(category,index)}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
   if(neutralClusterCount){
     const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--structure',dataset:{tone:'cyan'}});
     row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:'Source clusters · layout only'}),element(doc,'strong',{text:String(neutralClusterCount)}));legendCard.body.append(row);
@@ -91,6 +91,15 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
   headActions.append(badge);
+  const futureActions=element(doc,'div',{className:'a52-lore-future-actions',attrs:{'aria-label':'Future Lore tools'}});
+  for(const label of ['Merge','Summarizer','Rebuild']){
+    const button=createButton(doc,{label,scope,size:'sm',variant:'secondary',disabled:true});
+    button.classList?.add?.('a52-lore-future-action');
+    button.setAttribute?.('title',label+' · planned');
+    button.dataset.futureFeature='true';
+    futureActions.append(button);
+  }
+  headActions.append(futureActions);
   if(graphActive&&renderState){
     headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
       renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;renderState.viewport=null;refresh?.();
@@ -117,6 +126,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const growth=growthState(renderState,selected,graph);
   const viewBox=formatViewBox(renderState?.viewport??parseViewBox(focusedViewBox(graph,renderState?.focusHubId)));
   const svg=svgEl(doc,'svg',{'viewBox':viewBox,'class':'a52-lore-neural-svg'+(renderState?.focusHubId?' is-focused':''),'role':'img','aria-label':'Circular Lore source and representation graph','data-focus-hub':renderState?.focusHubId??null});
+  applyZoomPresentation(svg,parseViewBox(viewBox));
   const defs=svgEl(doc,'defs');
   const filter=svgEl(doc,'filter',{'id':'a52-lore-glow','x':'-60%','y':'-60%','width':'220%','height':'220%'});
   filter.append(svgEl(doc,'feGaussianBlur',{'stdDeviation':'4','result':'blur'}),svgEl(doc,'feMerge',{},[svgEl(doc,'feMergeNode',{'in':'blur'}),svgEl(doc,'feMergeNode',{'in':'SourceGraphic'})]));
@@ -162,7 +172,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
       count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
     }
     g.append(halo,body,t,count);svg.append(g);
-    const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=hub.id;renderState.viewport=parseViewBox(focusedViewBox(graph,hub.id));}applyGraphInteraction(svg,graph,renderState);};
+    const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,hub.id))return;activateHub(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateHub(event);}});
     installDraggableBubble(g,hub,svg,graph,renderState,scope);
   }
@@ -179,9 +189,11 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
       halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:950}));
       body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+90,dur:820}));
     }
-    g.append(halo,body);
+    const label=svgEl(doc,'text',{'x':String(node.x),'y':String(node.y+2),'text-anchor':'middle','class':'a52-lore-entry-node__label'});
+    label.textContent=bubbleLabel(node.label);
+    g.append(halo,body,label);
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
-    const activate=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});};
+    const activate=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activate(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate(event);}});
     installDraggableBubble(g,node,svg,graph,renderState,scope);
     svg.append(g);
@@ -196,7 +208,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:720}));
     g.append(body);
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
-    const activateArtifact=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';}applyGraphInteraction(svg,graph,renderState);};
+    const activateArtifact=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
     scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activateArtifact(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateArtifact(event);}});
     installDraggableBubble(g,node,svg,graph,renderState,scope);
   }
@@ -206,6 +218,17 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   if(nativeMotion)scheduleNativeAnimations(svg,doc);
   panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
   return panelRoot;
+}
+
+function applyZoomPresentation(svg,viewport){
+  const width=Number(viewport?.width)||1000;
+  const level=width<=430?'close':width<=680?'detail':'overview';
+  svg?.setAttribute?.('data-zoom-level',level);
+  return level;
+}
+function bubbleLabel(value){
+  const text=String(value??'').trim();
+  return text.length>12?text.slice(0,11)+'…':text;
 }
 
 function focusedViewBox(graph,hubId){
@@ -242,6 +265,7 @@ function applyGraphInteraction(svg,graph,state){
   const selectedId=state?.selectedNodeId??null,focusHubId=state?.focusHubId??null;
   const viewport=state?.viewport??parseViewBox(focusedViewBox(graph,focusHubId));
   svg.setAttribute?.('viewBox',formatViewBox(viewport));
+  applyZoomPresentation(svg,viewport);
   if(focusHubId)svg.classList?.add?.('is-focused');else svg.classList?.remove?.('is-focused');
   if(focusHubId)svg.setAttribute?.('data-focus-hub',focusHubId);else svg.removeAttribute?.('data-focus-hub');
 
@@ -305,6 +329,7 @@ function updateGraphGeometry(svg,graph,row){
       node.setAttribute?.('x',String(row.x));
       if(clsText.includes('a52-lore-hub-node__title'))node.setAttribute?.('y',String(row.y-2));
       if(clsText.includes('a52-lore-hub-node__count'))node.setAttribute?.('y',String(row.y+16));
+      if(clsText.includes('a52-lore-entry-node__label'))node.setAttribute?.('y',String(row.y+2));
     }
     for(const child of node?.children??[])setCirclePosition(child);
   };
@@ -363,7 +388,7 @@ function installDraggableBubble(element,row,svg,graph,state,scope){
 function installGraphSandbox(svg,graph,state,scope){
   if(!svg||!state||!scope?.listen)return;
   const current=()=>parseViewBox(state.viewport??focusedViewBox(graph,state.focusHubId));
-  const apply=view=>{state.viewport=clampViewport(view);svg.setAttribute?.('viewBox',formatViewBox(state.viewport));};
+  const apply=view=>{state.viewport=clampViewport(view);svg.setAttribute?.('viewBox',formatViewBox(state.viewport));applyZoomPresentation(svg,state.viewport);};
   scope.listen(svg,'wheel',event=>{
     event?.preventDefault?.();
     const view=current(),delta=Number(event?.deltaY)||0,factor=delta<0?.82:1.22;
@@ -459,7 +484,7 @@ function buildLoreGraph({entries,data,selected}={}){
   const exactByUid=exactSourceMap(selected?.snapshot);
   const decorated=visible.map((row,index)=>{
     const exact=exactByUid.get(String(row.uid??index))??null;
-    return{row,index,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
+    return{row,index,exact,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
   });
 
   const semantic=decorated.some(item=>item.category);
@@ -494,7 +519,7 @@ function buildLoreGraph({entries,data,selected}={}){
       const nodeDelay=SOURCE_INNER_START_MS+ring*SOURCE_RING_GAP_MS+slot*SOURCE_SLOT_GAP_MS;
       const incrementalNodeDelay=180+(ring*4+slot%4)*62;
       const node={
-        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,wave:index,hubId:hub.id,depth:nodeDepth,
+        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,sourceMeta:item.exact??null,wave:index,hubId:hub.id,depth:nodeDepth,
         x:hub.x+Math.cos(nodeAngle)*radius,y:hub.y+Math.sin(nodeAngle)*radius,
         artifactCount,delay:nodeDelay,incrementalDelay:incrementalNodeDelay,payload:row,
       };
@@ -538,6 +563,18 @@ function stableLoreSources(rows=[]){
     return hashDelta||aKey.localeCompare(bKey);
   });
 }
+function semanticToneForCategory(category,index=0){
+  const value=String(category??'').trim().toLowerCase();
+  if(/character|person|npc|actor/.test(value))return'violet';
+  if(/faction|guild|organization|organisation|group|house/.test(value))return'blue';
+  if(/place|location|region|world|city|floor|dungeon/.test(value))return'green';
+  if(/event|incident|battle|quest/.test(value))return'amber';
+  if(/timeline|time|era|date|history/.test(value))return'magenta';
+  if(/memory|memory shard|recollection/.test(value))return'cyan';
+  if(/concept|idea|rule|system/.test(value))return'violet';
+  return SEMANTIC_TONES[index%SEMANTIC_TONES.length];
+}
+
 function semanticTopologyGroups(items=[]){
   const byCategory=new Map();
   for(const item of items){
@@ -559,7 +596,7 @@ function semanticTopologyGroups(items=[]){
         id:'hub:category:'+category+':'+chunkIndex,
         kind:'semantic',
         label:String(category)+suffix,
-        tone:SEMANTIC_TONES[categoryIndex%SEMANTIC_TONES.length],
+        tone:semanticToneForCategory(category,categoryIndex),
         items:chunk,
       });
     });

@@ -52,8 +52,14 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   progressCard.body.append(makeBadge(doc,'LORE OWNER · '+String(state),source?.statusToken??'historical'));
 
   const categoryCounts=semanticCategoryCounts(selected?.snapshot,data?.entries??[]);
-  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Real owner states; no semantic category metadata published','⌘');
+  const neutralClusterCount=categoryCounts.length?0:presentationClusterCount(data?.entries??[]);
+  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Presentation clusters + real owner study states','⌘');
   categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length]}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
+  if(neutralClusterCount){
+    const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--structure',dataset:{tone:'cyan'}});
+    row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:'Source clusters · layout only'}),element(doc,'strong',{text:String(neutralClusterCount)}));legendCard.body.append(row);
+    legendCard.body.append(element(doc,'p',{className:'a52-muted a52-lore-graph-legend-note',text:'Cluster membership is presentation-only. READY / STUDYING / DUE / FAILED still comes only from the Lore owner.'}));
+  }
   for(const state of STATE_ORDER){
     const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state}});
     row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'span',{text:meta.label}),element(doc,'strong',{text:String(Number(counts?.[state]??0))}));
@@ -127,13 +133,14 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
     svg.append(g);
   }
   for(const node of graph.artifacts){
-    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact group '+node.label});
     g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
-    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':'5','class':'a52-lore-artifact-node__body'}));
+    const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
+    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-artifact-node__body'}));
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
   }
   canvas.append(svg);
-  panelRoot.append(canvas,canvasFooter(doc,'Nodes grow from accepted sources. Links brighten only when the owner publishes learned/derived evidence.'));
+  panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
   return panelRoot;
 }
 
@@ -155,7 +162,7 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
     {key:'Lorebook ID',value:snapshot?.id??selected?.selection?.lorebookId??'NO_EVIDENCE'},
     {key:'Entries',value:snapshot?.entries?.length??entries.length??0},
     {key:'Readiness',value:String(progress)+'%'},
-    {key:'Graph revision',value:data?.revision??'NO_EVIDENCE'},
+    {key:'Graph revision',value:shortGraphRevision(data?.revision)},
   ]));
 
   const activity=panel(doc,'Graph growth','What the owner has published','⇄');
@@ -164,6 +171,7 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
   const artifacts=entries.reduce((sum,row)=>sum+Number(row.artifactIds?.length??0),0);
   activity.body.append(createKeyValue(doc,[
     {key:'Source nodes',value:entries.length},
+    {key:'Displayed in graph',value:String(Math.min(MAX_VISIBLE_SOURCE_NODES,entries.filter(row=>String(row.operatorState??'')!=='REMOVED').length))+' / '+String(entries.length)},
     {key:'Retrieval-ready',value:retrieval},
     {key:'Sources with representations',value:represented},
     {key:'Derived artifact refs',value:artifacts},
@@ -184,74 +192,132 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
 }
 
 const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
+const MAX_VISIBLE_SOURCE_NODES=54;
+const TARGET_NODES_PER_HUB=8;
 
 function buildLoreGraph({entries,data,selected}={}){
-  const visible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED').slice(0,54);
+  const allVisible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED');
+  const visible=stableLoreSources(allVisible).slice(0,MAX_VISIBLE_SOURCE_NODES);
   const exactByUid=exactSourceMap(selected?.snapshot);
   const decorated=visible.map((row,index)=>{
     const exact=exactByUid.get(String(row.uid??index))??null;
     return{row,index,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
   });
+
   const semantic=decorated.some(item=>item.category);
-  const groups=new Map();
+  const grouped=semantic?semanticTopologyGroups(decorated):neutralTopologyGroups(decorated);
+  const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380};
+  const hubRadius=grouped.length<=2?190:grouped.length<=4?210:225;
 
-  if(semantic){
-    for(const item of decorated){
-      const key=item.category??'Other Lore';
-      if(!groups.has(key))groups.set(key,[]);
-      groups.get(key).push(item);
-    }
-  }else{
-    for(const state of STATE_ORDER){
-      const rows=decorated.filter(item=>String(item.row.operatorState??'ACCEPTED')===state);
-      if(rows.length)groups.set(state,rows);
-    }
-  }
-
-  let grouped=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length||String(a[0]).localeCompare(String(b[0])));
-  if(semantic&&grouped.length>7){
-    const keep=grouped.slice(0,6),rest=grouped.slice(6).flatMap(([,rows])=>rows);
-    grouped=[...keep,['Other Lore',rest]];
-  }
-
-  const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380},hubRadius=215;
-  grouped.forEach(([groupLabel,items],index)=>{
+  grouped.forEach((group,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
-    const state=semantic?'SEMANTIC':String(groupLabel);
-    const tone=semantic?SEMANTIC_TONES[index%SEMANTIC_TONES.length]:null;
+    const tone=group.tone??SEMANTIC_TONES[index%SEMANTIC_TONES.length];
     const hub={
-      id:'hub:'+(semantic?'category:':'state:')+String(groupLabel),
-      state,tone,label:semantic?String(groupLabel):(STATE_META[state]?.label??state),count:items.length,
+      id:group.id,state:group.kind==='semantic'?'SEMANTIC':'STRUCTURE',tone,label:group.label,count:group.items.length,
+      presentationOnly:group.kind!=='semantic',
       x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70,
     };
     hubs.push(hub);
-    edges.push({id:'edge:hub:'+hub.id,from:center,to:hub,state,tone,kind:'hub',delay:hub.delay});
+    edges.push({id:'edge:hub:'+hub.id,from:center,to:hub,state:hub.state,tone,kind:'hub',delay:hub.delay});
 
-    items.forEach((item,rowIndex)=>{
+    group.items.forEach((item,rowIndex)=>{
       const row=item.row,sourceState=String(row.operatorState??'ACCEPTED');
-      const spread=Math.min(Math.PI*.72,.24+items.length*.045),offset=items.length===1?0:(rowIndex/(items.length-1)-.5)*spread;
-      const nodeAngle=angle+offset,radius=72+(rowIndex%3)*26,hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%19)-9;
+      const ring=Math.floor(rowIndex/4),slot=rowIndex%4,ringSize=Math.min(4,group.items.length-ring*4);
+      const slotOffset=ringSize<=1?0:(slot/(ringSize-1)-.5)*Math.min(1.18,.46+ringSize*.13);
+      const nodeAngle=angle+slotOffset;
+      const hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%13)-6;
+      const radius=68+ring*38+jitter;
+      const artifactCount=Number(row.artifactIds?.length??0);
       const node={
         id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,
-        x:hub.x+Math.cos(nodeAngle)*(radius+jitter),y:hub.y+Math.sin(nodeAngle)*(radius+jitter),
-        artifactCount:Number(row.artifactIds?.length??0),delay:220+index*90+rowIndex*26,payload:row,
+        x:hub.x+Math.cos(nodeAngle)*radius,y:hub.y+Math.sin(nodeAngle)*radius,
+        artifactCount,delay:220+index*90+rowIndex*26,payload:row,
       };
       nodes.push(node);
       edges.push({id:'edge:source:'+node.id,from:hub,to:node,state:sourceState,tone,kind:'source',delay:node.delay-70});
 
-      const artifactRefs=[...(row.artifactIds??[])].slice(0,2);
-      artifactRefs.forEach((artifactId,artifactIndex)=>{
-        const artifactAngle=nodeAngle+(artifactIndex===0?-.28:.28);
+      if(artifactCount>0){
+        const artifactAngle=nodeAngle+(rowIndex%2===0?.30:-.30),artifactRadius=30+Math.min(10,Math.log2(artifactCount+1)*2);
         const artifact={
-          id:String(artifactId),label:String(artifactId),state:sourceState,tone,
-          x:node.x+Math.cos(artifactAngle)*28,y:node.y+Math.sin(artifactAngle)*28,delay:node.delay+90+artifactIndex*45,
+          id:'artifact-group:'+node.id,
+          label:artifactCount===1?String(row.artifactIds?.[0]??'derived artifact'):String(artifactCount)+' derived refs',
+          count:artifactCount,state:sourceState,tone,
+          x:node.x+Math.cos(artifactAngle)*artifactRadius,y:node.y+Math.sin(artifactAngle)*artifactRadius,delay:node.delay+90,
         };
         artifacts.push(artifact);
         edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state:sourceState,tone,kind:'artifact',delay:artifact.delay-50});
+      }
+    });
+  });
+
+  return{
+    hubs,nodes,artifacts,edges,semantic,
+    totalSourceCount:allVisible.length,
+    visibleSourceCount:visible.length,
+    presentationClusterCount:grouped.filter(group=>group.kind!=='semantic').length,
+  };
+}
+
+function stableLoreSources(rows=[]){
+  return [...rows].sort((a,b)=>{
+    const aKey=String(a?.uid??a?.sourceId??''),bKey=String(b?.uid??b?.sourceId??'');
+    const hashDelta=hashText(aKey)-hashText(bKey);
+    return hashDelta||aKey.localeCompare(bKey);
+  });
+}
+function semanticTopologyGroups(items=[]){
+  const byCategory=new Map();
+  for(const item of items){
+    const key=item.category??'Other Lore';
+    if(!byCategory.has(key))byCategory.set(key,[]);
+    byCategory.get(key).push(item);
+  }
+  let categories=[...byCategory.entries()].sort((a,b)=>b[1].length-a[1].length||String(a[0]).localeCompare(String(b[0])));
+  if(categories.length>7){
+    const keep=categories.slice(0,6),other=categories.slice(6).flatMap(([,rows])=>rows);
+    categories=[...keep,['Other Lore',other]];
+  }
+  const groups=[];
+  categories.forEach(([category,rows],categoryIndex)=>{
+    const chunks=chunkTopologyRows(rows,TARGET_NODES_PER_HUB);
+    chunks.forEach((chunk,chunkIndex)=>{
+      const suffix=chunks.length>1?' · '+String(chunkIndex+1):'';
+      groups.push({
+        id:'hub:category:'+category+':'+chunkIndex,
+        kind:'semantic',
+        label:String(category)+suffix,
+        tone:SEMANTIC_TONES[categoryIndex%SEMANTIC_TONES.length],
+        items:chunk,
       });
     });
   });
-  return{hubs,nodes,artifacts,edges,semantic};
+  return groups;
+}
+function neutralTopologyGroups(items=[]){
+  if(!items.length)return[];
+  const desired=Math.max(1,Math.min(8,Math.ceil(items.length/TARGET_NODES_PER_HUB)));
+  const groupSize=Math.ceil(items.length/desired),groups=[];
+  for(let index=0;index<desired;index++){
+    const chunk=items.slice(index*groupSize,(index+1)*groupSize);
+    if(!chunk.length)continue;
+    groups.push({
+      id:'hub:structure:'+index,
+      kind:'structure',
+      label:'Source Cluster '+String(index+1),
+      tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length],
+      items:chunk,
+    });
+  }
+  return groups;
+}
+function chunkTopologyRows(rows=[],maxSize=TARGET_NODES_PER_HUB){
+  const result=[];
+  for(let index=0;index<rows.length;index+=maxSize)result.push(rows.slice(index,index+maxSize));
+  return result;
+}
+function presentationClusterCount(entries=[]){
+  const count=Math.min(MAX_VISIBLE_SOURCE_NODES,entries.filter(row=>String(row?.operatorState??'')!=='REMOVED').length);
+  return count?Math.max(1,Math.min(8,Math.ceil(count/TARGET_NODES_PER_HUB))):0;
 }
 
 function exactSourceMap(snapshot){
@@ -270,6 +336,17 @@ function publishedSemanticCategory(entry){
 }
 function publishedSourceTitle(entry,fallback){
   return shortLabel(entry?.title??entry?.comment??entry?.name??entry?.metadata?.title??entry?.metadata?.name??fallback);
+}
+function shortGraphRevision(value){
+  if(value==null||value==='')return'NO_EVIDENCE';
+  const text=String(value);
+  if(text.length<=20)return text;
+  const split=text.indexOf(':');
+  if(split>0&&split<14){
+    const prefix=text.slice(0,split+1),id=text.slice(split+1);
+    return prefix+id.slice(0,8)+'…'+id.slice(-4);
+  }
+  return text.slice(0,10)+'…'+text.slice(-5);
 }
 function semanticCategoryCounts(snapshot,entries=[]){
   const exactByUid=exactSourceMap(snapshot),counts=new Map();

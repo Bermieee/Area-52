@@ -68,6 +68,11 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   for(let i=1;i<=7;i++)prior.push(ingest(owner,event(HostActivity.USER_SEND,`ctx-${i}`,`At North Gallery, Mara waits near marker ${i}.`,{chatId:'ctx-chat'})));
   const moved=ingest(owner,event(HostActivity.USER_SEND,'ctx-move','We arrive at South Courtyard.',{chatId:'ctx-chat'}));
   const handoff=moved.transitionHandoff,tail=new Set(handoff.continuity.recentTailRefs);
+  const publicSceneState=owner.core.sceneIntegrationSnapshot('ctx-chat');
+  const internalTransitionContext=owner.core.sceneTransitionContext('ctx-chat');
+  assert.equal(publicSceneState.transitionHandoff?.continuity?.compactPriorSceneSummary,undefined,'Core read model must not expose compact story summary');
+  assert.equal(publicSceneState.transitionHandoff?.continuity?.compactSummaryAvailable,true);
+  assert.equal(internalTransitionContext?.continuity?.compactPriorSceneSummary,handoff.continuity.compactPriorSceneSummary,'Core internal context keeps summary for compilation only');
 
   const activeMessages=prior.map((row,index)=>({
     messageId:`ctx-${index+1}`,sequence:index,role:'user',content:`prior ${index+1}`,
@@ -103,6 +108,7 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   assert.equal(safeRetirementJson.includes('prior 1'),false);
   assert.equal(safeRetirementJson.includes(handoff.continuity.compactPriorSceneSummary),false);
   assert.equal(JSON.stringify(prepared.sceneOwnerReceipt).includes(handoff.continuity.compactPriorSceneSummary),false);
+  assert.equal(JSON.stringify(prepared.scene).includes(handoff.continuity.compactPriorSceneSummary),false,'prepared Scene read model must not expose compact story summary');
   assert.ok(JSON.stringify(prepared.promptPlan).includes(handoff.continuity.compactPriorSceneSummary),'Core-approved compact Scene continuity must remain available to the prompt planner');
 });
 

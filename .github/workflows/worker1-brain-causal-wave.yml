@@ -52,6 +52,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: worker1-brain-causal-wave-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   closure:
     runs-on: ubuntu-latest

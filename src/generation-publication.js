@@ -48,12 +48,13 @@ export class GenerationPublicationPipeline {
   publish({
     turnId,turnRevision=0,correlationId,query,intent='CURRENT',anchorEntityIds=[],
     budgetBytes=2500,deadline=null,sealedAt=null,precisionAvailable=true,activeThreads=[],channelIds=null,perspectiveConstraint=null,
-    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,retrievalIntents=null,
+    candidateBudget=64,latencyBudgetMs=100,graphTraversal=null,retrievalIntents=null,externalRetrievalCandidates=[],
   }){
     const fingerprint=stableHash({
       turnId,turnRevision,correlationId,query,intent,anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,
       precisionAvailable:Boolean(precisionAvailable),activeThreads,channelIds:channelIds?uniq(channelIds):null,perspectiveConstraint,
       candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,
+      externalRetrievalCandidates:(externalRetrievalCandidates??[]).map(row=>({candidateId:row?.candidate?.candidateId??row?.candidateId??null,taskId:row?.taskId??null,causationId:row?.causationId??null,sourceRevisionRefs:uniq(row?.candidate?.sourceRevisionRefs??row?.sourceRevisionRefs??[])})),
     },{length:24});
     const replay=this.publishedTurns.get(String(turnId));
     if(replay){
@@ -124,9 +125,21 @@ export class GenerationPublicationPipeline {
         taskId:`retrieve:${turnId}`,turnId,correlationId,sourceSubsystem:'SENSORY_NET',
         resultClass:ResultClass.REQUIRED,destination:ResultDestination.FOREGROUND,worldRevision,sceneRevision,
       });
-
+      const externalRoutes=[];
+      for(const row of (externalRetrievalCandidates??[]).slice(0,64)){
+        const candidate=row?.candidate??row;
+        if(!candidate?.candidateId)continue;
+        const route=this.resultBus.receiveCandidate(candidate,{
+          taskId:row?.taskId??`scene-fanout:${turnId}`,turnId,correlationId,causationId:row?.causationId??null,
+          sourceSubsystem:row?.sourceSubsystem??'SCENE_FANOUT_HISTORIAN',workerId:row?.workerId??'scene-fanout',
+          resultClass:row?.resultClass??ResultClass.OPPORTUNISTIC,destination:ResultDestination.FOREGROUND,
+          worldRevision,sceneRevision,timing:row?.timing??{},
+        });
+        externalRoutes.push(route);
+      }
+      if(externalRoutes.length)recordStage('SCENE_FANOUT_RESULTS',candidateBusStarted,{inputCount:externalRetrievalCandidates.length,outputCount:externalRoutes.filter(row=>row.route?.accepted&&row.route?.freshness==='FRESH').length,retainedObjectCount:externalRoutes.length,outcome:'RESULT_BUS_ROUTED'});
       candidates=this.#freshForegroundCandidates(turnId);
-      recordStage('CANDIDATE_BUS',candidateBusStarted,{inputCount:primaryEnvelope?.candidates?.length??0,outputCount:candidates.length,retainedObjectCount:candidates.length,outcome:'FRESH_FOREGROUND_MATERIALIZED'});
+      recordStage('CANDIDATE_BUS',candidateBusStarted,{inputCount:(primaryEnvelope?.candidates?.length??0)+externalRoutes.length,outputCount:candidates.length,retainedObjectCount:candidates.length,outcome:'FRESH_FOREGROUND_MATERIALIZED'});
       const truthStarted=perfNow();
       assessment=this.truth.assess(candidates,{
         query,intent,worldRevision,sceneRevision,attempt:0,maxCorrectiveAttempts:1,

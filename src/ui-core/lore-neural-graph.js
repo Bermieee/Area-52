@@ -3,6 +3,8 @@ import { resolveMotionPolicy } from './wave6-presentation.js';
 
 const STATE_ORDER=['READY','STUDYING','ACCEPTED','FAILED','REMOVED'];
 const REVEAL_RENDER_PASSES=4;
+const WORLD_VIEW_ASPECT=1.04;
+const DEFAULT_WORLD_VIEW={x:90,y:-14,width:820,height:788};
 const STATE_META={
   READY:{label:'Ready',tone:'ready',color:'#3ce4b1',symbol:'✓'},
   STUDYING:{label:'Studying',tone:'observed',color:'#42c7ff',symbol:'◌'},
@@ -110,8 +112,8 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     element(doc,'p',{className:'a52-muted a52-world-tree-subtitle',text:"Your world's memory, visualized."})
   );
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
+  title.append(badge);
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
-  headActions.append(badge);
   const search=element(doc,'input',{className:'a52-world-tree-search',attrs:{type:'search',placeholder:'Search world tree…','aria-label':'Search world tree',disabled:'disabled',title:'World Tree search · planned'}});
   headActions.append(search);
   const futureActions=element(doc,'div',{className:'a52-lore-future-actions',attrs:{'aria-label':'Future World Tree tools'}});
@@ -123,18 +125,20 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     futureActions.append(button);
   }
   headActions.append(futureActions);
+  const viewActions=element(doc,'div',{className:'a52-world-tree-view-actions'});
   if(graphActive&&renderState){
-    headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
+    viewActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
       renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;renderState.viewport=null;refresh?.();
     }}));
-    headActions.append(createButton(doc,{label:'Reset Layout',scope,size:'sm',variant:'secondary',onPress:()=>{
+    viewActions.append(createButton(doc,{label:'Reset Layout',scope,size:'sm',variant:'secondary',onPress:()=>{
       renderState.nodePositions={};renderState.nodeDrag=null;refresh?.();
     }}));
-    headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
+    viewActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
       replayLoreNeuralGrowth(renderState);
       refresh?.();
     }}));
   }
+  headActions.append(viewActions);
   head.append(title,headActions);panelRoot.append(head);
 
   const canvas=element(doc,'div',{className:'a52-lore-neural-canvas'});
@@ -255,19 +259,19 @@ function bubbleLabel(value){
 }
 
 function focusedViewBox(graph,hubId){
-  if(!hubId)return'0 0 1000 760';
+  if(!hubId)return formatViewBox(DEFAULT_WORLD_VIEW);
   const hub=graph?.hubs?.find?.(row=>row.id===hubId);
-  if(!hub)return'0 0 1000 760';
+  if(!hub)return formatViewBox(DEFAULT_WORLD_VIEW);
   const points=[hub,...(graph.nodes??[]).filter(row=>row.hubId===hubId),...(graph.artifacts??[]).filter(row=>row.hubId===hubId)];
   const xs=points.map(row=>Number(row.x)).filter(Number.isFinite),ys=points.map(row=>Number(row.y)).filter(Number.isFinite);
-  if(!xs.length||!ys.length)return'0 0 1000 760';
+  if(!xs.length||!ys.length)return formatViewBox(DEFAULT_WORLD_VIEW);
   const padding=105,minX=Math.min(...xs)-padding,maxX=Math.max(...xs)+padding,minY=Math.min(...ys)-padding,maxY=Math.max(...ys)+padding;
   const width=Math.max(360,maxX-minX),height=Math.max(300,maxY-minY),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
   return formatViewBox(clampViewport({x:cx-width/2,y:cy-height/2,width,height}));
 }
 function parseViewBox(value){
   if(value&&typeof value==='object')return clampViewport(value);
-  const [x=0,y=0,width=1000,height=760]=String(value??'0 0 1000 760').trim().split(/\s+/).map(Number);
+  const [x=DEFAULT_WORLD_VIEW.x,y=DEFAULT_WORLD_VIEW.y,width=DEFAULT_WORLD_VIEW.width,height=DEFAULT_WORLD_VIEW.height]=String(value??formatViewBox(DEFAULT_WORLD_VIEW)).trim().split(/\s+/).map(Number);
   return clampViewport({x,y,width,height});
 }
 function formatViewBox(view){
@@ -275,12 +279,12 @@ function formatViewBox(view){
   return[round(row.x),round(row.y),round(row.width),round(row.height)].join(' ');
 }
 function clampViewport(view){
-  const minWidth=250,maxWidth=1180,aspect=1000/760;
-  let width=Math.max(minWidth,Math.min(maxWidth,Number(view?.width)||1000));
+  const minWidth=250,maxWidth=1180,aspect=WORLD_VIEW_ASPECT;
+  let width=Math.max(minWidth,Math.min(maxWidth,Number(view?.width)||DEFAULT_WORLD_VIEW.width));
   let height=width/aspect;
   if(Number(view?.height)>0&&Math.abs(Number(view.height)-height)<40)height=Number(view.height);
   const worldMargin=190,minX=-worldMargin,maxX=1000+worldMargin-width,minY=-worldMargin,maxY=760+worldMargin-height;
-  const x=Math.max(minX,Math.min(maxX,Number(view?.x)||0)),y=Math.max(minY,Math.min(maxY,Number(view?.y)||0));
+  const x=Math.max(minX,Math.min(maxX,Number.isFinite(Number(view?.x))?Number(view.x):DEFAULT_WORLD_VIEW.x)),y=Math.max(minY,Math.min(maxY,Number.isFinite(Number(view?.y))?Number(view.y):DEFAULT_WORLD_VIEW.y));
   return{x,y,width,height};
 }
 function applyGraphInteraction(svg,graph,state){
@@ -327,7 +331,7 @@ function consumeSuppressedClick(state,id){
   state.suppressClickId=null;return true;
 }
 function graphPointFromPointer(svg,state,event){
-  const view=parseViewBox(state?.viewport??svg?.getAttribute?.('viewBox')??svg?.attributes?.viewBox??'0 0 1000 760');
+  const view=parseViewBox(state?.viewport??svg?.getAttribute?.('viewBox')??svg?.attributes?.viewBox??formatViewBox(DEFAULT_WORLD_VIEW));
   const width=Math.max(1,Number(svg?.clientWidth)||1000),height=Math.max(1,Number(svg?.clientHeight)||760);
   let px=Number(event?.offsetX),py=Number(event?.offsetY);
   try{
@@ -415,7 +419,7 @@ function installGraphSandbox(svg,graph,state,scope){
   scope.listen(svg,'wheel',event=>{
     event?.preventDefault?.();
     const view=current(),delta=Number(event?.deltaY)||0,factor=delta<0?.82:1.22;
-    const nextWidth=Math.max(250,Math.min(1180,view.width*factor)),nextHeight=nextWidth/(1000/760);
+    const nextWidth=Math.max(250,Math.min(1180,view.width*factor)),nextHeight=nextWidth/WORLD_VIEW_ASPECT;
     const px=Math.max(0,Math.min(1,(Number(event?.offsetX)||Number(event?.clientX)||0)/Math.max(1,Number(svg.clientWidth)||1000)));
     const py=Math.max(0,Math.min(1,(Number(event?.offsetY)||Number(event?.clientY)||0)/Math.max(1,Number(svg.clientHeight)||760)));
     apply({x:view.x+(view.width-nextWidth)*px,y:view.y+(view.height-nextHeight)*py,width:nextWidth,height:nextHeight});

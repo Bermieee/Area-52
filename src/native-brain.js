@@ -434,9 +434,6 @@ export class Area52NativeBrain{
     const safeSceneOwnerReceipt=redactSceneOwnerReceipt(sceneOwnerReceipt);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
     this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
-    const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
-    this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
-    this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
     const sparseRetrievalReceipt=this.loreInterface
       ?this.ownerSparseChannel.hydrateLoreOwner(this.loreInterface,{chatId:chat,query:q})
       :this.ownerSparseChannel.clearScope('LORE_OWNER_NOT_ATTACHED');
@@ -457,10 +454,31 @@ export class Area52NativeBrain{
       });
     }
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
-    // Dense Memory is optional and bounded to one query embedding. The synchronous
-    // owner channel consumes only the cached nomination result; provider failure
-    // leaves sparse/graph/Memory retrieval fully available.
-    const memoryDensePrime=await this.ownerMemoryChannel.prime({intentId:'memory-dense:'+turn,query:q,intentKind:intent,perspective:perspectiveConstraint},{query:q,selection:ownerSelection});
+    const sequence=++this.turnSequence;
+    this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
+    const choicePreparation=this.core.prepareGenerationChoice({
+      turnId:turn,turnRevision:sequence,correlationId:corr,query:q,intent,anchorEntityIds:uniq(anchorEntityIds),
+      budgetBytes,deadline,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,
+    });
+    let ownerSelection={
+      chatId:chat,turnId:turn,generationId:generation,correlationId:corr,
+      worldRevision:choicePreparation.worldRevision,sceneRevision:choicePreparation.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds(),
+    };
+    this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
+    this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
+    // Dense Memory is optional. Cognitive Choice decides whether retrieval is useful
+    // before any embedding provider can run; the synchronous owner channel later
+    // consumes only a revision-fenced cached nomination.
+    let memoryDensePrime=choicePreparation.hotOnly
+      ?this.ownerMemoryChannel.skipDense('HOT_SUFFICIENT',{selection:ownerSelection,resultClass:'OPPORTUNISTIC'})
+      :await this.ownerMemoryChannel.prime({intentId:'memory-dense:'+turn,query:q,intentKind:intent,perspective:perspectiveConstraint},{query:q,selection:ownerSelection,resultClass:'OPPORTUNISTIC'});
+    const postPrimeScene=this.core.sceneIntegrationSnapshot(chat),postPrimeWorld=this.core.graph.revision;
+    if(!choicePreparation.hotOnly&&(Number(postPrimeWorld)!==Number(ownerSelection.worldRevision)||Number(postPrimeScene?.sceneRevision)!==Number(ownerSelection.sceneRevision))){
+      ownerSelection={...ownerSelection,worldRevision:postPrimeWorld,sceneRevision:postPrimeScene?.sceneRevision??ownerSelection.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
+      this.ownerLoreChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
+      this.ownerMemoryChannel.beginTurn({selection:ownerSelection,perspectiveConstraint});
+      memoryDensePrime=this.ownerMemoryChannel.skipDense('DENSE_PRIME_STALE_SELECTED_STATE',{selection:ownerSelection,resultClass:'OPPORTUNISTIC'});
+    }
     let sceneFanOutIngress={kind:'NativeBrainSceneFanOutIngressReceipt',status:'UNAVAILABLE',reasonCode:'SCENE_FANOUT_HANDOFF_ABSENT',candidateCount:0,candidateIds:[],authorityGranted:false,admissionAuthority:false,truthAuthority:false,contextSealAuthority:false};
     let externalRetrievalCandidates=[];
     if(sceneFanOut){
@@ -491,12 +509,10 @@ export class Area52NativeBrain{
       }
     }
 
-    const sequence=++this.turnSequence;
-    this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
     const published=this.core.publishGenerationContext({
       turnId:turn,turnRevision:sequence,correlationId:corr,query:q,intent,
       anchorEntityIds:uniq(anchorEntityIds),budgetBytes,deadline,precisionAvailable,
-      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,externalRetrievalCandidates,
+      activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,externalRetrievalCandidates,choicePreparation,
     });
     this.#recordSceneExpectedWork({chatId:chat,turnId:turn,generationId:generation,correlationId:corr,turnRevision:sequence,sceneState,published});
     const sceneHandoff=this.core.sceneTransitionContext(chat);
@@ -549,7 +565,7 @@ export class Area52NativeBrain{
         authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
       },
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal),retrievalIntents:clone(retrievalIntents)},
-      sparseRetrievalReceipt:clone(sparseRetrievalReceipt),
+      sparseRetrievalReceipt:clone(sparseRetrievalReceipt),memoryDensePrime:clone(memoryDensePrime),
       published,delivery,contextRetirement:clone(contextRetirementReceipt),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       performance:{
         kind:'NativeBrainGenerationPerformanceReceipt',contractVersion:1,

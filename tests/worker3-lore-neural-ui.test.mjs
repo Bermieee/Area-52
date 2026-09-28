@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { createLoreNeuralRenderState, replayLoreNeuralGrowth, renderLoreNeuralWorkspace } from '../src/ui-core/lore-neural-graph.js';
-import { FrontFacePresentationState, LoreMotionMode } from '../src/ui-core/wave6-presentation.js';
+import { FrontFacePresentationState, MotionMode, resolveMotionPolicy } from '../src/ui-core/wave6-presentation.js';
 import { UIStateStore } from '../src/ui-core/persistence.js';
 import { renderLoreStudySurface } from '../src/ui-core/wave13-operator-surfaces.js';
 import { FakeDocument, FakeNode } from './fixtures/wave4-synthetic-extension.mjs';
@@ -269,9 +269,8 @@ test('Lore growth replay replays native SVG visuals without mutating Lore data',
 test('reduced-motion omits native Lore reveal animations',()=>{
   const d=new FakeDocument();d.defaultView={matchMedia:query=>({matches:query.includes('prefers-reduced-motion')})};
   const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
-  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state});
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'SYSTEM'});
   assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
-  assert.match(textOf(root),/SYSTEM · REDUCED/);
   const nodes=walk(root).filter(x=>String(x.attributes?.class??'').split(/\s+/).includes('a52-lore-entry-node'));
   assert.ok(nodes.every(x=>!String(x.attributes?.class??'').includes('has-native-reveal')));
 });
@@ -303,36 +302,43 @@ test('Lore study owner updates coalesce into live neural-canvas refreshes',()=>{
   assert.equal(releases,1);
 });
 
-test('Lore motion preference persists and defaults to System',()=>{
-  const storage=memoryStorage(),store=new UIStateStore({storage,namespace:'lore-motion-test'});
+test('Area-52 motion policy defaults to Full persists and migrates legacy Lore mode',()=>{
+  const storage=memoryStorage(),store=new UIStateStore({storage,namespace:'motion-policy-test'});
   const first=new FrontFacePresentationState({stateStore:store});
-  assert.equal(first.get().loreMotionMode,LoreMotionMode.SYSTEM);
-  first.setLoreMotionMode(LoreMotionMode.FULL);
-  assert.equal(first.get().loreMotionMode,LoreMotionMode.FULL);
-  const restored=new FrontFacePresentationState({stateStore:store});
-  assert.equal(restored.get().loreMotionMode,LoreMotionMode.FULL);
-  restored.setLoreMotionMode(LoreMotionMode.REDUCED);
-  assert.equal(new FrontFacePresentationState({stateStore:store}).get().loreMotionMode,LoreMotionMode.REDUCED);
+  assert.equal(first.get().motionMode,MotionMode.FULL);
+  first.setMotionMode(MotionMode.REDUCED);
+  assert.equal(new FrontFacePresentationState({stateStore:store}).get().motionMode,MotionMode.REDUCED);
+
+  const legacyStore={load:()=>({loreMotionMode:'SYSTEM'}),save(){}};
+  assert.equal(new FrontFacePresentationState({stateStore:legacyStore}).get().motionMode,MotionMode.SYSTEM);
+  assert.deepEqual(resolveMotionPolicy(MotionMode.FULL,{systemReduced:true}),{mode:'FULL',reduced:false,enabled:true,systemReduced:true,ignoresSystemPreference:true});
+  assert.equal(resolveMotionPolicy(MotionMode.SYSTEM,{systemReduced:true}).enabled,false);
+  assert.equal(resolveMotionPolicy(MotionMode.REDUCED,{systemReduced:false}).enabled,false);
 });
 
-test('Full Lore motion overrides system reduced-motion and mode change replays growth',()=>{
+test('Full global motion overrides system reduced-motion without Lore-specific controls',()=>{
   const d=new FakeDocument();d.defaultView={matchMedia:()=>({matches:true})};
   const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
-  let changed=null,refreshes=0;
-  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'FULL',onMotionModeChange:value=>{changed=value;},refresh:()=>{refreshes++;},scope:listenerScope()});
-  assert.match(textOf(root),/MOTION FULL/);
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'FULL',refresh:()=>{},scope:listenerScope()});
   assert.ok(walk(root).filter(x=>x.tagName==='ANIMATE').length>0);
-  const select=walk(root).find(x=>x.tagName==='SELECT'&&String(x.className??'').includes('a52-lore-motion-select'));
-  assert.ok(select);assert.equal(select.value,'FULL');
-  select.value='REDUCED';select.dispatch('change');
-  assert.equal(changed,'REDUCED');assert.equal(refreshes,1);assert.equal(state.replayCount,1);
+  assert.equal(walk(root).some(x=>x.tagName==='SELECT'&&String(x.className??'').includes('a52-lore-motion-select')),false);
+  assert.doesNotMatch(textOf(root),/MOTION FULL|SYSTEM · REDUCED|MOTION REDUCED/);
+  assert.match(textOf(root),/Replay Growth/);
 });
 
-test('Reduced Lore motion overrides a motion-enabled system',()=>{
+test('Reduced global motion suppresses Lore animation on a motion-enabled system',()=>{
   const d=new FakeDocument();d.defaultView={matchMedia:()=>({matches:false})};
   const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
   const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'REDUCED'});
-  assert.match(textOf(root),/MOTION REDUCED/);
+  assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
+  const replay=walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent==='Replay Growth');
+  assert.ok(replay);assert.equal(Boolean(replay.disabled||replay.attributes?.disabled),true);
+});
+
+test('System global motion honors browser reduced-motion',()=>{
+  const d=new FakeDocument();d.defaultView={matchMedia:()=>({matches:true})};
+  const state=createLoreNeuralRenderState(),data=populatedData(),selected={selection:{selected:true,lorebookId:'moon'},snapshot:{id:'moon',title:'Moon Harbor'}};
+  const root=renderLoreNeuralWorkspace(d,{data,selected,progress:25,renderState:state,motionMode:'SYSTEM'});
   assert.equal(walk(root).filter(x=>x.tagName==='ANIMATE').length,0);
 });
 

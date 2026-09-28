@@ -843,6 +843,15 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
 
   const read=loreStudy.read(),source=read.source,data=read.data,caps=loreStudy.capabilities(),selected=loreStudy.selectedLorebook?.()??{};
+  if(caps.subscribe&&scope?.add){
+    let liveRefreshQueued=false;
+    scope.add(loreStudy.subscribe(()=>{
+      if(liveRefreshQueued)return;
+      liveRefreshQueued=true;
+      if(scope?.timeout)scope.timeout(()=>{liveRefreshQueued=false;refresh?.();},90);
+      else{liveRefreshQueued=false;refresh?.();}
+    }));
+  }
   const counts=data?.operatorCounts??{},accepted=Number(counts.ACCEPTED??0),studying=Number(counts.STUDYING??0),ready=Number(counts.READY??0),failed=Number(counts.FAILED??0),removed=Number(counts.REMOVED??0);
   const total=accepted+studying+ready+failed+removed,pending=accepted+studying,denominator=Math.max(1,total-removed),progress=Math.round(ready/denominator*100);
   const selection=selected.selection??{},snapshot=selected.snapshot??null;
@@ -863,14 +872,14 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
 
   const status=element(d,'p',{className:'a52-wave13-form-status',attrs:{role:'status','aria-live':'polite'}});
   const actions=element(d,'div',{className:'a52-wave13-lore-actions a52-lore-command__actions'});
-  const discover=createButton(d,{label:snapshot?'Refresh selected Lorebook':'Load selected Lorebook',disabled:!caps.discover,scope,onPress:async()=>{
+  const discover=createButton(d,{label:snapshot?'Refresh selected Lorebook':'Load selected Lorebook',disabled:!caps.discover,scope,variant:'quiet',onPress:async()=>{
     status.textContent='Reading the currently selected SillyTavern Lorebook…';status.dataset.status='loading';
     try{
       const result=await loreStudy.discoverSelectedLorebook();
       status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Verify the source, then accept it for study.';status.dataset.status='ready';refresh?.();
     }catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
   }});
-  const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,onPress:async()=>{
+  const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,variant:'secondary',onPress:async()=>{
     const current=loreStudy.selectedLorebook?.().snapshot??null;
     if(!current){status.textContent='Load the selected SillyTavern Lorebook before accepting it.';status.dataset.status='error';return;}
     status.textContent='Accepting the verified source. Accepted entries become DUE; they are not retrieval-ready yet.';status.dataset.status='loading';

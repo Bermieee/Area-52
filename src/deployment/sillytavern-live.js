@@ -649,12 +649,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     nativeBrain = null,
     ownerBindings = {},
     memoryOwnerSnapshot = null,
+    loreOwnerSnapshot = null,
     persistNativeBrain = null,
     detailedGenerationProfiling = false,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
-    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot });
+    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot, loreOwnerSnapshot });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
     this.persistNativeBrain=typeof persistNativeBrain==='function'?persistNativeBrain:null;
@@ -676,6 +677,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
     this.hostAssistantTurns = new Map();
+    this.lastPersistedLoreOwnerKey = null;
     this.hostRevisionReconciliations = [];
     this.sceneHostMessageState = new Map();
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
@@ -1352,7 +1354,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
       const snapshotMemoryOwner=brainBindings?.snapshotMemoryOwner??(typeof this.brain?.snapshotMemoryOwner==='function'?()=>this.brain.snapshotMemoryOwner():null);
       const memoryOwnerSnapshot=typeof snapshotMemoryOwner==='function'?snapshotMemoryOwner():null;
-      await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot});
+      // The Lore owner (accepted books, study, story binding) is large; persist it only when it changed.
+      const loreOwnerRevisionKey=typeof brainBindings?.loreOwnerRevisionKey==='function'?brainBindings.loreOwnerRevisionKey():(typeof this.brain?.loreOwnerRevisionKey==='function'?this.brain.loreOwnerRevisionKey():null);
+      const snapshotLoreOwner=brainBindings?.snapshotLoreOwner??(typeof this.brain?.snapshotLoreOwner==='function'?()=>this.brain.snapshotLoreOwner():null);
+      const loreChanged=Boolean(snapshotLoreOwner)&&loreOwnerRevisionKey!==this.lastPersistedLoreOwnerKey;
+      const loreOwnerSnapshot=loreChanged?snapshotLoreOwner():undefined;
+      await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot,loreOwnerRevisionKey,...(loreChanged?{loreOwnerSnapshot}:{})});
+      if(loreChanged)this.lastPersistedLoreOwnerKey=loreOwnerRevisionKey;
       const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
       const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;

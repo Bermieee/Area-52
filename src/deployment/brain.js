@@ -677,6 +677,13 @@ export class DevelopmentDeploymentBrain {
     return this.memory.snapshot();
   }
 
+  // Cheap change key for the Lore owner: lets a host persist the (large) Lore snapshot only when Lore
+  // (index, story binding or authoring) changed instead of serializing it every turn.
+  loreOwnerRevisionKey() {
+    const story = this.loreIntelligence.storyAuthority.snapshot();
+    return ['lore-owner', this.loreIntelligence.hierarchy.retrievalIndex.revision, JSON.stringify(story).length, sha256Hex(JSON.stringify(story)).slice(0, 16)].join(':');
+  }
+
   ensureScene({ chatId, sourceRevisionId } = {}) {
     const chat = String(chatId ?? '').trim();
     const evidenceRef = String(sourceRevisionId ?? '').trim();
@@ -2872,6 +2879,7 @@ export class DevelopmentDeploymentBrain {
       loreAuthoringOperator: loreAuthoringHost,
       snapshotLoreOwner: () => this.snapshotLoreOwner(),
       snapshotMemoryOwner: () => this.snapshotMemoryOwner(),
+      loreOwnerRevisionKey: () => this.loreOwnerRevisionKey(),
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),

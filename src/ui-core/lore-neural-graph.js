@@ -82,6 +82,7 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
 function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh}={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
+  const reducedMotion=prefersReducedMotion(doc),nativeMotion=!reducedMotion;
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
   const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
   const title=element(doc,'div');
@@ -89,6 +90,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
   const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
   headActions.append(badge);
+  if(graphActive&&reducedMotion)headActions.append(makeBadge(doc,'MOTION REDUCED','warning'));
   if(graphActive&&renderState){
     headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',onPress:()=>{
       replayLoreNeuralGrowth(renderState);
@@ -106,7 +108,6 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
 
   const graph=buildLoreGraph({entries,data,selected});
   const growth=growthState(renderState,selected,graph);
-  const nativeMotion=!prefersReducedMotion(doc);
   const svg=svgEl(doc,'svg',{'viewBox':'0 0 1000 760','class':'a52-lore-neural-svg','role':'img','aria-label':'Circular Lore source and representation graph'});
   const defs=svgEl(doc,'defs');
   const filter=svgEl(doc,'filter',{'id':'a52-lore-glow','x':'-60%','y':'-60%','width':'220%','height':'220%'});
@@ -180,7 +181,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
   }
   canvas.append(svg);
-  if(nativeMotion)startNativeAnimations(svg);
+  if(nativeMotion)scheduleNativeAnimations(svg,doc);
   panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
   return panelRoot;
 }
@@ -480,6 +481,13 @@ function startNativeAnimations(root){
     }catch{}
   }
   return animations.length;
+}
+function scheduleNativeAnimations(root,doc){
+  const start=()=>startNativeAnimations(root);
+  const enqueue=doc?.defaultView?.queueMicrotask??globalThis.queueMicrotask;
+  if(typeof enqueue==='function'){enqueue(start);return true;}
+  Promise.resolve().then(start);
+  return true;
 }
 function readSvgAttr(node,key){
   try{return node?.getAttribute?.(key)??node?.attributes?.[key]??null;}catch{return node?.attributes?.[key]??null;}

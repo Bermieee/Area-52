@@ -918,7 +918,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const motionMode=frontFacePresentation?.get?.().motionMode??'FULL';
   const worldTreeShell=element(d,'section',{className:'a52-world-tree-shell',attrs:{'aria-label':'World Tree visual shell'}});
   const worldTree=renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode});
-  form.classList?.add?.('a52-world-tree-source-overlay');
+  form.classList?.add?.('a52-world-tree-source-dock');
   worldTreeShell.append(worldTree,form);
   host.append(worldTreeShell);
 

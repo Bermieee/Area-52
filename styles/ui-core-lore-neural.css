@@ -126,6 +126,7 @@
 [data-state=STUDYING]>.a52-lore-state-dot,.a52-lore-state-legend__row[data-state=STUDYING] .a52-lore-state-dot,.a52-lore-growth-row[data-state=STUDYING] .a52-lore-state-dot{color:#48caff;border-color:rgba(72,202,255,.34);background:rgba(41,149,198,.12);box-shadow:0 0 8px rgba(72,202,255,.22)}
 [data-state=ACCEPTED]>.a52-lore-state-dot,.a52-lore-state-legend__row[data-state=ACCEPTED] .a52-lore-state-dot,.a52-lore-growth-row[data-state=ACCEPTED] .a52-lore-state-dot{color:#f1bf5d;border-color:rgba(241,191,93,.34);background:rgba(175,118,30,.12)}
 [data-state=FAILED]>.a52-lore-state-dot,.a52-lore-state-legend__row[data-state=FAILED] .a52-lore-state-dot,.a52-lore-growth-row[data-state=FAILED] .a52-lore-state-dot{color:#ff7186;border-color:rgba(255,113,134,.34);background:rgba(181,53,74,.12)}
+.a52-lore-neural-contract{margin:0;color:#9db5c3;font-size:.55rem;font-weight:650;line-height:1.35}
 .a52-lore-neural-explainer{margin:0;font-size:.58rem;line-height:1.4}
 .a52-lore-graph-legend-row{padding:5px 0;border-bottom:1px solid rgba(64,132,166,.08)}
 .a52-lore-graph-legend-row:last-child{border-bottom:0}

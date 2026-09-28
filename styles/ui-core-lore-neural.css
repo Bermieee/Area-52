@@ -2,6 +2,40 @@
  * Presentation only. Real Lore owner study state drives every visible node/state.
  * Animations are CSS/SVG only and disabled for reduced-motion.
  */
+.a52-wave13-lore-controls{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) auto;
+  gap:10px 16px;
+  align-items:end;
+  padding:12px 14px;
+  border-color:rgba(54,177,226,.24)!important;
+  background:
+    radial-gradient(circle at 0 0,rgba(28,145,204,.08),transparent 34%),
+    linear-gradient(180deg,rgba(7,24,38,.96),rgba(4,15,25,.98))!important;
+}
+.a52-wave13-lore-controls>.a52-wave13-section-head{grid-column:1/-1;margin:0}
+.a52-wave13-lore-controls>.a52-key-values{
+  display:grid;
+  grid-template-columns:max-content minmax(0,1fr);
+  gap:4px 10px;
+  margin:0;
+  min-width:0;
+}
+.a52-wave13-lore-controls>.a52-key-values dd{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a52-wave13-lore-actions{display:flex;justify-content:flex-end;align-items:center;gap:7px;flex-wrap:wrap}
+.a52-wave13-lore-controls>.a52-wave13-form-status,
+.a52-wave13-lore-controls>.a52-message{grid-column:1/-1}
+.a52-wave13-lore-controls>.a52-wave13-form-status{margin:0;min-height:1em;font-size:.61rem;color:#7e9aac}
+.a52-wave13-lore-entry-details,
+.a52-wave13-lore-derived-details,
+.a52-wave13-lore-review-details{
+  border:1px solid rgba(54,145,188,.15);
+  border-radius:9px;
+  background:rgba(3,14,23,.54);
+}
+.a52-wave13-lore-detail-summary,
+.a52-wave13-lore-review-summary{min-height:38px;padding:0 11px}
+
 .a52-lore-neural-workspace{
   display:grid;
   grid-template-columns:minmax(190px,.62fr) minmax(520px,2.15fr) minmax(220px,.72fr);
@@ -250,6 +284,7 @@
   .a52-lore-neural-rail--right{grid-column:1/-1;grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media(max-width:820px){
+  .a52-wave13-lore-controls{grid-template-columns:1fr;align-items:stretch}.a52-wave13-lore-controls>.a52-wave13-section-head{grid-column:1}.a52-wave13-lore-controls>.a52-wave13-form-status,.a52-wave13-lore-controls>.a52-message{grid-column:1}.a52-wave13-lore-actions{justify-content:flex-start}
   .a52-lore-neural-workspace{grid-template-columns:1fr}
   .a52-lore-neural-rail--left,.a52-lore-neural-rail--right{grid-template-columns:repeat(2,minmax(0,1fr))}
   .a52-lore-neural-canvas{min-height:520px}.a52-lore-neural-svg{height:520px}

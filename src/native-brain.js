@@ -1534,7 +1534,7 @@ export class Area52NativeBrain{
       responseCompletion:responseCompletion?{
         status:responseCompletion.status??'COMPLETED',contextSealId:responseCompletion.contextSealId??null,sourceRevisionId:responseCompletion.sourceRevisionId??null,
         foregroundWaitMs:responseCompletion.foregroundWaitMs??null,learningScheduled:Boolean(responseCompletion.learningScheduled),
-        feedbackRuntimeTaskId:responseCompletion.feedbackRuntimeTaskId??null,memoryRuntimeTaskId:responseCompletion.memoryRuntimeTaskId??null,
+        feedbackRuntimeTaskId:responseCompletion.feedbackRuntimeTaskId??null,memoryFeedbackRuntimeTaskId:responseCompletion.memoryFeedbackRuntimeTaskId??null,memoryRuntimeTaskId:responseCompletion.memoryRuntimeTaskId??null,
         boundedOwnerAcknowledgement:clone(responseCompletion.boundedOwnerAcknowledgement??null),responseRecordedBeforeBackgroundExecution:Boolean(responseCompletion.responseRecordedBeforeBackgroundExecution),
       }:{status:'NO_EVIDENCE',reasonCode:'RESPONSE_COMPLETION_RECEIPT_ABSENT'},
       background:backgroundLearning?{

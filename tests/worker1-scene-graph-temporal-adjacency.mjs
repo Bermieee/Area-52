@@ -55,6 +55,7 @@ test('#110 Episode indexing keeps entity/event/object-state links, temporal appl
   const event=refs.find(row=>row.edgeType===SceneGraphEdgeType.EVENT_IN_SCENE&&row.edgeId.includes('event:bell'));
   const object=refs.find(row=>row.edgeType===SceneGraphEdgeType.OBJECT_IN_SCENE&&row.edgeId.includes('relic'));
   assert.ok(entity&&event&&object);
+  assert.equal(object.fromRef,'relic');
   assert.equal(object.observedState.state,ObjectPresence.HELD);
   assert.equal(object.observedState.holderId,'Mara');
   assert.equal(object.temporalApplicability.sceneRevision,observed.scene.revision);
@@ -148,7 +149,8 @@ test('#110 Scene owner admits only evidence-backed approved causal/supporting li
   assert.equal(causal[0].causal,true);
   assert.equal(causal[0].authorityClass,'INFERRED');
   assert.equal(competing.length,2);
-  assert.ok(competing.every(row=>row.causal===false&&row.authorityClass==='UNRESOLVED'));
+  assert.deepEqual(competing.map(row=>row.interpretationId).sort(),['A','B']);
+  assert.ok(competing.every(row=>row.causal===false&&row.authorityClass==='UNRESOLVED'&&row.ownerApproved===true));
 });
 
 test('#110 deployment Scene owner exposes explicit evidence-link admission without truth, Temporal State or Memory authority',()=>{

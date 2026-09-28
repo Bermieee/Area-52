@@ -53,30 +53,36 @@ export class MemoryPlasticityManager{
     row.maturityStage=row.maturityStage??this.#maturityStage(row,0);
     this.records.set(key,row);this.currentByArtifact.set(id,key);this.#trim();return deepClone(row);
   }
-  recordRetrievalUse({artifactId,artifactRevision=1,accepted=false,rejected=false}={}){
-    const id=String(artifactId??''),row=this.records.get(keyOf(id,artifactRevision))??this.records.get(this.currentByArtifact.get(id));
-    if(!row)return{kind:'MemoryPlasticityUseReceipt',status:'ABSENT',artifactId:id,supportAdded:false,authorityChanged:false};
-    row.retrievalUses+=1;row.acceptedUses+=accepted?1:0;row.rejectedUses+=rejected?1:0;row.eligibleForReconsolidation=true;row.updatedSequence=++this.sequence;
+  recordRetrievalUse({artifactId,artifactRevision=1,accepted=false,rejected=false,countRetrieval=true,strictRevision=false}={}){
+    const id=String(artifactId??''),exact=this.records.get(keyOf(id,artifactRevision)),row=exact??(strictRevision?null:this.records.get(this.currentByArtifact.get(id)));
+    if(!row)return{kind:'MemoryPlasticityUseReceipt',status:'ABSENT',artifactId:id,artifactRevision:Number(artifactRevision)||1,strictRevision:Boolean(strictRevision),supportAdded:false,authorityChanged:false};
+    row.retrievalUses+=countRetrieval?1:0;row.acceptedUses+=accepted?1:0;row.rejectedUses+=rejected?1:0;
+    if(countRetrieval||accepted||rejected)row.eligibleForReconsolidation=true;
+    row.updatedSequence=++this.sequence;
     return this.#receipt({kind:'MemoryPlasticityUseReceipt',status:'RECORDED',artifactId:row.artifactId,artifactRevision:row.artifactRevision,
-      retrievalUses:row.retrievalUses,acceptedUses:row.acceptedUses,rejectedUses:row.rejectedUses,supportAdded:false,authorityChanged:false,authorityClass:row.authorityClass});
+      retrievalUses:row.retrievalUses,acceptedUses:row.acceptedUses,rejectedUses:row.rejectedUses,retrievalCounted:Boolean(countRetrieval),
+      strictRevision:Boolean(strictRevision),supportAdded:false,authorityChanged:false,authorityClass:row.authorityClass});
   }
-  recordCoRetrieval({artifactRefs=[],acceptedArtifactIds=[],rejectedArtifactIds=[],reasonCode='CO_RETRIEVED'}={}){
+  recordCoRetrieval({artifactRefs=[],acceptedArtifactIds=[],rejectedArtifactIds=[],reasonCode='CO_RETRIEVED',countRetrieval=true,existingOnly=false}={}){
     const keys=[...new Set((artifactRefs??[]).map(artifactRefKey).filter(Boolean))].sort().slice(0,32);
     const accepted=new Set((acceptedArtifactIds??[]).map(String)),rejected=new Set((rejectedArtifactIds??[]).map(String));
     const touched=[];
     for(let i=0;i<keys.length;i++)for(let j=i+1;j<keys.length;j++){
       const left=keys[i],right=keys[j],leftId=this.records.get(left)?.artifactId??left,rightId=this.records.get(right)?.artifactId??right,key=pairKey(left,right);
-      const row=this.associations.get(key)??{kind:'MemoryDerivedAssociation',contractVersion:MEMORY_PLASTICITY_VERSION,key,artifactRefs:[left,right],retrievalUses:0,usefulUses:0,rejectedUses:0,
+      let row=this.associations.get(key);
+      if(!row&&existingOnly)continue;
+      row=row??{kind:'MemoryDerivedAssociation',contractVersion:MEMORY_PLASTICITY_VERSION,key,artifactRefs:[left,right],retrievalUses:0,usefulUses:0,rejectedUses:0,
         strength:.2,eligibleForReconsolidation:false,current:true,createdSequence:++this.sequence};
-      row.retrievalUses+=1;
+      row.retrievalUses+=countRetrieval?1:0;
       if(accepted.has(leftId)&&accepted.has(rightId))row.usefulUses+=1;
       if(rejected.has(leftId)||rejected.has(rightId))row.rejectedUses+=1;
-      row.eligibleForReconsolidation=true;row.reasonCode=String(reasonCode);row.updatedSequence=++this.sequence;
+      if(countRetrieval||(accepted.has(leftId)&&accepted.has(rightId))||rejected.has(leftId)||rejected.has(rightId))row.eligibleForReconsolidation=true;
+      row.reasonCode=String(reasonCode);row.updatedSequence=++this.sequence;
       this.associations.set(key,row);touched.push(key);
     }
     this.#trimAssociations();
-    return this.#receipt({kind:'MemoryCoRetrievalReceipt',status:keys.length>1?'RECORDED':'SKIPPED',reasonCode:keys.length>1?String(reasonCode):'INSUFFICIENT_ARTIFACTS',
-      associationKeys:touched,supportAdded:false,authorityChanged:false,retrievalUseIsEvidence:false});
+    return this.#receipt({kind:'MemoryCoRetrievalReceipt',status:touched.length?'RECORDED':'SKIPPED',reasonCode:touched.length?String(reasonCode):(keys.length>1&&existingOnly?'NO_EXISTING_ASSOCIATION':'INSUFFICIENT_ARTIFACTS'),
+      associationKeys:touched,retrievalCounted:Boolean(countRetrieval),existingOnly:Boolean(existingOnly),supportAdded:false,authorityChanged:false,retrievalUseIsEvidence:false});
   }
   nominationPriority(artifactId,artifactRevision=null){
     const id=String(artifactId??''),row=artifactRevision==null?this.records.get(this.currentByArtifact.get(id)):this.records.get(keyOf(id,artifactRevision));

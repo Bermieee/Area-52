@@ -1,0 +1,131 @@
+name: Worker 2 Memory Retrieval Feedback
+
+on:
+  push:
+    branches: [Development-Worker-2]
+    paths:
+      - 'src/candidate-bus.js'
+      - 'src/memory-integration-surface.js'
+      - 'src/memory-plasticity.js'
+      - 'src/memory-retrieval-feedback.js'
+      - 'src/memory-temporal-producer.js'
+      - 'src/native-brain.js'
+      - 'src/native-learning-feedback.js'
+      - 'src/ui-core/turn-log-diagnostics.js'
+      - 'tests/worker2-memory-retrieval-feedback.test.mjs'
+      - 'docs/MEMORY_RETRIEVAL_OUTCOME_FEEDBACK.md'
+      - '.github/workflows/worker2-memory-retrieval-feedback.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/candidate-bus.js'
+      - 'src/memory-integration-surface.js'
+      - 'src/memory-plasticity.js'
+      - 'src/memory-retrieval-feedback.js'
+      - 'src/memory-temporal-producer.js'
+      - 'src/native-brain.js'
+      - 'src/native-learning-feedback.js'
+      - 'src/ui-core/turn-log-diagnostics.js'
+      - 'tests/worker2-memory-retrieval-feedback.test.mjs'
+      - 'docs/MEMORY_RETRIEVAL_OUTCOME_FEEDBACK.md'
+      - '.github/workflows/worker2-memory-retrieval-feedback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Record exact tested head
+        run: |
+          echo "TESTED_HEAD=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Focused Memory retrieval feedback acceptance
+        run: node --test tests/worker2-memory-retrieval-feedback.test.mjs
+
+      - name: Memory and Candidate Bus regressions
+        run: |
+          node --test tests/worker2-memory-execution.test.mjs
+          node --test tests/memory-cognition-completion.test.mjs
+          node --test tests/worker2-memory-plasticity-bounds.test.mjs
+          node --test tests/memory-wave4.mjs
+          node --test tests/candidate-bus-wave8.mjs
+
+      - name: Truth, dense eligibility, completion and cross-owner regressions
+        run: |
+          node --test tests/worker3-brain-retrieval-completion.mjs
+          node --test tests/worker1-brain-execution-eligibility-background.test.mjs
+          node --test tests/main-owner-integration.test.mjs
+          node --test tests/turn-log-diagnostics.test.mjs
+
+      - name: Syntax sweep
+        run: npm run check
+
+      - name: Browser-facing imports
+        run: >-
+          node -e "globalThis.Buffer=undefined;
+          Promise.all([
+          import('./src/memory-retrieval-feedback.js'),
+          import('./src/memory-temporal-producer.js'),
+          import('./src/memory-integration-surface.js'),
+          import('./src/native-learning-feedback.js'),
+          import('./src/native-brain.js'),
+          import('./src/ui-core/turn-log-diagnostics.js')
+          ]).then(()=>console.log('WORKER2 MEMORY FEEDBACK IMPORT PASS'))"
+
+  baseline-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare broad failures with implementation starting main
+        shell: bash
+        run: |
+          STARTING_MAIN=0632b2526435d9608b9dbb23f36446650e223821
+          HEAD_SHA=$(git rev-parse HEAD)
+          extract_failures() {
+            grep -E '^[[:space:]]*not ok [0-9]+ - ' "$1"               | sed -E 's/^[[:space:]]*not ok [0-9]+ - //'               | sed -E 's/[[:space:]]+# time=.*$//'               | sort -u > "$2" || true
+          }
+
+          set +e
+          node --test --test-reporter=tap tests/*.mjs > worker2-head.tap 2>&1
+          HEAD_RC=$?
+          set -e
+          extract_failures worker2-head.tap worker2-head.failures
+
+          git checkout --detach "$STARTING_MAIN"
+          set +e
+          node --test --test-reporter=tap tests/*.mjs > worker2-main.tap 2>&1
+          MAIN_RC=$?
+          set -e
+          extract_failures worker2-main.tap worker2-main.failures
+
+          git checkout --detach "$HEAD_SHA"
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          comm -13 worker2-main.failures worker2-head.failures > worker2-new.failures
+          comm -23 worker2-main.failures worker2-head.failures > worker2-resolved.failures
+
+          echo "starting_main=$STARTING_MAIN starting_main_exit=$MAIN_RC"
+          echo "worker2_head=$HEAD_SHA worker2_head_exit=$HEAD_RC"
+          echo "=== newly failing names (must be empty) ==="
+          cat worker2-new.failures
+          echo "=== inherited failures resolved by Worker 2 ==="
+          cat worker2-resolved.failures
+          test ! -s worker2-new.failures

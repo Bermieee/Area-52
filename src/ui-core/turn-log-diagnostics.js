@@ -129,6 +129,7 @@ export class SelectedTurnLogModel{
         generationInspection:op.generationInspection??null,
         denseRetrieval:ownerTurn?.denseRetrieval??op.generationInspection?.denseRetrieval??op.generationInspection?.memoryDensePrime??null,
         completionLifecycle:ownerTurn?.completionLifecycle??op.generationInspection?.completionLifecycle??null,
+        memoryRetrievalFeedback:ownerTurn?.memoryRetrievalFeedback??op.generationInspection?.memoryRetrievalFeedback??op.memory?.retrievalFeedback?.last??null,
         decision:selectedTurn.brainDecision??null,
         graph:selectedTurn.graphTrace??op.graph??null,
       },
@@ -472,6 +473,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   brainDeep.body.append(renderSelectedTurnGraphVisibility(d,snapshot.graphTrace??operational?.graph,{compact:false,title:'Selected-turn world graph'}));
   const generationInspection=operational?.generationInspection??null;
   const ownerTurn=operational?.nativeBrainIntegration?.selectedTurnReceipt??generationInspection?.selectedTurnReceipt??operational?.selectedTurnReceipt??null;
+  const memoryFeedback=ownerTurn?.memoryRetrievalFeedback??generationInspection?.memoryRetrievalFeedback??memory?.retrievalFeedback?.last??null;
   if(generationInspection||ownerTurn){
     const dense=ownerTurn?.denseRetrieval??generationInspection?.denseRetrieval??generationInspection?.memoryDensePrime??null;
     const completion=ownerTurn?.completionLifecycle??generationInspection?.completionLifecycle??null,background=completion?.background??null,responseCompletion=completion?.responseCompletion??null;
@@ -487,6 +489,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
       {key:'Dense foreground / provider',value:dense?diagnosticMs(dense.foregroundWaitMs)+' / '+diagnosticMs(dense.providerExecutionMs):'No evidence'},
       {key:'Response completion',value:responseCompletion?(String(responseCompletion.status??'UNKNOWN')+' · foreground '+diagnosticMs(responseCompletion.foregroundWaitMs)):'No completion receipt'},
       {key:'Background learning',value:background?(String(background.status??'UNKNOWN')+' · '+String(background.tasks?.length??0)+' task(s) · execution '+diagnosticMs(background.backgroundExecutionMs)+(background.reasonCode?' · '+background.reasonCode:'')):'No background lifecycle receipt'},
+      {key:'Memory retrieval feedback',value:memoryFeedback?(String(memoryFeedback.status??'UNKNOWN')+' · applied '+String(memoryFeedback.counts?.applied??0)+' · rejected '+String(memoryFeedback.counts?.rejected??0)+' · deferred '+String(memoryFeedback.counts?.deferred??0)+' · replayed '+String(memoryFeedback.counts?.replayed??0)):(ownerTurn?.memoryRetrievalFeedbackBatch?'SCHEDULED · awaiting Memory owner':'No owner-backed feedback receipt')},
     ]));
   }
   advanced.append(brainDeep.root);
@@ -544,7 +547,7 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
 
   const knowledgeDeep=diagnosticSection(d,'Lore / retrieval / Memory',{count:'knowledge'}),knowledgeColumns=element(d,'div',{className:'a52-diagnostics-two-column'}),loreColumn=element(d,'div'),memoryColumn=element(d,'div');
   loreColumn.append(element(d,'strong',{text:'Lore / retrieval'}),createKeyValue(d,[{key:'Accepted',value:lore.accepted??0},{key:'Learned/current',value:lore.learned??0},{key:'Retrieval-ready',value:lore.retrievalReady??0},{key:'Due / active',value:(lore.lifecycle?.due??0)+' / '+(lore.lifecycle?.active??lore.lifecycle?.counts?.ACTIVE??0)},{key:'Invalid',value:lore.lifecycle?.counts?.INVALID??0}]));
-  memoryColumn.append(element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'}]));
+  memoryColumn.append(element(d,'strong',{text:'Memory'}),createKeyValue(d,[{key:'Exact evidence',value:memoryCounts.exactEvidence??0},{key:'Current / historical / unresolved',value:[memoryCounts.current??0,memoryCounts.historical??0,memoryCounts.unresolved??0].join(' / ')},{key:'Episodes / reflections / summaries',value:[memoryCounts.episodes??0,memoryCounts.reflections??0,memoryCounts.summaries??0].join(' / ')},{key:'Fresh / stale summaries',value:[fresh.freshSummaries??0,fresh.staleSummaries??0].join(' / ')},{key:'Retrieval',value:memory.retrievalStatus??'No selected-turn receipt'},{key:'Retrieval feedback',value:memoryFeedback?(String(memoryFeedback.status??'UNKNOWN')+' · applied '+String(memoryFeedback.counts?.applied??0)+' · rejected '+String(memoryFeedback.counts?.rejected??0)+' · deferred '+String(memoryFeedback.counts?.deferred??0)):'No selected-turn feedback receipt'},{key:'Feedback authority',value:'supportAdded=false · canonical authority unchanged · delivery unknown'}]));
   knowledgeColumns.append(loreColumn,memoryColumn);knowledgeDeep.body.append(knowledgeColumns);advanced.append(knowledgeDeep.root);
 
   const errorsDeep=diagnosticSection(d,'Errors / recovery / coherence',{count:String(errorCount)});

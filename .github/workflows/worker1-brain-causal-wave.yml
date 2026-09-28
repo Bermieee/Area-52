@@ -40,6 +40,7 @@ on:
       - 'tests/worker1-scene-prefetch-trigger.mjs'
       - 'tests/worker1-scene-event-spine.mjs'
       - 'tests/worker1-scene-graph-temporal-adjacency.mjs'
+      - 'tests/worker1-scene-ft002-assembly.mjs'
       - 'tests/openrouter-jev-decisions.test.mjs'
       - 'scripts/worker1-generation-performance-benchmark.mjs'
       - 'docs/WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT.md'
@@ -83,6 +84,8 @@ jobs:
         run: node --test tests/worker1-scene-event-spine.mjs
       - name: Scene Graph and temporal adjacency #110
         run: node --test tests/worker1-scene-graph-temporal-adjacency.mjs
+      - name: Scene FT002 production assembly #177
+        run: node --test tests/worker1-scene-ft002-assembly.mjs
       - name: Preserve Runtime owner event binding
         run: >-
           node --test
@@ -147,6 +150,7 @@ jobs:
           node --check tests/worker1-scene-prefetch-trigger.mjs &&
           node --check tests/worker1-scene-event-spine.mjs &&
           node --check tests/worker1-scene-graph-temporal-adjacency.mjs &&
+          node --check tests/worker1-scene-ft002-assembly.mjs &&
           node --check scripts/worker1-generation-performance-benchmark.mjs
       - name: Browser-facing imports
         run: >-

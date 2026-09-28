@@ -154,6 +154,26 @@ test('#110 Scene owner admits only evidence-backed approved causal/supporting li
   assert.ok(competing.every(row=>row.causal===false&&row.authorityClass==='UNRESOLVED'));
 });
 
+test('#110 deployment Scene owner exposes explicit evidence-link admission without truth, Temporal State or Memory authority',()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const observed=ingestDeployment(brain,host(HostActivity.USER_SEND,'owner-link','At Archive Hall, Mara waits.'));
+  const admission=brain.admitSceneGraphEvidenceLinks({
+    chatId:'graph-chat',sceneId:observed.sceneId,sceneRevision:observed.sceneRevision,
+    sourceRevisionId:observed.evidence.sourceRevisionId,
+    links:[{fromRef:'event:bell',toRef:'thread:warning',relation:'SUPPORTS',supportStatus:'SUPPORTED',evidenceRefs:[observed.evidence.sourceRevisionId]}],
+  });
+  assert.equal(admission.status,'ADMITTED');
+  assert.equal(admission.authorityGranted,false);
+  assert.equal(admission.canonicalMutationAuthority,false);
+  assert.equal(admission.truthAuthority,false);
+  assert.equal(admission.temporalStateAuthority,false);
+  assert.equal(admission.memoryMutationAuthority,false);
+  assert.equal(admission.contextSealAuthority,false);
+  const edge=brain.scene.graph.references({sceneId:observed.sceneId,limit:16}).find(row=>row.edgeType===SceneGraphEdgeType.EVIDENCE_SUPPORTS);
+  assert.ok(edge);
+  assert.deepEqual(edge.sourceRevisionRefs,[observed.evidence.sourceRevisionId]);
+});
+
 test('#110 source correction retires dependent current links, keeps historical evidence, versions replacement edges and survives reload',()=>{
   const runtime=new SceneLifecycleRuntime();
   const original=runtime.ingestHostEvent(host(HostActivity.USER_SEND,'corr-1','The storm broke the seal.',{messageId:'corr',messageRevision:1}),{

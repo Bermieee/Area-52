@@ -25,9 +25,10 @@ jobs:
           echo "TESTED_HEAD=$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
-      - name: Worker 1 context delivery acceptance
+      - name: Worker 1 context delivery, dense eligibility, and nonblocking completion
         run: |
           node --test tests/worker1-brain-context-delivery-completion.mjs
+          node --test tests/worker1-brain-execution-eligibility-background.test.mjs
           node --test --test-name-pattern="small and large delivery budgets" tests/native-brain-identity-retrieval.mjs
 
       - name: Worker 2 Memory cognition acceptance
@@ -51,6 +52,15 @@ jobs:
 
       - name: Combined turn A to turn B owner path
         run: node --test tests/workers-1-4-integration.test.mjs
+
+      - name: Scene async plus historical Memory integration
+        run: |
+          node --test tests/worker1-scene-cognition-integration.mjs
+          node --test --test-name-pattern="yield requested during the final atomic slice" tests/runtime-fabric.mjs
+          node --test --test-name-pattern="slow OPPORTUNISTIC work does not hold foreground quorum|generation pressure yields background cognitive work" tests/runtime-wave3.mjs
+
+      - name: Current World Tree UI regression
+        run: node --test tests/worker3-lore-neural-ui.test.mjs
 
       - name: Syntax
         run: npm run check
@@ -84,10 +94,10 @@ jobs:
           echo "TESTED_HEAD=$(git rev-parse HEAD)"
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
 
-      - name: Compare broad failures with exact starting main
+      - name: Compare broad failures with frozen current main
         shell: bash
         run: |
-          STARTING_MAIN=438b1c18de734d45d4fbbdb3d241cd1da5caad6d
+          STARTING_MAIN=0d372ce1d3e4909d876ffb390dad1f7fb82ac423
           HEAD_SHA=$(git rev-parse HEAD)
 
           extract_failures() {

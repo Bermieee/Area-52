@@ -151,6 +151,37 @@ test('Core context owner decides raw-turn retirement and preserves transition re
   assert.equal(currentSceneSection.semantic,true,'transition continuity must enter through a sealed semantic section');
 });
 
+test('Native Brain restart abstains from transition retirement until a fresh handoff is re-supplied',async()=>{
+  const owner=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
+  const prior=[];
+  for(let i=1;i<=7;i++)prior.push(ingest(owner,event(HostActivity.USER_SEND,`restart-${i}`,`At North Gallery, Mara waits near restart marker ${i}.`,{chatId:'restart-chat'})));
+  const moved=ingest(owner,event(HostActivity.USER_SEND,'restart-move','We arrive at South Courtyard.',{chatId:'restart-chat'}));
+  const activeMessages=prior.map((row,index)=>({
+    messageId:`restart-${index+1}`,sequence:index,role:'user',content:`restart prior ${index+1}`,
+    sourceRevisionRefs:[row.evidence.sourceRevisionId],
+  }));
+  activeMessages.push({messageId:'restart-move',sequence:99,role:'user',content:'What happens next?',sourceRevisionRefs:[moved.evidence.sourceRevisionId]});
+
+  const native=new Area52NativeBrain();
+  const first=await native.prepareTurn({
+    chatId:'restart-chat',turnId:'native:restart:1',generationId:'native:restart:g1',query:'What happens next?',
+    sceneSignal:moved.signal,sceneTimeline:moved.dispatchTimeline,sceneOwnerReceipt:ownerReceipt(moved),
+    activeContext:{messages:activeMessages,coverage:[],recentWindow:1},executionLabel:'DETERMINISTIC',
+  });
+  assert.ok(first.contextRetirement.retireEligibleMessageIds.length>0,'fresh owner handoff should allow evidence-gated retirement');
+
+  const restored=Area52NativeBrain.fromSnapshot(native.snapshot());
+  assert.equal(restored.core.sceneTransitionContext('restart-chat'),null,'compact handoff state is not persisted across Native Brain restart');
+  const second=await restored.prepareTurn({
+    chatId:'restart-chat',turnId:'native:restart:2',generationId:'native:restart:g2',query:'Continue.',
+    sceneSignal:moved.signal,
+    activeContext:{messages:activeMessages,coverage:[],recentWindow:1},executionLabel:'DETERMINISTIC',
+  });
+  assert.equal(second.contextRetirement.retireEligibleMessageIds.length,0,'restart without fresh owner handoff must abstain from transition-based retirement');
+  assert.equal(second.contextRetirement.abstained,true);
+  assert.equal(JSON.stringify(second.promptPlan).includes(moved.transitionHandoff.continuity.compactPriorSceneSummary),false,'restart must not resurrect unpersisted compact continuity');
+});
+
 test('flashback and resume preserve conceptual Scene identity and finalize only the temporary Scene on resume',()=>{
   const brain=new DevelopmentDeploymentBrain({resourceCount:1,jevAvailable:false});
   const present=ingest(brain,event(HostActivity.USER_SEND,'resume-present','At Present Hall, Mara waits.',{chatId:'resume-chat'}));

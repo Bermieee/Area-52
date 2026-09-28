@@ -456,6 +456,13 @@ export class SpeculativeWarmCoordinator {
     if (evaluated.state === WarmState.PARTIALLY_STALE) {
       this.#metrics.partialSalvage += 1;
       const refs = boundedUniqueStrings(evaluated.salvageableRefs ?? [], this.limits.maxCandidateRefs + this.limits.maxEvidenceRefs);
+      const packet=this.#findPacketByIdentity(current);
+      const dependencyMap=packet?.metadata?.refDependencies??{};
+      const reusableCandidates=refs.map((ref)=>({
+        candidateId:ref,
+        sourceRevisionRefs:boundedUniqueStrings(Array.isArray(dependencyMap?.[ref])?dependencyMap[ref]:[],this.limits.maxEvidenceRefs),
+        warmPacketId:evaluated.packetId,
+      }));
       emitTelemetry(this.telemetry, TelemetryEvent.WARM_PARTIAL, {
         packetId: evaluated.packetId,
         salvageableRefCount: refs.length,
@@ -466,6 +473,7 @@ export class SpeculativeWarmCoordinator {
         freshness: WarmState.PARTIALLY_STALE,
         packetId: evaluated.packetId,
         reusableRefs: refs,
+        reusableCandidates,
         compiledReference: null,
         truthReceipt: null,
         precisionReceipt: null,

@@ -2,7 +2,7 @@
   "kind": "DevelopmentDeploymentReconciliationDigestOverlay",
   "schemaVersion": "1.0.0",
   "reconciliationId": "SCENE-ASYNC-RUNTIME-WORKER4-20260927",
-  "baseMainSha": "4cdc924979a6e5b9f0f492ed80f5fa9cea6bafd6",
+  "baseMainSha": "a7c5145b623e22537d17a26ffbc0155f778032fb",
   "sourceHeads": {
     "scene": "64cec1c3bfe8e48e3b4cd2498039d78cdb89f2e5",
     "brainCombined": "8ef2e63fc059d00a9d4ef34e54a820c6f96888c9",
@@ -15,7 +15,9 @@
     "sceneWorker2": "21d66071156b384d87f7a19bd1e8b2293f741b22",
     "mergedSceneIntegration": "a0a27dd2e0cab7ee847d545ee90d5e7aabbe617b",
     "traceHotfixCodeHead": "c9e1cdb916b9de838dbbc08d6059411dd170a0fd",
-    "worker4AsyncScene": "fb9b61a8636e39f92d5b5020ea20c282324c867d"
+    "worker4AsyncScene": "e67336ce350e6c711ce9217b84c9bcb7cd7f20dc",
+    "refreshedMain": "a7c5145b623e22537d17a26ffbc0155f778032fb",
+    "refreshMerge": "075c972a81abf7697b6ca361bcf6fd007e8dc202"
   },
   "rule": "Carries forward accepted reconciliation digests and updates only copied-checkpoint paths legitimately changed by Worker 4's asynchronous Scene Runtime/Result Bus correction. Original-turn owner/Seal authority and unrelated drift remain unchanged.",
   "pathDigests": {
@@ -134,7 +136,7 @@
     "reason": "Adaptive Scene generation allowance and independently enforced time budget; unrelated digests preserved."
   },
   "sceneAsyncRuntimeRepair": {
-    "baseMainSha": "4cdc924979a6e5b9f0f492ed80f5fa9cea6bafd6",
+    "baseMainSha": "a7c5145b623e22537d17a26ffbc0155f778032fb",
     "criteriaIssues": [
       90,
       94,
@@ -150,6 +152,8 @@
       "src/scene/scene-lifecycle-runtime.js",
       "src/ui-core/wave13-operator-adapters.js"
     ],
-    "note": "Foreground quorum is separated from provider lifetime; late fresh Scene results use existing Result Bus NEXT_TURN/BACKGROUND routing and explicit Scene-owner admission."
+    "note": "Foreground quorum is separated from provider lifetime; late fresh Scene results use existing Result Bus NEXT_TURN/BACKGROUND routing and explicit Scene-owner admission.",
+    "validatedHead": "e67336ce350e6c711ce9217b84c9bcb7cd7f20dc",
+    "refreshedMergeHead": "075c972a81abf7697b6ca361bcf6fd007e8dc202"
   }
 }

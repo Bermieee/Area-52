@@ -2,11 +2,11 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 import { renderLoreReviewWorkspace } from './lore-authoring-review-ui.js';
-import { renderLoreNeuralWorkspace } from './lore-neural-graph.js';
+import { createLoreNeuralRenderState, renderLoreNeuralWorkspace } from './lore-neural-graph.js';
 import { renderSelectedTurnGraphVisibility } from './selected-turn-graph-visibility.js';
 
 export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null,graphVisibility=null}={}){
-  const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
+  const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore(),loreNeuralState=createLoreNeuralRenderState();
   if(registry.has('brain')){
     const current=registry.get('brain');
     registry.update('brain',{render(host,ctx){
@@ -32,7 +32,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   if(registry.has('lore')){
     const current=registry.get('lore');
     registry.update('lore',{preferredWidth:1280,render(host,ctx){
-      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
+      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState});
       const d=host.ownerDocument,review=element(d,'details',{className:'a52-wave13-lore-review-details'});
       review.open=ctx.productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
       const summary=element(d,'summary',{className:'a52-wave13-lore-review-summary'});
@@ -837,7 +837,7 @@ function plainMemoryReason(reason){
   return String(reason);
 }
 
-export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect}={}){
+export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null}={}){
   const d=host.ownerDocument;
   host.append(header(d,'Lore','Select the SillyTavern Lorebook, accept it for study, then watch Area-52 grow the owner-backed Lore graph as study becomes current.'));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
@@ -900,7 +900,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
   host.append(form);
 
-  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect}));
+  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState}));
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});

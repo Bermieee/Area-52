@@ -1572,7 +1572,7 @@ export class DevelopmentDeploymentBrain {
     return null;
   }
 
-  #cancelSpeculativeWarmTasks({chatId=null,sourceRevisionRefs=[],foreignToChat=null,reason='SPECULATIVE_WARM_CANCELLED'}={}){
+  #cancelSpeculativeWarmTasks({chatId=null,sourceRevisionRefs=[],foreignToChat=null,currentSceneRevision=null,reason='SPECULATIVE_WARM_CANCELLED'}={}){
     const refs=new Set(uniq(sourceRevisionRefs)),cancelled=[];
     for(const record of this.runtimeDirector.ledger.list()){
       if(record?.obligation?.taskType!=='SPECULATIVE_CONTEXT_WARM')continue;
@@ -1580,7 +1580,8 @@ export class DevelopmentDeploymentBrain {
       const cause=record.obligation?.cause??{},sourceRefs=record.obligation?.sourceRevisionIds??[];
       const match=foreignToChat?String(cause.chatId??'')!==String(foreignToChat)
         :refs.size?sourceRefs.some((ref)=>refs.has(String(ref)))
-          :chatId?String(cause.chatId??'')===String(chatId):false;
+          :currentSceneRevision!=null&&chatId?String(cause.chatId??'')===String(chatId)&&Number(record.obligation?.sceneRevision)!==Number(currentSceneRevision)
+            :chatId?String(cause.chatId??'')===String(chatId):false;
       if(!match)continue;
       const didCancel=this.runtimeDirector.cancelTask(record.taskId,reason);
       if(didCancel){
@@ -1928,8 +1929,20 @@ export class DevelopmentDeploymentBrain {
       ...(evidence?.invalidates ?? []),
       evidence?.replacesRevisionId,
     ].filter(Boolean).map(String))].sort();
-    if(priorActiveChat&&requestedChatId&&priorActiveChat!==requestedChatId)this.#cancelSceneObservationTasks({foreignToChat:requestedChatId,reason:'SCENE_OBSERVATION_CHAT_SUPERSEDED'});
-    if(invalidatedSourceRevisionRefs.length)this.#cancelSceneObservationTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SCENE_OBSERVATION_SOURCE_INVALIDATED'});
+    if(priorActiveChat&&requestedChatId&&priorActiveChat!==requestedChatId){
+      this.#cancelSceneObservationTasks({foreignToChat:requestedChatId,reason:'SCENE_OBSERVATION_CHAT_SUPERSEDED'});
+      this.#cancelSpeculativeWarmTasks({foreignToChat:requestedChatId,reason:'SPECULATIVE_WARM_CHAT_SUPERSEDED'});
+      this.speculativeWarmer.cache.invalidate({chatId:priorActiveChat});
+    }
+    if(invalidatedSourceRevisionRefs.length){
+      this.#cancelSceneObservationTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SCENE_OBSERVATION_SOURCE_INVALIDATED'});
+      this.#cancelSpeculativeWarmTasks({sourceRevisionRefs:invalidatedSourceRevisionRefs,reason:'SPECULATIVE_WARM_SOURCE_INVALIDATED'});
+      this.speculativeWarmer.cache.invalidate({chatId,sourceRevisionIds:invalidatedSourceRevisionRefs});
+    }
+    if(chatId&&signal?.sceneRevision!=null){
+      this.#cancelSpeculativeWarmTasks({chatId,currentSceneRevision:signal.sceneRevision,reason:'SPECULATIVE_WARM_SCENE_SUPERSEDED'});
+      this.speculativeWarmer.cache.invalidate({chatId,sceneRevision:signal.sceneRevision});
+    }
     const sourceRevisionRefs = [...new Set(signal?.sourceRevisionRefs ?? signal?.sourceRevisionSet ?? [])].sort();
     const memoryInvalidations=[];
     for(const sourceRevisionId of invalidatedSourceRevisionRefs){

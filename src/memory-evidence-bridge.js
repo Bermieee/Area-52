@@ -141,15 +141,16 @@ export class MemoryExternalEvidenceBridge{
     const bad=authorityViolation(input);
     if(bad)throw new MemoryEvidenceBridgeError('MEMORY_BRIDGE_AUTHORITY_VIOLATION','Mapping request cannot grant authority',{field:bad});
     const sealedGeneration=input.lateForSealedGeneration===true||input.sealedGeneration===true;
+    const ownerArtifactRef=normalizeArtifactRef(input.ownerArtifactRef);
     const historicalPostSealAllowed=sealedGeneration
       &&input.historicalLifecycle===true
-      &&String(input.destination??'').toUpperCase()==='BACKGROUND';
+      &&String(input.destination??'').toUpperCase()==='BACKGROUND'
+      &&ownerArtifactRef.owner==='SCENE_INTELLIGENCE'
+      &&ownerArtifactRef.artifactType==='SceneEpisode';
     if(sealedGeneration&&!historicalPostSealAllowed)throw new MemoryEvidenceBridgeError(
       'MEMORY_BRIDGE_LATE_SEALED_GENERATION',
       'Late sealed-generation material cannot be admitted as current evidence',
     );
-
-    const ownerArtifactRef=normalizeArtifactRef(input.ownerArtifactRef);
     const externalEvidenceRef=requiredString(input.externalEvidenceRef,'externalEvidenceRef');
     const source=input.source??{};
     const sourceId=requiredString(source.sourceId,'source.sourceId');

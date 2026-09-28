@@ -1303,15 +1303,16 @@ export class DevelopmentDeploymentBrain {
   #speculativeWarmCompatible({recommendation,query,anchorEntityIds=[],sceneSignal}={}){
     if(!recommendation||recommendation.status!=='ACTIVE')return false;
     if(Number(recommendation.sceneRevision)!==Number(sceneSignal?.sceneRevision))return false;
-    const anchors=new Set(uniq(anchorEntityIds));
-    if((recommendation.entityRefs??[]).some((ref)=>anchors.has(String(ref))))return true;
+    const recommendationEntities=new Set(uniq(recommendation.entityRefs??[]));
+    const anchors=uniq(anchorEntityIds);
+    const anchorCompatible=!anchors.length||anchors.every((ref)=>recommendationEntities.has(String(ref)));
     const text=String(query??'').toLowerCase();
     const tokens=uniq([
       ...(recommendation.entityRefs??[]),...(recommendation.locationRefs??[]),
       ...(recommendation.threadRefs??[]),...(recommendation.sceneRefs??[]),
     ]).flatMap((ref)=>String(ref).toLowerCase().split(/[^a-z0-9]+/g))
       .filter((token)=>token.length>=3&&!['char','character','loc','location','thread','scene','story','ref'].includes(token));
-    return tokens.some((token)=>text.includes(token));
+    return anchorCompatible&&tokens.some((token)=>text.includes(token));
   }
 
   #createInstalledSpeculativeWarmAdapters(){
@@ -2392,6 +2393,14 @@ export class DevelopmentDeploymentBrain {
       resultClass:RuntimeResultClass.OPPORTUNISTIC,
       authorityGranted:false,
     }));
+    const generationMeta={
+      chatId:String(chatId),turnId:turn.turnId,generationId:String(generationId),correlationId:turn.correlationId,
+      sceneId:sceneSignal.sceneId??null,sceneRevision:sceneSignal.sceneRevision,sourceRevisionSet:[...sourceRevisionSet],
+    };
+    this.speculativeWarmer.onForegroundStart({turnId:turn.turnId});
+    this.runtimeDirector.beginGeneration(generationMeta);
+    try{
+      await this.speculativeWarmPumpPromise.catch(()=>{});
 
     let planning = null;
     const jobs = [];
@@ -2411,15 +2420,7 @@ export class DevelopmentDeploymentBrain {
       }
     }
 
-    const generationMeta={
-      chatId:String(chatId),turnId:turn.turnId,generationId:String(generationId),correlationId:turn.correlationId,
-      sceneId:sceneSignal.sceneId??null,sceneRevision:sceneSignal.sceneRevision,sourceRevisionSet:[...sourceRevisionSet],
-    };
-    this.speculativeWarmer.onForegroundStart({turnId:turn.turnId});
-    this.runtimeDirector.beginGeneration(generationMeta);
-    try{
-      await this.speculativeWarmPumpPromise.catch(()=>{});
-      const publishedRuntime = this.runtime.publishTurn(turn, jobs);
+    const publishedRuntime = this.runtime.publishTurn(turn, jobs);
       const foreground = await this.runtime.native.awaitForeground(turn.turnId);
       await this.runtimeDirector.drain();
 

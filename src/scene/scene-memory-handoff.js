@@ -12,5 +12,6 @@ export function createGraphReferenceSetFromScene({graph,scene,episodeRefs=[]}={}
 export function createExperienceProposalFromScene({scene,episode,graph,proposalId=null}={}){
   if(!scene||!episode||!graph)throw new TypeError('scene, episode and graph are required');
   const graphReferenceSet=createGraphReferenceSetFromScene({graph,scene,episodeRefs:[episode.artifactRef]});
-  return createSceneExperienceProposal({proposalId:proposalId??`scene-experience:${scene.sceneId}:${scene.revision}`,sceneId:scene.sceneId,sceneRevision:scene.revision,sceneEpisodeRef:episode.artifactRef,graphReferenceSet,sourceRevisionRefs:scene.sourceRevisionRefs??[],evidenceRefs:scene.provenance??[],provenance:episode.provenance??[]});
+  const sourceRevisionRefs=[...new Set(episode.sourceRevisionRefs??scene.sourceRevisionRefs??[])].sort();
+  return createSceneExperienceProposal({proposalId:proposalId??`scene-experience:${scene.sceneId}:${scene.revision}`,sceneId:scene.sceneId,sceneRevision:scene.revision,sceneEpisodeRef:episode.artifactRef,graphReferenceSet,sourceRevisionRefs,evidenceRefs:sourceRevisionRefs,provenance:episode.provenance??[]});
 }

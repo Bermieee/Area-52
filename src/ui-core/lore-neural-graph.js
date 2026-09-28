@@ -10,7 +10,7 @@ const STATE_META={
 };
 
 export function createLoreNeuralRenderState(){
-  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0};
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0,animationInitialized:false};
 }
 export function replayLoreNeuralGrowth(state){
   if(!state)return false;
@@ -400,6 +400,10 @@ function growthState(state,selected,graph){
     newArtifacts:new Set(graph.artifacts.map(row=>row.id)),newEdges:new Set(graph.edges.map(row=>row.id)),
   };
   let reset=false;
+  if(state.animationInitialized!==true){
+    state.animationInitialized=true;reset=true;
+    state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
+  }
   if(state.lorebookKey!==key){
     state.lorebookKey=key;reset=true;
     state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();

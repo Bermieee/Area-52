@@ -493,6 +493,7 @@ export class Area52NativeBrain{
       retrievalQualityReceipt:published.retrievalQualityReceipt??null,
       correctiveRetrievalReceipt:published.correctiveRetrievalReceipt??null,
       candidateTraceReceipt:published.candidateTraceReceipt??null,
+      sceneFanOutResultBusReceipt:published.sceneFanOutResultBusReceipt??null,
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,
       budgetDecision:delivery.plan?.diagnosticReceipt?.budgetDecision??null,
@@ -1215,7 +1216,7 @@ export class Area52NativeBrain{
   #selectedTurnReceipt(record){
     const selection=this.#selection(record),hostObservation=record.hostObservation??null,scene=record.published?.sceneIntegration??null,hot=record.published?.hotCognition??null;
     const learnedNarrativeRefs=uniq([record.experience?.sourceRevisionId,record.learningReceipt?.sourceRevisionId].filter(ref=>ref&&!selection.sourceRevisionRefs.includes(String(ref))));
-    const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record),expectedWork=this.#expectedWorkReadModel(record);
+    const choice=record.published?.cognitiveChoiceReceipt??null,gather=record.published?.gatherReceipt??null,seal=record.published?.sealReceipt??null,plan=record.delivery?.plan??null,context=this.#contextReceipt(record),expectedWork=this.#expectedWorkReadModel(record),sceneFanOutBinding=record.published?.sceneFanOutResultBusReceipt??null;
     const candidate=record.published?.candidateEnvelope??null,truth=record.published?.publicationAssessment??record.published?.assessment??null;
     const stageId=(stage,value,explicit=null)=>!value?null:(explicit??value.receiptId??value.id??value.envelopeId??value.promptPlanId??('native:'+stage+':'+stableHash({turnId:record.turnId,stage,kind:value.kind??null},{length:20})));
     const producer=(stage,value,{producerId,consumerId,parentReceiptId=null,status=null,reasonCode=null,reasonCodes=[],durationMs=null,ownerAccepted=null,sourceRevisionRefs=null,metadata={}}={})=>{
@@ -1266,8 +1267,9 @@ export class Area52NativeBrain{
         physicalExecutionCount:Number(sceneFanOutIngress.physicalExecutionCount??0),admittedResultIds:[...(sceneFanOutIngress.admittedResultIds??[])].slice(0,32),
         rejectedResultIds:[...(sceneFanOutIngress.rejectedResultIds??[])].slice(0,32),staleResultIds:[...(sceneFanOutIngress.staleResultIds??[])].slice(0,32),
         candidateCount:Number(sceneFanOutIngress.candidateCount??0),candidateIds:[...(sceneFanOutIngress.candidateIds??[])].slice(0,32),
+        coreBinding:sceneFanOutBinding?{status:sceneFanOutBinding.status,boundCandidateIds:[...(sceneFanOutBinding.boundCandidateIds??[])].slice(0,32),rejectedCandidateIds:[...(sceneFanOutBinding.rejectedCandidateIds??[])].slice(0,32),rows:clone((sceneFanOutBinding.rows??[]).slice(0,32))}:null,
         coreChoice:{admittedJobs:fanOutAdmitted.slice(0,16),skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)},
-      }:fanOutAdmitted.length?{state:'ADMITTED',ingressStatus:'NO_EXTERNAL_HANDOFF',candidateCount:0,candidateIds:[],coreChoice:{admittedJobs:fanOutAdmitted.slice(0,16),skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}}:{state:'NO_WORK',ingressStatus:'NO_EXTERNAL_HANDOFF',candidateCount:0,candidateIds:[],coreChoice:{admittedJobs:[],skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}},
+      }:fanOutAdmitted.length?{state:'ADMITTED',ingressStatus:'NO_EXTERNAL_HANDOFF',candidateCount:0,candidateIds:[],coreBinding:sceneFanOutBinding?clone(sceneFanOutBinding):null,coreChoice:{admittedJobs:fanOutAdmitted.slice(0,16),skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}}:{state:'NO_WORK',ingressStatus:'NO_EXTERNAL_HANDOFF',candidateCount:0,candidateIds:[],coreBinding:sceneFanOutBinding?clone(sceneFanOutBinding):null,coreChoice:{admittedJobs:[],skippedJobs:fanOutSkipped.slice(0,16),reasonCodes:uniq(choice?.reasonCodes??[]).slice(0,16)}},
       gather:gather?{state:(gather.admittedResultIds??[]).length?'ADMITTED_RESULTS':'PUBLISHED_NO_WORK',receiptId:gather.receiptId??gather.kind??null,admittedResultCount:(gather.admittedResultIds??[]).length,staleResultCount:(gather.staleResultIds??[]).length,rejectedResultCount:(gather.rejectedResultIds??[]).length}:{state:'UNAVAILABLE',reason:'GATHER_RECEIPT_UNAVAILABLE'},
       contextSeal:seal?{state:'SEALED',contextSealId:seal.id??null,sceneId:seal.sceneId??scene?.sceneId??null,sceneRevision:seal.sceneRevision??null,sourceRevisionRefs:uniq(seal.sourceRevisionIds??[]).slice(0,64)}:{state:'UNAVAILABLE',reason:'CONTEXT_SEAL_UNAVAILABLE'},
       promptPlan:plan?{state:'PLANNED',promptPlanId:plan.promptPlanId??null,contextSealId:plan.contextSealId??null,turnId:plan.turnId??null,generationId:plan.generationId??null}:{state:'UNAVAILABLE',reason:'PROMPT_PLAN_UNAVAILABLE'},

@@ -120,21 +120,29 @@ test('#110 Scene owner admits only evidence-backed approved causal/supporting li
   const receipt=runtime.ingestHostEvent(host(HostActivity.USER_SEND,'links','The storm broke the seal while two witnesses disagree about the warning.'),{
     extract:(e,scene)=>({
       fields:{location:field({location:'Archive'},scene.revision+1,e.sourceRevisionId)},
+      graphEvidenceLinksOwnerApproved:true,
       graphEvidenceLinks:[
-        {fromRef:'event:storm',toRef:'object:seal',relation:'CAUSES',ownerApproved:true,supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]},
-        {fromRef:'event:rumor',toRef:'object:seal',relation:'CAUSES',ownerApproved:false,supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]},
-        {fromRef:'event:maybe',toRef:'object:seal',relation:'CAUSES',ownerApproved:true,supportStatus:'UNRESOLVED',evidenceRefs:[e.sourceRevisionId]},
-        {fromRef:'event:witness',toRef:'thread:warning',relation:'SUPPORTS',ownerApproved:true,supportStatus:'UNRESOLVED',interpretationId:'A',evidenceRefs:[e.sourceRevisionId]},
-        {fromRef:'event:witness',toRef:'thread:warning',relation:'SUPPORTS',ownerApproved:true,supportStatus:'UNRESOLVED',interpretationId:'B',evidenceRefs:[e.sourceRevisionId]},
+        {fromRef:'event:storm',toRef:'object:seal',relation:'CAUSES',supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]},
+        {fromRef:'event:maybe',toRef:'object:seal',relation:'CAUSES',supportStatus:'UNRESOLVED',evidenceRefs:[e.sourceRevisionId]},
+        {fromRef:'event:witness',toRef:'thread:warning',relation:'SUPPORTS',supportStatus:'UNRESOLVED',interpretationId:'A',evidenceRefs:[e.sourceRevisionId]},
+        {fromRef:'event:witness',toRef:'thread:warning',relation:'SUPPORTS',supportStatus:'UNRESOLVED',interpretationId:'B',evidenceRefs:[e.sourceRevisionId]},
       ],
     }),
   });
   const admitted=receipt.graphEvidenceReceipts.filter(row=>row.status==='ADMITTED');
   const rejected=receipt.graphEvidenceReceipts.filter(row=>row.status==='REJECTED');
   assert.equal(admitted.length,3);
-  assert.equal(rejected.length,2);
-  assert.ok(rejected.some(row=>row.reasonCode==='SCENE_GRAPH_OWNER_APPROVAL_REQUIRED'));
+  assert.equal(rejected.length,1);
   assert.ok(rejected.some(row=>String(row.reasonCode).includes('causal Scene graph link requires explicitly supported')));
+
+  const unapproved=runtime.ingestHostEvent(host(HostActivity.USER_SEND,'links-unapproved','A rumor claims the seal failed.'),{
+    extract:(e,scene)=>({
+      fields:{},
+      graphEvidenceLinks:[{fromRef:'event:rumor',toRef:'object:seal',relation:'CAUSES',supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]}],
+    }),
+  });
+  assert.equal(unapproved.graphEvidenceAdmission.status,'REJECTED');
+  assert.equal(unapproved.graphEvidenceAdmission.reasonCode,'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED');
 
   const edges=runtime.graph.references({sceneId:receipt.scene.sceneId,limit:32});
   const causal=edges.filter(row=>row.edgeType===SceneGraphEdgeType.EVIDENCE_CAUSES);
@@ -151,7 +159,7 @@ test('#110 source correction retires dependent current links, keeps historical e
   const original=runtime.ingestHostEvent(host(HostActivity.USER_SEND,'corr-1','The storm broke the seal.',{messageId:'corr',messageRevision:1}),{
     extract:(e,scene)=>({
       fields:{location:field({location:'Archive'},scene.revision+1,e.sourceRevisionId)},
-      graphEvidenceLinks:[{fromRef:'event:storm',toRef:'object:seal',relation:'CAUSES',ownerApproved:true,supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]}],
+      graphEvidenceLinksOwnerApproved:true,graphEvidenceLinks:[{fromRef:'event:storm',toRef:'object:seal',relation:'CAUSES',supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]}],
     }),
   });
   const oldSource=original.evidence.sourceRevisionId;
@@ -161,7 +169,7 @@ test('#110 source correction retires dependent current links, keeps historical e
   const corrected=runtime.ingestHostEvent(host(HostActivity.EDIT,'corr-2','A falling beam broke the seal.',{messageId:'corr',messageRevision:2}),{
     extract:(e,scene)=>({
       fields:{location:field({location:'Archive'},scene.revision+1,e.sourceRevisionId)},
-      graphEvidenceLinks:[{fromRef:'event:storm',toRef:'object:seal',relation:'CAUSES',ownerApproved:true,supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]}],
+      graphEvidenceLinksOwnerApproved:true,graphEvidenceLinks:[{fromRef:'event:storm',toRef:'object:seal',relation:'CAUSES',supportStatus:'SUPPORTED',evidenceRefs:[e.sourceRevisionId]}],
     }),
   });
   const newSource=corrected.evidence.sourceRevisionId;

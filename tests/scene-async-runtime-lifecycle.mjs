@@ -175,3 +175,62 @@ test('explicit operator cancellation is truthful and does not fabricate owner ac
   gate.resolve(VALID_PAYLOAD);await new Promise(resolve=>setTimeout(resolve,30));
   assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===work.executionReceipt.workId&&row.status==='ADMITTED'),false);
 });
+
+
+test('newer same-lane Scene work supersedes and cancels the older Runtime task',async()=>{
+  const brain=new DevelopmentDeploymentBrain(),firstGate=deferred(),secondGate=deferred();let calls=0;
+  await connectScene(brain,()=>++calls===1?firstGate.promise:secondGate.promise,{id:'scene:supersede'});
+  const first=sceneEvent(brain,{chatId:'chat:supersede',messageId:'m1',turnId:'turn:supersede:1',generationId:'gen:supersede:1'});
+  brain.ingestSceneHostEvent(first,{extract:()=>({})});
+  const firstWork=await brain.runSceneObservationWork({
+    chatId:first.chatId,turnId:first.turnId,generationId:first.generationId,correlationId:first.correlationId,
+    sourceRevisionId:first.sourceRevisionId,narrative:first.content,hostEvent:first,parentWorkId:'generation:'+first.generationId,
+  });
+  await waitFor(()=>brain.resourceConnections.taskControllers.has(firstWork.executionReceipt.workId));
+
+  const second=sceneEvent(brain,{chatId:first.chatId,messageId:'m2',turnId:'turn:supersede:2',generationId:'gen:supersede:2',content:'Mira studies a second sealed note.'});
+  brain.ingestSceneHostEvent(second,{extract:()=>({})});
+  const secondWork=await brain.runSceneObservationWork({
+    chatId:second.chatId,turnId:second.turnId,generationId:second.generationId,correlationId:second.correlationId,
+    sourceRevisionId:second.sourceRevisionId,narrative:second.content,hostEvent:second,parentWorkId:'generation:'+second.generationId,
+  });
+  assert.equal(secondWork.status,'QUEUED');
+  assert.ok(brain.readSceneObservationReceipts({limit:128}).some(row=>row.status==='CANCELLED'&&row.workId===firstWork.executionReceipt.workId&&row.reasonCode==='SCENE_OBSERVATION_SUPERSEDED'));
+
+  firstGate.resolve(VALID_PAYLOAD);secondGate.resolve({fields:{activeThreads:{value:['second-note'],confidence:.9,observationClass:'OBSERVED'}},boundarySignals:{}});
+  await waitFor(()=>brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===secondWork.executionReceipt.workId));
+  assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===firstWork.executionReceipt.workId&&row.status==='ADMITTED'),false);
+});
+
+test('chat change cancels foreign in-flight Scene work before it can mutate the new active chat',async()=>{
+  const brain=new DevelopmentDeploymentBrain(),gate=deferred();
+  await connectScene(brain,()=>gate.promise,{id:'scene:foreign'});
+  const a=sceneEvent(brain,{chatId:'chat:a',messageId:'m1',turnId:'turn:a',generationId:'gen:a'});
+  brain.ingestSceneHostEvent(a,{extract:()=>({})});
+  const work=await brain.runSceneObservationWork({
+    chatId:a.chatId,turnId:a.turnId,generationId:a.generationId,correlationId:a.correlationId,
+    sourceRevisionId:a.sourceRevisionId,narrative:a.content,hostEvent:a,parentWorkId:'generation:'+a.generationId,
+  });
+  await waitFor(()=>brain.resourceConnections.taskControllers.has(work.executionReceipt.workId));
+  const b=sceneEvent(brain,{chatId:'chat:b',messageId:'m1',turnId:'turn:b',generationId:'gen:b',content:'Ren waits quietly.'});
+  brain.ingestSceneHostEvent(b,{extract:()=>({})});
+  assert.ok(brain.readSceneObservationReceipts({limit:128}).some(row=>row.status==='CANCELLED'&&row.workId===work.executionReceipt.workId&&row.reasonCode==='SCENE_OBSERVATION_CHAT_SUPERSEDED'));
+  gate.resolve(VALID_PAYLOAD);await new Promise(resolve=>setTimeout(resolve,40));
+  assert.notEqual(brain.scene.integrationSignal('chat:b').location?.location,'Greyharbor Observatory');
+  assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===work.executionReceipt.workId&&row.status==='ADMITTED'),false);
+});
+
+test('provider/network failure is retained as physical execution failure and never fabricated as owner rejection or acceptance',async()=>{
+  const brain=new DevelopmentDeploymentBrain();
+  await connectScene(brain,()=>{const error=new Error('provider unavailable');error.code='PROVIDER_UNAVAILABLE';throw error;},{id:'scene:failure'});
+  const event=sceneEvent(brain,{chatId:'chat:failure',turnId:'turn:failure',generationId:'gen:failure'});
+  brain.ingestSceneHostEvent(event,{extract:()=>({})});
+  const work=await brain.runSceneObservationWork({
+    chatId:event.chatId,turnId:event.turnId,generationId:event.generationId,correlationId:event.correlationId,
+    sourceRevisionId:event.sourceRevisionId,narrative:event.content,hostEvent:event,parentWorkId:'generation:'+event.generationId,
+  });
+  const failed=await waitFor(()=>brain.readSceneObservationReceipts({limit:128}).find(row=>row.status==='FAILED'&&row.workId===work.executionReceipt.workId));
+  assert.equal(failed.reasonCode,'PROVIDER_UNAVAILABLE');
+  assert.equal(failed.returned,false);
+  assert.equal(brain.readSceneObservationReceipts({limit:128}).some(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.workId===work.executionReceipt.workId),false);
+});

@@ -2,6 +2,7 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 import { renderLoreReviewWorkspace } from './lore-authoring-review-ui.js';
+import { renderLoreNeuralWorkspace } from './lore-neural-graph.js';
 import { renderSelectedTurnGraphVisibility } from './selected-turn-graph-visibility.js';
 
 export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null,graphVisibility=null}={}){
@@ -30,7 +31,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   });
   if(registry.has('lore')){
     const current=registry.get('lore');
-    registry.update('lore',{render(host,ctx){
+    registry.update('lore',{preferredWidth:1280,render(host,ctx){
       renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
       const d=host.ownerDocument,review=element(d,'details',{className:'a52-wave13-lore-review-details'});
       review.open=ctx.productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
@@ -836,7 +837,7 @@ function plainMemoryReason(reason){
   return String(reason);
 }
 
-export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter}={}){
+export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect}={}){
   const d=host.ownerDocument;
   host.append(header(d,'Lore','Select the SillyTavern Lorebook, keep the study controls in view, and read one clear owner-reported progress summary before opening entry-level detail.'));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
@@ -886,26 +887,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
   host.append(form);
 
-  const overview=element(d,'section',{className:'a52-card a52-wave13-lore-progress',attrs:{'aria-label':'Lore study progress'}});
-  const overviewHead=element(d,'div',{className:'a52-wave13-section-head'});
-  const currentTitle=failed?'Study needs attention':studying?('Studying '+studying+' entr'+(studying===1?'y':'ies')):accepted?(accepted+' entr'+(accepted===1?'y is':'ies are')+' DUE'):ready?'Lore is ready':'Waiting for Lore study';
-  const currentToken=failed?'warning':studying?'observed':accepted?'warning':ready?'ready':'historical';
-  overviewHead.append(element(d,'h2',{text:'What Lore is doing now'}),makeBadge(d,currentTitle,currentToken));
-  overview.append(overviewHead,makeHealthPill(d,{label:'Lore owner · '+(source.operationalState??source.health),status:source.statusToken,detail:source.impact}));
-  if(source.reason)overview.append(message(d,'Owner status',source.reason,source.statusToken));
-  overview.append(element(d,'p',{className:'a52-wave13-lore-explainer',text:
-    failed?failed+' entr'+(failed===1?'y has':'ies have')+' an owner-reported study failure. Open entry details below to see which source needs attention.'
-    :studying?'Study is currently in progress. These entries are not retrieval-ready until the owner publishes READY.'
-    :accepted?'DUE means the authored source is accepted but has not yet produced a current retrieval-ready representation. Run pending study to process this work.'
-    :ready?'All currently counted, non-removed entries are owner-reported READY. They can participate in retrieval.'
-    :'Load and accept a selected Lorebook to create study work.'}));
-  overview.append(createKeyValue(d,[
-    {key:'DUE for study',value:accepted},{key:'STUDYING now',value:studying},{key:'READY',value:ready},
-    {key:'FAILED',value:failed},{key:'Removed',value:removed},{key:'Retrieval-ready',value:Number(data?.retrievalReady??0)},
-  ]));
-  overview.append(createProgressBar(d,{value:total?progress:0,label:'Lore readiness progress'}));
-  overview.append(element(d,'p',{className:'a52-muted',text:'DUE = accepted but not learned/current · STUDYING = owner work in progress · READY = current retrieval representation published.'}));
-  host.append(overview);
+  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect}));
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});

@@ -3,6 +3,7 @@ import { SceneGraphEdgeType, SceneRelationship } from './lifecycle-contracts.js'
 const clone=(v)=>structuredClone(v);
 const uniq=(v)=>[...new Set((v??[]).filter(Boolean).map(String))];
 const relationEdge={CONTINUES:SceneGraphEdgeType.SCENE_CONTINUES,PRECEDES:SceneGraphEdgeType.SCENE_PRECEDES,PARALLEL_TO:SceneGraphEdgeType.SCENE_PARALLEL,FLASHBACK_OF:SceneGraphEdgeType.SCENE_FLASHBACK,INTERRUPTS:SceneGraphEdgeType.SCENE_INTERRUPTS,RESUMES:SceneGraphEdgeType.SCENE_RESUMES};
+const replacementId=(base,prior,sceneRevision,refs=[])=>prior?.status==='RETIRED'?`${base}@${sceneRevision??uniq(refs)[0]??'replacement'}`:base;
 
 export class SceneGraph{
   constructor(){this.nodes=new Map();this.edges=new Map();}
@@ -11,14 +12,14 @@ export class SceneGraph{
     if(!Object.values(SceneRelationship).includes(relationship))throw new TypeError(`unsupported relationship ${relationship}`);
     if(relationship===SceneRelationship.ISOLATED)throw new TypeError('ISOLATED host contexts are not narrative graph relationships');
     this.addScene({sceneId:fromSceneId});this.addScene({sceneId:toSceneId});
-    const edgeType=relationEdge[relationship],id=`${edgeType}:${fromSceneId}->${toSceneId}`;const prior=this.edges.get(id);
+    const edgeType=relationEdge[relationship],baseId=`${edgeType}:${fromSceneId}->${toSceneId}`,basePrior=this.edges.get(baseId),id=replacementId(baseId,basePrior,sceneRevision,sourceRevisionRefs.length?sourceRevisionRefs:evidenceRefs),prior=id===baseId?basePrior:this.edges.get(id);
     const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,fromSceneId,toSceneId,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...evidenceRefs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),derivedFrom:uniq([...(prior?.derivedFrom??[]),...derivedFrom]),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),temporalStatus:prior?.temporalStatus??'CURRENT',status:'ACTIVE',causal:false,authorityClass:'OBSERVED'};
     this.edges.set(id,edge);return clone(edge);
   }
   addMembership({sceneId,refId,kind,evidenceRefs=[],sourceRevisionRefs=[],provenance=[],sceneRevision=null,episodeRef=null,observedState=null,temporalApplicability=null,temporalStatus='CURRENT',metadata={}}){
     const map={ENTITY:SceneGraphEdgeType.ENTITY_IN_SCENE,EVENT:SceneGraphEdgeType.EVENT_IN_SCENE,OBJECT:SceneGraphEdgeType.OBJECT_IN_SCENE,THREAD:SceneGraphEdgeType.THREAD_IN_SCENE};
     const edgeType=map[kind];if(!edgeType)throw new TypeError(`unsupported membership kind ${kind}`);
-    this.addScene({sceneId});const id=`${edgeType}:${refId}->${sceneId}`;const prior=this.edges.get(id);
+    this.addScene({sceneId});const baseId=`${edgeType}:${refId}->${sceneId}`,basePrior=this.edges.get(baseId),id=replacementId(baseId,basePrior,sceneRevision,sourceRevisionRefs.length?sourceRevisionRefs:evidenceRefs),prior=id===baseId?basePrior:this.edges.get(id);
     const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,fromRef:String(refId),toSceneId:sceneId,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...evidenceRefs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),observedState:observedState==null?prior?.observedState??null:clone(observedState),temporalApplicability:temporalApplicability==null?prior?.temporalApplicability??null:clone(temporalApplicability),metadata:{...(prior?.metadata??{}),...clone(metadata)},temporalStatus:String(temporalStatus??'CURRENT').toUpperCase(),status:'ACTIVE',causal:false,authorityClass:'OBSERVED'};
     this.edges.set(id,edge);return clone(edge);
   }
@@ -31,7 +32,7 @@ export class SceneGraph{
     if(kind==='CAUSES'&&support!=='SUPPORTED')throw new TypeError('causal Scene graph link requires explicitly supported owner-approved evidence');
     if(!['SUPPORTED','UNRESOLVED'].includes(support))throw new TypeError('unsupported evidence supportStatus');
     const edgeType=kind==='CAUSES'?SceneGraphEdgeType.EVIDENCE_CAUSES:SceneGraphEdgeType.EVIDENCE_SUPPORTS;
-    const suffix=interpretationId?':'+String(interpretationId):'',id=`${edgeType}:${from}->${to}${suffix}`;const prior=this.edges.get(id);
+    const suffix=interpretationId?':'+String(interpretationId):'',baseId=`${edgeType}:${from}->${to}${suffix}`,basePrior=this.edges.get(baseId),id=replacementId(baseId,basePrior,sceneRevision,sourceRevisionRefs.length?sourceRevisionRefs:refs),prior=id===baseId?basePrior:this.edges.get(id);
     const edge={kind:'SceneGraphEdge',edgeId:id,edgeType,sceneId:sceneId==null?prior?.sceneId??null:String(sceneId),sceneRevision:sceneRevision??prior?.sceneRevision??null,episodeRef:clone(episodeRef??prior?.episodeRef??null),fromRef:from,toRef:to,evidenceRefs:uniq([...(prior?.evidenceRefs??[]),...refs]),sourceRevisionRefs:uniq([...(prior?.sourceRevisionRefs??[]),...sourceRevisionRefs]),provenance:uniq([...(prior?.provenance??[]),...provenance]),derivedFrom:uniq([...(prior?.derivedFrom??[]),...derivedFrom]),supportStatus:support,interpretationId:interpretationId==null?null:String(interpretationId),temporalApplicability:clone(temporalApplicability),temporalStatus:support==='SUPPORTED'?'CURRENT':'UNRESOLVED',status:'ACTIVE',causal:kind==='CAUSES',evidenceBacked:true,ownerApproved:true,authorityClass:support==='SUPPORTED'?'INFERRED':'UNRESOLVED'};
     this.edges.set(id,edge);return clone(edge);
   }

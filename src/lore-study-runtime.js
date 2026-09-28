@@ -314,14 +314,14 @@ export class LoreStudyRuntime {
     };
   }
 
-  publicSurface() {
-    const currentArtifacts = this.store.currentArtifacts(this.registry);
-    const conflicts = this.store.conflicts(this.registry);
+  publicSurface({metadataOnly = false} = {}) {
+    const currentArtifacts = metadataOnly ? [] : this.store.currentArtifacts(this.registry);
+    const conflicts = metadataOnly ? [] : this.store.conflicts(this.registry);
     const entries = this.registry.listEntries({includeRemoved: true}).map((source) => {
       const revision = this.registry.currentRevision(source.sourceId);
       const learned = this.store.currentLearnedRevision(source.sourceId);
       const fresh = Boolean(learned && learned.sourceRevisionId === revision.id && learned.state === (revision.state === 'REMOVED' ? 'REMOVED' : 'CURRENT'));
-      const artifacts = fresh && revision.state !== 'REMOVED'
+      const artifacts = !metadataOnly && fresh && revision.state !== 'REMOVED'
         ? this.store.artifactsForLearnedRevision(learned.id)
         : [];
       const obligation = this.findObligation(revision.id);
@@ -343,12 +343,13 @@ export class LoreStudyRuntime {
         learnedRevisionId: learned?.id || null,
         freshness: fresh ? (revision.state === 'REMOVED' ? 'REMOVED' : 'CURRENT') : 'STALE_OR_UNLEARNED',
         operatorState,
+        exactSourceRecoverable: revision.state !== 'REMOVED',
         studyState: obligation?.state || null,
         studyObligationId: obligation?.id || null,
         studyAttempts: obligation?.attempts || 0,
         studyError: obligation?.lastError ? deepClone(obligation.lastError) : null,
-        semanticDiff: learned?.semanticDiff ? deepClone(learned.semanticDiff) : null,
-        exactSource: revision.state === 'REMOVED' ? null : {
+        semanticDiff: !metadataOnly && learned?.semanticDiff ? deepClone(learned.semanticDiff) : null,
+        exactSource: metadataOnly || revision.state === 'REMOVED' ? null : {
           form: RetrievalForm.EXACT_SOURCE,
           content: revision.exactContent,
           contentHash: revision.contentHash,

@@ -370,8 +370,8 @@ export class LoreIntelligenceService {
     return receipt;
   }
 
-  status({chatId = null} = {}) {
-    const surface = this.runtime.publicSurface();
+  status({chatId = null, metadataOnly = false} = {}) {
+    const surface = this.runtime.publicSurface({metadataOnly});
     const retrievalStatus = this.hierarchy.retrievalIndex.status();
     const storyScope = chatId == null ? null : this.storyAuthority.scopeReceipt(chatId);
     const acceptedLorebookIds = new Set((storyScope?.acceptedForStudy || []).map((row) => row.lorebookId));
@@ -391,7 +391,7 @@ export class LoreIntelligenceService {
         sourceRevisionId: entry.sourceRevisionId,
         sourceState: entry.sourceState,
         exactSourceHash: entry.exactSource?.contentHash || null,
-        exactSourceRecoverable: Boolean(entry.exactSource),
+        exactSourceRecoverable: Boolean(entry.exactSourceRecoverable ?? entry.exactSource),
         learnedRevisionId: entry.learnedRevisionId,
         freshness: entry.freshness,
         studyObligationId: entry.studyObligationId,
@@ -429,7 +429,8 @@ export class LoreIntelligenceService {
       retrieval: retrievalStatus,
       storyScope: deepClone(storyScope),
       storyAuthorizedReady: storyScope == null ? null : entries.filter((row) => row.eligibleForStoryRetrieval).length,
-      ontology: this.ontology.current(),
+      ontology: metadataOnly ? null : this.ontology.current(),
+      metadataOnly,
       exactSourcePreserved: true,
       derivedArtifactsAreCanon: false,
       externalProviderRequired: false,
@@ -842,6 +843,7 @@ export class LoreIntelligenceService {
   operatorInterface() {
     const read = Object.freeze({
       surface: () => this.status(),
+      metadataSurface: (request = {}) => this.status({...request, metadataOnly: true}),
       status: () => this.status(),
       loreStudy: (request = {}) => this.status({chatId: request?.chatId ?? null}),
       loreReadModel: (request = {}) => this.operatorReadModel(request),

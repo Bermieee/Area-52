@@ -77,6 +77,17 @@ function emptyJournal(){
   };
 }
 
+test('missing detailed profile reports its exact capture state without borrowing another generation',()=>{
+  const session=sessionBindings();
+  session.bindings.readNativeGenerationPerformance=()=>null;
+  const load=session.bindings.loadDiagnostics;
+  session.bindings.loadDiagnostics=()=>({...load(),generationProfiling:{...load().generationProfiling,captureStates:[{...selection,status:'CHECKPOINT_PENDING',updatedAt:2000},{...selection,generationId:'foreign',status:'AVAILABLE'}]}});
+  const profile=diagnosticsAdapter(session).read().generationPerformance;
+  assert.equal(profile.detailed,null);
+  assert.equal(profile.capture.reasonCode,'PROFILE_CHECKPOINT_PENDING');
+  assert.equal(profile.capture.status,'CHECKPOINT_PENDING');
+});
+
 function allNodes(node){return[node,...(node.children??[]).flatMap(allNodes)];}
 
 test('Worker 3 generation profiler control is session-only, default-off, and reads exact selected generation',()=>{

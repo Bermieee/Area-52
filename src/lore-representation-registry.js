@@ -159,14 +159,14 @@ export class LoreRepresentationRegistry {
     return row ? deepClone(row) : null;
   }
 
-  activeForSource(sourceId, sourceRegistry) {
+  activeForSource(sourceId, sourceRegistry, {metadataOnly = false} = {}) {
     return [...this.representations.values()]
       .filter((row) => row.sourceId === sourceId && row.state === 'CURRENT')
       .filter((row) => {
         const source = sourceRegistry.currentRevision(sourceId, {allowMissing: true});
         return source && source.state !== 'REMOVED' && row.sourceRevisionId === source.id;
       })
-      .map(deepClone)
+      .map(row=>metadataOnly ? {id:row.id,profile:row.profile,capCharacters:row.capCharacters,size:deepClone(row.size),sourceRevisionId:row.sourceRevisionId,representationRevision:row.representationRevision,retentionReceipt:{status:row.retentionReceipt.status}} : deepClone(row))
       .sort((a, b) => a.profile.localeCompare(b.profile) || (a.capCharacters || 0) - (b.capCharacters || 0));
   }
 
@@ -185,7 +185,7 @@ export class LoreRepresentationRegistry {
       sourceDrillbackAvailable: false,
       chooserAuthority: false,
     };
-    const active = this.activeForSource(sourceId, sourceRegistry);
+    const active = this.activeForSource(sourceId, sourceRegistry, {metadataOnly: true});
     const withinBudget = active.filter((row) => availableBudget == null || row.size.characters <= availableBudget);
     const requested = desiredProfile
       ? withinBudget.filter((row) => row.profile === desiredProfile).sort((a, b) => (a.capCharacters || 0) - (b.capCharacters || 0))[0] || null

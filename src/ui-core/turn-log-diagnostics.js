@@ -362,7 +362,17 @@ function renderTurnLogWorkspace(host,{model,filters,scope,refresh,inspect}={}){
   flight.body.append(flightFoot);
   if(generationPerf?.selectionError)flight.body.append(emptyDiagnosticRow(d,'Identity fence rejected this performance record: '+String(generationPerf.selectionError)));
   else if(!generationPerf?.exactSelection)flight.body.append(emptyDiagnosticRow(d,'NO_EVIDENCE — select an exact chat / turn / generation to bind the flight recorder.'));
-  else if(!detailed)flight.body.append(emptyDiagnosticRow(d,profileEnabled?'Profiler is armed; this selected generation has not published a detailed browser profile yet.':'Cheap Brain stage timings remain visible. Arm detailed profiling before the next generation for browser attribution.'));
+  else if(!detailed){
+    const captureMessages={
+      PROFILE_CHECKPOINT_PENDING:'The response is complete; its detailed profile is waiting for checkpoint persistence.',
+      PROFILE_CAPTURE_PENDING:'This generation is armed; its detailed profile is still being captured.',
+      PROFILE_NOT_ARMED_AT_GENERATION:'This generation started without detailed profiling armed.',
+      PROFILE_READER_SELECTION_MISMATCH:'A profile was recorded for this generation, but its selected-turn reader did not return it.',
+      PROFILE_READER_MISSING:'This installed session does not expose the detailed-profile reader.',
+      PROFILE_NOT_RETAINED_FOR_SELECTED_GENERATION:'No detailed profile is retained for this selected generation.',
+    };
+    flight.body.append(emptyDiagnosticRow(d,captureMessages[generationPerf?.capture?.reasonCode]??(profileEnabled?'Profiler is armed; this selected generation has not published a detailed browser profile yet.':'Cheap Brain stage timings remain visible. Arm detailed profiling before the next generation for browser attribution.')));
+  }
   primary.append(flight.root);
 
   const sideStack=element(d,'div',{className:'a52-diagnostics-side-stack'});

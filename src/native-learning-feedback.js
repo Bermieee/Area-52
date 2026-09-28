@@ -11,27 +11,29 @@ export class NativeLearningFeedback{
     if(snapshot)this.restoreState(snapshot);
   }
 
-  observeTurn({turnId,candidateEnvelope=null,publicationAssessment=null,cognitiveChoiceReceipt=null,packet=null}={}){
+  observeTurn({turnId,candidateEnvelope=null,assessment=null,publicationAssessment=null,cognitiveChoiceReceipt=null,packet=null}={}){
     const admitted=new Set([
       ...(publicationAssessment?.admittedCandidateIds??[]),
       ...(publicationAssessment?.supportCandidateIds??[]),
-    ]);
+    ].map(String));
+    const explicitlyRejected=new Set((assessment?.truthResults??[]).filter(row=>row?.usableForIntent===false).map(row=>String(row.candidateId)));
     const candidates=candidateEnvelope?.candidates??[];
     const perChannel=new Map();
     for(const candidate of candidates){
       const channels=[...new Set((candidate.channelNominations??[]).map(x=>x.channelId).filter(Boolean))];
       for(const channelId of channels){
-        const row=perChannel.get(channelId)??{attempts:0,admitted:0,rejected:0,stale:0};
+        const row=perChannel.get(channelId)??{attempts:0,admitted:0,rejected:0,stale:0,neutral:0};
         row.attempts+=1;
         if(candidate.freshness==='STALE')row.stale+=1;
-        else if(admitted.has(candidate.candidateId))row.admitted+=1;
-        else row.rejected+=1;
+        else if(admitted.has(String(candidate.candidateId)))row.admitted+=1;
+        else if(explicitlyRejected.has(String(candidate.candidateId)))row.rejected+=1;
+        else row.neutral+=1;
         perChannel.set(channelId,row);
       }
     }
     for(const [channelId,delta] of perChannel){
-      const row=this.channels.get(channelId)??{channelId,attempts:0,admitted:0,rejected:0,stale:0,lastSequence:0};
-      row.attempts+=delta.attempts;row.admitted+=delta.admitted;row.rejected+=delta.rejected;row.stale+=delta.stale;row.lastSequence=++this.sequence;
+      const row=this.channels.get(channelId)??{channelId,attempts:0,admitted:0,rejected:0,stale:0,neutral:0,lastSequence:0};
+      row.attempts+=delta.attempts;row.admitted+=delta.admitted;row.rejected+=delta.rejected;row.stale+=delta.stale;row.neutral=(row.neutral??0)+(delta.neutral??0);row.lastSequence=++this.sequence;
       this.channels.set(channelId,row);
     }
     const receipt={
@@ -51,8 +53,9 @@ export class NativeLearningFeedback{
 
   biasFor(channelId){
     const row=this.channels.get(String(channelId));if(!row||!row.attempts)return 0;
-    const posterior=(row.admitted+1)/(row.attempts+2);
-    const stalePenalty=row.stale/Math.max(1,row.attempts);
+    const decided=Number(row.admitted??0)+Number(row.rejected??0);
+    const posterior=(Number(row.admitted??0)+1)/(decided+2);
+    const stalePenalty=Number(row.stale??0)/Math.max(1,decided+Number(row.stale??0));
     return Number(clamp((posterior-.5)*.2-stalePenalty*.1,-.15,.15).toFixed(6));
   }
 

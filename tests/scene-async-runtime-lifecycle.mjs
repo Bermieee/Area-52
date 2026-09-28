@@ -257,3 +257,34 @@ test('configured HTTP Sidecar JSON observation reaches the actual Scene owner',a
   assert.equal(scene.fields.location.value.location,'Greyharbor Observatory');
   assert.ok(scene.fields.activeThreads.value.includes('courier-note'));
 });
+
+test('generation completion wakes Scene work blocked by the foreground reserve',async()=>{
+  const brain=new DevelopmentDeploymentBrain({resourceCount:1});let calls=0;
+  await connectScene(brain,()=>{calls++;return VALID_PAYLOAD;},{id:'scene:resume'});
+  const event=sceneEvent(brain,{chatId:'chat:resume',turnId:'turn:resume',generationId:'gen:resume'});
+  brain.ingestSceneHostEvent(event,{extract:()=>({})});
+  const bindings=brain.hostBindings();
+  bindings.beginOptionalResourceGeneration(event);
+  const work=await brain.runSceneObservationWork({...event,narrative:event.content,phase:'POST_RESPONSE'});
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(brain.resourceDirector.ledger.get(work.executionReceipt.workId).executionStatus,'BLOCKED');
+  assert.equal(calls,0);
+  bindings.completeOptionalResourceGeneration(event);
+  await waitFor(()=>calls===1,{timeout:250});
+  await waitFor(()=>brain.readSceneObservationReceipts({limit:128}).some(row=>row.workId===work.executionReceipt.workId&&row.status==='ADMITTED'));
+  assert.equal(calls,1);
+});
+
+test('owner-admitted Scene cast supplies Graph Walker anchors on the next turn',async()=>{
+  const brain=new DevelopmentDeploymentBrain();
+  await connectScene(brain,()=>({fields:{activeCast:{value:[{characterId:'entity:mira',state:'PRESENT'}],confidence:.98,observationClass:'OBSERVED'}},boundarySignals:{}}),{id:'scene:anchors'});
+  const event=sceneEvent(brain,{chatId:'chat:anchors',turnId:'turn:anchors',generationId:'gen:anchors'});
+  brain.ingestSceneHostEvent(event,{extract:()=>({})});
+  const work=await brain.runSceneObservationWork({...event,narrative:event.content});
+  await waitFor(()=>brain.readSceneObservationReceipts({limit:128}).some(row=>row.workId===work.executionReceipt.workId&&row.status==='ADMITTED'));
+  const nativeBrain=new Area52NativeBrain();
+  const prepared=await nativeBrain.prepareTurn({chatId:event.chatId,turnId:'turn:anchors:next',generationId:'gen:anchors:next',query:'What is Mira doing?',sceneSignal:brain.scene.integrationSignal(event.chatId)});
+  const graph=nativeBrain.uiBindings().readGraphTraversal(prepared.selection);
+  assert.ok(graph.anchorEntityIds.includes('entity:mira'));
+  assert.notEqual(graph.noWorkReason,'NO_ENTITY_ANCHORS');
+});

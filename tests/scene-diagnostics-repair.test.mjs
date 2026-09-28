@@ -5,6 +5,31 @@ import {createWave12SillyTavernHostBindings} from '../src/ui-core/wave12-sillyta
 import {LoreIntelligenceService} from '../src/lore-intelligence-service.js';
 import {Wave13LoreStudyUIAdapter,Wave13OperationalStatusAdapter} from '../src/ui-core/wave13-operator-adapters.js';
 import {worker4SelectedLorebook,WORKER4_SELECTED_CHAT} from './fixtures/worker4-lore-readiness-fixtures.mjs';
+import {DevelopmentDeploymentBrain} from '../src/deployment/brain.js';
+
+test('Diagnostics distinguishes admitted Scene work from resource-blocked execution',async()=>{
+  const brain=new DevelopmentDeploymentBrain();
+  brain.optionalResources.actions.addResource({resourceId:'scene:blocked',kind:'DETERMINISTIC_LOCAL',capabilities:['STRUCTURED_EXTRACTION'],resourceProfile:{GPU:1},handlers:{SCENE_OBSERVATION:()=>{throw new Error('blocked worker must not execute');}}});
+  await brain.optionalResources.actions.connectResource('scene:blocked');
+  const event={activity:'USER_SEND',chatId:'chat:blocked',messageId:'m1',messageRevision:1,turnId:'turn:blocked',generationId:'gen:blocked',correlationId:'corr:blocked',content:'Mira waits.',role:'user'};
+  event.sourceRevisionId=brain.scene.narrativeFeed.sourceRevisionIdFor(event);
+  brain.ingestSceneHostEvent(event,{extract:()=>({})});
+  const work=await brain.runSceneObservationWork({...event,narrative:event.content});
+  assert.equal(work.status,'QUEUED');
+  await brain.resourceDirector.runCycle({waitForTaskIds:[]});
+  const host=createWave12SillyTavernHostBindings({getContext:()=>({chatId:event.chatId}),hostBindings:brain.hostBindings()});
+  try{
+    const status=new Wave13OperationalStatusAdapter({hostBindings:host.hostBindings,liveReceiptBinding:{selection:()=>event}}).read();
+    const runtime=status.pipeline.sceneObservation.runtime;
+    assert.equal(runtime.tasks[0].executionStatus,'BLOCKED');
+    assert.equal(runtime.tasks[0].executionReason,'no-compatible-provider-or-resource');
+    assert.equal(runtime.tasks[0].startedCount,0);
+    assert.equal(runtime.workers[0].resourceProfile.GPU,1);
+    assert.equal(runtime.resources.capacity.GPU,undefined);
+    assert.equal(brain.resourceConnections.readResource('scene:blocked').lastExecution,null);
+    assert.doesNotMatch(JSON.stringify(runtime),/Mira waits/);
+  }finally{host.destroy();}
+});
 
 test('installed UI forwards exact Scene observation owner receipts',()=>{
   const receipts=[{kind:'DeploymentSceneObservationOwnerReceipt',status:'ADMITTED',chatId:'chat:test',turnId:'turn:1',generationId:'gen:1'}];

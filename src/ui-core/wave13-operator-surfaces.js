@@ -2,10 +2,11 @@ import { ProductDetailLevel } from './wave5-product-model.js';
 import { OperatorProducerState } from './wave13-operator-adapters.js';
 import { createButton, createKeyValue, createProgressBar, element, makeBadge, makeHealthPill } from './primitives.js';
 import { renderLoreReviewWorkspace } from './lore-authoring-review-ui.js';
+import { createLoreNeuralRenderState, renderLoreNeuralWorkspace } from './lore-neural-graph.js';
 import { renderSelectedTurnGraphVisibility } from './selected-turn-graph-visibility.js';
 
 export function installWave13OperatorSurfaces(registry,{operations=null,resources=null,loreStudy=null,loreAuthoring=null,memory=null,diagnostics=null,actionRouter=null,cognition=null,coprocessor=null,frontFacePresentation=null,evidenceJournal=null,graphVisibility=null}={}){
-  const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore();
+  const releases=[],connectionDrafts=createConnectionDraftStore(),loreAuthoringDraft=createLoreAuthoringDraftStore(),loreNeuralState=createLoreNeuralRenderState();
   if(registry.has('brain')){
     const current=registry.get('brain');
     registry.update('brain',{render(host,ctx){
@@ -30,8 +31,8 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   });
   if(registry.has('lore')){
     const current=registry.get('lore');
-    registry.update('lore',{render(host,ctx){
-      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render});
+    registry.update('lore',{preferredWidth:1280,render(host,ctx){
+      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState});
       const d=host.ownerDocument,review=element(d,'details',{className:'a52-wave13-lore-review-details'});
       review.open=ctx.productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
       const summary=element(d,'summary',{className:'a52-wave13-lore-review-summary'});
@@ -836,18 +837,31 @@ function plainMemoryReason(reason){
   return String(reason);
 }
 
-export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter}={}){
+export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null}={}){
   const d=host.ownerDocument;
-  host.append(header(d,'Lore','Select the SillyTavern Lorebook, keep the study controls in view, and read one clear owner-reported progress summary before opening entry-level detail.'));
+  host.append(header(d,'Lore','Select the SillyTavern Lorebook, accept it for study, then watch Area-52 grow the owner-backed Lore graph as study becomes current.'));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
 
   const read=loreStudy.read(),source=read.source,data=read.data,caps=loreStudy.capabilities(),selected=loreStudy.selectedLorebook?.()??{};
+  if(caps.subscribe&&scope?.add){
+    let liveRefreshQueued=false;
+    scope.add(loreStudy.subscribe(()=>{
+      if(liveRefreshQueued)return;
+      liveRefreshQueued=true;
+      if(scope?.timeout)scope.timeout(()=>{liveRefreshQueued=false;refresh?.();},90);
+      else{liveRefreshQueued=false;refresh?.();}
+    }));
+  }
   const counts=data?.operatorCounts??{},accepted=Number(counts.ACCEPTED??0),studying=Number(counts.STUDYING??0),ready=Number(counts.READY??0),failed=Number(counts.FAILED??0),removed=Number(counts.REMOVED??0);
   const total=accepted+studying+ready+failed+removed,pending=accepted+studying,denominator=Math.max(1,total-removed),progress=Math.round(ready/denominator*100);
-
-  const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls'});
-  form.append(element(d,'div',{className:'a52-wave13-section-head'},element(d,'h2',{text:'Selected Lorebook'}),makeBadge(d,selected.snapshot?'SOURCE LOADED':'LOAD SOURCE',selected.snapshot?'observed':'historical')));
   const selection=selected.selection??{},snapshot=selected.snapshot??null;
+
+  const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls a52-lore-command'});
+  const commandHead=element(d,'div',{className:'a52-lore-command__head'});
+  const commandCopy=element(d,'div',{className:'a52-lore-command__copy'});
+  commandCopy.append(element(d,'span',{className:'a52-eyebrow',text:'LORE / KNOWLEDGE GROWTH'}),element(d,'h2',{text:'Selected Lorebook'}),element(d,'p',{className:'a52-muted',text:snapshot?'Source loaded. Accept it, then run study to grow the graph from owner-published source state.':'Load the Lorebook currently selected in SillyTavern. The neural canvas stays empty until Area-52 has accepted and studied source evidence.'}));
+  commandHead.append(commandCopy,makeBadge(d,snapshot?'SOURCE LOADED':'LOAD SOURCE',snapshot?'observed':'historical'));
+  form.append(commandHead);
   if(selection.selected){
     form.append(createKeyValue(d,[
       {key:'Title',value:snapshot?.title??selection.title??'—'},
@@ -857,27 +871,27 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   }else form.append(message(d,'No Lorebook selected',selection.reason??'Select a Lorebook in SillyTavern’s World Info editor first.','historical'));
 
   const status=element(d,'p',{className:'a52-wave13-form-status',attrs:{role:'status','aria-live':'polite'}});
-  const actions=element(d,'div',{className:'a52-wave13-lore-actions'});
-  const discover=createButton(d,{label:snapshot?'Refresh selected Lorebook':'Load selected Lorebook',disabled:!caps.discover,scope,onPress:async()=>{
+  const actions=element(d,'div',{className:'a52-wave13-lore-actions a52-lore-command__actions'});
+  const discover=createButton(d,{label:snapshot?'Refresh selected Lorebook':'Load selected Lorebook',disabled:!caps.discover,scope,variant:'quiet',onPress:async()=>{
     status.textContent='Reading the currently selected SillyTavern Lorebook…';status.dataset.status='loading';
     try{
       const result=await loreStudy.discoverSelectedLorebook();
       status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Verify the source, then accept it for study.';status.dataset.status='ready';refresh?.();
     }catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
   }});
-  const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,onPress:async()=>{
+  const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,variant:'secondary',onPress:async()=>{
     const current=loreStudy.selectedLorebook?.().snapshot??null;
     if(!current){status.textContent='Load the selected SillyTavern Lorebook before accepting it.';status.dataset.status='error';return;}
     status.textContent='Accepting the verified source. Accepted entries become DUE; they are not retrieval-ready yet.';status.dataset.status='loading';
     const result=await actionRouter.route({type:'wave13.lore.accept',payload:current});
     if(!result.ok){status.textContent=result.error||'Lore acceptance failed';status.dataset.status='error';return;}
-    status.textContent='Accepted. Entries that still need learning are shown as DUE below. Use Run pending study to process them.';status.dataset.status='ready';reportAction(notifications,result,'Lore acceptance');refresh?.();
+    status.textContent='Accepted. The graph core is armed. Run pending study to begin growing owner-backed nodes and links.';status.dataset.status='ready';reportAction(notifications,result,'Lore acceptance');refresh?.();
   }});
-  const run=createButton(d,{label:accepted?'Run '+accepted+' DUE entr'+(accepted===1?'y':'ies'):'Run pending study',disabled:!caps.run,scope,onPress:async()=>{
+  const run=createButton(d,{label:accepted?'Run '+accepted+' DUE entr'+(accepted===1?'y':'ies'):'Run pending study',disabled:!caps.run,scope,variant:'primary',onPress:async()=>{
     status.textContent='Starting study for entries the Lore owner currently reports as DUE…';status.dataset.status='loading';
     const result=await actionRouter.route({type:'wave13.lore.run',payload:{scope:'DUE'}});
     if(!result.ok){status.textContent=result.error||'Lore study failed';status.dataset.status='error';}
-    else {status.textContent='Study request returned. Check the progress summary below: STUDYING means work is active; READY means retrieval representations are current.';status.dataset.status='ready';reportAction(notifications,result,'Lore study');}
+    else {status.textContent='Study request returned. Watch the neural canvas grow as owner states move through STUDYING and READY.';status.dataset.status='ready';reportAction(notifications,result,'Lore study');}
     refresh?.();
   }});
   actions.append(discover,accept,run);form.append(actions,status);
@@ -886,39 +900,21 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
   host.append(form);
 
-  const overview=element(d,'section',{className:'a52-card a52-wave13-lore-progress',attrs:{'aria-label':'Lore study progress'}});
-  const overviewHead=element(d,'div',{className:'a52-wave13-section-head'});
-  const currentTitle=failed?'Study needs attention':studying?('Studying '+studying+' entr'+(studying===1?'y':'ies')):accepted?(accepted+' entr'+(accepted===1?'y is':'ies are')+' DUE'):ready?'Lore is ready':'Waiting for Lore study';
-  const currentToken=failed?'warning':studying?'observed':accepted?'warning':ready?'ready':'historical';
-  overviewHead.append(element(d,'h2',{text:'What Lore is doing now'}),makeBadge(d,currentTitle,currentToken));
-  overview.append(overviewHead,makeHealthPill(d,{label:'Lore owner · '+(source.operationalState??source.health),status:source.statusToken,detail:source.impact}));
-  if(source.reason)overview.append(message(d,'Owner status',source.reason,source.statusToken));
-  overview.append(element(d,'p',{className:'a52-wave13-lore-explainer',text:
-    failed?failed+' entr'+(failed===1?'y has':'ies have')+' an owner-reported study failure. Open entry details below to see which source needs attention.'
-    :studying?'Study is currently in progress. These entries are not retrieval-ready until the owner publishes READY.'
-    :accepted?'DUE means the authored source is accepted but has not yet produced a current retrieval-ready representation. Run pending study to process this work.'
-    :ready?'All currently counted, non-removed entries are owner-reported READY. They can participate in retrieval.'
-    :'Load and accept a selected Lorebook to create study work.'}));
-  overview.append(createKeyValue(d,[
-    {key:'DUE for study',value:accepted},{key:'STUDYING now',value:studying},{key:'READY',value:ready},
-    {key:'FAILED',value:failed},{key:'Removed',value:removed},{key:'Retrieval-ready',value:Number(data?.retrievalReady??0)},
-  ]));
-  overview.append(createProgressBar(d,{value:total?progress:0,label:'Lore readiness progress'}));
-  overview.append(element(d,'p',{className:'a52-muted',text:'DUE = accepted but not learned/current · STUDYING = owner work in progress · READY = current retrieval representation published.'}));
-  host.append(overview);
+  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState}));
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});
     entriesDetails.open=failed>0||productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
     entriesDetails.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Entry-level study states · '+data.entries.length+' entries'}),renderLoreEntries(d,data.entries,scope,{showIds:productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED}));
     host.append(entriesDetails);
-  }else host.append(message(d,'No Lore accepted yet','Choose a Lorebook above, load it, and accept it for study.','historical'));
+  }else host.append(message(d,'No Lore accepted yet','Choose a Lorebook above, load it, and accept it for study. The canvas will remain intentionally quiet until owner-backed study evidence exists.','historical'));
 
   const derivedDetails=element(d,'details',{className:'a52-wave13-lore-derived-details'});
   derivedDetails.open=productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
   derivedDetails.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Derived representations / navigation summaries'}),renderLoreDerivedRepresentations(d,{entries:data?.entries??[],summarySurface:loreStudy.summaries?.(),detail:productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL}));
   host.append(derivedDetails);
 }
+
 function renderLoreDerivedRepresentations(d,{entries=[],summarySurface=null,detail=ProductDetailLevel.NORMAL}={}){
   const root=element(d,'section',{className:'a52-wave13-lore-derived',attrs:{'aria-label':'Lore derived representations'}});
   root.append(element(d,'h2',{text:'Derived Lore representations'}),element(d,'p',{className:'a52-muted',text:'Summaries and compressed representations are derived retrieval/navigation artifacts. Exact authored Lore remains the source; these views do not gain truth or Settlement authority.'}));

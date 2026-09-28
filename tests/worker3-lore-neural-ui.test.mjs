@@ -145,7 +145,7 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.match(String(artifactTitle?.textContent??''),/80 derived refs/);
 });
 
-test('current fully READY Lore disables redundant accept and study actions',()=>{
+test('current fully READY Lore disables redundant study while keeping re-accept available',()=>{
   const d=new FakeDocument(),host=new FakeNode('section',d),entries=Array.from({length:105},(_,index)=>({
     sourceId:'lore:current:'+index,uid:'entry-'+index,operatorState:'READY',artifactIds:[],representations:[],retrievalReady:true,sourceRevisionId:'r'+index,
   }));
@@ -160,9 +160,9 @@ test('current fully READY Lore disables redundant accept and study actions',()=>
   };
   renderLoreStudySurface(host,{loreStudy,actionRouter:{route:async()=>({ok:true})},scope:{listen(){},add(){}},refresh:()=>{},notifications:null,productAdapter:null});
   const buttons=walk(host).filter(node=>node.tagName==='BUTTON');
-  const accept=buttons.find(node=>node.textContent==='Lore current'),run=buttons.find(node=>node.textContent==='Study current');
+  const accept=buttons.find(node=>node.textContent==='Re-accept source'),run=buttons.find(node=>node.textContent==='Study current');
   assert.ok(accept);assert.ok(run);
-  assert.equal(Boolean(accept.disabled||accept.attributes?.disabled),true);
+  assert.equal(Boolean(accept.disabled||accept.attributes?.disabled),false);
   assert.equal(Boolean(run.disabled||run.attributes?.disabled),true);
 });
 

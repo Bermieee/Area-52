@@ -107,7 +107,6 @@ export class SceneLifecycleRuntime{
     const receipts=[];
     for(const raw of (Array.isArray(links)?links:[]).slice(0,32)){
       const relation=String(raw?.relation??'SUPPORTS').toUpperCase(),evidenceRefs=[...new Set((raw?.evidenceRefs??[]).filter(Boolean).map(String))];
-      if(raw?.ownerApproved!==true){receipts.push({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});continue;}
       if(!evidenceRefs.length||!evidenceRefs.includes(String(evidence.sourceRevisionId))){receipts.push({status:'REJECTED',reasonCode:'SCENE_GRAPH_CURRENT_EVIDENCE_REQUIRED',relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});continue;}
       try{
         const edge=this.graph.addEvidenceLink({sceneId:scene.sceneId,sceneRevision:scene.revision,episodeRef,fromRef:raw.fromRef,toRef:raw.toRef,relation,evidenceRefs,sourceRevisionRefs:[evidence.sourceRevisionId],provenance:[evidence.sourceRevisionId,...(raw.provenance??[])],derivedFrom:raw.derivedFrom??[],ownerApproved:true,supportStatus:raw.supportStatus??'SUPPORTED',interpretationId:raw.interpretationId??null,temporalApplicability:raw.temporalApplicability??{sceneId:scene.sceneId,sceneRevision:scene.revision}});
@@ -115,6 +114,20 @@ export class SceneLifecycleRuntime{
       }catch(error){receipts.push({status:'REJECTED',reasonCode:String(error?.message??'SCENE_GRAPH_LINK_REJECTED'),relation,fromRef:raw?.fromRef??null,toRef:raw?.toRef??null});}
     }
     return receipts;
+  }
+
+  admitGraphEvidenceLinks({chatId,sceneId,sceneRevision,sourceRevisionId,links=[],episodeRef=null}={}){
+    const chat=String(chatId??'').trim(),sceneRef=String(sceneId??'').trim(),sourceRef=String(sourceRevisionId??'').trim();
+    if(!chat||!sceneRef||!sourceRef)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_FENCE_REQUIRED',receipts:[]};
+    const activeSceneId=this.chatScenes.get(chat)??null;
+    if(activeSceneId&&activeSceneId!==sceneRef)return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_FOREIGN_SCENE',receipts:[]};
+    const scene=this.registry.current(sceneRef);
+    if(!scene||Number(scene.revision)!==Number(sceneRevision))return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_STALE_SCENE_REVISION',receipts:[]};
+    const currentRefs=new Set(this.narrativeFeed.currentEvidence(chat).map(row=>String(row.sourceRevisionId)));
+    if(!currentRefs.has(sourceRef))return{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_STALE_SOURCE_REVISION',receipts:[]};
+    const evidence={chatId:chat,sourceRevisionId:sourceRef};
+    const receipts=this.#admitGraphEvidenceLinks(scene,evidence,links,episodeRef);
+    return{kind:'SceneGraphEvidenceAdmission',status:receipts.some(row=>row.status==='ADMITTED')?'ADMITTED':receipts.length?'REJECTED':'NO_WORK',reasonCode:receipts.some(row=>row.status==='ADMITTED')?'SCENE_GRAPH_OWNER_LINKS_ADMITTED':receipts.length?'SCENE_GRAPH_OWNER_LINKS_REJECTED':'SCENE_GRAPH_OWNER_NO_LINKS',sceneId:sceneRef,sceneRevision:scene.revision,sourceRevisionId:sourceRef,receipts:clone(receipts),authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,temporalStateAuthority:false,memoryMutationAuthority:false};
   }
 
   ingestHostEvent(input,{extract=null}={}){
@@ -131,7 +144,7 @@ export class SceneLifecycleRuntime{
     if(!evidence.current||typeof evidence.content!=='string'||!extract)return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch};
     const current=this.ensureChatScene(evidence.chatId,{sourceRevisionRefs:[evidence.sourceRevisionId],evidenceRefs:[evidence.sourceRevisionId]});
     const extracted=extract(evidence,current)??{};const fields=extractSceneFields(extracted);
-    const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];const graphEvidenceLinks=extracted.graphEvidenceLinks??[];
+    const likelyNextIntents=[...(extracted.prefetchIntents??scenePrefetchIntentsFromNarrative(evidence.content)??[])];const graphEvidenceLinks=extracted.graphEvidenceLinks??[],graphEvidenceOwnerApproved=extracted.graphEvidenceLinksOwnerApproved===true;
     const publishedPrefetch=likelyNextIntents.length?this.#publishLikelyNext(current,evidence,likelyNextIntents):[];
     let boundary=null,transition=null,observed=null;
     if(extracted.boundarySignals){
@@ -180,8 +193,9 @@ export class SceneLifecycleRuntime{
       }
     }
     const graphLinkScene=transition?.episodeRef?(this.registry.current(transition.fromSceneId)??observed.scene):observed.scene;
-    const graphEvidenceReceipts=this.#admitGraphEvidenceLinks(graphLinkScene,evidence,graphEvidenceLinks,transition?.episodeRef??null);
-    return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
+    const graphEvidenceAdmission=graphEvidenceLinks.length?(graphEvidenceOwnerApproved?this.admitGraphEvidenceLinks({chatId:evidence.chatId,sceneId:graphLinkScene.sceneId,sceneRevision:graphLinkScene.revision,sourceRevisionId:evidence.sourceRevisionId,links:graphEvidenceLinks,episodeRef:transition?.episodeRef??null}):{kind:'SceneGraphEvidenceAdmission',status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',receipts:graphEvidenceLinks.slice(0,32).map(raw=>({status:'REJECTED',reasonCode:'SCENE_GRAPH_OWNER_APPROVAL_REQUIRED',relation:String(raw?.relation??'SUPPORTS').toUpperCase(),fromRef:raw?.fromRef??null,toRef:raw?.toRef??null}))}):{kind:'SceneGraphEvidenceAdmission',status:'NO_WORK',reasonCode:'SCENE_GRAPH_OWNER_NO_LINKS',receipts:[]};
+    const graphEvidenceReceipts=graphEvidenceAdmission.receipts;
+    return {...normalized,invalidated,invalidatedGraph,invalidatedHandoffs,invalidatedPrefetch,publishedPrefetch,graphEvidenceAdmission,graphEvidenceReceipts,scene:clone(observed.scene),delta:clone(observed.delta),boundary,transition};
   }
 
   integrationSignal(chatId){return buildSceneIntegrationSignal(this,chatId);}
@@ -194,7 +208,7 @@ function fieldArray(state){const value=state&&typeof state==='object'&&Object.pr
 function threadIds(values){return [...new Set((values??[]).map((row)=>typeof row==='string'?row:row?.threadId??row?.id??null).filter(Boolean).map(String))];}
 function extractSceneFields(extracted){
   if(extracted?.fields&&typeof extracted.fields==='object'&&!Array.isArray(extracted.fields))return extracted.fields;
-  const controlKeys=['boundarySignals','prefetchIntents','graphEvidenceLinks','relationship','resumeSceneId','allowWhenRefreshRequired','explicit','extractionPolicy'];
+  const controlKeys=['boundarySignals','prefetchIntents','graphEvidenceLinks','graphEvidenceLinksOwnerApproved','relationship','resumeSceneId','allowWhenRefreshRequired','explicit','extractionPolicy'];
   if(controlKeys.some((key)=>Object.prototype.hasOwnProperty.call(extracted??{},key)))return{};
   return extracted&&typeof extracted==='object'&&!Array.isArray(extracted)?extracted:{};
 }

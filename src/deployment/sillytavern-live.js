@@ -1064,7 +1064,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       transactions: { status: 'UNAVAILABLE', reason: 'NO_LIVE_OWNER_BINDING' },
     } : null;
 
-    const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
+    const nativeContract=nativeBrainContract(this.nativeBrain),nativePrepared=this.nativeHistory.filter(row=>row.state==='SEALED_FOR_MODEL_REQUEST').length,nativeInjected=this.nativeHistory.filter(row=>row.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,nativeResponseCompleted=this.nativeHistory.filter(row=>row.state==='RESPONSE_COMPLETED'||row.state==='LEARNED').length,nativeLearned=this.nativeHistory.filter(row=>row.state==='LEARNED').length;
     const installedUiBindings=this.#uiHostBindings(),installedUiReaderNames=Object.entries(installedUiBindings).filter(([name,value])=>typeof value==='function'&&(name.startsWith('read')||name.startsWith('list')||name.startsWith('reconstruct'))).map(([name])=>name).sort();
     let selectedTurnReceipt=null,installedUiSceneReadModelKind=null;
     try{
@@ -1079,7 +1079,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       memory:Boolean(installedUiBindings.memoryIntegrationSurface??installedUiBindings.memoryInterface??installedUiBindings.memoryOwner),
     };
     const nativeLearnedByChat={};for(const row of this.nativeHistory.filter(row=>row.state==='LEARNED'))nativeLearnedByChat[row.chatId]=(nativeLearnedByChat[row.chatId]??0)+1;
-    const nativeMultiTurnChatIds=Object.entries(nativeLearnedByChat).filter(([,count])=>count>=2).map(([chatId])=>chatId);
+    const nativeResponseCompletedByChat={};for(const row of this.nativeHistory.filter(row=>row.state==='RESPONSE_COMPLETED'||row.state==='LEARNED'))nativeResponseCompletedByChat[row.chatId]=(nativeResponseCompletedByChat[row.chatId]??0)+1;
+    const nativeMultiTurnChatIds=Object.entries(nativeResponseCompletedByChat).filter(([,count])=>count>=2).map(([chatId])=>chatId);
     let loreOperatorEvidence=null,resourceOperatorEvidence=null,authoringOperatorEvidence=null,navigationEvidence=null;
     try{
       const loreAdapter=this.uiHost?.ui?.operator?.loreStudy,read=loreAdapter?.read?.(),selected=loreAdapter?.selectedLorebook?.()??{};
@@ -1156,13 +1157,13 @@ export class DevelopmentDeploymentSillyTavernSession {
         chatBoundaryEvents:this.hostNarrativeEvents.filter(row=>row.chatBoundary).length,
       },
       nativeBrainIntegration:{
-        ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,learnedCount:nativeLearned,
+        ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,responseCompletedCount:nativeResponseCompleted,learnedCount:nativeLearned,
         installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
         pendingCount:this.nativePending.size,retainedDeliveryPayloadCount:this.nativePayloads.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
         persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
-        learnedByChat:clone(nativeLearnedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
-        exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
+        learnedByChat:clone(nativeLearnedByChat),responseCompletedByChat:clone(nativeResponseCompletedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
+        exactPreparedRenderedObserved:nativeInjected>0,endToEndResponseObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndLearningAccepted:nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         sceneFanOut:{
           observedTurns:this.nativeHistory.filter(row=>row.sceneFanOutReceipt).length,
           physicalExecutionCount:this.nativeHistory.reduce((n,row)=>n+Number(row.sceneFanOutReceipt?.physicalExecutionCount??0),0),
@@ -1289,7 +1290,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       base.listResources=()=>hostResourceBridge.read.resources();
       base.listResourceProfiles=()=>hostResourceBridge.read.resources();
     }
-    base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
+    base.readNativeBrainHostLifecycle=()=>({kind:'NativeBrainHostLifecycle',ownerAvailable:contract.available,reason:contract.reason??null,pending:this.nativePending.size,prepared:this.nativeHistory.filter(x=>x.state==='SEALED_FOR_MODEL_REQUEST').length,requestPayloadInjected:this.nativeHistory.filter(x=>x.state==='MODEL_REQUEST_PAYLOAD_INJECTED').length,responseCompleted:this.nativeHistory.filter(x=>x.state==='RESPONSE_COMPLETED'||x.state==='LEARNED').length,learned:this.nativeHistory.filter(x=>x.state==='LEARNED').length,rejected:this.nativeRejections.length});
     base.readHostDeliveryReceipt=(selection={})=>this.#readHostDeliveryReceipt(selection);
     base.readNativeGenerationPerformance=(selection={})=>this.#readNativeGenerationPerformance(selection);
     base.setDetailedGenerationProfiling=(enabled=false)=>this.setDetailedGenerationProfiling(enabled);

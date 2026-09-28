@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - Development-Client-Repair-3-Lore-Review
+      - Development-Worker-3
   pull_request:
     branches:
       - Development-Client-Repair-3-Operator-Truth-Closure
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -34,6 +36,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Worker 3 Lore review behavior
         run: node --test tests/worker3-lore-review-ui.test.mjs
+      - name: Worker 3 Lore neural canvas
+        run: node --test tests/worker3-lore-neural-ui.test.mjs
       - name: Existing Lore operator regressions
         run: >
           node --test
@@ -41,12 +45,14 @@ jobs:
           tests/wave13-operator-ui.test.mjs
       - name: Browser-facing imports and focused syntax
         run: |
-          node --input-type=module -e "await import('./src/ui-core/lore-review-workflow.js'); await import('./src/ui-core/lore-authoring-review-ui.js'); await import('./src/ui-core/wave13-operator-adapters.js'); await import('./src/ui-core/wave13-operator-surfaces.js');"
+          node --input-type=module -e "await import('./src/ui-core/lore-review-workflow.js'); await import('./src/ui-core/lore-authoring-review-ui.js'); await import('./src/ui-core/lore-neural-graph.js'); await import('./src/ui-core/wave13-operator-adapters.js'); await import('./src/ui-core/wave13-operator-surfaces.js');"
           node --check src/ui-core/lore-review-workflow.js
           node --check src/ui-core/lore-authoring-review-ui.js
+          node --check src/ui-core/lore-neural-graph.js
           node --check src/ui-core/wave13-operator-adapters.js
           node --check src/ui-core/wave13-operator-surfaces.js
           node --check tests/worker3-lore-review-ui.test.mjs
+          node --check tests/worker3-lore-neural-ui.test.mjs
       - name: UI.Core host-style regressions
         run: |
           node --test tests/wave11-live-bindings.test.mjs

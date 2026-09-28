@@ -110,7 +110,7 @@ test('Worker 2 #39: quality rejection is bounded while omission, missing evidenc
   const quality=batchFor({
     selection:{chatId:'chat:feedback',turnId:'quality',generationId:'quality:g',correlationId:'quality:c'},
     candidates:[baseCandidate],
-    truthResults:[{candidateId:baseCandidate.candidateId,usableForIntent:false,classification:'UNRESOLVED',reasons:['relevance-below-admission-floor']}],
+    truthResults:[{candidateId:baseCandidate.candidateId,usableForIntent:false,classification:'UNRESOLVED',reasons:['unresolved-not-usable-for-current']}],
   });
   assert.equal(quality.outcomes[0].signal,'REJECTED');
   const rejectedBefore=memory.plasticity.record(ep.id,ep.revision).rejectedUses;

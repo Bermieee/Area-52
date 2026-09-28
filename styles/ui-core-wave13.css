@@ -172,6 +172,9 @@
   background:linear-gradient(180deg,rgba(31,135,223,.92),rgba(17,92,171,.92));
   box-shadow:0 0 18px rgba(38,158,232,.18);
 }
+.a52-lore-status-heading{display:flex;align-items:end;justify-content:space-between;gap:10px;margin:12px 1px 0}
+.a52-lore-status-heading h2{margin:2px 0 0;color:#dcebf4;font-size:.82rem}
+.a52-lore-progress-contract{margin:0;font-size:.55rem;line-height:1.4}
 .a52-lore-status-strip{
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));

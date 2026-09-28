@@ -37,6 +37,64 @@ const req=(value,name)=>{if(typeof value!=='string'||!value.trim())throw new Typ
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
 const perfNow=()=>Number(globalThis.performance?.now?.()??Date.now());
 
+function redactTransitionHandoff(handoff){
+  if(!handoff)return null;
+  const safe=clone(handoff);
+  if(safe.continuity){
+    const summary=String(safe.continuity.compactPriorSceneSummary??'');
+    safe.continuity.compactSummaryAvailable=Boolean(summary.trim());
+    safe.continuity.compactSummaryLength=summary.length;
+    delete safe.continuity.compactPriorSceneSummary;
+  }
+  return safe;
+}
+
+function redactSceneOwnerReceipt(receipt){
+  if(!receipt)return null;
+  const safe=clone(receipt);
+  if(safe.transitionHandoff)safe.transitionHandoff=redactTransitionHandoff(safe.transitionHandoff);
+  if(safe.transition?.handoff)safe.transition.handoff=redactTransitionHandoff(safe.transition.handoff);
+  if(Array.isArray(safe.invalidatedTransitionHandoffs))safe.invalidatedTransitionHandoffs=safe.invalidatedTransitionHandoffs.map(redactTransitionHandoff);
+  if(Array.isArray(safe.invalidatedHandoffs))safe.invalidatedHandoffs=safe.invalidatedHandoffs.map(redactTransitionHandoff);
+  safe.rawNarrativeIncluded=false;safe.storyTextIncluded=false;
+  return safe;
+}
+
+function redactContextRetirement(receipt){
+  if(!receipt)return null;
+  const transition=receipt.sceneTransition?{
+    kind:receipt.sceneTransition.kind??'ContextSceneTransitionCarry',
+    handoffId:receipt.sceneTransition.handoffId??null,
+    previousSceneId:receipt.sceneTransition.previousSceneId??null,
+    destinationSceneId:receipt.sceneTransition.destinationSceneId??null,
+    relationship:receipt.sceneTransition.relationship??null,
+    episodeRef:clone(receipt.sceneTransition.episodeRef??null),
+    compactSummaryAvailable:Boolean(String(receipt.sceneTransition.compactPreviousSceneSummary??'').trim()),
+    sourceRevisionRefs:uniq(receipt.sceneTransition.sourceRevisionRefs??[]),
+    recentTailRefs:uniq(receipt.sceneTransition.recentTailRefs??[]),
+    retainedRecentTailMessageIds:uniq(receipt.sceneTransition.retainedRecentTailMessageIds??[]),
+    prefetchDestination:Boolean(receipt.sceneTransition.prefetchDestination),
+    prefetchHints:uniq(receipt.sceneTransition.prefetchHints??[]),
+    eligibilityDecisionOwner:receipt.sceneTransition.eligibilityDecisionOwner??null,
+    promptInclusionAuthority:false,rawDialogueDeletionAuthority:false,contextSealAuthority:false,
+  }:null;
+  return Object.freeze({
+    kind:receipt.kind??'NativeContextRetirementReceipt',contractVersion:receipt.contractVersion??1,chatId:receipt.chatId??null,
+    policy:receipt.policy??null,hostHistoryMutation:false,
+    recentWindow:Number(receipt.recentWindow??0),messageCount:Number(receipt.messageCount??0),
+    retireEligibleMessageIds:[...(receipt.retireEligibleMessageIds??[])],
+    keptRawMessageIds:[...(receipt.keptRawMessageIds??[])],
+    decisions:clone(receipt.decisions??[]),
+    retainedMessageRefs:(receipt.retainedMessages??[]).map(row=>({
+      messageId:row.messageId??null,sequence:Number(row.sequence??0),role:row.role??null,
+      sourceRevisionRefs:uniq(row.sourceRevisionRefs??[]),provenanceRefs:uniq(row.provenanceRefs??[]),tags:uniq(row.tags??[]),
+    })),
+    sceneTransition:transition,measurements:clone(receipt.measurements??{}),
+    abstained:Boolean(receipt.abstained),abstentionReason:receipt.abstentionReason??null,receiptId:receipt.receiptId??null,
+    rawNarrativeIncluded:false,storyTextIncluded:false,
+  });
+}
+
 function sceneSignalFrom(input,chatId){
   if(input?.kind==='SceneIntegrationSignal')return clone(input);
   if(!input?.sceneId)return null;
@@ -55,7 +113,7 @@ function sceneSignalFrom(input,chatId){
     sceneRelationship:input.sceneRelationship??null,transitionType:input.transitionType??null,
     previousSceneRef:clone(input.previousSceneRef??null),resumedSceneRef:clone(input.resumedSceneRef??null),
     episodeRefs:clone(input.episodeRefs??[]),prefetchRecommendations:clone(input.prefetchRecommendations??[]),
-    objectTransitionRefs:clone(input.objectTransitionRefs??[]),
+    objectTransitionRefs:clone(input.objectTransitionRefs??[]),atmosphereContribution:clone(input.atmosphereContribution??null),
     health:clone(input.health??{status:'healthy',reasons:[]}),
     diagnosticRefs:clone(input.diagnosticRefs??{}),
     authority:'DESCRIPTIVE',authorityGranted:false,settlementAuthority:false,
@@ -356,7 +414,24 @@ export class Area52NativeBrain{
       });
     }
     const sceneSignalAdmission=(sceneSignal||scene)?this.observeScene(chat,sceneSignal??scene):null;
+    const invalidatedHandoffs=sceneOwnerReceipt?.invalidatedTransitionHandoffs??sceneOwnerReceipt?.invalidatedHandoffs??[];
+    for(const handoff of invalidatedHandoffs??[]){
+      const receipt=this.core.consumeSceneTransitionHandoff(handoff,{chatNamespace:chat});
+      sceneIngressReceipts.push({
+        type:'HANDOFF',ref:handoff?.handoffId??null,eventType:'SCENE_TRANSITION_HANDOFF_INVALIDATED',
+        status:receipt.status??null,coreHandling:receipt.coreHandling??null,reason:receipt.reason??receipt.reasonCode??null,
+      });
+    }
+    const transitionHandoff=sceneOwnerReceipt?.transitionHandoff??sceneOwnerReceipt?.transition?.handoff??null;
+    if(transitionHandoff){
+      const receipt=this.core.consumeSceneTransitionHandoff(transitionHandoff,{chatNamespace:chat});
+      sceneIngressReceipts.push({
+        type:'HANDOFF',ref:transitionHandoff.handoffId??null,eventType:'SCENE_TRANSITION_HANDOFF',
+        status:receipt.status??null,coreHandling:receipt.coreHandling??null,reason:receipt.reason??receipt.reasonCode??null,
+      });
+    }
     const sceneState=this.core.sceneIntegrationSnapshot(chat);
+    const safeSceneOwnerReceipt=redactSceneOwnerReceipt(sceneOwnerReceipt);
     if(!sceneState?.sceneId)throw new Error('NATIVE_BRAIN_SCENE_REQUIRED: active Scene owner state is required before generation');
     this.ownerEvidence.clear();this.core.setExternalCurrentSourceRevisionRefs([]);
     const ownerSelection={chatId:chat,turnId:turn,generationId:generation,correlationId:corr,worldRevision:this.core.graph.revision,sceneRevision:sceneState.sceneRevision,sourceRevisionRefs:this.core.currentSourceRevisionIds()};
@@ -424,7 +499,15 @@ export class Area52NativeBrain{
       activeThreads,channelIds,perspectiveConstraint,candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents,externalRetrievalCandidates,
     });
     this.#recordSceneExpectedWork({chatId:chat,turnId:turn,generationId:generation,correlationId:corr,turnRevision:sequence,sceneState,published});
-    const contextRetirement=activeContext?this.contextRetirement.evaluate({chatId:chat,...clone(activeContext)}):null;
+    const sceneHandoff=this.core.sceneTransitionContext(chat);
+    const contextRetirement=activeContext?this.contextRetirement.evaluate({
+      chatId:chat,...clone(activeContext),sceneHandoff,
+      additionalCurrentSourceRevisionRefs:uniq([
+        ...(sceneState.sourceRevisionRefs??[]),
+        ...(sceneHandoff?.sourceRevisionRefs??[]),
+        ...(sceneHandoff?.continuity?.sourceRevisionRefs??[]),
+      ]),
+    }):null;
     const narrativeMessages=(contextRetirement?.retainedMessages??[]).filter(row=>!(String(row.role).toLowerCase()==='user'&&String(row.content).trim()===q));
     const contributions=narrativeMessages.length?[{
       id:'recent-narrative:'+stableHash({chatId:chat,turnId:turn,receiptId:contextRetirement.receiptId,messageIds:narrativeMessages.map(row=>row.messageId)},{length:20}),
@@ -433,6 +516,7 @@ export class Area52NativeBrain{
       sourceRevisionIds:[...new Set(narrativeMessages.flatMap(row=>row.sourceRevisionRefs??[]))].sort(),role:'context',
       required:false,priority:8,metadata:{contextRetirementReceiptId:contextRetirement.receiptId,hostHistoryMutation:false},
     }]:[];
+    const contextRetirementReceipt=redactContextRetirement(contextRetirement);
     const deliveryStarted=perfNow();
     const delivery=this.core.deliverGenerationContext({
       published,chatId:chat,generationId,correlationId:corr,worldRevision:published.worldRevision,sceneRevision:sceneState.sceneRevision,
@@ -466,7 +550,7 @@ export class Area52NativeBrain{
       },
       retrievalPolicy:{candidateBudget:Number(candidateBudget)||64,latencyBudgetMs:Number(latencyBudgetMs),graphTraversal:clone(graphTraversal),retrievalIntents:clone(retrievalIntents)},
       sparseRetrievalReceipt:clone(sparseRetrievalReceipt),
-      published,delivery,contextRetirement:clone(contextRetirement),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
+      published,delivery,contextRetirement:clone(contextRetirementReceipt),loreSync:clone(loreSync),memorySync:clone(memorySync),response:null,experience:null,settlements:[],reflections:[],feedback:null,
       performance:{
         kind:'NativeBrainGenerationPerformanceReceipt',contractVersion:1,
         chatId:chat,turnId:turn,generationId:generation,correlationId:corr,sceneRevision:sceneState.sceneRevision,worldRevision:published.worldRevision,
@@ -488,7 +572,7 @@ export class Area52NativeBrain{
     this.#notify('TURN_PREPARED',record);
     return clone({
       kind:'NativeBrainPreparedTurn',executionLabel,selection:this.#selection(record),
-      scene:sceneState,sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),sceneFanOutIngress:clone(sceneFanOutIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
+      scene:sceneState,sceneOwnerReceipt:clone(safeSceneOwnerReceipt),sceneIngress:clone(record.sceneIngress),sceneFanOutIngress:clone(sceneFanOutIngress),loreSync,memorySync,memoryDensePrime:clone(memoryDensePrime),sparseRetrievalReceipt,retrievalIntents:clone(retrievalIntents),cognitiveChoice:published.cognitiveChoiceReceipt,
       candidateEnvelope:published.candidateEnvelope,truthAssessment:published.assessment,
       retrievalQualityReceipt:published.retrievalQualityReceipt??null,
       correctiveRetrievalReceipt:published.correctiveRetrievalReceipt??null,
@@ -497,7 +581,7 @@ export class Area52NativeBrain{
       gatherReceipt:published.gatherReceipt,contextSealReceipt:published.sealReceipt,
       graphTraversalReceipt:published.graphTraversalReceipt??null,retrievalBudgetReceipt:published.retrievalBudgetReceipt??null,
       budgetDecision:delivery.plan?.diagnosticReceipt?.budgetDecision??null,
-      contextRetirement,promptDeliveryReceipt:delivery.receipt??null,
+      contextRetirement:contextRetirementReceipt,promptDeliveryReceipt:delivery.receipt??null,
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });
@@ -508,11 +592,12 @@ export class Area52NativeBrain{
     const signal=this.sceneSignals.get(String(chatId));
     if(!signal?.sceneId||!Number(signal.sceneRevision))return fallback;
     try{
+      const atmosphereContribution=signal.atmosphereContribution?.status==='AVAILABLE'?signal.atmosphereContribution:null;
       const scene={
         sceneId:String(signal.sceneId),revision:Number(signal.sceneRevision),sourceRevisionRefs:uniq(signal.sourceRevisionRefs??[]),provenance:uniq(signal.provenance??[]),
         fields:{
           location:{value:clone(signal.location??null)},activeCast:{value:clone(signal.activeCast??[])},activeThreads:{value:clone(signal.activeThreads??[])},
-          activeRelationships:{value:clone(signal.activeRelationships??[])},immediateObjects:{value:clone(signal.objects??[])},atmosphere:{value:clone(signal.atmosphere??{})},
+          activeRelationships:{value:clone(signal.activeRelationships??[])},immediateObjects:{value:clone(signal.objects??[])},atmosphere:{value:clone(atmosphereContribution?.dimensions??{})},
         },
       };
       const plan=this.sceneQueryPlanner.plan({scene,userInput:query,intent});
@@ -527,7 +612,7 @@ export class Area52NativeBrain{
         artifactRefs:uniq(row.objectRefs??[]),
         temporalConstraint:null,
         perspective:clone(perspectiveConstraint),
-        metadata:{sceneIntentKind:row.intentKind,sceneRelationshipRefs:uniq(row.relationshipRefs??[]),locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
+        metadata:{sceneIntentKind:row.intentKind,sceneRelationshipRefs:uniq(row.relationshipRefs??[]),locationRefs:uniq(row.locationRefs??[]),objectRefs:uniq(row.objectRefs??[]),threadRefs:uniq(row.threadRefs??[]),atmosphereContributionStatus:signal.atmosphereContribution?.status??'UNAVAILABLE',...(graphTraversal?{graphTraversal:clone(graphTraversal)}:{})},
       }));
       return rows.length?rows:fallback;
     }catch{
@@ -540,6 +625,7 @@ export class Area52NativeBrain{
     if(typeof generate!=='function')return{prepared,response:null,learning:null};
     const raw=await generate(prepared.rendered,{
       selection:prepared.selection,promptPlan:prepared.promptPlan,contextSealReceipt:prepared.contextSealReceipt,
+      contextRetirement:prepared.contextRetirement??null,sceneOwnerReceipt:prepared.sceneOwnerReceipt??null,
     });
     const response=typeof raw==='string'?raw:raw?.text??raw?.content;
     if(typeof response!=='string'||!response.trim())throw new TypeError('generation callback must return response text');

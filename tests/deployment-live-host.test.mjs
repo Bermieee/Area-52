@@ -251,6 +251,9 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   assert.equal(beforeHostObservation.sceneFlow.readModel.kind,'SceneUiReadModel');
   assert.equal(beforeHostObservation.sceneFlow.signal.state,'ADMITTED');
   assert.ok(['ADMITTED','NO_WORK'].includes(beforeHostObservation.sceneFlow.fanOut.state));
+  assert.equal(beforeHostObservation.sceneFlow.fanOut.ingressStatus,'ADMITTED_FOR_RESULT_BUS');
+  assert.equal(beforeHostObservation.sceneFlow.fanOut.plannerConsidered,true);
+  assert.equal(beforeHostObservation.sceneFlow.fanOut.physicalExecutionCount,0);
   assert.ok(['ADMITTED_RESULTS','PUBLISHED_NO_WORK'].includes(beforeHostObservation.sceneFlow.gather.state));
   assert.equal(beforeHostObservation.sceneFlow.contextSeal.state,'SEALED');
   assert.equal(beforeHostObservation.sceneFlow.promptPlan.state,'PLANNED');
@@ -272,6 +275,14 @@ test('real native Brain host event publishes Scene and sealed Context Delivery f
   assert.equal(beforeHostObservation.delivery.planned.state,'PLANNED');
   assert.equal(beforeHostObservation.delivery.compiled.state,'COMPILED_AND_SEALED');
   assert.equal(beforeHostObservation.delivery.hostObserved.state,'UNAVAILABLE');
+  const installedFanOut=installedEvidence.last?.sceneFanOutReceipt??null;
+  assert.equal(installedFanOut?.status,'ASSEMBLED');
+  assert.equal(installedFanOut?.plannerConsidered,true);
+  assert.equal(installedFanOut?.physicalExecutionCount,0);
+  assert.equal(installedFanOut?.chatId,selection.chatId);
+  assert.equal(installedFanOut?.turnId,selection.turnId);
+  assert.equal(installedFanOut?.generationId,selection.generationId);
+  assert.equal(installedFanOut?.correlationId,selection.correlationId);
   assert.equal(beforeHostObservation.rawPromptIncluded,false);
   assert.equal(beforeHostObservation.storyTextIncluded,false);
   assert.equal(beforeHostObservation.loreBodiesIncluded,false);

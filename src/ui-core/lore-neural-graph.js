@@ -9,14 +9,18 @@ const STATE_META={
   REMOVED:{label:'Removed',tone:'historical',color:'#72899b',symbol:'×'},
 };
 
+export function createLoreNeuralRenderState(){
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set()};
+}
+
 export function renderLoreNeuralWorkspace(doc,{
-  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,
+  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,
 }={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
   const left=renderStudyRail(doc,{data,source,counts,progress});
-  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect});
+  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState});
   const right=renderLoreInsightRail(doc,{data,selected,progress});
   root.append(left,center,right);
   root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
@@ -59,7 +63,7 @@ function renderStudyRail(doc,{data,source,counts,progress}={}){
   return rail;
 }
 
-function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
+function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
@@ -77,6 +81,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
   }
 
   const graph=buildLoreGraph({entries,data,selected});
+  const growth=growthState(renderState,selected,graph);
   const svg=svgEl(doc,'svg',{'viewBox':'0 0 1000 760','class':'a52-lore-neural-svg','role':'img','aria-label':'Circular Lore source and representation graph'});
   const defs=svgEl(doc,'defs');
   const filter=svgEl(doc,'filter',{'id':'a52-lore-glow','x':'-60%','y':'-60%','width':'220%','height':'220%'});
@@ -87,7 +92,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
   for(const edge of graph.edges){
     const path=svgEl(doc,'path',{
       d:curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y),
-      class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact':''),
+      class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(growth.newEdges.has(edge.id)?'is-new':'is-steady'),
       'data-state':edge.state,'style':'--a52-link-delay:'+String(edge.delay)+'ms',
     });
     svg.append(path);
@@ -101,7 +106,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
 
   for(const hub of graph.hubs){
-    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node','data-state':hub.state,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
+    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
     g.setAttribute('style','--a52-node-delay:'+String(hub.delay)+'ms');
     g.append(svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'42','class':'a52-lore-hub-node__halo'}),svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'31','class':'a52-lore-hub-node__body'}));
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
@@ -110,7 +115,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
   }
 
   for(const node of graph.nodes){
-    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node','data-state':node.state,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
+    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
     g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
     const radius=node.artifactCount?10:8;
     g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius+5),'class':'a52-lore-entry-node__halo'}),svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__body'}));
@@ -120,7 +125,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect}={}){
     svg.append(g);
   }
   for(const node of graph.artifacts){
-    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node','data-state':node.state,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
     g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
     g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':'5','class':'a52-lore-artifact-node__body'}));
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
@@ -184,21 +189,41 @@ function buildLoreGraph({entries,data}={}){
   const center={x:500,y:380},hubRadius=215;
   activeStates.forEach((state,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,activeStates.length))*Math.PI*2,rows=byState.get(state),hub={state,label:STATE_META[state]?.label??state,count:rows.length,x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70};
-    hubs.push(hub);edges.push({from:center,to:hub,state,kind:'hub',delay:hub.delay});
+    hubs.push(hub);edges.push({id:'edge:hub:'+state,from:center,to:hub,state,kind:'hub',delay:hub.delay});
     rows.forEach((row,rowIndex)=>{
       const spread=Math.min(Math.PI*.72,.24+rows.length*.045),offset=rows.length===1?0:(rowIndex/(rows.length-1)-.5)*spread;
       const nodeAngle=angle+offset,radius=72+(rowIndex%3)*26,hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%19)-9;
       const node={id:String(row.sourceId??row.uid??state+':'+rowIndex),label:shortLabel(row.uid??row.sourceId??'Lore source'),state,x:hub.x+Math.cos(nodeAngle)*(radius+jitter),y:hub.y+Math.sin(nodeAngle)*(radius+jitter),artifactCount:Number(row.artifactIds?.length??0),delay:220+index*90+rowIndex*26,payload:row};
-      nodes.push(node);edges.push({from:hub,to:node,state,kind:'source',delay:node.delay-70});
+      nodes.push(node);edges.push({id:'edge:source:'+node.id,from:hub,to:node,state,kind:'source',delay:node.delay-70});
       const artifactRefs=[...(row.artifactIds??[])].slice(0,2);
       artifactRefs.forEach((artifactId,artifactIndex)=>{
         const artifactAngle=nodeAngle+(artifactIndex===0?-.28:.28),artifact={id:String(artifactId),label:String(artifactId),state,x:node.x+Math.cos(artifactAngle)*28,y:node.y+Math.sin(artifactAngle)*28,delay:node.delay+90+artifactIndex*45};
-        artifacts.push(artifact);edges.push({from:node,to:artifact,state,kind:'artifact',delay:artifact.delay-50});
+        artifacts.push(artifact);edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state,kind:'artifact',delay:artifact.delay-50});
       });
     });
   });
   return{hubs,nodes,artifacts,edges};
 }
+
+function growthState(state,selected,graph){
+  const key=String(selected?.snapshot?.id??selected?.selection?.lorebookId??'unselected');
+  if(!state)return{
+    newHubs:new Set(graph.hubs.map(row=>row.id)),newNodes:new Set(graph.nodes.map(row=>row.id)),
+    newArtifacts:new Set(graph.artifacts.map(row=>row.id)),newEdges:new Set(graph.edges.map(row=>row.id)),
+  };
+  if(state.lorebookKey!==key){
+    state.lorebookKey=key;
+    state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
+  }
+  const classify=(rows,seen)=>{const fresh=new Set();for(const row of rows){if(!seen.has(row.id))fresh.add(row.id);seen.add(row.id);}trimSeen(seen,192);return fresh;};
+  return{
+    newHubs:classify(graph.hubs,state.seenHubs),
+    newNodes:classify(graph.nodes,state.seenNodes),
+    newArtifacts:classify(graph.artifacts,state.seenArtifacts),
+    newEdges:classify(graph.edges,state.seenEdges),
+  };
+}
+function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().value);}
 
 function canvasFooter(doc,text){
   const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});

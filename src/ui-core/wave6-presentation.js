@@ -4,14 +4,20 @@ import { ProductDataMode, Wave6Health, authorityDescriptor, createProductSourceS
 export const FrontFaceMode=Object.freeze({COLLAPSED:'COLLAPSED',EXPANDED:'EXPANDED'});
 export const FrontFaceDensity=Object.freeze({COMPACT:'COMPACT',COMFORTABLE:'COMFORTABLE'});
 export const WorkspaceComposition=Object.freeze({COMPACT:'COMPACT',DASHBOARD:'DASHBOARD',INSPECTOR_HEAVY:'INSPECTOR_HEAVY'});
+export const MotionMode=Object.freeze({SYSTEM:'SYSTEM',FULL:'FULL',REDUCED:'REDUCED'});
+export const LoreMotionMode=MotionMode;
 
-const MODES=new Set(Object.values(FrontFaceMode)),DENSITIES=new Set(Object.values(FrontFaceDensity));
-const DEFAULTS=Object.freeze({frontFaceMode:FrontFaceMode.COLLAPSED,frontFaceWidth:560,frontFaceDensity:FrontFaceDensity.COMPACT,inspectorVisible:false,inspectorWidth:320,lastProductWorkspace:'home'});
+const MODES=new Set(Object.values(FrontFaceMode)),DENSITIES=new Set(Object.values(FrontFaceDensity)),MOTION_MODES=new Set(Object.values(MotionMode));
+const DEFAULTS=Object.freeze({frontFaceMode:FrontFaceMode.COLLAPSED,frontFaceWidth:560,frontFaceDensity:FrontFaceDensity.COMPACT,inspectorVisible:false,inspectorWidth:320,lastProductWorkspace:'home',motionMode:MotionMode.FULL});
 
 export class FrontFacePresentationState{
   #listeners=new Set();
   constructor({stateStore,defaults={}}={}){
-    this.stateStore=stateStore??null;const persisted=this.stateStore?.load?.()??{},merged={...DEFAULTS,...defaults,...persisted};
+    this.stateStore=stateStore??null;const persisted=this.stateStore?.load?.()??{},migrated={...persisted};
+    if(migrated.motionMode==null&&migrated.loreMotionMode!=null)migrated.motionMode=migrated.loreMotionMode;
+    delete migrated.loreMotionMode;
+    const migratedDefaults={...defaults};if(migratedDefaults.motionMode==null&&migratedDefaults.loreMotionMode!=null)migratedDefaults.motionMode=migratedDefaults.loreMotionMode;delete migratedDefaults.loreMotionMode;
+    const merged={...DEFAULTS,...migratedDefaults,...migrated};
     this.state=normalize(merged);
   }
   get(){return structuredCloneSafe(this.state);}
@@ -24,6 +30,8 @@ export class FrontFacePresentationState{
   setWidth(width){return this.patch({frontFaceWidth:width});}
   setInspector(visible,width=this.state.inspectorWidth){return this.patch({inspectorVisible:Boolean(visible),inspectorWidth:width});}
   setDensity(density){return this.patch({frontFaceDensity:density});}
+  setMotionMode(mode){return this.patch({motionMode:mode});}
+  setLoreMotionMode(mode){return this.setMotionMode(mode);}
   subscribe(listener){if(typeof listener!=='function')throw new TypeError('presentation listener must be a function');this.#listeners.add(listener);return()=>this.#listeners.delete(listener);}
 }
 
@@ -70,11 +78,22 @@ export function statusForHealth(health){return healthStatusToken(health??Wave6He
 
 function region(doc,name,node){const r=element(doc,'section',{className:`a52-composition__${name}`});r.append(node);return r;}
 function modeStatus(mode){if(mode===ProductDataMode.LIVE)return'ready';if(mode===ProductDataMode.DEGRADED)return'warning';if(mode===ProductDataMode.FIXTURE)return'inferred';return'offline';}
+export function normalizeMotionMode(value){
+  const mode=String(value??MotionMode.FULL).toUpperCase();
+  return MOTION_MODES.has(mode)?mode:MotionMode.FULL;
+}
+export function resolveMotionPolicy(mode,{systemReduced=false}={}){
+  const normalized=normalizeMotionMode(mode);
+  const reduced=normalized===MotionMode.REDUCED||(normalized===MotionMode.SYSTEM&&Boolean(systemReduced));
+  return{mode:normalized,reduced,enabled:!reduced,systemReduced:Boolean(systemReduced),ignoresSystemPreference:normalized===MotionMode.FULL};
+}
+
 function normalize(value){
   const mode=MODES.has(value.frontFaceMode)?value.frontFaceMode:DEFAULTS.frontFaceMode;
   const density=DENSITIES.has(value.frontFaceDensity)?value.frontFaceDensity:DEFAULTS.frontFaceDensity;
   const width=Math.max(360,Math.min(1440,Number(value.frontFaceWidth)||DEFAULTS.frontFaceWidth));
   const inspectorWidth=Math.max(240,Math.min(560,Number(value.inspectorWidth)||DEFAULTS.inspectorWidth));
-  return{frontFaceMode:mode,frontFaceWidth:width,frontFaceDensity:density,inspectorVisible:Boolean(value.inspectorVisible),inspectorWidth,lastProductWorkspace:String(value.lastProductWorkspace||'home')};
+  const motionMode=normalizeMotionMode(value.motionMode??value.loreMotionMode);
+  return{frontFaceMode:mode,frontFaceWidth:width,frontFaceDensity:density,inspectorVisible:Boolean(value.inspectorVisible),inspectorWidth,lastProductWorkspace:String(value.lastProductWorkspace||'home'),motionMode};
 }
 function structuredCloneSafe(value){return typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value));}

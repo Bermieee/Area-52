@@ -1,6 +1,8 @@
-import { createKeyValue, element, makeBadge } from './primitives.js';
+import { createButton, createKeyValue, element, makeBadge } from './primitives.js';
+import { resolveMotionPolicy } from './wave6-presentation.js';
 
 const STATE_ORDER=['READY','STUDYING','ACCEPTED','FAILED','REMOVED'];
+const REVEAL_RENDER_PASSES=4;
 const STATE_META={
   READY:{label:'Ready',tone:'ready',color:'#3ce4b1',symbol:'✓'},
   STUDYING:{label:'Studying',tone:'observed',color:'#42c7ff',symbol:'◌'},
@@ -10,18 +12,25 @@ const STATE_META={
 };
 
 export function createLoreNeuralRenderState(){
-  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set()};
+  return{lorebookKey:null,seenHubs:new Set(),seenNodes:new Set(),seenArtifacts:new Set(),seenEdges:new Set(),replayCount:0,animationInitialized:false,revealPassesRemaining:0,selectedNodeId:null,selectedNodeKind:null,focusHubId:null,viewport:null,panGesture:null,nodeDrag:null,nodePositions:{}};
+}
+export function replayLoreNeuralGrowth(state){
+  if(!state)return false;
+  state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
+  state.replayCount=Number(state.replayCount??0)+1;
+  state.revealPassesRemaining=REVEAL_RENDER_PASSES;
+  return true;
 }
 
 export function renderLoreNeuralWorkspace(doc,{
-  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,
+  data=null,source=null,selected=null,progress=0,scope=null,inspect=null,renderState=null,refresh=null,motionMode='FULL',
 }={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
   const left=renderStudyRail(doc,{data,source,counts,progress,selected});
-  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState});
-  const right=renderLoreInsightRail(doc,{data,selected,progress});
+  const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode});
+  const right=renderLoreInsightRail(doc,{data,selected,progress,renderState});
   root.append(left,center,right);
   root.dataset.graphState=graphActive?'populated':entries.length?'armed':snapshot?'loaded':'blank';
   return root;
@@ -46,14 +55,20 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
     Number(counts?.FAILED??0)>0?'Study needs attention. Failed sources stay visible and are not treated as retrieval-ready.'
     :Number(counts?.STUDYING??0)>0?'Study is active. Nodes and links appear as the Lore owner publishes current learned representations.'
     :Number(counts?.ACCEPTED??0)>0?'DUE = accepted but not learned/current. Run pending study to grow retrieval-ready nodes.'
-    :Number(counts?.READY??0)>0?'All currently counted learned sources shown in green are owner-reported READY.'
+    :Number(counts?.READY??0)>0?'All currently counted learned sources are owner-reported READY. Category color stays independent of study state.'
     :'Load and accept a selected Lorebook to begin growing the graph.'}));
   const state=source?.operationalState??source?.health??'IDLE';
   progressCard.body.append(makeBadge(doc,'LORE OWNER · '+String(state),source?.statusToken??'historical'));
 
   const categoryCounts=semanticCategoryCounts(selected?.snapshot,data?.entries??[]);
-  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Real owner states; no semantic category metadata published','⌘');
-  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length]}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
+  const neutralClusterCount=categoryCounts.length?0:presentationClusterCount(data?.entries??[]);
+  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Presentation clusters + real owner study states','⌘');
+  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:semanticToneForCategory(category,index)}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
+  if(neutralClusterCount){
+    const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--structure',dataset:{tone:'cyan'}});
+    row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:'Source clusters · layout only'}),element(doc,'strong',{text:String(neutralClusterCount)}));legendCard.body.append(row);
+    legendCard.body.append(element(doc,'p',{className:'a52-muted a52-lore-graph-legend-note',text:'Cluster membership is presentation-only. READY / STUDYING / DUE / FAILED still comes only from the Lore owner.'}));
+  }
   for(const state of STATE_ORDER){
     const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state}});
     row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'span',{text:meta.label}),element(doc,'strong',{text:String(Number(counts?.[state]??0))}));
@@ -65,15 +80,39 @@ function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   return rail;
 }
 
-function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}={}){
+function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState,refresh,motionMode='FULL'}={}){
   const entries=Array.isArray(data?.entries)?data.entries:[],snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
+  const systemReduced=prefersReducedMotion(doc),motionPolicy=resolveMotionPolicy(motionMode,{systemReduced}),nativeMotion=motionPolicy.enabled;
   const panelRoot=element(doc,'section',{className:'a52-lore-neural-canvas-card'});
   const head=element(doc,'header',{className:'a52-lore-neural-canvas-head'});
   const title=element(doc,'div');
   title.append(element(doc,'span',{className:'a52-eyebrow',text:'LIVE LORE GRAPH'}),element(doc,'h2',{text:snapshot?.title??selected?.selection?.title??'Lore Knowledge Canvas'}));
   const badge=makeBadge(doc,graphActive?(Number(data?.operatorCounts?.STUDYING??0)>0?'GROWING':'POPULATED'):entries.length?'ARMED':'BLANK CANVAS',graphActive?'observed':entries.length?'warning':'historical');
-  head.append(title,badge);panelRoot.append(head);
+  const headActions=element(doc,'div',{className:'a52-lore-neural-canvas-head__actions'});
+  headActions.append(badge);
+  const futureActions=element(doc,'div',{className:'a52-lore-future-actions',attrs:{'aria-label':'Future Lore tools'}});
+  for(const label of ['Merge','Summarizer','Rebuild']){
+    const button=createButton(doc,{label,scope,size:'sm',variant:'secondary',disabled:true});
+    button.classList?.add?.('a52-lore-future-action');
+    button.setAttribute?.('title',label+' · planned');
+    button.dataset.futureFeature='true';
+    futureActions.append(button);
+  }
+  headActions.append(futureActions);
+  if(graphActive&&renderState){
+    headActions.append(createButton(doc,{label:'Full Graph',scope,size:'sm',variant:'secondary',onPress:()=>{
+      renderState.focusHubId=null;renderState.selectedNodeId=null;renderState.selectedNodeKind=null;renderState.viewport=null;refresh?.();
+    }}));
+    headActions.append(createButton(doc,{label:'Reset Layout',scope,size:'sm',variant:'secondary',onPress:()=>{
+      renderState.nodePositions={};renderState.nodeDrag=null;refresh?.();
+    }}));
+    headActions.append(createButton(doc,{label:'Replay Growth',scope,size:'sm',variant:'secondary',disabled:!motionPolicy.enabled,onPress:()=>{
+      replayLoreNeuralGrowth(renderState);
+      refresh?.();
+    }}));
+  }
+  head.append(title,headActions);panelRoot.append(head);
 
   const canvas=element(doc,'div',{className:'a52-lore-neural-canvas'});
   if(!entries.length||!graphActive){
@@ -83,8 +122,11 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   }
 
   const graph=buildLoreGraph({entries,data,selected});
+  applyPersistedNodePositions(graph,renderState);
   const growth=growthState(renderState,selected,graph);
-  const svg=svgEl(doc,'svg',{'viewBox':'0 0 1000 760','class':'a52-lore-neural-svg','role':'img','aria-label':'Circular Lore source and representation graph'});
+  const viewBox=formatViewBox(renderState?.viewport??parseViewBox(focusedViewBox(graph,renderState?.focusHubId)));
+  const svg=svgEl(doc,'svg',{'viewBox':viewBox,'class':'a52-lore-neural-svg'+(renderState?.focusHubId?' is-focused':''),'role':'img','aria-label':'Circular Lore source and representation graph','data-focus-hub':renderState?.focusHubId??null});
+  applyZoomPresentation(svg,parseViewBox(viewBox));
   const defs=svgEl(doc,'defs');
   const filter=svgEl(doc,'filter',{'id':'a52-lore-glow','x':'-60%','y':'-60%','width':'220%','height':'220%'});
   filter.append(svgEl(doc,'feGaussianBlur',{'stdDeviation':'4','result':'blur'}),svgEl(doc,'feMerge',{},[svgEl(doc,'feMergeNode',{'in':'blur'}),svgEl(doc,'feMergeNode',{'in':'SourceGraphic'})]));
@@ -92,50 +134,292 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   svg.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'300','class':'a52-lore-orbit a52-lore-orbit--outer'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'228','class':'a52-lore-orbit'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'148','class':'a52-lore-orbit a52-lore-orbit--inner'}));
 
   for(const edge of graph.edges){
+    const isNew=growth.newEdges.has(edge.id),delay=animationDelay(edge,growth);
     const path=svgEl(doc,'path',{
       d:curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y),
-      class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(growth.newEdges.has(edge.id)?'is-new':'is-steady'),
-      'data-state':edge.state,'data-tone':edge.tone??null,'style':'--a52-link-delay:'+String(edge.delay)+'ms',
+      class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':''),
+      'data-state':edge.state,'data-tone':edge.tone??null,'data-wave':edge.wave??null,'data-edge-id':edge.id,'data-from-id':edge.fromId??null,'data-to-id':edge.toId??null,
+      'style':'--a52-link-delay:'+String(delay)+'ms'+(isNew&&nativeMotion?';stroke-dasharray:1;stroke-dashoffset:1;animation:none':''),
+      'pathLength':isNew&&nativeMotion?'1':null,
     });
+    if(isNew&&nativeMotion)path.append(nativeAnimate(doc,{attributeName:'stroke-dashoffset',from:'1',to:'0',begin:delay,dur:1500}));
     svg.append(path);
   }
 
-  const core=svgEl(doc,'g',{'class':'a52-lore-core-node','tabindex':'0','role':'button','aria-label':'Selected Lorebook core'});
+  const core=svgEl(doc,'g',{'class':'a52-lore-core-node'+(renderState?.selectedNodeKind==='core'?' is-selected':''),'data-node-id':'core','tabindex':'0','role':'button','aria-label':'Selected Lorebook core'});
   core.append(svgEl(doc,'circle',{'cx':'500','cy':'380','r':'72','class':'a52-lore-core-node__halo'}),svgEl(doc,'circle',{'cx':'500','cy':'380','r':'55','class':'a52-lore-core-node__body'}));
   const coreTitle=svgEl(doc,'text',{'x':'500','y':'370','text-anchor':'middle','class':'a52-lore-core-node__title'});coreTitle.textContent='LORE';
   const coreCount=svgEl(doc,'text',{'x':'500','y':'394','text-anchor':'middle','class':'a52-lore-core-node__count'});coreCount.textContent=String(entries.length)+' sources';
   const coreProgress=svgEl(doc,'text',{'x':'500','y':'415','text-anchor':'middle','class':'a52-lore-core-node__meta'});coreProgress.textContent=String(progress)+'% ready';
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
+  const activateCore=()=>{if(renderState){renderState.selectedNodeId='core';renderState.selectedNodeKind='core';renderState.focusHubId=null;renderState.viewport=null;}applyGraphInteraction(svg,graph,renderState);};
+  scope?.listen?.(core,'click',activateCore);scope?.listen?.(core,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateCore();}});
 
   for(const hub of graph.hubs){
-    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'data-tone':hub.tone??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
-    g.setAttribute('style','--a52-node-delay:'+String(hub.delay)+'ms');
-    g.append(svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'42','class':'a52-lore-hub-node__halo'}),svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'31','class':'a52-lore-hub-node__body'}));
+    const isNew=growth.newHubs.has(hub.id),delay=animationDelay(hub,growth);
+    const selected=renderState?.selectedNodeId===hub.id;
+    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':hub.id,'data-node-kind':'hub','data-state':hub.state,'data-tone':hub.tone??null,'data-wave':hub.wave??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
+    g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
+    const halo=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'5':'42','class':'a52-lore-hub-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':isNew&&nativeMotion?'2':'31','class':'a52-lore-hub-node__body'});
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
     const count=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y+16),'text-anchor':'middle','class':'a52-lore-hub-node__count'});count.textContent=String(hub.count);
-    g.append(t,count);svg.append(g);
+    if(isNew&&nativeMotion){
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'5',to:'42',begin:delay,dur:1250}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'2',to:'31',begin:delay+120,dur:1100}));
+      t.setAttribute('opacity','0');count.setAttribute('opacity','0');
+      t.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+480,dur:420}));
+      count.append(nativeAnimate(doc,{attributeName:'opacity',from:'0',to:'1',begin:delay+540,dur:420}));
+    }
+    g.append(halo,body,t,count);svg.append(g);
+    const activateHub=()=>{if(renderState){renderState.selectedNodeId=hub.id;renderState.selectedNodeKind='hub';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
+    scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,hub.id))return;activateHub(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateHub(event);}});
+    installDraggableBubble(g,hub,svg,graph,renderState,scope);
   }
 
   for(const node of graph.nodes){
-    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
-    g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
+    const isNew=growth.newNodes.has(node.id),delay=animationDelay(node,growth);
+    const selected=renderState?.selectedNodeId===node.id;
+    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':node.id,'data-node-kind':'source','data-hub-id':node.hubId??null,'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
+    g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
     const radius=node.artifactCount?10:8;
-    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius+5),'class':'a52-lore-entry-node__halo'}),svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__body'}));
+    const halo=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'1':String(radius+5),'class':'a52-lore-entry-node__halo'});
+    const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-entry-node__body'});
+    if(isNew&&nativeMotion){
+      halo.append(nativeAnimate(doc,{attributeName:'r',from:'1',to:String(radius+5),begin:delay,dur:950}));
+      body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay+90,dur:820}));
+    }
+    const label=svgEl(doc,'text',{'x':String(node.x),'y':String(node.y+2),'text-anchor':'middle','class':'a52-lore-entry-node__label'});
+    label.textContent=bubbleLabel(node.label);
+    g.append(halo,body,label);
     const title=svgEl(doc,'title');title.textContent=node.label+' · '+node.state+(node.artifactCount?' · '+node.artifactCount+' artifacts':'');g.append(title);
-    const activate=()=>inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});
-    scope?.listen?.(g,'click',activate);scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate();}});
+    const activate=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='source';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);inspect?.({kind:'area52-lore-source-node',id:node.id,title:node.label,authority:'LORE_OWNER',payload:node.payload});refresh?.();};
+    scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activate(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activate(event);}});
+    installDraggableBubble(g,node,svg,graph,renderState,scope);
     svg.append(g);
   }
   for(const node of graph.artifacts){
-    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
-    g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
-    g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':'5','class':'a52-lore-artifact-node__body'}));
+    const isNew=growth.newArtifacts.has(node.id),delay=animationDelay(node,growth);
+    const selected=renderState?.selectedNodeId===node.id;
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(isNew?'is-new':'is-steady')+(isNew&&nativeMotion?' has-native-reveal':'')+(selected?' is-selected':''),'data-node-id':node.id,'data-node-kind':'artifact','data-hub-id':node.hubId??null,'data-parent-id':node.parentId??null,'data-state':node.state,'data-tone':node.tone??null,'data-wave':node.wave??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact group '+node.label});
+    g.setAttribute('style','--a52-node-delay:'+String(delay)+'ms');
+    const radius=Math.min(9,4+Math.log2(Number(node.count??1)+1));
+    const body=svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':isNew&&nativeMotion?'0.5':String(radius),'class':'a52-lore-artifact-node__body'});
+    if(isNew&&nativeMotion)body.append(nativeAnimate(doc,{attributeName:'r',from:'0.5',to:String(radius),begin:delay,dur:720}));
+    g.append(body);
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
+    const activateArtifact=()=>{if(renderState){renderState.selectedNodeId=node.id;renderState.selectedNodeKind='artifact';renderState.focusHubId=null;}applyGraphInteraction(svg,graph,renderState);refresh?.();};
+    scope?.listen?.(g,'click',event=>{if(consumeSuppressedClick(renderState,node.id))return;activateArtifact(event);});scope?.listen?.(g,'keydown',event=>{if(event?.key==='Enter'||event?.key===' '){event.preventDefault?.();activateArtifact(event);}});
+    installDraggableBubble(g,node,svg,graph,renderState,scope);
   }
+  applyGraphInteraction(svg,graph,renderState);
+  installGraphSandbox(svg,graph,renderState,scope);
   canvas.append(svg);
-  panelRoot.append(canvas,canvasFooter(doc,'Nodes grow from accepted sources. Links brighten only when the owner publishes learned/derived evidence.'));
+  if(nativeMotion)scheduleNativeAnimations(svg,doc);
+  panelRoot.append(canvas,canvasFooter(doc,graph.visibleSourceCount+' of '+graph.totalSourceCount+' source nodes shown · topology uses published structure or presentation-only clusters; state colors remain owner-reported.'));
   return panelRoot;
 }
+
+function applyZoomPresentation(svg,viewport){
+  const width=Number(viewport?.width)||1000;
+  const level=width<=430?'close':width<=680?'detail':'overview';
+  svg?.setAttribute?.('data-zoom-level',level);
+  return level;
+}
+function bubbleLabel(value){
+  const text=String(value??'').trim();
+  return text.length>12?text.slice(0,11)+'…':text;
+}
+
+function focusedViewBox(graph,hubId){
+  if(!hubId)return'0 0 1000 760';
+  const hub=graph?.hubs?.find?.(row=>row.id===hubId);
+  if(!hub)return'0 0 1000 760';
+  const points=[hub,...(graph.nodes??[]).filter(row=>row.hubId===hubId),...(graph.artifacts??[]).filter(row=>row.hubId===hubId)];
+  const xs=points.map(row=>Number(row.x)).filter(Number.isFinite),ys=points.map(row=>Number(row.y)).filter(Number.isFinite);
+  if(!xs.length||!ys.length)return'0 0 1000 760';
+  const padding=105,minX=Math.min(...xs)-padding,maxX=Math.max(...xs)+padding,minY=Math.min(...ys)-padding,maxY=Math.max(...ys)+padding;
+  const width=Math.max(360,maxX-minX),height=Math.max(300,maxY-minY),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
+  return formatViewBox(clampViewport({x:cx-width/2,y:cy-height/2,width,height}));
+}
+function parseViewBox(value){
+  if(value&&typeof value==='object')return clampViewport(value);
+  const [x=0,y=0,width=1000,height=760]=String(value??'0 0 1000 760').trim().split(/\s+/).map(Number);
+  return clampViewport({x,y,width,height});
+}
+function formatViewBox(view){
+  const row=clampViewport(view);
+  return[round(row.x),round(row.y),round(row.width),round(row.height)].join(' ');
+}
+function clampViewport(view){
+  const minWidth=250,maxWidth=1180,aspect=1000/760;
+  let width=Math.max(minWidth,Math.min(maxWidth,Number(view?.width)||1000));
+  let height=width/aspect;
+  if(Number(view?.height)>0&&Math.abs(Number(view.height)-height)<40)height=Number(view.height);
+  const worldMargin=190,minX=-worldMargin,maxX=1000+worldMargin-width,minY=-worldMargin,maxY=760+worldMargin-height;
+  const x=Math.max(minX,Math.min(maxX,Number(view?.x)||0)),y=Math.max(minY,Math.min(maxY,Number(view?.y)||0));
+  return{x,y,width,height};
+}
+function applyGraphInteraction(svg,graph,state){
+  if(!svg)return;
+  const selectedId=state?.selectedNodeId??null,focusHubId=state?.focusHubId??null;
+  const viewport=state?.viewport??parseViewBox(focusedViewBox(graph,focusHubId));
+  svg.setAttribute?.('viewBox',formatViewBox(viewport));
+  applyZoomPresentation(svg,viewport);
+  if(focusHubId)svg.classList?.add?.('is-focused');else svg.classList?.remove?.('is-focused');
+  if(focusHubId)svg.setAttribute?.('data-focus-hub',focusHubId);else svg.removeAttribute?.('data-focus-hub');
+
+  const visit=node=>{
+    const nodeId=node?.getAttribute?.('data-node-id')??node?.attributes?.['data-node-id']??null;
+    const fromId=node?.getAttribute?.('data-from-id')??node?.attributes?.['data-from-id']??null;
+    const toId=node?.getAttribute?.('data-to-id')??node?.attributes?.['data-to-id']??null;
+    const selected=Boolean(selectedId&&nodeId===selectedId);
+    const connected=Boolean(selectedId&&(fromId===selectedId||toId===selectedId));
+    node?.classList?.toggle?.('is-selected',selected);
+    node?.classList?.toggle?.('is-connected',connected);
+    for(const child of node?.children??[])visit(child);
+  };
+  visit(svg);
+}
+function applyPersistedNodePositions(graph,state){
+  const positions=state?.nodePositions??{};
+  for(const row of [...(graph?.hubs??[]),...(graph?.nodes??[]),...(graph?.artifacts??[])]){
+    const saved=positions?.[row.id];
+    if(saved&&Number.isFinite(Number(saved.x))&&Number.isFinite(Number(saved.y))){
+      row.x=Number(saved.x);row.y=Number(saved.y);
+    }
+  }
+}
+function findGraphBubble(target){
+  let node=target;
+  while(node){
+    const id=node?.getAttribute?.('data-node-id')??node?.attributes?.['data-node-id']??null;
+    if(id)return node;
+    node=node.parentNode;
+  }
+  return null;
+}
+function consumeSuppressedClick(state,id){
+  if(!state?.suppressClickId||state.suppressClickId!==id)return false;
+  state.suppressClickId=null;return true;
+}
+function graphPointFromPointer(svg,state,event){
+  const view=parseViewBox(state?.viewport??svg?.getAttribute?.('viewBox')??svg?.attributes?.viewBox??'0 0 1000 760');
+  const width=Math.max(1,Number(svg?.clientWidth)||1000),height=Math.max(1,Number(svg?.clientHeight)||760);
+  let px=Number(event?.offsetX),py=Number(event?.offsetY);
+  try{
+    const rect=svg?.getBoundingClientRect?.();
+    if(rect&&Number.isFinite(Number(event?.clientX))&&Number.isFinite(Number(event?.clientY))){
+      px=Number(event.clientX)-Number(rect.left||0);py=Number(event.clientY)-Number(rect.top||0);
+    }
+  }catch{}
+  if(!Number.isFinite(px))px=Number(event?.clientX)||0;
+  if(!Number.isFinite(py))py=Number(event?.clientY)||0;
+  px=Math.max(0,Math.min(width,px));py=Math.max(0,Math.min(height,py));
+  return{x:view.x+(px/width)*view.width,y:view.y+(py/height)*view.height};
+}
+function updateGraphGeometry(svg,graph,row){
+  const setCirclePosition=node=>{
+    const cls=String(node?.getAttribute?.('class')??node?.attributes?.class??'');
+    if(node?.tagName?.toLowerCase?.()==='circle'&&(/a52-lore-(hub|entry|artifact)-node__/.test(cls))){
+      node.setAttribute?.('cx',String(row.x));node.setAttribute?.('cy',String(row.y));
+    }
+    if(node?.tagName?.toLowerCase?.()==='text'&&row.label){
+      const clsText=String(node?.getAttribute?.('class')??node?.attributes?.class??'');
+      node.setAttribute?.('x',String(row.x));
+      if(clsText.includes('a52-lore-hub-node__title'))node.setAttribute?.('y',String(row.y-2));
+      if(clsText.includes('a52-lore-hub-node__count'))node.setAttribute?.('y',String(row.y+16));
+      if(clsText.includes('a52-lore-entry-node__label'))node.setAttribute?.('y',String(row.y+2));
+    }
+    for(const child of node?.children??[])setCirclePosition(child);
+  };
+  let bubble=null;
+  const visit=node=>{
+    const id=node?.getAttribute?.('data-node-id')??node?.attributes?.['data-node-id']??null;
+    if(id===row.id)bubble=node;
+    for(const child of node?.children??[])visit(child);
+  };
+  visit(svg);if(bubble)setCirclePosition(bubble);
+  for(const edge of graph?.edges??[]){
+    if(edge.fromId!==row.id&&edge.toId!==row.id)continue;
+    const path=findSvgByData(svg,'data-edge-id',edge.id);
+    path?.setAttribute?.('d',curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y));
+  }
+}
+function findSvgByData(root,key,value){
+  let found=null;
+  const visit=node=>{
+    if(found)return;
+    const current=node?.getAttribute?.(key)??node?.attributes?.[key]??null;
+    if(current===value){found=node;return;}
+    for(const child of node?.children??[])visit(child);
+  };
+  visit(root);return found;
+}
+function installDraggableBubble(element,row,svg,graph,state,scope){
+  if(!element||!row||!state||!scope?.listen)return;
+  scope.listen(element,'pointerdown',event=>{
+    if(Number(event?.button??0)!==0)return;
+    event?.stopPropagation?.();
+    const start=graphPointFromPointer(svg,state,event);
+    state.nodeDrag={id:row.id,pointerId:event?.pointerId??null,startPointer:start,startX:Number(row.x),startY:Number(row.y),moved:false};
+    element.setPointerCapture?.(event?.pointerId);
+    element.classList?.add?.('is-dragging');
+  });
+  scope.listen(element,'pointermove',event=>{
+    const drag=state.nodeDrag;if(!drag||drag.id!==row.id)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    event?.stopPropagation?.();
+    const point=graphPointFromPointer(svg,state,event),dx=point.x-drag.startPointer.x,dy=point.y-drag.startPointer.y;
+    if(Math.hypot(dx,dy)>4)drag.moved=true;
+    row.x=Math.max(-140,Math.min(1140,drag.startX+dx));row.y=Math.max(-140,Math.min(900,drag.startY+dy));
+    state.nodePositions[row.id]={x:row.x,y:row.y};
+    updateGraphGeometry(svg,graph,row);
+  });
+  const finish=event=>{
+    const drag=state.nodeDrag;if(!drag||drag.id!==row.id)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    event?.stopPropagation?.();
+    if(drag.moved)state.suppressClickId=row.id;
+    state.nodeDrag=null;element.releasePointerCapture?.(event?.pointerId);element.classList?.remove?.('is-dragging');
+  };
+  scope.listen(element,'pointerup',finish);scope.listen(element,'pointercancel',finish);
+}
+function installGraphSandbox(svg,graph,state,scope){
+  if(!svg||!state||!scope?.listen)return;
+  const current=()=>parseViewBox(state.viewport??focusedViewBox(graph,state.focusHubId));
+  const apply=view=>{state.viewport=clampViewport(view);svg.setAttribute?.('viewBox',formatViewBox(state.viewport));applyZoomPresentation(svg,state.viewport);};
+  scope.listen(svg,'wheel',event=>{
+    event?.preventDefault?.();
+    const view=current(),delta=Number(event?.deltaY)||0,factor=delta<0?.82:1.22;
+    const nextWidth=Math.max(250,Math.min(1180,view.width*factor)),nextHeight=nextWidth/(1000/760);
+    const px=Math.max(0,Math.min(1,(Number(event?.offsetX)||Number(event?.clientX)||0)/Math.max(1,Number(svg.clientWidth)||1000)));
+    const py=Math.max(0,Math.min(1,(Number(event?.offsetY)||Number(event?.clientY)||0)/Math.max(1,Number(svg.clientHeight)||760)));
+    apply({x:view.x+(view.width-nextWidth)*px,y:view.y+(view.height-nextHeight)*py,width:nextWidth,height:nextHeight});
+  });
+  scope.listen(svg,'pointerdown',event=>{
+    if(Number(event?.button??0)!==0)return;
+    if(findGraphBubble(event?.target))return;
+    const view=current();
+    state.panGesture={pointerId:event?.pointerId??null,startX:Number(event?.clientX)||0,startY:Number(event?.clientY)||0,view};
+    svg.setPointerCapture?.(event?.pointerId);
+    svg.classList?.add?.('is-panning');
+  });
+  scope.listen(svg,'pointermove',event=>{
+    const drag=state.panGesture;if(!drag)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    const scaleX=drag.view.width/Math.max(1,Number(svg.clientWidth)||1000),scaleY=drag.view.height/Math.max(1,Number(svg.clientHeight)||760);
+    const dx=(Number(event?.clientX)||0)-drag.startX,dy=(Number(event?.clientY)||0)-drag.startY;
+    apply({x:drag.view.x-dx*scaleX,y:drag.view.y-dy*scaleY,width:drag.view.width,height:drag.view.height});
+  });
+  const endPan=event=>{
+    const drag=state.panGesture;if(!drag)return;
+    if(drag.pointerId!=null&&event?.pointerId!=null&&drag.pointerId!==event.pointerId)return;
+    state.panGesture=null;svg.releasePointerCapture?.(event?.pointerId);svg.classList?.remove?.('is-panning');
+  };
+  scope.listen(svg,'pointerup',endPan);scope.listen(svg,'pointercancel',endPan);
+}
+
 
 function renderEmptyCanvas(doc,{loaded=false,accepted=false}={}){
   const empty=element(doc,'div',{className:'a52-lore-neural-empty'});
@@ -147,15 +431,91 @@ function renderEmptyCanvas(doc,{loaded=false,accepted=false}={}){
   return empty;
 }
 
-function renderLoreInsightRail(doc,{data,selected,progress}={}){
+function renderLoreInsightRail(doc,{data,selected,progress,renderState}={}){
   const rail=element(doc,'aside',{className:'a52-lore-neural-rail a52-lore-neural-rail--right'}),entries=data?.entries??[],snapshot=selected?.snapshot??null;
+  const graph=entries.length?buildLoreGraph({entries,data,selected}):{hubs:[],nodes:[],artifacts:[],edges:[]};
+  applyPersistedNodePositions(graph,renderState);
+  const selectedId=renderState?.selectedNodeId??null;
+  const all=[...(graph.hubs??[]),...(graph.nodes??[]),...(graph.artifacts??[])];
+  const selectedNode=all.find(row=>row.id===selectedId)??null;
+
+  if(selectedNode){
+    const isHub=(graph.hubs??[]).includes(selectedNode),isArtifact=(graph.artifacts??[]).includes(selectedNode),kind=isHub?'Cluster':isArtifact?'Derived artifact':'Source UID';
+    const detail=panel(doc,'Selected UID',kind+' · graph selection','◉');
+    detail.root.classList?.add?.('a52-lore-selected-detail');
+    detail.root.dataset.tone=selectedNode.tone??'cyan';
+    const hero=element(doc,'div',{className:'a52-lore-selected-detail__hero'});
+    const heroCopy=element(doc,'div');
+    heroCopy.append(element(doc,'strong',{text:selectedNode.label??selectedNode.id}),element(doc,'span',{className:'a52-muted',text:kind}));
+    hero.append(element(doc,'span',{className:'a52-lore-selected-detail__orb',dataset:{tone:selectedNode.tone??'cyan'}}),heroCopy);
+    detail.body.append(hero);
+
+    if(isHub){
+      detail.body.append(createKeyValue(doc,[
+        {key:'Node ID',value:selectedNode.id},
+        {key:'Label',value:selectedNode.label},
+        {key:'Grouping',value:selectedNode.presentationOnly?'Presentation-only cluster':'Published semantic category'},
+        {key:'Sources',value:selectedNode.count??0},
+        {key:'Palette',value:selectedNode.tone??'NO_EVIDENCE'},
+      ]));
+      if(selectedNode.presentationOnly)detail.body.append(element(doc,'p',{className:'a52-muted',text:'This cluster is layout-only. It does not add category meaning to Lore.'}));
+    }else if(isArtifact){
+      const parent=(graph.nodes??[]).find(row=>row.id===selectedNode.parentId);
+      detail.body.append(createKeyValue(doc,[
+        {key:'Node ID',value:selectedNode.id},
+        {key:'Parent UID',value:parent?.payload?.uid??parent?.id??'NO_EVIDENCE'},
+        {key:'Parent source',value:parent?.label??'NO_EVIDENCE'},
+        {key:'Derived refs',value:selectedNode.count??0},
+        {key:'Owner state',value:selectedNode.state??'NO_EVIDENCE'},
+        {key:'Cluster',value:(graph.hubs??[]).find(row=>row.id===selectedNode.hubId)?.label??'NO_EVIDENCE'},
+      ]));
+    }else{
+      const row=selectedNode.payload??{},meta=selectedNode.sourceMeta??null,tree=sourceTreePath(meta);
+      detail.body.append(createKeyValue(doc,[
+        {key:'UID',value:row.uid??selectedNode.id},
+        {key:'Source ID',value:row.sourceId??selectedNode.id},
+        {key:'Title',value:selectedNode.label??'NO_EVIDENCE'},
+        {key:'Category',value:selectedNode.category??'NO_EVIDENCE'},
+        {key:'Owner state',value:selectedNode.state??'NO_EVIDENCE'},
+        {key:'Retrieval-ready',value:row.retrievalReady?'Yes':'No'},
+        {key:'Revision',value:row.sourceRevisionId??'NO_EVIDENCE'},
+        {key:'Representations',value:Array.isArray(row.representations)?row.representations.length:0},
+        {key:'Derived refs',value:Array.isArray(row.artifactIds)?row.artifactIds.length:0},
+        {key:'Tree path',value:tree.length?tree.join(' › '):'NO_EVIDENCE'},
+      ]));
+    }
+
+    const related=panel(doc,'Connections','Direct graph relationships','⇄');
+    const lookup=new Map([['core',{label:'LORE CORE',kind:'Core'}],...(graph.hubs??[]).map(row=>[row.id,{label:row.label,kind:'Cluster'}]),...(graph.nodes??[]).map(row=>[row.id,{label:row.label,kind:'Source UID'}]),...(graph.artifacts??[]).map(row=>[row.id,{label:row.label,kind:'Derived'}])]);
+    const direct=(graph.edges??[]).filter(edge=>edge.fromId===selectedNode.id||edge.toId===selectedNode.id).slice(0,12);
+    if(direct.length){
+      for(const edge of direct){
+        const otherId=edge.fromId===selectedNode.id?edge.toId:edge.fromId,other=lookup.get(otherId)??{label:otherId,kind:'Node'};
+        const row=element(doc,'div',{className:'a52-lore-related-row',dataset:{tone:edge.tone??selectedNode.tone??'cyan'}});
+        row.append(element(doc,'span',{className:'a52-lore-related-row__dot'}),element(doc,'strong',{text:other.label}),element(doc,'span',{className:'a52-muted',text:other.kind}));
+        related.body.append(row);
+      }
+    }else related.body.append(element(doc,'p',{className:'a52-muted',text:'No direct graph connections are published for this selection.'}));
+
+    const book=panel(doc,'Selected Lorebook','Current SillyTavern source','▤');
+    book.body.append(createKeyValue(doc,[
+      {key:'Title',value:snapshot?.title??selected?.selection?.title??'Not loaded'},
+      {key:'Lorebook ID',value:snapshot?.id??selected?.selection?.lorebookId??'NO_EVIDENCE'},
+      {key:'Entries',value:snapshot?.entries?.length??entries.length??0},
+      {key:'Readiness',value:String(progress)+'%'},
+      {key:'Graph revision',value:shortGraphRevision(data?.revision)},
+    ]));
+    rail.append(detail.root,related.root,book.root);
+    return rail;
+  }
+
   const book=panel(doc,'Selected Lorebook','Current SillyTavern source','▤');
   book.body.append(createKeyValue(doc,[
     {key:'Title',value:snapshot?.title??selected?.selection?.title??'Not loaded'},
     {key:'Lorebook ID',value:snapshot?.id??selected?.selection?.lorebookId??'NO_EVIDENCE'},
     {key:'Entries',value:snapshot?.entries?.length??entries.length??0},
     {key:'Readiness',value:String(progress)+'%'},
-    {key:'Graph revision',value:data?.revision??'NO_EVIDENCE'},
+    {key:'Graph revision',value:shortGraphRevision(data?.revision)},
   ]));
 
   const activity=panel(doc,'Graph growth','What the owner has published','⇄');
@@ -164,6 +524,7 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
   const artifacts=entries.reduce((sum,row)=>sum+Number(row.artifactIds?.length??0),0);
   activity.body.append(createKeyValue(doc,[
     {key:'Source nodes',value:entries.length},
+    {key:'Displayed in graph',value:String(Math.min(MAX_VISIBLE_SOURCE_NODES,entries.filter(row=>String(row.operatorState??'')!=='REMOVED').length))+' / '+String(entries.length)},
     {key:'Retrieval-ready',value:retrieval},
     {key:'Sources with representations',value:represented},
     {key:'Derived artifact refs',value:artifacts},
@@ -184,74 +545,165 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
 }
 
 const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
+const MAX_VISIBLE_SOURCE_NODES=54;
+const TARGET_NODES_PER_HUB=8;
+const CENTER_TRUNK_START_MS=650;
+const HUB_BLOOM_START_MS=1750;
+const SOURCE_INNER_START_MS=3200;
+const SOURCE_RING_GAP_MS=900;
+const SOURCE_SLOT_GAP_MS=220;
+const ARTIFACT_LAG_MS=1150;
 
 function buildLoreGraph({entries,data,selected}={}){
-  const visible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED').slice(0,54);
+  const allVisible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED');
+  const visible=stableLoreSources(allVisible).slice(0,MAX_VISIBLE_SOURCE_NODES);
   const exactByUid=exactSourceMap(selected?.snapshot);
   const decorated=visible.map((row,index)=>{
     const exact=exactByUid.get(String(row.uid??index))??null;
-    return{row,index,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
+    return{row,index,exact,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
   });
+
   const semantic=decorated.some(item=>item.category);
-  const groups=new Map();
+  const grouped=semantic?semanticTopologyGroups(decorated):neutralTopologyGroups(decorated);
+  const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380};
+  const hubRadius=grouped.length<=2?190:grouped.length<=4?210:225;
 
-  if(semantic){
-    for(const item of decorated){
-      const key=item.category??'Other Lore';
-      if(!groups.has(key))groups.set(key,[]);
-      groups.get(key).push(item);
-    }
-  }else{
-    for(const state of STATE_ORDER){
-      const rows=decorated.filter(item=>String(item.row.operatorState??'ACCEPTED')===state);
-      if(rows.length)groups.set(state,rows);
-    }
-  }
-
-  let grouped=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length||String(a[0]).localeCompare(String(b[0])));
-  if(semantic&&grouped.length>7){
-    const keep=grouped.slice(0,6),rest=grouped.slice(6).flatMap(([,rows])=>rows);
-    grouped=[...keep,['Other Lore',rest]];
-  }
-
-  const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380},hubRadius=215;
-  grouped.forEach(([groupLabel,items],index)=>{
+  grouped.forEach((group,index)=>{
     const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
-    const state=semantic?'SEMANTIC':String(groupLabel);
-    const tone=semantic?SEMANTIC_TONES[index%SEMANTIC_TONES.length]:null;
+    const tone=group.tone??SEMANTIC_TONES[index%SEMANTIC_TONES.length];
     const hub={
-      id:'hub:'+(semantic?'category:':'state:')+String(groupLabel),
-      state,tone,label:semantic?String(groupLabel):(STATE_META[state]?.label??state),count:items.length,
-      x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70,
+      id:group.id,state:group.kind==='semantic'?'SEMANTIC':'STRUCTURE',tone,label:group.label,count:group.items.length,
+      presentationOnly:group.kind!=='semantic',wave:index,
+      x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,
+      depth:1,delay:HUB_BLOOM_START_MS,incrementalDelay:100+(index%3)*90,
     };
     hubs.push(hub);
-    edges.push({id:'edge:hub:'+hub.id,from:center,to:hub,state,tone,kind:'hub',delay:hub.delay});
+    edges.push({
+      id:'edge:hub:'+hub.id,from:center,to:hub,fromId:'core',toId:hub.id,state:hub.state,tone,kind:'hub',wave:index,depth:0,
+      delay:CENTER_TRUNK_START_MS,incrementalDelay:40+(index%3)*70,
+    });
 
-    items.forEach((item,rowIndex)=>{
+    group.items.forEach((item,rowIndex)=>{
       const row=item.row,sourceState=String(row.operatorState??'ACCEPTED');
-      const spread=Math.min(Math.PI*.72,.24+items.length*.045),offset=items.length===1?0:(rowIndex/(items.length-1)-.5)*spread;
-      const nodeAngle=angle+offset,radius=72+(rowIndex%3)*26,hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%19)-9;
+      const ring=Math.floor(rowIndex/4),slot=rowIndex%4,ringSize=Math.min(4,group.items.length-ring*4);
+      const slotOffset=ringSize<=1?0:(slot/(ringSize-1)-.5)*Math.min(1.18,.46+ringSize*.13);
+      const nodeAngle=angle+slotOffset;
+      const hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%13)-6;
+      const radius=68+ring*38+jitter;
+      const artifactCount=Number(row.artifactIds?.length??0);
+      const nodeDepth=2+ring;
+      const nodeDelay=SOURCE_INNER_START_MS+ring*SOURCE_RING_GAP_MS+slot*SOURCE_SLOT_GAP_MS;
+      const incrementalNodeDelay=180+(ring*4+slot%4)*62;
       const node={
-        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,
-        x:hub.x+Math.cos(nodeAngle)*(radius+jitter),y:hub.y+Math.sin(nodeAngle)*(radius+jitter),
-        artifactCount:Number(row.artifactIds?.length??0),delay:220+index*90+rowIndex*26,payload:row,
+        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,sourceMeta:item.exact??null,wave:index,hubId:hub.id,depth:nodeDepth,
+        x:hub.x+Math.cos(nodeAngle)*radius,y:hub.y+Math.sin(nodeAngle)*radius,
+        artifactCount,delay:nodeDelay,incrementalDelay:incrementalNodeDelay,payload:row,
       };
       nodes.push(node);
-      edges.push({id:'edge:source:'+node.id,from:hub,to:node,state:sourceState,tone,kind:'source',delay:node.delay-70});
+      edges.push({
+        id:'edge:source:'+node.id,from:hub,to:node,fromId:hub.id,toId:node.id,state:sourceState,tone,kind:'source',wave:index,depth:nodeDepth-1,
+        delay:Math.max(HUB_BLOOM_START_MS+420,nodeDelay-360),
+        incrementalDelay:Math.max(80,incrementalNodeDelay-90),
+      });
 
-      const artifactRefs=[...(row.artifactIds??[])].slice(0,2);
-      artifactRefs.forEach((artifactId,artifactIndex)=>{
-        const artifactAngle=nodeAngle+(artifactIndex===0?-.28:.28);
+      if(artifactCount>0){
+        const artifactAngle=nodeAngle+(rowIndex%2===0?.30:-.30),artifactRadius=30+Math.min(10,Math.log2(artifactCount+1)*2);
         const artifact={
-          id:String(artifactId),label:String(artifactId),state:sourceState,tone,
-          x:node.x+Math.cos(artifactAngle)*28,y:node.y+Math.sin(artifactAngle)*28,delay:node.delay+90+artifactIndex*45,
+          id:'artifact-group:'+node.id,
+          label:artifactCount===1?String(row.artifactIds?.[0]??'derived artifact'):String(artifactCount)+' derived refs',
+          count:artifactCount,state:sourceState,tone,wave:index,hubId:hub.id,parentId:node.id,depth:nodeDepth+1,
+          x:node.x+Math.cos(artifactAngle)*artifactRadius,y:node.y+Math.sin(artifactAngle)*artifactRadius,
+          delay:node.delay+ARTIFACT_LAG_MS,incrementalDelay:node.incrementalDelay+190,
         };
         artifacts.push(artifact);
-        edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state:sourceState,tone,kind:'artifact',delay:artifact.delay-50});
+        edges.push({
+          id:'edge:artifact:'+artifact.id,from:node,to:artifact,fromId:node.id,toId:artifact.id,state:sourceState,tone,kind:'artifact',wave:index,depth:nodeDepth,
+          delay:artifact.delay-240,incrementalDelay:artifact.incrementalDelay-75,
+        });
+      }
+    });
+  });
+
+  return{
+    hubs,nodes,artifacts,edges,semantic,
+    totalSourceCount:allVisible.length,
+    visibleSourceCount:visible.length,
+    presentationClusterCount:grouped.filter(group=>group.kind!=='semantic').length,
+  };
+}
+
+function stableLoreSources(rows=[]){
+  return [...rows].sort((a,b)=>{
+    const aKey=String(a?.uid??a?.sourceId??''),bKey=String(b?.uid??b?.sourceId??'');
+    const hashDelta=hashText(aKey)-hashText(bKey);
+    return hashDelta||aKey.localeCompare(bKey);
+  });
+}
+function semanticToneForCategory(category,index=0){
+  const value=String(category??'').trim().toLowerCase();
+  if(/character|person|npc|actor/.test(value))return'violet';
+  if(/faction|guild|organization|organisation|group|house/.test(value))return'blue';
+  if(/place|location|region|world|city|floor|dungeon/.test(value))return'green';
+  if(/event|incident|battle|quest/.test(value))return'amber';
+  if(/timeline|time|era|date|history/.test(value))return'magenta';
+  if(/memory|memory shard|recollection/.test(value))return'cyan';
+  if(/concept|idea|rule|system/.test(value))return'violet';
+  return SEMANTIC_TONES[index%SEMANTIC_TONES.length];
+}
+
+function semanticTopologyGroups(items=[]){
+  const byCategory=new Map();
+  for(const item of items){
+    const key=item.category??'Other Lore';
+    if(!byCategory.has(key))byCategory.set(key,[]);
+    byCategory.get(key).push(item);
+  }
+  let categories=[...byCategory.entries()].sort((a,b)=>b[1].length-a[1].length||String(a[0]).localeCompare(String(b[0])));
+  if(categories.length>7){
+    const keep=categories.slice(0,6),other=categories.slice(6).flatMap(([,rows])=>rows);
+    categories=[...keep,['Other Lore',other]];
+  }
+  const groups=[];
+  categories.forEach(([category,rows],categoryIndex)=>{
+    const chunks=chunkTopologyRows(rows,TARGET_NODES_PER_HUB);
+    chunks.forEach((chunk,chunkIndex)=>{
+      const suffix=chunks.length>1?' · '+String(chunkIndex+1):'';
+      groups.push({
+        id:'hub:category:'+category+':'+chunkIndex,
+        kind:'semantic',
+        label:String(category)+suffix,
+        tone:semanticToneForCategory(category,categoryIndex),
+        items:chunk,
       });
     });
   });
-  return{hubs,nodes,artifacts,edges,semantic};
+  return groups;
+}
+function neutralTopologyGroups(items=[]){
+  if(!items.length)return[];
+  const desired=Math.max(1,Math.min(8,Math.ceil(items.length/TARGET_NODES_PER_HUB)));
+  const groupSize=Math.ceil(items.length/desired),groups=[];
+  for(let index=0;index<desired;index++){
+    const chunk=items.slice(index*groupSize,(index+1)*groupSize);
+    if(!chunk.length)continue;
+    groups.push({
+      id:'hub:structure:'+index,
+      kind:'structure',
+      label:'Cluster '+String(index+1),
+      tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length],
+      items:chunk,
+    });
+  }
+  return groups;
+}
+function chunkTopologyRows(rows=[],maxSize=TARGET_NODES_PER_HUB){
+  const result=[];
+  for(let index=0;index<rows.length;index+=maxSize)result.push(rows.slice(index,index+maxSize));
+  return result;
+}
+function presentationClusterCount(entries=[]){
+  const count=Math.min(MAX_VISIBLE_SOURCE_NODES,entries.filter(row=>String(row?.operatorState??'')!=='REMOVED').length);
+  return count?Math.max(1,Math.min(8,Math.ceil(count/TARGET_NODES_PER_HUB))):0;
 }
 
 function exactSourceMap(snapshot){
@@ -271,6 +723,17 @@ function publishedSemanticCategory(entry){
 function publishedSourceTitle(entry,fallback){
   return shortLabel(entry?.title??entry?.comment??entry?.name??entry?.metadata?.title??entry?.metadata?.name??fallback);
 }
+function shortGraphRevision(value){
+  if(value==null||value==='')return'NO_EVIDENCE';
+  const text=String(value);
+  if(text.length<=20)return text;
+  const split=text.indexOf(':');
+  if(split>0&&split<14){
+    const prefix=text.slice(0,split+1),id=text.slice(split+1);
+    return prefix+id.slice(0,8)+'…'+id.slice(-4);
+  }
+  return text.slice(0,10)+'…'+text.slice(-5);
+}
 function semanticCategoryCounts(snapshot,entries=[]){
   const exactByUid=exactSourceMap(snapshot),counts=new Map();
   entries.forEach((row,index)=>{
@@ -283,26 +746,87 @@ function semanticCategoryCounts(snapshot,entries=[]){
 function growthState(state,selected,graph){
   const key=String(selected?.snapshot?.id??selected?.selection?.lorebookId??'unselected');
   if(!state)return{
+    initialBuild:true,
     newHubs:new Set(graph.hubs.map(row=>row.id)),newNodes:new Set(graph.nodes.map(row=>row.id)),
     newArtifacts:new Set(graph.artifacts.map(row=>row.id)),newEdges:new Set(graph.edges.map(row=>row.id)),
   };
-  if(state.lorebookKey!==key){
-    state.lorebookKey=key;
+  let reset=false;
+  if(state.animationInitialized!==true){
+    state.animationInitialized=true;reset=true;state.revealPassesRemaining=REVEAL_RENDER_PASSES;
     state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
   }
+  if(state.lorebookKey!==key){
+    state.lorebookKey=key;reset=true;state.revealPassesRemaining=REVEAL_RENDER_PASSES;
+    state.seenHubs?.clear?.();state.seenNodes?.clear?.();state.seenArtifacts?.clear?.();state.seenEdges?.clear?.();
+  }
+  const hadGraph=Boolean(state.seenHubs?.size||state.seenNodes?.size||state.seenEdges?.size);
   const classify=(rows,seen)=>{const fresh=new Set();for(const row of rows){if(!seen.has(row.id))fresh.add(row.id);seen.add(row.id);}trimSeen(seen,192);return fresh;};
-  return{
-    newHubs:classify(graph.hubs,state.seenHubs),
-    newNodes:classify(graph.nodes,state.seenNodes),
-    newArtifacts:classify(graph.artifacts,state.seenArtifacts),
-    newEdges:classify(graph.edges,state.seenEdges),
+  const revealAll=Number(state.revealPassesRemaining??0)>0;
+  const reveal=(rows,seen)=>{const fresh=revealAll?new Set(rows.map(row=>row.id)):classify(rows,seen);for(const row of rows)seen.add(row.id);trimSeen(seen,192);return fresh;};
+  const result={
+    initialBuild:revealAll||reset||!hadGraph,
+    newHubs:reveal(graph.hubs,state.seenHubs),
+    newNodes:reveal(graph.nodes,state.seenNodes),
+    newArtifacts:reveal(graph.artifacts,state.seenArtifacts),
+    newEdges:reveal(graph.edges,state.seenEdges),
   };
+  if(revealAll)state.revealPassesRemaining=Math.max(0,Number(state.revealPassesRemaining)-1);
+  return result;
 }
+function animationDelay(row,growth){
+  return Number(growth?.initialBuild?row?.delay:row?.incrementalDelay) || 0;
+}
+function nativeAnimate(doc,{attributeName,from,to,begin=0,dur=400}={}){
+  return svgEl(doc,'animate',{
+    attributeName:String(attributeName),
+    from:String(from),
+    to:String(to),
+    begin:'indefinite',
+    dur:String(Math.max(1,Number(dur)||1))+'ms',
+    fill:'freeze',
+    'data-a52-start-ms':String(Math.max(0,Number(begin)||0)),
+  });
+}
+function startNativeAnimations(root){
+  const animations=[];
+  const visit=node=>{
+    for(const child of node?.children??[]){
+      if(String(child?.tagName??'').toLowerCase()==='animate'&&readSvgAttr(child,'data-a52-start-ms')!=null)animations.push(child);
+      visit(child);
+    }
+  };
+  visit(root);
+  for(const animation of animations){
+    const offsetMs=Math.max(0,Number(readSvgAttr(animation,'data-a52-start-ms'))||0);
+    try{
+      if(typeof animation.beginElementAt==='function')animation.beginElementAt(offsetMs/1000);
+      else if(typeof animation.beginElement==='function'&&offsetMs===0)animation.beginElement();
+    }catch{}
+  }
+  return animations.length;
+}
+function scheduleNativeAnimations(root,doc){
+  const start=()=>startNativeAnimations(root);
+  const enqueue=doc?.defaultView?.queueMicrotask??globalThis.queueMicrotask;
+  if(typeof enqueue==='function'){enqueue(start);return true;}
+  Promise.resolve().then(start);
+  return true;
+}
+function readSvgAttr(node,key){
+  try{return node?.getAttribute?.(key)??node?.attributes?.[key]??null;}catch{return node?.attributes?.[key]??null;}
+}
+function prefersReducedMotion(doc){
+  try{
+    const view=doc?.defaultView??globalThis;
+    return Boolean(view?.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  }catch{return false;}
+}
+
 function trimSeen(set,max){while(set.size>max)set.delete(set.values().next().value);}
 
 function canvasFooter(doc,text){
   const footer=element(doc,'footer',{className:'a52-lore-neural-canvas-footer'});
-  footer.append(element(doc,'span',{text:'◉ Click a source node for owner metadata'}),element(doc,'span',{text:'Neural growth animation respects reduced-motion'}),element(doc,'span',{text}));
+  footer.append(element(doc,'span',{text:'◉ Click bubble = glow / inspect'}),element(doc,'span',{text:'Drag background = pan · Drag bubble = move · Wheel = zoom'}),element(doc,'span',{text}));
   return footer;
 }
 

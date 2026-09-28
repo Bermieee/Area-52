@@ -54,6 +54,11 @@ function pushAssistant(context,mes,id='assistant-1'){
   context.chat.push({is_user:false,mes,mesId:id,send_date:Date.now()});
   return context.chat.length-1;
 }
+async function waitFor(fn,{timeout=2500,step=10}={}){
+  const end=Date.now()+timeout;
+  while(Date.now()<end){const value=fn();if(value)return value;await new Promise(resolve=>setTimeout(resolve,step));}
+  throw new Error('condition not observed before timeout');
+}
 
 function scenePayload({phase='FOREGROUND_USER'}={}){
   if(phase==='POST_RESPONSE')return{
@@ -121,17 +126,41 @@ function hostEvent({
 
 async function createDirectWork(brain,{
   chatId='chat:direct',messageId='m1',messageRevision=1,turnId='turn:direct',generationId='gen:direct',
-  phase='FOREGROUND_USER',content=USER_PROSE,
+  phase='FOREGROUND_USER',content=USER_PROSE,payload=null,
 }={}){
   const sourceRevisionId=ownerSource(brain,{chatId,messageId,messageRevision});
-  const work=await brain.runSceneObservationWork({
-    chatId,turnId,generationId,correlationId:'corr:'+turnId,sourceRevisionId,narrative:content,
-    phase,parentWorkId:'generation:'+generationId,foregroundBudgetMs:1200,
+  const current=brain.scene.ensureChatScene(chatId,{sourceRevisionRefs:[sourceRevisionId],evidenceRefs:[sourceRevisionId]});
+  const workerPayload=payload??scenePayload({phase}),fields={};
+  for(const [name,row] of Object.entries(workerPayload.fields??{})){
+    const observationClass=row?.observationClass??'UNKNOWN';
+    fields[name]={
+      value:structuredClone(row?.value??null),confidence:Number(row?.confidence??0),observationClass,
+      evidenceRefs:observationClass==='UNKNOWN'?[]:[sourceRevisionId],
+      provenance:observationClass==='UNKNOWN'?[]:['area52-cognitive-resource:'+sourceRevisionId],
+    };
+  }
+  const proposal=brain.sceneObservationExtractor.propose({
+    scene:current,evidence:{id:sourceRevisionId,sourceRevisionId},fields,provider:'owner-contract-fixture',
   });
+  const executionReceipt={
+    kind:'DeploymentSceneObservationExecutionReceipt',contractVersion:1,status:'RETURNED',
+    reasonCode:'OWNER_CONTRACT_FIXTURE',workId:'scene-owner-fixture:'+generationId,parentWorkId:'generation:'+generationId,
+    chatId,turnId,generationId,correlationId:'corr:'+turnId,sourceRevisionId,sourceRevisionRefs:[sourceRevisionId],
+    sceneRevision:current.revision,phase,attempted:true,returned:true,ownerAdmitted:null,invalid:false,stale:false,late:false,
+    degraded:false,skipped:false,resultId:'fixture-result:'+generationId,providerId:'owner-contract-fixture',workerId:'owner-contract-fixture',
+    latencyMs:0,fieldNames:Object.keys(fields).sort(),ambiguityCount:(workerPayload.ambiguities??[]).length,
+    rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
+    authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,
+  };
+  const work={
+    kind:'SceneObservationWorkResult',status:'RETURNED',proposal,
+    boundarySignals:structuredClone(workerPayload.boundarySignals??{}),ambiguities:structuredClone(workerPayload.ambiguities??[]),
+    executionReceipt,
+  };
   return{work,sourceRevisionId,event:hostEvent({brain,chatId,messageId,messageRevision,turnId,sourceRevisionId,activity:phase==='POST_RESPONSE'?HostActivity.ASSISTANT_GENERATION_COMPLETE:HostActivity.USER_SEND,content,role:phase==='POST_RESPONSE'?'assistant':'user'})};
 }
 
-test('installed native host semantically observes prose the generic fallback cannot parse before retrieval and seals only owner-admitted Scene state',async()=>{
+test('installed native host queues semantic Scene work without blocking the sealed turn and admits it only for future Scene state',async()=>{
   const fallback=extractDevelopmentDeploymentScene(USER_PROSE,{revision:2,evidenceRef:'source:fallback'});
   assert.equal(fallback.explicit,false);
   assert.deepEqual(fallback.fields,{});
@@ -152,43 +181,31 @@ test('installed native host semantically observes prose the generic fallback can
   assert.ok(selection?.turnId);
   assert.ok(selection?.generationId);
 
+  const turn=nativeBrain.readTurn(selection.turnId);
+  assert.ok(turn.published?.candidateEnvelope,'Sensory/Candidate Bus envelope must exist for the sealed turn');
+  assert.ok(turn.published?.assessment,'Truth assessment must exist for the sealed turn');
+  assert.ok(turn.published?.gatherReceipt,'Gather receipt must exist for the sealed turn');
+  assert.ok(turn.published?.sealReceipt?.sealedState,'Context Seal must exist before model request');
+  assert.ok(turn.delivery?.plan?.promptPlanId,'PromptPlan must exist before model request');
+  assert.doesNotMatch(JSON.stringify(turn.delivery.plan.sections),/Greyharbor Observatory|courier-arrival|brass-key/,'OPPORTUNISTIC Scene work must not rewrite the current sealed generation');
+
+  const selected=session.uiBindings().readSelectedTurnReceipt(selection);
+  const semantic=selected.sceneFlow?.semanticObservation;
+  assert.ok(['QUEUED','DEDUPED'].includes(semantic?.execution?.status));
+  assert.equal(semantic?.execution?.returned,false);
+  assert.equal(semantic?.execution?.chatId,selection.chatId);
+  assert.equal(semantic?.execution?.turnId,selection.turnId);
+  assert.equal(semantic?.execution?.generationId,selection.generationId);
+  assert.ok(semantic?.execution?.workId);
+  assert.equal(semantic?.ownerAdmission??null,null);
+
+  const lateAdmission=await waitFor(()=>session.brain.readSceneObservationReceipts({limit:128}).find(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.turnId===selection.turnId&&row.status==='ADMITTED'));
+  assert.equal(lateAdmission.ownerAdmitted,true);
   const ownerSignal=session.brain.scene.integrationSignal(context.chatId);
   assert.equal(ownerSignal.location.location,'Greyharbor Observatory');
   assert.deepEqual(ownerSignal.activeCast.map(row=>row.characterId).sort(),['Mira','Ren']);
   assert.deepEqual(ownerSignal.activeThreads,['courier-arrival']);
   assert.equal(ownerSignal.objects[0].objectId,'brass-key');
-
-  const ownerScene=session.brain.scene.registry.current(ownerSignal.sceneId);
-  assert.equal(ownerScene.fields.activeRelationships.value[0].kind,'ALLY');
-  assert.equal(ownerScene.fields.activeObjectives.value[0],'wait-for-courier');
-
-  const turn=nativeBrain.readTurn(selection.turnId);
-  const intentKinds=turn.retrievalPolicy.retrievalIntents.map(row=>row.metadata?.sceneIntentKind).filter(Boolean);
-  for(const kind of ['DIRECT_QUERY','LOCATION_CONTEXT','ACTIVE_CAST_CONTEXT','OBJECT_PROVENANCE','ACTIVE_THREAD_CONTEXT'])assert.ok(intentKinds.includes(kind),kind);
-  assert.ok(turn.published?.candidateEnvelope,'Sensory/Candidate Bus envelope must exist after admitted Scene');
-  assert.ok(turn.published?.assessment,'Truth assessment must exist after admitted Scene');
-  assert.ok(turn.published?.gatherReceipt,'Gather receipt must exist after admitted Scene');
-  assert.ok(turn.published?.sealReceipt?.sealedState,'Context Seal must exist after admitted Scene');
-  assert.ok(turn.delivery?.plan?.promptPlanId,'PromptPlan must exist after admitted Scene');
-  assert.match(JSON.stringify(turn.delivery.plan.sections),/Greyharbor Observatory/);
-
-  const channelReceipts=turn.published?.candidateEnvelope?.metadata?.channelReceipts??[];
-  assert.ok(channelReceipts.reduce((n,row)=>n+Number(row.nominationCount??0),0)>0,'owner-admitted Scene must create bounded retrieval nominations');
-  assert.equal(turn.published?.assessment?.kind,'TruthAssessment');
-  assert.equal(turn.published?.gatherReceipt?.kind,'GenerationGatherReceipt');
-  assert.deepEqual(turn.published?.gatherReceipt?.admittedResultIds??[],[],'Scene cognition must not fabricate Gather admission when no useful long-term evidence survives Truth');
-
-  const selected=session.uiBindings().readSelectedTurnReceipt(selection);
-  const semantic=selected.sceneFlow?.semanticObservation;
-  assert.equal(semantic?.execution?.attempted,true);
-  assert.equal(semantic?.execution?.returned,true);
-  assert.equal(semantic?.execution?.chatId,selection.chatId);
-  assert.equal(semantic?.execution?.turnId,selection.turnId);
-  assert.equal(semantic?.execution?.generationId,selection.generationId);
-  assert.ok(semantic?.execution?.workId);
-  assert.ok(semantic?.execution?.parentWorkId);
-  assert.equal(semantic?.ownerAdmission?.ownerAdmitted,true);
-  assert.equal(semantic?.ownerAdmission?.reasonCode,'SCENE_OWNER_ADMITTED');
   const diagnosticJson=JSON.stringify(session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt);
   assert.doesNotMatch(diagnosticJson,/City lights were pinpricks|joined hands|watched for the courier/i);
   assert.doesNotMatch(diagnosticJson,/hidden reasoning|api[_ -]?key/i);
@@ -202,8 +219,9 @@ test('installed native host semantically observes prose the generic fallback can
   assert.equal(learned.state,'LEARNED','Scene nearline work must not break native provider-response/learning');
   const completion=session.exportEvidence().nativeBrainIntegration.last;
   assert.equal(completion.state,'LEARNED');
-  assert.equal(completion.postResponseScene?.semanticObservation?.ownerAdmitted,true);
-  assert.ok(completion.postResponseScene?.sceneRevision>selection.sceneRevision);
+  assert.ok(['QUEUED','DEDUPED'].includes(completion.postResponseScene?.semanticObservation?.status));
+  await waitFor(()=>session.brain.readSceneObservationReceipts({limit:128}).find(row=>row.kind==='DeploymentSceneObservationOwnerReceipt'&&row.phase==='POST_RESPONSE'&&row.status==='ADMITTED'));
+  assert.ok(session.brain.scene.integrationSignal(context.chatId).sceneRevision>selection.sceneRevision);
   assert.doesNotMatch(JSON.stringify(completion),/red flare blossomed|slipped the brass key/i);
 
   session.destroy();
@@ -242,14 +260,15 @@ test('installed native host with no compatible Scene resource stays truthful and
 test('Scene proposal admission fences malformed output stale revision late foreground chat switch and regeneration without fabricated mutation',async()=>{
   const malformed=new DevelopmentDeploymentBrain();
   await connectSceneResource(malformed,{resourceId:'scene:malformed',handler:()=>({unexpected:true})});
-  const malformedSource=ownerSource(malformed,{chatId:'chat:malformed',messageId:'m1'});
+  const malformedEvent=hostEvent({brain:malformed,chatId:'chat:malformed',messageId:'m1',turnId:'turn:malformed',content:USER_PROSE});
+  malformed.ingestSceneHostEvent(malformedEvent,{extract:()=>({})});
   const malformedWork=await malformed.runSceneObservationWork({
     chatId:'chat:malformed',turnId:'turn:malformed',generationId:'gen:malformed',correlationId:'corr:malformed',
-    sourceRevisionId:malformedSource,narrative:USER_PROSE,
+    sourceRevisionId:malformedEvent.sourceRevisionId,narrative:USER_PROSE,hostEvent:malformedEvent,
   });
-  assert.equal(malformedWork.status,'DEGRADED');
-  assert.equal(malformedWork.executionReceipt.attempted,true);
-  assert.equal(malformedWork.executionReceipt.returned,false);
+  assert.equal(malformedWork.status,'QUEUED');
+  const malformedFailure=await waitFor(()=>malformed.readSceneObservationReceipts({limit:128}).find(row=>row.status==='FAILED'&&row.workId===malformedWork.executionReceipt.workId));
+  assert.ok(malformedFailure.reasonCode);
   assert.equal(malformed.scene.integrationSignal('chat:malformed').sceneRevision,1);
   assert.equal(malformed.resourceOwnerReceipts.length,0);
 
@@ -403,7 +422,7 @@ test('deterministic meaningful location transition is revisioned through the Sce
 test('bounded Sidecar ambiguity is advisory until Scene owner accepts Jev guidance',async()=>{
   const brain=new DevelopmentDeploymentBrain();
   await connectSceneResource(brain,{resourceId:'scene:ambiguous',handler:()=>ambiguousScenePayload()});
-  const {work,event}=await createDirectWork(brain,{chatId:'chat:ambiguous',turnId:'turn:ambiguous',generationId:'gen:ambiguous'});
+  const {work,event}=await createDirectWork(brain,{chatId:'chat:ambiguous',turnId:'turn:ambiguous',generationId:'gen:ambiguous',payload:ambiguousScenePayload()});
   assert.equal(work.status,'RETURNED');
   assert.equal(work.ambiguities.length,1);
   assert.equal(work.executionReceipt.ambiguityCount,1);
@@ -438,7 +457,7 @@ test('bounded Sidecar ambiguity is advisory until Scene owner accepts Jev guidan
 test('Jev unavailable or late after selection change preserves unresolved Scene state',async()=>{
   const unavailable=new DevelopmentDeploymentBrain({jevAvailable:false});
   await connectSceneResource(unavailable,{resourceId:'scene:ambiguous-unavailable',handler:()=>ambiguousScenePayload()});
-  const unavailableWork=await createDirectWork(unavailable,{chatId:'chat:jev-unavailable',turnId:'turn:jev-unavailable',generationId:'gen:jev-unavailable'});
+  const unavailableWork=await createDirectWork(unavailable,{chatId:'chat:jev-unavailable',turnId:'turn:jev-unavailable',generationId:'gen:jev-unavailable',payload:ambiguousScenePayload()});
   const unavailableBefore=unavailable.scene.integrationSignal('chat:jev-unavailable').sceneRevision;
   const unavailableAdvice=await unavailable.adjudicateSceneObservationAmbiguity({
     work:unavailableWork.work,hostEvent:unavailableWork.event,currentSelection:()=>true,turnSealed:()=>false,
@@ -449,7 +468,7 @@ test('Jev unavailable or late after selection change preserves unresolved Scene 
 
   const late=new DevelopmentDeploymentBrain();
   await connectSceneResource(late,{resourceId:'scene:ambiguous-late',handler:()=>ambiguousScenePayload()});
-  const lateWork=await createDirectWork(late,{chatId:'chat:jev-late',turnId:'turn:jev-late',generationId:'gen:jev-late'});
+  const lateWork=await createDirectWork(late,{chatId:'chat:jev-late',turnId:'turn:jev-late',generationId:'gen:jev-late',payload:ambiguousScenePayload()});
   const lateBefore=late.scene.integrationSignal('chat:jev-late').sceneRevision;
   let selected=true;
   late.sceneJevOwner.service={

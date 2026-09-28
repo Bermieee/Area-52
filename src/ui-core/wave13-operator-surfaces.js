@@ -32,7 +32,7 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
   if(registry.has('lore')){
     const current=registry.get('lore');
     registry.update('lore',{preferredWidth:1280,render(host,ctx){
-      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState});
+      renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState,frontFacePresentation});
       const d=host.ownerDocument,review=element(d,'details',{className:'a52-wave13-lore-review-details'});
       review.open=ctx.productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
       const summary=element(d,'summary',{className:'a52-wave13-lore-review-summary'});
@@ -503,7 +503,7 @@ export function renderFanoutGatherSurface(host,{cognition,scope,inspect}={}){
 
 export function renderSettingsSurface(host,{productAdapter,frontFacePresentation,scope,refresh}={}){
   const d=host.ownerDocument,root=element(d,'section',{className:'a52-wave13-settings'});
-  root.append(header(d,'Settings','Display and density preferences only. Runtime telemetry, evidence, errors, resources, Lore/Memory status, and performance live in Diagnostics.'));
+  root.append(header(d,'Settings','Area-52 display, motion, and density preferences. Runtime telemetry, evidence, errors, resources, Lore/Memory status, and performance live in Diagnostics.'));
   const detail=element(d,'section',{className:'a52-wave13-settings__group'});
   detail.append(element(d,'strong',{text:'Detail level'}),element(d,'p',{className:'a52-muted',text:'Normal keeps product pages concise; Detail and Advanced progressively expose more owner-backed evidence on the pages where it belongs.'}));
   const detailActions=element(d,'div',{className:'a52-wave13-resource-actions'});
@@ -520,6 +520,21 @@ export function renderSettingsSurface(host,{productAdapter,frontFacePresentation
     button.setAttribute('aria-pressed',String(state.frontFaceDensity===density));displayActions.append(button);
   }
   display.append(displayActions);root.append(display);
+  const motion=element(d,'section',{className:'a52-wave13-settings__group'});
+  motion.append(
+    element(d,'strong',{text:'Motion & animation'}),
+    element(d,'p',{className:'a52-muted',text:'Full is the Area-52 default and ignores the operating system reduced-motion preference. Switch to System or Reduced if animation causes accessibility or performance issues.'})
+  );
+  const motionActions=element(d,'div',{className:'a52-wave13-resource-actions'});
+  const motionMode=state.motionMode??'FULL';
+  for(const [mode,labelText] of [['FULL','Full (recommended)'],['SYSTEM','System'],['REDUCED','Reduced']]){
+    const button=createButton(d,{label:labelText,scope,size:'sm',onPress:()=>{frontFacePresentation?.setMotionMode?.(mode);refresh?.();}});
+    button.setAttribute('aria-pressed',String(motionMode===mode));
+    button.dataset.motionMode=mode;
+    motionActions.append(button);
+  }
+  motion.append(motionActions,element(d,'p',{className:'a52-muted',text:motionMode==='FULL'?'Area-52 animations run even when Windows/browser reduced-motion is enabled.':motionMode==='SYSTEM'?'Area-52 follows the operating system/browser motion preference.':'Nonessential Area-52 animations are suppressed.'}));
+  root.append(motion);
   host.append(root);
 }
 export function renderDiagnosticsCenter(d,{diagnostics,evidenceJournal,scope,inspect,navigate,detailLevel=ProductDetailLevel.NORMAL}={}){
@@ -837,7 +852,7 @@ function plainMemoryReason(reason){
   return String(reason);
 }
 
-export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null}={}){
+export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refresh,notifications,fallbackRender,productAdapter,inspect,loreNeuralState=null,frontFacePresentation=null}={}){
   const d=host.ownerDocument;
   host.append(header(d,'Lore','Select the SillyTavern Lorebook, accept it for study, then watch Area-52 grow the owner-backed Lore graph as study becomes current.'));
   if(!loreStudy){fallbackRender?.(host,{scope,refresh,notifications,actionRouter});return;}
@@ -855,6 +870,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   const counts=data?.operatorCounts??{},accepted=Number(counts.ACCEPTED??0),studying=Number(counts.STUDYING??0),ready=Number(counts.READY??0),failed=Number(counts.FAILED??0),removed=Number(counts.REMOVED??0);
   const total=accepted+studying+ready+failed+removed,pending=accepted+studying,denominator=Math.max(1,total-removed),progress=Math.round(ready/denominator*100);
   const selection=selected.selection??{},snapshot=selected.snapshot??null;
+  const snapshotEntryCount=Number(snapshot?.entries?.length??0);
+  const sourceCurrent=Boolean(snapshot&&snapshotEntryCount>0&&ready===snapshotEntryCount&&accepted===0&&studying===0&&failed===0);
 
   const form=element(d,'section',{className:'a52-card a52-wave13-lore-form a52-wave13-lore-controls a52-lore-command'});
   const commandHead=element(d,'div',{className:'a52-lore-command__head'});
@@ -879,7 +896,7 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
       status.textContent='Loaded '+String(result.entries?.length??0)+' authored entries from '+String(result.title??result.id??'the selected Lorebook')+'. Verify the source, then accept it for study.';status.dataset.status='ready';refresh?.();
     }catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
   }});
-  const accept=createButton(d,{label:'Accept for study',disabled:!(caps.accept&&snapshot),scope,variant:'secondary',onPress:async()=>{
+  const accept=createButton(d,{label:sourceCurrent?'Re-accept source':'Accept for study',disabled:!(caps.accept&&snapshot),scope,variant:'secondary',onPress:async()=>{
     const current=loreStudy.selectedLorebook?.().snapshot??null;
     if(!current){status.textContent='Load the selected SillyTavern Lorebook before accepting it.';status.dataset.status='error';return;}
     status.textContent='Accepting the verified source. Accepted entries become DUE; they are not retrieval-ready yet.';status.dataset.status='loading';
@@ -887,7 +904,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     if(!result.ok){status.textContent=result.error||'Lore acceptance failed';status.dataset.status='error';return;}
     status.textContent='Accepted. The graph core is armed. Run pending study to begin growing owner-backed nodes and links.';status.dataset.status='ready';reportAction(notifications,result,'Lore acceptance');refresh?.();
   }});
-  const run=createButton(d,{label:accepted?'Run '+accepted+' DUE entr'+(accepted===1?'y':'ies'):'Run pending study',disabled:!caps.run,scope,variant:'primary',onPress:async()=>{
+  const runLabel=accepted?'Run '+accepted+' DUE entr'+(accepted===1?'y':'ies'):studying?'Study in progress':sourceCurrent?'Study current':'No DUE entries';
+  const run=createButton(d,{label:runLabel,disabled:!caps.run||accepted===0,scope,variant:'primary',onPress:async()=>{
     status.textContent='Starting study for entries the Lore owner currently reports as DUE…';status.dataset.status='loading';
     const result=await actionRouter.route({type:'wave13.lore.run',payload:{scope:'DUE'}});
     if(!result.ok){status.textContent=result.error||'Lore study failed';status.dataset.status='error';}
@@ -900,7 +918,8 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));
   host.append(form);
 
-  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState}));
+  const motionMode=frontFacePresentation?.get?.().motionMode??'FULL';
+  host.append(renderLoreNeuralWorkspace(d,{data,source,selected,progress,scope,inspect,renderState:loreNeuralState,refresh,motionMode}));
 
   if(data?.entries?.length){
     const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});

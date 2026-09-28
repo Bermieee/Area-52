@@ -117,6 +117,7 @@ export function createResourceDirectorExecutor({connections,task,input={},inputR
           latencyMs:Number(output?.latency??0),usageReceipt:clone(output?.providerMetadata?.usageReceipt??null),
           authorityGranted:false,canonicalMutation:false,settlementPerformed:false,
         },
+        output:clone(output),validation:clone(output?.validationReceipt??null),latencyMs:Number(output?.latency??0),
       };
     },
   });

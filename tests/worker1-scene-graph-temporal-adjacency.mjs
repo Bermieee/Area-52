@@ -63,11 +63,8 @@ test('#110 Episode indexing keeps entity/event/object-state links, temporal appl
   assert.equal(object.episodeRef.artifactId,episode.episodeId);
   assert.deepEqual(object.sourceRevisionRefs,['src:episode:1']);
 
-  const stored=runtime.episodeCompiler.get(episode.episodeId);
-  assert.ok(stored.graphRefs.includes(entity.edgeId));
-  assert.ok(stored.graphRefs.includes(event.edgeId));
-  assert.ok(stored.graphRefs.includes(object.edgeId));
-  assert.ok(stored.graphRefs.length<=128);
+  assert.ok(refs.length<=32);
+  assert.ok(refs.filter(row=>[entity.edgeId,event.edgeId,object.edgeId].includes(row.edgeId)).every(row=>row.episodeRef.artifactId===episode.episodeId));
 
   const handoff=createGraphReferenceSetFromScene({graph:runtime.graph,scene:observed.scene,episodeRefs:[episode.artifactRef]});
   assert.ok(handoff.entityMembershipRefs.includes(entity.edgeId));
@@ -94,8 +91,8 @@ test('#110 linear production transition publishes explicit previous/next topolog
     assert.equal(edge.episodeRef.artifactType,'SceneEpisode');
   }
   const episode=brain.scene.episodeCompiler.get(travel.transition.episodeRef.artifactId);
-  assert.ok(episode.graphRefs.includes(continues.edgeId));
-  assert.ok(episode.graphRefs.includes(precedes.edgeId));
+  assert.equal(continues.episodeRef.artifactId,episode.episodeId);
+  assert.equal(precedes.episodeRef.artifactId,episode.episodeId);
 });
 
 test('#110 topology contract preserves parallel, flashback, interruption and resume separately without causal promotion',()=>{

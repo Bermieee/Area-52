@@ -33,13 +33,13 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
     const current=registry.get('lore');
     registry.update('lore',{preferredWidth:1280,render(host,ctx){
       renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState,frontFacePresentation});
-      const d=host.ownerDocument,review=element(d,'details',{className:'a52-wave13-lore-review-details'});
-      review.open=ctx.productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
-      const summary=element(d,'summary',{className:'a52-wave13-lore-review-summary'});
-      summary.append(element(d,'strong',{text:'Authoring / review tools'}),element(d,'span',{className:'a52-muted',text:'Edit-impact, Tree, merge, and mutation review'}));
-      const reviewHost=element(d,'div',{className:'a52-wave13-lore-review-host'});
-      renderLoreReviewWorkspace(reviewHost,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
-      review.append(summary,reviewHost);host.append(review);
+    }});
+  }
+  if(registry.has('diagnostics')){
+    const current=registry.get('diagnostics');
+    registry.update('diagnostics',{render(host,ctx){
+      current.render?.(host,ctx);
+      renderLoreDiagnosticsTools(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
     }});
   }
   if(registry.has('memory')&&memory){
@@ -922,17 +922,38 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
   worldTreeShell.append(worldTree,form);
   host.append(worldTreeShell);
 
-  if(data?.entries?.length){
-    const entriesDetails=element(d,'details',{className:'a52-wave13-lore-entry-details'});
-    entriesDetails.open=failed>0||productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
-    entriesDetails.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Entry-level study states · '+data.entries.length+' entries'}),renderLoreEntries(d,data.entries,scope,{showIds:productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED}));
-    host.append(entriesDetails);
-  }else host.append(message(d,'No Lore accepted yet','Choose a Lorebook above, load it, and accept it for study. The canvas will remain intentionally quiet until owner-backed study evidence exists.','historical'));
 
-  const derivedDetails=element(d,'details',{className:'a52-wave13-lore-derived-details'});
-  derivedDetails.open=productAdapter?.getDetailLevel?.()===ProductDetailLevel.ADVANCED;
-  derivedDetails.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Derived representations / navigation summaries'}),renderLoreDerivedRepresentations(d,{entries:data?.entries??[],summarySurface:loreStudy.summaries?.(),detail:productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL}));
-  host.append(derivedDetails);
+
+function renderLoreDiagnosticsTools(host,{loreStudy,loreAuthoring,actionRouter,scope,refresh,productAdapter,draft=null}={}){
+  if(!loreStudy&&!loreAuthoring)return;
+  const d=host.ownerDocument,section=element(d,'section',{className:'a52-wave13-settings__group a52-lore-diagnostics-tools',attrs:{'aria-label':'Lore and World Tree diagnostics'}});
+  const read=loreStudy?.read?.()??{},data=read.data??{},entries=Array.isArray(data.entries)?data.entries:[],detail=productAdapter?.getDetailLevel?.()??ProductDetailLevel.NORMAL;
+  const head=element(d,'div',{className:'a52-wave13-section-head'});
+  head.append(element(d,'strong',{text:'Lore / World Tree diagnostics'}),makeBadge(d,entries.length?'PUBLISHED':'IDLE',entries.length?'observed':'historical'));
+  section.append(head,element(d,'p',{className:'a52-muted',text:'Secondary Lore owner state, derived representations, and authoring review live here so the Lore workspace can remain focused on the World Tree.'}));
+
+  const study=element(d,'details',{className:'a52-wave13-lore-entry-details'});
+  study.open=false;
+  study.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Entry-level study states · '+entries.length+' entries'}));
+  if(entries.length)study.append(renderLoreEntries(d,entries,scope,{showIds:detail===ProductDetailLevel.ADVANCED}));
+  else study.append(message(d,'No Lore accepted yet','No owner-backed Lore entries are currently published.','historical'));
+  section.append(study);
+
+  const derived=element(d,'details',{className:'a52-wave13-lore-derived-details'});
+  derived.open=detail===ProductDetailLevel.ADVANCED;
+  derived.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Derived representations / navigation summaries'}),renderLoreDerivedRepresentations(d,{entries,summarySurface:loreStudy?.summaries?.(),detail}));
+  section.append(derived);
+
+  if(loreAuthoring){
+    const review=element(d,'details',{className:'a52-wave13-lore-review-details'});
+    review.open=detail===ProductDetailLevel.ADVANCED;
+    const summary=element(d,'summary',{className:'a52-wave13-lore-review-summary'});
+    summary.append(element(d,'strong',{text:'Authoring / review tools'}),element(d,'span',{className:'a52-muted',text:'Edit-impact, Tree, merge, and mutation review'}));
+    const reviewHost=element(d,'div',{className:'a52-wave13-lore-review-host'});
+    renderLoreReviewWorkspace(reviewHost,{scope,refresh,productAdapter,loreStudy,loreAuthoring,actionRouter,draft});
+    review.append(summary,reviewHost);section.append(review);
+  }
+  host.append(section);
 }
 
 function renderLoreDerivedRepresentations(d,{entries=[],summarySurface=null,detail=ProductDetailLevel.NORMAL}={}){

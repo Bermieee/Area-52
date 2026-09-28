@@ -19,7 +19,7 @@ export function renderLoreNeuralWorkspace(doc,{
   const entries=Array.isArray(data?.entries)?data.entries:[],counts=data?.operatorCounts??{},snapshot=selected?.snapshot??null;
   const graphActive=entries.some(row=>['STUDYING','READY','FAILED'].includes(String(row?.operatorState??'').toUpperCase()));
   const root=element(doc,'section',{className:'a52-lore-neural-workspace',attrs:{'aria-label':'Lore neural knowledge graph'}});
-  const left=renderStudyRail(doc,{data,source,counts,progress});
+  const left=renderStudyRail(doc,{data,source,counts,progress,selected});
   const center=renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState});
   const right=renderLoreInsightRail(doc,{data,selected,progress});
   root.append(left,center,right);
@@ -27,7 +27,7 @@ export function renderLoreNeuralWorkspace(doc,{
   return root;
 }
 
-function renderStudyRail(doc,{data,source,counts,progress}={}){
+function renderStudyRail(doc,{data,source,counts,progress,selected}={}){
   const rail=element(doc,'aside',{className:'a52-lore-neural-rail a52-lore-neural-rail--left'});
   const progressCard=panel(doc,'What Lore is doing now','Owner-reported study progress','◉');
   progressCard.root.classList?.add?.('a52-lore-neural-progress-card');
@@ -51,7 +51,9 @@ function renderStudyRail(doc,{data,source,counts,progress}={}){
   const state=source?.operationalState??source?.health??'IDLE';
   progressCard.body.append(makeBadge(doc,'LORE OWNER · '+String(state),source?.statusToken??'historical'));
 
-  const legendCard=panel(doc,'Graph legend','Real owner states, not inferred semantics','⌘');
+  const categoryCounts=semanticCategoryCounts(selected?.snapshot,data?.entries??[]);
+  const legendCard=panel(doc,'Graph legend',categoryCounts.length?'Published source categories + owner study states':'Real owner states; no semantic category metadata published','⌘');
+  categoryCounts.slice(0,7).forEach(([category,count],index)=>{const row=element(doc,'div',{className:'a52-lore-graph-legend-row a52-lore-graph-legend-row--category',dataset:{tone:SEMANTIC_TONES[index%SEMANTIC_TONES.length]}});row.append(element(doc,'span',{className:'a52-lore-category-dot'}),element(doc,'span',{text:category}),element(doc,'strong',{text:String(count)}));legendCard.body.append(row);});
   for(const state of STATE_ORDER){
     const meta=STATE_META[state],row=element(doc,'div',{className:'a52-lore-graph-legend-row',dataset:{state}});
     row.append(element(doc,'span',{className:'a52-lore-state-dot',text:meta.symbol}),element(doc,'span',{text:meta.label}),element(doc,'strong',{text:String(Number(counts?.[state]??0))}));
@@ -93,7 +95,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
     const path=svgEl(doc,'path',{
       d:curve(edge.from.x,edge.from.y,edge.to.x,edge.to.y),
       class:'a52-lore-neural-link '+(edge.kind==='artifact'?'a52-lore-neural-link--artifact ':'')+(growth.newEdges.has(edge.id)?'is-new':'is-steady'),
-      'data-state':edge.state,'style':'--a52-link-delay:'+String(edge.delay)+'ms',
+      'data-state':edge.state,'data-tone':edge.tone??null,'style':'--a52-link-delay:'+String(edge.delay)+'ms',
     });
     svg.append(path);
   }
@@ -106,7 +108,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   core.append(coreTitle,coreCount,coreProgress);svg.append(core);
 
   for(const hub of graph.hubs){
-    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
+    const g=svgEl(doc,'g',{'class':'a52-lore-hub-node '+(growth.newHubs.has(hub.id)?'is-new':'is-steady'),'data-state':hub.state,'data-tone':hub.tone??null,'tabindex':'0','role':'button','aria-label':hub.label+' '+hub.count});
     g.setAttribute('style','--a52-node-delay:'+String(hub.delay)+'ms');
     g.append(svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'42','class':'a52-lore-hub-node__halo'}),svgEl(doc,'circle',{'cx':String(hub.x),'cy':String(hub.y),'r':'31','class':'a52-lore-hub-node__body'}));
     const t=svgEl(doc,'text',{'x':String(hub.x),'y':String(hub.y-2),'text-anchor':'middle','class':'a52-lore-hub-node__title'});t.textContent=hub.label.toUpperCase();
@@ -115,7 +117,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
   }
 
   for(const node of graph.nodes){
-    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
+    const g=svgEl(doc,'g',{'class':'a52-lore-entry-node '+(growth.newNodes.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Lore source '+node.label+' '+node.state});
     g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
     const radius=node.artifactCount?10:8;
     g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius+5),'class':'a52-lore-entry-node__halo'}),svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':String(radius),'class':'a52-lore-entry-node__body'}));
@@ -125,7 +127,7 @@ function renderGraphPanel(doc,{data,selected,progress,scope,inspect,renderState}
     svg.append(g);
   }
   for(const node of graph.artifacts){
-    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
+    const g=svgEl(doc,'g',{'class':'a52-lore-artifact-node '+(growth.newArtifacts.has(node.id)?'is-new':'is-steady'),'data-state':node.state,'data-tone':node.tone??null,'tabindex':'0','role':'button','aria-label':'Derived Lore artifact '+node.label});
     g.setAttribute('style','--a52-node-delay:'+String(node.delay)+'ms');
     g.append(svgEl(doc,'circle',{'cx':String(node.x),'cy':String(node.y),'r':'5','class':'a52-lore-artifact-node__body'}));
     const title=svgEl(doc,'title');title.textContent=node.label;g.append(title);svg.append(g);
@@ -181,28 +183,101 @@ function renderLoreInsightRail(doc,{data,selected,progress}={}){
   return rail;
 }
 
-function buildLoreGraph({entries,data}={}){
-  const visible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED').slice(0,54),byState=new Map();
-  for(const state of STATE_ORDER)byState.set(state,visible.filter(row=>String(row.operatorState??'ACCEPTED')===state));
-  const activeStates=STATE_ORDER.filter(state=>byState.get(state)?.length);
-  const hubs=[],nodes=[],artifacts=[],edges=[];
-  const center={x:500,y:380},hubRadius=215;
-  activeStates.forEach((state,index)=>{
-    const angle=(-Math.PI/2)+(index/Math.max(1,activeStates.length))*Math.PI*2,rows=byState.get(state),hub={state,label:STATE_META[state]?.label??state,count:rows.length,x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70};
-    hubs.push(hub);edges.push({id:'edge:hub:'+state,from:center,to:hub,state,kind:'hub',delay:hub.delay});
-    rows.forEach((row,rowIndex)=>{
-      const spread=Math.min(Math.PI*.72,.24+rows.length*.045),offset=rows.length===1?0:(rowIndex/(rows.length-1)-.5)*spread;
+const SEMANTIC_TONES=['violet','green','blue','amber','magenta','teal','cyan'];
+
+function buildLoreGraph({entries,data,selected}={}){
+  const visible=entries.filter(row=>String(row.operatorState??'')!=='REMOVED').slice(0,54);
+  const exactByUid=exactSourceMap(selected?.snapshot);
+  const decorated=visible.map((row,index)=>{
+    const exact=exactByUid.get(String(row.uid??index))??null;
+    return{row,index,category:publishedSemanticCategory(exact),label:publishedSourceTitle(exact,row.uid??row.sourceId??'Lore source')};
+  });
+  const semantic=decorated.some(item=>item.category);
+  const groups=new Map();
+
+  if(semantic){
+    for(const item of decorated){
+      const key=item.category??'Other Lore';
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(item);
+    }
+  }else{
+    for(const state of STATE_ORDER){
+      const rows=decorated.filter(item=>String(item.row.operatorState??'ACCEPTED')===state);
+      if(rows.length)groups.set(state,rows);
+    }
+  }
+
+  let grouped=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length||String(a[0]).localeCompare(String(b[0])));
+  if(semantic&&grouped.length>7){
+    const keep=grouped.slice(0,6),rest=grouped.slice(6).flatMap(([,rows])=>rows);
+    grouped=[...keep,['Other Lore',rest]];
+  }
+
+  const hubs=[],nodes=[],artifacts=[],edges=[],center={x:500,y:380},hubRadius=215;
+  grouped.forEach(([groupLabel,items],index)=>{
+    const angle=(-Math.PI/2)+(index/Math.max(1,grouped.length))*Math.PI*2;
+    const state=semantic?'SEMANTIC':String(groupLabel);
+    const tone=semantic?SEMANTIC_TONES[index%SEMANTIC_TONES.length]:null;
+    const hub={
+      id:'hub:'+(semantic?'category:':'state:')+String(groupLabel),
+      state,tone,label:semantic?String(groupLabel):(STATE_META[state]?.label??state),count:items.length,
+      x:center.x+Math.cos(angle)*hubRadius,y:center.y+Math.sin(angle)*hubRadius,delay:80+index*70,
+    };
+    hubs.push(hub);
+    edges.push({id:'edge:hub:'+hub.id,from:center,to:hub,state,tone,kind:'hub',delay:hub.delay});
+
+    items.forEach((item,rowIndex)=>{
+      const row=item.row,sourceState=String(row.operatorState??'ACCEPTED');
+      const spread=Math.min(Math.PI*.72,.24+items.length*.045),offset=items.length===1?0:(rowIndex/(items.length-1)-.5)*spread;
       const nodeAngle=angle+offset,radius=72+(rowIndex%3)*26,hash=hashText(String(row.uid??row.sourceId??rowIndex)),jitter=(hash%19)-9;
-      const node={id:String(row.sourceId??row.uid??state+':'+rowIndex),label:shortLabel(row.uid??row.sourceId??'Lore source'),state,x:hub.x+Math.cos(nodeAngle)*(radius+jitter),y:hub.y+Math.sin(nodeAngle)*(radius+jitter),artifactCount:Number(row.artifactIds?.length??0),delay:220+index*90+rowIndex*26,payload:row};
-      nodes.push(node);edges.push({id:'edge:source:'+node.id,from:hub,to:node,state,kind:'source',delay:node.delay-70});
+      const node={
+        id:String(row.sourceId??row.uid??sourceState+':'+rowIndex),label:item.label,state:sourceState,tone,category:item.category,
+        x:hub.x+Math.cos(nodeAngle)*(radius+jitter),y:hub.y+Math.sin(nodeAngle)*(radius+jitter),
+        artifactCount:Number(row.artifactIds?.length??0),delay:220+index*90+rowIndex*26,payload:row,
+      };
+      nodes.push(node);
+      edges.push({id:'edge:source:'+node.id,from:hub,to:node,state:sourceState,tone,kind:'source',delay:node.delay-70});
+
       const artifactRefs=[...(row.artifactIds??[])].slice(0,2);
       artifactRefs.forEach((artifactId,artifactIndex)=>{
-        const artifactAngle=nodeAngle+(artifactIndex===0?-.28:.28),artifact={id:String(artifactId),label:String(artifactId),state,x:node.x+Math.cos(artifactAngle)*28,y:node.y+Math.sin(artifactAngle)*28,delay:node.delay+90+artifactIndex*45};
-        artifacts.push(artifact);edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state,kind:'artifact',delay:artifact.delay-50});
+        const artifactAngle=nodeAngle+(artifactIndex===0?-.28:.28);
+        const artifact={
+          id:String(artifactId),label:String(artifactId),state:sourceState,tone,
+          x:node.x+Math.cos(artifactAngle)*28,y:node.y+Math.sin(artifactAngle)*28,delay:node.delay+90+artifactIndex*45,
+        };
+        artifacts.push(artifact);
+        edges.push({id:'edge:artifact:'+artifact.id,from:node,to:artifact,state:sourceState,tone,kind:'artifact',delay:artifact.delay-50});
       });
     });
   });
-  return{hubs,nodes,artifacts,edges};
+  return{hubs,nodes,artifacts,edges,semantic};
+}
+
+function exactSourceMap(snapshot){
+  return new Map((snapshot?.entries??[]).map((entry,index)=>[String(entry?.uid??index),entry]));
+}
+function sourceTreePath(entry){
+  const value=entry?.metadata?.treePath??entry?.treePath??entry?.metadata?.path??null;
+  if(Array.isArray(value))return value.filter(Boolean).map(x=>String(x).trim()).filter(Boolean).slice(0,8);
+  if(typeof value==='string')return value.split(/[\\/>]+/).map(x=>x.trim()).filter(Boolean).slice(0,8);
+  return[];
+}
+function publishedSemanticCategory(entry){
+  const explicit=entry?.metadata?.category??entry?.category??entry?.metadata?.type??entry?.type??null;
+  const value=explicit??sourceTreePath(entry)[0]??null;
+  return value?String(value).trim().slice(0,28):null;
+}
+function publishedSourceTitle(entry,fallback){
+  return shortLabel(entry?.title??entry?.comment??entry?.name??entry?.metadata?.title??entry?.metadata?.name??fallback);
+}
+function semanticCategoryCounts(snapshot,entries=[]){
+  const exactByUid=exactSourceMap(snapshot),counts=new Map();
+  entries.forEach((row,index)=>{
+    const category=publishedSemanticCategory(exactByUid.get(String(row?.uid??index)));
+    if(category)counts.set(category,(counts.get(category)??0)+1);
+  });
+  return[...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
 }
 
 function growthState(state,selected,graph){

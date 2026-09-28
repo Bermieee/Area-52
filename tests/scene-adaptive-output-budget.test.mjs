@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CapabilityProfileRegistry} from '../src/coprocessor/capability-profiles.js';
-import {ProviderAdapterRegistry} from '../src/coprocessor/provider-adapters.js';
+import {OpenAICompatibleProviderAdapter,ProviderAdapterRegistry} from '../src/coprocessor/provider-adapters.js';
 import {SpecialistExecutionLayer} from '../src/coprocessor/provider-execution.js';
 import {createSceneObservationTask,SceneObservationSpecialist} from '../src/coprocessor/scene-observation-specialist.js';
 import {Capability} from '../src/coprocessor/constants.js';
@@ -90,4 +90,36 @@ test('valid Scene completion remains usable after both former local deadline win
     assert.ok(Date.now()-foreground.hardDeadline>10000,'completion is logically beyond the former 1.2s and 10s cancellation windows');
     assert.equal(post.hardDeadline,base,'DEFERRED Scene work has no fabricated ten-second foreground window');
   }finally{Date.now=originalNow;}
+});
+
+
+test('real OpenAI-compatible Scene request and strict response normalization agree',async()=>{
+  let requestBody=null;
+  const adapter=new OpenAICompatibleProviderAdapter({
+    providerId:'provider:request-shape',modelId:'glm-scene-fixture',endpoint:'https://fixture.invalid',apiKey:'fixture',
+    capabilities:[Capability.STRUCTURED_EXTRACTION],timeoutMs:5000,
+    fetchImpl:async(url,init)=>{
+      requestBody=JSON.parse(init.body);
+      return{
+        ok:true,status:200,headers:{get:()=> 'request-1'},
+        async json(){return{
+          model:'glm-scene-fixture',
+          choices:[{message:{content:[{type:'text',text:'{"fields":{"location":{"value":{"location":"Glass Dome"},"confidence":0.9,"observationClass":"OBSERVED"}},"boundarySignals":{}}'}]},finish_reason:'stop'}],
+          usage:{prompt_tokens:12,completion_tokens:20,total_tokens:32},
+        };},
+      };
+    },
+  });
+  const cognitiveTask=task('Mira studies the sealed note.');
+  const providerInput=SceneObservationSpecialist.buildInput(cognitiveTask,input('Mira studies the sealed note.'));
+  const invocation=await adapter.invoke(cognitiveTask,providerInput,{maxOutputTokens:2048});
+  const normalized=SceneObservationSpecialist.normalize(invocation.text);
+  assert.equal(requestBody.model,'glm-scene-fixture');
+  assert.equal(requestBody.max_tokens,2048);
+  assert.match(requestBody.messages[0].content,/strict JSON/i);
+  assert.match(requestBody.messages[1].content,/UNTRUSTED_SCENE_EVIDENCE_JSON/);
+  assert.match(requestBody.messages[1].content,/Mira studies the sealed note/);
+  assert.equal(normalized.fields.location.value.location,'Glass Dome');
+  assert.equal(normalized.fields.location.observationClass,'OBSERVED');
+  assert.equal(invocation.metadata.requestId,'request-1');
 });

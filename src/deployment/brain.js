@@ -184,9 +184,9 @@ class RuntimePreparedLoreChannel {
   activateSpeculative(preparationRef, query) {
     const ref=String(preparationRef??'').trim();
     const prepared=this.speculativePrepared.get(ref);
-    if(!ref||!prepared)return false;
+    if(!ref||!prepared)return null;
     this.#remember(this.prepared,String(query),prepared);
-    return true;
+    return prepared;
   }
 
   discardSpeculative(preparationRef) {

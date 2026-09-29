@@ -79,14 +79,27 @@ function sameSet(a,b){
   return stableStringify([...(a??[])].sort())===stableStringify([...(b??[])].sort());
 }
 
+// Bounded audit copy of an owner input (cap ledger row 54). Within the limit it is an exact copy, as before. Over the
+// limit it no longer throws (the throw came after evidence was appended and the prior mapping was marked STALE, leaving
+// the bridge half-updated, and made any reply over ~32K characters unmappable): long strings are replaced by
+// content-addressed stubs. The exact content itself is kept as evidence; the audit copy is DIAGNOSTIC, and its stubs
+// carry the hash, so fingerprints still distinguish different inputs.
+const ELIDED='$area52Elided';
+function elideLongStrings(node,minLength){
+  if(typeof node==='string')return node.length>minLength?{[ELIDED]:'STRING',characters:node.length,contentHash:stableHash(node)}:node;
+  if(Array.isArray(node))return node.map((row)=>elideLongStrings(row,minLength));
+  if(node&&typeof node==='object'){const out={};for(const [key,value] of Object.entries(node))out[key]=elideLongStrings(value,minLength);return out;}
+  return node;
+}
 function safeRaw(input){
+  const limit=MEMORY_LIMITS.maxExternalRawInputCharacters;
   const text=stableStringify(input);
-  if(text.length>MEMORY_LIMITS.maxExternalRawInputCharacters)throw new MemoryEvidenceBridgeError(
-    'MEMORY_BRIDGE_RAW_INPUT_LIMIT_EXCEEDED',
-    'External owner input exceeds bounded audit size',
-    {characters:text.length,limit:MEMORY_LIMITS.maxExternalRawInputCharacters},
-  );
-  return deepClone(input);
+  if(text.length<=limit)return deepClone(input);
+  for(const minLength of [4096,1024,256]){
+    const copy=elideLongStrings(deepClone(input),minLength);
+    if(stableStringify(copy).length<=limit)return copy;
+  }
+  return {[ELIDED]:'INPUT',characters:text.length,contentHash:stableHash(text)};
 }
 
 function statusReceipt(kind,{status,reasonCode=null,details={},...rest}={}){
@@ -264,8 +277,10 @@ export class MemoryExternalEvidenceBridge{
       {identity,limit:MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity},
     );
 
+    // Computed before any mutation: nothing below may fail after evidence is appended or the prior mapping is retired.
+    const rawOwnerInput=safeRaw(input);
     const existingEvidenceId=[...this.graph.evidenceOrder].find((id)=>{
-      const row=this.graph.evidenceRecord(id);
+      const row=this.graph.evidenceView?this.graph.evidenceView(id):this.graph.evidenceRecord(id);
       return row?.sourceRevisionId===sourceRevisionId&&row?.contentHash===contentHash;
     })??null;
     const memoryEvidenceId=existingEvidenceId??('memory-external-evidence:'+stableHash(sourceRevisionId+'|'+contentHash));
@@ -323,7 +338,7 @@ export class MemoryExternalEvidenceBridge{
       observationState:input.observationState??source.observationState??null,
       sceneEligible:(input.observationState??source.observationState??null)!=='MENTIONED_ONLY',
       provenanceRefs:uniqStrings(input.provenanceRefs??[],64),
-      rawOwnerInput:safeRaw(input),
+      rawOwnerInput,
       fingerprint,
       state:'CURRENT',
       freshness:'FRESH',

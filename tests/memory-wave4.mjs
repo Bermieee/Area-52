@@ -615,7 +615,15 @@ test('consolidation session uses the job-wide revision fence bound rather than t
   });
   assert.equal(session.inputRevisionFence.sourceRevisionRefs.length,96);
   assert.equal(session.inputRevisionFence.sourceRevisionRefs[0],'bulk-source:0@r1');
-  assert.throws(()=>surface.adapters.startConsolidation([],{
+
+  const overflow=surface.adapters.startConsolidation([],{
     sourceRevisionRefs:Array.from({length:4097},(_,i)=>'overflow:'+i+'@r1'),
-  }),/String array exceeds bound 4096/);
+  });
+  assert.equal(overflow.inputRevisionFence.sourceRevisionRefs.length,4096);
+  assert.equal(overflow.inputRevisionFence.sourceRevisionCount,4097);
+  assert.equal(overflow.inputRevisionFence.sourceRevisionManifest.kind,'MemoryReferenceManifest');
+  assert.equal(overflow.inputRevisionFence.sourceRevisionManifest.total,4097);
+  assert.equal(overflow.inputRevisionFence.sourceRevisionManifest.segments.length,2);
+  assert.equal(overflow.inputRevisionFence.sourceRevisionManifest.coverageComplete,true);
+  assert.equal(overflow.inputRevisionFence.sourceRevisionManifest.canonicalKnowledgeDropped,false);
 });

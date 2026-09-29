@@ -88,3 +88,17 @@ Result: **17 approved, 0 withheld.** `node scripts/verify-development-deployment
 ### Closure addendum 4 (final pass, commit 854aa87): 4 Lore-lane paths re-reviewed
 
 `lore-contextual-retrieval.js` (serving fences, yielding build published atomically), `lore-hierarchy-retrieval-system.js` (runtime attached to the index, `refreshRetrievalYielding`, one-time rebuild of pre-fence snapshots), `lore-intelligence-service.js` (fenced readiness, `deferRetrievalIndex` accept option, default unchanged) and `lore-source-registry.js` (`resolutionKey`, memoised by counts and map identity; `temporalResolution` unchanged in value) changed only in 854aa87. Pinned by the fence and equivalence tests in `worker4-lore-readiness.test.mjs` (23) and `repair-followup-lore-runtime-batch.test.mjs`, mutation-checked; 78 related files pass. Digests refreshed for these four paths only; verifier PASS.
+
+### Addendum 5 (live-diagnostics fixes, 2026-09-29): 6 paths re-reviewed
+
+Each path changed only in the named commit on `repair/live-fixes` (base: main `786c67e`, code-identical to `e0b9ec2`). Same method: provenance (`git log main-786..HEAD -- <path>`), diff read, covering tests passing, mutation checks where noted.
+
+| Path | Commit | Change | Covering tests |
+|---|---|---|---|
+| `src/lore-intelligence-service.js` | d58dc45 | `storyReadStatus`, `authorizeLorebookForStory` (explicit per-chat binding of an accepted Lorebook; no re-study) | `repair-followup-lore-chat-authorization` (4, mutation-checked), worker4-lore-readiness, deployment-brain.integration |
+| `src/ui-core/wave13-operator-adapters.js` | d58dc45 | Lore read reports `LORE_NOT_AUTHORIZED_FOR_CHAT`; Accept binds to the open chat (only when the host supplies a selection); `authorizeForChat`; inspection `loreSync.reasonCode`/`scopeState` | same, wave13-operator-ui (67) |
+| `src/ui-core/wave13-operator-surfaces.js` | d58dc45 | "Use for this chat" action in the Lore panel | `repair-followup-lore-chat-authorization` (surface render + click), worker3-lore-neural-ui |
+| `src/coprocessor/provider-adapters.js`, `provider-execution.js` | ced6bb9 | Scene budget reserves the estimated answer; the remainder is sent as OpenRouter `reasoning.max_tokens`, OpenRouter hosts only | `repair-followup-scene-reasoning-cap` (3, mutation-checked), all 101 scene/coprocessor/provider files |
+| `src/runtime/work-ledger.js` | 6c20f2d | flush clones once (MemoryPersistenceAdapter clones on save) | `repair-followup-ledger-flush` (2, mutation-checked) |
+
+Result: `node scripts/verify-development-deployment.mjs`: **PASS**. Digests from `git hash-object` of the reviewed content.

@@ -1,6 +1,7 @@
 import { Capability, FailureCode, Placement, ResultClass } from './constants.js';
 import { createCognitiveTask, createRevisionSet } from './contracts.js';
 import { assertProviderPayloadBoundary, buildBoundedProviderPayload } from './provider-payload-boundary.js';
+import { sha256Hex } from './browser-compat.js';
 
 export const CONSOLIDATION_CONTRACT_VERSION = '1.1.0';
 export const CONSOLIDATION_POLICY_VERSION = 'wave6-v1';
@@ -596,11 +597,18 @@ function validateProposalPayload(kind, payloadInput, topLevel = {}) {
 function inferSemanticIdentity(input) {
   const payload = input.payload ?? {};
   if (typeof payload.semanticIdentity === 'string' && payload.semanticIdentity) return payload.semanticIdentity;
-  if (typeof payload.claim === 'string' && payload.claim) return 'claim:' + payload.claim.slice(0, 256);
+  if (typeof payload.claim === 'string' && payload.claim) return 'claim:' + boundedIdentity(payload.claim, 256);
   if (payload.subjectRef && payload.predicate) return ['claim', payload.subjectRef, payload.predicate, stableFact(payload.object ?? payload.value ?? null)].join(':');
   if (payload.fromRef && payload.toRef && payload.relation) return ['relationship', payload.fromRef, payload.relation, payload.toRef].join(':');
   if (payload.entityRef && payload.changeType) return ['state', payload.entityRef, payload.changeType, stableFact(payload.to ?? payload.value ?? null)].join(':');
-  return [input.proposalKind ?? 'UNKNOWN', stableFact(payload).slice(0, 512)].join(':');
+  return [input.proposalKind ?? 'UNKNOWN', boundedIdentity(stableFact(payload), 512)].join(':');
+}
+// Cap ledger row 63: identity text is bounded, but two different long values must not collapse into one identity (claims
+// sharing a 256-character prefix were deduplicated as the same claim). Within the bound the identity is unchanged; past it,
+// the prefix is followed by a hash of the whole value.
+function boundedIdentity(text, limit) {
+  const value = String(text);
+  return value.length <= limit ? value : value.slice(0, limit) + '#' + sha256Hex(value).slice(0, 24);
 }
 function proposalDedupeKey(proposal) {
   return [proposal.policyVersion, proposal.proposalKind, proposal.semanticIdentity,

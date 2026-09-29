@@ -169,6 +169,13 @@ test('classifier and scene extraction are story-independent', () => {
   );
   assert.equal(unknown.explicit, false);
   assert.deepEqual(unknown.fields, {});
+
+  const glance = extractDevelopmentDeploymentScene(
+    'Mara glances at Eris and lowers her voice.',
+    { revision: 3, evidenceRef: 'source:host@3' },
+  );
+  assert.equal(glance.explicit, false, 'a person looked at is not a location');
+  assert.equal(glance.fields.location, undefined);
 });
 
 test('first ordinary turn initializes a Scene without inventing a location', async () => {

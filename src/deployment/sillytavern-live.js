@@ -182,7 +182,10 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   let resumeSceneId = null;
   const prefetchIntents=scenePrefetchIntentsFromNarrative(raw);
 
-  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
+  // A bare "at Name" inside prose may describe attention toward a person,
+  // not the current location. Only a scene-setting clause or travel verb is
+  // strong enough to bypass semantic Scene observation.
+  const locationMatch = raw.match(/(?:^|[.!?\n])\s*(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
     ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
   let location = null;
   if (locationMatch?.[1]) {

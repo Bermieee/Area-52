@@ -163,7 +163,7 @@ function mergeSummaryRanges(rows,childArtifacts=[]) {
   };
 }
 
-function summaryChildExcerpt(value,maxCharacters=900) {
+function summaryChildExcerpt(value,maxCharacters=320) {
   const text=normalizeExact(value);
   if(text.length<=maxCharacters)return text;
   const half=Math.floor((maxCharacters-5)/2);
@@ -1080,6 +1080,21 @@ export class MemorySummaryHierarchy {
           : [[preferred],['SCENE'],['CHAPTER','SESSION'],['ARC'],['STORY']];
   }
 
+  summaryEvidenceAllowed(artifact,allowedEvidence,seen=new Set()){
+    if(!allowedEvidence)return true;
+    if(!artifact||seen.has(artifact.id))return false;
+    seen.add(artifact.id);
+    const direct=artifact.evidenceManifest?.directEvidenceRefs??artifact.exactEvidenceRefs??[];
+    for(const id of direct)if(!allowedEvidence.has(id))return false;
+    const children=artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[];
+    if(!direct.length&&!children.length)return false;
+    for(const ref of children){
+      const child=this.artifacts.get(ref.artifactId);
+      if(!child||!this.summaryEvidenceAllowed(child,allowedEvidence,seen))return false;
+    }
+    return true;
+  }
+
   buildSummaryNominations({picked,intentId,perspective}){
     return picked.map(({artifact,score})=>createCandidateNomination({
       nominationId:'memory-summary-nomination:' + stableHash(intentId+'|'+artifact.id),
@@ -1163,10 +1178,7 @@ export class MemorySummaryHierarchy {
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
     const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
-    const artifactAllowed=(artifact)=>!allowedEvidence||(
-      (artifact?.exactEvidenceRefs??[]).length>0
-      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
-    );
+    const artifactAllowed=(artifact)=>this.summaryEvidenceAllowed(artifact,allowedEvidence);
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const cacheKey=this.queryCacheKey(request,preferred);
     if(useCache){
@@ -1289,10 +1301,7 @@ export class MemorySummaryHierarchy {
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
     const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
-    const artifactAllowed=(artifact)=>!allowedEvidence||(
-      (artifact?.exactEvidenceRefs??[]).length>0
-      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
-    );
+    const artifactAllowed=(artifact)=>this.summaryEvidenceAllowed(artifact,allowedEvidence);
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const all=this.currentArtifacts({freshOnly:true});
     const afterMaterialize=nowMs();

@@ -225,6 +225,7 @@ test('row 46: bundle review exposes Runtime-owned continuation instead of silent
     bundle,
     selection:{chatId:'chat:page'},
     reviewOffset:first.nextReviewOffset,
+    reviewToken:first.continuation.reviewToken,
   });
   assert.equal(second.reviewOffset,4096);
   assert.equal(second.processed,1);
@@ -234,4 +235,13 @@ test('row 46: bundle review exposes Runtime-owned continuation instead of silent
   assert.equal(second.results.length,1);
   assert.equal(second.results[0].proposalId,'proposal:page:4096');
   assert.equal(new Set(first.results.map((row)=>row.proposalId)).has(second.results[0].proposalId),false);
+
+  const changedMiddle={...bundle,proposals:bundle.proposals.map((proposal)=>structuredClone(proposal))};
+  changedMiddle.proposals[2048].payload={changed:true};
+  assert.throws(()=>producer.reviewConsolidationBundle({
+    bundle:changedMiddle,
+    selection:{chatId:'chat:page'},
+    reviewOffset:first.nextReviewOffset,
+    reviewToken:first.continuation.reviewToken,
+  }),/MEMORY_CONSOLIDATION_REVIEW_SET_CHANGED/);
 });

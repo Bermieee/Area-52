@@ -23,7 +23,7 @@ function freshBySources(graph,sourceRevisionRefs) {
   return sourceRevisionRefs.every((id)=>graph.isSourceRevisionActive(id));
 }
 
-export function segmentedStringRefs(values,limit,field) {
+function segmentedStringRefs(values,limit,field) {
   const all=uniqStrings(values,Infinity);
   const segments=[];
   for(let offset=0;offset<all.length;offset+=limit)segments.push(all.slice(offset,offset+limit));

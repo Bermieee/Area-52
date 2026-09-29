@@ -35,15 +35,21 @@ export function installWave13OperatorSurfaces(registry,{operations=null,resource
       renderLoreStudySurface(host,{...ctx,loreStudy,actionRouter,fallbackRender:current.render,loreNeuralState,frontFacePresentation});
     }});
   }
-  if(registry.has('diagnostics')){
-    const current=registry.get('diagnostics');
-    registry.update('diagnostics',{render(host,ctx){
+  // Lore entry states, derived representations and authoring review live in the Diagnostics workspace. The Diagnostics Center
+  // registers as 'turn-log' (title 'Diagnostics'); no workspace is registered as 'diagnostics', so binding only that id left
+  // these tools unreachable in the assembled UI.
+  for(const diagnosticsWorkspaceId of ['diagnostics','turn-log']){
+    if(!registry.has(diagnosticsWorkspaceId))continue;
+    const current=registry.get(diagnosticsWorkspaceId);
+    registry.update(diagnosticsWorkspaceId,{render(host,ctx){
       current.render?.(host,ctx);
       renderLoreDiagnosticsTools(host,{...ctx,loreStudy,loreAuthoring,actionRouter,draft:loreAuthoringDraft});
     }});
   }
-  if(registry.has('memory')&&memory){
-    registry.update('memory',{render(host,ctx){renderMemoryOwnerSurface(host,{...ctx,memory});}});
+  // The product Memory workspace is registered as 'memory-product' by the Front Face; the dashboard registers 'memory'.
+  // Bind the owner-backed Memory surface to whichever exists (binding only 'memory' left the installed UI on a placeholder).
+  if(memory){
+    for(const memoryWorkspaceId of ['memory-product','memory'])if(registry.has(memoryWorkspaceId))registry.update(memoryWorkspaceId,{render(host,ctx){renderMemoryOwnerSurface(host,{...ctx,memory});}});
   }
   return()=>{for(const release of releases)try{release();}catch{}};
 }

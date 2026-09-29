@@ -96,7 +96,7 @@ test('failed optional execution stays distinct from intentional Jev skip and own
   const snap=representativeSnapshot();
   snap.diagnostics.resources.rows=snap.diagnostics.resources.rows.map(row=>row.kind==='SIDECAR'?{
     ...row,physicalExecutionAttempted:true,physicalExecutionSucceeded:false,ownerAccepted:false,
-    lastExecution:{status:'FAIL',executionId:'sidecar:failed:1',latencyMs:37},
+    lastExecution:{status:'FAIL',executionId:'sidecar:failed:1',latencyMs:37,selection:{chatId:selection.chatId,turnId:selection.turnId,generationId:selection.generationId,correlationId:selection.correlationId}},
     lastFailure:{status:'FAIL',code:'PROVIDER_UNAVAILABLE'},
   }:row);
   const turn=journal.recordSnapshot({selection,...snap});

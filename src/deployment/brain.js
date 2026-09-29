@@ -2292,6 +2292,9 @@ export class DevelopmentDeploymentBrain {
         edgeId:row.edgeId??null,edgeType:row.edgeType??null,status:row.status??null,temporalStatus:row.temporalStatus??null,
         retiredSourceRevisionId:row.retiredSourceRevisionId??null,invalidatedBy:row.invalidatedBy??null,
       }))),
+      // Likely-next / boundary prefetch recommendations the Scene owner published or withdrew for this observation (bounded).
+      publishedPrefetch: clone((outcome?.publishedPrefetch ?? []).slice(0, 32)),
+      invalidatedPrefetch: clone((outcome?.invalidatedPrefetch ?? []).slice(0, 32)),
       eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
       eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
       invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),

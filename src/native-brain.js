@@ -1971,6 +1971,18 @@ export class Area52NativeBrain{
         cause:{eventType:'SCENE_COGNITIVE_NEED',eventId:String(need.needId??expectedId),producerId:'SCENE',consumerId:'COGNITIVE_CHOICE',ownerId:'SCENE',chatId,turnId,generationId,correlationId,turnRevision,sourceRevisionRefs:sceneState.sourceRevisionRefs??[],worldRevision:published?.worldRevision??null,sceneRevision:sceneState.sceneRevision},
         obligation:{taskType:'SCENE_RETRIEVAL_NEED',layer:'L1',requiredCapabilities:['RETRIEVAL'],dedupeKey:expectedId},
       });
+      // Physical evidence: when Cognitive Choice admitted RETRIEVAL for this turn, the retrieval did start, and the candidate
+      // envelope says whether a result came back. Owner admission is never inferred: the Scene owner must admit it.
+      if((choice?.admittedJobs??[]).map(String).includes('RETRIEVAL')&&candidate){
+        const channelReceipts=candidate.metadata?.channelReceipts??[];
+        const answered=channelReceipts.filter(row=>String(row?.status)==='OK'&&Number(row?.nominationCount??0)>0);
+        const metadata={retrievalIntentIds:clone(candidate.retrievalIntentIds??[]),candidateCount:Number(candidate.candidates?.length??0),envelopeFreshness:candidate.freshness??null,answeredChannelIds:answered.map(row=>row.channelId)};
+        const started=this.obligationReconciler.recordEvidence(expectedId,{id:expectedId+':started',kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'SENSORY_NET',consumerId:'SCENE',metadata});
+        // A result came back when a channel answered; whether it is still fresh for foreground use is the envelope's own
+        // freshness (kept in the metadata) and the Scene owner's admission decision, not a reason to deny that it returned.
+        if(answered.length)this.obligationReconciler.recordEvidence(expectedId,{id:expectedId+':returned',kind:CausalReceiptKind.RESULT_RETURNED,producerId:'SENSORY_NET',consumerId:'SCENE',parentReceiptId:started?.id??null,metadata});
+        else this.obligationReconciler.recordEvidence(expectedId,{id:expectedId+':failed',kind:CausalReceiptKind.WORK_FAILED,producerId:'SENSORY_NET',consumerId:'SCENE',parentReceiptId:started?.id??null,reasonCode:CausalReasonCode.NO_EVIDENCE,metadata});
+      }
       results.push(this.obligationReconciler.reconcile(expectedId,{admit:false}));
     }
     return results;

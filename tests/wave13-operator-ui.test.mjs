@@ -268,7 +268,7 @@ test('Lore READY CURRENT entry with semanticDiff does not show stale source revi
     artifacts:[],conflicts:[],counts:{READY:1,ACCEPTED:0,STUDYING:0,FAILED:0,REMOVED:0},
     lifecycle:{counts:{DUE:0,PENDING:0,ACTIVE:0,CHECKPOINTED:0,COMPLETED:1,SUPERSEDED:0,STALE:0,INVALID:0},due:0,active:0},
   });
-  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(1);
   const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Learned representations are current and the Lore owner reports this entry retrieval-ready/);
   assert.doesNotMatch(body,/Source revision changed/);
@@ -290,7 +290,7 @@ test('Lore stale learned revision still shows source revision warning',()=>{
     artifacts:[],conflicts:[],counts:{READY:0,ACCEPTED:1,STUDYING:0,FAILED:0,REMOVED:0},
     lifecycle:{counts:{DUE:1,PENDING:0,ACTIVE:0,CHECKPOINTED:0,COMPLETED:0,SUPERSEDED:0,STALE:0,INVALID:0},due:1,active:0},
   });
-  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(1);
   const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Source revision changed/);
   assert.match(body,/not treated as current until the Lore owner re-studies and publishes readiness/);
@@ -524,7 +524,7 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
   ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);slots=walk(ui.shell.nodes.workspace).filter(x=>x.dataset?.slot);
   const jev=slots.find(x=>x.dataset.slot==='JEV'),vector=slots.find(x=>x.dataset.slot==='VECTORING'),sidecar=slots.find(x=>x.dataset.slot==='SIDECAR');
   assert.equal(jev.dataset.locked,'true');assert.equal(vector.dataset.locked,'true');assert.equal(sidecar.dataset.locked,'false');
-  assert.match(textOf(jev),/CONFIG LOCKED/);assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/CONFIG LOCKED/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Model/);assert.doesNotMatch(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
+  assert.match(textOf(jev),/SAVED LOCK/,'a connected resource whose profile was saved shows the saved lock (912c870)');assert.match(textOf(jev),/Qualification/);assert.match(textOf(vector),/SAVED LOCK/);assert.match(textOf(vector),/Qualification/);assert.match(textOf(sidecar),/Load \/ Refresh Models/);assert.match(textOf(sidecar),/Model/);assert.doesNotMatch(textOf(sidecar),/Manual model fallback/);assert.match(textOf(sidecar),/Test Connection/);
   const passwordFields=walk(sidecar).filter(x=>x.tagName==='INPUT'&&x.attributes?.type==='password');assert.equal(passwordFields.length,1);
   ui.destroy();
 });
@@ -532,18 +532,23 @@ test('Connections renders separate Jev Sidecar and Vectoring slots and locks own
 test('Connections model input stays editable and discovered models are suggestions rather than a whitelist',async()=>{
   const owner=liveOwner(),host=worker2ResourceHost();owner.bindings.resourceHost=host;
   const{ui}=mount(owner);ui.shell.selectWorkspace('connections');ui.scheduler.flush(1);
-  const sidecar=walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');
+  // The slot re-renders after a discovery or a save, so each step re-queries the live nodes like a user would.
+  const sidecarNow=()=>walk(ui.shell.nodes.workspace).find(x=>x.dataset?.slot==='SIDECAR');
   const fieldByLabel=(root,label)=>walk(root).find(x=>x.getAttribute?.('aria-label')===label);
   const buttonByLabel=(root,label)=>walk(root).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
+  const settle=()=>new Promise((resolve)=>setTimeout(resolve,0));
+  let sidecar=sidecarNow();
   const endpoint=fieldByLabel(sidecar,'Sidecar endpoint'),model=fieldByLabel(sidecar,'Sidecar model');
   assert.equal(model.tagName,'INPUT');assert.equal(model.disabled,false);assert.ok(model.getAttribute('list'));
   endpoint.value='https://openrouter.ai/api/v1';endpoint.dispatch('input');
-  buttonByLabel(sidecar,'Load / Refresh Models').dispatch('click');await Promise.resolve();await Promise.resolve();
+  buttonByLabel(sidecar,'Load / Refresh Models').dispatch('click');await settle();
+  sidecar=sidecarNow();
   const suggestions=walk(sidecar).find(x=>x.tagName==='DATALIST');
   assert.ok(suggestions);assert.ok(walk(suggestions).some(x=>x.tagName==='OPTION'&&x.value==='owner/model-a'));
-  model.value='owner/manual-not-in-list';model.dispatch('input');
-  buttonByLabel(sidecar,'Test Connection').dispatch('click');await Promise.resolve();await Promise.resolve();await Promise.resolve();
-  assert.ok(host.calls.some(x=>x[0]==='add'&&x[1]?.modelId==='owner/manual-not-in-list'));
+  const liveModel=fieldByLabel(sidecar,'Sidecar model');
+  liveModel.value='owner/manual-not-in-list';liveModel.dispatch('input');
+  buttonByLabel(sidecar,'Save, Lock & Test Connection').dispatch('click');await settle();
+  assert.ok(host.calls.some(x=>x[0]==='add'&&x[1]?.modelId==='owner/manual-not-in-list'),'a model that discovery did not list is still accepted (suggestions are not a whitelist)');
   ui.destroy();
 });
 
@@ -876,7 +881,7 @@ test('Memory workspace renders owner-backed hierarchical compaction and keeps de
     };},
     summaryStatus(){return{kind:'MemorySummaryStatus',pending:0};},
   }};
-  const{ui}=mount(owner);ui.shell.selectWorkspace('memory');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('memory-product');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Owner-backed selected-chat/);assert.match(body,/Story \/ arc \/ scene compaction/);assert.match(body,/Derived \/ Navigation/i);assert.match(body,/ARC/);assert.match(body,/1 → 42/);assert.match(body,/Unresolved memory preserved/);
   assert.doesNotMatch(body,/Apply summary|Set canonical|Promote summary/i);
@@ -899,7 +904,7 @@ test('Lore workspace shows Worker 4 multi-resolution and hierarchical summaries 
     ]};},
   };
   owner.bindings.loreIntelligenceService=service;
-  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Derived Lore representations/);assert.match(body,/Lean/);assert.match(body,/Balanced/);assert.match(body,/Heavy/);assert.match(body,/Hierarchical navigation summaries/);assert.match(body,/DERIVED \/ NO SOURCE AUTHORITY/);assert.match(body,/Exact source drillback Available/);
   ui.destroy();
@@ -910,7 +915,7 @@ test('Lore UI marks edited source revisions stale until the owner re-studies the
   owner.bindings.readLoreStatus=()=>({kind:'LoreIntelligenceStatus',counts:{ACCEPTED:1,STUDYING:0,READY:0,FAILED:0,REMOVED:0},entries:[{
     sourceId:'lore:moon:captain',lorebookId:'moon',uid:'captain',sourceRevisionId:'r2',sourceState:'CURRENT',learnedRevisionId:'learned:r1',freshness:'STALE_OR_UNLEARNED',operatorState:'ACCEPTED',studyState:'DUE',semanticDiff:{kind:'LoreSemanticDiff',changed:true},retrievalReady:false,retrievalRepresentations:[],
   }],artifacts:[],conflicts:[],lifecycle:{counts:{DUE:1},due:1,active:0},...owner.bindings.readSelection()});
-  const{ui}=mount(owner);ui.shell.selectWorkspace('lore');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.productAdapter.setDetailLevel(ProductDetailLevel.DETAIL);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const body=textOf(ui.shell.nodes.workspace);assert.match(body,/Source revision changed/);assert.match(body,/not treated as current until the Lore owner re-studies/i);assert.doesNotMatch(body,/retrieval-ready.*Yes/i);
   ui.destroy();
 });
@@ -942,7 +947,7 @@ test('Worker 4 v2 lifecycle gates Settlement behind review Final Preview and exp
     },
   };
   const owner=liveOwner({withLore:true});Object.assign(owner.bindings,{loreAuthoringHost:authoringHost,readSelectedLorebookSelection:()=>({selected:true,lorebookId:'Moon Harbor',title:'Moon Harbor'}),discoverSelectedLorebook:async()=>({id:'Moon Harbor',title:'Moon Harbor',entries:[{uid:'captain',content:'Captain watches the harbor.',metadata:{title:'Captain'}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:1}})});
-  const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.operator.loreAuthoring.sourceDiscoveryIdentity({});ui.shell.selectWorkspace('lore');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
+  const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.operator.loreAuthoring.sourceDiscoveryIdentity({});ui.shell.selectWorkspace('turn-log');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   const findButton=label=>walk(ui.shell.nodes.workspace).find(x=>x.tagName==='BUTTON'&&x.textContent===label);
   assert.equal(Boolean(findButton('Apply approved Settlement')),false);
   const settleUi=async(label,frame)=>{const button=findButton(label);assert.ok(button,'Expected Lore review button: '+label);button.dispatch('click');await new Promise(resolve=>setImmediate(resolve));ui.scheduler.flush(frame);};
@@ -991,7 +996,7 @@ test('Worker 4 Wave 6 authoring contract stays review-only and renders Tree / me
     discoverSelectedLorebook:async()=>({id:'Moon Harbor',title:'Moon Harbor',entries:[{uid:'captain',content:'Vale keeps the blue ledger.',metadata:{title:'Captain Vale'}}],fullSnapshot:true,discovery:{kind:'SillyTavernLorebookDiscoveryReceipt',lorebookId:'Moon Harbor',title:'Moon Harbor',entryCount:1,exactAuthoredSource:true}}),
   });
   const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();ui.operator.loreAuthoring.sourceDiscoveryIdentity({});
-  ui.shell.selectWorkspace('lore');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);
+  ui.shell.selectWorkspace('turn-log');ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);
   const body=textOf(ui.shell.nodes.workspace);
   assert.match(body,/Lore authoring review/);assert.match(body,/Source identity/);assert.match(body,/Edit-impact preview/);assert.match(body,/Tree Builder proposal/);assert.match(body,/Merge \/ reconciliation preview/);assert.match(body,/No destructive Apply action/);
   const buttons=walk(ui.shell.nodes.workspace).filter(x=>x.tagName==='BUTTON');assert.equal(buttons.some(x=>x.textContent==='Apply'),false);

@@ -179,11 +179,14 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
   if(!sceneRuntime?.graph?.exportState)return null;
   let queryRevisionSet=null;
   const temporalStatusFor=(row)=>{
-    if(row?.temporalStatus)return String(row.temporalStatus).toUpperCase();
+    // A stored CURRENT is the status at write time. Scene lifecycle moves on: an edge whose scene is now CLOSED is
+    // HISTORICAL. Any other explicit status (HISTORICAL, UNRESOLVED, SUPERSEDED...) is the owner's and is kept.
+    const declared=row?.temporalStatus?String(row.temporalStatus).toUpperCase():null;
+    if(declared&&declared!=='CURRENT')return declared;
     if(String(row?.edgeType??'')==='SCENE_FLASHBACK')return'HISTORICAL';
-    const sceneIds=[row?.fromSceneId,row?.toSceneId].filter(Boolean);
+    const sceneIds=[...new Set([row?.fromSceneId,row?.toSceneId,row?.sceneId].filter(Boolean))];
     if(sceneIds.length&&sceneIds.every(sceneId=>sceneRuntime.registry?.get?.(sceneId)?.lifecycle==='CLOSED'))return'HISTORICAL';
-    return sceneIds.length?'CURRENT':'UNRESOLVED';
+    return declared??(sceneIds.length?'CURRENT':'UNRESOLVED');
   };
   return Object.freeze({
     providerId:'SCENE_OWNER_GRAPH',

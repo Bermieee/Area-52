@@ -17,7 +17,7 @@ This closure follows the three-worker cap-remediation handoff: physical, cache, 
 | --- | --- | --- |
 | 40 — Historian evidence bytes | **FIXED** | Ranked evidence is packed by actual UTF-8 byte size instead of returning an empty artifact set on overflow. Bounded-out artifact identities remain addressable. Single-artifact overflow is reported explicitly. Stale historian rows remain excluded before packing. |
 | 45 — Memory store ref bounds | **FIXED** | Episode/reflection refs use bounded head segments plus complete `MemoryReferenceManifest` segments. Validation occurs before retiring a prior current artifact. Exact drillback, historian indexing, summary construction, vector work, freshness and reflection review consume the complete manifest through `memoryReferenceValues()`. |
-| 46 — Consolidation 4,096 jobs | **FIXED** | A consolidation session retains only one <=4,096-job page and emits a Runtime-owned continuation offset/token for the rest. Reload resumes from checkpoint. Bundle review also pages at 4,096 proposals. Job and proposal continuation identities fingerprint the complete logical sets, including middle entries; Memory does not retain a second overflow queue or scheduler. |
+| 46 — Consolidation 4,096 jobs | **FIXED** | A consolidation session retains only one <=4,096-job page and emits a Runtime-owned continuation offset/token for the rest. Bundle review also pages at 4,096 proposals. Native Brain appends remaining review pages as bounded units to the same persisted Runtime batch; interruption/reload resumes page 4,097 without re-invoking the provider. Job/proposal identities fence changed middle entries, and Memory retains no second overflow queue or scheduler. |
 | 49 — Summary-of-summaries | **FIXED** | SESSION/ARC-style summaries retain child summary manifests rather than flattening all descendant evidence into one 8,192-ref list. Exact drillback is paged through child artifacts. A 9,216-evidence synthetic hierarchy proves beginning/end facts, correction/rebuild, snapshot/restore and allowed-evidence filtering. Replacement retirement is atomic: a failed new summary build leaves the prior revision current. |
 | 50 — Summary term index ceiling | **FIXED** | Terms beyond the 32,768 reverse-index ceiling use bounded targeted fallback pages. The public historian boundary now exposes incomplete targeted coverage as `DEGRADED` with `nextTargetedFallbackOffset`; useful exact fallback can still be returned without pretending the summary scan was complete. |
 | 61 — Four full-detail turns | **VERIFIED_BY_DESIGN** | The four-turn limit compacts diagnostics only. The immutable sealed packet, seal receipt and owner-backed experience remain intact; large non-authoritative diagnostic bodies become reference/hash forms. No published seal is mutated. |
@@ -51,6 +51,9 @@ Consolidation is page bounded:
 - a changed middle job invalidates continuation with `MEMORY_CONSOLIDATION_JOB_SET_CHANGED`;
 - review bundles expose the same page boundary rather than silently ignoring proposal 4,097;
 - review continuation carries a full proposal-set token; changing a middle proposal invalidates resume with `MEMORY_CONSOLIDATION_REVIEW_SET_CHANGED`;
+- Native Brain's Memory-owned Runtime executor converts remaining review pages into deterministic <=4,096-proposal units in the same Runtime batch before the current slice commits;
+- Runtime's persisted Work Ledger therefore owns interruption/reload recovery; continuation units bypass the Sidecar producer and do not issue another provider request;
+- page progress is retained as compact counts/coverage instead of thousands of per-proposal diagnostics;
 - Runtime scheduling authority remains false inside Memory receipts so the existing Runtime remains the scheduler.
 
 ### Row 49 — hierarchical exact drillback
@@ -106,9 +109,10 @@ Focused cap tests on this branch include:
 - `tests/cap-remediation-memory-retention.test.mjs`
 - `tests/cap-remediation-memory-transport-excerpt.test.mjs`
 - `tests/cap-remediation-memory-vectors.test.mjs`
+- `tests/memory-cognition-completion.test.mjs` now includes an exact Runtime interruption/reload continuation case for proposal 4,097
 - existing `tests/memory-wave4.mjs` expectations updated where segmented complete refs are now visible.
 
-Boundary coverage includes below/at/above bounds where applicable, stale exclusion, invalid replacement atomicity, 4,097-job continuation, changed-middle job/proposal resume rejection, reload/resume, >8,192 descendant drillback, failed summary replacement atomicity, correction/rebuild/restore, term recovery beyond the first 512 fallback rows, sealed-packet immutability and cache-history reload.
+Boundary coverage includes below/at/above bounds where applicable, stale exclusion, invalid replacement atomicity, 4,097-job continuation, changed-middle job/proposal resume rejection, Runtime-owned proposal-page recovery after Brain+Memory reload without provider reinvocation, >8,192 descendant drillback, failed summary replacement atomicity, correction/rebuild/restore, term recovery beyond the first 512 fallback rows, sealed-packet immutability and cache-history reload.
 
 ## Validation state
 

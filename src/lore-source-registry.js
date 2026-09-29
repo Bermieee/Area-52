@@ -412,7 +412,16 @@ export class LoreDerivedStore {
   // Lorebooks that are read together (one story's read scope) may interact; the provider returns arrays of lorebook ids.
   setBookGroupsProvider(provider) { this._bookGroups = typeof provider === 'function' ? provider : null; this._temporalCache = null; }
 
-  temporalResolution(registry) {
+  // The key the temporal resolution (and every truth hint) is a function of: the current learned revisions and the story scope
+  // groups. The retrieval index is fenced by it (lore-contextual-retrieval.js).
+  resolutionKey(registry) {
+    const groups = (this._bookGroups?.() ?? []).map((group) => [...new Set(group)].sort()).filter((group) => group.length > 1).sort((a, b) => a.join(',').localeCompare(b.join(',')));
+    const groupsKey = groups.map((g) => g.join(',')).join(';');
+    // Every change that can move the key also changes one of these counts (a new source revision, a new learned revision)
+    // or the groups; the exact key is recomputed only then.
+    const proxy = registry.revisions.size + '|' + this.learnedRevisions.size + '|' + this.currentLearnedBySource.size + '|' + groupsKey;
+    const c = this._resolutionKeyCache;
+    if (c?.proxy === proxy && c.registry === registry && c.revisions === registry.revisions && c.learned === this.learnedRevisions && c.current === this.currentLearnedBySource) return c.key;
     const currentIds = [];
     for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
       const learned = this.learnedRevisions.get(learnedId);
@@ -421,8 +430,14 @@ export class LoreDerivedStore {
       if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
       currentIds.push(learnedId);
     }
+    const key = stableHash(currentIds.sort().join(',') + '|' + groupsKey);
+    this._resolutionKeyCache = {proxy, registry, revisions: registry.revisions, learned: this.learnedRevisions, current: this.currentLearnedBySource, key};
+    return key;
+  }
+
+  temporalResolution(registry) {
     const groups = (this._bookGroups?.() ?? []).map((group) => [...new Set(group)].sort()).filter((group) => group.length > 1).sort((a, b) => a.join(',').localeCompare(b.join(',')));
-    const key = stableHash(currentIds.sort().join(',') + '|' + groups.map((g) => g.join(',')).join(';'));
+    const key = this.resolutionKey(registry);
     if (this._temporalCache?.key === key) return this._temporalCache.value;
     const rows = this.currentArtifacts(registry, {types: [ArtifactType.CLAIM, ArtifactType.ENTITY]});
     const bookOf = (claim) => registry.entries.get(claim.sourceId)?.lorebookId ?? claim.sourceId;

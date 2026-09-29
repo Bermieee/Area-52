@@ -144,3 +144,24 @@ test('installed path: the operator Accept returns reference surfaces (no corpus 
   assert.ok(operator.second.ownerReceipt.changes.some((c) => c.invalidatedRepresentationIds.length > 0), 'edited sources report their invalidated representations');
   assert.deepEqual(operator.status, full.status, 'the owner ends in the same state');
 });
+
+test('installed operator Accept defers the index to a yielding fenced rebuild that publishes the same index as a synchronous build', async () => {
+  const { makeInstalled } = await import('./helpers/installed-host.mjs');
+  const h = makeInstalled({ chatId: 'chat:defer' });
+  const accept = h.session.uiBindings().loreStudyHost?.actions?.acceptLorebook ?? h.session.uiBindings().acceptLorebook;
+  await accept(book(12));
+  await h.session.brain.runLoreStudyBatched({ scope: 'DUE' });
+  const edited = book(12); edited.entries = edited.entries.map((e, i) => (i === 2 ? { ...e, content: e.content + ' Changed.' } : e));
+  const receipt = await accept(edited);
+  assert.equal(receipt.ownerReceipt.retrievalIndexDeferred, true);
+  const rebuilt = await h.session.brain.whenLoreIndexCurrent();
+  assert.equal(rebuilt.status, 'PUBLISHED');
+  const index = h.session.brain.loreIntelligence.hierarchy.retrievalIndex;
+  assert.equal(index.fenceMoved(), false);
+  const asyncRevision = index.revision;
+  h.session.brain.loreIntelligence.hierarchy.refreshRetrieval();
+  assert.equal(index.revision, asyncRevision, 'same index as a synchronous build');
+  const study = await h.session.brain.runLoreStudyBatched({ scope: 'DUE' });
+  assert.equal(study.ownerReceipt.retrievalIndexPublication.status, 'PUBLISHED');
+  h.session.destroy();
+});

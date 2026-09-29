@@ -184,7 +184,10 @@ export class LoreIntelligenceService {
 
   // receiptForm 'REFERENCE' returns a revision-aware status reference instead of a copy of the whole status (used by the
   // installed operator Accept); the default full receipt is unchanged.
-  acceptLorebook(input, {receiptForm = 'FULL'} = {}) {
+  // deferRetrievalIndex (installed operator Accept): the ontology and hierarchy are refreshed inline as before, but the
+  // retrieval index is left to a yielding, fenced rebuild the caller schedules; meanwhile the index's serving fences exclude
+  // every record built from a revision that is no longer current and take truth hints from the current resolution.
+  acceptLorebook(input, {receiptForm = 'FULL', deferRetrievalIndex = false} = {}) {
     const requestedChatId = input?.chatId ?? input?.storyScope?.chatId ?? input?.discovery?.chatId ?? null;
     const book = assertDiscoveredLorebook(input);
     const before = new Map();
@@ -207,10 +210,12 @@ export class LoreIntelligenceService {
     });
     const sourceRevisionChanged = results.some((row) => Boolean(row.changed));
     const staleRepresentationIds = sourceRevisionChanged ? this.multiResolution.refreshFreshness() : [];
+    let retrievalIndexDeferred = false;
     if (sourceRevisionChanged || !this.hierarchy.hierarchy) {
       this.ontology.rebuild();
       this.hierarchy.refreshHierarchy();
-      this.hierarchy.refreshRetrieval();
+      if (deferRetrievalIndex) retrievalIndexDeferred = true;
+      else this.hierarchy.refreshRetrieval();
     }
 
     // Stale representation ids grouped by source once (was a filter with a cloning registry.get() per result: quadratic).
@@ -296,6 +301,7 @@ export class LoreIntelligenceService {
         ? {kind: 'LoreIntelligenceStatusReference', revisionKey: typeof this.runtime.referenceRevisionKey === 'function' ? this.runtime.referenceRevisionKey() : null, chatId: requestedChatId == null ? null : String(requestedChatId)}
         : this.status({chatId: requestedChatId}),
       ...(receiptForm === 'REFERENCE' ? {receiptForm: 'REFERENCE'} : {}),
+      ...(retrievalIndexDeferred ? {retrievalIndexDeferred: true} : {}),
     };
     this.lastAcceptance = deepClone(receipt);
     return receipt;
@@ -453,7 +459,7 @@ export class LoreIntelligenceService {
     const readLorebookIds = new Set(storyScope?.readLorebookIds || []);
     const entries = surface.entries.map((entry) => {
       const retrievalReady = entry.sourceState !== 'REMOVED'
-        && Boolean(this.hierarchy.retrievalIndex.sourceRecordIds.get(entry.sourceId));
+        && this.hierarchy.retrievalIndex.isSourceReady(entry.sourceId);
       return {
         sourceId: entry.sourceId,
         lorebookId: entry.lorebookId,
@@ -480,7 +486,7 @@ export class LoreIntelligenceService {
         : this.multiResolution.selection({sourceId: entry.sourceId});
       const representationReady = entry.sourceState !== 'REMOVED' && requiredProfilesReady(selection);
       const retrievalReady = entry.sourceState !== 'REMOVED'
-        && Boolean(this.hierarchy.retrievalIndex.sourceRecordIds.get(entry.sourceId));
+        && this.hierarchy.retrievalIndex.isSourceReady(entry.sourceId);
       const compileFailure = this.compileFailures.get(entry.sourceId) || null;
       return {
         sourceId: entry.sourceId,
@@ -748,7 +754,7 @@ export class LoreIntelligenceService {
         reason = 'SOURCE_REMOVED';
       } else if (!learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== current.id) {
         reason = 'SOURCE_REVISION_NOT_LEARNED_CURRENT';
-      } else if (!this.hierarchy.retrievalIndex.sourceRecordIds.get(source.sourceId)) {
+      } else if (!this.hierarchy.retrievalIndex.isSourceReady(source.sourceId)) {
         reason = 'SOURCE_NOT_RETRIEVAL_READY';
       }
       if (!reason) {

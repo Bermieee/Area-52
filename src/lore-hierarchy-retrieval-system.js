@@ -19,6 +19,7 @@ export class LoreHierarchyRetrievalSystem {
     this.runtime = runtime;
     this.summaryRegistry = summaryRegistry;
     this.retrievalIndex = retrievalIndex;
+    this.retrievalIndex.attachRuntime?.(runtime);
     this.hierarchy = null;
     this.builder = new LoreNavigationSummaryBuilder({
       runtime,
@@ -59,6 +60,15 @@ export class LoreHierarchyRetrievalSystem {
   refreshRetrieval() {
     if (!this.hierarchy) this.refreshHierarchy();
     return this.retrievalIndex.build({runtime: this.runtime, hierarchy: this.hierarchy, summaryRegistry: this.summaryRegistry});
+  }
+
+  // Same index as refreshRetrieval(), built aside with host turns and published atomically when its fence still holds.
+  async refreshRetrievalYielding(options = {}) {
+    return this.retrievalIndex.buildAsync({
+      runtime: this.runtime,
+      hierarchy: () => { if (!this.hierarchy) this.refreshHierarchy(); return this.hierarchy; },
+      summaryRegistry: this.summaryRegistry,
+    }, options);
   }
 
   query(request) {
@@ -115,6 +125,7 @@ export class LoreHierarchyRetrievalSystem {
     this.hierarchy = deepClone(snapshot?.hierarchy || null);
     this.summaryRegistry.restore(snapshot?.summaryRegistry || null);
     this.retrievalIndex.restore(snapshot?.retrievalIndex || null);
+    this.retrievalIndex.attachRuntime?.(this.runtime);
     this.builder = new LoreNavigationSummaryBuilder({
       runtime: this.runtime,
       registry: this.summaryRegistry,
@@ -123,7 +134,9 @@ export class LoreHierarchyRetrievalSystem {
     });
     if (
       this.hierarchy
-      && (snapshot?.compactDerivedState === true || snapshot?.retrievalIndex?.recordsIncluded === false)
+      && (snapshot?.compactDerivedState === true || snapshot?.retrievalIndex?.recordsIncluded === false
+        // An index saved before serving fences existed carries no fence data: rebuild it once instead of serving nothing.
+        || (snapshot?.retrievalIndex && !snapshot.retrievalIndex.builtResolutionKey && (snapshot.retrievalIndex.records ?? []).length > 0))
     ) {
       this.retrievalIndex.build({
         runtime: this.runtime,

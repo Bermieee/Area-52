@@ -31,6 +31,7 @@ t = performance.now();
 b.acceptLorebook({ id: 'syn', title: 'syn', chatId, discovery: { kind: 'Audit', stableId: 'syn', exactAuthoredSource: true }, entries: editedEntries }, { receiptForm: 'REFERENCE' });
 const editAcceptMs = performance.now() - t;
 const restudied = await b.runLoreStudyBatched({ scope: 'DUE' });
+await b.whenLoreIndexCurrent?.();
 const editMs = performance.now() - t;
 clearInterval(beatE); editGaps.sort((x, y) => y - x);
 const editRow = { editAcceptMs: Math.round(editAcceptMs), editTotalMs: Math.round(editMs), editRestudied: restudied?.requested ?? restudied?.results?.length ?? null, editLongestStallsMs: editGaps.slice(0, 5).map(Math.round) };

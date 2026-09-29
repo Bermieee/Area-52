@@ -641,7 +641,8 @@ export class DevelopmentDeploymentBrain {
   // via readLoreStatus. The default full receipt is unchanged.
   acceptLorebook(input = {}, { receiptForm = 'FULL' } = {}) {
     const reference = receiptForm === 'REFERENCE';
-    const ownerReceipt = this.loreIntelligence.acceptLorebook(input, { receiptForm: reference ? 'REFERENCE' : 'FULL' });
+    const ownerReceipt = this.loreIntelligence.acceptLorebook(input, { receiptForm: reference ? 'REFERENCE' : 'FULL', deferRetrievalIndex: reference });
+    if (ownerReceipt.retrievalIndexDeferred) this.#scheduleLoreIndexRebuild('LOREBOOK_ACCEPTED');
     this.loreSystem = this.loreIntelligence.hierarchy;
     const result = {
       kind: 'DeploymentLoreAcceptanceReceipt',
@@ -696,6 +697,21 @@ export class DevelopmentDeploymentBrain {
     this.#emit({ type: 'LORE_STUDIED', result });
     return clone(result);
   }
+
+  // Yielding, fenced retrieval-index rebuild, serialised; published atomically only when its fence still holds (see
+  // LoreContextualRetrievalIndex.buildAsync). `whenLoreIndexCurrent()` resolves when every scheduled rebuild has finished.
+  #scheduleLoreIndexRebuild(reason) {
+    const svc = this.loreIntelligence;
+    const run = async () => {
+      const result = await svc.hierarchy.refreshRetrievalYielding();
+      this.loreIndexRebuildReceipt = { kind: 'LoreIndexRebuildReceipt', reason, at: Date.now(), ...result };
+      if (result.status !== 'PUBLISHED') this.loreMaintenanceDue = true;
+      return this.loreIndexRebuildReceipt;
+    };
+    this.loreIndexRebuild = (this.loreIndexRebuild ?? Promise.resolve()).then(run, run).catch((error) => { this.loreIndexRebuildReceipt = { kind: 'LoreIndexRebuildReceipt', reason, status: 'FAILED', error: String(error?.message ?? error).slice(0, 160) }; return this.loreIndexRebuildReceipt; });
+    return this.loreIndexRebuild;
+  }
+  async whenLoreIndexCurrent() { await (this.loreIndexRebuild ?? Promise.resolve()); return clone(this.loreIndexRebuildReceipt ?? null); }
 
   // The installed session tells the brain when a generation is running; deep work waits at slice boundaries.
   setForegroundProbe(probe) { this.foregroundProbe = typeof probe === 'function' ? probe : () => false; }
@@ -775,11 +791,14 @@ export class DevelopmentDeploymentBrain {
       else {
         // Any slice remainder (plan not yet COMPLETED) is finished before the index is built.
         while (svc.runMaintenanceSlice(begun.sessionId, { maxUnits: 16 }) !== 'COMPLETED') await new Promise((resolve) => setTimeout(resolve, 0));
-        // Index build and receipt assembly are separate synchronous chunks; the host gets a turn between them.
-        svc.hierarchy.refreshRetrieval();
+        // Index built aside with host turns and published atomically when its fence holds; receipt assembly follows.
+        await (this.loreIndexRebuild ?? Promise.resolve());
+        const indexResult = await svc.hierarchy.refreshRetrievalYielding();
         await new Promise((resolve) => setTimeout(resolve, 0));
         ownerReceipt = svc._studyReceipt({ results, compilations, ontology: begun.ontology, retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: true, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } });
-        this.loreMaintenanceDue = false;
+        ownerReceipt.retrievalIndexPublication = indexResult;
+        // A rebuild superseded three times (the Lore kept changing) leaves maintenance due; the fenced index keeps serving.
+        this.loreMaintenanceDue = indexResult.status !== 'PUBLISHED';
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     } else {

@@ -672,3 +672,103 @@ test('activeIdsForSource equals activeForSource ids; acceptance lists exactly ea
   }
   assert.ok(receipt.changes.some((c) => c.invalidatedRepresentationIds.length > 0));
 });
+
+// Stall work (closure final pass): yielding, fenced rebuilds that publish atomically; nothing stale served as current.
+const indexView = (index) => JSON.parse(JSON.stringify({
+  revision: index.revision, key: index.builtResolutionKey, records: [...index.records.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+  inverted: [...index.inverted.entries()].map(([k, v]) => [k, [...v].sort()]).sort((a, b) => a[0].localeCompare(b[0])),
+  sources: [...index.sourceRecordIds.entries()].sort(), summaries: [...index.summaryRecordIds.entries()].sort(),
+}));
+async function goldenService() {
+  const {createGoldenDeploymentLorebook} = await import('../src/deployment/brain.js');
+  const service = new LoreIntelligenceService();
+  const book = {...createGoldenDeploymentLorebook(), chatId: 'chat:fence'};
+  service.acceptLorebook(book);
+  service.runStudy({scope: 'DUE'});
+  return {service, book, chatId: 'chat:fence'};
+}
+
+test('buildAsync publishes exactly the index build() produces, and a query mid-build sees the previous complete index', async () => {
+  const {service} = await goldenService();
+  const index = service.hierarchy.retrievalIndex;
+  const before = indexView(index);
+  service.hierarchy.refreshRetrieval();
+  const syncView = indexView(index);
+  let midQuery = null, yields = 0;
+  const result = await service.hierarchy.refreshRetrievalYielding({sliceSize: 1, yieldToHost: async () => {
+    yields += 1;
+    if (yields === 2) midQuery = {revision: index.revision, records: index.records.size, nominations: index.query({query: 'Sun Blade', intent: 'NARROW'}).nominations.length};
+  }});
+  assert.equal(result.status, 'PUBLISHED'); assert.ok(yields > 3, 'the build yielded to the host');
+  assert.deepEqual(indexView(index), syncView, 'identical to the synchronous build');
+  assert.deepEqual(before.records.map(([id]) => id), syncView.records.map(([id]) => id));
+  assert.equal(midQuery.revision, syncView.revision); assert.equal(midQuery.records, syncView.records.length, 'no partial index was ever visible');
+  assert.ok(midQuery.nominations > 0);
+});
+
+test('a fence that moves during the build blocks publication; a build that keeps being superseded leaves the fenced old index serving', async () => {
+  const {service, book} = await goldenService();
+  const index = service.hierarchy.retrievalIndex;
+  const oldRevision = index.revision;
+  // Every host turn moves the resolution fence: study one due obligation (a new learned revision) if there is one, otherwise
+  // edit the next source (its learned revision stops being current). Re-editing an already-excluded source would not move it.
+  const order = ['mara', 'eris', 'fire', 'tavern-intact', 'blade-report-a', 'blade-report-b'];
+  let edits = 0; const content = new Map();
+  const move = () => {
+    const due = service.dueObligationIds();
+    if (due.length) { service.studyObligation(due[0], {maxUnits: Infinity}); return; }
+    const uid = order[edits % order.length]; edits += 1; content.set(uid, (content.get(uid) ?? 0) + 1);
+    service.acceptLorebook({...book, entries: book.entries.map((e) => content.has(e.uid) ? {...e, content: e.content + ' Edit ' + content.get(e.uid) + '.'} : e)}, {deferRetrievalIndex: true});
+  };
+  let moved = 0;
+  const superseded = await service.hierarchy.refreshRetrievalYielding({sliceSize: 1, maxAttempts: 2, yieldToHost: async () => { const k = service.runtime.store.resolutionKey(service.runtime.registry); move(); if (service.runtime.store.resolutionKey(service.runtime.registry) !== k) moved += 1; }});
+  assert.ok(moved > 2, 'the fence moved during the build');
+  assert.equal(superseded.status, 'SUPERSEDED'); assert.equal(index.revision, oldRevision, 'nothing published');
+  assert.equal(service.retrievalEligibility({chatId: 'chat:fence'}).entries.find((row) => row.uid === 'mara').retrievalReady, false, 'the edited source is not served from the old index');
+  const published = await service.hierarchy.refreshRetrievalYielding({sliceSize: 4});
+  assert.equal(published.status, 'PUBLISHED'); assert.equal(index.fenceMoved(), false);
+});
+
+test('between a deferred accept and the rebuild: an edited source is never served, and every served hint is the owner\'s CURRENT hint', async () => {
+  const {service, book, chatId} = await goldenService();
+  const iface = service.brainInterface();
+  const before = iface.sourceTruthHint('lore:ember-golden:blade-report-a').status;
+  assert.equal(before, 'UNRESOLVED', 'precondition: report A is in the established conflict');
+  // Report B changes and is not yet re-studied: the conflict loses a member, so A's owner hint moves.
+  assert.equal(iface.sourceTruthHint('lore:ember-golden:tavern-intact').status, 'HISTORICAL', 'precondition: superseded by the fire');
+  const builtHint = (sourceId) => [...service.hierarchy.retrievalIndex.records.values()].find((r) => r.resolution === 'EXACT_SOURCE' && r.sourceIds[0] === sourceId)?.truthStatusHint;
+  // Report B and the fire change and are not yet re-studied: the conflict loses a member and the supersession of the intact
+  // tavern disappears, so the owner's hint for the (unchanged) intact-tavern source moves from HISTORICAL to CURRENT.
+  const receipt = service.acceptLorebook({...book, entries: book.entries.map((e) => e.uid === 'blade-report-b' ? {...e, content: 'The Sun Blade hangs in the Ember Tavern cellar.'} : e.uid === 'fire' ? {...e, content: e.content + ' Or so the old song says.'} : e)}, {deferRetrievalIndex: true});
+  assert.equal(receipt.retrievalIndexDeferred, true);
+  const index = service.hierarchy.retrievalIndex;
+  assert.equal(index.fenceMoved(), true, 'precondition: the index is older than the owner state');
+  assert.equal(builtHint('lore:ember-golden:tavern-intact'), 'HISTORICAL'); assert.notEqual(iface.sourceTruthHint('lore:ember-golden:tavern-intact').status, 'HISTORICAL', 'precondition: the owner hint moved');
+  const packet = service.queryForStory({chatId, query: 'Where is the Sun Blade? The accounts conflict. Is the Ember Tavern intact?', intent: 'NARROW'});
+  const served = packet.nominations.flatMap((row) => row.drillback);
+  assert.ok(served.length > 0, 'unchanged sources are still served');
+  assert.ok(served.some((src) => src.sourceId === 'lore:ember-golden:tavern-intact'), 'precondition: the source whose hint moved is served');
+  for (const row of packet.nominations) assert.ok(index.recordCurrent(index.records.get(row.nomination.metadata?.retrievalRecordRef)), 'every nominated record (source or summary) is current: ' + row.nomination.metadata?.retrievalRecordRef);
+  const raw = index.query({query: 'Sun Blade Ember Tavern fire song cellar intact', intent: 'BROAD'});
+  assert.ok(raw.diagnostics.staleFiltered > 0, 'records built from moved revisions are filtered at query time');
+  assert.ok(raw.nominations.every((n) => index.recordCurrent(index.records.get(n.metadata.retrievalRecordRef))));
+  assert.equal(served.some((src) => src.sourceId === 'lore:ember-golden:blade-report-b'), false, 'the edited source is never served from its old record');
+  for (const src of served) assert.equal(src.truthStatusHint, iface.sourceTruthHint(src.sourceId).status, src.sourceId + ': hint is the owner\'s current one');
+  assert.equal(service.retrievalEligibility({chatId}).entries.find((row) => row.uid === 'blade-report-b').retrievalReady, false);
+  // After re-study and the fenced rebuild everything is current again.
+  service.runStudy({scope: 'DUE'});
+  assert.equal(index.fenceMoved(), false);
+  assert.ok(service.queryForStory({chatId, query: 'Sun Blade cellar', intent: 'NARROW'}).nominations.flatMap((row) => row.drillback).some((src) => src.sourceId === 'lore:ember-golden:blade-report-b'));
+});
+
+test('an index restored from a snapshot saved before fences existed is rebuilt once at restore, not served unfenced or dropped', async () => {
+  const {service} = await goldenService();
+  const snap = service.hierarchy.snapshot();
+  delete snap.retrievalIndex.builtResolutionKey;
+  for (const row of snap.retrievalIndex.records) delete row.learnedFence;
+  const {LoreHierarchyRetrievalSystem} = await import('../src/lore-hierarchy-retrieval-system.js');
+  const restored = new LoreHierarchyRetrievalSystem({runtime: service.runtime, snapshot: snap});
+  assert.equal(restored.retrievalIndex.fenceMoved(), false, 'rebuilt against the current resolution');
+  assert.ok([...restored.retrievalIndex.records.values()].every((row) => Array.isArray(row.learnedFence)));
+  assert.equal(restored.retrievalIndex.revision, service.hierarchy.retrievalIndex.revision);
+});

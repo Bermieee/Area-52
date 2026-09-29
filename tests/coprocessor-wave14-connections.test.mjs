@@ -28,7 +28,7 @@ function jevAbstainOutput(){
   };
 }
 
-async function startProvider({mode='good',graphDelayMs=0,chatDelayMs=0}={}){
+async function startProvider({mode='good',graphDelayMs=0,chatDelayMs=0,servedModels=null}={}){
   let chatCalls=0,modelCalls=0;
   const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&req.url==='/v1/models'){
@@ -37,6 +37,7 @@ async function startProvider({mode='good',graphDelayMs=0,chatDelayMs=0}={}){
     if(req.method==='POST'&&req.url==='/v1/chat/completions'){
       chatCalls++;let raw='';for await(const chunk of req)raw+=chunk;
       const body=JSON.parse(raw||'{}'),system=String(body.messages?.[0]?.content??'');
+      if(servedModels&&!servedModels.includes(body.model)){res.writeHead(404,{'content-type':'application/json'});res.end(JSON.stringify({error:{message:'model not found'}}));return;}
       const delay=system.includes('Graph Walker')?graphDelayMs:chatDelayMs;if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
       const content=mode==='malformed'?'not-json':system.includes('Graph Walker')?JSON.stringify(graphOutput())
         :system.includes('Truth / Precision')?JSON.stringify(truthOutput())
@@ -161,6 +162,22 @@ test('configured OpenAI-compatible resource probes, advertises active capabiliti
   }finally{await provider.close();}
 });
 
+test('O9: an unlisted model ID that the provider rejects fails qualification and never becomes callable',async()=>{
+  const provider=await startProvider({servedModels:['area52-local-model']});
+  try{
+    const registry=new CoprocessorResourceConnections();
+    addHttpResource(registry,provider.baseUrl);
+    assert.equal((await registry.refreshResourceModels('http-primary')).state,'READY');
+    assert.equal(registry.selectResourceModel('http-primary','area52-manual-unlisted').modelSelectionMode,'MANUAL');
+    const after=await registry.connectResource('http-primary').catch(error=>({error}));
+    const row=registry.readResource('http-primary');
+    assert.notEqual(row.state,ResourceConnectionState.READY,'rejected model is not READY');
+    assert.equal(row.selectedModelQualified,false);
+    assert.equal(row.callable,false);
+    assert.ok(after.error||after.state!==ResourceConnectionState.READY);
+  }finally{await provider.close();}
+});
+
 test('manual model ID can be selected and qualified even when discovery does not list it',async()=>{
   const provider=await startProvider();
   try{
@@ -173,13 +190,13 @@ test('manual model ID can be selected and qualified even when discovery does not
     // Since 60a60b6 (Wave 16/17 contract) the read model unlocks manual entry only for UNSUPPORTED discovery, so a READY list does not.
     assert.equal(discovery.manualModelEntryAllowed,false);
 
-    // Open owner decision O9: the same contracts say selection "must match a discovered model ID" when discovery is READY, yet the
-    // action accepts an unlisted ID and authenticated qualification (below) is what verifies it. This test keeps pinning the
-    // qualification behavior; whether the action should reject instead is recorded in the ledger, not decided here.
+    // Owner decision O9 (2026-09-29, Wave 16/17 contracts amended): discovery lists suggestions, not a whitelist. An unlisted ID is
+    // selected as MANUAL and stays non-executable until the authenticated execution probe with that ID succeeds.
     const selected=registry.selectResourceModel('http-primary','area52-manual-unlisted');
     assert.equal(selected.modelId,'area52-manual-unlisted');
     assert.equal(selected.modelSelectionMode,'MANUAL');
     assert.equal(selected.selectedModelQualified,false);
+    assert.equal(selected.callable,false,'a selection alone is never executable');
 
     const ready=await registry.connectResource('http-primary');
     assert.equal(ready.state,ResourceConnectionState.READY);

@@ -56,7 +56,9 @@ Typed discovery states:
 
 The result/read model includes `models[]`, `manualModelEntryAllowed`, `reasonCode`, `reason`, `transportMode`, provider identity, remote/local classification, and credential-presence metadata. Model rows expose public provider model metadata such as ID, name, context length, input/output modalities, supported parameters, relevant resource capabilities, and public pricing fields when returned.
 
-Manual model entry is permitted by `actions.selectModel(resourceId, modelId)` only when discovery is `UNSUPPORTED`. When discovery is `READY`, selection must match a discovered model ID. `EMPTY`, `UNAUTHORIZED`, `UNREACHABLE`, `FAILED`, and pre-discovery states do not unlock manual entry.
+Owner decision O9 (2026-09-29): discovered models are suggestions, not a whitelist. `actions.selectModel(resourceId, modelId)` accepts a model ID that discovery did not list, including when discovery is `READY`; such a selection is recorded with `modelSelectionMode:"MANUAL"` (a listed ID is `"DISCOVERED"`). No selection is ever a bypass: every selection invalidates qualification, and the resource stays non-executable until an authenticated execution probe made with that exact model ID succeeds (a provider that rejects the ID fails qualification; the model the provider reports is recorded as `actualModelId`). `manualModelEntryAllowed` in the read model only says whether the UI offers the separate free-text fallback, which only `UNSUPPORTED` discovery unlocks; `EMPTY`, `UNAUTHORIZED`, `UNREACHABLE`, `FAILED`, and pre-discovery states do not.
+
+(Superseded wording, kept for traceability: "When discovery is `READY`, selection must match a discovered model ID.")
 
 ### Selection, connection, and testing
 

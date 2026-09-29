@@ -135,3 +135,56 @@ test('row 49: allowed-evidence filtering follows child manifests instead of reje
   const blocked=h.nominationsFromSummaries({query:'BEGIN_FACT',resolutionHint:'SESSION',allowedEvidenceIds:[...all],perspectiveConstraint:{scope:'WORLD'},maxCandidates:4},'SESSION',{useCache:false});
   assert.equal(blocked.nominations.some(row=>row.metadata.summaryArtifactId===parent.id),false);
 });
+
+
+test('row 49: failed replacement build leaves the prior summary revision current',()=>{
+  const evidence=new Map();
+  for(let i=0;i<513;i+=1){
+    evidence.set('atomic-ev:'+i,{
+      id:'atomic-ev:'+i,
+      sourceRevisionId:'atomic-src:'+i+'@1',
+      contentHash:'before:'+i,
+      appendSequence:i+1,
+      worldRevision:i+1,
+      sceneRevision:1,
+      occurredAt:i+1,
+      exactContent:'atomic fact '+i,
+      participants:['shared-entity'],
+      knownBy:[],
+      authorityClass:'OBSERVED',
+      evidenceKind:'NARRATIVE_EXPERIENCE',
+    });
+  }
+  const graph={
+    evidenceOrder:[...evidence.keys()],
+    evidenceRecord:id=>evidence.get(id)??null,
+    evidenceView:id=>evidence.get(id)??null,
+    exactEvidence:id=>evidence.get(id)??null,
+    evidenceFresh:id=>evidence.has(id),
+    isSourceRevisionActive:()=>true,
+    currentProjection:()=>[],
+    historicalClaims:()=>[],
+    unresolvedSets:()=>[],
+    revisionRef:()=> 'graph:atomic-summary',
+  };
+  const experienceStore={refreshFreshness:()=>({}),currentEpisodes:()=>[],currentReflections:()=>[],memoryRevisionRefs:()=>['memory:atomic-summary']};
+  const h=new MemorySummaryHierarchy({graph,experienceStore});
+  const refs=[...evidence.keys()];
+  h.defineScope({level:'SCENE',scopeId:'atomic-summary',evidenceRefs:refs});
+  const first=h.compileScope('SCENE:atomic-summary');
+  assert.equal(first.entityRefs.length,1);
+
+  for(let i=0;i<513;i+=1){
+    const row=evidence.get('atomic-ev:'+i);
+    row.participants=['entity:'+String(i).padStart(4,'0')];
+    row.contentHash='after:'+i;
+  }
+
+  assert.throws(()=>h.compileScope('SCENE:atomic-summary'),/String array exceeds bound 512/);
+  const current=h.currentArtifact('SCENE:atomic-summary',{freshOnly:false});
+  assert.equal(current.id,first.id);
+  assert.equal(current.state,'CURRENT');
+  assert.equal(current.freshness,'FRESH');
+  assert.equal(current.replacedByArtifactId,null);
+  assert.equal(h.artifactHistory('SCENE:atomic-summary').length,1);
+});

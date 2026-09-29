@@ -302,6 +302,22 @@ export class LoreDerivedStore {
     return learned.artifactIds.map((id) => deepClone(this.artifacts.get(id))).filter(Boolean);
   }
 
+  // Per-type counts with the same selection rule as currentArtifacts, without cloning artifacts.
+  countCurrentArtifactsByType(registry) {
+    const counts = {};
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      for (const id of learned.artifactIds) {
+        const artifact = this.artifacts.get(id);
+        if (artifact) counts[artifact.artifactType] = (counts[artifact.artifactType] || 0) + 1;
+      }
+    }
+    return counts;
+  }
+
   // Same selection rule as currentArtifacts, counted without cloning any artifact.
   countCurrentArtifacts(registry, {types = null, excludeSourceId = null} = {}) {
     const allowed = types ? new Set(types) : null;

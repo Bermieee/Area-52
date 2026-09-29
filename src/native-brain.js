@@ -371,6 +371,7 @@ export class Area52NativeBrain{
   registerGraphProvider(options){return this.core.registerGraphProvider(options);}
   unregisterGraphProvider(providerId){return this.core.unregisterGraphProvider(providerId);}
   entityIdentityReadModel(options={}){return this.core.entityIdentityReadModel(options);}
+  entityIdentityDetail(entityId,{storyId=null}={}){return this.core.entities.get(entityId,{storyId:storyId??this.core.entities.activeStoryId});}
   entityIdentityContract(){return this.core.entityIdentityContract();}
   graphProviderInterfaceContract(){return this.core.graphProviderInterfaceContract();}
   graphWalkerDiagnostics(){return this.core.graphWalkerDiagnostics();}
@@ -980,7 +981,7 @@ export class Area52NativeBrain{
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
-      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel({storyId:record.chatId}),loreIdentitySync:clone(this.loreIdentitySync?.last??null),authorityGranted:false})),
+      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel({storyId:record.chatId,compact:true}),loreIdentitySync:clone(this.loreIdentitySync?.last??null),authorityGranted:false})),
       readGraphTraversal:(selection={})=>this.#readStage(selection,record=>record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??null),
       readWorldGraphReferences:(selection={})=>this.#readStage(selection,record=>this.#worldGraphReferenceReadModel(record)),
       readRetrievalBudget:(selection={})=>this.#readStage(selection,record=>this.#uiRetrievalBudgetReceipt(record)),
@@ -1082,7 +1083,7 @@ export class Area52NativeBrain{
     return {
       kind:'Area52NativeBrainDiagnostics',
       turns:this.turns.size,activeChat:this.core.hotCognition.activeChatNamespace,
-      world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),identity:this.core.entityIdentityReadModel(),graph:this.core.graphWalkerDiagnostics(),
+      world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),identity:this.core.entityIdentityReadModel({compact:true,storyId:this.core.entities.activeStoryId}),graph:this.core.graphWalkerDiagnostics(),
       knowledge:this.knowledge.diagnostics(),feedback:this.feedback.diagnostics(),
       loreInterface:{attached:Boolean(this.loreInterface),kind:this.loreInterface?.kind??null,contractVersion:this.loreInterface?.contractVersion??null},
       loreRevisionTrust:{

@@ -252,16 +252,29 @@ export class NativeEntityIdentityRegistry{
     };
   }
 
-  readModel({limit=128,storyId=null}={}){
+  readModel({limit=128,storyId=null,compact=false}={}){
     const max=Math.max(1,Math.min(512,Number(limit)||128));
     const visible=[...this.entities.values()].filter(entity=>this.#visible(entity,storyId));
     return{
       kind:'EntityIdentityReadModel',contractVersion:'1.0.0',
-      identities:visible.slice(0,max).map(clone),
+      identities:visible.slice(0,max).map(entity=>compact?this.#compactIdentity(entity):clone(entity)),
+      compact:Boolean(compact),detailReader:compact?'entityIdentityDetail':null,
       recentProposals:this.proposalOrder.slice(-max).map(id=>this.proposals.get(id)).filter(Boolean).map(clone),
       recentSettlements:this.settlements.slice(-max).map(clone),
       counts:{identities:visible.length,hiddenOutOfStory:this.entities.size-visible.length,currentSourceLinks:this.sourceLinks.size,proposals:this.proposals.size},
       authority:{proposalMutation:false,modelMerge:false,retrievalMerge:false,graphMerge:false,settlementRequired:true},
+    };
+  }
+
+  // Reference row for routine reads: identity, revision and counts, never the per-alias/per-link/per-source
+  // arrays (those grow with the corpus). The full record is `get(entityId,{storyId})`.
+  #compactIdentity(entity){
+    return{
+      kind:'EntityIdentityReference',entityId:entity.entityId,canonicalLabel:entity.canonicalLabel,entityType:entity.entityType,worldId:entity.worldId,
+      status:entity.status,revision:entity.revision,revisionRef:identityRevisionRef(entity.entityId,entity.revision),authorityOrigin:entity.authorityOrigin,
+      storyScopeIds:[...(entity.storyScopeIds??[])],
+      aliasCount:(entity.aliases??[]).filter(currentAlias).length,sourceLinkCount:(entity.sourceLinks??[]).filter(row=>row.current!==false).length,
+      sourceRevisionCount:(entity.sourceRevisionRefs??[]).length,provenanceCount:(entity.provenanceRefs??[]).length,readOnly:true,
     };
   }
 

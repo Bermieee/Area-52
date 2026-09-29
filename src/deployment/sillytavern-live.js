@@ -1271,7 +1271,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         liveProviderProvenance: clone(liveJevExecution?.providerProvenance ?? null),
         failedLiveAttempt: clone(failedLiveJevExecution ?? null),
       },
-      loreStatus: clone(this.brain.readLoreStatus?.() ?? null),
+      loreStatus: clone((this.brain.readLoreStatusReference ?? this.brain.readLoreStatus)?.call(this.brain) ?? null),
       sceneMemoryLifecycle:{
         diagnostics:clone(this.brain.diagnostics?.()?.sceneMemory??null),
         receipts:clone(this.brain.readSceneMemoryLifecycleReceipts?.({limit:100})??[]),

@@ -2660,13 +2660,8 @@ export class DevelopmentDeploymentBrain {
         foregroundWorkAvoided:{lorePlanningQuery:Boolean(warmPreparedLore),runtimeLorePreparation:Boolean(warmPreparedLore),coreRetrieval:false,truth:false,precision:false,compile:false},
         authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,contextSealAuthority:false,
       },
-      loreStatus: {
-        kind: 'DeploymentLoreStatus',
-        ...this.loreSystem.diagnostics(),
-        study: this.lore.publicSurface(),
-        channelId: CHANNEL_ID,
-        externalServiceRequired: false,
-      },
+      // A turn keeps a revision-aware reference to Lore, not a copy of the corpus.
+      loreStatus: this.readLoreStatusReference(),
       planning,
       sceneLoreHandoff: sceneLore,
       sceneLoreAdmittedCount,
@@ -2687,16 +2682,34 @@ export class DevelopmentDeploymentBrain {
     }
   }
 
+  readLoreStatusReference() {
+    return {
+      kind: 'DeploymentLoreStatus',
+      ...this.loreSystem.diagnostics(),
+      study: this.lore.referenceSurface(),
+      channelId: CHANNEL_ID,
+      externalServiceRequired: false,
+    };
+  }
+
+  // Full detail on demand. For a selected turn the full surface is served only while Lore is still at the
+  // revision that turn saw; afterwards the turn's own reference is returned (`detailState` says why), so
+  // a superseded revision is never presented as the current corpus.
   readLoreStatus(selection = {}) {
     const active = selection?.turnId ? this.turns.get(String(selection.turnId)) ?? null : null;
     const identity = active?.selection ?? selection ?? {};
-    return attachIdentity(active?.loreStatus ?? {
+    const live = () => ({
       kind: 'DeploymentLoreStatus',
       ...this.loreSystem.diagnostics(),
       study: this.lore.publicSurface(),
       channelId: CHANNEL_ID,
       externalServiceRequired: false,
-    }, identity);
+    });
+    if (!active?.loreStatus) return attachIdentity(live(), identity);
+    const seen = active.loreStatus.study?.revisionKey ?? null;
+    if (seen && seen === this.lore.referenceRevisionKey()) return attachIdentity({ ...live(), detailState: 'CURRENT_REVISION' }, identity);
+    if (!seen) return attachIdentity(active.loreStatus, identity);
+    return attachIdentity({ ...clone(active.loreStatus), detailState: 'REVISION_SUPERSEDED' }, identity);
   }
 
   listOptionalResources() {

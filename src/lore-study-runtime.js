@@ -314,6 +314,45 @@ export class LoreStudyRuntime {
     };
   }
 
+  // Revision-aware change key: changes whenever a source revision, learned revision or study state changes.
+  referenceRevisionKey() {
+    return 'lore-study:' + stableHash(JSON.stringify([this.registry.entries.size, this.registry.revisions.size, this.store.learnedRevisions.size, this.studyStatus().counts]));
+  }
+
+  // Routine Diagnostics surface: revision key, counts and only the entries that need attention. Full
+  // detail (`publicSurface`) stays available on demand; nothing here carries authored text or artifacts.
+  referenceSurface() {
+    const key = this.referenceRevisionKey();
+    if (this._referenceCache?.key === key) return deepClone(this._referenceCache.value);
+    const surface = this.publicSurface({metadataOnly: true});
+    const byOperatorState = {};
+    for (const row of surface.entries) byOperatorState[row.operatorState] = (byOperatorState[row.operatorState] || 0) + 1;
+    const value = {
+      kind: 'LoreStudyReferenceSurface',
+      contractVersion: 1,
+      revisionKey: key,
+      counts: {
+        entries: surface.entries.length,
+        byOperatorState,
+        artifactsByType: this.store.countCurrentArtifactsByType(this.registry),
+        study: this.studyStatus().counts,
+      },
+      problemEntries: surface.entries.filter((row) => row.operatorState !== 'READY').map((row) => ({
+        sourceId: row.sourceId,
+        sourceRevisionId: row.sourceRevisionId,
+        operatorState: row.operatorState,
+        studyState: row.studyState,
+        studyAttempts: row.studyAttempts,
+        studyError: row.studyError ? String(row.studyError.message ?? row.studyError.code ?? 'ERROR').slice(0, 160) : null,
+      })),
+      detailReader: 'readLoreStatus',
+      rawLoreIncluded: false,
+      candidateBusAuthority: false, truthGateAuthority: false, precisionAuthority: false, gatherSealAuthority: false,
+    };
+    this._referenceCache = {key, value};
+    return deepClone(value);
+  }
+
   publicSurface({metadataOnly = false} = {}) {
     const currentArtifacts = metadataOnly ? [] : this.store.currentArtifacts(this.registry);
     const conflicts = metadataOnly ? [] : this.store.conflicts(this.registry);

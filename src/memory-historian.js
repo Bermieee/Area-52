@@ -181,7 +181,8 @@ export class MemoryHistorianIndex {
       });
     }
 
-    for (const claim of this.graph.historicalClaims({includeUnresolved:true,includeStale:false})) {
+    // Read-only claim view: addRecord stores its own copy of each record, so no claim object is retained or mutated.
+    for (const claim of (this.graph.historicalClaimsView??this.graph.historicalClaims).call(this.graph,{includeUnresolved:true,includeStale:false})) {
       if (claim.status===KnowledgeStatus.CURRENT) continue;
       const evidenceRows=claim.evidenceIds.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
       const knownBy=intersectKnownBy(evidenceRows);

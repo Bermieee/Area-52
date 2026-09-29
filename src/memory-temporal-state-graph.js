@@ -310,7 +310,9 @@ export class TemporalStateGraph {
 
   currentClaimForSlot(key,{asOfSequence=Infinity,asOfWorldRevision=Infinity,includeStale=false}={}) {
     let current=null;
-    const bounded=this.settlementJournal.filter((entry)=>entry.sequence<=asOfSequence && entry.worldRevision<=asOfWorldRevision).slice(-MEMORY_LIMITS.maxJournalTraversal);
+    // The whole journal (cap ledger row 42): a trailing window made facts settled more than 8,192 entries ago vanish from
+    // CURRENT and HISTORICAL. The journal is the canonical record; one linear pass over it is the cost of correctness.
+    const bounded=this.settlementJournal.filter((entry)=>entry.sequence<=asOfSequence && entry.worldRevision<=asOfWorldRevision);
     for (const entry of bounded) {
       if (!entry.canonicalMutation || !entry.claimId) continue;
       const claim=this.claims.get(entry.claimId);
@@ -330,16 +332,32 @@ export class TemporalStateGraph {
     return 'FRESH';
   }
 
+  // Slot -> current claim, read-only (the stored claim objects, not copies). Shared by currentProjection and by
+  // #historicalRows, which only needs the current ids; cloning every claim there made each historian rebuild quadratic.
+  #currentSlots(asOfWorldRevision=Infinity) {
+    const slots=new Map();
+    for (const entry of this.settlementJournal) {
+      if (entry.worldRevision>asOfWorldRevision) continue;
+      if (!entry.canonicalMutation || !entry.claimId) continue;
+      if (![SettlementDecisionType.ACCEPT_CURRENT,SettlementDecisionType.SUPERSEDE].includes(entry.decision)) continue;
+      const claim=this.claims.get(entry.claimId);
+      if (!claim) continue;
+      slots.set(slotKey(claim.subjectId,claim.predicate),claim);
+    }
+    return slots;
+  }
+
   currentProjection({asOfWorldRevision=Infinity,includeStale=true}={}) {
     const slots=new Map();
-    const bounded=this.settlementJournal.filter((entry)=>entry.worldRevision<=asOfWorldRevision).slice(-MEMORY_LIMITS.maxJournalTraversal);
+    // Whole journal (row 42); no slot ceiling (row 43): the slots are bounded by the claims already held in memory, and
+    // throwing here failed the entire projection once a long story had more than 4,096 distinct subject/predicate slots.
+    const bounded=this.settlementJournal.filter((entry)=>entry.worldRevision<=asOfWorldRevision);
     for (const entry of bounded) {
       if (!entry.canonicalMutation || !entry.claimId) continue;
       if (![SettlementDecisionType.ACCEPT_CURRENT,SettlementDecisionType.SUPERSEDE].includes(entry.decision)) continue;
       const claim=this.claims.get(entry.claimId);
       if (!claim) continue;
       slots.set(slotKey(claim.subjectId,claim.predicate),claim);
-      if (slots.size>MEMORY_LIMITS.maxProjectionSlots) throw new Error('MEMORY_PROJECTION_SLOT_LIMIT_EXCEEDED');
     }
     return [...slots.values()].map((claim)=>({
       ...deepClone(claim),
@@ -348,10 +366,19 @@ export class TemporalStateGraph {
     })).filter((claim)=>includeStale || claim.freshness==='FRESH').sort((a,b)=>slotKey(a.subjectId,a.predicate).localeCompare(slotKey(b.subjectId,b.predicate)));
   }
 
-  historicalClaims({subjectId=null,predicate=null,asOfWorldRevision=Infinity,includeUnresolved=true,includeStale=true}={}) {
-    const currentIds=new Set(this.currentProjection({asOfWorldRevision,includeStale:true}).map((row)=>row.id));
+  historicalClaims(options={}) {
+    return this.#historicalRows(options,true);
+  }
+
+  // Read-only view for the Memory historian index (it copies what it keeps): same rows, same order, no per-claim clone.
+  historicalClaimsView(options={}) {
+    return this.#historicalRows(options,false);
+  }
+
+  #historicalRows({subjectId=null,predicate=null,asOfWorldRevision=Infinity,includeUnresolved=true,includeStale=true}={},copy=true) {
+    const currentIds=new Set([...this.#currentSlots(asOfWorldRevision).values()].map((claim)=>claim.id));
     const rows=[];
-    for (const entry of this.settlementJournal.slice(-MEMORY_LIMITS.maxJournalTraversal)) {
+    for (const entry of this.settlementJournal) {
       if (entry.worldRevision>asOfWorldRevision || !entry.claimId || !entry.canonicalMutation) continue;
       const claim=this.claims.get(entry.claimId);
       if (!claim) continue;
@@ -364,7 +391,7 @@ export class TemporalStateGraph {
       else status=KnowledgeStatus.HISTORICAL;
       const freshness=this.claimFreshness(claim);
       if (!includeStale && freshness!=='FRESH') continue;
-      rows.push({...deepClone(claim),status,freshness,decision:entry.decision,decisionReason:entry.reason});
+      rows.push({...(copy?deepClone(claim):claim),status,freshness,decision:entry.decision,decisionReason:entry.reason});
     }
     return rows.sort((a,b)=>a.settlementSequence-b.settlementSequence);
   }
@@ -400,15 +427,19 @@ export class TemporalStateGraph {
   }
 
   traverseEntity(entityId,{includeHistorical=true,includeUnresolved=true,maxClaims=MEMORY_LIMITS.maxGraphTraversalClaims}={}) {
-    const rows=this.historicalClaims({includeUnresolved,includeStale:true})
+    const matching=this.historicalClaims({includeUnresolved,includeStale:true})
       .filter((claim)=>claim.subjectId===entityId || claim.value===entityId || claim.value?.entityId===entityId)
-      .filter((claim)=>includeHistorical || claim.status===KnowledgeStatus.CURRENT)
-      .slice(0,maxClaims);
+      .filter((claim)=>includeHistorical || claim.status===KnowledgeStatus.CURRENT);
+    // A traversal page keeps the NEWEST claims (row 44: it used to keep the oldest and drop the newest) and says how many
+    // older ones it left out; order stays ascending by settlement sequence.
+    const rows=matching.length>maxClaims?matching.slice(-maxClaims):matching;
     return {
       kind:'MemoryEntityTraversal',
       entityId,
       claims:rows,
-      bounded:rows.length>=maxClaims,
+      bounded:matching.length>maxClaims,
+      boundedOut:Math.max(0,matching.length-rows.length),
+      totalMatching:matching.length,
       authorityGranted:false,
     };
   }

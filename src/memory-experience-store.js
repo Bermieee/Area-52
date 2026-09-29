@@ -172,6 +172,10 @@ export class MemoryExperienceStore {
     const participantsList=uniqStrings(participants,64);
     const knownByList=uniqStrings(knownBy,64);
     const significanceValue=unitNumber(significance,'episode.significance');
+    const summaryValue=String(summary);
+    const sceneEpisodeRefValue=deepClone(sceneEpisodeRef);
+    const graphReferenceSetValue=deepClone(graphReferenceSet);
+    const provenanceValue=deepClone(provenance);
     const reflectionSignalRows=deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
       reflectionKey:String(row?.reflectionKey??row?.key??''),
       polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
@@ -188,8 +192,8 @@ export class MemoryExperienceStore {
       sourceRevisionRefs:sourcesR.all,evidenceRefs:evidenceR.all,externalEvidenceRefs:externalEvidenceR.all,
       externalSourceRevisionRefs:externalSourcesR.all,unresolvedExternalEvidenceRefs:unresolvedExternalR.all,
       mappingRefs:mappingsR.all,bridgeResolutionStatus,bridgeReasonCodes:bridgeReasonsR.all,
-      participants:participantsList,knownBy:knownByList,significance:significanceValue,timeStart,timeEnd,summary,
-      sceneEpisodeRef,graphReferenceSet,reflectionSignals:reflectionSignalRows,admissionSource,
+      participants:participantsList,knownBy:knownByList,significance:significanceValue,timeStart,timeEnd,summary:summaryValue,
+      sceneEpisodeRef:sceneEpisodeRefValue,graphReferenceSet:graphReferenceSetValue,reflectionSignals:reflectionSignalRows,admissionSource,
     }));
     const prior=currentRevisionFor(this.episodeHistoryByLogical,this.currentEpisodeByLogical,logicalId,this.episodes);
     if (prior&&prior.publicationFingerprint===publicationFingerprint) return deepClone(prior);
@@ -227,10 +231,10 @@ export class MemoryExperienceStore {
       knownBy:knownByList,
       significance:significanceValue,
       timeBounds:{start:timeStart,end:timeEnd},
-      summary:String(summary),
-      sceneEpisodeRef:deepClone(sceneEpisodeRef),
-      graphReferenceSet:deepClone(graphReferenceSet),
-      provenance:deepClone(provenance),
+      summary:summaryValue,
+      sceneEpisodeRef:sceneEpisodeRefValue,
+      graphReferenceSet:graphReferenceSetValue,
+      provenance:provenanceValue,
       reflectionSignals:reflectionSignalRows,
       admissionSource,
       state:'CURRENT',

@@ -1,4 +1,4 @@
-import {AuthorityClass,KnowledgeStatus,createArtifactReference,createCandidateNomination,deepClone,stableHash,stableStringify} from './memory-contracts.js';
+import {AuthorityClass,KnowledgeStatus,MEMORY_LIMITS,createArtifactReference,createCandidateNomination,deepClone,stableHash,stableStringify} from './memory-contracts.js';
 
 export const MEMORY_VECTOR_INDEX_VERSION='1.0.0';
 const cosine=(a,b)=>{if(!Array.isArray(a)||!Array.isArray(b)||!a.length||a.length!==b.length)return null;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i];}return aa&&bb?dot/(Math.sqrt(aa)*Math.sqrt(bb)):null;};
@@ -95,12 +95,19 @@ export class MemoryVectorIndex{
     const cached=this.queryCache.get(this.#queryKey(String(query??'').trim(),selection));if(!cached)return[];const intentId=retrievalIntentId??('memory-dense-intent:'+stableHash(String(query).toLowerCase())),out=[];
     for(const hit of cached.selected.slice(0,Math.max(1,Math.min(48,Number(maxCandidates)||12)))){
       const record=this.producer.historian.records.get(hit.historianRecordRef);if(!record||record.freshness!=='FRESH'||!this.producer.plasticity.retrievable(record.artifactId,record.artifactRevision))continue;
+      const transportSourceRevisionRefs=record.sourceRevisionRefs.slice(0,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+      const transportEvidenceRefs=record.evidenceRefs.slice(0,64);
+      const transportDependencyRevisions=record.dependencyRevisions.slice(0,64);
       out.push(createCandidateNomination({nominationId:'memory-dense-nomination:'+stableHash(intentId+'|'+record.id),candidateId:'memory-dense-candidate:'+stableHash(record.id),evidenceIdentity:'artifact:'+stableHash(record.artifactId+'|'+record.artifactRevision),
-        artifactRef:createArtifactReference({artifactId:record.artifactId,artifactType:record.artifactType,owner:'MEMORY',revision:record.artifactRevision,sourceRevisionSet:record.sourceRevisionRefs,worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,contentHash:stableHash(record.representationText),provenanceRef:record.provenance?.[0]?.ref??null}),
-        artifactRevision:record.artifactRevision,sourceRevisionRefs:record.sourceRevisionRefs,claimRefs:record.claimRefs,eventRefs:record.eventRefs,entityRefs:record.entityRefs,relationshipRefs:record.relationshipRefs,retrievalIntentIds:[intentId],
+        artifactRef:createArtifactReference({artifactId:record.artifactId,artifactType:record.artifactType,owner:'MEMORY',revision:record.artifactRevision,sourceRevisionSet:transportSourceRevisionRefs,worldRevision:record.worldRevision,sceneRevision:record.sceneRevision,contentHash:stableHash(record.representationText),provenanceRef:record.provenance?.[0]?.ref??null}),
+        artifactRevision:record.artifactRevision,sourceRevisionRefs:transportSourceRevisionRefs,claimRefs:record.claimRefs,eventRefs:record.eventRefs,entityRefs:record.entityRefs,relationshipRefs:record.relationshipRefs,retrievalIntentIds:[intentId],
         rankSignals:{intentMatch:hit.score,entityOverlap:0,temporalFit:1,significance:record.significance??.5,recency:1,perspectiveCompatibility:1,denseExecution:true},normalizedRank:Math.max(0,Math.min(1,hit.score)),
-        authorityClass:record.authorityClass??AuthorityClass.UNKNOWN,truthStatusHint:record.truthStatusHint??KnowledgeStatus.UNRESOLVED,provenance:record.provenance,evidenceRefs:record.evidenceRefs,dependencyRevisions:record.dependencyRevisions,
-        representationRef:record.id,representationRevision:record.artifactRevision,representationText:record.representationText,metadata:{historianChannel:record.channel,perspective:{scope:'WORLD'},retrievalRecordRef:record.id,exactSourceDrillback:true,denseExecution:true,truthAuthorityGranted:false,settlementAuthority:false,contextSealAuthority:false},
+        authorityClass:record.authorityClass??AuthorityClass.UNKNOWN,truthStatusHint:record.truthStatusHint??KnowledgeStatus.UNRESOLVED,provenance:record.provenance,evidenceRefs:transportEvidenceRefs,dependencyRevisions:transportDependencyRevisions,
+        representationRef:record.id,representationRevision:record.artifactRevision,representationText:record.representationText,metadata:{historianChannel:record.channel,perspective:{scope:'WORLD'},retrievalRecordRef:record.id,exactSourceDrillback:true,denseExecution:true,
+          sourceRevisionRefCount:record.sourceRevisionRefs.length,sourceRevisionRefsComplete:record.sourceRevisionRefs.length<=transportSourceRevisionRefs.length,
+          evidenceRefCount:record.evidenceRefs.length,evidenceRefsComplete:record.evidenceRefs.length<=transportEvidenceRefs.length,
+          dependencyRevisionCount:record.dependencyRevisions.length,dependencyRevisionsComplete:record.dependencyRevisions.length<=transportDependencyRevisions.length,
+          transportReferencesBounded:true,canonicalKnowledgeDropped:false,truthAuthorityGranted:false,settlementAuthority:false,contextSealAuthority:false},
         worldRevision:record.worldRevision,sceneRevision:record.sceneRevision}));
     }
     return out;

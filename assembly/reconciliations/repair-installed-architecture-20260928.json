@@ -28,14 +28,14 @@
     "src/coprocessor/telemetry.js": "ae2ff87d5de7dadb7e00b39692b77958988e9ca8",
     "src/lore-authoring-contracts.js": "f0ce5722cf138b5b97e206e699772376a9b6bf78",
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
-    "src/lore-contextual-retrieval.js": "dd76e53a8f8a0ec32318cd4fd6579cd69308c2e8",
-    "src/lore-hierarchy-retrieval-system.js": "1dc1a96455f9840a74b8fff2937d2da185628d1b",
-    "src/lore-intelligence-service.js": "19334a8746cfcd3bc91c5d7711bcf5d0c79051e7",
+    "src/lore-contextual-retrieval.js": "3b1fdf434ad946ccc3bf3b7ee0b74fb812b6d249",
+    "src/lore-hierarchy-retrieval-system.js": "1ef29ae45431166eb7a4781eb94c5955d48aae97",
+    "src/lore-intelligence-service.js": "4842bebc7e3faff7adc5ba9e7de44444337d9575",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
     "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
     "src/lore-navigation-summary-registry.js": "423880b74f5e39b4fb3d47c0809c5f1a62e7eb41",
     "src/lore-semantic-authoring.js": "54a58293ecd8d8241007f3e65d72ae6b9efe09f7",
-    "src/lore-study-engine.js": "6856f964dcea7b2cbfccec19a5efa83759ddc8b0",
+    "src/lore-study-engine.js": "753a5de891ef8febd82408603df520d916a38d93",
     "src/runtime/index.js": "63b6e5775418895947779ef8ea187d8db792ba92",
     "src/runtime/lifecycle.js": "c0cbaee887673713058467dcd08d5f34432a8f7d",
     "src/runtime/native-swarm.js": "7dcaeffa7575dfa25578078789fc5bac56cac1cf",
@@ -93,14 +93,14 @@
     "src/runtime/batch-engine.js": "42531e19caf6f02837e77f2dc7601d3bd8da2a40",
     "tests/runtime-fabric.mjs": "efac94fe2b179dda2184add90bf71486f0957295",
     "tests/runtime-wave3.mjs": "b2c683413421bf8d7f11ec489258e7663f6138b2",
-    "src/memory-evidence-bridge.js": "2d8f187609ff85a82cf7fa72ab8ff0ef9921617e",
-    "src/memory-experience-store.js": "298636055b80a0ea979a006e2a870f3c3352195e",
+    "src/memory-evidence-bridge.js": "68003524a1a7de19644a946224d3f48f9cb558a5",
+    "src/memory-experience-store.js": "1f2ee517b0f6b8e212fd37ef7c066d07fab0b7aa",
     "src/memory-integration-surface.js": "54b1b24d34f2f36895e29a4dae8ad23563dc11d8",
     "src/lore-representation-registry.js": "cbb407c3d40c352bb70dd38628d7dd26baa34364",
     "src/lore-source-registry.js": "5d74231363ffd0cacebb030b9da26a5bfb8fb0ca",
-    "src/lore-study-runtime.js": "7482c8fad074c2409e94c98ce37b1a2bd0b68f7f",
+    "src/lore-study-runtime.js": "4f9f341a7097a41ce4c608ff47d5a2f3b376449f",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
-    "src/memory-temporal-producer.js": "e4c3cfeebe52011cbb9c5147f8fb97b3b89b1f73",
+    "src/memory-temporal-producer.js": "867c01d31d89a5b3bffa90141a09a1a0f1af27ca",
     "src/memory-ui-read-model.js": "859d738e58f206942a68b47ead32ecbd4dac33de",
     "tests/memory-wave4.mjs": "7f0e66a28eb922a8a1f19db8058d8f3f46ae5b64",
     "src/ui-core/shell.js": "3a6206cf3227efe3ea1abc483f52b98cfa32e821",
@@ -116,15 +116,24 @@
     "tests/fixtures/wave4-synthetic-extension.mjs": "1644ac106f5c1438d089a2c61a46d5e45a71c421",
     "tests/wave13-operator-ui.test.mjs": "1376ab48ff12701f18c83938bd35c497961e8fd1",
     "tests/wave6.test.mjs": "675f6973138f346eeae85d92683884e1722d1ea3",
-    "src/lore-world-ontology.js": "29123ffd7927e038d43124350e72322e8e2df29a"
+    "src/lore-world-ontology.js": "29123ffd7927e038d43124350e72322e8e2df29a",
+    "src/lore-navigation-hierarchy.js": "1ec08e01f32fbc4bf755208da15da4f364a95b0a",
+    "src/lore-representation-compiler.js": "5d9ec5328d3d223776e7ea1320927469c9b662e6",
+    "tests/lore-wave1.mjs": "55a6aae2f23402a526e98156e8608f8289726861",
+    "tests/lore-wave3.mjs": "393379aad675859fb1eb3288821a3d65b733b06a",
+    "src/coprocessor/continuous-consolidation.js": "415411db3d94068d3dbb9a31a31e5c0f68c80dc4",
+    "src/memory-historian.js": "58a93c3895ad881da1015abf060b0ec0f38c4b36",
+    "src/memory-summary-hierarchy.js": "b16248f5e17b16e5da6e8d4797824346b7aa312c",
+    "tests/memory-wave1.mjs": "b7e5be6fc8cee1675a022fddb7660075309c896f",
+    "src/memory-temporal-state-graph.js": "8b27d28e6e88c95f63e7377f6a36581b2fd97595"
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "19334a8746cfcd3bc91c5d7711bcf5d0c79051e7",
+      "digest": "4842bebc7e3faff7adc5ba9e7de44444337d9575",
       "lane": "lore",
-      "lastCommit": "d58dc45 2026-09-29 Lore: show and fix per-chat authorization gaps; Accept binds to the open chat",
+      "lastCommit": "73c36bf 2026-09-29 cap remediation: titles beside eligibility rows (row 26)",
       "origin": "REPAIR_installed_architecture",
-      "review": "LIVE_FIXES_20260929 addendum 5 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-representation-registry.js": {
       "digest": "cbb407c3d40c352bb70dd38628d7dd26baa34364",
@@ -141,10 +150,11 @@
       "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-study-runtime.js": {
-      "digest": "7482c8fad074c2409e94c98ce37b1a2bd0b68f7f",
+      "digest": "4f9f341a7097a41ce4c608ff47d5a2f3b376449f",
       "lane": "lore",
-      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
-      "origin": "REPAIR_installed_architecture"
+      "lastCommit": "288d867 2026-09-29 cap remediation: old-engine sessions restart",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": {
       "digest": "3e25023b7aac5a61f77ff7cc04e0652967119375",
@@ -183,10 +193,11 @@
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
     },
     "src/memory-temporal-producer.js": {
-      "digest": "e4c3cfeebe52011cbb9c5147f8fb97b3b89b1f73",
+      "digest": "867c01d31d89a5b3bffa90141a09a1a0f1af27ca",
       "lane": "memory",
-      "lastCommit": "939ffdb 2026-09-28 Worker 2: prove Memory retrieval feedback contract",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
+      "lastCommit": "cd8d336, fe1a2c7 2026-09-29 cap remediation: row 48: paged hierarchy; non-copying chat filter",
+      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/memory-ui-read-model.js": {
       "digest": "859d738e58f206942a68b47ead32ecbd4dac33de",
@@ -261,17 +272,18 @@
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-contextual-retrieval.js": {
-      "digest": "dd76e53a8f8a0ec32318cd4fd6579cd69308c2e8",
+      "digest": "3b1fdf434ad946ccc3bf3b7ee0b74fb812b6d249",
       "lane": "lore",
-      "lastCommit": "854aa87 2026-09-29 Lore retrieval index: fenced serving, yielding build published atomically",
+      "lastCommit": "fe1a2c7 2026-09-29 cap remediation: rows 16-18: long queries served, all terms indexed, scoped examined page",
       "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-study-engine.js": {
-      "digest": "6856f964dcea7b2cbfccec19a5efa83759ddc8b0",
+      "digest": "753a5de891ef8febd82408603df520d916a38d93",
       "lane": "lore",
-      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
-      "origin": "REPAIR_installed_architecture"
+      "lastCommit": "288d867 2026-09-29 cap remediation: rows 1-6, 8-9: sliced study with coverage receipt",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/coprocessor/capability-negotiation.js": {
       "digest": "2a1c422bbb8ab42942de051797a601bc798c0848",
@@ -407,11 +419,11 @@
       "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-hierarchy-retrieval-system.js": {
-      "digest": "1dc1a96455f9840a74b8fff2937d2da185628d1b",
+      "digest": "1ef29ae45431166eb7a4781eb94c5955d48aae97",
       "lane": "lore",
-      "lastCommit": "854aa87 2026-09-29 Lore retrieval index: fenced serving, yielding build published atomically",
+      "lastCommit": "fe1a2c7 2026-09-29 cap remediation: one-time index rebuild on token revision",
       "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/coprocessor/provider-adapters.js": {
       "digest": "2d64a870b08843887fa1cd781831812c3c1e9b74",
@@ -426,6 +438,83 @@
       "lastCommit": "6c20f2d 2026-09-29 Checkpoint CPU: typed-array SHA-256 with identical digests; ledger flush clones once",
       "origin": "REPAIR_installed_architecture",
       "review": "LIVE_FIXES_20260929 addendum 5 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/lore-navigation-hierarchy.js": {
+      "digest": "1ec08e01f32fbc4bf755208da15da4f364a95b0a",
+      "lane": "lore",
+      "lastCommit": "73c36bf 2026-09-29 cap remediation: row 21: deep Tree folded",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/lore-representation-compiler.js": {
+      "digest": "5d9ec5328d3d223776e7ea1320927469c9b662e6",
+      "lane": "lore",
+      "lastCommit": "2ce755e 2026-09-29 cap remediation: rows 11-13: complete contribution set",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "tests/lore-wave1.mjs": {
+      "digest": "55a6aae2f23402a526e98156e8608f8289726861",
+      "lane": "lore",
+      "lastCommit": "288d867 2026-09-29 cap remediation: changed expectation: full coverage instead of per-source ceilings (reason in test)",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "tests/lore-wave3.mjs": {
+      "digest": "393379aad675859fb1eb3288821a3d65b733b06a",
+      "lane": "lore",
+      "lastCommit": "fe1a2c7 2026-09-29 cap remediation: changed expectation: long query served (reason in test)",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/coprocessor/continuous-consolidation.js": {
+      "digest": "415411db3d94068d3dbb9a31a31e5c0f68c80dc4",
+      "lane": "jev",
+      "lastCommit": "46bcbf9 2026-09-29 cap remediation: row 63: collision-free bounded identity",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/memory-evidence-bridge.js": {
+      "digest": "68003524a1a7de19644a946224d3f48f9cb558a5",
+      "lane": "memory",
+      "lastCommit": "659c040, 8ad5d14 2026-09-29 cap remediation: rows 54-55: bounded audit copy; journals keep lineage",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/memory-experience-store.js": {
+      "digest": "1f2ee517b0f6b8e212fd37ef7c066d07fab0b7aa",
+      "lane": "memory",
+      "lastCommit": "bd22047 2026-09-29 cap remediation: non-copying evidence existence checks (performance)",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/memory-historian.js": {
+      "digest": "58a93c3895ad881da1015abf060b0ec0f38c4b36",
+      "lane": "memory",
+      "lastCommit": "92cabfd, fe1a2c7 2026-09-29 cap remediation: non-cloning claim view; rows 36-37, 39",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/memory-summary-hierarchy.js": {
+      "digest": "b16248f5e17b16e5da6e8d4797824346b7aa312c",
+      "lane": "memory",
+      "lastCommit": "bd22047 2026-09-29 cap remediation: non-copying selector read (performance)",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "tests/memory-wave1.mjs": {
+      "digest": "b7e5be6fc8cee1675a022fddb7660075309c896f",
+      "lane": "memory",
+      "lastCommit": "fe1a2c7 2026-09-29 cap remediation: changed trigger: failure injected directly (reason in test)",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/memory-temporal-state-graph.js": {
+      "digest": "8b27d28e6e88c95f63e7377f6a36581b2fd97595",
+      "lane": "memory",
+      "lastCommit": "92cabfd, bd22047 2026-09-29 cap remediation: rows 42-44: whole journal; evidence view",
+      "origin": "CAP_REMEDIATION_20260929",
+      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     }
   }
 }

@@ -1,6 +1,6 @@
 # Area-52 Cap Ledger (cap-remediation wave)
 
-Status of this ledger: inventory complete; rows marked changed are done (see Change log). Built by a read-only audit of `src/` at `repair/live-fixes` (6c20f2d, on main 786c67e) against `AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md`. The top findings (rows 1, 2, 13, 42, 51) were re-read in the code by the main session; the others are cited from the audit and are re-verified when their row is worked.
+Status of this ledger (2026-09-29): 65 rows inventoried. 34 changed and validated with dedicated cap tests (each mutation-checked against the previous code); 6 confirmed as already correct; 25 not changed yet (listed under "Remaining"). Built by a read-only audit of `src/` at `repair/live-fixes` (6c20f2d, on main 786c67e) against `AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md`. The top findings (rows 1, 2, 13, 42, 51) were re-read in the code by the main session; the others are cited from the audit and are re-verified when their row is worked.
 
 Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core Architecture Invariant). "Proposed" = intended new classification; "Status": untouched / changed / validated.
 
@@ -149,3 +149,21 @@ Checkpoint size and CPU grow linearly with retained turns (repro `LEN=80 TURNS=4
 - **Bridge journals (row 55)**: the operational lineage is split from the diagnostic history, as the handoff asks. The counts now trigger compaction of the audit copies instead of refusing new mappings or events.
   - Evidence: `tests/cap-remediation-memory-journals.test.mjs` (67 edits of one message are all admitted; the replacement chain is intact; only the oldest audit copies are compacted). Mutation-checked. Memory and bridge suites pass.
   - Note: journal size now grows with the chat, by about one compact row per mapping or event. Scene proposals are operational and keep full records.
+
+## Remaining (not changed in this pass)
+- **Owner priorities** (1, Scene; 5, smaller items) and the Nexus-guided items (2, 3, 4) are all done.
+- **Knowledge-affecting, next if pursued**:
+  - Row 10: representation segment windows past 128 slices. Currently a visible failure; exact-source retrieval is unaffected.
+  - Rows 14-15: representation shards past the artifact and request bounds (visible failures).
+  - Row 49: SESSION/ARC summary-of-summaries (a visible failure at about 8,000 turns).
+  - Row 29: derived Scene query instead of the first 320 characters.
+  - Row 40: historian evidence budget returns nothing instead of the top N.
+  - Row 46: consolidation job backpressure.
+  - Row 45: Memory store ref bounds throw.
+  - Rows 23-25: Lore navigation community, scope and summary bounds.
+- **Transport / presentation / cache rows confirmed bounded-by-design; kept**: 7, 19 (16/24 kept; boundedOut propagation open), 20, 30, 31, 32, 33, 35, 50, 59, 61, 62, 64, 65.
+- **Open performance item**: checkpoint size and CPU grow with retained turns (live-fixes finding). Row 60's durable identity is now separate from the turn record, which makes it safe to cut how much of each turn is retained later (owner decision O8).
+
+## Final verification (cap/remediation head)
+- Full suite, every `tests/*.mjs` run on its own: 0 failing files (`sweep-final-status.tsv`).
+- Assembly verifier: PASS (addendum 6).

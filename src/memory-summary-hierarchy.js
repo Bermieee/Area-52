@@ -146,6 +146,30 @@ function summarizeRange(rows) {
   };
 }
 
+function mergeSummaryRanges(rows,childArtifacts=[]) {
+  const direct=summarizeRange(rows);
+  const ranges=[direct,...childArtifacts.map((row)=>row?.sourceRange).filter(Boolean)];
+  const bounds=(field)=>{
+    const values=ranges.flatMap((range)=>[range?.[field]?.start,range?.[field]?.end])
+      .filter((value)=>value!=null&&Number.isFinite(Number(value))).map(Number);
+    return values.length?{start:Math.min(...values),end:Math.max(...values)}:{start:null,end:null};
+  };
+  return {
+    evidenceCount:direct.evidenceCount+childArtifacts.reduce((sum,row)=>sum+Number(row?.sourceRange?.evidenceCount??0),0),
+    appendSequence:bounds('appendSequence'),
+    worldRevision:bounds('worldRevision'),
+    sceneRevision:bounds('sceneRevision'),
+    narrativeTime:bounds('narrativeTime'),
+  };
+}
+
+function summaryChildExcerpt(value,maxCharacters=900) {
+  const text=normalizeExact(value);
+  if(text.length<=maxCharacters)return text;
+  const half=Math.floor((maxCharacters-5)/2);
+  return text.slice(0,half)+' ... '+text.slice(-half);
+}
+
 function artifactTypeFor(level) {
   const type=SUMMARY_KIND[level];
   if (!type) throw new Error('MEMORY_SUMMARY_LEVEL_UNSUPPORTED:'+String(level));

@@ -235,32 +235,40 @@ export class MemoryExperienceStore {
     contradictionEvidenceRefs=[],
     episodeRefs=[],
   }={}) {
-    const support=uniqStrings(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs);
-    const contradictions=uniqStrings(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs);
-    const explicitEpisodes=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
-    const evidenceRows=[...support,...contradictions].map((id)=>this.graph.evidenceRecord(id));
-    const missingEvidence=[...support,...contradictions].filter((id)=>!this.graph.evidenceRecord(id));
-    const staleEvidence=[...support,...contradictions].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
+    const supportR=segmentedStringRefs(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs,'supportEvidenceRefs');
+    const contradictionsR=segmentedStringRefs(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs,'contradictionEvidenceRefs');
+    const explicitEpisodesR=segmentedStringRefs(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch,'episodeRefs');
+    const evidenceRows=[...supportR.all,...contradictionsR.all].map((id)=>this.graph.evidenceRecord(id));
+    const missingEvidence=[...supportR.all,...contradictionsR.all].filter((id)=>!this.graph.evidenceRecord(id));
+    const staleEvidence=[...supportR.all,...contradictionsR.all].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
     const currentEpisodes=[...this.currentEpisodeByLogical.values()].map((id)=>this.episodes.get(id)).filter(Boolean)
       .filter((episode)=>episode.state==='CURRENT'&&episode.freshness==='FRESH');
-    const explicitRows=explicitEpisodes.map((id)=>this.episodes.get(id)).filter(Boolean);
-    const supportRows=currentEpisodes.filter((episode)=>episode.evidenceRefs.some((id)=>support.includes(id)));
-    const contradictionRows=currentEpisodes.filter((episode)=>episode.evidenceRefs.some((id)=>contradictions.includes(id)));
+    const explicitRows=explicitEpisodesR.all.map((id)=>this.episodes.get(id)).filter(Boolean);
+    const supportRows=currentEpisodes.filter((episode)=>memoryReferenceValues(episode,'evidenceRefs').some((id)=>supportR.all.includes(id)));
+    const contradictionRows=currentEpisodes.filter((episode)=>memoryReferenceValues(episode,'evidenceRefs').some((id)=>contradictionsR.all.includes(id)));
     for(const episode of explicitRows)if(!supportRows.some((row)=>row.id===episode.id)&&episode.state==='CURRENT'&&episode.freshness==='FRESH')supportRows.push(episode);
     const supportLogicalIds=[...new Set(supportRows.map((row)=>row.logicalId))].sort();
     const contradictionLogicalIds=[...new Set(contradictionRows.map((row)=>row.logicalId))].sort();
+    const supportEpisodeIdsR=segmentedStringRefs(supportRows.map((row)=>row.id),MEMORY_LIMITS.maxEpisodesPerBatch,'supportEpisodeIds');
+    const contradictionEpisodeIdsR=segmentedStringRefs(contradictionRows.map((row)=>row.id),MEMORY_LIMITS.maxEpisodesPerBatch,'contradictionEpisodeIds');
+    const sourcesR=segmentedStringRefs(evidenceRows.map((row)=>row?.sourceRevisionId).filter(Boolean),MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'sourceRevisionRefs');
     const priorId=reflectionKey==null?null:this.currentReflectionByKey.get(String(reflectionKey));
     const prior=priorId?this.reflections.get(priorId):null;
     const base={
       kind:'MemoryReflectionEligibilityReceipt',
       reflectionKey:reflectionKey==null?null:String(reflectionKey),
-      supportEpisodeIds:supportRows.map((row)=>row.id).sort(),
+      supportEpisodeIds:supportEpisodeIdsR.head,
       supportEpisodeLogicalIds:supportLogicalIds,
-      contradictionEpisodeIds:contradictionRows.map((row)=>row.id).sort(),
+      contradictionEpisodeIds:contradictionEpisodeIdsR.head,
       contradictionEpisodeLogicalIds:contradictionLogicalIds,
-      supportEvidenceRefs:support,
-      contradictionEvidenceRefs:contradictions,
-      sourceRevisionRefs:uniqStrings(evidenceRows.map((row)=>row?.sourceRevisionId).filter(Boolean),MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact),
+      supportEvidenceRefs:supportR.head,
+      contradictionEvidenceRefs:contradictionsR.head,
+      sourceRevisionRefs:sourcesR.head,
+      referenceManifests:manifestMap([
+        ['supportEpisodeIds',supportEpisodeIdsR],['contradictionEpisodeIds',contradictionEpisodeIdsR],
+        ['supportEvidenceRefs',supportR],['contradictionEvidenceRefs',contradictionsR],
+        ['episodeRefs',explicitEpisodesR],['sourceRevisionRefs',sourcesR],
+      ]),
       priorReflectionId:prior?.id??null,
       priorConfidence:prior?.confidence??null,
       authorityClass:AuthorityClass.INFERRED,

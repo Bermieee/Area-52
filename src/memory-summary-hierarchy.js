@@ -1456,12 +1456,34 @@ export class MemorySummaryHierarchy {
       };
     }
     const summary=this.nominationsFromSummaries(request,preferred);
+    const targetedFallbackIncomplete=summary.profile?.targetedFallbackCoverageComplete===false;
+    const continuation=targetedFallbackIncomplete?{
+      kind:'MemorySummaryTargetedFallbackContinuation',
+      contractVersion:'1.0.0',
+      nextTargetedFallbackOffset:summary.profile?.nextTargetedFallbackOffset??null,
+      remaining:Number(summary.profile?.targetedFallbackRemaining??0),
+      tier:[...(summary.profile?.targetedFallbackTier??[])],
+      runtimeSchedulingAuthority:false,
+      canonicalKnowledgeDropped:false,
+    }:null;
     if (!summary.nominations.length) {
       this.costCounters.historianBaseQueriesUsed+=1;
       const base=this.applyBudgetToBase(baseQuery(request),request);
       return {
         ...base,
-        diagnostics:{...(base.diagnostics??{}),resolutionPolicy:'FALLBACK_EXACT',summaryArtifactsExamined:summary.examined,baseQueryUsed:true},
+        status:targetedFallbackIncomplete?'DEGRADED':base.status,
+        continuationAvailable:targetedFallbackIncomplete,
+        continuation,
+        diagnostics:{
+          ...(base.diagnostics??{}),
+          resolutionPolicy:'FALLBACK_EXACT',
+          summaryArtifactsExamined:summary.examined,
+          baseQueryUsed:true,
+          summaryProfile:deepClone(summary.profile??null),
+          summaryCoverageComplete:!targetedFallbackIncomplete,
+          reason:targetedFallbackIncomplete?'SUMMARY_INDEX_TARGETED_FALLBACK_PAGE_BOUND':base.diagnostics?.reason??null,
+          canonicalKnowledgeDropped:false,
+        },
       };
     }
     this.costCounters.historianBaseQueriesAvoided+=1;
@@ -1474,6 +1496,8 @@ export class MemorySummaryHierarchy {
       retrievalIntentId:intentId,
       historianRevision:this.revisionRef(),
       nominations:summary.nominations,
+      continuationAvailable:targetedFallbackIncomplete,
+      continuation,
       diagnostics:{
         examined:summary.examined,
         matched:summary.matched,
@@ -1485,10 +1509,13 @@ export class MemorySummaryHierarchy {
         deterministic:true,
         duplicateCoverageSuppressed:true,
         profile:deepClone(summary.profile??null),
+        summaryCoverageComplete:!targetedFallbackIncomplete,
+        reason:targetedFallbackIncomplete?'SUMMARY_INDEX_TARGETED_FALLBACK_PAGE_BOUND':null,
+        canonicalKnowledgeDropped:false,
         queryIndexRevision:this.queryIndex.revision,
         queryCacheEntries:this.queryCache.size,
       },
-      status:'OK',
+      status:targetedFallbackIncomplete?'DEGRADED':'OK',
       authorityGranted:false,
       admissionAuthority:false,
       settlementAuthority:false,

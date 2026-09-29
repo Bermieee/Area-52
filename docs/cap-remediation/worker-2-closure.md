@@ -17,8 +17,8 @@ This closure follows the three-worker cap-remediation handoff: physical, cache, 
 | --- | --- | --- |
 | 40 — Historian evidence bytes | **FIXED** | Ranked evidence is packed by actual UTF-8 byte size instead of returning an empty artifact set on overflow. Bounded-out artifact identities remain addressable. Single-artifact overflow is reported explicitly. Stale historian rows remain excluded before packing. |
 | 45 — Memory store ref bounds | **FIXED** | Episode/reflection refs use bounded head segments plus complete `MemoryReferenceManifest` segments. Validation occurs before retiring a prior current artifact. Exact drillback, historian indexing, summary construction, vector work, freshness and reflection review consume the complete manifest through `memoryReferenceValues()`. |
-| 46 — Consolidation 4,096 jobs | **FIXED** | A consolidation session retains only one <=4,096-job page and emits a Runtime-owned continuation offset/token for the rest. Reload resumes from checkpoint. Bundle review also pages at 4,096 proposals. Continuation identity fingerprints the complete logical backlog, including middle jobs; Memory does not retain a second overflow queue or scheduler. |
-| 49 — Summary-of-summaries | **FIXED** | SESSION/ARC-style summaries retain child summary manifests rather than flattening all descendant evidence into one 8,192-ref list. Exact drillback is paged through child artifacts. A 9,216-evidence synthetic hierarchy proves beginning/end facts, correction/rebuild, snapshot/restore and allowed-evidence filtering. |
+| 46 — Consolidation 4,096 jobs | **FIXED** | A consolidation session retains only one <=4,096-job page and emits a Runtime-owned continuation offset/token for the rest. Reload resumes from checkpoint. Bundle review also pages at 4,096 proposals. Job and proposal continuation identities fingerprint the complete logical sets, including middle entries; Memory does not retain a second overflow queue or scheduler. |
+| 49 — Summary-of-summaries | **FIXED** | SESSION/ARC-style summaries retain child summary manifests rather than flattening all descendant evidence into one 8,192-ref list. Exact drillback is paged through child artifacts. A 9,216-evidence synthetic hierarchy proves beginning/end facts, correction/rebuild, snapshot/restore and allowed-evidence filtering. Replacement retirement is atomic: a failed new summary build leaves the prior revision current. |
 | 50 — Summary term index ceiling | **FIXED** | Terms beyond the 32,768 reverse-index ceiling use bounded targeted fallback pages. The public historian boundary now exposes incomplete targeted coverage as `DEGRADED` with `nextTargetedFallbackOffset`; useful exact fallback can still be returned without pretending the summary scan was complete. |
 | 61 — Four full-detail turns | **VERIFIED_BY_DESIGN** | The four-turn limit compacts diagnostics only. The immutable sealed packet, seal receipt and owner-backed experience remain intact; large non-authoritative diagnostic bodies become reference/hash forms. No published seal is mutated. |
 | 64 — Native knowledge cache/history | **VERIFIED_BY_DESIGN** | Non-current derivative rows may leave the bounded NativeKnowledgeStore cache, but exact source revisions remain in the authoritative `SourceRegistry` and survive snapshot/restore. The cache limit therefore does not delete canonical historical source content. |
@@ -50,6 +50,7 @@ Consolidation is page bounded:
 - the continuation token hashes the complete logical job list, not only page edges;
 - a changed middle job invalidates continuation with `MEMORY_CONSOLIDATION_JOB_SET_CHANGED`;
 - review bundles expose the same page boundary rather than silently ignoring proposal 4,097;
+- review continuation carries a full proposal-set token; changing a middle proposal invalidates resume with `MEMORY_CONSOLIDATION_REVIEW_SET_CHANGED`;
 - Runtime scheduling authority remains false inside Memory receipts so the existing Runtime remains the scheduler.
 
 ### Row 49 — hierarchical exact drillback
@@ -62,7 +63,7 @@ Higher summaries keep:
 - representative child excerpts for bounded summary text;
 - paged `exactDrillbackPage()` traversal through child manifests.
 
-Missing exact evidence or a missing child is reported as unavailable; it is not silently counted as successful drillback. Child revisions participate in dependency fingerprints/freshness so a child correction invalidates and rebuilds its parent.
+Missing exact evidence or a missing child is reported as unavailable; it is not silently counted as successful drillback. Child revisions participate in dependency fingerprints/freshness so a child correction invalidates and rebuilds its parent. A prior summary revision is not retired until the replacement artifact has passed all build-time validation.
 
 ### Row 50 — bounded index with recoverable search
 
@@ -107,7 +108,7 @@ Focused cap tests on this branch include:
 - `tests/cap-remediation-memory-vectors.test.mjs`
 - existing `tests/memory-wave4.mjs` expectations updated where segmented complete refs are now visible.
 
-Boundary coverage includes below/at/above bounds where applicable, stale exclusion, invalid replacement atomicity, 4,097-job continuation, reload/resume, >8,192 descendant drillback, correction/rebuild/restore, term recovery beyond the first 512 fallback rows, sealed-packet immutability and cache-history reload.
+Boundary coverage includes below/at/above bounds where applicable, stale exclusion, invalid replacement atomicity, 4,097-job continuation, changed-middle job/proposal resume rejection, reload/resume, >8,192 descendant drillback, failed summary replacement atomicity, correction/rebuild/restore, term recovery beyond the first 512 fallback rows, sealed-packet immutability and cache-history reload.
 
 ## Validation state
 

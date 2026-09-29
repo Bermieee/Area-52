@@ -28,14 +28,14 @@
     "src/coprocessor/telemetry.js": "ae2ff87d5de7dadb7e00b39692b77958988e9ca8",
     "src/lore-authoring-contracts.js": "f0ce5722cf138b5b97e206e699772376a9b6bf78",
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
-    "src/lore-contextual-retrieval.js": "da66aa721ffa9590d92ca11795a5940c85753b78",
+    "src/lore-contextual-retrieval.js": "8dd796e651507f912254e17c8e6fbdaba5a59508",
     "src/lore-hierarchy-retrieval-system.js": "1b88fa609377f7f366d0a4ad0401f22722278ab7",
-    "src/lore-intelligence-service.js": "0a2eecba6abc1fe803fd34e8a0d65e77b857b5e5",
+    "src/lore-intelligence-service.js": "cfa6ffc00cd3d64ab1f024ad4d2ff18329e20eb2",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
     "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
     "src/lore-navigation-summary-registry.js": "13d0ce15256fcadfcb354ba5a79430d5565e325e",
     "src/lore-semantic-authoring.js": "54a58293ecd8d8241007f3e65d72ae6b9efe09f7",
-    "src/lore-study-engine.js": "b60636c9f784750e5658e1dab056ed7d500861d6",
+    "src/lore-study-engine.js": "e5c98cc5d6c421ab9ce3466f2db729b96d56fa2c",
     "src/runtime/index.js": "63b6e5775418895947779ef8ea187d8db792ba92",
     "src/runtime/lifecycle.js": "c0cbaee887673713058467dcd08d5f34432a8f7d",
     "src/runtime/native-swarm.js": "7dcaeffa7575dfa25578078789fc5bac56cac1cf",
@@ -97,8 +97,8 @@
     "src/memory-experience-store.js": "298636055b80a0ea979a006e2a870f3c3352195e",
     "src/memory-integration-surface.js": "54b1b24d34f2f36895e29a4dae8ad23563dc11d8",
     "src/lore-representation-registry.js": "30d1eccd38fdd9a4e812e59ab062b4d90c0a0640",
-    "src/lore-source-registry.js": "18eed617d72abf569eb5de18615afdcf2bc0dd5e",
-    "src/lore-study-runtime.js": "38b52fed2be544b7ee92b33f773911a44be27ae5",
+    "src/lore-source-registry.js": "91314c4aab62d0d28c0e95e277dab5555efba32b",
+    "src/lore-study-runtime.js": "7d6bd3e68375d3375c7e6f65b43b3c09364d6779",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
     "src/memory-temporal-producer.js": "e4c3cfeebe52011cbb9c5147f8fb97b3b89b1f73",
     "src/memory-ui-read-model.js": "859d738e58f206942a68b47ead32ecbd4dac33de",
@@ -107,9 +107,9 @@
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "0a2eecba6abc1fe803fd34e8a0d65e77b857b5e5",
+      "digest": "cfa6ffc00cd3d64ab1f024ad4d2ff18329e20eb2",
       "lane": "lore",
-      "lastCommit": "4608c49 2026-09-29 Follow-up: Lore study as yielding, checkpointed Runtime batches with sliced maint",
+      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-representation-registry.js": {
@@ -119,15 +119,15 @@
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-source-registry.js": {
-      "digest": "18eed617d72abf569eb5de18615afdcf2bc0dd5e",
+      "digest": "91314c4aab62d0d28c0e95e277dab5555efba32b",
       "lane": "lore",
-      "lastCommit": "8444a69 2026-09-29 Follow-up: revision-aware Lore status reference and compact identity read; D7/D11",
+      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-study-runtime.js": {
-      "digest": "38b52fed2be544b7ee92b33f773911a44be27ae5",
+      "digest": "7d6bd3e68375d3375c7e6f65b43b3c09364d6779",
       "lane": "lore",
-      "lastCommit": "8444a69 2026-09-29 Follow-up: revision-aware Lore status reference and compact identity read; D7/D11",
+      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
       "origin": "REPAIR_installed_architecture"
     },
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": {
@@ -242,6 +242,18 @@
       "digest": "c642cabf7b92d22654475ae28acf78acb7757d3b",
       "lane": "scene",
       "lastCommit": "1a661f9 2026-09-29 Follow-up: installed storage adapter, one Brain per story, Scene owner restore, i",
+      "origin": "REPAIR_installed_architecture"
+    },
+    "src/lore-contextual-retrieval.js": {
+      "digest": "8dd796e651507f912254e17c8e6fbdaba5a59508",
+      "lane": "lore",
+      "lastCommit": "c7494ae 2026-09-29 D7: conflict membership no longer overrides an asserted claim's own status (fixes",
+      "origin": "REPAIR_installed_architecture"
+    },
+    "src/lore-study-engine.js": {
+      "digest": "e5c98cc5d6c421ab9ce3466f2db729b96d56fa2c",
+      "lane": "lore",
+      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
       "origin": "REPAIR_installed_architecture"
     }
   }

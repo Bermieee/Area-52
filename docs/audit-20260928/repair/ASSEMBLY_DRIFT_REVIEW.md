@@ -50,3 +50,7 @@ Result: **23 approved, 8 withheld**. `node scripts/verify-development-deployment
 - Docs/tests/styles with no failing gate (`docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md`, `tests/memory-wave4.mjs`, `tests/wave8.test.mjs`, `tests/wave12-sillytavern-host.test.mjs`, `styles/ui-core.css`, `styles/ui-core-wave8.css`) are approved on provenance alone.
 
 Evidence: sweep of 237 test files this round, 17 failing files / 32 failing tests, every failing test name present in the baseline list (`audit-20260928/results/base2_fails.tsv`).
+
+## Addendum: D7 temporal-rules round (repair-authored paths)
+
+Five Lore paths were changed by this repository's own D7 work and are approved with fresh digests (repair-changed, all covering tests pass on the exact head `c7494ae`; see the D7 ledger row): `src/lore-contextual-retrieval.js`, `src/lore-intelligence-service.js`, `src/lore-source-registry.js`, `src/lore-study-engine.js`, `src/lore-study-runtime.js`. `src/lore-temporal-rules.js` is a new file that no lane manifest lists. The verifier still fails on exactly the same 8 withheld paths listed above.

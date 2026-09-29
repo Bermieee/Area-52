@@ -265,17 +265,11 @@ export class MemoryExternalEvidenceBridge{
       }
     }
 
-    if(this.mappings.size>=MEMORY_LIMITS.maxExternalEvidenceMappings)throw new MemoryEvidenceBridgeError(
-      'MEMORY_BRIDGE_MAPPING_LIMIT_EXCEEDED',
-      'External evidence mapping journal reached its configured bound',
-      {limit:MEMORY_LIMITS.maxExternalEvidenceMappings},
-    );
+    // Cap ledger row 55: the mapping journal and per-identity history are lineage (current identity, stale detection,
+    // correction chain), so reaching a count no longer refuses every new mapping (a long chat, or the 33rd edit of one
+    // message, used to fail permanently). Past the counts, older HISTORICAL entries keep their lineage and drop only the
+    // diagnostic audit copy (#compactAuditHistory).
     const history=this.historyByIdentity.get(identity)??[];
-    if(history.length>=MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity)throw new MemoryEvidenceBridgeError(
-      'MEMORY_BRIDGE_IDENTITY_HISTORY_LIMIT_EXCEEDED',
-      'External evidence identity reached its retained revision bound',
-      {identity,limit:MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity},
-    );
 
     // Computed before any mutation: nothing below may fail after evidence is appended or the prior mapping is retired.
     const rawOwnerInput=safeRaw(input);
@@ -352,6 +346,7 @@ export class MemoryExternalEvidenceBridge{
     if(current)current.replacedByMappingId=id;
     this.mappings.set(id,mapping);
     this.historyByIdentity.set(identity,[...history,id]);
+    if(this.mappings.size>MEMORY_LIMITS.maxExternalEvidenceMappings||history.length+1>MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity)this.#compactAuditHistory();
     this.currentByIdentity.set(identity,id);
     this.revisionDirty=true;
 
@@ -439,11 +434,7 @@ export class MemoryExternalEvidenceBridge{
       );
       return deepClone(existing);
     }
-    if(this.sceneProposals.size>=MEMORY_LIMITS.maxExternalSceneProposals)throw new MemoryEvidenceBridgeError(
-      'MEMORY_BRIDGE_SCENE_PROPOSAL_LIMIT_EXCEEDED',
-      'Scene proposal journal reached its configured bound',
-      {limit:MEMORY_LIMITS.maxExternalSceneProposals},
-    );
+    // Row 55: Scene proposals are operational (later resolution reads them), so the count no longer refuses new ones.
     const record={
       kind:'MemorySceneProposalBridgeRecord',
       proposalId:proposal.proposalId,
@@ -505,10 +496,7 @@ export class MemoryExternalEvidenceBridge{
         affectedSceneProposalIds:[],
       });
     }
-    if(this.sceneEvents.size>=MEMORY_LIMITS.maxExternalOwnerEvents)return statusReceipt('MemorySceneOwnerEventReceipt',{
-      status:'REJECTED',reasonCode:'MEMORY_BRIDGE_OWNER_EVENT_LIMIT_EXCEEDED',
-      details:{limit:MEMORY_LIMITS.maxExternalOwnerEvents},
-    });
+    // Row 55: past the count, older events keep their identity and fingerprint (replay/dedupe) and drop their audit copy.
     const sourceRevisionRefs=uniqStrings(
       event.sourceRevisionSet??event.sourceRevisionRefs??event.revisionFences?.sourceRevisionIds??[],
       MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,
@@ -529,6 +517,7 @@ export class MemoryExternalEvidenceBridge{
       createdSequence:++this.eventSequence,
     };
     this.sceneEvents.set(eventId,row);
+    if(this.sceneEvents.size>MEMORY_LIMITS.maxExternalOwnerEvents)this.#compactAuditHistory();
     this.revisionDirty=true;
     const key=sceneKey(row.sceneId,row.sceneRevision);
     if(eventType==='SCENE_BOUNDARY_CONFIRMED')this.boundaryBySceneRevision.set(key,eventId);
@@ -784,6 +773,21 @@ export class MemoryExternalEvidenceBridge{
     }));
     this.revisionDirty=false;
     return this.revisionCache;
+  }
+
+  // Drops the diagnostic audit copy (rawOwnerInput) from the oldest HISTORICAL mappings and oldest Scene events beyond the
+  // journal counts. Identity, fingerprint, lineage and state are kept.
+  #compactAuditHistory(){
+    const stub=(row)=>({[ELIDED]:'COMPACTED_HISTORY',fingerprint:row.fingerprint??null});
+    const historical=[...this.mappings.values()].filter((row)=>row.state!=='CURRENT'&&!row.rawOwnerInput?.[ELIDED]);
+    const excessMappings=Math.max(0,this.mappings.size-MEMORY_LIMITS.maxExternalEvidenceMappings);
+    for(const row of historical.slice(0,Math.max(excessMappings,0)))row.rawOwnerInput=stub(row);
+    for(const ids of this.historyByIdentity.values()){
+      if(ids.length<=MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity)continue;
+      for(const id of ids.slice(0,ids.length-MEMORY_LIMITS.maxExternalMappingHistoryPerIdentity)){const row=this.mappings.get(id);if(row&&row.state!=='CURRENT'&&!row.rawOwnerInput?.[ELIDED])row.rawOwnerInput=stub(row);}
+    }
+    const excessEvents=Math.max(0,this.sceneEvents.size-MEMORY_LIMITS.maxExternalOwnerEvents);
+    for(const row of [...this.sceneEvents.values()].slice(0,excessEvents))if(!row.rawOwnerInput?.[ELIDED])row.rawOwnerInput=stub(row);
   }
 
   status(){

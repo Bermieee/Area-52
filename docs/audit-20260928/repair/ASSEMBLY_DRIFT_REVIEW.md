@@ -84,3 +84,7 @@ Result: **17 approved, 0 withheld.** `node scripts/verify-development-deployment
 ### Closure addendum 3 (operator re-accept commit 4940268): 2 Lore-lane paths re-reviewed
 
 `lore-intelligence-service.js` (accept: stale ids grouped by source, id-only snapshot, optional REFERENCE status) and `lore-representation-registry.js` (`sourceIdOf`, `activeIdsForSource`) changed only in that commit. Pinned by equivalence tests in `worker4-lore-readiness.test.mjs` and the installed operator-accept test in `repair-followup-lore-runtime-batch.test.mjs`; the default receipt is unchanged. 71 affected files pass. Digests refreshed for these two paths only; verifier PASS.
+
+### Closure addendum 4 (final pass, commit 854aa87): 4 Lore-lane paths re-reviewed
+
+`lore-contextual-retrieval.js` (serving fences, yielding build published atomically), `lore-hierarchy-retrieval-system.js` (runtime attached to the index, `refreshRetrievalYielding`, one-time rebuild of pre-fence snapshots), `lore-intelligence-service.js` (fenced readiness, `deferRetrievalIndex` accept option, default unchanged) and `lore-source-registry.js` (`resolutionKey`, memoised by counts and map identity; `temporalResolution` unchanged in value) changed only in 854aa87. Pinned by the fence and equivalence tests in `worker4-lore-readiness.test.mjs` (23) and `repair-followup-lore-runtime-batch.test.mjs`, mutation-checked; 78 related files pass. Digests refreshed for these four paths only; verifier PASS.

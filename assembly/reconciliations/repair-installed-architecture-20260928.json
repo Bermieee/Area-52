@@ -28,9 +28,9 @@
     "src/coprocessor/telemetry.js": "ae2ff87d5de7dadb7e00b39692b77958988e9ca8",
     "src/lore-authoring-contracts.js": "f0ce5722cf138b5b97e206e699772376a9b6bf78",
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
-    "src/lore-contextual-retrieval.js": "0ef0e11284ef0fa71078af5edf4550baf4c416e7",
-    "src/lore-hierarchy-retrieval-system.js": "1b88fa609377f7f366d0a4ad0401f22722278ab7",
-    "src/lore-intelligence-service.js": "96ec13127062a9cde82d8faac2d0020d73e862a2",
+    "src/lore-contextual-retrieval.js": "dd76e53a8f8a0ec32318cd4fd6579cd69308c2e8",
+    "src/lore-hierarchy-retrieval-system.js": "1dc1a96455f9840a74b8fff2937d2da185628d1b",
+    "src/lore-intelligence-service.js": "6cbfb4184224fa4e57ac1a61e59f6ad3ad32433b",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
     "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
     "src/lore-navigation-summary-registry.js": "423880b74f5e39b4fb3d47c0809c5f1a62e7eb41",
@@ -97,7 +97,7 @@
     "src/memory-experience-store.js": "298636055b80a0ea979a006e2a870f3c3352195e",
     "src/memory-integration-surface.js": "54b1b24d34f2f36895e29a4dae8ad23563dc11d8",
     "src/lore-representation-registry.js": "cbb407c3d40c352bb70dd38628d7dd26baa34364",
-    "src/lore-source-registry.js": "ef97661e61e17672f3dca4cbe4193eb6ba6dea32",
+    "src/lore-source-registry.js": "5d74231363ffd0cacebb030b9da26a5bfb8fb0ca",
     "src/lore-study-runtime.js": "7482c8fad074c2409e94c98ce37b1a2bd0b68f7f",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
     "src/memory-temporal-producer.js": "e4c3cfeebe52011cbb9c5147f8fb97b3b89b1f73",
@@ -120,11 +120,11 @@
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "96ec13127062a9cde82d8faac2d0020d73e862a2",
+      "digest": "6cbfb4184224fa4e57ac1a61e59f6ad3ad32433b",
       "lane": "lore",
-      "lastCommit": "4940268 2026-09-29 Operator re-accept of an edited 1,200-entry Lorebook: 5.5 s to 1.2 s synchronous",
+      "lastCommit": "854aa87 2026-09-29 Lore retrieval index: fenced serving, yielding build published atomically",
       "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_ROUND_20260929 performance addendum 3 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-representation-registry.js": {
       "digest": "cbb407c3d40c352bb70dd38628d7dd26baa34364",
@@ -134,11 +134,11 @@
       "review": "CLOSURE_ROUND_20260929 performance addendum 3 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-source-registry.js": {
-      "digest": "ef97661e61e17672f3dca4cbe4193eb6ba6dea32",
+      "digest": "5d74231363ffd0cacebb030b9da26a5bfb8fb0ca",
       "lane": "lore",
-      "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
+      "lastCommit": "854aa87 2026-09-29 Lore retrieval index: fenced serving, yielding build published atomically",
       "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
+      "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-study-runtime.js": {
       "digest": "7482c8fad074c2409e94c98ce37b1a2bd0b68f7f",
@@ -261,11 +261,11 @@
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-contextual-retrieval.js": {
-      "digest": "0ef0e11284ef0fa71078af5edf4550baf4c416e7",
+      "digest": "dd76e53a8f8a0ec32318cd4fd6579cd69308c2e8",
       "lane": "lore",
-      "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
+      "lastCommit": "854aa87 2026-09-29 Lore retrieval index: fenced serving, yielding build published atomically",
       "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
+      "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-study-engine.js": {
       "digest": "6856f964dcea7b2cbfccec19a5efa83759ddc8b0",
@@ -405,6 +405,13 @@
       "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
       "origin": "REPAIR_installed_architecture",
       "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/lore-hierarchy-retrieval-system.js": {
+      "digest": "1dc1a96455f9840a74b8fff2937d2da185628d1b",
+      "lane": "lore",
+      "lastCommit": "854aa87 2026-09-29 Lore retrieval index: fenced serving, yielding build published atomically",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_FINAL_PASS_20260929 addendum 4 (ASSEMBLY_DRIFT_REVIEW.md)"
     }
   }
 }

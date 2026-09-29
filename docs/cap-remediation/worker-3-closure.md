@@ -4,7 +4,7 @@ Date: 2026-09-29
 Repository: Bermieee/Area-52  
 Branch: `Development-Worker-3`  
 Starting main: `1de19e82a0083d5dfa70175bc0434dae45ee676c`  
-Repair/test sequence reviewed through: `682da7a0eaf2476c0732cf6999264cd58a3bd8cd`
+Repair/test sequence reviewed through: `f864930e2245b69668b890d1543dc5c187aa0a5b`
 
 ## Scope and evidence rule
 
@@ -89,7 +89,7 @@ No blanket context-limit increase was made. Required `CURRENT_SCENE` and `USER_I
 - choice-summary normalization and `physicalAttempt:false`;
 - async Jev connection/pending/failure/owner-rejection diagnostics;
 - partial-Lore PromptPlan/ContextReceipt accounting;
-- installed SillyTavern host insertion of the actually admitted partial `RELEVANT_LORE` fragment, with the remainder still explicitly deferred;
+- installed SillyTavern host insertion of the actually admitted partial `RELEVANT_LORE` fragment, with the remainder still explicitly deferred and duplicate prompt-ready hooks proven idempotent;
 - long Scene query head/tail coverage and ref bounds;
 - hop-cap vs genuine NOT_FOUND plus bounded recovery;
 - ACTIVE prefetch retention at capacity;
@@ -117,6 +117,7 @@ Existing acceptance expected on the draft PR includes Scene async/runtime lifecy
 - `fe98a54a5561ec484bc2927c15c8e5bbd6fc6347` — align host payload regression with installed evidence seam
 - `ab6a8731dab58e5476bb2cb42dc8072e402979c7` — assert provider timeout/abort release connected-resource slots
 - `682da7a0eaf2476c0732cf6999264cd58a3bd8cd` — prove terminal Runtime failure releases the Director lease
+- `f864930e2245b69668b890d1543dc5c187aa0a5b` — prove final partial-Lore host insertion is idempotent
 
 ## Validation status
 

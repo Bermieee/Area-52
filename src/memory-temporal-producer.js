@@ -999,7 +999,10 @@ export class MemoryTemporalProducer {
     if (result.publishedArtifactIds.length) {
       const evidenceRefs=[...new Set(result.publishedArtifactIds.flatMap((id)=>{
         const artifact=this.experienceStore.artifact(id);
-        return [...(artifact?.supportEvidenceRefs??[]),...(artifact?.contradictionEvidenceRefs??[])];
+        return [
+          ...memoryReferenceValues(artifact,'supportEvidenceRefs'),
+          ...memoryReferenceValues(artifact,'contradictionEvidenceRefs'),
+        ];
       }))].sort();
       const affectedSummaryScopeRefs=evidenceRefs.length?this.summaryHierarchy.invalidateEvidenceRefs(evidenceRefs,'REFLECTION_CHANGED'):[];
       const summaryRefresh=affectedSummaryScopeRefs.length
@@ -1021,7 +1024,13 @@ export class MemoryTemporalProducer {
     else if(outcomes.length&&outcomes.every((row)=>row.status==='SKIPPED'))status='SKIPPED';
     const diagnostic={
       kind:'MemoryConsolidationDiagnosticReceipt',contractVersion:'1.0.0',sessionId:result.id,status,state:result.state,
-      processedCursor:result.cursor,totalJobs:result.jobs?.length??0,publishedCount:result.publishedArtifactIds?.length??0,
+      processedCursor:Number(result.processedJobs??result.cursor??0),
+      totalJobs:Number(result.totalJobs??result.jobs?.length??0),
+      segmentIndex:Number(result.jobSegmentIndex??0),
+      segmentCursor:Number(result.cursor??0),
+      continuationAvailable:Boolean(result.continuationAvailable),
+      pendingJobSegments:Number(result.pendingJobSegments?.length??0),
+      publishedCount:result.publishedArtifactIds?.length??0,
       outcomeCounts:{
         completed:outcomes.filter((row)=>row.status==='COMPLETED').length,
         deferred:outcomes.filter((row)=>row.status==='DEFERRED').length,

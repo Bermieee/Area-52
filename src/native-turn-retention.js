@@ -121,6 +121,10 @@ function boundRecordFields(out) {
 export function reboundCompactedTurnRecord(record) {
   if (!record || record.retention?.state !== 'COMPACTED') return record;
   const out = boundRecordFields({ ...record });
+  // Idempotent: a record with nothing new to bound is returned as is, so repeated calls neither inflate the
+  // counter nor make otherwise identical snapshots differ (storage reuses unchanged chunks by checksum).
+  const changed = Object.keys(out).some((key) => key !== 'retention' && out[key] !== record[key]);
+  if (!changed) return record;
   out.retention = { ...record.retention, bytesAfter: bytes(out), reboundCount: Number(record.retention.reboundCount ?? 0) + 1 };
   return out;
 }

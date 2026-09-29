@@ -1,6 +1,7 @@
 import { CastPresence, ObservationClass, createFieldState } from '../scene/contracts.js';
 import { HostActivity, SceneRelationship } from '../scene/lifecycle-contracts.js';
 import { scenePrefetchIntentsFromNarrative } from '../scene/prefetch-trigger.js';
+import { packBrainSnapshot, unpackBrainSnapshot } from './brain-snapshot-parts.js';
 import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 import {
@@ -1382,7 +1383,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(this.storage){
         // One story per key, owners once. A failed owner write after a successful story write is reported and
         // retried at the next checkpoint (the Lore key is only advanced on success).
-        const story=await this.storage.saveStory(chatId,{brain:snapshot,host:this.#hostStateFor(chatId)});
+        const story=await this.storage.saveStory(chatId,{...packBrainSnapshot(snapshot),host:this.#hostStateFor(chatId)});
         const snapshotSceneOwner=brainBindings?.snapshotSceneOwner??(typeof this.brain?.snapshotSceneOwner==='function'?()=>this.brain.snapshotSceneOwner():null);
         const owners=await this.storage.saveOwners({memory:memoryOwnerSnapshot??undefined,scene:typeof snapshotSceneOwner==='function'?snapshotSceneOwner():undefined,...(loreChanged?{lore:loreOwnerSnapshot}:{})});
         storageRow={storyGeneration:story.generation,ownersGeneration:owners.generation,storyBytes:story.bytes,ownersBytes:owners.bytes};
@@ -1668,8 +1669,9 @@ export class DevelopmentDeploymentSillyTavernSession {
     if(!next){
       const loaded=await this.storage.loadStory(chatId);receipt.storage=loaded.status;
       const brainClass=this.nativeBrain.constructor;
-      if(loaded.parts.brain&&typeof brainClass.fromSnapshot==='function'){
-        try{next=brainClass.fromSnapshot(loaded.parts.brain);receipt.source='STORAGE';}
+      const storedBrain=unpackBrainSnapshot(loaded.parts);
+      if(storedBrain&&typeof brainClass.fromSnapshot==='function'){
+        try{next=brainClass.fromSnapshot(storedBrain);receipt.source='STORAGE';}
         catch(error){receipt.error=safeDiagnosticMessage(error);next=null;}
       }
       if(loaded.parts.host?.kind==='InstalledHostState'){

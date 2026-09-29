@@ -8,6 +8,7 @@
 import { Area52NativeBrain } from '../native-brain.js';
 import { createDevelopmentDeploymentSillyTavernSession } from './sillytavern-live.js';
 import { createInstalledStorage } from './installed-storage.js';
+import { unpackBrainSnapshot } from './brain-snapshot-parts.js';
 
 export async function createInstalledDevelopmentDeploymentSession(options = {}) {
   const storage = options.storage === undefined ? createInstalledStorage({ host: options.host ?? globalThis }) : options.storage;
@@ -27,11 +28,13 @@ export async function createInstalledDevelopmentDeploymentSession(options = {}) 
   }
   let nativeBrain = options.nativeBrain ?? null;
   const hostSuppliedBrain = Boolean(options.nativeBrain);
-  if (story.parts?.brain && !hostSuppliedBrain) {
-    try { nativeBrain = Area52NativeBrain.fromSnapshot(story.parts.brain); receipt.brain = 'RESTORED'; }
+  const storedBrain = hostSuppliedBrain ? null : unpackBrainSnapshot(story.parts ?? {});
+  if (story.parts?.brain && !storedBrain && !hostSuppliedBrain) receipt.brain = 'INCOMPLETE_FRESH_START';
+  if (storedBrain) {
+    try { nativeBrain = Area52NativeBrain.fromSnapshot(storedBrain); receipt.brain = 'RESTORED'; }
     catch (error) { receipt.brain = 'REJECTED_FRESH_START'; receipt.brainError = String(error?.message ?? error).slice(0, 160); }
   } else if (hostSuppliedBrain) receipt.brain = 'HOST_SUPPLIED';
-  else if (storage) receipt.brain = 'NONE_STORED';
+  else if (storage && !receipt.brain) receipt.brain = 'NONE_STORED';
   nativeBrain ??= new Area52NativeBrain();
   const session = createDevelopmentDeploymentSillyTavernSession({
     ...options, storage, nativeBrain,

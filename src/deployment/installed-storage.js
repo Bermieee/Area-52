@@ -89,7 +89,7 @@ export class InstalledStorageAdapter {
     this.now = now;
     this.queue = Promise.resolve();
     this.lastError = null;
-    this.stats = { saves: 0, failedSaves: 0, loads: 0, fallbacks: 0 };
+    this.stats = { saves: 0, failedSaves: 0, loads: 0, fallbacks: 0, partsWritten: 0, partsReused: 0, bytesWritten: 0 };
   }
 
   #manifestKey(scope) { return `${this.namespace}/manifest/${scope}`; }
@@ -124,10 +124,15 @@ export class InstalledStorageAdapter {
       for (const [name, payload] of Object.entries(parts)) {
         if (payload === undefined) continue;
         const text = JSON.stringify(payload);
+        const sum = checksum(text);
+        // An unchanged part (same checksum as the current generation's) is referenced, not rewritten.
+        const prior = previous?.parts?.[name];
+        if (prior && prior.checksum === sum && prior.bytes === text.length) { table[name] = prior; this.stats.partsReused += 1; continue; }
         const key = this.#partKey(scope, generation, name);
         await this.backend.set(key, text);
         written.push(key);
-        table[name] = { key, checksum: checksum(text), bytes: text.length };
+        this.stats.bytesWritten += text.length; this.stats.partsWritten += 1;
+        table[name] = { key, checksum: sum, bytes: text.length };
       }
       const manifest = {
         format: INSTALLED_STORAGE_FORMAT, version: INSTALLED_STORAGE_VERSION, scope, ...meta, generation,

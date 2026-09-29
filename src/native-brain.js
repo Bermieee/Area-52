@@ -1126,7 +1126,7 @@ export class Area52NativeBrain{
       loreRevisionTrust:[...this.loreRevisionTrust.entries()],rejectedLoreRevisionIds:[...this.rejectedLoreRevisionIds],
       // Restore image: settled turns are persisted in compacted reference form (owner stores and the
       // sealed packet stay authoritative); turns with pending background learning keep full detail.
-      turns:[...this.turns.entries()].map(([id,record])=>[id,this.#turnBackgroundSettled(record)?compactTurnRecord(record,{reason:'SNAPSHOT',sequence:this.turnSequence}):record]),turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
+      turns:[...this.turns.entries()].map(([id,record])=>[id,this.#turnBackgroundSettled(record)?compactTurnRecord(record,{reason:'SNAPSHOT',sequence:record.sequence??null}):record]),turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
       runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,expectedWork:this.obligationReconciler.snapshot(),
     });
   }

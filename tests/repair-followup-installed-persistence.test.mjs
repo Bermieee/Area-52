@@ -96,7 +96,7 @@ test('story isolation: a restored story exposes nothing of another story, in sto
   const storyB = manifests.find((m) => m.chatId === 'chat:B');
   assert.ok(storyB, 'story B stored under its own scope');
   for (const ref of Object.values(storyB.parts)) assert.equal(String(backend._map.get(ref.key)).includes('ALPHASECRET'), false, 'stored story-B part contains no story-A text: ' + ref.key);
-  assert.equal(String(backend._map.get(Object.values(storyB.parts)[0].key)).includes('chat:A'), false, 'no story-A identifier in story-B parts');
+  for (const ref of Object.values(storyB.parts)) assert.equal(String(backend._map.get(ref.key)).includes('chat:A'), false, 'no story-A identifier in story-B part ' + ref.key);
   const req = await b.turn('What happened earlier?', 'Unknown.');
   assert.equal(has(req, 'ALPHASECRET'), false, 'story B context carries nothing of story A');
   await b.switchTo('chat:A');
@@ -189,5 +189,27 @@ test('storage state is visible in the existing Diagnostics evidence export', asy
   assert.equal(p.storage.backend, 'MEMORY');
   assert.ok(p.storage.saves >= 2);
   assert.equal(p.last.status, 'PERSISTED');
+  a.session.destroy();
+});
+
+test('a checkpoint rewrites only the changed tail: settled turn, ledger and seal chunks are reused (record size itself is O8)', async () => {
+  const backend = createMemoryBackend(), chats = makeChats();
+  const a = await boot({ backend, chats, chatId: 'chat:A' });
+  const storyKeys = () => new Set([...backend._map.keys()].filter((k) => k.includes('/part/story:')));
+  const partsOf = () => Object.keys(JSON.parse(backend._map.get([...backend._map.keys()].find((k) => k.includes('/manifest/story:')))).parts);
+  let written = [];
+  for (let i = 1; i <= 20; i += 1) {
+    const keysBefore = storyKeys();
+    await a.turn('At North Gallery, Mara waits near marker ' + i + '.', 'She waits ' + i + '.');
+    written = [...storyKeys()].filter((k) => !keysBefore.has(k)).map((k) => k.split('/').pop());
+  }
+  const turnChunks = partsOf().filter((n) => n.startsWith('brain.turns:')).length;
+  const rewrote = (prefix) => written.filter((n) => n.startsWith(prefix)).length;
+  assert.ok(turnChunks >= 20, 'every turn has its own chunk');
+  // Only the newest turns (still settling, then compacted) may change; history is not rewritten.
+  assert.ok(rewrote('brain.turns:') <= 5, `${rewrote('brain.turns:')} of ${turnChunks} turn chunks rewritten in one checkpoint: ${written.join(' ')}`);
+  assert.ok(rewrote('brain.ledger:') <= 2 && rewrote('brain.seal:') <= 2, 'ledger and seal grow by their tail only: ' + written.join(' '));
+  assert.ok(a.storage.stats.partsReused > 0, 'unchanged chunks were reused');
+  assert.equal((await a.storage.loadStory('chat:A')).status, 'CURRENT');
   a.session.destroy();
 });

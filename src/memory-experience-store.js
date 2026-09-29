@@ -313,28 +313,42 @@ export class MemoryExperienceStore {
   }={}) {
     requiredString(reflectionKey,'reflectionKey');
     if (typeof statement!=='string'||!statement.trim()) throw new TypeError('reflection.statement required');
-    const support=uniqStrings(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs);
-    const contradictions=uniqStrings(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs);
-    for (const id of [...support,...contradictions]) if (!this.graph.evidenceRecord(id)) throw new Error('MEMORY_REFLECTION_EVIDENCE_UNKNOWN:'+id);
-    for (const id of support) if (!this.graph.evidenceFresh(id)) throw new Error('MEMORY_REFLECTION_SUPPORT_STALE:'+id);
-    const eps=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
-    for (const id of eps) {
+    const supportR=segmentedStringRefs(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs,'supportEvidenceRefs');
+    const contradictionsR=segmentedStringRefs(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs,'contradictionEvidenceRefs');
+    for (const id of [...supportR.all,...contradictionsR.all]) if (!this.graph.evidenceRecord(id)) throw new Error('MEMORY_REFLECTION_EVIDENCE_UNKNOWN:'+id);
+    for (const id of supportR.all) if (!this.graph.evidenceFresh(id)) throw new Error('MEMORY_REFLECTION_SUPPORT_STALE:'+id);
+    const epsR=segmentedStringRefs(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch,'episodeRefs');
+    for (const id of epsR.all) {
       const episode=this.episodes.get(id);
       if (!episode) throw new Error('MEMORY_REFLECTION_EPISODE_UNKNOWN:'+id);
       if (episode.freshness!=='FRESH' || episode.state!=='CURRENT') throw new Error('MEMORY_REFLECTION_EPISODE_STALE:'+id);
     }
-    const sources=uniqStrings([
+    const sourcesR=segmentedStringRefs([
       ...sourceRevisionRefs,
-      ...support.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-      ...contradictions.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-      ...eps.flatMap((id)=>this.episodes.get(id)?.sourceRevisionRefs??[]),
-    ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    for (const sourceRevisionId of sources) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
+      ...supportR.all.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
+      ...contradictionsR.all.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
+      ...epsR.all.flatMap((id)=>memoryReferenceValues(this.episodes.get(id),'sourceRevisionRefs')),
+    ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'sourceRevisionRefs');
+    for (const sourceRevisionId of sourcesR.all) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
+    const subjectR=segmentedStringRefs(subjectRefs,64,'subjectRefs');
+    const supersedesInputR=segmentedStringRefs(supersedesReflectionIds,64,'supersedesReflectionIds');
+    const confidenceValue=unitNumber(confidence,'reflection.confidence');
+    const statementValue=statement.trim();
+    const actionValue=String(action);
+    const splitFromValue=splitFromReflectionId==null?null:String(splitFromReflectionId);
+    const provenanceValue=deepClone(provenance);
+    const truthStatusValue=[KnowledgeStatus.INFERRED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.CONTRADICTED].includes(truthStatus)?truthStatus:KnowledgeStatus.INFERRED;
+    const resolutionStatusValue=resolutionStatus==null?null:String(resolutionStatus);
     const history=this.reflectionHistoryByKey.get(reflectionKey)??[];
     const revision=history.length+1;
     const priorId=this.currentReflectionByKey.get(reflectionKey);
     const prior=priorId?this.reflections.get(priorId):null;
-    const id='memory-reflection:' + stableHash(reflectionKey+'|'+revision+'|'+statement+'|'+support.join('|')+'|'+contradictions.join('|'));
+    const supersedesR=segmentedStringRefs([...supersedesInputR.all,...(prior?[prior.id]:[])],64,'supersedesReflectionIds');
+    const referenceManifests=manifestMap([
+      ['subjectRefs',subjectR],['supportEvidenceRefs',supportR],['contradictionEvidenceRefs',contradictionsR],
+      ['episodeRefs',epsR],['sourceRevisionRefs',sourcesR],['supersedesReflectionIds',supersedesR],
+    ]);
+    const id='memory-reflection:' + stableHash(reflectionKey+'|'+revision+'|'+statementValue+'|'+supportR.all.join('|')+'|'+contradictionsR.all.join('|'));
     if (prior) {
       prior.state='HISTORICAL';
       prior.freshness='STALE';
@@ -346,22 +360,23 @@ export class MemoryExperienceStore {
       id,
       reflectionKey,
       revision,
-      statement:statement.trim(),
-      subjectRefs:uniqStrings(subjectRefs,64),
-      supportEvidenceRefs:support,
-      contradictionEvidenceRefs:contradictions,
-      episodeRefs:eps,
-      sourceRevisionRefs:sources,
-      confidence:unitNumber(confidence,'reflection.confidence'),
-      action:String(action),
-      supersedesReflectionIds:uniqStrings([...supersedesReflectionIds,...(prior?[prior.id]:[])],64),
-      splitFromReflectionId:splitFromReflectionId==null?null:String(splitFromReflectionId),
-      provenance:deepClone(provenance),
+      statement:statementValue,
+      subjectRefs:subjectR.head,
+      supportEvidenceRefs:supportR.head,
+      contradictionEvidenceRefs:contradictionsR.head,
+      episodeRefs:epsR.head,
+      sourceRevisionRefs:sourcesR.head,
+      referenceManifests,
+      confidence:confidenceValue,
+      action:actionValue,
+      supersedesReflectionIds:supersedesR.head,
+      splitFromReflectionId:splitFromValue,
+      provenance:provenanceValue,
       state:'CURRENT',
-      freshness:freshBySources(this.graph,sources)?'FRESH':'STALE',
+      freshness:freshBySources(this.graph,sourcesR.all)?'FRESH':'STALE',
       authorityClass:AuthorityClass.INFERRED,
-      truthStatus:[KnowledgeStatus.INFERRED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.CONTRADICTED].includes(truthStatus)?truthStatus:KnowledgeStatus.INFERRED,
-      resolutionStatus:resolutionStatus==null?null:String(resolutionStatus),
+      truthStatus:truthStatusValue,
+      resolutionStatus:resolutionStatusValue,
       worldTruthAuthority:false,
       characterStateMutation:false,
       settlementAuthority:false,

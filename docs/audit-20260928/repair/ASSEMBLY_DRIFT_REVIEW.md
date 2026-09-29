@@ -76,3 +76,7 @@ Before this addendum the verifier failed on 17 paths: the 8 withheld above, plus
 | `tests/fixtures/wave4-synthetic-extension.mjs` | f37d70a | Adds real-DOM parity only (`innerHTML` for flat markup, `querySelector`, value reflection, tag/class selectors) | all wave4/wave13 UI tests |
 
 Result: **17 approved, 0 withheld.** `node scripts/verify-development-deployment.mjs`: **PASS** (0 unexpected in every lane). Digests in the overlay were computed from the reviewed content (`git hash-object`); each entry in `reviewedPaths` names this addendum.
+
+### Closure addendum 2 (performance commits fa8d394, 0890531): 6 Lore-lane paths re-reviewed
+
+`lore-contextual-retrieval.js`, `lore-intelligence-service.js`, `lore-navigation-summary-registry.js`, `lore-representation-registry.js`, `lore-source-registry.js`, `lore-world-ontology.js` changed only in those two repair commits (provenance `git log 9d0c716..HEAD`). Every change is output-preserving and pinned by an equivalence test in `worker4-lore-readiness.test.mjs` (lean eligibility = status projection; source index = full scan incl. restore; packet summaries = clone-then-filter; `includeNavigation:false` differs only in the three omitted fields; read-only artifact views give identical ontology, index records and truth hints and leave stored artifacts byte-identical) and by the installed A/B test in `repair-followup-lore-temporal-installed.test.mjs`. Covering Lore files (60) pass. Digests refreshed for these six paths only; verifier PASS.

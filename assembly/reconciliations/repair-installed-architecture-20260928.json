@@ -28,12 +28,12 @@
     "src/coprocessor/telemetry.js": "ae2ff87d5de7dadb7e00b39692b77958988e9ca8",
     "src/lore-authoring-contracts.js": "f0ce5722cf138b5b97e206e699772376a9b6bf78",
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
-    "src/lore-contextual-retrieval.js": "7d0a85f0a7ec218ff786e1789936aa6a33341e32",
+    "src/lore-contextual-retrieval.js": "0ef0e11284ef0fa71078af5edf4550baf4c416e7",
     "src/lore-hierarchy-retrieval-system.js": "1b88fa609377f7f366d0a4ad0401f22722278ab7",
-    "src/lore-intelligence-service.js": "a6f8fca7f499854804400edb3adcaf5847a84659",
+    "src/lore-intelligence-service.js": "2c73f122101679b78c6b05bd09a8dc9268ae3f77",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
     "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
-    "src/lore-navigation-summary-registry.js": "13d0ce15256fcadfcb354ba5a79430d5565e325e",
+    "src/lore-navigation-summary-registry.js": "423880b74f5e39b4fb3d47c0809c5f1a62e7eb41",
     "src/lore-semantic-authoring.js": "54a58293ecd8d8241007f3e65d72ae6b9efe09f7",
     "src/lore-study-engine.js": "6856f964dcea7b2cbfccec19a5efa83759ddc8b0",
     "src/runtime/index.js": "63b6e5775418895947779ef8ea187d8db792ba92",
@@ -96,8 +96,8 @@
     "src/memory-evidence-bridge.js": "2d8f187609ff85a82cf7fa72ab8ff0ef9921617e",
     "src/memory-experience-store.js": "298636055b80a0ea979a006e2a870f3c3352195e",
     "src/memory-integration-surface.js": "54b1b24d34f2f36895e29a4dae8ad23563dc11d8",
-    "src/lore-representation-registry.js": "30d1eccd38fdd9a4e812e59ab062b4d90c0a0640",
-    "src/lore-source-registry.js": "91314c4aab62d0d28c0e95e277dab5555efba32b",
+    "src/lore-representation-registry.js": "1c03e1f8280f7e1fd92a3b1b8f989d3566529e2d",
+    "src/lore-source-registry.js": "ef97661e61e17672f3dca4cbe4193eb6ba6dea32",
     "src/lore-study-runtime.js": "7482c8fad074c2409e94c98ce37b1a2bd0b68f7f",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
     "src/memory-temporal-producer.js": "e4c3cfeebe52011cbb9c5147f8fb97b3b89b1f73",
@@ -115,26 +115,30 @@
     "styles/ui-core-wave6.css": "95c48d40a8faf1d761cd2c00fabe095ebae5f0de",
     "tests/fixtures/wave4-synthetic-extension.mjs": "1644ac106f5c1438d089a2c61a46d5e45a71c421",
     "tests/wave13-operator-ui.test.mjs": "1376ab48ff12701f18c83938bd35c497961e8fd1",
-    "tests/wave6.test.mjs": "675f6973138f346eeae85d92683884e1722d1ea3"
+    "tests/wave6.test.mjs": "675f6973138f346eeae85d92683884e1722d1ea3",
+    "src/lore-world-ontology.js": "29123ffd7927e038d43124350e72322e8e2df29a"
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "a6f8fca7f499854804400edb3adcaf5847a84659",
+      "digest": "2c73f122101679b78c6b05bd09a8dc9268ae3f77",
       "lane": "lore",
-      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
-      "origin": "REPAIR_installed_architecture"
+      "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-representation-registry.js": {
-      "digest": "30d1eccd38fdd9a4e812e59ab062b4d90c0a0640",
+      "digest": "1c03e1f8280f7e1fd92a3b1b8f989d3566529e2d",
       "lane": "lore",
-      "lastCommit": "57879fd 2026-09-28 Wave 6 (D10): stop O(N^2) corpus cloning in Lore study; record batch-engine and D",
-      "origin": "REPAIR_installed_architecture"
+      "lastCommit": "fa8d394 2026-09-29 Turn path at 1,200 Lore entries: 3.3 s to 0.8 s; fix owner evidence eviction",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-source-registry.js": {
-      "digest": "91314c4aab62d0d28c0e95e277dab5555efba32b",
+      "digest": "ef97661e61e17672f3dca4cbe4193eb6ba6dea32",
       "lane": "lore",
-      "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
-      "origin": "REPAIR_installed_architecture"
+      "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-study-runtime.js": {
       "digest": "7482c8fad074c2409e94c98ce37b1a2bd0b68f7f",
@@ -257,10 +261,11 @@
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-contextual-retrieval.js": {
-      "digest": "7d0a85f0a7ec218ff786e1789936aa6a33341e32",
+      "digest": "0ef0e11284ef0fa71078af5edf4550baf4c416e7",
       "lane": "lore",
-      "lastCommit": "c7494ae 2026-09-29 D7: conflict membership no longer overrides an asserted claim's own status (fixes",
-      "origin": "REPAIR_installed_architecture"
+      "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-study-engine.js": {
       "digest": "6856f964dcea7b2cbfccec19a5efa83759ddc8b0",
@@ -386,6 +391,20 @@
       "lastCommit": "f37d70a 2026-09-29 Repair baseline failures at their owners: Scene prefetch receipt, event cause sceneId, Scen",
       "origin": "REPAIR_installed_architecture",
       "review": "CLOSURE_ROUND_20260929 (ASSEMBLY_DRIFT_REVIEW.md, closure addendum)"
+    },
+    "src/lore-navigation-summary-registry.js": {
+      "digest": "423880b74f5e39b4fb3d47c0809c5f1a62e7eb41",
+      "lane": "lore",
+      "lastCommit": "fa8d394 2026-09-29 Turn path at 1,200 Lore entries: 3.3 s to 0.8 s; fix owner evidence eviction",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
+    },
+    "src/lore-world-ontology.js": {
+      "digest": "29123ffd7927e038d43124350e72322e8e2df29a",
+      "lane": "lore",
+      "lastCommit": "0890531 2026-09-29 Batched Lore study at 1,200 entries: longest event-loop stall 804 ms to 412 ms",
+      "origin": "REPAIR_installed_architecture",
+      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     }
   }
 }

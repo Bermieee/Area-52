@@ -32,7 +32,7 @@ import { CoprocessorResourceConnections } from '../coprocessor/resource-connecti
 import { NativeHotDeepScheduler } from '../coprocessor/native-hot-deep-scheduler.js';
 import { Capability as CoprocessorCapability } from '../coprocessor/constants.js';
 import { RuntimeDirectorAdmissionBridge, createResourceDirectorExecutor } from '../coprocessor/runtime-director-bridge.js';
-import { createSceneObservationTask } from '../coprocessor/scene-observation-specialist.js';
+import { createSceneObservationTask, boundSceneNarrative } from '../coprocessor/scene-observation-specialist.js';
 import { createJevCognitiveTask, createJevProviderInput } from '../coprocessor/jev-decision-core.js';
 import { adjudicateJevForOwner } from '../coprocessor/owner-integration.js';
 import { ContinuousConsolidationWorker } from '../coprocessor/cognitive-worker-pipelines.js';
@@ -905,7 +905,8 @@ export class DevelopmentDeploymentBrain {
     phase='FOREGROUND_USER',parentWorkId=null,foregroundBudgetMs=1200,hostEvent=null,
   }={}){
     const chat=String(chatId??'').trim(),turn=String(turnId??'').trim(),generation=String(generationId??'').trim();
-    const sourceRef=String(sourceRevisionId??'').trim(),text=String(narrative??'').trim().slice(0,6000);
+    // Head + whole ending for long replies (row 28); the coverage is recorded on the task (metadata.narrativeCoverage).
+    const sourceRef=String(sourceRevisionId??'').trim(),text=boundSceneNarrative(narrative).text;
     if(!chat||!turn||!generation||!sourceRef||!text)throw new TypeError('Scene observation work requires chatId, turnId, generationId, sourceRevisionId, and narrative');
     const correlation=String(correlationId??('corr:'+generation));
     const current=this.scene.ensureChatScene(chat,{sourceRevisionRefs:[sourceRef],evidenceRefs:[sourceRef]});
@@ -916,7 +917,8 @@ export class DevelopmentDeploymentBrain {
         activity:hostEvent.activity??null,messageId:hostEvent.messageId??null,messageRevision:hostEvent.messageRevision??null,
         causationId:hostEvent.causationId??null,
       }:null,
-      foregroundBudgetMs,now:Date.now(),narrative:text,
+      // The full reply: the task measures the output estimate and records coverage against the whole source.
+      foregroundBudgetMs,now:Date.now(),narrative:String(narrative??'').trim(),
       sceneWorkload:{cast:current.fields?.activeCast?.value?.length??0,objects:current.fields?.immediateObjects?.value?.length??0,relationships:current.fields?.activeRelationships?.value?.length??0,threads:current.fields?.activeThreads?.value?.length??0},
     });
     const superseded=this.#cancelSceneObservationTasks({chatId:chat,phase,exceptTaskId:task.taskId,reason:'SCENE_OBSERVATION_SUPERSEDED'});

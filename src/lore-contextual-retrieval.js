@@ -31,10 +31,12 @@ function sourceContext(runtime, sourceId, resolution = null) {
   const learned = runtime.store.currentLearnedRevision(sourceId);
   if (!source || !revision || revision.state === 'REMOVED' || !learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== revision.id) return null;
   // R3: a claim that a later same-entity, same-property, same-timeline claim supersedes is HISTORICAL for Truth. The stored
-  // artifact is not changed; only this view of it is.
+  // artifact is not changed; only this view of it is. Conflict membership is recorded (conflictSetIds) but does not change an
+  // asserted claim's own status: reported members are UNRESOLVED by their attribution, and the conflict set itself is surfaced
+  // to Truth by the story query packet.
   const artifacts = runtime.store.artifactsForLearnedRevision(learned.id).map((row) => (
     resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
-      : resolution?.conflictedIds.has(row.id) ? {...row, unresolved: true, conflictSetIds: resolution.conflicts.filter((c) => c.artifactIds.includes(row.id)).map((c) => c.id)} : row
+      : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: resolution.conflicts.filter((c) => c.artifactIds.includes(row.id)).map((c) => c.id)} : row
   ));
   const entities = artifacts
     .filter((row) => row.artifactType === ArtifactType.ENTITY)

@@ -25,7 +25,7 @@ test('golden world: superseded state is HISTORICAL, reports and the conflicting 
   assert.equal(hint('tavern-intact'), 'HISTORICAL', 'superseded by the later burn-down on the same entity/property/timeline');
   assert.equal(hint('blade-report-a'), 'UNRESOLVED');
   assert.equal(hint('blade-report-b'), 'UNRESOLVED');
-  assert.equal(hint('fire'), 'UNRESOLVED', 'its fate claim conflicts with the reports');
+  assert.notEqual(hint('fire'), 'UNRESOLVED', 'an asserted source keeps its own status; the conflict is surfaced as a conflict set, not by demoting the asserted claim');
   assert.equal(hint('mara'), 'CURRENT');
   const conflicts = loreOf(h).runtime.store.conflicts(loreOf(h).runtime.registry);
   assert.equal(conflicts.length, 1);

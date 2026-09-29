@@ -669,7 +669,10 @@ export class MemoryTemporalProducer {
 
   reviseReflection(input) {
     const reflection=this.experienceStore.reviseReflection(input);
-    this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
+    this.summaryHierarchy.invalidateEvidenceRefs([
+      ...memoryReferenceValues(reflection,'supportEvidenceRefs'),
+      ...memoryReferenceValues(reflection,'contradictionEvidenceRefs'),
+    ],'REFLECTION_CHANGED');
     this.historian.build();
     this.plasticity.observeArtifact(reflection);
     this.notifyUi('MEMORY_REFLECTION_REVISED',memoryReferenceValues(reflection,'supportEvidenceRefs'),{reflectionId:reflection.id});

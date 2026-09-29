@@ -1,5 +1,6 @@
 import { EXECUTION_STATUS, LIFECYCLE_STATUS } from './constants.js';
 import { deepClone } from './utils.js';
+import { MemoryPersistenceAdapter } from './persistence.js';
 
 const SNAPSHOT_VERSION = 2;
 
@@ -27,7 +28,10 @@ export class WorkLedger {
   }
 
   flush() {
-    this.persistence?.save?.(this.snapshot());
+    // MemoryPersistenceAdapter.save() stores its own structured clone, so cloning here first copied the whole ledger twice
+    // on every flush. The stored snapshot is the same (asserted by tests); other adapters still receive a private copy.
+    if (this.persistence instanceof MemoryPersistenceAdapter) this.persistence.save({ version: SNAPSHOT_VERSION, sequence: this.sequence, records: [...this.records.values()] });
+    else this.persistence?.save?.(this.snapshot());
   }
 
   snapshot() {

@@ -83,8 +83,12 @@ export function sourceTruthHint(runtime, sourceId) {
   };
 }
 
+// Cap ledger row 17: every unique term of a record is indexed (the first 192 used to be, so the tail of a long Lore entry
+// was unsearchable). Lexical score is the fraction of query terms matched, so more indexed terms only add true matches.
+// Indexes saved under the capped tokenization are rebuilt once on restore (RECORD_TOKEN_REVISION).
+export const RECORD_TOKEN_REVISION = 'all-unique-terms-v2';
 function recordTokens(text, extra = []) {
-  return tokenize(text + ' ' + extra.join(' ')).slice(0, LORE_WAVE3_LIMITS.maxTokensPerRecord);
+  return tokenize(text + ' ' + extra.join(' '));
 }
 
 function summaryTruthStatus(evidence) {
@@ -159,6 +163,15 @@ function candidateNomination({record, intentId, score, reason}) {
     settlementAuthority: false,
     canonicalMutationAuthority: false,
   };
+}
+
+// Bounded retrieval representation of a long query: indexed terms of the whole input, rarest first (ties keep input order).
+const DERIVED_QUERY_TOKENS = 64;
+function derivedQueryTokens(tokens, inverted) {
+  const rows = tokens.map((token, index) => ({token, index, postings: inverted.get(token)?.size || 0}));
+  const indexed = rows.filter((row) => row.postings > 0).sort((a, b) => a.postings - b.postings || a.index - b.index);
+  const chosen = (indexed.length ? indexed : rows).slice(0, DERIVED_QUERY_TOKENS);
+  return chosen.sort((a, b) => a.index - b.index).map((row) => row.token);
 }
 
 export class LoreContextualRetrievalIndex {
@@ -388,33 +401,41 @@ export class LoreContextualRetrievalIndex {
     const text = String(query || '').trim();
     const allowed = allowedSourceIds == null ? null : new Set((allowedSourceIds || []).map(String));
     if (!text) return {kind: 'LoreRetrievalResult', query: text, intent: 'EMPTY', nominations: [], diagnostics: {reason: 'EMPTY_QUERY'}};
-    if (text.length > LORE_WAVE3_LIMITS.maxQueryCharacters) throw new Error('LORE_QUERY_LENGTH_LIMIT_EXCEEDED');
-    const queryTokens = tokenize(text);
+    // Cap ledger row 16: a long query no longer disables Lore retrieval (it used to throw). A query within the limit is
+    // used as before; a longer one becomes a bounded retrieval representation built from the COMPLETE input: its indexed
+    // terms, rarest (most specific) first, at most DERIVED_QUERY_TOKENS. The original text stays the request identity.
+    const derived = text.length > LORE_WAVE3_LIMITS.maxQueryCharacters;
+    const queryTokens = derived ? derivedQueryTokens(tokenize(text), this.inverted) : tokenize(text);
     const resolvedIntent = intent === 'AUTO'
       ? (/\b(overview|about|history|branch|faction|community|world|lore|background)\b/i.test(text) ? 'BROAD' : 'NARROW')
       : String(intent).toUpperCase();
     const resolvedIntentId = intentId || 'lore-intent:' + stableHash(resolvedIntent + '|' + text.toLowerCase());
 
+    // Cap ledger row 18: the examined page is filled with records this story may read and that are current (the scope and
+    // stale filters used to run after the 512 cap, so out-of-scope records could use up the page), taking the most
+    // specific terms first. When nothing hits the cap the examined set is the same as before.
+    const fenceMoved = this.fenceMoved();
+    let scopeFiltered = 0, staleFiltered = 0, examinedCapped = false;
+    const rejected = new Set();
     const candidateIds = new Set();
-    for (const token of queryTokens) {
+    const collectionOrder = queryTokens.map((token, index) => ({token, index, postings: this.inverted.get(token)?.size || 0}))
+      .sort((a, b) => a.postings - b.postings || a.index - b.index);
+    for (const {token} of collectionOrder) {
       for (const id of this.inverted.get(token) || []) {
+        if (candidateIds.has(id) || rejected.has(id)) continue;
+        const record = this.records.get(id);
+        if (!record) continue;
+        if (fenceMoved && !this.recordCurrent(record)) { staleFiltered += 1; rejected.add(id); continue; }
+        if (allowed && (record.sourceIds || []).some((sourceId) => !allowed.has(String(sourceId)))) { scopeFiltered += 1; rejected.add(id); continue; }
+        if (candidateIds.size >= LORE_WAVE3_LIMITS.maxExaminedEntries) { examinedCapped = true; break; }
         candidateIds.add(id);
-        if (candidateIds.size >= LORE_WAVE3_LIMITS.maxExaminedEntries) break;
       }
-      if (candidateIds.size >= LORE_WAVE3_LIMITS.maxExaminedEntries) break;
+      if (examinedCapped) break;
     }
 
     const scored = [];
-    let scopeFiltered = 0, staleFiltered = 0;
-    const fenceMoved = this.fenceMoved();
     for (const id of candidateIds) {
       const record = this.records.get(id);
-      if (!record) continue;
-      if (fenceMoved && !this.recordCurrent(record)) { staleFiltered += 1; continue; }
-      if (allowed && (record.sourceIds || []).some((sourceId) => !allowed.has(String(sourceId)))) {
-        scopeFiltered += 1;
-        continue;
-      }
       const recordSet = new Set(record.tokens);
       const matched = queryTokens.filter((token) => recordSet.has(token));
       if (!matched.length) continue;
@@ -455,7 +476,9 @@ export class LoreContextualRetrievalIndex {
       indexRevision: this.revision,
       nominations,
       diagnostics: {
-        examined: Math.min(candidateIds.size, LORE_WAVE3_LIMITS.maxExaminedEntries),
+        examined: candidateIds.size,
+        examinedCapped,
+        queryDerived: derived,
         matched: scored.length,
         returned: nominations.length,
         boundedOut: Math.max(0, scored.length - nominations.length),
@@ -534,6 +557,7 @@ export class LoreContextualRetrievalIndex {
       kind: 'LoreContextualRetrievalIndexSnapshot',
       revision: this.revision,
       builtResolutionKey: this.builtResolutionKey ?? null,
+      tokenRevision: RECORD_TOKEN_REVISION,
       recordsIncluded: Boolean(includeRecords),
       records: includeRecords ? [...this.records.values()].map(deepClone) : [],
       diagnostics: deepClone(this.diagnostics),

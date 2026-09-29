@@ -4,6 +4,21 @@ import {createCognitiveTask} from './contracts.js';
 export const SCENE_OBSERVATION_TASK_TYPE='SCENE_OBSERVATION';
 export const SCENE_OBSERVATION_CONTRACT_VERSION='1.0.0';
 
+// One Scene observation call reads at most SCENE_NARRATIVE_WINDOW characters (a PHYSICAL per-call bound on latency and
+// provider context; cap ledger row 28). A longer reply used to be cut to its first 6,000 characters, so the end of the
+// reply, where the scene usually changes, was never observed. Now a long reply is read as its opening (setup, cast) plus
+// its whole ending, with an explicit marker, and the task records the coverage (never reported as complete when it is
+// not). Still one call per observation: no extra provider pressure.
+export const SCENE_NARRATIVE_WINDOW=Object.freeze({characters:6000,head:1200,marker:'\n… [middle of the reply omitted for Scene observation] …\n'});
+export function boundSceneNarrative(narrative=''){
+  const text=String(narrative??'').trim(),limit=SCENE_NARRATIVE_WINDOW.characters;
+  if(text.length<=limit)return{text,coverage:{kind:'SceneNarrativeCoverage',sourceCharacters:text.length,observedCharacters:text.length,complete:true,window:'FULL',omittedRange:null}};
+  const marker=SCENE_NARRATIVE_WINDOW.marker,head=SCENE_NARRATIVE_WINDOW.head,tail=limit-head-marker.length;
+  const out=text.slice(0,head)+marker+text.slice(text.length-tail);
+  return{text:out,coverage:{kind:'SceneNarrativeCoverage',sourceCharacters:text.length,observedCharacters:head+tail,complete:false,window:'HEAD_TAIL',
+    omittedRange:[head,text.length-tail],reasonCode:'SCENE_NARRATIVE_WINDOW',canonicalKnowledgeDropped:false}};
+}
+
 const FIELD_NAMES=Object.freeze([
   'location','narrativeTime','activeCast','activeRelationships','immediateObjects',
   'activeThreads','activeObjectives','boundaryState','atmosphere',
@@ -53,6 +68,7 @@ export function createSceneObservationTask({
         causationId:hostIdentity.causationId??null,
       }:null,
       expectedOutputTokens:sceneObservationOutputEstimate(narrative,sceneWorkload),outputBudgetPolicy:'ADAPTIVE_SCENE',sceneWorkload,
+      narrativeCoverage:boundSceneNarrative(narrative).coverage,
       latencyBudgetMs:null,
       foregroundBudgetMs:foreground?budget:null,
       foregroundQuorumDeadline:foreground?now+budget:null,
@@ -70,7 +86,7 @@ export const SceneObservationSpecialist=Object.freeze({
 });
 
 export function sceneObservationOutputEstimate(narrative='',workload={}){
-  const narrativeBytes=new TextEncoder().encode(String(narrative).trim().slice(0,6000)).length;
+  const narrativeBytes=new TextEncoder().encode(boundSceneNarrative(narrative).text).length;
   const entities=['cast','objects','relationships','threads'].reduce((sum,key)=>sum+(Number.isSafeInteger(workload?.[key])&&workload[key]>0?workload[key]:0),0);
   // Routing estimate for the final structured payload, independent of reasoning.
   return Math.ceil(narrativeBytes/4)+FIELD_NAMES.length*64+entities*48;
@@ -80,7 +96,7 @@ export function buildSceneObservationInput(task,input={}){
   const narrative=String(input.narrative??'').trim();
   if(!narrative)fail(FailureCode.SCHEMA_INVALID,'Scene observation narrative is required');
   const bounded={
-    narrative:narrative.slice(0,6000),
+    narrative:boundSceneNarrative(narrative).text,
     phase:String(input.phase??task.metadata?.phase??'FOREGROUND_USER'),
     sceneId:req(input.sceneId,'Scene.sceneId'),
     baseRevision:positiveInt(input.baseRevision??task.sceneRevision,'Scene.baseRevision'),

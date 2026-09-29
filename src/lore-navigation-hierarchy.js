@@ -27,10 +27,14 @@ function currentFreshSources(runtime) {
       diagnostics.push({sourceId: source.sourceId, status: 'UNSTUDIED_OR_STALE_EXCLUDED', sourceRevisionId: revision.id});
       continue;
     }
-    const treePath = Array.isArray(revision.metadata?.treePath) ? revision.metadata.treePath.map(String) : [];
+    let treePath = Array.isArray(revision.metadata?.treePath) ? revision.metadata.treePath.map(String) : [];
+    // Cap ledger row 21: a source nested deeper than the navigation depth was excluded from the hierarchy and therefore
+    // from Lore retrieval. The navigation tree stays bounded, but the deeper levels are folded into one virtual group at
+    // the last level (the authored Tree is not changed), so the source is still navigable and retrievable.
     if (treePath.length > LORE_WAVE3_LIMITS.maxHierarchyDepth) {
-      diagnostics.push({sourceId: source.sourceId, status: 'DEPTH_LIMIT_EXCLUDED', depth: treePath.length});
-      continue;
+      const keep = LORE_WAVE3_LIMITS.maxHierarchyDepth - 1;
+      diagnostics.push({sourceId: source.sourceId, status: 'DEPTH_FOLDED', depth: treePath.length, foldedLevels: treePath.length - keep});
+      treePath = [...treePath.slice(0, keep), treePath.slice(keep).join(' / ')];
     }
     rows.push({source, revision, learned, treePath});
   }

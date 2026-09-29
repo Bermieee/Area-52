@@ -918,6 +918,21 @@ export function renderLoreStudySurface(host,{loreStudy,actionRouter,scope,refres
     refresh?.();
   }});
   actions.append(discover,accept,run);form.append(actions,status);
+  // Accepted Lore this chat may not read: say so and offer the explicit per-chat authorization (no re-study).
+  const access=data?.storyAccess;
+  if(access?.chatId&&(access.unauthorized??[]).length&&typeof loreStudy.authorizeForChat==='function'&&loreStudy.canAuthorizeForChat?.()){
+    const box=element(d,'div',{className:'a52-wave13-lore-story-access',attrs:{role:'status'}});
+    box.append(message(d,(access.authorized??[]).length?'Some accepted Lore is not used in this chat':'This chat cannot read the accepted Lore',access.explanation??'Accepted Lorebooks are authorized per chat.',(access.authorized??[]).length?'historical':'warning'));
+    for(const book of access.unauthorized.slice(0,8)){
+      box.append(createButton(d,{label:'Use "'+String(book.title??book.lorebookId)+'" for this chat',scope,variant:'secondary',onPress:async()=>{
+        status.textContent='Authorizing the accepted Lorebook for this chat…';status.dataset.status='loading';
+        try{await loreStudy.authorizeForChat(book.lorebookId);status.textContent='Authorized for this chat. Its studied entries are available from the next turn; nothing was re-studied.';status.dataset.status='ready';}
+        catch(error){status.textContent=String(error?.message??error);status.dataset.status='error';}
+        refresh?.();
+      }}));
+    }
+    form.append(box);
+  }
   if(!caps.discover)form.append(message(d,'SillyTavern discovery unavailable','The host does not export selected-Lorebook discovery. The UI will not invent a Lorebook identity.','offline'));
   if(!caps.accept)form.append(message(d,'Acceptance action unavailable','The Lore owner acceptance contract is not exported by this assembly.','offline'));
   if(caps.accept&&!caps.run)form.append(message(d,'Study action unavailable','The source can be accepted, but study execution is not exported. Acceptance must not be treated as retrieval readiness.','warning'));

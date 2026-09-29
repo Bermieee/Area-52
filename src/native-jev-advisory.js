@@ -34,6 +34,9 @@ export class NativeJevAdvisory {
     this.rows = new Map((snapshot?.rows ?? []).map((row) => [row.conflictSetId, clone(row)]));
     this.skipped = clone(snapshot?.skipped ?? []).slice(-32);
     this.sequence = Number(snapshot?.sequence ?? 0);
+    // Cap ledger row 58: sets that were eligible but over this turn's advisory budget. They go first on a later turn
+    // (oldest first), so a story with many conflicts is eventually advised without more calls per turn.
+    this.deferred = new Map(clone(snapshot?.deferred ?? []));
   }
 
   // The host supplies the Jev service (a JevDomainAdapterService), whether a Jev resource is actually configured, and
@@ -58,14 +61,24 @@ export class NativeJevAdvisory {
     const out = [];
     let sets;
     try { sets = loreInterface.conflictSets({ chatId: record.chatId, certainty: 'ESTABLISHED' }) ?? []; } catch { return []; }
+    const eligible = [];
     for (const set of sets) {
       if (!set.sourceRevisionRefs.some((ref) => delivered.has(ref))) continue;
-      if (set.members.length > this.limits.maxMembersPerSet || set.alternatives.length < 2) { this.#skip(set.id, set.members.length > this.limits.maxMembersPerSet ? 'TOO_MANY_MEMBERS' : 'NOT_TWO_ALTERNATIVES'); continue; }
+      // A set too large for one advisory stays UNRESOLVED in Truth (the conflict itself is never hidden); it is only
+      // not sent to Jev, and the reason is recorded.
+      if (set.members.length > this.limits.maxMembersPerSet || set.alternatives.length < 2) { this.#skip(set.id, set.members.length > this.limits.maxMembersPerSet ? 'UNRESOLVED_TOO_MANY_MEMBERS' : 'NOT_TWO_ALTERNATIVES'); continue; }
       const standing = this.rows.get(set.id);
-      if (standing && this.isFresh(standing, loreInterface)) continue; // already advised against this exact fence
-      out.push(set);
-      if (out.length >= this.limits.maxSetsPerTurn) break;
+      if (standing && this.isFresh(standing, loreInterface)) { this.deferred.delete(set.id); continue; } // already advised against this exact fence
+      eligible.push(set);
     }
+    // Previously deferred sets first (oldest deferral first), then the rest in the owner's order.
+    const order = (set) => this.deferred.has(set.id) ? this.deferred.get(set.id) : Infinity;
+    eligible.map((set, index) => ({ set, index })).sort((a, b) => order(a.set) - order(b.set) || a.index - b.index)
+      .forEach(({ set }) => {
+        if (out.length < this.limits.maxSetsPerTurn) { out.push(set); this.deferred.delete(set.id); }
+        else if (!this.deferred.has(set.id)) this.deferred.set(set.id, ++this.sequence);
+      });
+    while (this.deferred.size > this.limits.maxRows) this.deferred.delete(this.deferred.keys().next().value);
     return out;
   }
 
@@ -177,6 +190,7 @@ export class NativeJevAdvisory {
 
   remember(row) {
     if (!row?.conflictSetId) return null;
+    this.rows.delete(row.conflictSetId); // re-insert: the most recently advised set is the last to be evicted
     this.rows.set(row.conflictSetId, clone(row));
     while (this.rows.size > this.limits.maxRows) this.rows.delete(this.rows.keys().next().value);
     return row;
@@ -207,10 +221,10 @@ export class NativeJevAdvisory {
   }
 
   list() { return [...this.rows.values()].map(clone); }
-  snapshot() { return { kind: 'NativeJevAdvisorySnapshot', rows: this.list(), skipped: clone(this.skipped), sequence: this.sequence }; }
+  snapshot() { return { kind: 'NativeJevAdvisorySnapshot', rows: this.list(), skipped: clone(this.skipped), deferred: [...this.deferred.entries()], sequence: this.sequence }; }
   diagnostics() {
     const counts = {};
     for (const row of this.rows.values()) counts[row.status] = (counts[row.status] ?? 0) + 1;
-    return { kind: 'NativeJevAdvisoryDiagnostics', attached: Boolean(this.#service), configured: this.available, counts, skipped: clone(this.skipped), limits: { ...this.limits }, authorityGranted: false };
+    return { kind: 'NativeJevAdvisoryDiagnostics', attached: Boolean(this.#service), configured: this.available, counts, skipped: clone(this.skipped), deferred: { count: this.deferred.size, reasonCode: this.deferred.size ? 'DEFERRED_JEV_TURN_BUDGET' : null }, limits: { ...this.limits }, authorityGranted: false };
   }
 }

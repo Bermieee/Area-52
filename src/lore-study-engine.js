@@ -20,7 +20,8 @@ import {
 } from './lore-temporal-rules.js';
 
 // Study engine revision: a learned revision made by an older engine is re-studied (see LoreStudyRuntime).
-export const STUDY_ENGINE_REVISION = 'lore-study-engine-v2+' + TEMPORAL_RULES_REVISION;
+// v3: work is sliced and resumed instead of capped; every sentence of a source is studied (coverage receipt).
+export const STUDY_ENGINE_REVISION = 'lore-study-engine-v3+' + TEMPORAL_RULES_REVISION;
 
 export const STUDY_UNITS = Object.freeze([
   'STRUCTURE_CONTEXT',
@@ -32,13 +33,28 @@ export const STUDY_UNITS = Object.freeze([
   'VALIDATE',
 ]);
 
-const MAX_SENTENCES = 96;
-const MAX_CHUNKS = 24;
-const MAX_ENTITIES = 96;
-const MAX_CLAIMS = 192;
-const MAX_RELATIONSHIPS = 128;
-const MAX_CONCEPTS = 128;
+// Work per step, not knowledge per source (cap ledger rows 1-5): a unit processes at most this much and repeats, with a
+// cursor in the session, until the whole source is covered. The Runtime checkpoints between steps and fences each one on
+// the source revision; publication stays atomic at the end (LoreStudyRuntime.run).
+export const STUDY_SLICE_LIMITS = Object.freeze({
+  sentencesPerSlice: 96,
+  chunksPerSlice: 24,
+  entitiesPerSlice: 96,
+  claimRowsPerSlice: 192,
+  relationshipRowsPerSlice: 128,
+});
+// Physical sanity bound: the number of retrieval form types is small by construction; exceeding it fails the study.
 const MAX_RETRIEVAL_FORMS = 32;
+// Transient per-step index of artifact ids (the session is cloned between steps, so it is rebuilt once per step).
+const artifactIdIndex = new WeakMap();
+function artifactIds(workspace) {
+  let ids = artifactIdIndex.get(workspace);
+  if (!ids || ids.size !== workspace.artifacts.length) {
+    ids = new Set(workspace.artifacts.map((row) => row.id));
+    artifactIdIndex.set(workspace, ids);
+  }
+  return ids;
+}
 
 function cleanName(value) {
   return String(value || '').trim().replace(/^[\s"'“”‘’]+|[\s"'“”‘’.,!?;:]+$/g, '').replace(/^the\s+/i, '');
@@ -48,8 +64,7 @@ function splitSentences(content) {
   return String(content || '')
     .split(/(?<=[.!?])\s+|\n+/)
     .map((text) => text.trim())
-    .filter(Boolean)
-    .slice(0, MAX_SENTENCES);
+    .filter(Boolean);
 }
 
 function spanFor(sentence, sentenceIndex) {
@@ -106,13 +121,16 @@ function createWorkspace(source, revision) {
     warnings: [],
     unitReceipts: [],
     validation: null,
+    // Coverage receipt: how much of the source each sliced unit has processed (validated before publication).
+    coverage: {sentenceCount: 0, sentencesChunked: 0, sentencesAnalyzed: 0, entitiesFinalized: 0, claimRowsFinalized: 0, relationshipRowsFinalized: 0},
     // The registry keeps unknown metadata keys (at, claimAt, timeline, timeUnit) under `extra`.
     time: readSourceTime({...(revision.metadata?.extra || {}), ...(revision.metadata || {})}, {lorebookId: source.lorebookId}),
   };
 }
 
 function addArtifact(workspace, artifact) {
-  if (!workspace.artifacts.some((row) => row.id === artifact.id)) workspace.artifacts.push(artifact);
+  const ids = artifactIds(workspace);
+  if (!ids.has(artifact.id)) { workspace.artifacts.push(artifact); ids.add(artifact.id); }
   return artifact;
 }
 
@@ -142,7 +160,6 @@ function claimKey(subjectId, predicate, value) {
 }
 
 function pushClaim(workspace, sentence, sentenceIndex, subjectId, predicate, value, extra = {}) {
-  if (workspace.claimRows.length >= MAX_CLAIMS) return;
   const temporalClass = extra.temporalClass || temporalFor(sentence);
   const authorityClass = extra.authorityClass || authorityFor(sentence);
   const unresolved = extra.unresolved ?? (authorityClass === AuthorityClass.UNRESOLVED || temporalClass === TemporalClass.UNCERTAIN);
@@ -164,7 +181,6 @@ function pushClaim(workspace, sentence, sentenceIndex, subjectId, predicate, val
 }
 
 function pushRelationship(workspace, sentence, sentenceIndex, subjectId, predicate, objectId, extra = {}) {
-  if (workspace.relationshipRows.length >= MAX_RELATIONSHIPS) return;
   const temporalClass = extra.temporalClass || temporalFor(sentence);
   const authorityClass = extra.authorityClass || authorityFor(sentence);
   workspace.relationshipRows.push({
@@ -430,7 +446,7 @@ function analyzeSentence(workspace, sentence, index) {
 
   const candidates = s.match(/\b[A-Z][A-Za-z'’-]*(?:\s+[A-Z][A-Za-z'’-]*){0,3}\b/g) || [];
   const leadingNoise = /^(The|A|An|Later|Before|After|Because|Except|Around|During|When|While|Although|However|Her|His|Their|Its|Our|My|Your|Blue|Silver|Gold|Golden|Black|White|Red)\b/i;
-  for (const candidate of candidates.slice(0, 8)) {
+  for (const candidate of candidates) {
     if (leadingNoise.test(candidate)) {
       const remainder = candidate.replace(leadingNoise, '').trim();
       if (remainder && /^[A-Z]/.test(remainder)) ensureEntity(workspace, remainder, null, index);
@@ -446,8 +462,8 @@ function analyzeSentence(workspace, sentence, index) {
   });
 }
 
-function finalizeEntities(workspace) {
-  const rows = Object.values(workspace.entities).slice(0, MAX_ENTITIES);
+function finalizeEntities(workspace, offset, limit) {
+  const rows = Object.values(workspace.entities).slice(offset, offset + limit);
   for (const row of rows) {
     const artifact = makeArtifact({
       type: ArtifactType.ENTITY,
@@ -496,9 +512,11 @@ function temporalPayload(workspace, row) {
   return out;
 }
 
-function finalizeClaims(workspace) {
+// Claim rows [offset, offset+limit). A repeated logicalKey yields the same artifact id, so addArtifact keeps the first
+// occurrence across slices exactly as a single pass did.
+function finalizeClaimRows(workspace, offset, limit) {
   const seen = new Set();
-  for (const row of workspace.claimRows) {
+  for (const row of workspace.claimRows.slice(offset, offset + limit)) {
     if (seen.has(row.logicalKey)) continue;
     seen.add(row.logicalKey);
     const artifact = makeArtifact({
@@ -523,14 +541,23 @@ function finalizeClaims(workspace) {
     });
     addArtifact(workspace, artifact);
   }
+}
 
+// Relationship rows [offset, offset+limit); runs after every claim row is finalized.
+function finalizeRelationshipRows(workspace, offset, limit) {
+  const claimsBySentence = new Map();
+  for (const artifact of workspace.artifacts) {
+    if (artifact.artifactType !== ArtifactType.CLAIM) continue;
+    const index = artifact.provenance.span?.sentenceIndex;
+    const ids = claimsBySentence.get(index) || [];
+    ids.push(artifact.id);
+    claimsBySentence.set(index, ids);
+  }
   const relationSeen = new Set();
-  for (const row of workspace.relationshipRows) {
+  for (const row of workspace.relationshipRows.slice(offset, offset + limit)) {
     if (relationSeen.has(row.logicalKey)) continue;
     relationSeen.add(row.logicalKey);
-    const supporting = workspace.artifacts
-      .filter((artifact) => artifact.artifactType === ArtifactType.CLAIM && artifact.provenance.span?.sentenceIndex === row.sentenceIndex)
-      .map((artifact) => artifact.id);
+    const supporting = [...(claimsBySentence.get(row.sentenceIndex) || [])];
     addArtifact(workspace, makeArtifact({
       type: ArtifactType.RELATIONSHIP,
       sourceId: workspace.source.sourceId,
@@ -616,7 +643,7 @@ function deriveOntology(workspace) {
   }
 
   const seen = new Set();
-  for (const row of concepts.slice(0, MAX_CONCEPTS)) {
+  for (const row of concepts) {
     const key = row.entityId + '|' + row.concept + '|' + row.parent;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -648,7 +675,7 @@ function deriveOntology(workspace) {
     groups.set(key, ids);
   }
   for (const [conceptKey, entityIds] of groups.entries()) {
-    const uniqueIds = boundedUnique(entityIds, 64);
+    const uniqueIds = boundedUnique(entityIds, Infinity);
     addArtifact(workspace, makeArtifact({
       type: ArtifactType.COMMUNITY,
       sourceId: workspace.source.sourceId,
@@ -711,7 +738,12 @@ function retrievalArtifacts(workspace) {
     },
   ];
 
-  for (const row of forms.slice(0, MAX_RETRIEVAL_FORMS)) {
+  if (forms.length > MAX_RETRIEVAL_FORMS) {
+    const error = new Error('Lore study produced ' + forms.length + ' retrieval forms; the bound is ' + MAX_RETRIEVAL_FORMS);
+    error.code = 'LORE_RETRIEVAL_FORM_BOUND_EXCEEDED';
+    throw error;
+  }
+  for (const row of forms) {
     addArtifact(workspace, makeArtifact({
       type: ArtifactType.RETRIEVAL,
       sourceId: workspace.source.sourceId,
@@ -828,9 +860,12 @@ export class LoreStudyEngine {
       id: 'study:' + stableHash(source.sourceId + '|' + revision.id),
       sourceId: source.sourceId,
       sourceRevisionId: revision.id,
+      engineRevision: STUDY_ENGINE_REVISION,
       unitIndex: 0,
       units: [...STUDY_UNITS],
-      workspace: createWorkspace(source, revision),
+      // Position inside the current unit; a unit repeats (one bounded slice per step) until it reports done.
+      cursor: {phase: null, offset: 0},
+      workspace: (() => { const workspace = createWorkspace(source, revision); workspace.coverage.sentenceCount = workspace.sentences.length; return workspace; })(),
       complete: false,
       valid: null,
     };
@@ -842,7 +877,11 @@ export class LoreStudyEngine {
     const workspace = session.workspace;
     if (!unit) throw new Error('Study session has no remaining unit');
 
-    if (unit === 'STRUCTURE_CONTEXT') {
+    const cursor = session.cursor || (session.cursor = {phase: null, offset: 0});
+    const limits = STUDY_SLICE_LIMITS;
+    let unitDone = true;
+    let slice = null;
+    if (unit === 'STRUCTURE_CONTEXT' && cursor.offset === 0) {
       addArtifact(workspace, makeArtifact({
         type: ArtifactType.STRUCTURE,
         sourceId: workspace.source.sourceId,
@@ -861,8 +900,12 @@ export class LoreStudyEngine {
         derivation: 'STRUCTURAL_READING',
         authorityClass: AuthorityClass.DERIVED,
       }));
+    }
+    if (unit === 'STRUCTURE_CONTEXT') {
+      // Two-sentence context chunks, chunksPerSlice per step, until every sentence is in a chunk.
       const sentences = workspace.sentences;
-      for (let i = 0; i < sentences.length && i < MAX_CHUNKS; i += 2) {
+      let i = cursor.offset;
+      for (let made = 0; i < sentences.length && made < limits.chunksPerSlice; i += 2, made += 1) {
         const chunk = sentences.slice(i, i + 2);
         addArtifact(workspace, makeArtifact({
           type: ArtifactType.CONTEXT_CHUNK,
@@ -884,11 +927,47 @@ export class LoreStudyEngine {
           authorityClass: AuthorityClass.DERIVED,
         }));
       }
+      slice = {phase: 'CHUNK', from: cursor.offset, to: Math.min(i, sentences.length)};
+      workspace.coverage.sentencesChunked = Math.min(i, sentences.length);
+      cursor.offset = i;
+      unitDone = i >= sentences.length;
     } else if (unit === 'ENTITY_ALIAS') {
-      workspace.sentences.forEach((sentence, index) => analyzeSentence(workspace, sentence, index));
-      finalizeEntities(workspace);
+      if ((cursor.phase || 'ANALYZE') === 'ANALYZE') {
+        const end = Math.min(workspace.sentences.length, cursor.offset + limits.sentencesPerSlice);
+        for (let index = cursor.offset; index < end; index += 1) analyzeSentence(workspace, workspace.sentences[index], index);
+        slice = {phase: 'ANALYZE', from: cursor.offset, to: end};
+        workspace.coverage.sentencesAnalyzed = end;
+        cursor.phase = end >= workspace.sentences.length ? 'FINALIZE' : 'ANALYZE';
+        cursor.offset = end >= workspace.sentences.length ? 0 : end;
+        unitDone = false;
+      } else {
+        const total = Object.keys(workspace.entities).length;
+        const end = Math.min(total, cursor.offset + limits.entitiesPerSlice);
+        finalizeEntities(workspace, cursor.offset, end - cursor.offset);
+        slice = {phase: 'FINALIZE', from: cursor.offset, to: end};
+        workspace.coverage.entitiesFinalized = end;
+        cursor.offset = end;
+        unitDone = end >= total;
+      }
     } else if (unit === 'CLAIM_RELATIONSHIP') {
-      finalizeClaims(workspace);
+      if ((cursor.phase || 'CLAIMS') === 'CLAIMS') {
+        const total = workspace.claimRows.length;
+        const end = Math.min(total, cursor.offset + limits.claimRowsPerSlice);
+        finalizeClaimRows(workspace, cursor.offset, end - cursor.offset);
+        slice = {phase: 'CLAIMS', from: cursor.offset, to: end};
+        workspace.coverage.claimRowsFinalized = end;
+        cursor.phase = end >= total ? 'RELATIONSHIPS' : 'CLAIMS';
+        cursor.offset = end >= total ? 0 : end;
+        unitDone = false;
+      } else {
+        const total = workspace.relationshipRows.length;
+        const end = Math.min(total, cursor.offset + limits.relationshipRowsPerSlice);
+        finalizeRelationshipRows(workspace, cursor.offset, end - cursor.offset);
+        slice = {phase: 'RELATIONSHIPS', from: cursor.offset, to: end};
+        workspace.coverage.relationshipRowsFinalized = end;
+        cursor.offset = end;
+        unitDone = end >= total;
+      }
     } else if (unit === 'TEMPORAL_ONTOLOGY') {
       deriveOntology(workspace);
     } else if (unit === 'RETRIEVAL') {
@@ -904,10 +983,15 @@ export class LoreStudyEngine {
       kind: 'LoreStudyUnitReceipt',
       unit,
       index: session.unitIndex,
+      ...(slice ? {slice} : {}),
+      unitComplete: unitDone,
       artifactCount: workspace.artifacts.length,
       checksum: stableHash(workspace.artifacts.map((artifact) => artifact.id)),
     });
-    session.unitIndex += 1;
+    if (unitDone) {
+      session.unitIndex += 1;
+      session.cursor = {phase: null, offset: 0};
+    }
     session.complete = session.unitIndex >= session.units.length;
     return deepClone(session);
   }
@@ -935,12 +1019,28 @@ export class LoreStudyEngine {
         failures.push('derived-became-source:' + artifact.id);
       }
     }
+    // Coverage replaces the old per-source ceilings: a study is valid only when every sentence was chunked and analyzed and
+    // every extracted entity, claim and relationship row was finalized.
+    const c = workspace.coverage || {};
+    const sentenceCount = workspace.sentences.length;
+    const coverage = {
+      kind: 'LoreStudyCoverageReceipt',
+      sentenceCount,
+      sentencesChunked: c.sentencesChunked ?? 0,
+      sentencesAnalyzed: c.sentencesAnalyzed ?? 0,
+      entityCount: Object.keys(workspace.entities).length,
+      entitiesFinalized: c.entitiesFinalized ?? 0,
+      claimRowCount: workspace.claimRows.length,
+      claimRowsFinalized: c.claimRowsFinalized ?? 0,
+      relationshipRowCount: workspace.relationshipRows.length,
+      relationshipRowsFinalized: c.relationshipRowsFinalized ?? 0,
+      canonicalKnowledgeDropped: false,
+    };
+    coverage.coverageComplete = coverage.sentencesChunked === sentenceCount && coverage.sentencesAnalyzed === sentenceCount
+      && coverage.entitiesFinalized === coverage.entityCount && coverage.claimRowsFinalized === coverage.claimRowCount
+      && coverage.relationshipRowsFinalized === coverage.relationshipRowCount;
+    if (!coverage.coverageComplete) failures.push('incomplete-coverage');
     const bounds = {
-      chunks: workspace.artifacts.filter((row) => row.artifactType === ArtifactType.CONTEXT_CHUNK).length <= MAX_CHUNKS,
-      entities: workspace.artifacts.filter((row) => row.artifactType === ArtifactType.ENTITY).length <= MAX_ENTITIES,
-      claims: workspace.artifacts.filter((row) => row.artifactType === ArtifactType.CLAIM).length <= MAX_CLAIMS,
-      relationships: workspace.artifacts.filter((row) => row.artifactType === ArtifactType.RELATIONSHIP).length <= MAX_RELATIONSHIPS,
-      concepts: workspace.artifacts.filter((row) => row.artifactType === ArtifactType.CONCEPT).length <= MAX_CONCEPTS,
       retrieval: workspace.artifacts.filter((row) => row.artifactType === ArtifactType.RETRIEVAL).length <= MAX_RETRIEVAL_FORMS,
     };
     if (Object.values(bounds).some((value) => !value)) failures.push('artifact-bounds');
@@ -949,6 +1049,7 @@ export class LoreStudyEngine {
       ok: failures.length === 0,
       failures,
       bounds,
+      coverage,
       artifactCount: workspace.artifacts.length,
       sourcePreservedExternally: true,
       sourceAuthorityPromotions: failures.filter((failure) => failure.startsWith('authority-promotion') || failure.startsWith('derived-became-source')).length,

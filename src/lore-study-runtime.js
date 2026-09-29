@@ -480,7 +480,11 @@ export class LoreStudyRuntime {
     this.registry.restore(snapshot.registry);
     this.store.restore(snapshot.store);
     this.obligations = new Map((snapshot.obligations || []).map((row) => [row.id, deepClone(row)]));
-    this.sessions = new Map((snapshot.sessions || []).map(([id, session]) => [id, deepClone(session)]));
+    // An in-progress session from another engine revision (e.g. one that truncated sources) restarts from the beginning:
+    // its staged workspace was built under different rules. Its obligation keeps its identity and is re-run.
+    this.sessions = new Map((snapshot.sessions || [])
+      .filter(([, session]) => session?.engineRevision === STUDY_ENGINE_REVISION)
+      .map(([id, session]) => [id, deepClone(session)]));
     this.obligationSequence = Number(snapshot.obligationSequence || 0);
   }
 

@@ -88,3 +88,43 @@ Result: **17 approved, 0 withheld.** `node scripts/verify-development-deployment
 ### Closure addendum 4 (final pass, commit 854aa87): 4 Lore-lane paths re-reviewed
 
 `lore-contextual-retrieval.js` (serving fences, yielding build published atomically), `lore-hierarchy-retrieval-system.js` (runtime attached to the index, `refreshRetrievalYielding`, one-time rebuild of pre-fence snapshots), `lore-intelligence-service.js` (fenced readiness, `deferRetrievalIndex` accept option, default unchanged) and `lore-source-registry.js` (`resolutionKey`, memoised by counts and map identity; `temporalResolution` unchanged in value) changed only in 854aa87. Pinned by the fence and equivalence tests in `worker4-lore-readiness.test.mjs` (23) and `repair-followup-lore-runtime-batch.test.mjs`, mutation-checked; 78 related files pass. Digests refreshed for these four paths only; verifier PASS.
+
+### Addendum 5 (live-diagnostics fixes, 2026-09-29): 6 paths re-reviewed
+
+Each path changed only in the named commit on `repair/live-fixes` (base: main `786c67e`, code-identical to `e0b9ec2`). Same method: provenance (`git log main-786..HEAD -- <path>`), diff read, covering tests passing, mutation checks where noted.
+
+| Path | Commit | Change | Covering tests |
+|---|---|---|---|
+| `src/lore-intelligence-service.js` | d58dc45 | `storyReadStatus`, `authorizeLorebookForStory` (explicit per-chat binding of an accepted Lorebook; no re-study) | `repair-followup-lore-chat-authorization` (4, mutation-checked), worker4-lore-readiness, deployment-brain.integration |
+| `src/ui-core/wave13-operator-adapters.js` | d58dc45 | Lore read reports `LORE_NOT_AUTHORIZED_FOR_CHAT`; Accept binds to the open chat (only when the host supplies a selection); `authorizeForChat`; inspection `loreSync.reasonCode`/`scopeState` | same, wave13-operator-ui (67) |
+| `src/ui-core/wave13-operator-surfaces.js` | d58dc45 | "Use for this chat" action in the Lore panel | `repair-followup-lore-chat-authorization` (surface render + click), worker3-lore-neural-ui |
+| `src/coprocessor/provider-adapters.js`, `provider-execution.js` | ced6bb9 | Scene budget reserves the estimated answer; the remainder is sent as OpenRouter `reasoning.max_tokens`, OpenRouter hosts only | `repair-followup-scene-reasoning-cap` (3, mutation-checked), all 101 scene/coprocessor/provider files |
+| `src/runtime/work-ledger.js` | 6c20f2d | flush clones once (MemoryPersistenceAdapter clones on save) | `repair-followup-ledger-flush` (2, mutation-checked) |
+
+Result: `node scripts/verify-development-deployment.mjs`: **PASS**. Digests from `git hash-object` of the reviewed content.
+
+### Addendum 6 (cap remediation, 2026-09-29): 17 paths re-reviewed
+
+Each path changed only in the named cap-remediation commits on `cap/remediation` (stacked on `repair/live-fixes`). Method: provenance, diff read, dedicated cap test mutation-checked against the previous code, and the path's existing suites passing. Changed test expectations cite the owner handoff and the architectural reason in the test itself.
+
+| Path | Commit(s) | Change |
+|---|---|---|
+| `src/lore-contextual-retrieval.js` | fe1a2c7 | rows 16-18: long queries served, all terms indexed, scoped examined page |
+| `src/lore-hierarchy-retrieval-system.js` | fe1a2c7 | one-time index rebuild on token revision |
+| `src/lore-intelligence-service.js` | 73c36bf | titles beside eligibility rows (row 26) |
+| `src/lore-navigation-hierarchy.js` | 73c36bf | row 21: deep Tree folded |
+| `src/lore-representation-compiler.js` | 2ce755e | rows 11-13: complete contribution set |
+| `src/lore-study-engine.js` | 288d867 | rows 1-6, 8-9: sliced study with coverage receipt |
+| `src/lore-study-runtime.js` | 288d867 | old-engine sessions restart |
+| `tests/lore-wave1.mjs` | 288d867 | changed expectation: full coverage instead of per-source ceilings (reason in test) |
+| `tests/lore-wave3.mjs` | fe1a2c7 | changed expectation: long query served (reason in test) |
+| `src/coprocessor/continuous-consolidation.js` | 46bcbf9 | row 63: collision-free bounded identity |
+| `src/memory-evidence-bridge.js` | 659c040, 8ad5d14 | rows 54-55: bounded audit copy; journals keep lineage |
+| `src/memory-experience-store.js` | bd22047 | non-copying evidence existence checks (performance) |
+| `src/memory-historian.js` | 92cabfd, fe1a2c7 | non-cloning claim view; rows 36-37, 39 |
+| `src/memory-summary-hierarchy.js` | bd22047 | non-copying selector read (performance) |
+| `src/memory-temporal-producer.js` | cd8d336, fe1a2c7 | row 48: paged hierarchy; non-copying chat filter |
+| `tests/memory-wave1.mjs` | fe1a2c7 | changed trigger: failure injected directly (reason in test) |
+| `src/memory-temporal-state-graph.js` | 92cabfd, bd22047 | rows 42-44: whole journal; evidence view |
+
+Result: `node scripts/verify-development-deployment.mjs`: PASS. Per-row evidence: `docs/cap-remediation/CAP_LEDGER.md`.

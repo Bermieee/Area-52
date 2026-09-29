@@ -413,7 +413,7 @@ export class MemorySummaryHierarchy {
   evidenceForScope(scope) {
     const ids=new Set(scope.evidenceRefs);
     for (const id of this.graph.evidenceOrder??[]) {
-      const row=this.graph.evidenceRecord(id);
+      const row=this.graph.evidenceView?this.graph.evidenceView(id):this.graph.evidenceRecord(id);
       if (row&&selectorMatches(scope.sourceSelector,row)) ids.add(id);
       if (ids.size>MEMORY_LIMITS.maxSummaryEvidenceRefs) throw new Error('MEMORY_SUMMARY_EVIDENCE_BOUND_EXCEEDED');
     }

@@ -25,6 +25,7 @@ export const LORE_REPRESENTATION_LIMITS = Object.freeze({
   sliceCharacters: 1200,
   sliceOverlap: 120,
   maxSlices: 128,
+  // Retired as knowledge ceilings (cap ledger rows 12-13); kept only as documented reference values.
   contributionsPerSlice: 48,
   totalContributions: 512,
   relationshipRefs: 128,
@@ -47,7 +48,8 @@ function sentenceSpans(text) {
   const regex = /[^.!?\n]+[.!?]?/g;
   let match;
   let index = 0;
-  while ((match = regex.exec(content)) && rows.length < 512) {
+  // Every sentence (cap ledger row 11): texture contributions are grounded in the whole source, not its first 512 sentences.
+  while ((match = regex.exec(content))) {
     const sentence = match[0].trim();
     if (!sentence) continue;
     const local = match[0].indexOf(sentence);
@@ -192,17 +194,12 @@ function claimSemanticClass(artifact) {
 function sourceTextureContributions({sourceId, sourceRevisionId, content, slices}) {
   const out = [];
   const spans = sentenceSpans(content);
-  const perSlice = new Map();
   for (const row of spans) {
     const text = row.text;
     const ownerSlice = (slices || []).find((slice) => row.start >= slice.start && row.end <= slice.end)
       || (slices || []).find((slice) => row.start < slice.end && row.end > slice.start)
       || null;
-    if (ownerSlice) {
-      const count = perSlice.get(ownerSlice.id) || 0;
-      if (count >= LORE_REPRESENTATION_LIMITS.contributionsPerSlice) continue;
-      perSlice.set(ownerSlice.id, count + 1);
-    }
+    // No per-slice ceiling (cap ledger row 12): every sentence of every slice contributes.
     const sourceSpan = {
       start: row.start,
       end: row.end,
@@ -321,9 +318,12 @@ export function buildGroundedContributions({runtime, sourceId, slices = null}) {
       prior.dependencyArtifactIds = [...new Set([...prior.dependencyArtifactIds, ...contribution.dependencyArtifactIds])].sort();
     }
   }
+  // The complete grounded set (cap ledger row 13). The old `.slice(0, 512)` after this alphabetical sort silently dropped
+  // REQUIRED_IDENTITY, TEMPORAL_ANCHOR and UNRESOLVED_CONFLICT first while validation still passed. The order (which
+  // fixes representation text) is unchanged; a representation that no longer fits its character or provider bound now
+  // fails visibly (CAP_EXCEEDED / PROVIDER_REQUEST_LIMIT_EXCEEDED) instead of passing without them.
   const rows = [...deduped.values()]
-    .sort((a, b) => a.semanticClass.localeCompare(b.semanticClass) || a.semanticId.localeCompare(b.semanticId))
-    .slice(0, LORE_REPRESENTATION_LIMITS.totalContributions);
+    .sort((a, b) => a.semanticClass.localeCompare(b.semanticClass) || a.semanticId.localeCompare(b.semanticId));
 
   return {
     kind: 'LoreContributionSet',
@@ -334,6 +334,7 @@ export function buildGroundedContributions({runtime, sourceId, slices = null}) {
     contributionFingerprint: stableHash(rows.map((row) => row.semanticId).sort()),
     dependencyArtifactIds: [...new Set(rows.flatMap((row) => row.dependencyArtifactIds))].sort(),
     sourceArtifactCount: artifacts.length,
+    coverage: {kind: 'LoreContributionCoverage', contributionCount: rows.length, truncated: false, canonicalKnowledgeDropped: false},
   };
 }
 

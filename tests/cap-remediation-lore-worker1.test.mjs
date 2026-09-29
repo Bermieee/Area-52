@@ -11,6 +11,7 @@ import {deriveLoreNavigationHierarchy} from '../src/lore-navigation-hierarchy.js
 import {LORE_WAVE3_LIMITS} from '../src/lore-navigation-contracts.js';
 import {LoreNavigationSummaryRegistry} from '../src/lore-navigation-summary-registry.js';
 import {LoreHierarchyRetrievalSystem} from '../src/lore-hierarchy-retrieval-system.js';
+import {LoreIntelligenceService} from '../src/lore-intelligence-service.js';
 
 function study(content, {uid = 1, title = 'Entry'} = {}) {
   const runtime = new LoreStudyRuntime();
@@ -162,6 +163,49 @@ test('rows 23/24: communities and >12k hierarchy scopes page instead of truncati
   assert.ok(hierarchy.communityPages.length > 1);
   assert.ok(hierarchy.includedSourceIds.includes('s6099'));
   assert.equal(hierarchy.coverage.complete, true);
+});
+
+test('row 19: queryForStory and operator receipt propagate ranked bounded-out coverage truth', () => {
+  const service = new LoreIntelligenceService();
+  const chatId = 'chat:worker1-bounded';
+  const lorebookId = 'worker1-bounded-lore';
+  service.acceptLorebook({
+    id: lorebookId,
+    title: 'Worker 1 bounded retrieval',
+    chatId,
+    discovery: {
+      kind: 'SillyTavernCurrentLorebook',
+      source: 'WORLD_INFO',
+      stableId: 'worker1-bounded-retrieval-fixture',
+      chatId,
+    },
+    entries: Array.from({length: 40}, (_, index) => ({
+      uid: 'beacon-' + index,
+      content: 'Shared beacon marker is recorded at station ' + index + '.',
+      metadata: {title: 'Beacon ' + index, treePath: ['Stations', String(index)]},
+    })),
+    fullSnapshot: true,
+  });
+  const run = service.runStudy();
+  assert.equal(run.results.every((row) => row.obligation?.state === 'COMPLETED'), true);
+
+  const packet = service.queryForStory({
+    chatId,
+    query: 'shared beacon marker',
+    intent: 'NARROW',
+    includeNavigation: false,
+  });
+  assert.equal(packet.status, 'ELIGIBLE');
+  assert.ok(packet.retrievalCoverage.boundedOut > 0, 'more matches exist than the nomination budget');
+  assert.equal(packet.retrievalCoverage.coverageComplete, false);
+  assert.equal(packet.retrievalCoverage.rankedResult, true);
+  assert.equal(packet.retrievalCoverage.fullCorpusCoverageClaim, false);
+  assert.equal(packet.retrievalCoverage.returned, packet.nominations.length);
+  assert.ok(packet.retrievalCoverage.returned <= LORE_WAVE3_LIMITS.maxNominationsPerIntent);
+
+  const operator = service.operatorReadModel({chatId});
+  assert.ok(operator.lastProducerQuery);
+  assert.deepEqual(operator.lastProducerQuery.retrievalCoverage, packet.retrievalCoverage);
 });
 
 test('row 25: evidence refs page beyond 4096 and long summary text segments below 12k', () => {

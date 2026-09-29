@@ -55,20 +55,21 @@ function manifestMap(rows) {
   return Object.fromEntries(rows.filter(([,row])=>row?.manifest).map(([field,row])=>[field,deepClone(row.manifest)]));
 }
 
-function segmentJobs(jobs,limit=MEMORY_LIMITS.maxConsolidationJobs) {
-  const segments=[];
-  for(let offset=0;offset<jobs.length;offset+=limit)segments.push(deepClone(jobs.slice(offset,offset+limit)));
-  return segments.length?segments:[[]];
+function consolidationJobIdentity(job) {
+  return {
+    type:String(job?.type??''),
+    reflectionKey:String(job?.input?.reflectionKey??''),
+    proposalId:String(job?.input?.proposalId??''),
+    sourceRevisionRefs:(job?.input?.sourceRevisionRefs??[]).slice(0,8).map(String),
+  };
 }
 
-function advanceConsolidationSegment(session) {
-  if(session.cursor<session.jobs.length)return false;
-  const next=session.pendingJobSegments?.shift?.();
-  if(!next)return false;
-  session.jobs=next;
-  session.cursor=0;
-  session.jobSegmentIndex=Number(session.jobSegmentIndex??0)+1;
-  return true;
+function consolidationJobSetToken(jobs) {
+  const sample=[
+    ...jobs.slice(0,8).map(consolidationJobIdentity),
+    ...jobs.slice(Math.max(8,jobs.length-8)).map(consolidationJobIdentity),
+  ];
+  return 'memory-consolidation-jobs:'+stableHash(stableStringify({total:jobs.length,sample}));
 }
 
 function consolidationSourceRefs(session) {
@@ -533,14 +534,19 @@ export class MemoryExperienceStore {
 
   startConsolidation(jobs=[],options={}) {
     if (!Array.isArray(jobs)) throw new TypeError('consolidation jobs must be an array');
+    const totalJobs=jobs.length;
+    const jobOffset=Math.max(0,Math.min(totalJobs,Number(options.jobOffset)||0));
+    const pageEnd=Math.min(totalJobs,jobOffset+MEMORY_LIMITS.maxConsolidationJobs);
+    const pageJobs=jobs.slice(jobOffset,pageEnd);
+    const jobSetToken=consolidationJobSetToken(jobs);
+    if(options.jobSetToken!=null&&String(options.jobSetToken)!==jobSetToken)throw new Error('MEMORY_CONSOLIDATION_JOB_SET_CHANGED');
     const explicitSources=uniqStrings(options.sourceRevisionRefs??[],Infinity);
-    const jobSources=uniqStrings(jobs.flatMap((job)=>[
+    const jobSources=uniqStrings(pageJobs.flatMap((job)=>[
       ...(job?.input?.sourceRevisionRefs??[]),
       ...(job?.input?.supportEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...(job?.input?.contradictionEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
     ]),Infinity);
     const sourcesR=segmentedStringRefs([...explicitSources,...jobSources],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs,'sourceRevisionRefs');
-    const jobSegments=segmentJobs(jobs);
     const generation=options.generationFence??options.selection??{};
     const generationFence={
       chatId:generation.chatId??generation.chatNamespace??null,
@@ -561,20 +567,34 @@ export class MemoryExperienceStore {
         sceneRevision:options.sceneRevision??null,
       })),
     };
-    const id='memory-consolidation:' + stableHash(String(++this.consolidationSequence)+'|'+stableStringify(jobs)+'|'+stableStringify(inputRevisionFence)+'|'+stableStringify(generationFence));
+    const nextJobOffset=pageEnd<totalJobs?pageEnd:null;
+    const id='memory-consolidation:' + stableHash(String(++this.consolidationSequence)+'|'+jobSetToken+'|'+jobOffset+'|'+stableStringify(inputRevisionFence)+'|'+stableStringify(generationFence));
     const session={
       kind:'MemoryConsolidationSession',
       contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
       id,
-      state:'ACTIVE',
+      state:pageJobs.length?'ACTIVE':(nextJobOffset==null?'COMPLETED':'CHECKPOINTED'),
       cursor:0,
-      jobs:jobSegments[0]??[],
-      pendingJobSegments:jobSegments.slice(1),
-      jobSegmentIndex:0,
-      processedJobs:0,
-      totalJobs:jobs.length,
-      boundedJobSegments:jobSegments.length,
-      continuationAvailable:jobSegments.length>1,
+      jobs:deepClone(pageJobs),
+      jobOffset,
+      jobPageEnd:pageEnd,
+      jobPageSize:pageJobs.length,
+      jobPageIndex:Math.floor(jobOffset/MEMORY_LIMITS.maxConsolidationJobs),
+      jobSetToken,
+      processedJobs:jobOffset,
+      totalJobs,
+      nextJobOffset,
+      continuationAvailable:nextJobOffset!=null,
+      continuation:nextJobOffset==null?null:{
+        kind:'MemoryConsolidationJobContinuation',
+        contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
+        jobSetToken,
+        nextJobOffset,
+        totalJobs,
+        remaining:totalJobs-nextJobOffset,
+        runtimeSchedulingAuthority:false,
+        physicalWorkerAuthority:false,
+      },
       publishedArtifactIds:[],
       failures:[],
       outcomes:[],
@@ -591,23 +611,22 @@ export class MemoryExperienceStore {
     this.consolidationSessions.set(id,session);
     return deepClone(session);
   }
-
   consolidationWorkUnits(sessionId,{maxUnits=MEMORY_LIMITS.maxCheckpointWorkUnits}={}) {
     const session=this.consolidationSessions.get(sessionId);
     if (!session) throw new Error('Unknown Memory consolidation session: '+sessionId);
-    advanceConsolidationSegment(session);
     const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxCheckpointWorkUnits,Number(maxUnits)||1));
     return session.jobs.slice(session.cursor,session.cursor+cap).map((job,offset)=>({
       kind:'MemoryConsolidationWorkUnit',
       contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
-      workUnitId:'memory-consolidation-unit:'+stableHash(session.id+'|'+String(session.processedJobs+offset)+'|'+session.inputRevisionFence.revisionToken),
+      workUnitId:'memory-consolidation-unit:'+stableHash(session.id+'|'+String(session.jobOffset+session.cursor+offset)+'|'+session.inputRevisionFence.revisionToken),
       sessionId:session.id,
-      cursor:session.processedJobs+offset,
-      segmentIndex:session.jobSegmentIndex,
-      segmentCursor:session.cursor+offset,
+      cursor:session.jobOffset+session.cursor+offset,
+      pageIndex:session.jobPageIndex,
+      pageCursor:session.cursor+offset,
       jobType:job?.type??null,
       inputRevisionFence:deepClone(session.inputRevisionFence),
       generationFence:deepClone(session.generationFence),
+      continuation:deepClone(session.continuation),
       runtimeSchedulingAuthority:false,
       physicalWorkerAuthority:false,
       foregroundPublicationAuthority:false,
@@ -615,7 +634,6 @@ export class MemoryExperienceStore {
       canonicalMutationAuthority:false,
     }));
   }
-
   consolidationFenceStatus(session,{sealed=false,sealedGenerationIds=[],currentSourceRevisionRefs=null}={}) {
     const sealedIds=new Set((sealedGenerationIds??[]).map(String));
     const generationId=session?.generationFence?.generationId;
@@ -653,9 +671,7 @@ export class MemoryExperienceStore {
     session.lateDisposition=null;
     const limit=Math.max(1,Math.min(MEMORY_LIMITS.maxCheckpointWorkUnits,Number(maxUnits)||1));
     let used=0;
-    advanceConsolidationSegment(session);
-    while (session.processedJobs<session.totalJobs && used<limit) {
-      if(session.cursor>=session.jobs.length&&!advanceConsolidationSegment(session))break;
+    while (session.cursor<session.jobs.length && used<limit) {
       const liveFence=this.consolidationFenceStatus(session,{sealed,sealedGenerationIds,currentSourceRevisionRefs});
       if(!liveFence.ok){
         session.state=liveFence.state;
@@ -668,7 +684,7 @@ export class MemoryExperienceStore {
         break;
       }
       const job=session.jobs[session.cursor];
-      const globalCursor=session.processedJobs;
+      const globalCursor=session.jobOffset+session.cursor;
       try {
         if (job.type!=='REFLECTION') throw new Error('MEMORY_CONSOLIDATION_JOB_UNSUPPORTED:'+String(job.type));
         if(session.reflectionEligibilityPolicy==='REPEATED_EXPERIENCE_REQUIRED'){
@@ -698,23 +714,28 @@ export class MemoryExperienceStore {
         session.outcomes.push({cursor:globalCursor,status:'FAILED',reasonCode:failure.code});
       }
       session.cursor+=1;
-      session.processedJobs+=1;
+      session.processedJobs=session.jobOffset+session.cursor;
       used+=1;
-      const hasContinuation=session.processedJobs<session.totalJobs;
+      const currentPageRemaining=session.cursor<session.jobs.length;
+      const hasContinuation=currentPageRemaining||session.nextJobOffset!=null;
       session.continuationAvailable=hasContinuation;
       session.checkpoint={
         cursor:session.processedJobs,
         total:session.totalJobs,
-        segmentIndex:session.jobSegmentIndex,
-        segmentCursor:session.cursor,
-        pendingSegments:session.pendingJobSegments.length+(session.cursor<session.jobs.length?1:0),
+        pageIndex:session.jobPageIndex,
+        pageCursor:session.cursor,
+        pageEnd:session.jobPageEnd,
+        nextJobOffset:session.nextJobOffset,
         continuationAvailable:hasContinuation,
+        continuation:deepClone(session.continuation),
         inputRevisionFence:deepClone(session.inputRevisionFence),
         generationFence:deepClone(session.generationFence),
         checksum:stableHash(stableStringify({
           cursor:session.processedJobs,
-          segmentIndex:session.jobSegmentIndex,
-          segmentCursor:session.cursor,
+          pageIndex:session.jobPageIndex,
+          pageCursor:session.cursor,
+          nextJobOffset:session.nextJobOffset,
+          jobSetToken:session.jobSetToken,
           publishedArtifactIds:session.publishedArtifactIds,
           failures:session.failures,
           outcomes:session.outcomes,
@@ -723,7 +744,11 @@ export class MemoryExperienceStore {
         })),
       };
     }
-    if(session.state!=='PARKED_AFTER_SEAL'&&session.state!=='STALE')session.state=session.processedJobs>=session.totalJobs?'COMPLETED':'CHECKPOINTED';
+    if(session.state!=='PARKED_AFTER_SEAL'&&session.state!=='STALE'){
+      const pageComplete=session.cursor>=session.jobs.length;
+      session.state=pageComplete&&session.nextJobOffset==null?'COMPLETED':'CHECKPOINTED';
+      session.continuationAvailable=!pageComplete||session.nextJobOffset!=null;
+    }
     return deepClone(session);
   }
 

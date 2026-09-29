@@ -1,0 +1,19 @@
+channels with nominations: ACTIVE_CONTINUITY:6 OWNER_MEMORY:1 OWNER_SPARSE_EXACT:6
+memorySync: {"s":"SYNCED","n":1}
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth HISTORICAL false external-historical-not-usable-for-current memory-candidate:46199c2b-bb46c29
+USER_INPUT text: "Who has the heron key right now?"
+heron context in CURRENT_SCENE:  "owner": "COGNITIVE_CORE", "freshness": "FRESH" }, { "id": "hot:hot-state:407a1a35f1b9820e:recent_episode_tail:6", "e": "hot:chat:recall", "p": "recent_episode_tail", "v": [ { "role": "assistant", "sequence": 1, "excerpt": "Mara pockets the heron key and nods." }, { "role": "assis
+query recorded: Who has the heron key right now?
+  section RELEVANT_LORE mentions heron: false bytes 3884
+  section CURRENT_SCENE mentions heron: true bytes 3474
+  section RECENT_NARRATIVE mentions heron: true bytes 1198
+  section USER_INPUT mentions heron: true bytes 32
+settlements over session: 0
+native temporal claims: 0 | memory episodes (approx): 6
+# exit=0 wall_s=3 head=91815e2 node=v22.22.2

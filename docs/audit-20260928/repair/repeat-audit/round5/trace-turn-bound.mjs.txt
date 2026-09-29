@@ -1,0 +1,98 @@
+readTurn keys: [
+  'kind',
+  'turnId',
+  'sequence',
+  'chatId',
+  'generationId',
+  'correlationId',
+  'query',
+  'intent',
+  'executionLabel',
+  'sceneId',
+  'sceneRevision',
+  'worldRevision',
+  'sourceRevisionSet',
+  'sceneSourceRevisionRefs',
+  'ownerSourceRevisionSet',
+  'sceneReadModel',
+  'perspectiveConstraint',
+  'anchorEntityIds',
+  'sceneOwnerReceipt',
+  'sceneFanOutIngress',
+  'sceneIngress',
+  'retrievalPolicy',
+  'sparseRetrievalReceipt',
+  'memoryDensePrime',
+  'published',
+  'delivery',
+  'contextRetirement',
+  'loreSync',
+  'memorySync',
+  'response',
+  'experience',
+  'settlements',
+  'reflections',
+  'feedback',
+  'performance',
+  'memoryReadDiagnosis',
+  'state',
+  'hostObservation',
+  'memoryRetrievalFeedbackBatch',
+  'jevAdvisoryRuntimeTaskIds',
+  'feedbackRuntimeTaskId',
+  'memoryFeedbackRuntimeTaskId',
+  'memoryRuntimeTaskId',
+  'responseCompletionReceipt',
+  'learningReceipt',
+  'memoryPostTurn',
+  'memoryConsolidationRuntimeTaskId'
+]
+  kind : NativeBrainTurnRecord
+  turnId : native-live:chat:trace:u3:fb1a963c:2
+  sequence : 2
+  chatId : chat:trace
+  generationId : native-live-gen:chat:trace:u3:fb1a963c:2
+  correlationId : corr:native-live:chat:trace:u3:fb1a963c:2
+  query : Where can Eris find the Sun Blade now?
+  intent : CURRENT
+  executionLabel : LIVE_SILLYTAVERN
+  sceneId : chat:chat:trace:scene:1
+  sceneRevision : 1
+  worldRevision : 0
+  sourceRevisionSet : array(8)
+  sceneSourceRevisionRefs : array(1)
+  ownerSourceRevisionSet : array(6)
+  sceneReadModel : kind,contractVersion,sceneId,revision,lifecycle,sourceRevisionRefs,location,narrativeTime,activeCast,activeThreads,objects,atmosphere,boundaryState,relationshipToPrior,latestEpisodeRef,latestDeltaSummary,uncertainFields,prefetchState,health,provenanceRefs,diagnosticRefs,authority,authorityGranted,mutationAuthority,settlementAuthority
+  perspectiveConstraint : null
+  anchorEntityIds : array(0)
+  sceneOwnerReceipt : kind,contractVersion,status,noWorkReason,evidence,chatId,sceneId,sceneRevision,sourceRevisionRefs,invalidatedSourceRevisionRefs,memoryInvalidations,changedFields,delta,boundary,boundarySignals,transition,transitionHandoff,invalidatedTransitionHandoffs,handoffReceipts,graphEvidenceAdmission,graphInvalidations,publishedPrefetch,invalidatedPrefetch,eventIds,eventTypes
+  sceneFanOutIngress : kind,status,reasonCode,identityMismatch,causationId,assemblyStatus,assemblyReasonCode,plannerConsidered,physicalExecutionCount,admittedResultIds,rejectedResultIds,staleResultIds,candidateCount,candidateIds,authorityGranted,admissionAuthority,truthAuthority,contextSealAuthority
+  sceneIngress : kind,timelineCount,timelineReceipts,signalStatus,signalReceipt,authorityGranted,canonicalMutationAuthority,settlementAuthority,contextSealAuthority
+  retrievalPolicy : candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents
+  sparseRetrievalReceipt : kind,status,reason,chatId,eligibleCount,indexedCount,activeCount,boundedOutCount,queryPrioritizedCount,compacted,compaction,failures,indexVersion,implementation,productionBm25,authorityGranted,admissionAuthority,settlementAuthority,contextSealAuthority
+  memoryDensePrime : contractVersion,at,kind,selection,executionId,status,reasonCode,requestPurpose,requested,providerAttempted,providerReturned,ownerAdmitted,foregroundBudgetMs,foregroundQueueWaitMs,providerExecutionMs,foregroundBlockedMs,resultClass
+  published : worldRevision,sceneRevision,primaryCandidates,candidates,assessment,publicationAssessment,corrective,precisionResults,precisionFailed,compilerReceipt,packet,sealReceipt,candidateEnvelope,candidateEnvelopes,hotCognition,hotFreshnessReceipt,hotContributions,resultRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration,sceneTransitionContinuity,sceneFanOutResultBusReceipt,retrievalIntents,retrievalQualityReceipt
+  delivery : ok,status,plan,integrityReceipt,profile,rendered,adapterIntegrityReceipt,presentationRouting,receipt
+  contextRetirement : kind,contractVersion,chatId,policy,hostHistoryMutation,recentWindow,messageCount,retireEligibleMessageIds,keptRawMessageIds,decisions,retainedMessageRefs,sceneTransition,measurements,abstained,abstentionReason,receiptId,rawNarrativeIncluded,storyTextIncluded
+  loreSync : kind,channelId,status,reason,queried,nominationCount,boundedOutCount,sourceRevisionFence,rejectedCount,rejectedRevisionRefs,rejectionReasons,authorityScope,candidateReceipts,exclusionReceipts,ownerIndexRevision,ownerOntologyRevision,rawLoreIncluded,authorityGranted,settlementAuthority,contextSealAuthority
+  memorySync : kind,channelId,status,queried,nominationCount,sourceRevisionFence,historianRevision,densePrime,authorityGranted,settlementAuthority,contextSealAuthority
+  response : Nobody knows.
+  experience : kind,sequence,sourceId,sourceRevisionId,evidenceId,evidence,artifactId,channelFamily,exactContent,representationText,knownBy,publicToAll,chatId,turnId,generationId,correlationId,sceneRevision,worldRevision,changed
+  settlements : array(0)
+  reflections : array(0)
+  feedback : kind,turnId,sequence,channelOutcomes,admittedCandidateIds,reasonCodes,finalEvidenceRefs,packetDependencies,canonicalMutationAuthority,settlementAuthority,policyEffect
+  performance : kind,contractVersion,chatId,turnId,generationId,correlationId,sceneRevision,worldRevision,stages,retrievalChannels,counts,sizes,retained,detailedProfiling,rawPromptIncluded,storyTextIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded
+  memoryReadDiagnosis : null
+  state : RESPONSE_COMPLETED
+  hostObservation : kind,eventId,chatId,turnId,generationId,correlationId,worldRevision,sceneRevision,sourceRevisionRefs,durationMs,capturedAt,rawPromptIncluded,storyTextIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded
+  memoryRetrievalFeedbackBatch : kind,contractVersion,batchId,selection,outcomes,mappingRejects,outcomeCount,scheduledEligible,deliveryKnown,hostDeliveryInferred,supportAdded,retrievalUseIsEvidence,authorityChanged,canonicalMutationAuthority,settlementAuthority,truthAuthority,rawStoryIncluded,rawLoreIncluded,promptIncluded,credentialsIncluded,hiddenReasoningIncluded
+  jevAdvisoryRuntimeTaskIds : array(0)
+  feedbackRuntimeTaskId : task-000004
+  memoryFeedbackRuntimeTaskId : null
+  memoryRuntimeTaskId : task-000005
+  responseCompletionReceipt : kind,contractVersion,status,chatId,turnId,generationId,correlationId,contextSealId,sourceRevisionId,foregroundWaitMs,boundedOwnerAcknowledgement,learningScheduled,feedbackRuntimeTaskId,memoryFeedbackRuntimeTaskId,memoryRuntimeTaskId,responseRecordedBeforeBackgroundExecution,sealedGenerationImmutable,rawResponseIncluded,rawPromptIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded
+  learningReceipt : kind,turnId,experienceId,sourceRevisionId,settlementDecisions,reflectionEvidenceIds,feedback,runtimeTaskId,memoryFeedbackRuntimeTaskId,memoryRuntimeTaskId,memoryRetrievalFeedbackBatch,memoryRetrievalFeedback,memoryWriteback,memoryPostTurn,memoryConsolidation,memoryConsolidationRuntimeTaskId,memorySettlementReceipts,responseCompletion,learningLifecycle,rawExperienceRecoverable,sealedGenerationImmutable,canonicalMutationAuthority
+  memoryPostTurn : kind,contractVersion,status,reasonCode,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sourceRevisionRefs,evidenceRefs,episodeId,episodeLogicalId,episodeRevision,exactSourceDrillback,summaryScopeRefs,summaryPublishedArtifactIds,reflectionReceipts,vectorWorkId,rawChatIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded,authorityGranted
+  memoryConsolidationRuntimeTaskId : task-000006
+bytes 995714
+# exit=0 wall_s=1 head=91815e2 node=v22.22.2

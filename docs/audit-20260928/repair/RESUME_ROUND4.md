@@ -3,10 +3,9 @@
 **Branch** `repair/installed-architecture`, code head **`d041dca18ae9ef760c333b350b24638174490d1c`** (WIP commit; the note itself lands in the next docs-only commit). PR: https://github.com/Bermieee/Area-52/pull/324 (open, not merged; do not merge). Node 22.22.2.
 
 ## Current state (update this block at every checkpoint)
-- Final pass (owner-requested, 2026-09-29): stale-tab protection (04b8512), Jev next-turn prompt consumption (1ec2d17), fenced yielding index (854aa87), assembly addendum 4 (ad3798a, verifier PASS). Code head **ad3798a** (last code change 854aa87). Targeted: 69 + 33 + 78 file runs, all pass.
-- IN PROGRESS when written: final full sweep on this head, then round-5 probes, then ledger / FINAL_HANDOFF / CLOSURE_CHECKLIST / PR_BODY updates and a new bundle.
-- NOT pushed (no repo access in the session); do not merge.
-- If interrupted: run every `tests/*.mjs` separately (`xargs -P2`, 30 min cap), expect 0 failures; then `audit-20260928/harness/*.mjs` (heap probe with `--expose-gc`) into `repeat-audit/round5/`; then the docs.
+- **Final pass complete on the mock harness.** Code head 854aa87; final sweep and probes on 91815e2 (docs-only difference): 242 files 2,040/2,040 pass; verifier PASS; round-5 probes 24/24 exit 0. Nothing running.
+- NOT pushed (no repo access in the session): apply the git bundle to a clone of the branch and push; paste `PR_BODY.md` into PR #324. Do not merge.
+- Next (outside this repair unless the owner decides): live acceptance; O1, O3, O6, O8, D7 confirmations.
 
 ## Update (6da77e1, docs in the following commit)
 - Step 1 done: O8 round-trip tests added, two lossy paths fixed (own `__proto__` key; missing string entry or short table row now fail closed). See the ledger.

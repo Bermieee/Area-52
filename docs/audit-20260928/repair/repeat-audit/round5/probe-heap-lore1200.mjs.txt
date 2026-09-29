@@ -1,0 +1,74 @@
+{
+ "N": 1200,
+ "node": "v22.22.2",
+ "rows": [
+  {
+   "phase": "start",
+   "rawMB": 18,
+   "retainedMB": 13,
+   "peakRawMB": 18,
+   "rssMB": 72
+  },
+  {
+   "phase": "ingest+study",
+   "rawMB": 445,
+   "retainedMB": 137,
+   "peakRawMB": 445,
+   "rssMB": 625,
+   "ms": 15578
+  },
+  {
+   "phase": "8 turns",
+   "rawMB": 338,
+   "retainedMB": 175,
+   "peakRawMB": 338,
+   "rssMB": 640
+  },
+  {
+   "phase": "exportEvidence",
+   "rawMB": 255,
+   "retainedMB": 176,
+   "peakRawMB": 255,
+   "rssMB": 640
+  },
+  {
+   "phase": "UI readers",
+   "rawMB": 185,
+   "retainedMB": 176,
+   "peakRawMB": 185,
+   "rssMB": 640
+  },
+  {
+   "phase": "edit 10 entries (rev 2)",
+   "rawMB": 709,
+   "retainedMB": 183,
+   "peakRawMB": 709,
+   "rssMB": 882,
+   "ms": 12205
+  },
+  {
+   "phase": "edit 10 entries (rev 3)",
+   "rawMB": 527,
+   "retainedMB": 182,
+   "peakRawMB": 527,
+   "rssMB": 920,
+   "ms": 8050
+  },
+  {
+   "phase": "edit 10 entries (rev 4)",
+   "rawMB": 527,
+   "retainedMB": 182,
+   "peakRawMB": 527,
+   "rssMB": 925,
+   "ms": 7768
+  },
+  {
+   "phase": "destroyed",
+   "rawMB": 182,
+   "retainedMB": 182,
+   "peakRawMB": 182,
+   "rssMB": 925
+  }
+ ]
+}
+# exit=0 wall_s=54 head=91815e2 node=v22.22.2

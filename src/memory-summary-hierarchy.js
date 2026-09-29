@@ -1188,13 +1188,15 @@ export class MemorySummaryHierarchy {
     const indexInfo=this.ensureQueryIndex();
     const afterIndex=nowMs();
     const queryTokens=tokens(request.query);
+    const unindexedQueryTokens=queryTokens.filter((token)=>!this.queryIndex.tokenToArtifactIds.has(token));
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
     const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
     const artifactAllowed=(artifact)=>this.summaryEvidenceAllowed(artifact,allowedEvidence);
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const cacheKey=this.queryCacheKey(request,preferred);
-    if(useCache){
+    const cacheEligible=useCache&&unindexedQueryTokens.length===0;
+    if(cacheEligible){
       const cached=this.queryCache.get(cacheKey);
       if(cached){
         this.costCounters.queryCacheHits+=1;
@@ -1216,6 +1218,12 @@ export class MemorySummaryHierarchy {
     const tiers=this.tierOrder(preferred);
     let examined=0;
     let targetedFallbackExamined=0;
+    let targetedFallbackOffset=Math.max(0,Number(request.targetedFallbackOffset)||0);
+    let targetedFallbackRemaining=0;
+    let nextTargetedFallbackOffset=null;
+    let targetedFallbackTier=[];
+    let targetedFallbackCoverageComplete=true;
+    let fallbackContinuationBlocksLowerTier=false;
     let scored=[];
     let selectedTier=[];
     const selectionStarted=nowMs();
@@ -1231,18 +1239,29 @@ export class MemorySummaryHierarchy {
       for(const entity of activeEntityIds){
         for(const id of this.queryIndex.entityToArtifactIds.get(entity)??[])if(tierIds.has(id))candidateIds.add(id);
       }
-      const unindexedQueryTokens=queryTokens.filter((token)=>!this.queryIndex.tokenToArtifactIds.has(token));
       if(unindexedQueryTokens.length){
-        for(const id of tierIds){
-          if(targetedFallbackExamined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
+        const fallbackIds=[...tierIds].sort();
+        const pageStart=Math.min(targetedFallbackOffset,fallbackIds.length);
+        const pageEnd=Math.min(fallbackIds.length,pageStart+MEMORY_LIMITS.maxHistorianExaminedArtifacts);
+        const fallbackPage=fallbackIds.slice(pageStart,pageEnd);
+        targetedFallbackTier=[...tier];
+        targetedFallbackExamined+=fallbackPage.length;
+        for(const id of fallbackPage){
           if(candidateIds.has(id))continue;
-          targetedFallbackExamined+=1;
           const rowTokens=this.queryIndex.artifactTokens.get(id)??[];
           if(unindexedQueryTokens.some((token)=>rowTokens.includes(token)))candidateIds.add(id);
         }
+        targetedFallbackRemaining=Math.max(0,fallbackIds.length-pageEnd);
+        targetedFallbackCoverageComplete=targetedFallbackRemaining===0;
+        nextTargetedFallbackOffset=targetedFallbackCoverageComplete?null:pageEnd;
+        if(targetedFallbackRemaining>0)fallbackContinuationBlocksLowerTier=true;
+        else targetedFallbackOffset=0;
       }
       if(!queryTokens.length&&!activeEntityIds.length)for(const id of tierIds)candidateIds.add(id);
-      if(!candidateIds.size)continue;
+      if(!candidateIds.size){
+        if(fallbackContinuationBlocksLowerTier)break;
+        continue;
+      }
 
       const tierScored=[];
       for(const id of candidateIds){
@@ -1301,10 +1320,15 @@ export class MemorySummaryHierarchy {
         scoringMs:afterScoring-afterSelection,
         nominationBuildMs:finished-afterScoring,
         targetedFallbackExamined,
+        targetedFallbackOffset:Math.max(0,Number(request.targetedFallbackOffset)||0),
+        targetedFallbackTier,
+        targetedFallbackRemaining,
+        targetedFallbackCoverageComplete,
+        nextTargetedFallbackOffset,
         queryIndexCoverageComplete:this.queryIndex.coverageComplete,
       },
     };
-    if(useCache&&nominations.length)this.storeQueryCache(cacheKey,summary);
+    if(cacheEligible&&nominations.length)this.storeQueryCache(cacheKey,summary);
     return summary;
   }
 

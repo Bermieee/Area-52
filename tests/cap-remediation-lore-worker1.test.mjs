@@ -6,7 +6,7 @@ import {LoreStudyRuntime} from '../src/lore-study-runtime.js';
 import {LoreMultiResolutionSystem} from '../src/lore-multi-resolution.js';
 import {LoreRepresentationRegistry} from '../src/lore-representation-registry.js';
 import {RepresentationProfile, QualityStatus} from '../src/lore-representation-contracts.js';
-import {LORE_REPRESENTATION_LIMITS, segmentSourceSlices} from '../src/lore-representation-compiler.js';
+import {LORE_REPRESENTATION_LIMITS, segmentSourceSlices, validateSlices} from '../src/lore-representation-compiler.js';
 import {deriveLoreNavigationHierarchy} from '../src/lore-navigation-hierarchy.js';
 import {LORE_WAVE3_LIMITS} from '../src/lore-navigation-contracts.js';
 import {LoreNavigationSummaryRegistry} from '../src/lore-navigation-summary-registry.js';
@@ -30,12 +30,42 @@ const sentence = (i) => i % 7 === 0
 const content = (n) => Array.from({length: n}, (_, i) => sentence(i)).join(' ');
 
 test('rows 10/14/15: source slices and representation/provider work are physically segmented', () => {
-  const raw = ('Sentinel beginning. ' + 'x'.repeat(180000) + ' Sentinel end.');
+  const seed = 'x'.repeat(180000);
+  const seedPlan = segmentSourceSlices(seed);
+  assert.ok(seedPlan.segments.length > 1);
+  const overlapStart = seedPlan.segments[1].start;
+  const overlapEnd = seedPlan.segments[0].end;
+  assert.ok(overlapEnd > overlapStart, 'adjacent source-slice segments retain overlap');
+
+  const stamp = (text, offset, label) => text.slice(0, offset) + label + text.slice(offset + label.length);
+  const sentinels = {
+    start: 'START_SENTINEL_FACT',
+    middle: 'MIDDLE_SENTINEL_FACT',
+    boundary: 'BOUNDARY_SENTINEL_FACT',
+    end: 'END_SENTINEL_FACT',
+  };
+  let raw = seed;
+  raw = stamp(raw, 0, sentinels.start);
+  raw = stamp(raw, Math.floor(raw.length / 2), sentinels.middle);
+  raw = stamp(raw, overlapStart + Math.floor((overlapEnd - overlapStart) / 2), sentinels.boundary);
+  raw = stamp(raw, raw.length - sentinels.end.length, sentinels.end);
+
   const sliced = segmentSourceSlices(raw);
+  const coverage = validateSlices(raw, sliced.slices);
+  assert.equal(coverage.ok, true);
   assert.ok(sliced.slices.length > LORE_REPRESENTATION_LIMITS.maxSlices);
   assert.ok(sliced.segments.length > 1);
   assert.ok(sliced.segments.every((segment) => segment.sliceCount <= LORE_REPRESENTATION_LIMITS.maxSlices));
   assert.equal(sliced.segments.at(-1).complete, true);
+
+  const sliceById = new Map(sliced.slices.map((row) => [row.id, row]));
+  const segmentText = (segment) => segment.sliceRefs.map((id) => sliceById.get(id)?.text || '').join('');
+  const allSliceText = sliced.slices.map((row) => row.text).join('');
+  assert.match(allSliceText, new RegExp(sentinels.start));
+  assert.match(allSliceText, new RegExp(sentinels.middle));
+  assert.match(allSliceText, new RegExp(sentinels.end));
+  assert.match(segmentText(sliced.segments[0]), new RegExp(sentinels.boundary));
+  assert.match(segmentText(sliced.segments[1]), new RegExp(sentinels.boundary));
 
   const {runtime, sourceId} = study(content(900));
   const registry = new LoreRepresentationRegistry();

@@ -1,0 +1,23 @@
+semantic {"loc":"Eris","cast":[],"atmos":[],"prefetch":[]}  <- Mara glances at Eris and sets down her rag.
+semantic {"loc":"Kael","cast":[],"atmos":[],"prefetch":[]}  <- I look at Kael, waiting for an answer.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- "You should not be here," Lyra says, her eyes fixed on the door.
+semantic {"loc":null,"cast":[],"atmos":["humor"],"prefetch":[]}  <- Eris laughs and slides a coin across the counter.
+semantic {"loc":null,"cast":[],"atmos":["hostility"],"prefetch":[]}  <- The guard glares at me from across the courtyard.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- At Dawn, the bells of Saint Veyra ring out over the harbor.
+semantic {"loc":"Tomas","cast":[],"atmos":[],"prefetch":[]}  <- I sit near Tomas and keep my voice low.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- She leans closer. "Tell me what happened to the Sun Blade."
+semantic {"loc":null,"cast":[],"atmos":["danger"],"prefetch":[]}  <- Kael draws his sword as the bandits charge.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":["Silver Keep"]}  <- We will head to the Silver Keep tomorrow.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- Rain drums on the roof while Mira reads the letter again.
+semantic {"loc":"Anya","cast":[],"atmos":[],"prefetch":[]}  <- He smiles at Anya, then turns back to the map.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- I nod slowly and take the offered cup of tea.
+EXPLICIT {"loc":null,"cast":["Captain Rhys:MENTIONED_ONLY"],"atmos":[],"prefetch":[]}  <- The old man mentions Captain Rhys twice before falling silent.
+EXPLICIT {"loc":"The Gilded Lantern","cast":[],"atmos":[],"prefetch":[]}  <- Inside The Gilded Lantern, music spills over the crowd.
+EXPLICIT {"loc":null,"cast":["Lyra:PRESENT"],"atmos":[],"prefetch":[]}  <- Lyra steps in, shaking snow from her cloak.
+EXPLICIT {"loc":null,"cast":["Tomas:DEPARTED"],"atmos":[],"prefetch":[]}  <- Tomas leaves without another word.
+semantic {"loc":"The Map","cast":[],"atmos":[],"prefetch":[]}  <- I stare at The Map for a long moment.
+semantic {"loc":null,"cast":[],"atmos":["tension"],"prefetch":[]}  <- Her hand trembles; the tension in the room is unbearable.
+semantic {"loc":null,"cast":[],"atmos":["intimacy"],"prefetch":[]}  <- Selene hugs her brother tightly.
+
+4/20 lines take the deterministic path (Sidecar skipped); 6 set a location, 3 set cast.
+# exit=0 wall_s=0 head=cadac98 node=v22.22.2

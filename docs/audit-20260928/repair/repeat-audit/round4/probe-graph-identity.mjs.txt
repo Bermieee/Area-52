@@ -1,0 +1,5 @@
+native identity registry entity count: 0 | deployment core registry count: 0
+normalizeRef(entity:mara, LORE provider) => {"entityId":"LORE_OWNER_GRAPH::entity:mara","resolved":false,"state":"NOT_FOUND","sourceRef":"entity:mara","candidateEntityIds":[]}
+edges before: 0 | after registering entity:mara in Native registry: 0 []
+raw Scene-style anchor "Mara" after registration: 0
+# exit=0 wall_s=1 head=cadac98 node=v22.22.2

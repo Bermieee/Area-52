@@ -1,0 +1,8 @@
+{"N":1200,"ingestAndStudyMs":15391,"mappingCount":1200,"retrievable":true,"heapMB":536}
+turn1 lore {"s":"SYNCED","n":48,"sparse":"1200/512","compacted":false,"injectedMsgs":3,"sections":["RELEVANT_LORE","CURRENT_SCENE","USER_INPUT"]}
+turn wall ms (host prepare+inject+complete, provider instant): [1048,832,823,835,856,931,968,954] heapMB 737
+exportEvidence bytes 170982 ms 999
+UI readers: 40 largest: [["readCorrectiveRetrieval",225741,4],["readSensoryTrace",193477,4],["readCandidateBusEnvelope",193477,3],["readCognitiveChoice",155608,2],["readLoreStatus",145513,4],["readSelectedTurnReceipt",132308,6],["readRuntimeStatus",123736,4],["readPromptPlan",89230,1]]
+edit 10 entries: re-accept+study ms 13814 mapping 1200 heapMB 436
+after edit: entries 1200 stale/due 0
+# exit=0 wall_s=40 head=cadac98 node=v22.22.2

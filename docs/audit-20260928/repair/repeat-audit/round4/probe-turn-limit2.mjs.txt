@@ -1,0 +1,3 @@
+reply 60 chars: first failing turn=null; injections on next 3 turns=[]; errors=[]
+after CHAT_CHANGED back: injected 3 undefined
+# exit=0 wall_s=172 head=cadac98 node=v22.22.2

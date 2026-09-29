@@ -1,0 +1,74 @@
+{
+ "N": 1200,
+ "node": "v22.22.2",
+ "rows": [
+  {
+   "phase": "start",
+   "rawMB": 18,
+   "retainedMB": 13,
+   "peakRawMB": 18,
+   "rssMB": 73
+  },
+  {
+   "phase": "ingest+study",
+   "rawMB": 514,
+   "retainedMB": 135,
+   "peakRawMB": 514,
+   "rssMB": 593,
+   "ms": 16301
+  },
+  {
+   "phase": "8 turns",
+   "rawMB": 340,
+   "retainedMB": 173,
+   "peakRawMB": 340,
+   "rssMB": 611
+  },
+  {
+   "phase": "exportEvidence",
+   "rawMB": 253,
+   "retainedMB": 174,
+   "peakRawMB": 253,
+   "rssMB": 611
+  },
+  {
+   "phase": "UI readers",
+   "rawMB": 183,
+   "retainedMB": 174,
+   "peakRawMB": 183,
+   "rssMB": 611
+  },
+  {
+   "phase": "edit 10 entries (rev 2)",
+   "rawMB": 721,
+   "retainedMB": 181,
+   "peakRawMB": 721,
+   "rssMB": 875,
+   "ms": 13760
+  },
+  {
+   "phase": "edit 10 entries (rev 3)",
+   "rawMB": 527,
+   "retainedMB": 180,
+   "peakRawMB": 527,
+   "rssMB": 917,
+   "ms": 8416
+  },
+  {
+   "phase": "edit 10 entries (rev 4)",
+   "rawMB": 523,
+   "retainedMB": 180,
+   "peakRawMB": 523,
+   "rssMB": 922,
+   "ms": 8574
+  },
+  {
+   "phase": "destroyed",
+   "rawMB": 180,
+   "retainedMB": 180,
+   "peakRawMB": 180,
+   "rssMB": 922
+  }
+ ]
+}
+# exit=0 wall_s=57 head=cadac98 node=v22.22.2

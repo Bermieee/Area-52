@@ -660,6 +660,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
+    this.ownsBrain = !brain;
     this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot, loreOwnerSnapshot, sceneOwnerSnapshot });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
@@ -1362,6 +1363,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.uiHost = null;
     this.releaseLoreOwnerEvents?.();
     this.releaseLoreOwnerEvents = null;
+    // A brain this session created dies with it; an injected brain belongs to its host.
+    if(this.ownsBrain)this.brain?.resourceConnections?.dispose?.();
   }
 
   async #persistNativeBrainCheckpoint({chatId,turnId,generationId}={}){

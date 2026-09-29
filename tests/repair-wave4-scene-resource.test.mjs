@@ -63,3 +63,38 @@ test('a genuine failure enters COOLDOWN and the resource recovers by probe after
   assert.equal(res().state, 'READY', 'probe after cooldown restores the resource');
   h.session.destroy();
 });
+
+test('destroying the session cancels pending cooldown recovery, so no later probe reconnects the resource', async () => {
+  const h = makeInstalled({ chatId: 'chat:w4c' });
+  const rc = h.session.brain.resourceConnections;
+  let now = 1_000_000; rc.now = () => now;
+  let failing = false, probes = 0;
+  rc.fetchImpl = async (url) => {
+    if (String(url).endsWith('/models')) { probes += 1; return { ok: true, status: 200, json: async () => ({ data: [{ id: 'glm-mock' }] }) }; }
+    if (failing) return { ok: false, status: 503, headers: { get: () => null }, json: async () => ({ error: { message: 'down' } }) };
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ model: 'glm-mock', choices: [{ message: { content: '{}' }, finish_reason: 'stop' }], usage: {} }) };
+  };
+  h.session.brain.optionalResources.actions.addResource({ resourceId: 'glm', kind: 'OPENAI_COMPATIBLE', endpoint: 'https://glm.invalid', modelId: 'glm-mock', apiKey: 'k', capabilities: ['STRUCTURED_EXTRACTION'] });
+  await h.session.brain.optionalResources.actions.connectResource('glm');
+  failing = true;
+  await turn(h, 'Mara wipes the bar.'); await sleep(300);
+  assert.equal(h.session.brain.optionalResources.read.resource('glm').state, 'UNAVAILABLE', 'precondition: COOLDOWN');
+  assert.equal(rc.recoveryTimers?.size, 1, 'precondition: a recovery probe is scheduled');
+  h.session.destroy();
+  assert.equal(rc.recoveryTimers.size, 0, 'destroy cancels the scheduled probe');
+  failing = false; now += 31_000; const before = probes;
+  assert.deepEqual(await rc.recoverResourcesAfterCooldown(), []);
+  assert.equal(probes, before, 'no authenticated probe after destroy');
+});
+
+test('an injected brain is not disposed by the session that borrowed it', async () => {
+  const { createDevelopmentDeploymentSillyTavernSession } = await import('../src/deployment/sillytavern-live.js');
+  const owner = makeInstalled({ chatId: 'chat:w4d' });
+  const context = { chatId: 'chat:w4d-borrow', chat: [], mainApi: 'openai', eventTypes: EV, eventSource: { on() {}, removeListener() {} }, async setExtensionPrompt() {} };
+  const borrowed = createDevelopmentDeploymentSillyTavernSession({ sillyTavern: { getContext: () => context }, document: null, mountUi: false, brain: owner.session.brain });
+  assert.equal(borrowed.brain, owner.session.brain, 'precondition: the brain is shared');
+  borrowed.destroy();
+  assert.notEqual(owner.session.brain.resourceConnections.disposed, true, 'borrower leaves the host brain alive');
+  owner.session.destroy();
+  assert.equal(owner.session.brain.resourceConnections.disposed, true, 'the creating session disposes it');
+});

@@ -636,6 +636,7 @@ export class CoprocessorResourceConnections{
   // re-enters COOLDOWN with a fresh window.
   async recoverResourcesAfterCooldown({signal=null}={}){
     const recovered=[];
+    if(this.disposed)return recovered;
     for(const row of [...this.resources.values()]){
       if(row.state!==ResourceConnectionState.UNAVAILABLE||row.credentialRequired&&!row.credentialConfigured)continue;
       const snapshot=this.health.snapshot(row.providerProfileId);
@@ -646,8 +647,16 @@ export class CoprocessorResourceConnections{
     return recovered;
   }
 
+  // Stops cooldown recovery for good: pending timers are cancelled and no later probe reconnects a resource of a
+  // destroyed session (a recovery probe is an authenticated call).
+  dispose(){
+    this.disposed=true;
+    for(const timer of this.recoveryTimers?.values()??[])clearTimeout(timer);
+    this.recoveryTimers?.clear();
+  }
+
   #scheduleCooldownRecovery(row,cooldownUntil){
-    if(typeof setTimeout!=='function')return;
+    if(typeof setTimeout!=='function'||this.disposed)return;
     this.recoveryTimers??=new Map();
     const existing=this.recoveryTimers.get(row.resourceId);if(existing)clearTimeout(existing);
     const timer=setTimeout(()=>{

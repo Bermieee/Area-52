@@ -181,6 +181,13 @@ test('row 46: 4,097 consolidation jobs remain page-bounded and resume through Ru
   assert.equal(completed.continuationAvailable,false);
 
   assert.throws(()=>restored.startConsolidation(jobs,{jobOffset:4096,jobSetToken:'wrong-token'}),/MEMORY_CONSOLIDATION_JOB_SET_CHANGED/);
+
+  const changedMiddle=jobs.map((job)=>structuredClone(job));
+  changedMiddle[2048].input.marker='changed-middle-job';
+  assert.throws(()=>restored.startConsolidation(changedMiddle,{
+    jobOffset:4096,
+    jobSetToken:pageOneDone.continuation.jobSetToken,
+  }),/MEMORY_CONSOLIDATION_JOB_SET_CHANGED/);
 });
 
 test('row 46: bundle review exposes Runtime-owned continuation instead of silently dropping proposal 4,097',()=>{

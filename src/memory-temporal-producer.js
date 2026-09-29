@@ -401,9 +401,11 @@ export class MemoryTemporalProducer {
     return receipts;
   }
 
-  reviewConsolidationBundle({bundle,handoff=null,selection={},reviewOffset=0}={}) {
+  reviewConsolidationBundle({bundle,handoff=null,selection={},reviewOffset=0,reviewToken=null}={}) {
     if(!bundle||bundle.kind!=='ConsolidationProposalBundle'||!Array.isArray(bundle.proposals))throw new TypeError('ConsolidationProposalBundle is required');
     if(String(bundle.contractVersion??'')!=='1.1.0')throw new Error('MEMORY_CONSOLIDATION_CONTRACT_VERSION_UNSUPPORTED');
+    const proposalSetToken='memory-consolidation-review-set:'+stableHash(stableStringify(bundle.proposals));
+    if(reviewToken!=null&&String(reviewToken)!==proposalSetToken)throw new Error('MEMORY_CONSOLIDATION_REVIEW_SET_CHANGED');
     const validation=bundle.validationReceipt??{};
     if(validation.syntax!=='PASS'||validation.schema!=='PASS'||validation.semantic!=='PASS')throw new Error('MEMORY_CONSOLIDATION_BUNDLE_NOT_VALIDATED');
     if(handoff!=null){
@@ -550,6 +552,7 @@ export class MemoryTemporalProducer {
       reviewOffset:pageStart,
       processed:proposalPage.length,
       remaining,
+      proposalSetToken,
       continuationAvailable,
       nextReviewOffset:continuationAvailable?pageEnd:null,
       continuation:continuationAvailable?{
@@ -558,6 +561,7 @@ export class MemoryTemporalProducer {
         bundleId:bundle.bundleId??null,
         unitId:bundle.unitId??null,
         resumeIdentity:'memory-consolidation-review:'+String(bundle.bundleId??bundle.unitId??'unknown'),
+        reviewToken:proposalSetToken,
         nextReviewOffset:pageEnd,
         remaining,
         nextProposalId:String(bundle.proposals[pageEnd]?.proposalId??''),

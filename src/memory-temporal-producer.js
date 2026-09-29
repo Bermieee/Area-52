@@ -571,7 +571,23 @@ export class MemoryTemporalProducer {
       rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
-    this.pushDiagnostic(receipt);
+    const diagnosticReceipt=results.length>32?{
+      ...receipt,
+      results:[
+        ...deepClone(results.slice(0,8)),
+        ...deepClone(results.slice(Math.max(8,results.length-8))),
+      ],
+      resultCount:results.length,
+      resultStatusCounts:results.reduce((counts,row)=>{
+        const status=String(row?.status??'OTHER').toUpperCase();
+        counts[status]=(counts[status]??0)+1;
+        return counts;
+      },{}),
+      resultsSampled:true,
+      sampledHeadCount:Math.min(8,results.length),
+      sampledTailCount:Math.min(8,Math.max(0,results.length-8)),
+    }:receipt;
+    this.pushDiagnostic(diagnosticReceipt);
     return receipt;
   }
 

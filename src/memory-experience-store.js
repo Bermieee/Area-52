@@ -420,16 +420,25 @@ export class MemoryExperienceStore {
     for (const episode of this.episodes.values()) {
       if (episode.state!=='CURRENT') continue;
       const has=(id)=>(this.graph.hasEvidence?this.graph.hasEvidence(id):Boolean(this.graph.evidenceRecord(id)));
-      const unresolvedLocal=episode.evidenceRefs.filter((id)=>!has(id));
-      const unresolved=uniqStrings([
+      const evidence=memoryReferenceValues(episode,'evidenceRefs');
+      const unresolvedExternal=memoryReferenceValues(episode,'unresolvedExternalEvidenceRefs');
+      const unresolvedLocal=evidence.filter((id)=>!has(id));
+      const unresolvedR=segmentedStringRefs([
         ...unresolvedLocal,
-        ...(episode.bridgeResolutionStatus==='WITHHELD'?(episode.unresolvedExternalEvidenceRefs??[]):[]),
-      ],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-      episode.unresolvedEvidenceRefs=unresolved;
-      episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>has(id));
-      const fresh=freshBySources(this.graph,episode.sourceRevisionRefs)
-        && unresolved.length===0
-        && episode.resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))
+        ...(episode.bridgeResolutionStatus==='WITHHELD'?unresolvedExternal:[]),
+      ],MEMORY_LIMITS.maxEpisodeEvidenceRefs,'unresolvedEvidenceRefs');
+      const resolvedR=segmentedStringRefs(evidence.filter((id)=>has(id)),MEMORY_LIMITS.maxEpisodeEvidenceRefs,'resolvedEvidenceRefs');
+      episode.unresolvedEvidenceRefs=unresolvedR.head;
+      episode.resolvedEvidenceRefs=resolvedR.head;
+      episode.referenceManifests={
+        ...(episode.referenceManifests??{}),
+        ...manifestMap([['unresolvedEvidenceRefs',unresolvedR],['resolvedEvidenceRefs',resolvedR]]),
+      };
+      if(!unresolvedR.manifest)delete episode.referenceManifests.unresolvedEvidenceRefs;
+      if(!resolvedR.manifest)delete episode.referenceManifests.resolvedEvidenceRefs;
+      const fresh=freshBySources(this.graph,memoryReferenceValues(episode,'sourceRevisionRefs'))
+        && unresolvedR.all.length===0
+        && resolvedR.all.every((id)=>this.graph.evidenceFresh(id))
         && episode.bridgeResolutionStatus!=='WITHHELD';
       if (!fresh) {
         episode.freshness='STALE';
@@ -438,9 +447,12 @@ export class MemoryExperienceStore {
     }
     for (const reflection of this.reflections.values()) {
       if (reflection.state!=='CURRENT') continue;
-      const episodeFresh=reflection.episodeRefs.every((id)=>this.episodes.get(id)?.freshness==='FRESH');
-      const evidenceFresh=[...reflection.supportEvidenceRefs,...reflection.contradictionEvidenceRefs].every((id)=>this.graph.evidenceFresh(id));
-      const sourceFresh=freshBySources(this.graph,reflection.sourceRevisionRefs);
+      const episodeFresh=memoryReferenceValues(reflection,'episodeRefs').every((id)=>this.episodes.get(id)?.freshness==='FRESH');
+      const evidenceFresh=[
+        ...memoryReferenceValues(reflection,'supportEvidenceRefs'),
+        ...memoryReferenceValues(reflection,'contradictionEvidenceRefs'),
+      ].every((id)=>this.graph.evidenceFresh(id));
+      const sourceFresh=freshBySources(this.graph,memoryReferenceValues(reflection,'sourceRevisionRefs'));
       if (!(episodeFresh&&evidenceFresh&&sourceFresh)) {
         reflection.freshness='STALE';
         staleReflections.push(reflection.id);
@@ -478,7 +490,9 @@ export class MemoryExperienceStore {
   exactDrillback(artifactId) {
     const artifact=this.episodes.get(artifactId)??this.reflections.get(artifactId);
     if (!artifact) return [];
-    const evidenceIds=artifact.evidenceRefs??artifact.supportEvidenceRefs??[];
+    const evidenceIds=artifact.artifactType===MemoryArtifactKind.REFLECTION
+      ?memoryReferenceValues(artifact,'supportEvidenceRefs')
+      :memoryReferenceValues(artifact,'evidenceRefs');
     return evidenceIds.map((id)=>this.graph.exactEvidence(id)).filter(Boolean);
   }
 

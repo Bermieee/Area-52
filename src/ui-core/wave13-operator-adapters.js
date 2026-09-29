@@ -224,8 +224,11 @@ function normalizeMemorySurface(raw){
 }
 
 export class Wave13LoreStudyUIAdapter{
-  constructor({bindings={},selectionProvider=()=>({})}={}){
-    this.bindings=bindings;this.selectionProvider=selectionProvider;
+  constructor({bindings={},selectionProvider}={}){
+    // hostSelection: the host told us which chat is open. Without one (a bare service binding) accept keeps the payload's
+    // own chat, as before; with one, accept binds to the open chat.
+    this.hostSelection=typeof selectionProvider==='function';
+    this.bindings=bindings;this.selectionProvider=this.hostSelection?selectionProvider:()=>({});
     this.service=bindings.loreIntelligenceService??bindings.loreStudyService??null;
     this.host=bindings.loreOperatorHost??bindings.loreStudyHost??bindings.loreHost??operatorHostFromService(this.service);
     this.runtime=bindings.loreStudyRuntime??bindings.loreRuntime??null;
@@ -275,6 +278,19 @@ export class Wave13LoreStudyUIAdapter{
       const health=failed?Wave6Health.DEGRADED:working?Wave6Health.WORKING:Wave6Health.READY;
       const op=failed?OperatorProducerState.DEGRADED:working?OperatorProducerState.WORKING:data.entries.length?OperatorProducerState.LIVE:OperatorProducerState.IDLE;
       const ready=Number(data.operatorCounts?.READY??0);
+      // Lore is read per chat: accepted Lore the selected chat is not authorized to read is reported, never as "ready".
+      const access=data.storyAccess;
+      const unauthorizedHere=Boolean(selection.chatId&&access&&access.chatId===String(selection.chatId)&&data.entries.length&&!(access.authorized??[]).length);
+      if(unauthorizedHere){
+        return deepFreeze({
+          source:createProductSourceStatus({
+            mode:ProductDataMode.DEGRADED,health:Wave6Health.DEGRADED,label:'Lore Study',operationalState:OperatorProducerState.DEGRADED,
+            impact:'Accepted Lore is not authorized for this chat, so none of it reaches this chat\'s prompts. Use "Use for this chat" to authorize it.',
+            reason:access.explanation??'LORE_NOT_AUTHORIZED_FOR_CHAT',producer:raw.kind??'LoreStudyRuntime',revision:data.revision,connected:true,selection,freshness:stale?'STALE_OR_UNLEARNED':'CURRENT',errorCode:'LORE_NOT_AUTHORIZED_FOR_CHAT',
+          }),
+          data,
+        });
+      }
       return deepFreeze({
         source:createProductSourceStatus({
           mode:failed?ProductDataMode.DEGRADED:ProductDataMode.LIVE,health,label:'Lore Study',operationalState:op,
@@ -292,7 +308,25 @@ export class Wave13LoreStudyUIAdapter{
   async accept(input){
     this.lastError=null;
     if(!this.acceptFn){const e=new Error('Lore acceptance action is not exported by the host assembly.');e.code='LORE_ACCEPT_ACTION_UNAVAILABLE';this.lastError=e;throw e;}
-    try{const result=await this.acceptFn(cloneSafe(input));this.lastAction={type:'ACCEPT',result:cloneSafe(result)};return cloneSafe(result);}
+    // Accept authorizes the chat that is open when the operator clicks it (Lore is read per chat), not whichever chat was
+    // open when the Lorebook was loaded. With a host selection but no chat open it refuses: Lore accepted for no chat would
+    // be readable by none.
+    const payload=cloneSafe(input)??{};
+    const hasSelection=this.hostSelection;
+    const chatId=hasSelection?text(this.selectionProvider()?.chatId):null;
+    if(hasSelection&&!chatId){const e=new Error('Open the chat this Lore is for, then accept it: Lore is authorized per chat.');e.code='LORE_CHAT_REQUIRED';this.lastError=e;throw e;}
+    if(chatId){payload.chatId=chatId;payload.discovery={...(payload.discovery??{}),chatId};}
+    try{const result=await this.acceptFn(payload);this.lastAction={type:'ACCEPT',result:cloneSafe(result)};return cloneSafe(result);}
+    catch(error){this.lastError=error;throw error;}
+  }
+  canAuthorizeForChat(){return Boolean(fn(this.host?.actions,['authorizeLorebookForChat']));}
+  async authorizeForChat(lorebookId){
+    this.lastError=null;
+    const action=fn(this.host?.actions,['authorizeLorebookForChat']);
+    if(!action){const e=new Error('Per-chat Lore authorization is not exported by the host assembly.');e.code='LORE_AUTHORIZE_UNAVAILABLE';this.lastError=e;throw e;}
+    const chatId=text(this.selectionProvider?.()?.chatId);
+    if(!chatId){const e=new Error('Select the chat to authorize Lore for.');e.code='LORE_CHAT_REQUIRED';this.lastError=e;throw e;}
+    try{const result=await action({chatId,lorebookId:String(lorebookId)});this.lastAction={type:'AUTHORIZE_FOR_CHAT',result:cloneSafe(result)};return cloneSafe(result);}
     catch(error){this.lastError=error;throw error;}
   }
   async run(input={}){
@@ -1123,6 +1157,7 @@ function normalizeLoreSurface(raw){
     artifacts:(x.artifacts??[]).map(a=>({artifactId:a.artifactId,artifactType:a.artifactType,sourceId:a.sourceId,sourceRevisionId:a.sourceRevisionId,temporalClass:a.temporalClass,authorityClass:a.authorityClass,freshness:a.freshness,unresolved:Boolean(a.unresolved),provenance:cloneSafe(a.provenance)})),
     conflicts:cloneSafe(x.conflicts??[]),lifecycle:cloneSafe(x.lifecycle??raw.lifecycle??{}),revision:raw.hierarchyRevision??raw.revision??null,
     retrievalReady:entries.filter(e=>e.operatorState==='READY'&&(e.retrievalReady||e.retrievalRepresentations.length>0)).length,
+    storyAccess:cloneSafe(raw.storyAccess??null),
   };
 }
 
@@ -1306,7 +1341,8 @@ function generationInspectionSummary(generation,selection={}){
       else if(Number.isFinite(Number(row)))counts[key]=Number(row);
     }
     return deepFreeze({
-      kind:text(value?.kind)??null,status:text(value?.status??value?.state)??null,reasonCode:text(value?.reasonCode??value?.code)??null,
+      kind:text(value?.kind)??null,status:text(value?.status??value?.state)??null,reasonCode:text(value?.reasonCode??value?.code??value?.reason)??null,
+      scopeState:text(value?.authorityScope?.state)??null,
       counts,
     });
   };
@@ -1318,7 +1354,7 @@ function generationInspectionSummary(generation,selection={}){
     graphTraversal:meta(generation.graphTraversal,['visitedNodeIds','visitedEdgeIds','paths','nodes','edges']),
     retrievalBudget:meta(generation.retrievalBudget,['admitted','deferred','dropped','candidates']),
     rejectedEvidence:rejected?deepFreeze({kind:text(rejected?.kind)??'RejectedEvidence',count:rejectedCount,reasonCode:text(rejected?.reasonCode??rejected?.code)??null}):null,
-    loreSync:meta(generation.loreSync,['sourceRevisionRefs','accepted','rejected']),
+    loreSync:meta(generation.loreSync,['sourceRevisionRefs','accepted','rejected','nominationCount','boundedOutCount','rejectedCount']),
     memorySync:meta(generation.memorySync,['sourceRevisionRefs','accepted','rejected']),
     rawPromptIncluded:false,
     rawEvidenceIncluded:false,

@@ -450,6 +450,46 @@ export class LoreIntelligenceService {
     return receipt;
   }
 
+  // Which accepted Lorebooks the given chat may read, and which accepted ones it may not (so an operator can see why a chat
+  // gets no Lore and authorize it explicitly). Read only.
+  storyReadStatus(chatId = null) {
+    const books = new Map();
+    for (const source of this.runtime.registry.listEntries({includeRemoved: false})) {
+      const row = books.get(source.lorebookId) ?? {lorebookId: source.lorebookId, title: this.runtime.registry.books?.get?.(source.lorebookId)?.title ?? null, entries: 0};
+      row.entries += 1; books.set(source.lorebookId, row);
+    }
+    const chat = chatId == null ? '' : String(chatId).trim();
+    const scope = chat ? this.storyAuthority.scopeReceipt(chat) : null;
+    const readable = new Set(chat ? this.storyAuthority.allowedLorebookIds(chat) : []);
+    const all = [...books.values()].sort((a, b) => a.lorebookId.localeCompare(b.lorebookId));
+    return {
+      kind: 'LoreStoryReadStatus', contractVersion: 1, chatId: chat || null, scopeState: scope?.state ?? 'NO_CHAT',
+      authorized: all.filter((row) => readable.has(row.lorebookId)),
+      unauthorized: all.filter((row) => !readable.has(row.lorebookId)),
+      explanation: !chat ? 'No chat is selected; Lore is authorized per chat.'
+        : readable.size ? null
+          : all.length ? 'Accepted Lore exists but none of it is authorized for this chat (it was accepted while another chat, or no chat, was open).' : 'No Lore has been accepted.',
+    };
+  }
+
+  // Explicit operator authorization of an already accepted (and possibly already studied) Lorebook for one chat: the same
+  // story binding an Accept in that chat records, fenced to the current source revisions; nothing is re-studied.
+  authorizeLorebookForStory({chatId, lorebookId} = {}) {
+    const chat = chatId == null ? '' : String(chatId).trim();
+    if (!chat) { const e = new Error('A chat must be selected to authorize Lore for it.'); e.code = 'LORE_CHAT_REQUIRED'; throw e; }
+    const sources = this.runtime.registry.listEntries({includeRemoved: false}).filter((row) => row.lorebookId === lorebookId);
+    if (!sources.length) { const e = new Error('Lorebook is not accepted: ' + lorebookId); e.code = 'LOREBOOK_NOT_ACCEPTED'; throw e; }
+    const scope = this.storyAuthority.scopeReceipt(chat);
+    if (scope.state !== 'BOUND' || !scope.discoveredLorebooks.some((row) => row.lorebookId === lorebookId)) {
+      this.storyAuthority.recordDiscovery({chatId: chat, lorebookId, title: this.storyReadStatus(null).unauthorized.find((row) => row.lorebookId === lorebookId)?.title ?? null, discovery: {kind: 'OperatorStoryAuthorization', lorebookId, chatId: chat}});
+    }
+    const receipt = this.storyAuthority.acceptForStudy({
+      chatId: chat, lorebookId, enableRead: true,
+      sourceRevisionFence: sources.map((row) => ({lorebookId, sourceId: row.sourceId, sourceRevisionId: this.runtime.registry.currentRevisionRef(row.sourceId)?.id ?? null})),
+    });
+    return {kind: 'LoreStoryAuthorizationReceipt', contractVersion: 1, chatId: chat, lorebookId, storyScope: receipt, restudied: false};
+  }
+
   // Lean projection of status() for per-turn retrieval hydration: the same owner eligibility rule (shared helper below) and
   // the same identity fields, without representation selection, study payloads or deep clones of the whole corpus. Read only.
   retrievalEligibility({chatId = null} = {}) {

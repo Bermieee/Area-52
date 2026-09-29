@@ -2863,12 +2863,21 @@ export class DevelopmentDeploymentBrain {
   // Full detail on demand. For a selected turn the full surface is served only while Lore is still at the
   // revision that turn saw; afterwards the turn's own reference is returned (`detailState` says why), so
   // a superseded revision is never presented as the current corpus.
+  // Explicit operator action: let the selected chat read an already accepted Lorebook (no re-study).
+  authorizeLorebookForChat({ chatId, lorebookId } = {}) {
+    const receipt = this.loreIntelligence.authorizeLorebookForStory({ chatId, lorebookId });
+    this.#emit({ type: 'LORE_STORY_AUTHORIZED', result: { chatId: receipt.chatId, lorebookId: receipt.lorebookId } });
+    return clone(receipt);
+  }
+
   readLoreStatus(selection = {}) {
     const active = selection?.turnId ? this.turns.get(String(selection.turnId)) ?? null : null;
     const identity = active?.selection ?? selection ?? {};
     const live = () => ({
       kind: 'DeploymentLoreStatus',
       ...this.loreSystem.diagnostics(),
+      // Per-chat read authority, so readiness is never reported for a chat that cannot read the accepted Lore.
+      storyAccess: this.loreIntelligence.storyReadStatus(identity?.chatId ?? selection?.chatId ?? null),
       study: this.lore.publicSurface(),
       channelId: CHANNEL_ID,
       externalServiceRequired: false,
@@ -3066,6 +3075,7 @@ export class DevelopmentDeploymentBrain {
         acceptLorebook: (input) => this.acceptLorebook(input),
         submitLorebook: (input) => this.acceptLorebook(input),
         ingestLorebook: (input) => this.acceptLorebook(input),
+        authorizeLorebookForChat: (input) => this.authorizeLorebookForChat(input),
         runLoreStudy: (input) => this.runLoreStudy(input),
         startLoreStudy: (input) => this.runLoreStudy(input),
         retryLoreStudy: (input) => this.loreIntelligence.retryStudy(input || {}),

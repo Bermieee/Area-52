@@ -191,6 +191,8 @@ export class MemorySummaryHierarchy {
       artifactTokens:new Map(),
       artifactIds:[],
       indexedTerms:0,
+      boundedOutTerms:0,
+      coverageComplete:true,
       estimatedUtf16Bytes:0,
     };
     this.queryIndexDirty=true;
@@ -212,6 +214,7 @@ export class MemorySummaryHierarchy {
       queryCacheMisses:0,
       queryCacheEvictions:0,
       queryIndexedCandidatesExamined:0,
+      queryTargetedFallbackScans:0,
     };
     if (snapshot) this.restore(snapshot);
   }
@@ -260,6 +263,7 @@ export class MemorySummaryHierarchy {
     const artifactTokens=new Map();
     const artifactIds=[];
     let indexedTerms=0;
+    const boundedOutTermSet=new Set();
     for(const [scopeRef,id] of this.currentByScope.entries()){
       const artifact=this.artifacts.get(id);
       if(!artifact||!this.artifactIsFresh(artifact))continue;
@@ -269,7 +273,10 @@ export class MemorySummaryHierarchy {
       const rowTokens=tokens(artifact.representationText+' '+artifact.entityRefs.join(' '));
       artifactTokens.set(id,rowTokens);
       for(const token of rowTokens){
-        if(!tokenToArtifactIds.has(token)&&tokenToArtifactIds.size>=MEMORY_LIMITS.maxHierarchyQueryIndexTerms)continue;
+        if(!tokenToArtifactIds.has(token)&&tokenToArtifactIds.size>=MEMORY_LIMITS.maxHierarchyQueryIndexTerms){
+          boundedOutTermSet.add(token);
+          continue;
+        }
         const ids=tokenToArtifactIds.get(token)??new Set();ids.add(id);tokenToArtifactIds.set(token,ids);
       }
       for(const entity of artifact.entityRefs??[]){
@@ -287,7 +294,12 @@ export class MemorySummaryHierarchy {
       levelToArtifactIds:[...levelToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
       artifactTokens:[...artifactTokens.entries()],
     }).length*2;
-    this.queryIndex={revision,tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,estimatedUtf16Bytes};
+    this.queryIndex={
+      revision,tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,
+      boundedOutTerms:boundedOutTermSet.size,
+      coverageComplete:boundedOutTermSet.size===0,
+      estimatedUtf16Bytes,
+    };
     this.queryIndexDirty=false;
     const buildMs=nowMs()-started;
     this.costCounters.queryIndexBuilds+=1;
@@ -1067,6 +1079,7 @@ export class MemorySummaryHierarchy {
 
     const tiers=this.tierOrder(preferred);
     let examined=0;
+    let targetedFallbackExamined=0;
     let scored=[];
     let selectedTier=[];
     const selectionStarted=nowMs();
@@ -1081,6 +1094,16 @@ export class MemorySummaryHierarchy {
       }
       for(const entity of activeEntityIds){
         for(const id of this.queryIndex.entityToArtifactIds.get(entity)??[])if(tierIds.has(id))candidateIds.add(id);
+      }
+      const unindexedQueryTokens=queryTokens.filter((token)=>!this.queryIndex.tokenToArtifactIds.has(token));
+      if(unindexedQueryTokens.length){
+        for(const id of tierIds){
+          if(targetedFallbackExamined>=MEMORY_LIMITS.maxHistorianExaminedArtifacts)break;
+          if(candidateIds.has(id))continue;
+          targetedFallbackExamined+=1;
+          const rowTokens=this.queryIndex.artifactTokens.get(id)??[];
+          if(unindexedQueryTokens.some((token)=>rowTokens.includes(token)))candidateIds.add(id);
+        }
       }
       if(!queryTokens.length&&!activeEntityIds.length)for(const id of tierIds)candidateIds.add(id);
       if(!candidateIds.size)continue;
@@ -1113,6 +1136,7 @@ export class MemorySummaryHierarchy {
     const afterSelection=nowMs();
     this.costCounters.historianSummaryArtifactsExamined+=examined;
     this.costCounters.queryIndexedCandidatesExamined+=examined;
+    this.costCounters.queryTargetedFallbackScans+=targetedFallbackExamined;
     scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.resolutionFit-a.score.resolutionFit||a.artifact.scopeRef.localeCompare(b.artifact.scopeRef));
     const deduped=[];
     const coverage=new Set();
@@ -1140,6 +1164,8 @@ export class MemorySummaryHierarchy {
         selectionMs:afterSelection-selectionStarted,
         scoringMs:afterScoring-afterSelection,
         nominationBuildMs:finished-afterScoring,
+        targetedFallbackExamined,
+        queryIndexCoverageComplete:this.queryIndex.coverageComplete,
       },
     };
     if(useCache&&nominations.length)this.storeQueryCache(cacheKey,summary);
@@ -1361,6 +1387,9 @@ export class MemorySummaryHierarchy {
         dirty:this.queryIndexDirty,
         artifacts:this.queryIndex.artifactIds?.length??0,
         indexedTerms:this.queryIndex.indexedTerms??0,
+        boundedOutTerms:this.queryIndex.boundedOutTerms??0,
+        coverageComplete:this.queryIndex.coverageComplete??true,
+        targetedFallbackAvailable:true,
         estimatedUtf16Bytes:this.queryIndex.estimatedUtf16Bytes??0,
       },
       queryCache:{
@@ -1408,6 +1437,8 @@ export class MemorySummaryHierarchy {
         artifactTokens:[...this.queryIndex.artifactTokens.entries()].map(([k,v])=>[k,[...v]]),
         artifactIds:[...(this.queryIndex.artifactIds??[])],
         indexedTerms:this.queryIndex.indexedTerms??0,
+        boundedOutTerms:this.queryIndex.boundedOutTerms??0,
+        coverageComplete:this.queryIndex.coverageComplete??true,
         estimatedUtf16Bytes:this.queryIndex.estimatedUtf16Bytes??0,
       },
       queryIndexDirty:this.queryIndexDirty,
@@ -1442,6 +1473,7 @@ export class MemorySummaryHierarchy {
       queryCacheMisses:0,
       queryCacheEvictions:0,
       queryIndexedCandidatesExamined:0,
+      queryTargetedFallbackScans:0,
       ...(snapshot?.costCounters??{}),
     };
     const qi=snapshot?.queryIndex??null;
@@ -1453,10 +1485,12 @@ export class MemorySummaryHierarchy {
       artifactTokens:new Map((qi.artifactTokens??[]).map(([k,v])=>[k,[...v]])),
       artifactIds:[...(qi.artifactIds??[])],
       indexedTerms:Number(qi.indexedTerms??0),
+      boundedOutTerms:Number(qi.boundedOutTerms??0),
+      coverageComplete:Boolean(qi.coverageComplete??true),
       estimatedUtf16Bytes:Number(qi.estimatedUtf16Bytes??0),
     }:{
       revision:null,tokenToArtifactIds:new Map(),entityToArtifactIds:new Map(),levelToArtifactIds:new Map(),
-      artifactTokens:new Map(),artifactIds:[],indexedTerms:0,estimatedUtf16Bytes:0,
+      artifactTokens:new Map(),artifactIds:[],indexedTerms:0,boundedOutTerms:0,coverageComplete:true,estimatedUtf16Bytes:0,
     };
     const restoredIndexValid=Boolean(qi)&&this.queryIndex.artifactIds.every((id)=>{
       const artifact=this.artifacts.get(id);

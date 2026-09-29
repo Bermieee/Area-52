@@ -137,21 +137,37 @@ export class MemoryExperienceStore {
     admissionSource='MEMORY_DIRECT',
   }={}) {
     requiredString(logicalId,'episode.logicalId');
-    const sources=uniqStrings(sourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    const evidence=uniqStrings(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const unresolvedLocalEvidenceRefs=evidence.filter((id)=>!this.graph.evidenceRecord(id));
-    const unresolvedExternal=uniqStrings(unresolvedExternalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const unresolvedEvidenceRefs=uniqStrings([...unresolvedLocalEvidenceRefs,...unresolvedExternal],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const resolvedEvidenceRefs=evidence.filter((id)=>this.graph.evidenceRecord(id));
-    const externalEvidence=uniqStrings(externalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const externalSources=uniqStrings(externalSourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    const mappings=uniqStrings(mappingRefs,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
-    const bridgeReasons=uniqStrings(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
+    const sourcesR=segmentedStringRefs(sourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'sourceRevisionRefs');
+    const evidenceR=segmentedStringRefs(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs,'evidenceRefs');
+    const unresolvedLocalEvidenceRefs=evidenceR.all.filter((id)=>!this.graph.evidenceRecord(id));
+    const unresolvedExternalR=segmentedStringRefs(unresolvedExternalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs,'unresolvedExternalEvidenceRefs');
+    const unresolvedR=segmentedStringRefs([...unresolvedLocalEvidenceRefs,...unresolvedExternalR.all],MEMORY_LIMITS.maxEpisodeEvidenceRefs,'unresolvedEvidenceRefs');
+    const resolvedR=segmentedStringRefs(evidenceR.all.filter((id)=>this.graph.evidenceRecord(id)),MEMORY_LIMITS.maxEpisodeEvidenceRefs,'resolvedEvidenceRefs');
+    const externalEvidenceR=segmentedStringRefs(externalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs,'externalEvidenceRefs');
+    const externalSourcesR=segmentedStringRefs(externalSourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'externalSourceRevisionRefs');
+    const mappingsR=segmentedStringRefs(mappingRefs,MEMORY_LIMITS.maxEvidenceRefsPerArtifact,'mappingRefs');
+    const bridgeReasonsR=segmentedStringRefs(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact,'bridgeReasonCodes');
+    const participantsList=uniqStrings(participants,64);
+    const knownByList=uniqStrings(knownBy,64);
+    const significanceValue=unitNumber(significance,'episode.significance');
+    const reflectionSignalRows=deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
+      reflectionKey:String(row?.reflectionKey??row?.key??''),
+      polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
+    })).filter((row)=>row.reflectionKey);
+    const referenceManifests=manifestMap([
+      ['sourceRevisionRefs',sourcesR],['evidenceRefs',evidenceR],['resolvedEvidenceRefs',resolvedR],
+      ['unresolvedEvidenceRefs',unresolvedR],['externalEvidenceRefs',externalEvidenceR],
+      ['externalSourceRevisionRefs',externalSourcesR],['unresolvedExternalEvidenceRefs',unresolvedExternalR],
+      ['mappingRefs',mappingsR],['bridgeReasonCodes',bridgeReasonsR],
+    ]);
     const history=this.episodeHistoryByLogical.get(logicalId)??[];
     const publicationFingerprint=stableHash(stableStringify({
-      logicalId,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,unresolvedExternal,mappings,
-      bridgeResolutionStatus,bridgeReasons,participants,knownBy,significance,timeStart,timeEnd,summary,
-      sceneEpisodeRef,graphReferenceSet,reflectionSignals,admissionSource,
+      logicalId,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,
+      sourceRevisionRefs:sourcesR.all,evidenceRefs:evidenceR.all,externalEvidenceRefs:externalEvidenceR.all,
+      externalSourceRevisionRefs:externalSourcesR.all,unresolvedExternalEvidenceRefs:unresolvedExternalR.all,
+      mappingRefs:mappingsR.all,bridgeResolutionStatus,bridgeReasonCodes:bridgeReasonsR.all,
+      participants:participantsList,knownBy:knownByList,significance:significanceValue,timeStart,timeEnd,summary,
+      sceneEpisodeRef,graphReferenceSet,reflectionSignals:reflectionSignalRows,admissionSource,
     }));
     const prior=currentRevisionFor(this.episodeHistoryByLogical,this.currentEpisodeByLogical,logicalId,this.episodes);
     if (prior&&prior.publicationFingerprint===publicationFingerprint) return deepClone(prior);
@@ -174,33 +190,31 @@ export class MemoryExperienceStore {
       correlationId:correlationId==null?null:String(correlationId),
       sceneId:sceneId==null?null:String(sceneId),
       sceneRevision:sceneRevision==null?null:Number(sceneRevision),
-      sourceRevisionRefs:sources,
-      evidenceRefs:evidence,
-      resolvedEvidenceRefs,
-      unresolvedEvidenceRefs,
-      externalEvidenceRefs:externalEvidence,
-      externalSourceRevisionRefs:externalSources,
-      unresolvedExternalEvidenceRefs:unresolvedExternal,
-      mappingRefs:mappings,
+      sourceRevisionRefs:sourcesR.head,
+      evidenceRefs:evidenceR.head,
+      resolvedEvidenceRefs:resolvedR.head,
+      unresolvedEvidenceRefs:unresolvedR.head,
+      externalEvidenceRefs:externalEvidenceR.head,
+      externalSourceRevisionRefs:externalSourcesR.head,
+      unresolvedExternalEvidenceRefs:unresolvedExternalR.head,
+      mappingRefs:mappingsR.head,
       bridgeResolutionStatus,
-      bridgeReasonCodes:bridgeReasons,
-      participants:uniqStrings(participants,64),
-      knownBy:uniqStrings(knownBy,64),
-      significance:unitNumber(significance,'episode.significance'),
+      bridgeReasonCodes:bridgeReasonsR.head,
+      referenceManifests,
+      participants:participantsList,
+      knownBy:knownByList,
+      significance:significanceValue,
       timeBounds:{start:timeStart,end:timeEnd},
       summary:String(summary),
       sceneEpisodeRef:deepClone(sceneEpisodeRef),
       graphReferenceSet:deepClone(graphReferenceSet),
       provenance:deepClone(provenance),
-      reflectionSignals:deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
-        reflectionKey:String(row?.reflectionKey??row?.key??''),
-        polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
-      })).filter((row)=>row.reflectionKey),
+      reflectionSignals:reflectionSignalRows,
       admissionSource,
       state:'CURRENT',
-      freshness:(freshBySources(this.graph,sources)
-        && unresolvedEvidenceRefs.length===0
-        && resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))
+      freshness:(freshBySources(this.graph,sourcesR.all)
+        && unresolvedR.all.length===0
+        && resolvedR.all.every((id)=>this.graph.evidenceFresh(id))
         && bridgeResolutionStatus!=='WITHHELD')?'FRESH':'STALE',
       publicationFingerprint,
       authorityClass:AuthorityClass.OBSERVED,

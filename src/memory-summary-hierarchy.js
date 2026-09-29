@@ -829,6 +829,8 @@ export class MemorySummaryHierarchy {
     let remainingOffset=start;
     let takenIds=0;
     const rows=[];
+    const unavailableEvidenceRefs=[];
+    const unavailableChildArtifactRefs=[];
     const seen=new Set();
     const visit=(row)=>{
       if(!row||seen.has(row.id)||takenIds>=cap)return;
@@ -839,21 +841,29 @@ export class MemorySummaryHierarchy {
         if(takenIds>=cap)return;
         const exact=this.graph.exactEvidence(id);
         if(exact)rows.push(exact);
+        else unavailableEvidenceRefs.push(String(id));
         takenIds+=1;
       }
       const children=row.evidenceManifest?.childArtifactRefs??row.childArtifactRefs??[];
       for(const childRef of children){
         if(takenIds>=cap)return;
         const child=this.artifacts.get(childRef.artifactId);
-        if(!child)continue;
-        const childCount=Number(childRef.exactEvidenceCount??child.evidenceManifest?.exactEvidenceCount??child.sourceRange?.evidenceCount??child.exactEvidenceRefs?.length??0);
+        const childCount=Number(childRef.exactEvidenceCount??child?.evidenceManifest?.exactEvidenceCount??child?.sourceRange?.evidenceCount??child?.exactEvidenceRefs?.length??0);
         if(remainingOffset>=childCount){remainingOffset-=childCount;continue;}
+        if(!child){
+          unavailableChildArtifactRefs.push(String(childRef.artifactId));
+          const logicallyConsumed=Math.min(cap-takenIds,Math.max(0,childCount-remainingOffset));
+          remainingOffset=0;
+          takenIds+=logicallyConsumed;
+          continue;
+        }
         visit(child);
       }
     };
     if(start<total)visit(artifact);
     const nextOffset=start+takenIds;
     const remaining=Math.max(0,total-nextOffset);
+    const unavailable=unavailableEvidenceRefs.length>0||unavailableChildArtifactRefs.length>0;
     return {
       kind:'MemorySummaryDrillbackPage',
       rows,
@@ -861,13 +871,15 @@ export class MemorySummaryHierarchy {
       limit:cap,
       processed:takenIds,
       remaining,
-      coverageComplete:remaining===0,
+      coverageComplete:remaining===0&&!unavailable,
       continuationAvailable:remaining>0,
       nextOffset:remaining>0?nextOffset:null,
       exactEvidenceCount:total,
+      unavailableEvidenceRefs,
+      unavailableChildArtifactRefs,
       hierarchical:Boolean((artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[]).length),
       canonicalKnowledgeDropped:false,
-      reasonCode:remaining>0?'SUMMARY_DRILLBACK_PAGE_BOUND':null,
+      reasonCode:unavailable?'SUMMARY_DRILLBACK_EVIDENCE_UNAVAILABLE':(remaining>0?'SUMMARY_DRILLBACK_PAGE_BOUND':null),
     };
   }
 

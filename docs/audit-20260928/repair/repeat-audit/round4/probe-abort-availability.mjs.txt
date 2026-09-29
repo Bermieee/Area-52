@@ -14,4 +14,4 @@ after T3: READY/HEALTH_CHECK_PASSED callable=true active=1 lastFailure=null | pr
 3 DEFERRED SCENE_OBSERVATION_DEFERRED_FOR_CAPACITY admission=null
 6s later: READY/HEALTH_CHECK_PASSED callable=true active=1 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=1
 provider calls: 5
-# exit=0 wall_s=16 head=cadac98 node=v22.22.2
+# exit=0 wall_s=15 head=83cb9a8 node=v22.22.2

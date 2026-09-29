@@ -94,5 +94,5 @@ readTurn keys: [
   learningReceipt : kind,turnId,experienceId,sourceRevisionId,settlementDecisions,reflectionEvidenceIds,feedback,runtimeTaskId,memoryFeedbackRuntimeTaskId,memoryRuntimeTaskId,memoryRetrievalFeedbackBatch,memoryRetrievalFeedback,memoryWriteback,memoryPostTurn,memoryConsolidation,memoryConsolidationRuntimeTaskId,memorySettlementReceipts,responseCompletion,learningLifecycle,rawExperienceRecoverable,sealedGenerationImmutable,canonicalMutationAuthority
   memoryPostTurn : kind,contractVersion,status,reasonCode,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sourceRevisionRefs,evidenceRefs,episodeId,episodeLogicalId,episodeRevision,exactSourceDrillback,summaryScopeRefs,summaryPublishedArtifactIds,reflectionReceipts,vectorWorkId,rawChatIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded,authorityGranted
   memoryConsolidationRuntimeTaskId : task-000006
-bytes 995722
-# exit=0 wall_s=1 head=cadac98 node=v22.22.2
+bytes 995715
+# exit=0 wall_s=1 head=83cb9a8 node=v22.22.2

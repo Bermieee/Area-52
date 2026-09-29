@@ -20,4 +20,4 @@ semantic {"loc":null,"cast":[],"atmos":["tension"],"prefetch":[]}  <- Her hand t
 semantic {"loc":null,"cast":[],"atmos":["intimacy"],"prefetch":[]}  <- Selene hugs her brother tightly.
 
 4/20 lines take the deterministic path (Sidecar skipped); 6 set a location, 3 set cast.
-# exit=0 wall_s=0 head=cadac98 node=v22.22.2
+# exit=0 wall_s=1 head=83cb9a8 node=v22.22.2

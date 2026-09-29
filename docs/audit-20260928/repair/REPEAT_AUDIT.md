@@ -44,3 +44,6 @@ See `REPAIR_LEDGER.md` FOLLOW-UP GATE; raw output in `repeat-audit/round2/`. Sui
 
 ## Round 3 (exact head c749e0e)
 Raw output in `repeat-audit/round3/`; suite and gates summarised in `FINAL_HANDOFF.md`.
+
+## Round 4 (closure round, code head 8506fb7, run on 83cb9a8)
+Raw: `repeat-audit/round4/` (24/24 probes exit 0; each file records its head). Behaviour probes unchanged from round 3 (swipe/regenerate/continue 3/2/3, no failing turn in 60, abort keeps READY, quiet no wedge, deterministic-skip lines identical); `trace-turn*` now run. Changed figures at 1,200 entries: turn wall 0.81-1.38 s (was 2.8-3.7 s), Lore channel nominations 48 (was 3,056; the cap also fixed evidence eviction), batched study longest stall 414 ms and operator re-accept 1.09 s (`probe-batched-stalls.mjs`, 1 ms heartbeat; same-method before: 804 ms and 5.5 s), retained heap 135-181 MB flat (`probe-heap-lore1200.mjs`). Full suite on the same head: 242 files, 2,029/2,029 pass.

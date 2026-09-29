@@ -26,4 +26,4 @@ lore entity ids sample: [
   'entity:deed85f583365077',
   'entity:sun-blade'
 ]
-# exit=0 wall_s=0 head=cadac98 node=v22.22.2
+# exit=0 wall_s=1 head=83cb9a8 node=v22.22.2

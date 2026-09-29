@@ -3,11 +3,9 @@
 **Branch** `repair/installed-architecture`, code head **`d041dca18ae9ef760c333b350b24638174490d1c`** (WIP commit; the note itself lands in the next docs-only commit). PR: https://github.com/Bermieee/Area-52/pull/324 (open, not merged; do not merge). Node 22.22.2.
 
 ## Current state (update this block at every checkpoint)
-- Branch `repair/installed-architecture`, local code head **8506fb7** (verifier PASS). NOT pushed (no repo access in the session); hand-off is a git bundle. Do not merge.
-- Done: O8 tests (6da77e1); assembly review + verifier PASS (9d0c716, cadac98, 8506fb7); O2/O9 decided; cooldown timer fix (1f19bd5); turn path 3.3 s to 0.8 s + evidence-eviction fix (fa8d394); batched stall 804 to 412 ms (0890531); persistence failure modes (0afc84c); Jev consumption proven through the installed wiring (bb632ca); operator re-accept 5.5 s to 1.2 s (4940268).
-- Verification: full sweep on cadac98 = 242 files, 2,027/2,027 pass. After that only 4940268 changed code (71 affected files pass). Repeat-audit probes on cadac98 in `repeat-audit/round4/` (24/24 exit 0).
-- IN PROGRESS when this note was written: final full sweep on 8506fb7, then re-run the round4 probes on that head, then FINAL_HANDOFF / closure checklist / PR body text, then bundle.
-- If interrupted: re-run `ls tests/*.mjs | xargs -P2 -I{} sh -c 'timeout 1800 node --test {}'` on the exact head, compare with 0 failures; then the probes (`for f in audit-20260928/harness/*.mjs ...`, heap probe needs `--expose-gc`); then the docs.
+- **Closure round complete on the mock harness.** Code head **8506fb7**; final sweep and probes on 83cb9a8 (docs-only difference): 242 files 2,029/2,029 pass; verifier PASS; probes 24/24 exit 0. Nothing running.
+- NOT pushed (no repo access in the session): apply the git bundle `area52-closure.bundle` to a clone of the branch and push; paste `PR_BODY.md` into PR #324. Do not merge.
+- Next (outside this repair unless the owner decides): live-acceptance checklist in FINAL_HANDOFF.md; open decisions O1, O3, O6, O8, D7 confirmations, multi-tab stale-writer policy, Jev-to-narrator policy; residual synchronous chunks.
 
 ## Update (6da77e1, docs in the following commit)
 - Step 1 done: O8 round-trip tests added, two lossy paths fixed (own `__proto__` key; missing string entry or short table row now fail closed). See the ledger.

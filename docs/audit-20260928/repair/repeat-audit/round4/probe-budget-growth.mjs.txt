@@ -8,4 +8,4 @@ turn 19 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_S
 turn 20 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
 turn 21 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
 turn 22 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
-# exit=0 wall_s=19 head=cadac98 node=v22.22.2
+# exit=0 wall_s=20 head=83cb9a8 node=v22.22.2

@@ -95,7 +95,8 @@ export class ContextCompiler {
     }
 
     for(const thread of threads){provenanceIndex[thread.id]=[...thread.sourceRevisionIds];for(const ref of thread.sourceRevisionIds)dependencies.add(ref);}
-    const finalize=(map,section)=>[...map.values()].map(f=>{
+    const finalize=(map,section)=>{
+      const ranked=[...map.values()].map(f=>{
       const out={e:f.e,p:f.p,v:f.v,a:f.a,cf:f.cf,id:f.id};const sourceRefs=uniq(provenanceIndex[f.id]??[]);if(sourceRefs.length)out.sr=sourceRefs;const support=uniq(f._supportIds);if(support.length>1)out.supportIds=support;if(section!=='current')out.t=[f._from,f._to,f._status];
       const knowledge=[...new Map((f._knowledge??[]).map(x=>[x.evidenceId,x])).values()];
       if(knowledge.length){
@@ -104,7 +105,8 @@ export class ContextCompiler {
       }return out;
     }).sort((a,b)=>{const pa=semanticPriorityForFact(a,section,threads).score,pb=semanticPriorityForFact(b,section,threads).score;return pb-pa||a.e.localeCompare(b.e)||a.p.localeCompare(b.p)||String(a.v).localeCompare(String(b.v));}).slice(0,this.maxFactsPerSection);
 
-    const current=finalize(buckets.current,'current'),historical=finalize(buckets.historical,'historical'),unresolvedRows=finalize(buckets.unresolved,'unresolved');
+    const currentPick=finalize(buckets.current,'current'),historicalPick=finalize(buckets.historical,'historical'),unresolvedPick=finalize(buckets.unresolved,'unresolved');
+    const current=currentPick.rows,historical=historicalPick.rows,unresolvedRows=unresolvedPick.rows;
     const exactExternal=[...new Map(admittedExternal.map(x=>[x.evidenceId,x])).values()];
     // Cap ledger row 34: when a section has more rows than its budget, it keeps the best-ranked ones, not the first ones
     // admitted. Rank comes from signals the evidence already carries (hard rule, precision rank, score, input rank);
@@ -131,7 +133,7 @@ export class ContextCompiler {
     if(episodicMemory.length)packet.episodicMemory=episodicMemory;
     if(Object.keys(knowledgeTraceIndex).length)packet.knowledgeTraceIndex=knowledgeTraceIndex;
     const semanticSizing=computeSemanticSizing({current,historical,unresolved:unresolvedRows,activeThreads:threads,provenanceIndex,dependencies:dependenciesList});
-    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length,loreBoundedOut:lorePick.boundedOut,memoryBoundedOut:memoryPick.boundedOut,ranking:'HARD_RULE>PRECISION_RANK>SCORE>INPUT_RANK>ADMISSION'}};
+    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},claimCoverage:{current:{total:currentPick.total,included:current.length,boundedOut:currentPick.boundedOut},historical:{total:historicalPick.total,included:historical.length,boundedOut:historicalPick.boundedOut},unresolved:{total:unresolvedPick.total,included:unresolvedRows.length,boundedOut:unresolvedPick.boundedOut},policy:'SEMANTIC_PRIORITY_RANK'},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length,loreBoundedOut:lorePick.boundedOut,memoryBoundedOut:memoryPick.boundedOut,ranking:'HARD_RULE>PRECISION_RANK>SCORE>INPUT_RANK>ADMISSION'}};
     return{packet,metadata};
   }
 }

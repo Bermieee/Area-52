@@ -1,8 +1,14 @@
-# Resume note: closure round (paused, not finished)
+# Resume note: closure round (steps 1 and 2 done; not finished)
 
 **Branch** `repair/installed-architecture`, code head **`d041dca18ae9ef760c333b350b24638174490d1c`** (WIP commit; the note itself lands in the next docs-only commit). PR: https://github.com/Bermieee/Area-52/pull/324 (open, not merged; do not merge). Node 22.22.2.
 
-## State of verification (be careful: two different things)
+## Update (6da77e1, docs in the following commit)
+- Step 1 done: O8 round-trip tests added, two lossy paths fixed (own `__proto__` key; missing string entry or short table row now fail closed). See the ledger.
+- Step 2 done: full sweep on exactly `6da77e1`: 242 files, 1,999/1,999 pass, 0 failing files; all 47 baseline failure names now pass; `repair-wave2-long-session` passes alone in 896 s (same as before O8 on this container; it exceeded the sweep's 900 s cap only under 2-way load).
+- Next: step 3 below (assembly verifier and drift re-review), then step 4.
+- Not pushed from this session (the repository was not in the session's authorised sources); commits were handed back as a git bundle.
+
+## State of verification at the pause (historical, before the update above)
 - **Last full sweep**: g7 on `c749e0e` (241 files): 17 failing files / 32 failing tests, all baseline, none new. Output: `/tmp/claude-0/g7/` (scratch, may be gone in a new container; the results are recorded in `FINAL_HANDOFF.md`).
 - **Everything after c749e0e is NOT covered by a full sweep.** Commits `f37d70a`, `6bb6f37`, `d041dca` were verified only by targeted test files (below). No sweep or test run is in progress; nothing was left running.
 - Targeted results on the current tree (all pass): `worker1-scene-prefetch-trigger` 14, `worker1-scene-event-spine` 8, `worker1-brain-lifecycle-causal-wave` 25, `worker1-context-trust-delivery` 4, `worker4-causal-telemetry-report` 9, `client-repair-wave2` 5, `scene-completion-wave4-gaps` 5, `wave2` 12, `wave6.test` 39, `wave13-operator-ui` 67, `worker3-lore-neural-ui` 21, `coprocessor-wave3` 46, `coprocessor-wave6-consolidation` 18, `coprocessor-wave6-golden` 3, `coprocessor-wave14-connections` 8, `coprocessor-wave8-stress` 6, `coprocessor-wave9-stress` 1, `coprocessor-wave20-backend-closure` 8, `repair-followup-native-jev-advisory` 15, `repair-followup-resource-class` 3, `repair-followup-brain-snapshot-parts` 3, `repair-followup-installed-persistence` 8, `repair-followup-storage-adapter` 9, `wave4` / `wave8` / `ui-core` / `wave12-sillytavern-host` (0 failing).

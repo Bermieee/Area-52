@@ -36,7 +36,7 @@ function sourceContext(runtime, sourceId, resolution = null) {
   // to Truth by the story query packet.
   const artifacts = runtime.store.artifactsForLearnedRevision(learned.id).map((row) => (
     resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
-      : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: resolution.conflicts.filter((c) => c.artifactIds.includes(row.id)).map((c) => c.id)} : row
+      : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: (resolution.conflictMembership.get(row.id) ?? []).map((m) => m.conflictSetId)} : row
   ));
   const entities = artifacts
     .filter((row) => row.artifactType === ArtifactType.ENTITY)

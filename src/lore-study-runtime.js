@@ -373,6 +373,9 @@ export class LoreStudyRuntime {
   publicSurface({metadataOnly = false} = {}) {
     const currentArtifacts = metadataOnly ? [] : this.store.currentArtifacts(this.registry);
     const conflicts = metadataOnly ? [] : this.store.conflicts(this.registry);
+    // Inspector view fields (never stored): a claim shows the conflict sets it belongs to and what superseded it, while its
+    // own asserted status stays as learned.
+    const resolution = metadataOnly ? null : this.store.temporalResolution(this.registry);
     const entries = this.registry.listEntries({includeRemoved: true}).map((source) => {
       const revision = this.registry.currentRevision(source.sourceId);
       const learned = this.store.currentLearnedRevision(source.sourceId);
@@ -447,6 +450,10 @@ export class LoreStudyRuntime {
         dependencyRevisions: [artifact.sourceRevisionId],
         freshness: 'CURRENT',
         unresolved: artifact.unresolved,
+        ...(artifact.artifactType === ArtifactType.CLAIM && resolution ? {
+          conflictMembership: deepClone(resolution.conflictMembership.get(artifact.id) ?? []),
+          supersededBy: resolution.superseded.get(artifact.id)?.by ?? null,
+        } : {}),
       })),
       conflicts,
       lifecycle: this.studyStatus(),

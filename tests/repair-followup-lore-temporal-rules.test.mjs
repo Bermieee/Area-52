@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LoreStudyRuntime } from '../src/lore-study-runtime.js';
 import { ArtifactType } from '../src/lore-contracts.js';
-import { parseAttribution, analyzeClause, readSourceTime, compareTimes, sameEvent } from '../src/lore-temporal-rules.js';
+import { parseAttribution, analyzeClause, readSourceTime, compareTimes, sameEvent, buildEventIdentity } from '../src/lore-temporal-rules.js';
 
 function world(entries, { id = 'book' } = {}) {
   const rt = new LoreStudyRuntime();
@@ -98,8 +98,7 @@ test('R4: differing values conflict only for the same single-valued property wit
     ['a', 'The Sun Blade is destroyed in the fire.', { at: 10 }],
     ['b', 'A journal claims the Sun Blade survived the flood.', { at: 12 }],
   ]);
-  assert.equal(otherEvent.res.conflicts.length, 0, 'different events: overlap unknown, not a conflict');
-  assert.ok(otherEvent.res.unknownOverlaps >= 1);
+  assert.equal(otherEvent.res.conflicts.length, 0, 'unrelated events (no shared head noun) are neither a conflict nor a possible one');
   const otherSubject = world([
     ['a', 'The Sun Blade is destroyed in the fire.', { at: 10 }],
     ['b', 'A journal claims the Moon Blade survived the fire.', { at: 12 }],
@@ -117,12 +116,18 @@ test('R4: differing values conflict only for the same single-valued property wit
   assert.equal(simultaneous.res.conflicts.length, 1, 'two non-reported states at the same time on one timeline do conflict');
 });
 
-test('E1: event identity is whole-token suffix or equal; different modifiers never match', () => {
-  assert.equal(sameEvent('fire', 'ember-tavern-fire'), true);
-  assert.equal(sameEvent('ember-tavern-fire', 'fire'), true);
-  assert.equal(sameEvent('ember-tavern-fire', 'river-district-fire'), false);
-  assert.equal(sameEvent('fire', 'wildfire'), false);
-  assert.equal(sameEvent('fire', 'flood'), false);
+test('E1: event identity needs equal names or alias evidence; a missing or different modifier is uncertainty, not proof either way', () => {
+  const same = buildEventIdentity([]);
+  assert.equal(same('fire', 'fire'), 'SAME');
+  assert.equal(same('fire', 'ember-tavern-fire'), 'POSSIBLE', 'missing modifier: uncertain');
+  assert.equal(same('ember-tavern-fire', 'river-district-fire'), 'POSSIBLE', 'different modifiers do not prove different events');
+  assert.equal(same('fire', 'flood'), 'NONE');
+  const evidence = [{ payload: { entityId: 'entity:e1', canonicalName: 'Ember Tavern fire', aliases: ['Ember Tavern fire', 'the fire'] } }];
+  assert.equal(buildEventIdentity(evidence)('fire', 'ember-tavern-fire'), 'SAME', 'alias evidence establishes identity');
+  const ambiguous = [...evidence, { payload: { entityId: 'entity:e2', canonicalName: 'Harbor fire', aliases: ['Harbor fire', 'the fire'] } }];
+  assert.equal(buildEventIdentity(ambiguous)('fire', 'ember-tavern-fire'), 'POSSIBLE', 'an alias shared by two entities is not evidence');
+  assert.equal(sameEvent('fire', 'fire'), true);
+  assert.equal(sameEvent('fire', 'ember-tavern-fire'), false);
 });
 
 test('a study made by an older engine revision is re-studied, and only then', () => {
@@ -149,8 +154,9 @@ test('scope: unrelated stories never supersede or conflict with each other; book
   assert.equal(rt.store.temporalResolution(rt.registry).superseded.size, 0);
   rt.store.setBookGroupsProvider(() => [['storyA', 'storyB']]);
   const joined = rt.store.temporalResolution(rt.registry);
-  assert.equal(joined.conflicts.length, 1, 'books read together conflict on the same entity property');
-  assert.equal(joined.superseded.size, 1, 'and supersede on a shared timeline');
+  assert.equal(joined.conflicts.length, 1, 'books read together are compared');
+  assert.equal(joined.conflicts[0].certainty, 'POSSIBLE', 'but different timelines do not establish shared continuity');
+  assert.equal(joined.superseded.size, 1, 'supersession still needs the explicitly shared timeline');
   rt.store.setBookGroupsProvider(() => [['storyA', 'other']]);
   assert.equal(rt.store.temporalResolution(rt.registry).conflicts.length, 0);
 });

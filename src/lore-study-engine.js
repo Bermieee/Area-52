@@ -353,12 +353,23 @@ function analyzeSentence(workspace, sentence, index) {
     return;
   }
 
-  if ((match = s.match(/^(?:The\s+)?(.+?)\s+was\s+destroyed\s+in\s+(?:the\s+)?(.+?)\s+fire[.!?]?$/i))) {
+  if ((match = s.match(/^(?:The\s+)?(.+?)\s+was\s+destroyed\s+in\s+(?:the\s+)?((.+?)\s+fire)[.!?]?$/i))) {
     const object = ensureEntity(workspace, match[1], 'OBJECT', index);
-    const place = ensureEntity(workspace, match[2], 'LOCATION', index);
-    pushClaim(workspace, s, index, object, 'fate', 'destroyed-in-fire', {temporalClass: TemporalClass.HISTORICAL, applicability: {kind: 'FROM_EVENT', event: slug(match[2] + ' fire'), relation: 'in'}});
+    const place = ensureEntity(workspace, match[3], 'LOCATION', index);
+    pushClaim(workspace, s, index, object, 'fate', 'destroyed-in-fire', {temporalClass: TemporalClass.HISTORICAL, applicability: {kind: 'FROM_EVENT', event: slug(match[2]), relation: 'in'}});
     pushRelationship(workspace, s, index, object, 'destroyedAt', place, {temporalClass: TemporalClass.HISTORICAL});
     return;
+  }
+
+  if ((match = s.match(/^(?:The\s+)?(.+?),?\s+(?:(?:is|was)\s+)?also\s+(?:called|known as)\s+(?:the\s+)?(.+?)[.!?]?$/i))) {
+    // Alias evidence ("X, also called Y"): both names belong to one entity. This is the only evidence that lets two
+    // differently worded names (of a person, place or event) be treated as the same identity.
+    const canonicalId = ensureEntity(workspace, match[1], null, index);
+    const alias = cleanName(match[2]);
+    if (canonicalId && alias && slug(alias) !== slug(match[1])) {
+      workspace.entities[canonicalId].aliases = boundedUnique([...workspace.entities[canonicalId].aliases, alias], 16);
+      return;
+    }
   }
 
   {
@@ -479,7 +490,7 @@ function temporalPayload(workspace, row) {
     cardinality: prop.cardinality,
     applicability: row.applicability,
     attribution: row.attribution,
-    sourceTime: {at: workspace.time.at, claimAt: workspace.time.claimAt, problems: workspace.time.problems},
+    sourceTime: {at: workspace.time.at, claimAt: workspace.time.claimAt, continuity: workspace.time.continuity, problems: workspace.time.problems},
   };
   if (row.qualifierDetail) out.qualifierDetail = row.qualifierDetail;
   return out;

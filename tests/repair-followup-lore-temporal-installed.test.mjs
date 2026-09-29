@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeInstalled } from './helpers/installed-host.mjs';
 import { createGoldenDeploymentLorebook } from '../src/deployment/brain.js';
+import { STUDY_ENGINE_REVISION } from '../src/lore-study-engine.js';
 
 const Q = 'Where can Eris find the Sun Blade now? The accounts are conflicting.';
 
@@ -72,9 +73,9 @@ test('an older-engine learned revision is re-studied by the installed Lore study
   const { h } = await goldenTurn('chat:tj4');
   const svc = loreOf(h), rt = svc.runtime;
   for (const learned of rt.store.learnedRevisions.values()) learned.engineRevision = 'lore-study-engine-v1';
-  assert.ok(rt.store.sourceIdsWithStaleEngine(rt.registry, 'lore-study-engine-v2+lore-temporal-rules-v1').length >= 6);
+  assert.ok(rt.store.sourceIdsWithStaleEngine(rt.registry, STUDY_ENGINE_REVISION).length >= 6);
   await h.session.brain.runLoreStudy?.({ chatId: 'chat:tj4' });
-  assert.equal(rt.store.sourceIdsWithStaleEngine(rt.registry, 'lore-study-engine-v2+lore-temporal-rules-v1').length, 0);
+  assert.equal(rt.store.sourceIdsWithStaleEngine(rt.registry, STUDY_ENGINE_REVISION).length, 0);
   assert.equal(svc.brainInterface().sourceTruthHint('lore:ember-golden:tavern-intact')?.status, 'HISTORICAL');
   h.session.destroy();
 });

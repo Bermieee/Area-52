@@ -55,21 +55,10 @@ function manifestMap(rows) {
   return Object.fromEntries(rows.filter(([,row])=>row?.manifest).map(([field,row])=>[field,deepClone(row.manifest)]));
 }
 
-function consolidationJobIdentity(job) {
-  return {
-    type:String(job?.type??''),
-    reflectionKey:String(job?.input?.reflectionKey??''),
-    proposalId:String(job?.input?.proposalId??''),
-    sourceRevisionRefs:(job?.input?.sourceRevisionRefs??[]).slice(0,8).map(String),
-  };
-}
-
 function consolidationJobSetToken(jobs) {
-  const sample=[
-    ...jobs.slice(0,8).map(consolidationJobIdentity),
-    ...jobs.slice(Math.max(8,jobs.length-8)).map(consolidationJobIdentity),
-  ];
-  return 'memory-consolidation-jobs:'+stableHash(stableStringify({total:jobs.length,sample}));
+  // Continuation identity must cover the whole logical backlog, not only the page edges.
+  // The caller already supplied the complete job list; hashing it adds no retained overflow queue.
+  return 'memory-consolidation-jobs:'+stableHash(stableStringify(jobs));
 }
 
 function consolidationSourceRefs(session) {

@@ -68,3 +68,44 @@ test('backpressure survives a snapshot and an oversized restored queue is deferr
   await drain(small);
   assert.equal(small.vectors.size, 20);
 });
+
+
+test('dense nomination keeps full owner freshness refs but bounds Candidate transport refs', async () => {
+  const sourceRevisionRefs=Array.from({length:65},(_,i)=>'src:overflow:'+i);
+  const evidenceRefs=Array.from({length:129},(_,i)=>'evidence:overflow:'+i);
+  const record={
+    id:'rec:overflow',artifactId:'episode:overflow',artifactRevision:1,channel:'SCENE_EPISODE',freshness:'FRESH',
+    sourceRevisionRefs,evidenceRefs,dependencyRevisions:[...sourceRevisionRefs,'episode:overflow'],
+    representationText:'overflow dense memory',claimRefs:[],eventRefs:[],entityRefs:[],relationshipRefs:[],
+    provenance:[{ref:'prov:overflow'}],authorityClass:'OBSERVED',truthStatusHint:'HISTORICAL',significance:.8,
+    worldRevision:1,sceneRevision:1,
+  };
+  const producer={
+    historian:{records:new Map([[record.id,record]])},
+    experienceStore:{episodes:new Map([[record.artifactId,{id:record.artifactId,chatId:'chat:a'}]])},
+    graph:{
+      isSourceRevisionActive:()=>true,
+      evidenceView:id=>({id,exactContent:'overflow dense memory '+id}),
+      evidenceRecord:id=>({id,exactContent:'overflow dense memory '+id}),
+    },
+    plasticity:{retrievable:()=>true},
+  };
+  const index=new MemoryVectorIndex({producer,maxVectors:8,maxPending:8});
+  index.attachExecutor(async()=>({executionId:'overflow-exec',embeddings:[[1,0,0]],providerReturned:true,providerAttempted:true}));
+  index.enqueueArtifact({artifactId:record.artifactId,artifactRevision:1,chatId:'chat:a',sourceRevisionRefs,historianRecordRef:record.id});
+  await index.runMaintenance({maxUnits:1});
+  await index.primeQuery({query:'overflow dense memory',selection:{chatId:'chat:a',sourceRevisionRefs}});
+  const nominations=index.cachedNominations({query:'overflow dense memory',selection:{chatId:'chat:a',sourceRevisionRefs}});
+  assert.equal(nominations.length,1);
+  const nomination=nominations[0];
+  assert.equal(nomination.sourceRevisionRefs.length,64);
+  assert.equal(nomination.evidenceRefs.length,64);
+  assert.equal(nomination.dependencyRevisions.length,64);
+  assert.equal(nomination.metadata.sourceRevisionRefCount,65);
+  assert.equal(nomination.metadata.sourceRevisionRefsComplete,false);
+  assert.equal(nomination.metadata.evidenceRefCount,129);
+  assert.equal(nomination.metadata.evidenceRefsComplete,false);
+  assert.equal(nomination.metadata.transportReferencesBounded,true);
+  assert.equal(nomination.metadata.exactSourceDrillback,true);
+  assert.equal(nomination.metadata.canonicalKnowledgeDropped,false);
+});

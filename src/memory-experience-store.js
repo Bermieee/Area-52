@@ -23,6 +23,50 @@ function freshBySources(graph,sourceRevisionRefs) {
   return sourceRevisionRefs.every((id)=>graph.isSourceRevisionActive(id));
 }
 
+function segmentedStringRefs(values,limit,field) {
+  const all=uniqStrings(values,Infinity);
+  const segments=[];
+  for(let offset=0;offset<all.length;offset+=limit)segments.push(all.slice(offset,offset+limit));
+  return {
+    head:segments[0]??[],
+    all,
+    manifest:all.length>limit?{
+      kind:'MemoryReferenceManifest',
+      contractVersion:'1.0.0',
+      field,
+      segmentSize:limit,
+      total:all.length,
+      segments,
+      coverageComplete:true,
+      continuationAvailable:segments.length>1,
+      continuationSegments:Math.max(0,segments.length-1),
+      canonicalKnowledgeDropped:false,
+    }:null,
+  };
+}
+
+export function memoryReferenceValues(artifact,field) {
+  const manifest=artifact?.referenceManifests?.[field];
+  if(manifest?.kind==='MemoryReferenceManifest'&&Array.isArray(manifest.segments))return manifest.segments.flat().map(String);
+  return [...(artifact?.[field]??[])].map(String);
+}
+
+function manifestMap(rows) {
+  return Object.fromEntries(rows.filter(([,row])=>row?.manifest).map(([field,row])=>[field,deepClone(row.manifest)]));
+}
+
+function consolidationJobSetToken(jobs) {
+  // Continuation identity must cover the whole logical backlog, not only the page edges.
+  // The caller already supplied the complete job list; hashing it adds no retained overflow queue.
+  return 'memory-consolidation-jobs:'+stableHash(stableStringify(jobs));
+}
+
+function consolidationSourceRefs(session) {
+  const manifest=session?.inputRevisionFence?.sourceRevisionManifest;
+  if(manifest?.kind==='MemoryReferenceManifest'&&Array.isArray(manifest.segments))return manifest.segments.flat().map(String);
+  return [...(session?.inputRevisionFence?.sourceRevisionRefs??[])].map(String);
+}
+
 export class MemoryExperienceStore {
   constructor({graph,snapshot=null}={}) {
     if (!graph) throw new TypeError('MemoryExperienceStore requires TemporalStateGraph');
@@ -105,21 +149,41 @@ export class MemoryExperienceStore {
     admissionSource='MEMORY_DIRECT',
   }={}) {
     requiredString(logicalId,'episode.logicalId');
-    const sources=uniqStrings(sourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    const evidence=uniqStrings(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const unresolvedLocalEvidenceRefs=evidence.filter((id)=>!this.graph.evidenceRecord(id));
-    const unresolvedExternal=uniqStrings(unresolvedExternalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const unresolvedEvidenceRefs=uniqStrings([...unresolvedLocalEvidenceRefs,...unresolvedExternal],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const resolvedEvidenceRefs=evidence.filter((id)=>this.graph.evidenceRecord(id));
-    const externalEvidence=uniqStrings(externalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-    const externalSources=uniqStrings(externalSourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    const mappings=uniqStrings(mappingRefs,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
-    const bridgeReasons=uniqStrings(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact);
+    const sourcesR=segmentedStringRefs(sourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'sourceRevisionRefs');
+    const evidenceR=segmentedStringRefs(evidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs,'evidenceRefs');
+    const unresolvedLocalEvidenceRefs=evidenceR.all.filter((id)=>!this.graph.evidenceRecord(id));
+    const unresolvedExternalR=segmentedStringRefs(unresolvedExternalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs,'unresolvedExternalEvidenceRefs');
+    const unresolvedR=segmentedStringRefs([...unresolvedLocalEvidenceRefs,...unresolvedExternalR.all],MEMORY_LIMITS.maxEpisodeEvidenceRefs,'unresolvedEvidenceRefs');
+    const resolvedR=segmentedStringRefs(evidenceR.all.filter((id)=>this.graph.evidenceRecord(id)),MEMORY_LIMITS.maxEpisodeEvidenceRefs,'resolvedEvidenceRefs');
+    const externalEvidenceR=segmentedStringRefs(externalEvidenceRefs,MEMORY_LIMITS.maxEpisodeEvidenceRefs,'externalEvidenceRefs');
+    const externalSourcesR=segmentedStringRefs(externalSourceRevisionRefs,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'externalSourceRevisionRefs');
+    const mappingsR=segmentedStringRefs(mappingRefs,MEMORY_LIMITS.maxEvidenceRefsPerArtifact,'mappingRefs');
+    const bridgeReasonsR=segmentedStringRefs(bridgeReasonCodes,MEMORY_LIMITS.maxEvidenceRefsPerArtifact,'bridgeReasonCodes');
+    const participantsList=uniqStrings(participants,64);
+    const knownByList=uniqStrings(knownBy,64);
+    const significanceValue=unitNumber(significance,'episode.significance');
+    const summaryValue=String(summary);
+    const sceneEpisodeRefValue=deepClone(sceneEpisodeRef);
+    const graphReferenceSetValue=deepClone(graphReferenceSet);
+    const provenanceValue=deepClone(provenance);
+    const reflectionSignalRows=deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
+      reflectionKey:String(row?.reflectionKey??row?.key??''),
+      polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
+    })).filter((row)=>row.reflectionKey);
+    const referenceManifests=manifestMap([
+      ['sourceRevisionRefs',sourcesR],['evidenceRefs',evidenceR],['resolvedEvidenceRefs',resolvedR],
+      ['unresolvedEvidenceRefs',unresolvedR],['externalEvidenceRefs',externalEvidenceR],
+      ['externalSourceRevisionRefs',externalSourcesR],['unresolvedExternalEvidenceRefs',unresolvedExternalR],
+      ['mappingRefs',mappingsR],['bridgeReasonCodes',bridgeReasonsR],
+    ]);
     const history=this.episodeHistoryByLogical.get(logicalId)??[];
     const publicationFingerprint=stableHash(stableStringify({
-      logicalId,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sources,evidence,externalEvidence,externalSources,unresolvedExternal,mappings,
-      bridgeResolutionStatus,bridgeReasons,participants,knownBy,significance,timeStart,timeEnd,summary,
-      sceneEpisodeRef,graphReferenceSet,reflectionSignals,admissionSource,
+      logicalId,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,
+      sourceRevisionRefs:sourcesR.all,evidenceRefs:evidenceR.all,externalEvidenceRefs:externalEvidenceR.all,
+      externalSourceRevisionRefs:externalSourcesR.all,unresolvedExternalEvidenceRefs:unresolvedExternalR.all,
+      mappingRefs:mappingsR.all,bridgeResolutionStatus,bridgeReasonCodes:bridgeReasonsR.all,
+      participants:participantsList,knownBy:knownByList,significance:significanceValue,timeStart,timeEnd,summary:summaryValue,
+      sceneEpisodeRef:sceneEpisodeRefValue,graphReferenceSet:graphReferenceSetValue,reflectionSignals:reflectionSignalRows,admissionSource,
     }));
     const prior=currentRevisionFor(this.episodeHistoryByLogical,this.currentEpisodeByLogical,logicalId,this.episodes);
     if (prior&&prior.publicationFingerprint===publicationFingerprint) return deepClone(prior);
@@ -142,33 +206,31 @@ export class MemoryExperienceStore {
       correlationId:correlationId==null?null:String(correlationId),
       sceneId:sceneId==null?null:String(sceneId),
       sceneRevision:sceneRevision==null?null:Number(sceneRevision),
-      sourceRevisionRefs:sources,
-      evidenceRefs:evidence,
-      resolvedEvidenceRefs,
-      unresolvedEvidenceRefs,
-      externalEvidenceRefs:externalEvidence,
-      externalSourceRevisionRefs:externalSources,
-      unresolvedExternalEvidenceRefs:unresolvedExternal,
-      mappingRefs:mappings,
+      sourceRevisionRefs:sourcesR.head,
+      evidenceRefs:evidenceR.head,
+      resolvedEvidenceRefs:resolvedR.head,
+      unresolvedEvidenceRefs:unresolvedR.head,
+      externalEvidenceRefs:externalEvidenceR.head,
+      externalSourceRevisionRefs:externalSourcesR.head,
+      unresolvedExternalEvidenceRefs:unresolvedExternalR.head,
+      mappingRefs:mappingsR.head,
       bridgeResolutionStatus,
-      bridgeReasonCodes:bridgeReasons,
-      participants:uniqStrings(participants,64),
-      knownBy:uniqStrings(knownBy,64),
-      significance:unitNumber(significance,'episode.significance'),
+      bridgeReasonCodes:bridgeReasonsR.head,
+      referenceManifests,
+      participants:participantsList,
+      knownBy:knownByList,
+      significance:significanceValue,
       timeBounds:{start:timeStart,end:timeEnd},
-      summary:String(summary),
-      sceneEpisodeRef:deepClone(sceneEpisodeRef),
-      graphReferenceSet:deepClone(graphReferenceSet),
-      provenance:deepClone(provenance),
-      reflectionSignals:deepClone((reflectionSignals??[]).slice(0,16)).map((row)=>({
-        reflectionKey:String(row?.reflectionKey??row?.key??''),
-        polarity:String(row?.polarity??'SUPPORT').toUpperCase()==='CONTRADICT'?'CONTRADICT':'SUPPORT',
-      })).filter((row)=>row.reflectionKey),
+      summary:summaryValue,
+      sceneEpisodeRef:sceneEpisodeRefValue,
+      graphReferenceSet:graphReferenceSetValue,
+      provenance:provenanceValue,
+      reflectionSignals:reflectionSignalRows,
       admissionSource,
       state:'CURRENT',
-      freshness:(freshBySources(this.graph,sources)
-        && unresolvedEvidenceRefs.length===0
-        && resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))
+      freshness:(freshBySources(this.graph,sourcesR.all)
+        && unresolvedR.all.length===0
+        && resolvedR.all.every((id)=>this.graph.evidenceFresh(id))
         && bridgeResolutionStatus!=='WITHHELD')?'FRESH':'STALE',
       publicationFingerprint,
       authorityClass:AuthorityClass.OBSERVED,
@@ -189,32 +251,40 @@ export class MemoryExperienceStore {
     contradictionEvidenceRefs=[],
     episodeRefs=[],
   }={}) {
-    const support=uniqStrings(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs);
-    const contradictions=uniqStrings(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs);
-    const explicitEpisodes=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
-    const evidenceRows=[...support,...contradictions].map((id)=>this.graph.evidenceRecord(id));
-    const missingEvidence=[...support,...contradictions].filter((id)=>!this.graph.evidenceRecord(id));
-    const staleEvidence=[...support,...contradictions].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
+    const supportR=segmentedStringRefs(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs,'supportEvidenceRefs');
+    const contradictionsR=segmentedStringRefs(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs,'contradictionEvidenceRefs');
+    const explicitEpisodesR=segmentedStringRefs(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch,'episodeRefs');
+    const evidenceRows=[...supportR.all,...contradictionsR.all].map((id)=>this.graph.evidenceRecord(id));
+    const missingEvidence=[...supportR.all,...contradictionsR.all].filter((id)=>!this.graph.evidenceRecord(id));
+    const staleEvidence=[...supportR.all,...contradictionsR.all].filter((id)=>this.graph.evidenceRecord(id)&&!this.graph.evidenceFresh(id));
     const currentEpisodes=[...this.currentEpisodeByLogical.values()].map((id)=>this.episodes.get(id)).filter(Boolean)
       .filter((episode)=>episode.state==='CURRENT'&&episode.freshness==='FRESH');
-    const explicitRows=explicitEpisodes.map((id)=>this.episodes.get(id)).filter(Boolean);
-    const supportRows=currentEpisodes.filter((episode)=>episode.evidenceRefs.some((id)=>support.includes(id)));
-    const contradictionRows=currentEpisodes.filter((episode)=>episode.evidenceRefs.some((id)=>contradictions.includes(id)));
+    const explicitRows=explicitEpisodesR.all.map((id)=>this.episodes.get(id)).filter(Boolean);
+    const supportRows=currentEpisodes.filter((episode)=>memoryReferenceValues(episode,'evidenceRefs').some((id)=>supportR.all.includes(id)));
+    const contradictionRows=currentEpisodes.filter((episode)=>memoryReferenceValues(episode,'evidenceRefs').some((id)=>contradictionsR.all.includes(id)));
     for(const episode of explicitRows)if(!supportRows.some((row)=>row.id===episode.id)&&episode.state==='CURRENT'&&episode.freshness==='FRESH')supportRows.push(episode);
     const supportLogicalIds=[...new Set(supportRows.map((row)=>row.logicalId))].sort();
     const contradictionLogicalIds=[...new Set(contradictionRows.map((row)=>row.logicalId))].sort();
+    const supportEpisodeIdsR=segmentedStringRefs(supportRows.map((row)=>row.id),MEMORY_LIMITS.maxEpisodesPerBatch,'supportEpisodeIds');
+    const contradictionEpisodeIdsR=segmentedStringRefs(contradictionRows.map((row)=>row.id),MEMORY_LIMITS.maxEpisodesPerBatch,'contradictionEpisodeIds');
+    const sourcesR=segmentedStringRefs(evidenceRows.map((row)=>row?.sourceRevisionId).filter(Boolean),MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'sourceRevisionRefs');
     const priorId=reflectionKey==null?null:this.currentReflectionByKey.get(String(reflectionKey));
     const prior=priorId?this.reflections.get(priorId):null;
     const base={
       kind:'MemoryReflectionEligibilityReceipt',
       reflectionKey:reflectionKey==null?null:String(reflectionKey),
-      supportEpisodeIds:supportRows.map((row)=>row.id).sort(),
+      supportEpisodeIds:supportEpisodeIdsR.head,
       supportEpisodeLogicalIds:supportLogicalIds,
-      contradictionEpisodeIds:contradictionRows.map((row)=>row.id).sort(),
+      contradictionEpisodeIds:contradictionEpisodeIdsR.head,
       contradictionEpisodeLogicalIds:contradictionLogicalIds,
-      supportEvidenceRefs:support,
-      contradictionEvidenceRefs:contradictions,
-      sourceRevisionRefs:uniqStrings(evidenceRows.map((row)=>row?.sourceRevisionId).filter(Boolean),MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact),
+      supportEvidenceRefs:supportR.head,
+      contradictionEvidenceRefs:contradictionsR.head,
+      sourceRevisionRefs:sourcesR.head,
+      referenceManifests:manifestMap([
+        ['supportEpisodeIds',supportEpisodeIdsR],['contradictionEpisodeIds',contradictionEpisodeIdsR],
+        ['supportEvidenceRefs',supportR],['contradictionEvidenceRefs',contradictionsR],
+        ['episodeRefs',explicitEpisodesR],['sourceRevisionRefs',sourcesR],
+      ]),
       priorReflectionId:prior?.id??null,
       priorConfidence:prior?.confidence??null,
       authorityClass:AuthorityClass.INFERRED,
@@ -267,28 +337,42 @@ export class MemoryExperienceStore {
   }={}) {
     requiredString(reflectionKey,'reflectionKey');
     if (typeof statement!=='string'||!statement.trim()) throw new TypeError('reflection.statement required');
-    const support=uniqStrings(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs);
-    const contradictions=uniqStrings(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs);
-    for (const id of [...support,...contradictions]) if (!this.graph.evidenceRecord(id)) throw new Error('MEMORY_REFLECTION_EVIDENCE_UNKNOWN:'+id);
-    for (const id of support) if (!this.graph.evidenceFresh(id)) throw new Error('MEMORY_REFLECTION_SUPPORT_STALE:'+id);
-    const eps=uniqStrings(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch);
-    for (const id of eps) {
+    const supportR=segmentedStringRefs(supportEvidenceRefs,MEMORY_LIMITS.maxReflectionSupportRefs,'supportEvidenceRefs');
+    const contradictionsR=segmentedStringRefs(contradictionEvidenceRefs,MEMORY_LIMITS.maxReflectionContradictionRefs,'contradictionEvidenceRefs');
+    for (const id of [...supportR.all,...contradictionsR.all]) if (!this.graph.evidenceRecord(id)) throw new Error('MEMORY_REFLECTION_EVIDENCE_UNKNOWN:'+id);
+    for (const id of supportR.all) if (!this.graph.evidenceFresh(id)) throw new Error('MEMORY_REFLECTION_SUPPORT_STALE:'+id);
+    const epsR=segmentedStringRefs(episodeRefs,MEMORY_LIMITS.maxEpisodesPerBatch,'episodeRefs');
+    for (const id of epsR.all) {
       const episode=this.episodes.get(id);
       if (!episode) throw new Error('MEMORY_REFLECTION_EPISODE_UNKNOWN:'+id);
       if (episode.freshness!=='FRESH' || episode.state!=='CURRENT') throw new Error('MEMORY_REFLECTION_EPISODE_STALE:'+id);
     }
-    const sources=uniqStrings([
+    const sourcesR=segmentedStringRefs([
       ...sourceRevisionRefs,
-      ...support.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-      ...contradictions.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-      ...eps.flatMap((id)=>this.episodes.get(id)?.sourceRevisionRefs??[]),
-    ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
-    for (const sourceRevisionId of sources) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
+      ...supportR.all.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
+      ...contradictionsR.all.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
+      ...epsR.all.flatMap((id)=>memoryReferenceValues(this.episodes.get(id),'sourceRevisionRefs')),
+    ],MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact,'sourceRevisionRefs');
+    for (const sourceRevisionId of sourcesR.all) if (!this.graph.isSourceRevisionActive(sourceRevisionId)) throw new Error('MEMORY_REFLECTION_SOURCE_STALE:'+sourceRevisionId);
+    const subjectR=segmentedStringRefs(subjectRefs,64,'subjectRefs');
+    const supersedesInputR=segmentedStringRefs(supersedesReflectionIds,64,'supersedesReflectionIds');
+    const confidenceValue=unitNumber(confidence,'reflection.confidence');
+    const statementValue=statement.trim();
+    const actionValue=String(action);
+    const splitFromValue=splitFromReflectionId==null?null:String(splitFromReflectionId);
+    const provenanceValue=deepClone(provenance);
+    const truthStatusValue=[KnowledgeStatus.INFERRED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.CONTRADICTED].includes(truthStatus)?truthStatus:KnowledgeStatus.INFERRED;
+    const resolutionStatusValue=resolutionStatus==null?null:String(resolutionStatus);
     const history=this.reflectionHistoryByKey.get(reflectionKey)??[];
     const revision=history.length+1;
     const priorId=this.currentReflectionByKey.get(reflectionKey);
     const prior=priorId?this.reflections.get(priorId):null;
-    const id='memory-reflection:' + stableHash(reflectionKey+'|'+revision+'|'+statement+'|'+support.join('|')+'|'+contradictions.join('|'));
+    const supersedesR=segmentedStringRefs([...supersedesInputR.all,...(prior?[prior.id]:[])],64,'supersedesReflectionIds');
+    const referenceManifests=manifestMap([
+      ['subjectRefs',subjectR],['supportEvidenceRefs',supportR],['contradictionEvidenceRefs',contradictionsR],
+      ['episodeRefs',epsR],['sourceRevisionRefs',sourcesR],['supersedesReflectionIds',supersedesR],
+    ]);
+    const id='memory-reflection:' + stableHash(reflectionKey+'|'+revision+'|'+statementValue+'|'+supportR.all.join('|')+'|'+contradictionsR.all.join('|'));
     if (prior) {
       prior.state='HISTORICAL';
       prior.freshness='STALE';
@@ -300,22 +384,23 @@ export class MemoryExperienceStore {
       id,
       reflectionKey,
       revision,
-      statement:statement.trim(),
-      subjectRefs:uniqStrings(subjectRefs,64),
-      supportEvidenceRefs:support,
-      contradictionEvidenceRefs:contradictions,
-      episodeRefs:eps,
-      sourceRevisionRefs:sources,
-      confidence:unitNumber(confidence,'reflection.confidence'),
-      action:String(action),
-      supersedesReflectionIds:uniqStrings([...supersedesReflectionIds,...(prior?[prior.id]:[])],64),
-      splitFromReflectionId:splitFromReflectionId==null?null:String(splitFromReflectionId),
-      provenance:deepClone(provenance),
+      statement:statementValue,
+      subjectRefs:subjectR.head,
+      supportEvidenceRefs:supportR.head,
+      contradictionEvidenceRefs:contradictionsR.head,
+      episodeRefs:epsR.head,
+      sourceRevisionRefs:sourcesR.head,
+      referenceManifests,
+      confidence:confidenceValue,
+      action:actionValue,
+      supersedesReflectionIds:supersedesR.head,
+      splitFromReflectionId:splitFromValue,
+      provenance:provenanceValue,
       state:'CURRENT',
-      freshness:freshBySources(this.graph,sources)?'FRESH':'STALE',
+      freshness:freshBySources(this.graph,sourcesR.all)?'FRESH':'STALE',
       authorityClass:AuthorityClass.INFERRED,
-      truthStatus:[KnowledgeStatus.INFERRED,KnowledgeStatus.UNRESOLVED,KnowledgeStatus.CONTRADICTED].includes(truthStatus)?truthStatus:KnowledgeStatus.INFERRED,
-      resolutionStatus:resolutionStatus==null?null:String(resolutionStatus),
+      truthStatus:truthStatusValue,
+      resolutionStatus:resolutionStatusValue,
       worldTruthAuthority:false,
       characterStateMutation:false,
       settlementAuthority:false,
@@ -351,16 +436,25 @@ export class MemoryExperienceStore {
     for (const episode of this.episodes.values()) {
       if (episode.state!=='CURRENT') continue;
       const has=(id)=>(this.graph.hasEvidence?this.graph.hasEvidence(id):Boolean(this.graph.evidenceRecord(id)));
-      const unresolvedLocal=episode.evidenceRefs.filter((id)=>!has(id));
-      const unresolved=uniqStrings([
+      const evidence=memoryReferenceValues(episode,'evidenceRefs');
+      const unresolvedExternal=memoryReferenceValues(episode,'unresolvedExternalEvidenceRefs');
+      const unresolvedLocal=evidence.filter((id)=>!has(id));
+      const unresolvedR=segmentedStringRefs([
         ...unresolvedLocal,
-        ...(episode.bridgeResolutionStatus==='WITHHELD'?(episode.unresolvedExternalEvidenceRefs??[]):[]),
-      ],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
-      episode.unresolvedEvidenceRefs=unresolved;
-      episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>has(id));
-      const fresh=freshBySources(this.graph,episode.sourceRevisionRefs)
-        && unresolved.length===0
-        && episode.resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))
+        ...(episode.bridgeResolutionStatus==='WITHHELD'?unresolvedExternal:[]),
+      ],MEMORY_LIMITS.maxEpisodeEvidenceRefs,'unresolvedEvidenceRefs');
+      const resolvedR=segmentedStringRefs(evidence.filter((id)=>has(id)),MEMORY_LIMITS.maxEpisodeEvidenceRefs,'resolvedEvidenceRefs');
+      episode.unresolvedEvidenceRefs=unresolvedR.head;
+      episode.resolvedEvidenceRefs=resolvedR.head;
+      episode.referenceManifests={
+        ...(episode.referenceManifests??{}),
+        ...manifestMap([['unresolvedEvidenceRefs',unresolvedR],['resolvedEvidenceRefs',resolvedR]]),
+      };
+      if(!unresolvedR.manifest)delete episode.referenceManifests.unresolvedEvidenceRefs;
+      if(!resolvedR.manifest)delete episode.referenceManifests.resolvedEvidenceRefs;
+      const fresh=freshBySources(this.graph,memoryReferenceValues(episode,'sourceRevisionRefs'))
+        && unresolvedR.all.length===0
+        && resolvedR.all.every((id)=>this.graph.evidenceFresh(id))
         && episode.bridgeResolutionStatus!=='WITHHELD';
       if (!fresh) {
         episode.freshness='STALE';
@@ -369,9 +463,12 @@ export class MemoryExperienceStore {
     }
     for (const reflection of this.reflections.values()) {
       if (reflection.state!=='CURRENT') continue;
-      const episodeFresh=reflection.episodeRefs.every((id)=>this.episodes.get(id)?.freshness==='FRESH');
-      const evidenceFresh=[...reflection.supportEvidenceRefs,...reflection.contradictionEvidenceRefs].every((id)=>this.graph.evidenceFresh(id));
-      const sourceFresh=freshBySources(this.graph,reflection.sourceRevisionRefs);
+      const episodeFresh=memoryReferenceValues(reflection,'episodeRefs').every((id)=>this.episodes.get(id)?.freshness==='FRESH');
+      const evidenceFresh=[
+        ...memoryReferenceValues(reflection,'supportEvidenceRefs'),
+        ...memoryReferenceValues(reflection,'contradictionEvidenceRefs'),
+      ].every((id)=>this.graph.evidenceFresh(id));
+      const sourceFresh=freshBySources(this.graph,memoryReferenceValues(reflection,'sourceRevisionRefs'));
       if (!(episodeFresh&&evidenceFresh&&sourceFresh)) {
         reflection.freshness='STALE';
         staleReflections.push(reflection.id);
@@ -409,7 +506,9 @@ export class MemoryExperienceStore {
   exactDrillback(artifactId) {
     const artifact=this.episodes.get(artifactId)??this.reflections.get(artifactId);
     if (!artifact) return [];
-    const evidenceIds=artifact.evidenceRefs??artifact.supportEvidenceRefs??[];
+    const evidenceIds=artifact.artifactType===MemoryArtifactKind.REFLECTION
+      ?memoryReferenceValues(artifact,'supportEvidenceRefs')
+      :memoryReferenceValues(artifact,'evidenceRefs');
     return evidenceIds.map((id)=>this.graph.exactEvidence(id)).filter(Boolean);
   }
 
@@ -424,14 +523,19 @@ export class MemoryExperienceStore {
 
   startConsolidation(jobs=[],options={}) {
     if (!Array.isArray(jobs)) throw new TypeError('consolidation jobs must be an array');
-    if (jobs.length>MEMORY_LIMITS.maxConsolidationJobs) throw new RangeError('Memory consolidation job count exceeds bound');
-    const explicitSources=uniqStrings(options.sourceRevisionRefs??[],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
-    const jobSources=uniqStrings(jobs.flatMap((job)=>[
+    const totalJobs=jobs.length;
+    const jobOffset=Math.max(0,Math.min(totalJobs,Number(options.jobOffset)||0));
+    const pageEnd=Math.min(totalJobs,jobOffset+MEMORY_LIMITS.maxConsolidationJobs);
+    const pageJobs=jobs.slice(jobOffset,pageEnd);
+    const jobSetToken=consolidationJobSetToken(jobs);
+    if(options.jobSetToken!=null&&String(options.jobSetToken)!==jobSetToken)throw new Error('MEMORY_CONSOLIDATION_JOB_SET_CHANGED');
+    const explicitSources=uniqStrings(options.sourceRevisionRefs??[],Infinity);
+    const jobSources=uniqStrings(pageJobs.flatMap((job)=>[
       ...(job?.input?.sourceRevisionRefs??[]),
       ...(job?.input?.supportEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...(job?.input?.contradictionEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-    ]),MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
-    const sourceRevisionRefs=uniqStrings([...explicitSources,...jobSources],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
+    ]),Infinity);
+    const sourcesR=segmentedStringRefs([...explicitSources,...jobSources],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs,'sourceRevisionRefs');
     const generation=options.generationFence??options.selection??{};
     const generationFence={
       chatId:generation.chatId??generation.chatNamespace??null,
@@ -441,23 +545,45 @@ export class MemoryExperienceStore {
       contextSealId:generation.contextSealId??null,
     };
     const inputRevisionFence={
-      sourceRevisionRefs,
+      sourceRevisionRefs:sourcesR.head,
+      sourceRevisionManifest:sourcesR.manifest,
+      sourceRevisionCount:sourcesR.all.length,
       worldRevision:options.worldRevision==null?null:Number(options.worldRevision),
       sceneRevision:options.sceneRevision==null?null:Number(options.sceneRevision),
       revisionToken:options.revisionToken??stableHash(stableStringify({
-        sourceRevisionRefs,
+        sourceRevisionRefs:sourcesR.all,
         worldRevision:options.worldRevision??null,
         sceneRevision:options.sceneRevision??null,
       })),
     };
-    const id='memory-consolidation:' + stableHash(String(++this.consolidationSequence)+'|'+stableStringify(jobs)+'|'+stableStringify(inputRevisionFence)+'|'+stableStringify(generationFence));
+    const nextJobOffset=pageEnd<totalJobs?pageEnd:null;
+    const id='memory-consolidation:' + stableHash(String(++this.consolidationSequence)+'|'+jobSetToken+'|'+jobOffset+'|'+stableStringify(inputRevisionFence)+'|'+stableStringify(generationFence));
     const session={
       kind:'MemoryConsolidationSession',
       contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
       id,
-      state:'ACTIVE',
+      state:pageJobs.length?'ACTIVE':(nextJobOffset==null?'COMPLETED':'CHECKPOINTED'),
       cursor:0,
-      jobs:deepClone(jobs),
+      jobs:deepClone(pageJobs),
+      jobOffset,
+      jobPageEnd:pageEnd,
+      jobPageSize:pageJobs.length,
+      jobPageIndex:Math.floor(jobOffset/MEMORY_LIMITS.maxConsolidationJobs),
+      jobSetToken,
+      processedJobs:jobOffset,
+      totalJobs,
+      nextJobOffset,
+      continuationAvailable:nextJobOffset!=null,
+      continuation:nextJobOffset==null?null:{
+        kind:'MemoryConsolidationJobContinuation',
+        contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
+        jobSetToken,
+        nextJobOffset,
+        totalJobs,
+        remaining:totalJobs-nextJobOffset,
+        runtimeSchedulingAuthority:false,
+        physicalWorkerAuthority:false,
+      },
       publishedArtifactIds:[],
       failures:[],
       outcomes:[],
@@ -474,7 +600,6 @@ export class MemoryExperienceStore {
     this.consolidationSessions.set(id,session);
     return deepClone(session);
   }
-
   consolidationWorkUnits(sessionId,{maxUnits=MEMORY_LIMITS.maxCheckpointWorkUnits}={}) {
     const session=this.consolidationSessions.get(sessionId);
     if (!session) throw new Error('Unknown Memory consolidation session: '+sessionId);
@@ -482,12 +607,15 @@ export class MemoryExperienceStore {
     return session.jobs.slice(session.cursor,session.cursor+cap).map((job,offset)=>({
       kind:'MemoryConsolidationWorkUnit',
       contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
-      workUnitId:'memory-consolidation-unit:'+stableHash(session.id+'|'+String(session.cursor+offset)+'|'+session.inputRevisionFence.revisionToken),
+      workUnitId:'memory-consolidation-unit:'+stableHash(session.id+'|'+String(session.jobOffset+session.cursor+offset)+'|'+session.inputRevisionFence.revisionToken),
       sessionId:session.id,
-      cursor:session.cursor+offset,
+      cursor:session.jobOffset+session.cursor+offset,
+      pageIndex:session.jobPageIndex,
+      pageCursor:session.cursor+offset,
       jobType:job?.type??null,
       inputRevisionFence:deepClone(session.inputRevisionFence),
       generationFence:deepClone(session.generationFence),
+      continuation:deepClone(session.continuation),
       runtimeSchedulingAuthority:false,
       physicalWorkerAuthority:false,
       foregroundPublicationAuthority:false,
@@ -495,14 +623,13 @@ export class MemoryExperienceStore {
       canonicalMutationAuthority:false,
     }));
   }
-
   consolidationFenceStatus(session,{sealed=false,sealedGenerationIds=[],currentSourceRevisionRefs=null}={}) {
     const sealedIds=new Set((sealedGenerationIds??[]).map(String));
     const generationId=session?.generationFence?.generationId;
     if (sealed===true||(generationId&&sealedIds.has(String(generationId)))) {
       return {ok:false,state:'PARKED_AFTER_SEAL',reasonCode:'MEMORY_CONSOLIDATION_GENERATION_SEALED',destination:'NEXT_TURN'};
     }
-    const expected=session?.inputRevisionFence?.sourceRevisionRefs??[];
+    const expected=consolidationSourceRefs(session);
     const active=currentSourceRevisionRefs==null
       ? new Set([...this.graph.sourceRevisionState.entries()].filter(([,row])=>row?.state==='ACTIVE').map(([id])=>id))
       : new Set(currentSourceRevisionRefs);
@@ -546,12 +673,13 @@ export class MemoryExperienceStore {
         break;
       }
       const job=session.jobs[session.cursor];
+      const globalCursor=session.jobOffset+session.cursor;
       try {
         if (job.type!=='REFLECTION') throw new Error('MEMORY_CONSOLIDATION_JOB_UNSUPPORTED:'+String(job.type));
         if(session.reflectionEligibilityPolicy==='REPEATED_EXPERIENCE_REQUIRED'){
           const eligibility=this.reflectionEligibility(job.input??{});
           if(!eligibility.eligible){
-            session.outcomes.push({cursor:session.cursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
+            session.outcomes.push({cursor:globalCursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
           }else{
             const artifact=this.reviseReflection({
               ...(job.input??{}),
@@ -559,30 +687,44 @@ export class MemoryExperienceStore {
               action:eligibility.action,
               truthStatus:eligibility.truthStatus,
               resolutionStatus:eligibility.resolutionStatus,
-              episodeRefs:eligibility.supportEpisodeIds,
+              episodeRefs:memoryReferenceValues(eligibility,'supportEpisodeIds'),
             });
             if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
-            session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+            session.outcomes.push({cursor:globalCursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
           }
         }else{
           const artifact=this.reviseReflection(job.input??{});
           if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
-          session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+          session.outcomes.push({cursor:globalCursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
         }
       } catch (error) {
-        const failure={cursor:session.cursor,code:error?.message??String(error)};
+        const failure={cursor:globalCursor,code:error?.message??String(error)};
         session.failures.push(failure);
-        session.outcomes.push({cursor:session.cursor,status:'FAILED',reasonCode:failure.code});
+        session.outcomes.push({cursor:globalCursor,status:'FAILED',reasonCode:failure.code});
       }
       session.cursor+=1;
+      session.processedJobs=session.jobOffset+session.cursor;
       used+=1;
+      const currentPageRemaining=session.cursor<session.jobs.length;
+      const hasContinuation=currentPageRemaining||session.nextJobOffset!=null;
+      session.continuationAvailable=hasContinuation;
       session.checkpoint={
-        cursor:session.cursor,
-        total:session.jobs.length,
+        cursor:session.processedJobs,
+        total:session.totalJobs,
+        pageIndex:session.jobPageIndex,
+        pageCursor:session.cursor,
+        pageEnd:session.jobPageEnd,
+        nextJobOffset:session.nextJobOffset,
+        continuationAvailable:hasContinuation,
+        continuation:deepClone(session.continuation),
         inputRevisionFence:deepClone(session.inputRevisionFence),
         generationFence:deepClone(session.generationFence),
         checksum:stableHash(stableStringify({
-          cursor:session.cursor,
+          cursor:session.processedJobs,
+          pageIndex:session.jobPageIndex,
+          pageCursor:session.cursor,
+          nextJobOffset:session.nextJobOffset,
+          jobSetToken:session.jobSetToken,
           publishedArtifactIds:session.publishedArtifactIds,
           failures:session.failures,
           outcomes:session.outcomes,
@@ -591,7 +733,11 @@ export class MemoryExperienceStore {
         })),
       };
     }
-    if(session.state!=='PARKED_AFTER_SEAL'&&session.state!=='STALE')session.state=session.cursor>=session.jobs.length?'COMPLETED':'CHECKPOINTED';
+    if(session.state!=='PARKED_AFTER_SEAL'&&session.state!=='STALE'){
+      const pageComplete=session.cursor>=session.jobs.length;
+      session.state=pageComplete&&session.nextJobOffset==null?'COMPLETED':'CHECKPOINTED';
+      session.continuationAvailable=!pageComplete||session.nextJobOffset!=null;
+    }
     return deepClone(session);
   }
 

@@ -12,7 +12,7 @@ import {
   stableStringify,
   uniqStrings,
 } from './memory-contracts.js';
-import {historianArtifactReference} from './memory-experience-store.js';
+import {historianArtifactReference,memoryReferenceValues} from './memory-experience-store.js';
 
 const TOKEN_RE=/[a-z0-9][a-z0-9'-]{1,}/g;
 const STOP=new Set(['the','a','an','and','or','of','to','in','on','at','for','with','is','was','were','be','been','about','tell','me','what','who','where','when','how','did','does','do']);
@@ -123,7 +123,9 @@ export class MemoryHistorianIndex {
     this.experienceStore.refreshFreshness();
 
     for (const episode of this.experienceStore.currentEpisodes({freshOnly:true})) {
-      const evidenceRows=episode.evidenceRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
+      const episodeEvidenceRefs=memoryReferenceValues(episode,'evidenceRefs');
+      const episodeSourceRevisionRefs=memoryReferenceValues(episode,'sourceRevisionRefs');
+      const evidenceRows=episodeEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
       const knownBy=episode.knownBy.length?episode.knownBy:intersectKnownBy(evidenceRows);
       const text=[episode.summary,...episode.participants,evidenceRows.map((row)=>row.exactContent).join(' ')].join(' ');
       this.addRecord({
@@ -135,8 +137,8 @@ export class MemoryHistorianIndex {
         channel:HistorianMemoryChannel.SCENE_EPISODE,
         representationText:episode.summary,
         tokens:tokenize(text),
-        sourceRevisionRefs:[...episode.sourceRevisionRefs],
-        evidenceRefs:[...episode.evidenceRefs],
+        sourceRevisionRefs:episodeSourceRevisionRefs,
+        evidenceRefs:episodeEvidenceRefs,
         claimRefs:[],
         relationshipRefs:[],
         eventRefs:episode.sceneId?[episode.sceneId]:[],
@@ -151,14 +153,16 @@ export class MemoryHistorianIndex {
         sceneRevision:episode.sceneRevision,
         worldRevision:null,
         provenance:[{ref:'memory-episode-provenance:'+episode.id}],
-        dependencyRevisions:[...episode.sourceRevisionRefs,episode.id],
+        dependencyRevisions:[...episodeSourceRevisionRefs,episode.id],
         freshness:'FRESH',
-        exactDrillbackRefs:[...episode.evidenceRefs],
+        exactDrillbackRefs:episodeEvidenceRefs,
       });
     }
 
     for (const reflection of this.experienceStore.currentReflections({freshOnly:true})) {
-      const evidenceRows=reflection.supportEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
+      const reflectionSupportRefs=memoryReferenceValues(reflection,'supportEvidenceRefs');
+      const reflectionSourceRevisionRefs=memoryReferenceValues(reflection,'sourceRevisionRefs');
+      const evidenceRows=reflectionSupportRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
       const knownBy=intersectKnownBy(evidenceRows);
       const text=[reflection.statement,...reflection.subjectRefs,evidenceRows.map((row)=>row.exactContent).join(' ')].join(' ');
       this.addRecord({
@@ -170,8 +174,8 @@ export class MemoryHistorianIndex {
         channel:HistorianMemoryChannel.REFLECTION,
         representationText:reflection.statement,
         tokens:tokenize(text),
-        sourceRevisionRefs:[...reflection.sourceRevisionRefs],
-        evidenceRefs:[...reflection.supportEvidenceRefs],
+        sourceRevisionRefs:reflectionSourceRevisionRefs,
+        evidenceRefs:reflectionSupportRefs,
         claimRefs:[],
         relationshipRefs:[],
         eventRefs:[],
@@ -186,9 +190,9 @@ export class MemoryHistorianIndex {
         sceneRevision:null,
         worldRevision:null,
         provenance:[{ref:'memory-reflection-provenance:'+reflection.id}],
-        dependencyRevisions:[...reflection.sourceRevisionRefs,reflection.id],
+        dependencyRevisions:[...reflectionSourceRevisionRefs,reflection.id],
         freshness:'FRESH',
-        exactDrillbackRefs:[...reflection.supportEvidenceRefs],
+        exactDrillbackRefs:reflectionSupportRefs,
       });
     }
 
@@ -302,7 +306,11 @@ export class MemoryHistorianIndex {
     scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.lexical-a.score.lexical||b.score.significance-a.score.significance||a.record.id.localeCompare(b.record.id));
     const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(maxCandidates)||MEMORY_LIMITS.maxHistorianCandidates));
     const picked=scored.slice(0,cap);
-    const nominations=picked.map(({record,score,perspective})=>createCandidateNomination({
+    const nominations=picked.map(({record,score,perspective})=>{
+      const transportSourceRevisionRefs=record.sourceRevisionRefs.slice(0,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+      const transportEvidenceRefs=record.evidenceRefs.slice(0,64);
+      const transportDependencyRevisions=record.dependencyRevisions.slice(0,64);
+      return createCandidateNomination({
       nominationId:'memory-nomination:' + stableHash(intentId+'|'+record.id),
       candidateId:'memory-candidate:' + stableHash(record.id),
       evidenceIdentity:record.claimRefs.length
@@ -313,14 +321,14 @@ export class MemoryHistorianIndex {
         artifactType:record.artifactType,
         owner:'MEMORY',
         revision:record.artifactRevision,
-        sourceRevisionSet:record.sourceRevisionRefs,
+        sourceRevisionSet:transportSourceRevisionRefs,
         worldRevision:record.worldRevision,
         sceneRevision:record.sceneRevision,
         contentHash:stableHash(record.representationText),
         provenanceRef:record.provenance[0]?.ref??null,
       }),
       artifactRevision:record.artifactRevision,
-      sourceRevisionRefs:record.sourceRevisionRefs,
+      sourceRevisionRefs:transportSourceRevisionRefs,
       claimRefs:record.claimRefs,
       eventRefs:record.eventRefs,
       entityRefs:record.entityRefs,
@@ -340,8 +348,8 @@ export class MemoryHistorianIndex {
       authorityClass:record.channel===HistorianMemoryChannel.REFLECTION?AuthorityClass.INFERRED:record.authorityClass,
       truthStatusHint:record.channel===HistorianMemoryChannel.REFLECTION?KnowledgeStatus.UNRESOLVED:record.truthStatusHint,
       provenance:record.provenance,
-      evidenceRefs:record.evidenceRefs,
-      dependencyRevisions:record.dependencyRevisions,
+      evidenceRefs:transportEvidenceRefs,
+      dependencyRevisions:transportDependencyRevisions,
       representationRef:record.id,
       representationRevision:record.artifactRevision,
       representationText:record.representationText,
@@ -353,6 +361,14 @@ export class MemoryHistorianIndex {
         perspective,
         retrievalRecordRef:record.id,
         exactSourceDrillback:true,
+        sourceRevisionRefCount:record.sourceRevisionRefs.length,
+        sourceRevisionRefsComplete:record.sourceRevisionRefs.length<=transportSourceRevisionRefs.length,
+        evidenceRefCount:record.evidenceRefs.length,
+        evidenceRefsComplete:record.evidenceRefs.length<=transportEvidenceRefs.length,
+        dependencyRevisionCount:record.dependencyRevisions.length,
+        dependencyRevisionsComplete:record.dependencyRevisions.length<=transportDependencyRevisions.length,
+        transportReferencesBounded:true,
+        canonicalKnowledgeDropped:false,
         retrievalRankAuthority:false,
         truthAuthorityGranted:false,
         memoryMutation:false,
@@ -363,7 +379,8 @@ export class MemoryHistorianIndex {
       },
       worldRevision:record.worldRevision,
       sceneRevision:record.sceneRevision,
-    }));
+    });
+    });
     return {
       kind:'MemoryHistorianQueryResult',
       contractVersion:'1.0.0',
@@ -474,31 +491,51 @@ export class MemoryHistorianIndex {
         memoryMutation:false,
       };
     });
-    const bytes=JSON.stringify(artifacts).length;
-    const maxBytes=Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes);
-    if (bytes>maxBytes) {
-      return {
-        kind:'HistorianMemoryResolution',
-        contractVersion:HISTORIAN_COMPAT_VERSION,
-        status:'DEGRADED',
-        artifacts:[],
-        unavailableChannels:['EVIDENCE_BUDGET_EXCEEDED'],
-        memoryRevisionRefs:requested.length?[...requested]:currentRevisionRefs,
-        perspectiveStatus:request.perspectiveConstraint?.scope??PerspectiveScope.WORLD,
-        evidenceBytes:0,
-        authorityGranted:false,
-        memoryMutation:false,
-      };
+    const byteLength=(rows)=>new TextEncoder().encode(JSON.stringify(rows)).length;
+    const maxBytes=Math.max(2,Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes));
+    const selected=[];
+    const boundedOut=[];
+    for (const artifact of artifacts) {
+      const candidateBytes=byteLength([...selected,artifact]);
+      if (candidateBytes<=maxBytes) {
+        selected.push(artifact);
+        continue;
+      }
+      boundedOut.push({
+        candidateId:artifact.candidateId,
+        artifactRef:deepClone(artifact.artifactRef),
+        sourceRevisionRefs:[...artifact.sourceRevisionRefs],
+        evidenceRefs:[...artifact.evidenceRefs],
+      });
     }
+    const bytes=byteLength(selected);
+    const coverageComplete=boundedOut.length===0;
+    const firstArtifactBytes=artifacts.length?byteLength([artifacts[0]]):0;
+    const reasonCode=coverageComplete
+      ? null
+      : (!selected.length&&firstArtifactBytes>maxBytes?'EVIDENCE_ARTIFACT_EXCEEDS_BUDGET':'EVIDENCE_BUDGET_EXCEEDED');
     return {
       kind:'HistorianMemoryResolution',
       contractVersion:HISTORIAN_COMPAT_VERSION,
-      status:'OK',
-      artifacts,
-      unavailableChannels:[],
+      status:coverageComplete?'OK':'DEGRADED',
+      artifacts:selected,
+      unavailableChannels:coverageComplete?[]:[reasonCode],
       memoryRevisionRefs:requested.length?[...requested]:currentRevisionRefs,
       perspectiveStatus:request.perspectiveConstraint?.scope??PerspectiveScope.WORLD,
       evidenceBytes:bytes,
+      processed:selected.length,
+      remaining:boundedOut.length,
+      boundedOut,
+      coverageComplete,
+      continuationAvailable:boundedOut.length>0,
+      continuationCursor:boundedOut.length?{
+        afterCandidateId:selected.at(-1)?.candidateId??null,
+        nextCandidateId:boundedOut[0].candidateId,
+      }:null,
+      reasonCode,
+      limit:maxBytes,
+      limitType:'RANK',
+      canonicalKnowledgeDropped:false,
       authorityGranted:false,
       memoryMutation:false,
     };

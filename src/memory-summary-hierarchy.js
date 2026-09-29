@@ -12,6 +12,7 @@ import {
   stableStringify,
   uniqStrings,
 } from './memory-contracts.js';
+import {memoryReferenceValues} from './memory-experience-store.js';
 
 export const MEMORY_SUMMARY_COMPILER_REVISION='memory-summary-local-v1';
 export const MEMORY_SUMMARY_POLICY_REVISION='memory-summary-policy-v1';
@@ -145,6 +146,30 @@ function summarizeRange(rows) {
   };
 }
 
+function mergeSummaryRanges(rows,childArtifacts=[]) {
+  const direct=summarizeRange(rows);
+  const ranges=[direct,...childArtifacts.map((row)=>row?.sourceRange).filter(Boolean)];
+  const bounds=(field)=>{
+    const values=ranges.flatMap((range)=>[range?.[field]?.start,range?.[field]?.end])
+      .filter((value)=>value!=null&&Number.isFinite(Number(value))).map(Number);
+    return values.length?{start:Math.min(...values),end:Math.max(...values)}:{start:null,end:null};
+  };
+  return {
+    evidenceCount:direct.evidenceCount+childArtifacts.reduce((sum,row)=>sum+Number(row?.sourceRange?.evidenceCount??0),0),
+    appendSequence:bounds('appendSequence'),
+    worldRevision:bounds('worldRevision'),
+    sceneRevision:bounds('sceneRevision'),
+    narrativeTime:bounds('narrativeTime'),
+  };
+}
+
+function summaryChildExcerpt(value,maxCharacters=320) {
+  const text=normalizeExact(value);
+  if(text.length<=maxCharacters)return text;
+  const half=Math.floor((maxCharacters-5)/2);
+  return text.slice(0,half)+' ... '+text.slice(-half);
+}
+
 function artifactTypeFor(level) {
   const type=SUMMARY_KIND[level];
   if (!type) throw new Error('MEMORY_SUMMARY_LEVEL_UNSUPPORTED:'+String(level));
@@ -191,6 +216,8 @@ export class MemorySummaryHierarchy {
       artifactTokens:new Map(),
       artifactIds:[],
       indexedTerms:0,
+      boundedOutTerms:0,
+      coverageComplete:true,
       estimatedUtf16Bytes:0,
     };
     this.queryIndexDirty=true;
@@ -212,6 +239,7 @@ export class MemorySummaryHierarchy {
       queryCacheMisses:0,
       queryCacheEvictions:0,
       queryIndexedCandidatesExamined:0,
+      queryTargetedFallbackScans:0,
     };
     if (snapshot) this.restore(snapshot);
   }
@@ -260,6 +288,7 @@ export class MemorySummaryHierarchy {
     const artifactTokens=new Map();
     const artifactIds=[];
     let indexedTerms=0;
+    const boundedOutTermSet=new Set();
     for(const [scopeRef,id] of this.currentByScope.entries()){
       const artifact=this.artifacts.get(id);
       if(!artifact||!this.artifactIsFresh(artifact))continue;
@@ -269,7 +298,10 @@ export class MemorySummaryHierarchy {
       const rowTokens=tokens(artifact.representationText+' '+artifact.entityRefs.join(' '));
       artifactTokens.set(id,rowTokens);
       for(const token of rowTokens){
-        if(!tokenToArtifactIds.has(token)&&tokenToArtifactIds.size>=MEMORY_LIMITS.maxHierarchyQueryIndexTerms)continue;
+        if(!tokenToArtifactIds.has(token)&&tokenToArtifactIds.size>=MEMORY_LIMITS.maxHierarchyQueryIndexTerms){
+          boundedOutTermSet.add(token);
+          continue;
+        }
         const ids=tokenToArtifactIds.get(token)??new Set();ids.add(id);tokenToArtifactIds.set(token,ids);
       }
       for(const entity of artifact.entityRefs??[]){
@@ -287,7 +319,12 @@ export class MemorySummaryHierarchy {
       levelToArtifactIds:[...levelToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
       artifactTokens:[...artifactTokens.entries()],
     }).length*2;
-    this.queryIndex={revision,tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,estimatedUtf16Bytes};
+    this.queryIndex={
+      revision,tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,
+      boundedOutTerms:boundedOutTermSet.size,
+      coverageComplete:boundedOutTermSet.size===0,
+      estimatedUtf16Bytes,
+    };
     this.queryIndexDirty=false;
     const buildMs=nowMs()-started;
     this.costCounters.queryIndexBuilds+=1;
@@ -421,12 +458,15 @@ export class MemorySummaryHierarchy {
     for (const logicalId of scope.episodeLogicalIds) {
       const episode=episodes.get(logicalId);
       if (!episode) continue;
-      for (const id of episode.evidenceRefs) ids.add(id);
+      for (const id of memoryReferenceValues(episode,'evidenceRefs')) ids.add(id);
     }
-    for (const childRef of scope.childScopeRefs) {
-      const child=this.currentArtifact(childRef,{freshOnly:true});
-      if (!child) throw new Error('MEMORY_SUMMARY_CHILD_UNAVAILABLE:'+childRef);
-      for (const id of child.exactEvidenceRefs) ids.add(id);
+    const hierarchicalChildManifest=scope.childScopeRefs.length>0&&scope.level!==SummaryScopeLevel.SCENE;
+    if(!hierarchicalChildManifest){
+      for (const childRef of scope.childScopeRefs) {
+        const child=this.currentArtifact(childRef,{freshOnly:true});
+        if (!child) throw new Error('MEMORY_SUMMARY_CHILD_UNAVAILABLE:'+childRef);
+        for (const id of child.exactEvidenceRefs) ids.add(id);
+      }
     }
     if (ids.size>MEMORY_LIMITS.maxSummaryEvidenceRefs) throw new Error('MEMORY_SUMMARY_EVIDENCE_BOUND_EXCEEDED');
     const rows=[...ids].map((id)=>this.graph.evidenceRecord(id)).filter(Boolean)
@@ -455,7 +495,7 @@ export class MemorySummaryHierarchy {
   relevantReflections(evidenceIds) {
     const evidenceSet=new Set(evidenceIds);
     return this.experienceStore.currentReflections({freshOnly:true}).filter((reflection)=>
-      [...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])].some((id)=>evidenceSet.has(id)),
+      [...memoryReferenceValues(reflection,'supportEvidenceRefs'),...memoryReferenceValues(reflection,'contradictionEvidenceRefs')].some((id)=>evidenceSet.has(id)),
     );
   }
 
@@ -472,8 +512,9 @@ export class MemorySummaryHierarchy {
     }));
   }
 
-  buildRepresentation({scope,rows,claims,unresolvedSets,reflections,maxCharacters}) {
+  buildRepresentation({scope,rows,childArtifacts=[],claims,unresolvedSets,reflections,maxCharacters}) {
     const hardRules=rows.filter((row)=>row.authorityClass===AuthorityClass.SOURCE_CANON||row.evidenceKind==='SOURCE');
+    const exactEvidenceCount=rows.length+childArtifacts.reduce((sum,row)=>sum+Number(row?.sourceRange?.evidenceCount??0),0);
     const essentials=[
       '['+scope.level+' '+scope.scopeId+'] DERIVED NAVIGATION ONLY — exact sources remain authoritative.',
       ...hardRules.map((row)=>'[SOURCE RULE '+row.id+'] '+normalizeExact(row.exactContent)),
@@ -482,7 +523,7 @@ export class MemorySummaryHierarchy {
         const alternatives=(set.claims??[]).map((claim)=>stableStringify(claim.value)).join(' | ');
         return '[UNRESOLVED '+String(set.slotKey??set.key??'set')+'] '+alternatives;
       }),
-      '[DRILLBACK] '+rows.length+' exact evidence record(s) retained by source range.',
+      '[DRILLBACK] '+exactEvidenceCount+' exact evidence record(s) retained through '+childArtifacts.length+' child summary manifest(s).',
     ];
     const essentialText=essentials.join('\n');
     if (essentialText.length>maxCharacters) {
@@ -491,6 +532,8 @@ export class MemorySummaryHierarchy {
       throw error;
     }
     const optional=[];
+    const childReps=representativeRows(childArtifacts,MEMORY_LIMITS.maxSummaryRepresentativeEvidence);
+    for(const child of childReps)optional.push('[CHILD '+child.scopeRef+'] '+summaryChildExcerpt(child.representationText));
     for (const reflection of reflections) {
       optional.push('[INFERRED NON-CANON '+reflection.id+'] '+normalizeExact(reflection.statement));
     }
@@ -509,6 +552,9 @@ export class MemorySummaryHierarchy {
       includedOptional,
       omittedOptional:Math.max(0,optional.length-includedOptional),
       representativeEvidenceRefs:reps.map((row)=>row.id),
+      representativeChildEvidenceRefs:[...new Set(childReps.flatMap((row)=>row.representativeEvidenceRefs??[]))].slice(0,MEMORY_LIMITS.maxSummaryRepresentativeEvidence),
+      representativeChildArtifactRefs:childReps.map((row)=>row.id),
+      exactEvidenceCount,
     };
   }
 
@@ -562,7 +608,7 @@ export class MemorySummaryHierarchy {
       return artifact;
     });
     const rows=this.evidenceForScope(scope);
-    if (!rows.length) throw new Error('MEMORY_SUMMARY_NO_GROUNDED_SOURCE:'+ref);
+    if (!rows.length&&!childArtifacts.length) throw new Error('MEMORY_SUMMARY_NO_GROUNDED_SOURCE:'+ref);
     const evidenceIds=rows.map((row)=>row.id);
     const claims=this.relevantClaims(evidenceIds);
     const unresolvedSets=this.relevantUnresolvedSets(evidenceIds);
@@ -576,27 +622,46 @@ export class MemorySummaryHierarchy {
     if (current&&current.state==='CURRENT'&&current.freshness==='FRESH'&&current.dependencyFingerprint===fingerprint&&current.budget.maxCharacters===cap) {
       return {...deepClone(current),reused:true};
     }
-    const compiled=this.buildRepresentation({scope,rows,claims,unresolvedSets,reflections,maxCharacters:cap});
+    const compiled=this.buildRepresentation({scope,rows,childArtifacts,claims,unresolvedSets,reflections,maxCharacters:cap});
     const sourceRevisionSet=uniqStrings(rows.map((row)=>row.sourceRevisionId),MEMORY_LIMITS.maxSummarySourceRevisionRefs);
     const history=this.historyByScope.get(ref)??[];
     const revision=history.length+1;
     const artifactId='memory-summary:'+stableHash(ref+'|'+revision+'|'+fingerprint+'|'+stableHash(compiled.text));
-    if (current&&current.state==='CURRENT') {
-      const prior=this.artifacts.get(current.id);
-      if (prior) {
-        prior.state='HISTORICAL';
-        prior.freshness='STALE';
-        prior.replacedByArtifactId=artifactId;
-      }
-    }
-    const fullyKnownBy=intersection(rows.map((row)=>row.knownBy??[]));
+    const knowledgeSets=[
+      ...rows.map((row)=>row.knownBy??[]),
+      ...childArtifacts.map((row)=>row.knowledgeFence?.fullyKnownBy??[]),
+    ];
+    const fullyKnownBy=intersection(knowledgeSets);
     const entityRefs=uniqStrings([
       ...rows.flatMap((row)=>row.participants??[]),
+      ...childArtifacts.flatMap((row)=>row.entityRefs??[]),
       ...claims.flatMap((claim)=>[claim.subjectId,typeof claim.value==='string'?claim.value:null].filter(Boolean)),
       ...reflections.flatMap((reflection)=>reflection.subjectRefs??[]),
     ],MEMORY_LIMITS.maxSummaryEntityRefs);
-    const sourceRange=summarizeRange(rows);
-    const sourceRangeHash=stableHash(stableStringify(evidenceIds));
+    const sourceRange=mergeSummaryRanges(rows,childArtifacts);
+    const sourceRangeHash=stableHash(stableStringify({
+      evidenceIds,
+      childRanges:childArtifacts.map((row)=>[row.id,row.sourceRangeHash,row.sourceRange?.evidenceCount??0]),
+    }));
+    const childArtifactRefs=childArtifacts.map((row)=>({
+      artifactId:row.id,
+      scopeRef:row.scopeRef,
+      revision:row.revision,
+      sourceRangeHash:row.sourceRangeHash,
+      exactEvidenceCount:Number(row.sourceRange?.evidenceCount??row.exactEvidenceRefs?.length??0),
+    }));
+    const evidenceManifest={
+      kind:'MemorySummaryEvidenceManifest',
+      contractVersion:'1.0.0',
+      mode:childArtifactRefs.length?'HIERARCHICAL':'DIRECT',
+      directEvidenceRefs:[...evidenceIds],
+      childArtifactRefs:deepClone(childArtifactRefs),
+      exactEvidenceCount:sourceRange.evidenceCount,
+      pageSize:MEMORY_LIMITS.maxSummaryDrillbackRows,
+      coverageComplete:true,
+      continuationAvailable:sourceRange.evidenceCount>MEMORY_LIMITS.maxSummaryDrillbackRows,
+      canonicalKnowledgeDropped:false,
+    };
     const artifact={
       kind:'MemoryHierarchicalSummary',
       contractVersion:'1.0.0',
@@ -609,12 +674,8 @@ export class MemorySummaryHierarchy {
       definitionRevision:scope.definitionRevision,
       parentScopeRefs:[...scope.parentScopeRefs],
       childScopeRefs:[...scope.childScopeRefs],
-      childArtifactRefs:childArtifacts.map((row)=>({
-        artifactId:row.id,
-        scopeRef:row.scopeRef,
-        revision:row.revision,
-        sourceRangeHash:row.sourceRangeHash,
-      })),
+      childArtifactRefs,
+      evidenceManifest,
       exactEvidenceRefs:evidenceIds,
       exactSourceRevisionSet:sourceRevisionSet,
       sourceRange,
@@ -633,12 +694,14 @@ export class MemorySummaryHierarchy {
       unresolvedSetRefs:unresolvedSets.map((set)=>String(set.slotKey??set.key??stableHash(stableStringify(set)))),
       inferredReflectionRefs:reflections.map((row)=>row.id),
       representationText:compiled.text,
-      representativeEvidenceRefs:compiled.representativeEvidenceRefs,
+      representativeEvidenceRefs:[...new Set([...compiled.representativeEvidenceRefs,...(compiled.representativeChildEvidenceRefs??[])])].slice(0,MEMORY_LIMITS.maxSummaryRepresentativeEvidence),
+      representativeChildArtifactRefs:compiled.representativeChildArtifactRefs??[],
       entityRefs,
       knowledgeFence:{
         perspective:PerspectiveScope.WORLD,
         fullyKnownBy,
         evidenceKnowledge:rows.map((row)=>({evidenceId:row.id,knownBy:[...(row.knownBy??[])]})),
+        childKnowledge:childArtifacts.map((row)=>({artifactId:row.id,scopeRef:row.scopeRef,fullyKnownBy:[...(row.knowledgeFence?.fullyKnownBy??[])]})),
       },
       summaryPolicyRevision:scope.summaryPolicyRevision,
       compilerRevision:scope.compilerRevision,
@@ -680,6 +743,14 @@ export class MemorySummaryHierarchy {
       replacedByArtifactId:null,
       reused:false,
     };
+    if (current&&current.state==='CURRENT') {
+      const prior=this.artifacts.get(current.id);
+      if (prior) {
+        prior.state='HISTORICAL';
+        prior.freshness='STALE';
+        prior.replacedByArtifactId=artifactId;
+      }
+    }
     this.artifacts.set(artifact.id,artifact);
     this.historyByScope.set(ref,[...history,artifact.id]);
     this.currentByScope.set(ref,artifact.id);
@@ -746,12 +817,74 @@ export class MemorySummaryHierarchy {
     return (this.historyByScope.get(ref)??[]).map((id)=>deepClone(this.artifacts.get(id))).filter(Boolean);
   }
 
-  exactDrillback(artifactOrId,{offset=0,limit=MEMORY_LIMITS.maxSummaryDrillbackRows}={}) {
+  exactDrillbackPage(artifactOrId,{offset=0,limit=MEMORY_LIMITS.maxSummaryDrillbackRows}={}) {
     const artifact=typeof artifactOrId==='string'?this.artifacts.get(artifactOrId):artifactOrId;
-    if (!artifact||artifact.kind!=='MemoryHierarchicalSummary') return [];
+    if (!artifact||artifact.kind!=='MemoryHierarchicalSummary') return {
+      kind:'MemorySummaryDrillbackPage',rows:[],offset:0,limit:0,processed:0,remaining:0,
+      coverageComplete:true,continuationAvailable:false,nextOffset:null,reasonCode:'SUMMARY_ARTIFACT_UNAVAILABLE',
+    };
     const start=Math.max(0,Number(offset)||0);
     const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxSummaryDrillbackRows,Number(limit)||MEMORY_LIMITS.maxSummaryDrillbackRows));
-    return artifact.exactEvidenceRefs.slice(start,start+cap).map((id)=>this.graph.exactEvidence(id)).filter(Boolean);
+    const total=Number(artifact.evidenceManifest?.exactEvidenceCount??artifact.sourceRange?.evidenceCount??artifact.exactEvidenceRefs?.length??0);
+    let remainingOffset=start;
+    let takenIds=0;
+    const rows=[];
+    const unavailableEvidenceRefs=[];
+    const unavailableChildArtifactRefs=[];
+    const seen=new Set();
+    const visit=(row)=>{
+      if(!row||seen.has(row.id)||takenIds>=cap)return;
+      seen.add(row.id);
+      const direct=row.evidenceManifest?.directEvidenceRefs??row.exactEvidenceRefs??[];
+      for(const id of direct){
+        if(remainingOffset>0){remainingOffset-=1;continue;}
+        if(takenIds>=cap)return;
+        const exact=this.graph.exactEvidence(id);
+        if(exact)rows.push(exact);
+        else unavailableEvidenceRefs.push(String(id));
+        takenIds+=1;
+      }
+      const children=row.evidenceManifest?.childArtifactRefs??row.childArtifactRefs??[];
+      for(const childRef of children){
+        if(takenIds>=cap)return;
+        const child=this.artifacts.get(childRef.artifactId);
+        const childCount=Number(childRef.exactEvidenceCount??child?.evidenceManifest?.exactEvidenceCount??child?.sourceRange?.evidenceCount??child?.exactEvidenceRefs?.length??0);
+        if(remainingOffset>=childCount){remainingOffset-=childCount;continue;}
+        if(!child){
+          unavailableChildArtifactRefs.push(String(childRef.artifactId));
+          const logicallyConsumed=Math.min(cap-takenIds,Math.max(0,childCount-remainingOffset));
+          remainingOffset=0;
+          takenIds+=logicallyConsumed;
+          continue;
+        }
+        visit(child);
+      }
+    };
+    if(start<total)visit(artifact);
+    const nextOffset=start+takenIds;
+    const remaining=Math.max(0,total-nextOffset);
+    const unavailable=unavailableEvidenceRefs.length>0||unavailableChildArtifactRefs.length>0;
+    return {
+      kind:'MemorySummaryDrillbackPage',
+      rows,
+      offset:start,
+      limit:cap,
+      processed:takenIds,
+      remaining,
+      coverageComplete:remaining===0&&!unavailable,
+      continuationAvailable:remaining>0,
+      nextOffset:remaining>0?nextOffset:null,
+      exactEvidenceCount:total,
+      unavailableEvidenceRefs,
+      unavailableChildArtifactRefs,
+      hierarchical:Boolean((artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[]).length),
+      canonicalKnowledgeDropped:false,
+      reasonCode:unavailable?'SUMMARY_DRILLBACK_EVIDENCE_UNAVAILABLE':(remaining>0?'SUMMARY_DRILLBACK_PAGE_BOUND':null),
+    };
+  }
+
+  exactDrillback(artifactOrId,options={}) {
+    return this.exactDrillbackPage(artifactOrId,options).rows;
   }
 
   markScopeConeStale(ref,reason,{includeDescendants=false}={}) {
@@ -959,6 +1092,22 @@ export class MemorySummaryHierarchy {
           : [[preferred],['SCENE'],['CHAPTER','SESSION'],['ARC'],['STORY']];
   }
 
+  summaryEvidenceAllowed(artifact,allowedEvidence,seen=new Set()){
+    if(!allowedEvidence)return true;
+    if(!artifact)return false;
+    if(seen.has(artifact.id))return true;
+    seen.add(artifact.id);
+    const direct=artifact.evidenceManifest?.directEvidenceRefs??artifact.exactEvidenceRefs??[];
+    for(const id of direct)if(!allowedEvidence.has(id))return false;
+    const children=artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[];
+    if(!direct.length&&!children.length)return false;
+    for(const ref of children){
+      const child=this.artifacts.get(ref.artifactId);
+      if(!child||!this.summaryEvidenceAllowed(child,allowedEvidence,seen))return false;
+    }
+    return true;
+  }
+
   buildSummaryNominations({picked,intentId,perspective}){
     return picked.map(({artifact,score})=>createCandidateNomination({
       nominationId:'memory-summary-nomination:' + stableHash(intentId+'|'+artifact.id),
@@ -1011,7 +1160,9 @@ export class MemorySummaryHierarchy {
         sourceRange:deepClone(artifact.sourceRange),
         sourceRangeHash:artifact.sourceRangeHash,
         exactSourceRevisionCount:artifact.exactSourceRevisionSet.length,
-        exactEvidenceCount:artifact.exactEvidenceRefs.length,
+        exactEvidenceCount:Number(artifact.evidenceManifest?.exactEvidenceCount??artifact.sourceRange?.evidenceCount??artifact.exactEvidenceRefs.length),
+        hierarchicalDrillback:Boolean((artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[]).length),
+        drillbackPageSize:MEMORY_LIMITS.maxSummaryDrillbackRows,
         exactSourceDrillback:true,
         drillbackRequiredForClaimAuthority:true,
         independentEvidence:false,
@@ -1037,16 +1188,15 @@ export class MemorySummaryHierarchy {
     const indexInfo=this.ensureQueryIndex();
     const afterIndex=nowMs();
     const queryTokens=tokens(request.query);
+    const unindexedQueryTokens=queryTokens.filter((token)=>!this.queryIndex.tokenToArtifactIds.has(token));
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
     const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
-    const artifactAllowed=(artifact)=>!allowedEvidence||(
-      (artifact?.exactEvidenceRefs??[]).length>0
-      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
-    );
+    const artifactAllowed=(artifact)=>this.summaryEvidenceAllowed(artifact,allowedEvidence);
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const cacheKey=this.queryCacheKey(request,preferred);
-    if(useCache){
+    const cacheEligible=useCache&&unindexedQueryTokens.length===0;
+    if(cacheEligible){
       const cached=this.queryCache.get(cacheKey);
       if(cached){
         this.costCounters.queryCacheHits+=1;
@@ -1067,6 +1217,13 @@ export class MemorySummaryHierarchy {
 
     const tiers=this.tierOrder(preferred);
     let examined=0;
+    let targetedFallbackExamined=0;
+    let targetedFallbackOffset=Math.max(0,Number(request.targetedFallbackOffset)||0);
+    let targetedFallbackRemaining=0;
+    let nextTargetedFallbackOffset=null;
+    let targetedFallbackTier=[];
+    let targetedFallbackCoverageComplete=true;
+    let fallbackContinuationBlocksLowerTier=false;
     let scored=[];
     let selectedTier=[];
     const selectionStarted=nowMs();
@@ -1082,8 +1239,29 @@ export class MemorySummaryHierarchy {
       for(const entity of activeEntityIds){
         for(const id of this.queryIndex.entityToArtifactIds.get(entity)??[])if(tierIds.has(id))candidateIds.add(id);
       }
+      if(unindexedQueryTokens.length){
+        const fallbackIds=[...tierIds].sort();
+        const pageStart=Math.min(targetedFallbackOffset,fallbackIds.length);
+        const pageEnd=Math.min(fallbackIds.length,pageStart+MEMORY_LIMITS.maxHistorianExaminedArtifacts);
+        const fallbackPage=fallbackIds.slice(pageStart,pageEnd);
+        targetedFallbackTier=[...tier];
+        targetedFallbackExamined+=fallbackPage.length;
+        for(const id of fallbackPage){
+          if(candidateIds.has(id))continue;
+          const rowTokens=this.queryIndex.artifactTokens.get(id)??[];
+          if(unindexedQueryTokens.some((token)=>rowTokens.includes(token)))candidateIds.add(id);
+        }
+        targetedFallbackRemaining=Math.max(0,fallbackIds.length-pageEnd);
+        targetedFallbackCoverageComplete=targetedFallbackRemaining===0;
+        nextTargetedFallbackOffset=targetedFallbackCoverageComplete?null:pageEnd;
+        if(targetedFallbackRemaining>0)fallbackContinuationBlocksLowerTier=true;
+        else targetedFallbackOffset=0;
+      }
       if(!queryTokens.length&&!activeEntityIds.length)for(const id of tierIds)candidateIds.add(id);
-      if(!candidateIds.size)continue;
+      if(!candidateIds.size){
+        if(fallbackContinuationBlocksLowerTier)break;
+        continue;
+      }
 
       const tierScored=[];
       for(const id of candidateIds){
@@ -1113,6 +1291,7 @@ export class MemorySummaryHierarchy {
     const afterSelection=nowMs();
     this.costCounters.historianSummaryArtifactsExamined+=examined;
     this.costCounters.queryIndexedCandidatesExamined+=examined;
+    this.costCounters.queryTargetedFallbackScans+=targetedFallbackExamined;
     scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.resolutionFit-a.score.resolutionFit||a.artifact.scopeRef.localeCompare(b.artifact.scopeRef));
     const deduped=[];
     const coverage=new Set();
@@ -1140,9 +1319,16 @@ export class MemorySummaryHierarchy {
         selectionMs:afterSelection-selectionStarted,
         scoringMs:afterScoring-afterSelection,
         nominationBuildMs:finished-afterScoring,
+        targetedFallbackExamined,
+        targetedFallbackOffset:Math.max(0,Number(request.targetedFallbackOffset)||0),
+        targetedFallbackTier,
+        targetedFallbackRemaining,
+        targetedFallbackCoverageComplete,
+        nextTargetedFallbackOffset,
+        queryIndexCoverageComplete:this.queryIndex.coverageComplete,
       },
     };
-    if(useCache&&nominations.length)this.storeQueryCache(cacheKey,summary);
+    if(cacheEligible&&nominations.length)this.storeQueryCache(cacheKey,summary);
     return summary;
   }
 
@@ -1152,10 +1338,7 @@ export class MemorySummaryHierarchy {
     const activeEntityIds=uniqStrings(request.activeEntityIds??[],64);
     const perspective=request.perspectiveConstraint??{scope:PerspectiveScope.WORLD};
     const allowedEvidence=request.allowedEvidenceIds==null?null:new Set(request.allowedEvidenceIds);
-    const artifactAllowed=(artifact)=>!allowedEvidence||(
-      (artifact?.exactEvidenceRefs??[]).length>0
-      && (artifact.exactEvidenceRefs??[]).every((id)=>allowedEvidence.has(id))
-    );
+    const artifactAllowed=(artifact)=>this.summaryEvidenceAllowed(artifact,allowedEvidence);
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const all=this.currentArtifacts({freshOnly:true});
     const afterMaterialize=nowMs();
@@ -1273,12 +1456,34 @@ export class MemorySummaryHierarchy {
       };
     }
     const summary=this.nominationsFromSummaries(request,preferred);
+    const targetedFallbackIncomplete=summary.profile?.targetedFallbackCoverageComplete===false;
+    const continuation=targetedFallbackIncomplete?{
+      kind:'MemorySummaryTargetedFallbackContinuation',
+      contractVersion:'1.0.0',
+      nextTargetedFallbackOffset:summary.profile?.nextTargetedFallbackOffset??null,
+      remaining:Number(summary.profile?.targetedFallbackRemaining??0),
+      tier:[...(summary.profile?.targetedFallbackTier??[])],
+      runtimeSchedulingAuthority:false,
+      canonicalKnowledgeDropped:false,
+    }:null;
     if (!summary.nominations.length) {
       this.costCounters.historianBaseQueriesUsed+=1;
       const base=this.applyBudgetToBase(baseQuery(request),request);
       return {
         ...base,
-        diagnostics:{...(base.diagnostics??{}),resolutionPolicy:'FALLBACK_EXACT',summaryArtifactsExamined:summary.examined,baseQueryUsed:true},
+        status:targetedFallbackIncomplete?'DEGRADED':base.status,
+        continuationAvailable:targetedFallbackIncomplete,
+        continuation,
+        diagnostics:{
+          ...(base.diagnostics??{}),
+          resolutionPolicy:'FALLBACK_EXACT',
+          summaryArtifactsExamined:summary.examined,
+          baseQueryUsed:true,
+          summaryProfile:deepClone(summary.profile??null),
+          summaryCoverageComplete:!targetedFallbackIncomplete,
+          reason:targetedFallbackIncomplete?'SUMMARY_INDEX_TARGETED_FALLBACK_PAGE_BOUND':base.diagnostics?.reason??null,
+          canonicalKnowledgeDropped:false,
+        },
       };
     }
     this.costCounters.historianBaseQueriesAvoided+=1;
@@ -1291,6 +1496,8 @@ export class MemorySummaryHierarchy {
       retrievalIntentId:intentId,
       historianRevision:this.revisionRef(),
       nominations:summary.nominations,
+      continuationAvailable:targetedFallbackIncomplete,
+      continuation,
       diagnostics:{
         examined:summary.examined,
         matched:summary.matched,
@@ -1302,10 +1509,13 @@ export class MemorySummaryHierarchy {
         deterministic:true,
         duplicateCoverageSuppressed:true,
         profile:deepClone(summary.profile??null),
+        summaryCoverageComplete:!targetedFallbackIncomplete,
+        reason:targetedFallbackIncomplete?'SUMMARY_INDEX_TARGETED_FALLBACK_PAGE_BOUND':null,
+        canonicalKnowledgeDropped:false,
         queryIndexRevision:this.queryIndex.revision,
         queryCacheEntries:this.queryCache.size,
       },
-      status:'OK',
+      status:targetedFallbackIncomplete?'DEGRADED':'OK',
       authorityGranted:false,
       admissionAuthority:false,
       settlementAuthority:false,
@@ -1361,6 +1571,9 @@ export class MemorySummaryHierarchy {
         dirty:this.queryIndexDirty,
         artifacts:this.queryIndex.artifactIds?.length??0,
         indexedTerms:this.queryIndex.indexedTerms??0,
+        boundedOutTerms:this.queryIndex.boundedOutTerms??0,
+        coverageComplete:this.queryIndex.coverageComplete??true,
+        targetedFallbackAvailable:true,
         estimatedUtf16Bytes:this.queryIndex.estimatedUtf16Bytes??0,
       },
       queryCache:{
@@ -1408,6 +1621,8 @@ export class MemorySummaryHierarchy {
         artifactTokens:[...this.queryIndex.artifactTokens.entries()].map(([k,v])=>[k,[...v]]),
         artifactIds:[...(this.queryIndex.artifactIds??[])],
         indexedTerms:this.queryIndex.indexedTerms??0,
+        boundedOutTerms:this.queryIndex.boundedOutTerms??0,
+        coverageComplete:this.queryIndex.coverageComplete??true,
         estimatedUtf16Bytes:this.queryIndex.estimatedUtf16Bytes??0,
       },
       queryIndexDirty:this.queryIndexDirty,
@@ -1442,6 +1657,7 @@ export class MemorySummaryHierarchy {
       queryCacheMisses:0,
       queryCacheEvictions:0,
       queryIndexedCandidatesExamined:0,
+      queryTargetedFallbackScans:0,
       ...(snapshot?.costCounters??{}),
     };
     const qi=snapshot?.queryIndex??null;
@@ -1453,10 +1669,12 @@ export class MemorySummaryHierarchy {
       artifactTokens:new Map((qi.artifactTokens??[]).map(([k,v])=>[k,[...v]])),
       artifactIds:[...(qi.artifactIds??[])],
       indexedTerms:Number(qi.indexedTerms??0),
+      boundedOutTerms:Number(qi.boundedOutTerms??0),
+      coverageComplete:Boolean(qi.coverageComplete??true),
       estimatedUtf16Bytes:Number(qi.estimatedUtf16Bytes??0),
     }:{
       revision:null,tokenToArtifactIds:new Map(),entityToArtifactIds:new Map(),levelToArtifactIds:new Map(),
-      artifactTokens:new Map(),artifactIds:[],indexedTerms:0,estimatedUtf16Bytes:0,
+      artifactTokens:new Map(),artifactIds:[],indexedTerms:0,boundedOutTerms:0,coverageComplete:true,estimatedUtf16Bytes:0,
     };
     const restoredIndexValid=Boolean(qi)&&this.queryIndex.artifactIds.every((id)=>{
       const artifact=this.artifacts.get(id);

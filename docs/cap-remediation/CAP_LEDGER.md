@@ -31,9 +31,9 @@ Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core
 | 13 | Lore Repr. | :29,324-326 totalContributions | 512 | **alphabetical sort by semanticClass then slice**: REQUIRED_IDENTITY / TEMPORAL_ANCHOR / UNRESOLVED_CONFLICT cut first; receipt PASS | silent (PASS) | **knowledge loss** | SLICE (representation segments) | complete contribution set (order unchanged); oversize representation fails visibly (CAP_EXCEEDED / PROVIDER_REQUEST_LIMIT_EXCEEDED) until segments land (P4, row 10) | changed + validated (`cap-remediation-lore-representation`) |
 | 14 | Lore Repr. | :35,430 maxRepresentationCharacters | 24000 | profile FAIL `CAP_EXCEEDED` | qualityReceipt | work loss | PHYSICAL per artifact + segments | segments | untouched |
 | 15 | Lore Repr. | :36,641-659 provider request | 96000 | FAIL `PROVIDER_REQUEST_LIMIT_EXCEEDED` | qualityReceipt | work loss | PHYSICAL, split work | — | untouched |
-| 16 | Lore Retrieval | lore-contextual-retrieval.js:391 query | 512 | **throws**; channel DEGRADED; brain passes raw message text | exception | knowledge loss (turn) | derived bounded query | original request identity kept | untouched |
-| 17 | Lore Retrieval | :86-88,266 maxTokensPerRecord | 192 | only first 192 unique tokens indexed | silent | **knowledge loss** | PAGE (chunked records, common source id) | chunks | untouched |
-| 18 | Lore Retrieval | :398-405 maxExaminedEntries | 512 | token-order pre-score cutoff; scope filter after the cap | `examined` | knowledge loss | PAGE (scope before cap; continuation on weak/exact miss) | page cursor | untouched |
+| 16 | Lore Retrieval | lore-contextual-retrieval.js:391 query | 512 | **throws**; channel DEGRADED; brain passes raw message text | exception | knowledge loss (turn) | derived bounded query | long query -> bounded representation of the whole input (indexed terms, rarest first, <=64); within the limit unchanged | changed + validated (`cap-remediation-retrieval`) |
+| 17 | Lore Retrieval | :86-88,266 maxTokensPerRecord | 192 | only first 192 unique tokens indexed | silent | **knowledge loss** | PAGE (chunked records, common source id) | all unique terms indexed; one-time index rebuild on restore (RECORD_TOKEN_REVISION) | changed + validated |
+| 18 | Lore Retrieval | :398-405 maxExaminedEntries | 512 | token-order pre-score cutoff; scope filter after the cap | `examined` | knowledge loss | PAGE (scope before cap; continuation on weak/exact miss) | scope and stale filters applied while filling the 512 page; rarest terms first; `examinedCapped` reported (continuation paging still open) | changed (partial) + validated |
 | 19 | Lore Retrieval | :434-435 nominations | 16 / 24 | top 16; `boundedOut` not propagated by `queryForStory` | partial | knowledge loss | RANK (keep 16/24) + propagate boundedOut | — | untouched |
 | 20 | Lore Retrieval | :100,112-132 candidate text / refs | 1600 / 64 | sliced; brain uses exact drillback | truncated flags | low | RANK/transport | drillback | untouched |
 | 21 | Lore Hierarchy | lore-navigation-hierarchy.js:31 depth | 12 | deeper sources excluded from hierarchy **and retrieval index** | diagnostic ring | knowledge loss | virtual grouping (PAGE) | — | untouched |
@@ -51,10 +51,10 @@ Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core
 | 33 | Context compiler | context-compiler.js:30,82 claims | 12 | priority sort; RICH_FALLBACK on retention < 1 | fallbackUsed | low | RANK (adaptive) | — | untouched |
 | 34 | Context compiler | :86-87 external Lore/Memory | 12 each | **admission order, unsorted**, no retention check | silent | **knowledge loss** | RANK (priority + receipt) | — | untouched |
 | 35 | Context compiler | :19 external text | 12000 | head-sliced | silent | knowledge loss | RANK/transport + drillback | — | untouched |
-| 36 | Memory historian | memory-historian.js:246 query | 600 | **throws** | exception | knowledge loss (turn) | derived query | — | untouched |
-| 37 | Memory historian | :253-270 examined | 512 | token-order pre-score cutoff | examined | knowledge loss | PAGE | — | untouched |
+| 36 | Memory historian | memory-historian.js:246 query | 600 | **throws** | exception | knowledge loss (turn) | derived query | long request -> bounded representation (as row 16) | changed + validated |
+| 37 | Memory historian | :253-270 examined | 512 | token-order pre-score cutoff | examined | knowledge loss | PAGE | rarest terms first; `examinedCapped` reported | changed (partial) + validated |
 | 38 | Memory historian | :284-285,416 candidates | 48 | top-48 | boundedOut | low | RANK | — | validated (audit) |
-| 39 | Memory historian | :126,161,198 indexed terms | 192 | tail unindexed | silent | knowledge loss | PAGE (chunked index) | — | untouched |
+| 39 | Memory historian | :126,161,198 indexed terms | 192 | tail unindexed | silent | knowledge loss | PAGE (chunked index) | all unique terms indexed | changed + validated |
 | 40 | Memory historian | :456-470 evidence bytes | 65536 | **all-or-nothing**: empty artifacts when over | EVIDENCE_BUDGET_EXCEEDED | knowledge loss | RANK (top-N that fit) | — | untouched |
 | 41 | Memory episode | memory-temporal-producer.js:272 | 1600 | episode summary = first 1600 chars; sole dense/historian text | silent | **knowledge loss** | segmented representation | exact evidence canonical | untouched |
 | 42 | Memory graph | memory-temporal-state-graph.js:313,335,354 journal traversal | 8192 | `slice(-8192)`: facts settled earlier vanish from CURRENT/HISTORICAL | silent | **knowledge loss** | PAGE / snapshot-based projection | whole journal in all three projections | changed + validated (`cap-remediation-memory-journal`) |
@@ -119,3 +119,11 @@ Checkpoint size and CPU grow linearly with retained turns (repro `LEN=80 TURNS=4
 - **Memory bridge raw input (row 54)**: a reply longer than about 32K characters could not be mapped. The throw also came after evidence had been appended and the prior mapping retired. Now the exact content is admitted in full, and only the audit copy is bounded, using content-addressed stubs. The copy is computed before any mutation, so a re-mapping links cleanly (no dangling `pending`). Inputs within the limit keep an exact copy, as before.
   - Evidence: `tests/cap-remediation-memory-bridge.test.mjs` (30,768 / 32,768 / 32,769 / 65,536 / 200,000 characters are admitted and the turn completes; small inputs keep an exact copy; re-mapping stays consistent). Mutation-checked against the previous code. Memory suites pass.
   - The evidence-identity scan in the bridge now uses the non-copying evidence view.
+- **Retrieval query/index bounds (rows 16-18, 36-37, 39)**:
+  - Long queries are served, not thrown; they become a bounded representation of the whole input.
+  - All unique terms of a Lore entry and of a Memory artifact are indexed.
+  - The Lore examined page is filled only with in-scope, current records, rarest terms first.
+  - Evidence: `tests/cap-remediation-retrieval.test.mjs` (limit-1/limit/limit+1/2x/20,000-character queries; a tail-only term is found; an in-scope record is found among 552 out-of-scope matches). Each case was mutation-checked against the previous code.
+  - Changed expectations, with the reason cited in the tests: `lore-wave3` "query bounds" now asserts that a long query is served and still finds its target; `memory-wave1` now injects the historian failure directly instead of using an over-long query.
+  - 96 Lore/Memory/brain/cap/repair suites pass.
+  - Open for these rows: continuation paging past the first 512 examined records (the page is now honest and scoped, but there is no second page).

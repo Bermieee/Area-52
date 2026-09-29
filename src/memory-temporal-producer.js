@@ -687,7 +687,7 @@ export class MemoryTemporalProducer {
       const selection=normalizeMemorySelection(request?.selection??{});
       const allowedEvidenceIds=selection.chatId
         ? (this.graph.evidenceOrder??[]).filter((id)=>{
-            const row=this.graph.evidenceRecord(id);
+            const row=this.graph.evidenceView?this.graph.evidenceView(id):this.graph.evidenceRecord(id);
             return row&&evidenceBelongsToChat(row,selection);
           })
         : null;

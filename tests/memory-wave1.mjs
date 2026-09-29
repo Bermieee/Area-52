@@ -553,7 +553,13 @@ test('Jev Historian resolver seam returns exact references and degrades on Memor
 
 test('stale or failed Historian read degrades locally without fabricating memory or blocking Temporal reads', () => {
   const producer=buildEmberMemory();
-  const degraded=producer.queryHistorian({query:'x'.repeat(MEMORY_LIMITS.maxHistorianQueryCharacters+1)});
+  // Changed trigger (cap remediation, ledger row 36): an over-long query used to be the failure injected here, but a long
+  // request is no longer a failure (it becomes a bounded representation of the whole input). The failed read is now
+  // injected directly; the degradation contract asserted below is unchanged.
+  const longRead=producer.queryHistorian({query:'x'.repeat(MEMORY_LIMITS.maxHistorianQueryCharacters+1)+' Ember Tavern'});
+  assert.notEqual(longRead.status,'DEGRADED','a long request is served');
+  producer.historian.query=()=>{throw new Error('HISTORIAN_TEST_FAILURE');};
+  const degraded=producer.queryHistorian({query:'Ember Tavern'});
   assert.equal(degraded.status,'DEGRADED');
   assert.equal(degraded.nominations.length,0);
   assert.ok(degraded.diagnostics.reason);

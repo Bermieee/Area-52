@@ -5,7 +5,7 @@ import {
   DeterministicNavigationSummaryProvider,
   LoreNavigationSummaryBuilder,
 } from './lore-navigation-summary-builder.js';
-import {LoreContextualRetrievalIndex} from './lore-contextual-retrieval.js';
+import {LoreContextualRetrievalIndex, RECORD_TOKEN_REVISION} from "./lore-contextual-retrieval.js";
 
 export class LoreHierarchyRetrievalSystem {
   constructor({
@@ -136,7 +136,9 @@ export class LoreHierarchyRetrievalSystem {
       this.hierarchy
       && (snapshot?.compactDerivedState === true || snapshot?.retrievalIndex?.recordsIncluded === false
         // An index saved before serving fences existed carries no fence data: rebuild it once instead of serving nothing.
-        || (snapshot?.retrievalIndex && !snapshot.retrievalIndex.builtResolutionKey && (snapshot.retrievalIndex.records ?? []).length > 0))
+        || (snapshot?.retrievalIndex && !snapshot.retrievalIndex.builtResolutionKey && (snapshot.retrievalIndex.records ?? []).length > 0)
+        // An index built under the old 192-term tokenization is rebuilt once so long entries become fully searchable.
+        || (snapshot?.retrievalIndex && snapshot.retrievalIndex.tokenRevision !== RECORD_TOKEN_REVISION && (snapshot.retrievalIndex.records ?? []).length > 0))
     ) {
       this.retrievalIndex.build({
         runtime: this.runtime,

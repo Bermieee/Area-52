@@ -92,6 +92,17 @@ function scoreRecord(record,{queryTokens,activeEntityIds,mode,currentSequence}) 
   };
 }
 
+// Row 39: every unique term of an artifact is indexed (the first 192 used to be, so the tail of a long reply could not be
+// found). Scoring is the fraction of query terms matched, so indexing more terms of a record only adds true matches.
+// Bounded retrieval representation of a long request: indexed terms of the whole input, rarest first.
+const DERIVED_QUERY_TOKENS=64;
+function derivedQueryTokens(tokens,inverted) {
+  const rows=tokens.map((token,index)=>({token,index,postings:inverted.get(token)?.size??0}));
+  const indexed=rows.filter((row)=>row.postings>0).sort((a,b)=>a.postings-b.postings||a.index-b.index);
+  const chosen=(indexed.length?indexed:rows).slice(0,DERIVED_QUERY_TOKENS);
+  return chosen.sort((a,b)=>a.index-b.index).map((row)=>row.token);
+}
+
 export class MemoryHistorianIndex {
   constructor({graph,experienceStore,snapshot=null}={}) {
     if (!graph||!experienceStore) throw new TypeError('MemoryHistorianIndex requires graph and experienceStore');
@@ -123,7 +134,7 @@ export class MemoryHistorianIndex {
         artifactType:episode.artifactType,
         channel:HistorianMemoryChannel.SCENE_EPISODE,
         representationText:episode.summary,
-        tokens:tokenize(text).slice(0,MEMORY_LIMITS.maxIndexedTermsPerArtifact),
+        tokens:tokenize(text),
         sourceRevisionRefs:[...episode.sourceRevisionRefs],
         evidenceRefs:[...episode.evidenceRefs],
         claimRefs:[],
@@ -158,7 +169,7 @@ export class MemoryHistorianIndex {
         artifactType:reflection.artifactType,
         channel:HistorianMemoryChannel.REFLECTION,
         representationText:reflection.statement,
-        tokens:tokenize(text).slice(0,MEMORY_LIMITS.maxIndexedTermsPerArtifact),
+        tokens:tokenize(text),
         sourceRevisionRefs:[...reflection.sourceRevisionRefs],
         evidenceRefs:[...reflection.supportEvidenceRefs],
         claimRefs:[],
@@ -196,7 +207,7 @@ export class MemoryHistorianIndex {
         artifactType:unresolved?MemoryArtifactKind.UNRESOLVED_HYPOTHESIS:MemoryArtifactKind.HISTORICAL_STATE,
         channel:unresolved?HistorianMemoryChannel.UNRESOLVED_HYPOTHESIS:HistorianMemoryChannel.HISTORICAL_STATE,
         representationText:(unresolved?'[UNRESOLVED] ':'[HISTORICAL] ')+claim.subjectId+' '+claim.predicate+' '+valueText(claim.value),
-        tokens:tokenize(text).slice(0,MEMORY_LIMITS.maxIndexedTermsPerArtifact),
+        tokens:tokenize(text),
         sourceRevisionRefs:[...claim.sourceRevisionIds],
         evidenceRefs:[...claim.evidenceIds],
         claimRefs:[claim.id],
@@ -244,22 +255,29 @@ export class MemoryHistorianIndex {
   }={}) {
     const text=String(query??'').trim();
     if (!text) return this.degradedResult({query:text,mode,reason:'EMPTY_QUERY',status:'OK'});
-    if (text.length>MEMORY_LIMITS.maxHistorianQueryCharacters) throw new Error('MEMORY_HISTORIAN_QUERY_LIMIT_EXCEEDED');
-    const queryTokens=tokenize(text);
+    // Cap ledger row 36: a long request is no longer rejected (it threw). Within the limit the query is used as before;
+    // a longer one becomes a bounded representation of the whole input (indexed terms, rarest first).
+    const derived=text.length>MEMORY_LIMITS.maxHistorianQueryCharacters;
+    const queryTokens=derived?derivedQueryTokens(tokenize(text),this.inverted):tokenize(text);
     const allowedEvidence=allowedEvidenceIds==null?null:new Set(allowedEvidenceIds);
     const recordAllowed=(record)=>!allowedEvidence||(
       (record?.evidenceRefs??[]).length>0
       && (record.evidenceRefs??[]).every((id)=>allowedEvidence.has(id))
     );
+    // Row 37: the examined page takes the most specific terms first; identical set whenever the page is not full.
     const candidateIds=new Set();
-    for (const token of queryTokens) {
+    let examinedCapped=false;
+    const collectionOrder=queryTokens.map((token,index)=>({token,index,postings:this.inverted.get(token)?.size??0}))
+      .sort((a,b)=>a.postings-b.postings||a.index-b.index);
+    for (const {token} of collectionOrder) {
       for (const id of this.inverted.get(token)??[]) {
+        if (candidateIds.has(id)) continue;
         const record=this.records.get(id);
         if(!recordAllowed(record))continue;
+        if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) { examinedCapped=true; break; }
         candidateIds.add(id);
-        if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
       }
-      if (candidateIds.size>=MEMORY_LIMITS.maxHistorianExaminedArtifacts) break;
+      if (examinedCapped) break;
     }
     for (const entityId of activeEntityIds) {
       for (const record of this.records.values()) {
@@ -355,7 +373,9 @@ export class MemoryHistorianIndex {
       historianRevision:this.revision,
       nominations,
       diagnostics:{
-        examined:Math.min(candidateIds.size,MEMORY_LIMITS.maxHistorianExaminedArtifacts),
+        examined:candidateIds.size,
+        examinedCapped,
+        queryDerived:derived,
         matched:scored.length,
         returned:nominations.length,
         boundedOut:Math.max(0,scored.length-nominations.length),

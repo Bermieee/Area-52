@@ -321,5 +321,13 @@ test('query bounds are enforced deterministically', () => {
   const result = system.query({query:'Tavern',intent:'BROAD'});
   assert.ok(result.diagnostics.examined <= LORE_WAVE3_LIMITS.maxExaminedEntries);
   assert.ok(result.nominations.length <= LORE_WAVE3_LIMITS.maxTotalNominations);
-  assert.throws(()=>system.query({query:'x'.repeat(LORE_WAVE3_LIMITS.maxQueryCharacters+1)}),/QUERY_LENGTH_LIMIT/);
+  // Changed expectation (cap remediation, ledger row 16, owner handoff "Lore Retrieval / Query length"): a query over the
+  // character limit used to throw, which disabled Lore retrieval for long user input. It now becomes a bounded retrieval
+  // representation of the whole input; results stay within the same nomination bounds and still find what it names.
+  const long = system.query({query:'x'.repeat(LORE_WAVE3_LIMITS.maxQueryCharacters+1)+' Tavern'});
+  assert.equal(long.diagnostics.queryDerived, true);
+  assert.ok(long.queryTokens.length <= 64);
+  assert.ok(long.nominations.length > 0 && long.nominations.length <= LORE_WAVE3_LIMITS.maxTotalNominations);
+  const shortIds = new Set(system.query({query:'Tavern'}).nominations.map((row) => row.candidateId));
+  assert.ok(long.nominations.some((row) => shortIds.has(row.candidateId)), 'the long query still finds the Tavern records');
 });

@@ -607,7 +607,7 @@ export class MemorySummaryHierarchy {
       return artifact;
     });
     const rows=this.evidenceForScope(scope);
-    if (!rows.length) throw new Error('MEMORY_SUMMARY_NO_GROUNDED_SOURCE:'+ref);
+    if (!rows.length&&!childArtifacts.length) throw new Error('MEMORY_SUMMARY_NO_GROUNDED_SOURCE:'+ref);
     const evidenceIds=rows.map((row)=>row.id);
     const claims=this.relevantClaims(evidenceIds);
     const unresolvedSets=this.relevantUnresolvedSets(evidenceIds);
@@ -621,7 +621,7 @@ export class MemorySummaryHierarchy {
     if (current&&current.state==='CURRENT'&&current.freshness==='FRESH'&&current.dependencyFingerprint===fingerprint&&current.budget.maxCharacters===cap) {
       return {...deepClone(current),reused:true};
     }
-    const compiled=this.buildRepresentation({scope,rows,claims,unresolvedSets,reflections,maxCharacters:cap});
+    const compiled=this.buildRepresentation({scope,rows,childArtifacts,claims,unresolvedSets,reflections,maxCharacters:cap});
     const sourceRevisionSet=uniqStrings(rows.map((row)=>row.sourceRevisionId),MEMORY_LIMITS.maxSummarySourceRevisionRefs);
     const history=this.historyByScope.get(ref)??[];
     const revision=history.length+1;
@@ -634,14 +634,41 @@ export class MemorySummaryHierarchy {
         prior.replacedByArtifactId=artifactId;
       }
     }
-    const fullyKnownBy=intersection(rows.map((row)=>row.knownBy??[]));
+    const knowledgeSets=[
+      ...rows.map((row)=>row.knownBy??[]),
+      ...childArtifacts.map((row)=>row.knowledgeFence?.fullyKnownBy??[]),
+    ];
+    const fullyKnownBy=intersection(knowledgeSets);
     const entityRefs=uniqStrings([
       ...rows.flatMap((row)=>row.participants??[]),
+      ...childArtifacts.flatMap((row)=>row.entityRefs??[]),
       ...claims.flatMap((claim)=>[claim.subjectId,typeof claim.value==='string'?claim.value:null].filter(Boolean)),
       ...reflections.flatMap((reflection)=>reflection.subjectRefs??[]),
     ],MEMORY_LIMITS.maxSummaryEntityRefs);
-    const sourceRange=summarizeRange(rows);
-    const sourceRangeHash=stableHash(stableStringify(evidenceIds));
+    const sourceRange=mergeSummaryRanges(rows,childArtifacts);
+    const sourceRangeHash=stableHash(stableStringify({
+      evidenceIds,
+      childRanges:childArtifacts.map((row)=>[row.id,row.sourceRangeHash,row.sourceRange?.evidenceCount??0]),
+    }));
+    const childArtifactRefs=childArtifacts.map((row)=>({
+      artifactId:row.id,
+      scopeRef:row.scopeRef,
+      revision:row.revision,
+      sourceRangeHash:row.sourceRangeHash,
+      exactEvidenceCount:Number(row.sourceRange?.evidenceCount??row.exactEvidenceRefs?.length??0),
+    }));
+    const evidenceManifest={
+      kind:'MemorySummaryEvidenceManifest',
+      contractVersion:'1.0.0',
+      mode:childArtifactRefs.length?'HIERARCHICAL':'DIRECT',
+      directEvidenceRefs:[...evidenceIds],
+      childArtifactRefs:deepClone(childArtifactRefs),
+      exactEvidenceCount:sourceRange.evidenceCount,
+      pageSize:MEMORY_LIMITS.maxSummaryDrillbackRows,
+      coverageComplete:true,
+      continuationAvailable:sourceRange.evidenceCount>MEMORY_LIMITS.maxSummaryDrillbackRows,
+      canonicalKnowledgeDropped:false,
+    };
     const artifact={
       kind:'MemoryHierarchicalSummary',
       contractVersion:'1.0.0',
@@ -654,12 +681,8 @@ export class MemorySummaryHierarchy {
       definitionRevision:scope.definitionRevision,
       parentScopeRefs:[...scope.parentScopeRefs],
       childScopeRefs:[...scope.childScopeRefs],
-      childArtifactRefs:childArtifacts.map((row)=>({
-        artifactId:row.id,
-        scopeRef:row.scopeRef,
-        revision:row.revision,
-        sourceRangeHash:row.sourceRangeHash,
-      })),
+      childArtifactRefs,
+      evidenceManifest,
       exactEvidenceRefs:evidenceIds,
       exactSourceRevisionSet:sourceRevisionSet,
       sourceRange,
@@ -679,11 +702,13 @@ export class MemorySummaryHierarchy {
       inferredReflectionRefs:reflections.map((row)=>row.id),
       representationText:compiled.text,
       representativeEvidenceRefs:compiled.representativeEvidenceRefs,
+      representativeChildArtifactRefs:compiled.representativeChildArtifactRefs??[],
       entityRefs,
       knowledgeFence:{
         perspective:PerspectiveScope.WORLD,
         fullyKnownBy,
         evidenceKnowledge:rows.map((row)=>({evidenceId:row.id,knownBy:[...(row.knownBy??[])]})),
+        childKnowledge:childArtifacts.map((row)=>({artifactId:row.id,scopeRef:row.scopeRef,fullyKnownBy:[...(row.knowledgeFence?.fullyKnownBy??[])]})),
       },
       summaryPolicyRevision:scope.summaryPolicyRevision,
       compilerRevision:scope.compilerRevision,

@@ -512,8 +512,9 @@ export class MemorySummaryHierarchy {
     }));
   }
 
-  buildRepresentation({scope,rows,claims,unresolvedSets,reflections,maxCharacters}) {
+  buildRepresentation({scope,rows,childArtifacts=[],claims,unresolvedSets,reflections,maxCharacters}) {
     const hardRules=rows.filter((row)=>row.authorityClass===AuthorityClass.SOURCE_CANON||row.evidenceKind==='SOURCE');
+    const exactEvidenceCount=rows.length+childArtifacts.reduce((sum,row)=>sum+Number(row?.sourceRange?.evidenceCount??0),0);
     const essentials=[
       '['+scope.level+' '+scope.scopeId+'] DERIVED NAVIGATION ONLY — exact sources remain authoritative.',
       ...hardRules.map((row)=>'[SOURCE RULE '+row.id+'] '+normalizeExact(row.exactContent)),
@@ -522,7 +523,7 @@ export class MemorySummaryHierarchy {
         const alternatives=(set.claims??[]).map((claim)=>stableStringify(claim.value)).join(' | ');
         return '[UNRESOLVED '+String(set.slotKey??set.key??'set')+'] '+alternatives;
       }),
-      '[DRILLBACK] '+rows.length+' exact evidence record(s) retained by source range.',
+      '[DRILLBACK] '+exactEvidenceCount+' exact evidence record(s) retained through '+childArtifacts.length+' child summary manifest(s).',
     ];
     const essentialText=essentials.join('\n');
     if (essentialText.length>maxCharacters) {
@@ -531,6 +532,8 @@ export class MemorySummaryHierarchy {
       throw error;
     }
     const optional=[];
+    const childReps=representativeRows(childArtifacts,MEMORY_LIMITS.maxSummaryRepresentativeEvidence);
+    for(const child of childReps)optional.push('[CHILD '+child.scopeRef+'] '+summaryChildExcerpt(child.representationText));
     for (const reflection of reflections) {
       optional.push('[INFERRED NON-CANON '+reflection.id+'] '+normalizeExact(reflection.statement));
     }
@@ -549,6 +552,8 @@ export class MemorySummaryHierarchy {
       includedOptional,
       omittedOptional:Math.max(0,optional.length-includedOptional),
       representativeEvidenceRefs:reps.map((row)=>row.id),
+      representativeChildArtifactRefs:childReps.map((row)=>row.id),
+      exactEvidenceCount,
     };
   }
 

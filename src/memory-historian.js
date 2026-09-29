@@ -474,31 +474,51 @@ export class MemoryHistorianIndex {
         memoryMutation:false,
       };
     });
-    const bytes=JSON.stringify(artifacts).length;
-    const maxBytes=Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes);
-    if (bytes>maxBytes) {
-      return {
-        kind:'HistorianMemoryResolution',
-        contractVersion:HISTORIAN_COMPAT_VERSION,
-        status:'DEGRADED',
-        artifacts:[],
-        unavailableChannels:['EVIDENCE_BUDGET_EXCEEDED'],
-        memoryRevisionRefs:requested.length?[...requested]:currentRevisionRefs,
-        perspectiveStatus:request.perspectiveConstraint?.scope??PerspectiveScope.WORLD,
-        evidenceBytes:0,
-        authorityGranted:false,
-        memoryMutation:false,
-      };
+    const byteLength=(rows)=>new TextEncoder().encode(JSON.stringify(rows)).length;
+    const maxBytes=Math.max(2,Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes));
+    const selected=[];
+    const boundedOut=[];
+    for (const artifact of artifacts) {
+      const candidateBytes=byteLength([...selected,artifact]);
+      if (candidateBytes<=maxBytes) {
+        selected.push(artifact);
+        continue;
+      }
+      boundedOut.push({
+        candidateId:artifact.candidateId,
+        artifactRef:deepClone(artifact.artifactRef),
+        sourceRevisionRefs:[...artifact.sourceRevisionRefs],
+        evidenceRefs:[...artifact.evidenceRefs],
+      });
     }
+    const bytes=byteLength(selected);
+    const coverageComplete=boundedOut.length===0;
+    const firstArtifactBytes=artifacts.length?byteLength([artifacts[0]]):0;
+    const reasonCode=coverageComplete
+      ? null
+      : (!selected.length&&firstArtifactBytes>maxBytes?'EVIDENCE_ARTIFACT_EXCEEDS_BUDGET':'EVIDENCE_BUDGET_EXCEEDED');
     return {
       kind:'HistorianMemoryResolution',
       contractVersion:HISTORIAN_COMPAT_VERSION,
-      status:'OK',
-      artifacts,
-      unavailableChannels:[],
+      status:coverageComplete?'OK':'DEGRADED',
+      artifacts:selected,
+      unavailableChannels:coverageComplete?[]:[reasonCode],
       memoryRevisionRefs:requested.length?[...requested]:currentRevisionRefs,
       perspectiveStatus:request.perspectiveConstraint?.scope??PerspectiveScope.WORLD,
       evidenceBytes:bytes,
+      processed:selected.length,
+      remaining:boundedOut.length,
+      boundedOut,
+      coverageComplete,
+      continuationAvailable:boundedOut.length>0,
+      continuationCursor:boundedOut.length?{
+        afterCandidateId:selected.at(-1)?.candidateId??null,
+        nextCandidateId:boundedOut[0].candidateId,
+      }:null,
+      reasonCode,
+      limit:maxBytes,
+      limitType:'RANK',
+      canonicalKnowledgeDropped:false,
       authorityGranted:false,
       memoryMutation:false,
     };

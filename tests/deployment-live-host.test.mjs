@@ -576,3 +576,58 @@ test('detailed profile begins before Scene admission and includes checkpoint per
     release();
   }finally{session.stop();Object.defineProperty(globalThis,'performance',{configurable:true,value:old});}
 });
+
+
+test('Worker 3 host payload preserves partially admitted Lore',async()=>{
+  const {sillyTavern,context,listeners}=makeHost();
+  const nativeBrain=fakeNativeBrain();
+  let preparedPlan=null;
+  const basePrepare=nativeBrain.prepareTurn.bind(nativeBrain);
+  nativeBrain.prepareTurn=async function(input){
+    const prepared=await basePrepare(input);
+    const loreText='[RELEVANT_LORE]\nThe eastern lantern is the only admissible fragment from the bounded Lore slice.';
+    prepared.promptPlan={
+      ...prepared.promptPlan,
+      ordering:['CURRENT_WORLD_STATE','RELEVANT_LORE','USER_INPUT'],
+      sections:[
+        prepared.promptPlan.sections[0],
+        {slot:'RELEVANT_LORE',representation:'COMPACT',text:loreText,allocatedTokens:22,compactTokens:22,richTokens:90,targetTokens:90,required:false,protected:false},
+        prepared.promptPlan.sections[1],
+      ],
+      deferred:[{slot:'RELEVANT_LORE',reason:'PARTIAL_OPTIONAL_LORE_BY_BUDGET',partial:true,admittedEntryCount:1,deferredEntryCount:3,requiredTokens:90,remainingTokensAtDecision:22}],
+      fallbackDecisions:['PARTIAL_OPTIONAL_LORE_BY_BUDGET'],
+    };
+    preparedPlan=structuredClone(prepared.promptPlan);
+    prepared.rendered={
+      ...prepared.rendered,
+      messages:[
+        prepared.rendered.messages[0],
+        {role:'system',content:loreText},
+        prepared.rendered.messages[1],
+      ],
+    };
+    return prepared;
+  };
+  const session=createDevelopmentDeploymentSillyTavernSession({sillyTavern,document:null,mountUi:false,nativeBrain});
+  session.start();
+
+  pushUser(context,'At Moonlit Observatory, tell me which lantern still matters.');
+  await Promise.all([...listeners.get('generation_after_commands')].map(fn=>fn('normal',{},false)));
+
+  const actualRequest={chat:[
+    {role:'system',content:'SillyTavern host policy'},
+    {role:'user',content:'At Moonlit Observatory, tell me which lantern still matters.'},
+  ],dryRun:false};
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
+
+  const injected=actualRequest.chat.map(row=>String(row.content??''));
+  const loreRows=injected.filter(text=>text.includes('[RELEVANT_LORE]')&&text.includes('eastern lantern'));
+  assert.equal(loreRows.length,1,'replayed prompt-ready hooks must not duplicate the sealed Lore insertion');
+  assert.ok(loreRows[0],
+    'final host payload must contain the Lore fragment that PromptPlan actually admitted');
+  assert.ok(preparedPlan?.sections?.some(row=>row.slot==='RELEVANT_LORE'&&row.representation==='COMPACT'));
+  assert.ok(preparedPlan?.deferred?.some(row=>row.slot==='RELEVANT_LORE'&&row.partial===true&&row.deferredEntryCount===3));
+  assert.equal(session.exportEvidence().nativeBrainIntegration.exactPreparedRenderedObserved,true);
+  session.destroy();
+});

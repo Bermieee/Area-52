@@ -209,7 +209,7 @@ export class CognitiveChoiceController{
         return session.jev;
       }
       session.skipped.add(CognitiveJob.JEV);session.reasons.add(CognitiveReason.JEV_UNAVAILABLE);
-      session.jev={...this.#defaultJev(),considered:true,skipped:true,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request};
+      session.jev={...this.#defaultJev(),considered:true,skipped:true,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,reasonDetail:this.advisoryLookup?'NO_FRESH_ADVICE_FOR_THIS_DECISION':'SYNCHRONOUS_JEV_ADAPTER_UNAVAILABLE',alternativeCount:alternatives.length,request};
       return session.jev;
     }
 
@@ -229,7 +229,7 @@ export class CognitiveChoiceController{
       };
     }catch(error){
       session.reasons.add(CognitiveReason.JEV_UNAVAILABLE);
-      session.jev={...this.#defaultJev(),considered:true,invoked:true,skipped:false,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request,error:String(error?.message??error)};
+      session.jev={...this.#defaultJev(),considered:true,invoked:true,skipped:false,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,reasonDetail:'SYNCHRONOUS_JEV_ADAPTER_FAILED',alternativeCount:alternatives.length,request,error:String(error?.message??error)};
     }
     return session.jev;
   }

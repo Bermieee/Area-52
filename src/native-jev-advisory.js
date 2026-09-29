@@ -28,6 +28,7 @@ export class NativeJevAdvisory {
   #service = null;
   #configured = () => false;
   #executionEvidence = null;
+  #pending = new Map();
 
   constructor({ snapshot = null, limits = NATIVE_JEV_ADVISORY_LIMITS } = {}) {
     this.limits = { ...NATIVE_JEV_ADVISORY_LIMITS, ...limits };
@@ -151,6 +152,7 @@ export class NativeJevAdvisory {
     const finish = (status, extra = {}) => ({ ...base, status, classification: null, ownerDecision: null, reasonCode: null, providerEvidence: null, ...extra });
     if (!this.available) return finish('UNAVAILABLE', { reasonCode: 'JEV_NOT_CONFIGURED' });
     const sealBefore = record.published?.sealReceipt?.id ?? null;
+    this.#pending.set(set.id,{conflictSetId:set.id,sourceTurnId:record.turnId,sourceSealId:sealBefore,status:'PENDING',startedAt:Date.now()});
     let admission;
     try {
       admission = await adjudicateJevForOwner({
@@ -168,8 +170,10 @@ export class NativeJevAdvisory {
         },
       });
     } catch (error) {
+      this.#pending.delete(set.id);
       return finish('FAILED', { reasonCode: String(error?.code ?? error?.message ?? 'JEV_ADVISORY_FAILED').slice(0, 120) });
     }
+    this.#pending.delete(set.id);
     // Re-check the fence at admission: nothing it depends on may have moved while Jev was running.
     const after = this.#currentState({ ...set, chatId: record.chatId }, loreInterface);
     const stillFresh = after.domainRevisions.lore === loreFence(set) && uniq(set.sourceRevisionRefs).every((ref) => after.sourceRevisionSet.includes(ref));
@@ -225,6 +229,15 @@ export class NativeJevAdvisory {
   diagnostics() {
     const counts = {};
     for (const row of this.rows.values()) counts[row.status] = (counts[row.status] ?? 0) + 1;
-    return { kind: 'NativeJevAdvisoryDiagnostics', attached: Boolean(this.#service), configured: this.available, counts, skipped: clone(this.skipped), deferred: { count: this.deferred.size, reasonCode: this.deferred.size ? 'DEFERRED_JEV_TURN_BUDGET' : null }, limits: { ...this.limits }, authorityGranted: false };
+    const pending=[...this.#pending.values()].map(clone);
+    const ownerRejected=[...this.rows.values()].filter(row=>String(row.ownerDecision??'').toUpperCase()==='REJECTED').length;
+    const failedExecution=[...this.rows.values()].filter(row=>['FAILED','NOT_ADVISED_NO_LIVE_PROVIDER'].includes(row.status)).length;
+    const connectionState=!this.#service?'SERVICE_NOT_ATTACHED':this.available?'CONNECTED':'RESOURCE_DISCONNECTED';
+    return {
+      kind:'NativeJevAdvisoryDiagnostics',attached:Boolean(this.#service),configured:this.available,connectionState,counts,
+      pending:{count:pending.length,rows:pending},failedExecutionCount:failedExecution,ownerRejectedCount:ownerRejected,
+      skipped:clone(this.skipped),deferred:{count:this.deferred.size,reasonCode:this.deferred.size?'DEFERRED_JEV_TURN_BUDGET':null},
+      limits:{...this.limits},authorityGranted:false,
+    };
   }
 }

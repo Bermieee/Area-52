@@ -227,12 +227,14 @@ test('Wave16 timeout and disconnect during execution remain typed failures with 
     await timeoutRegistry.connectResource('slow');provider.setDelay(80);
     const timed=await timeoutRegistry.executeTaskWithFallback(graphTask('timed'),{input:graphInput(),maxProviders:1});
     assert.equal(timed.status,'FAILED');assert.equal(timed.failure.code,'PROVIDER_TIMEOUT');
+    assert.equal(timeoutRegistry.readResource('slow').activeExecutions,0,'timed-out provider execution must release its resource slot');
     provider.setDelay(0);
 
     const disconnectRegistry=new CoprocessorResourceConnections();addChat(disconnectRegistry,provider.baseUrl,{resourceId:'disconnect',apiKey:'good-key',timeoutMs:1000});
     await disconnectRegistry.connectResource('disconnect');provider.setDelay(120);
     const running=disconnectRegistry.executeTask(graphTask('disconnecting'),{input:graphInput()});await sleep(15);disconnectRegistry.disconnectResource('disconnect');
     await assert.rejects(running,error=>error?.code==='PROVIDER_ABORTED');
+    assert.equal(disconnectRegistry.readResource('disconnect').activeExecutions,0,'aborted provider execution must release its resource slot');
     assert.equal(disconnectRegistry.readModel().nativePathRequired,true);
   }finally{await provider.close();}
 });

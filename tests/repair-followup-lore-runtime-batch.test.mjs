@@ -115,3 +115,32 @@ test('installed path: the operator Run-study action is async Runtime batching an
   assert.equal(studied, 15);
   h.session.destroy();
 });
+
+test('installed path: the operator Accept returns reference surfaces (no corpus copy); the owner state and status equal a full-receipt accept', async () => {
+  const { makeInstalled } = await import('./helpers/installed-host.mjs');
+  const run = async (viaOperator) => {
+    const h = makeInstalled({ chatId: 'chat:acc' });
+    const accept = viaOperator ? (h.session.uiBindings().loreStudyHost?.actions?.acceptLorebook ?? h.session.uiBindings().acceptLorebook) : (input) => h.session.brain.acceptLorebook(input);
+    const first = await accept(book(12));
+    await h.session.brain.runLoreStudyBatched({ scope: 'DUE' });
+    const edited = book(12); edited.entries = edited.entries.map((e, i) => (i === 3 || i === 7 ? { ...e, content: e.content + ' It changed.' } : e));
+    const second = await accept(edited);
+    const status = h.session.brain.loreIntelligence.status();
+    h.session.destroy();
+    return { first, second, status };
+  };
+  const operator = await run(true), full = await run(false);
+  for (const receipt of [operator.first, operator.second]) {
+    assert.equal(receipt.receiptForm, 'REFERENCE');
+    assert.equal(receipt.intelligence.kind, 'LoreIntelligenceStatusReference');
+    assert.equal(receipt.ownerReceipt.status.kind, 'LoreIntelligenceStatusReference');
+    assert.ok(JSON.stringify(receipt).length < JSON.stringify(full.second).length, 'smaller than the full receipt');
+  }
+  assert.equal(full.second.receiptForm, undefined, 'the default receipt is unchanged');
+  assert.equal(full.second.intelligence.kind, 'LoreIntelligenceStatus');
+  const core = (r) => ({ entryCount: r.entryCount, changedCount: r.changedCount, changes: r.ownerReceipt.changes, due: r.ownerReceipt.dueStudyObligations, sourceRevisionChanged: r.ownerReceipt.sourceRevisionChanged });
+  assert.deepEqual(core(operator.second), core(full.second), 'same acceptance outcome');
+  assert.equal(operator.second.changedCount, 2);
+  assert.ok(operator.second.ownerReceipt.changes.some((c) => c.invalidatedRepresentationIds.length > 0), 'edited sources report their invalidated representations');
+  assert.deepEqual(operator.status, full.status, 'the owner ends in the same state');
+});

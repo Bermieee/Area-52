@@ -182,7 +182,9 @@ export class LoreIntelligenceService {
     return packet;
   }
 
-  acceptLorebook(input) {
+  // receiptForm 'REFERENCE' returns a revision-aware status reference instead of a copy of the whole status (used by the
+  // installed operator Accept); the default full receipt is unchanged.
+  acceptLorebook(input, {receiptForm = 'FULL'} = {}) {
     const requestedChatId = input?.chatId ?? input?.storyScope?.chatId ?? input?.discovery?.chatId ?? null;
     const book = assertDiscoveredLorebook(input);
     const before = new Map();
@@ -192,7 +194,7 @@ export class LoreIntelligenceService {
       before.set(source.sourceId, {
         sourceRevisionId: revision?.id || null,
         learnedRevisionId: this.runtime.store.currentLearnedRevision(source.sourceId)?.id || null,
-        representationIds: this.multiResolution.registry.activeForSource(source.sourceId, this.runtime.registry).map((row) => row.id),
+        representationIds: this.multiResolution.registry.activeIdsForSource(source.sourceId, this.runtime.registry),
       });
     }
 
@@ -211,13 +213,20 @@ export class LoreIntelligenceService {
       this.hierarchy.refreshRetrieval();
     }
 
+    // Stale representation ids grouped by source once (was a filter with a cloning registry.get() per result: quadratic).
+    const staleBySource = new Map();
+    for (const id of staleRepresentationIds) {
+      const sourceId = this.multiResolution.registry.sourceIdOf(id);
+      if (sourceId == null) continue;
+      if (!staleBySource.has(sourceId)) staleBySource.set(sourceId, []);
+      staleBySource.get(sourceId).push(id);
+    }
     const changes = results.map((row) => {
       const sourceId = row.source.sourceId;
       const previous = before.get(sourceId) || null;
       const current = this.runtime.registry.currentRevision(sourceId, {allowMissing: true});
       const obligation = row.obligation || this.runtime.findObligation(current?.id);
-      const affectedRepresentations = staleRepresentationIds
-        .filter((id) => this.multiResolution.registry.get(id)?.sourceId === sourceId);
+      const affectedRepresentations = staleBySource.get(sourceId) ?? [];
       return {
         sourceId,
         uid: row.source.uid,
@@ -281,9 +290,12 @@ export class LoreIntelligenceService {
       sourceRevisionChanged,
       maintenancePerformed: sourceRevisionChanged,
       maintenanceReason: sourceRevisionChanged ? 'SOURCE_REVISION_CHANGED' : 'NO_SOURCE_REVISION_CHANGE',
-      dueStudyObligations: this.runtime.dueObligations().filter((row) => changes.some((change) => change.sourceId === row.sourceId)).length,
+      dueStudyObligations: (() => { const changed = new Set(changes.map((change) => change.sourceId)); return this.runtime.dueObligations().filter((row) => changed.has(row.sourceId)).length; })(),
       storyScope: deepClone(storyScope),
-      status: this.status({chatId: requestedChatId}),
+      status: receiptForm === 'REFERENCE'
+        ? {kind: 'LoreIntelligenceStatusReference', revisionKey: typeof this.runtime.referenceRevisionKey === 'function' ? this.runtime.referenceRevisionKey() : null, chatId: requestedChatId == null ? null : String(requestedChatId)}
+        : this.status({chatId: requestedChatId}),
+      ...(receiptForm === 'REFERENCE' ? {receiptForm: 'REFERENCE'} : {}),
     };
     this.lastAcceptance = deepClone(receipt);
     return receipt;

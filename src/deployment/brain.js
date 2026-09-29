@@ -636,8 +636,12 @@ export class DevelopmentDeploymentBrain {
     this.pendingJevAdmission = new Map();
   }
 
-  acceptLorebook(input = {}) {
-    const ownerReceipt = this.loreIntelligence.acceptLorebook(input);
+  // receiptForm 'REFERENCE' (the operator's Accept in the installed session) returns revision-aware references for the
+  // corpus-wide study and status surfaces instead of copies of them, like batched study receipts; detail stays on demand
+  // via readLoreStatus. The default full receipt is unchanged.
+  acceptLorebook(input = {}, { receiptForm = 'FULL' } = {}) {
+    const reference = receiptForm === 'REFERENCE';
+    const ownerReceipt = this.loreIntelligence.acceptLorebook(input, { receiptForm: reference ? 'REFERENCE' : 'FULL' });
     this.loreSystem = this.loreIntelligence.hierarchy;
     const result = {
       kind: 'DeploymentLoreAcceptanceReceipt',
@@ -647,10 +651,11 @@ export class DevelopmentDeploymentBrain {
       lorebookId: ownerReceipt.lorebookId,
       entryCount: ownerReceipt.acceptedEntryCount,
       changedCount: ownerReceipt.changes.filter((row) => row.changed !== false).length,
-      ownerReceipt: clone(ownerReceipt),
-      study: this.lore.publicSurface(),
-      intelligence: this.loreIntelligence.status(),
+      ownerReceipt: reference ? ownerReceipt : clone(ownerReceipt),
+      study: reference ? this.lore.referenceSurface() : this.lore.publicSurface(),
+      intelligence: reference ? { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } : this.loreIntelligence.status(),
       retrieval: this.loreSystem.diagnostics(),
+      ...(reference ? { receiptForm: 'REFERENCE' } : {}),
     };
     this.#emit({ type: 'LORE_ACCEPTED', result });
     return clone(result);

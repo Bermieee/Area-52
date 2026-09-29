@@ -654,3 +654,21 @@ test('Read-only artifact views in the index build, truth hints and ontology give
   assert.ok(readOnly.records.length > 3 && readOnly.hints.some(([, h]) => h?.status === 'UNRESOLVED' || h?.status === 'HISTORICAL'), 'non-trivial corpus with temporal hints');
   assert.equal(JSON.stringify([...store.artifacts.entries()]), storedBefore, 'stored artifacts untouched');
 });
+
+test('activeIdsForSource equals activeForSource ids; acceptance lists exactly each source\'s stale representations', () => {
+  const service = readySelectedService();
+  service.acceptLorebook(worker4LargeCurrentLorebook());
+  service.runStudy({scope: 'DUE'});
+  const reg = service.multiResolution.registry, sources = service.runtime.registry;
+  const ids = [...new Set([...reg.representations.values()].map((row) => row.sourceId))];
+  for (const sourceId of [...ids, 'missing']) assert.deepEqual(reg.activeIdsForSource(sourceId, sources), reg.activeForSource(sourceId, sources).map((row) => row.id));
+  // The old per-result rule, applied to the exact stale ids the acceptance computed, is the expected value (order included).
+  let staleIds = null; const refresh = service.multiResolution.refreshFreshness.bind(service.multiResolution);
+  service.multiResolution.refreshFreshness = (...args) => (staleIds = refresh(...args));
+  const receipt = service.acceptLorebook(worker4SelectedLorebook({state: 'closed'}));
+  assert.ok(staleIds && staleIds.length > 0, 'precondition: the edit made representations stale');
+  for (const change of receipt.changes) {
+    assert.deepEqual(change.invalidatedRepresentationIds, staleIds.filter((id) => reg.get(id)?.sourceId === change.sourceId), change.sourceId);
+  }
+  assert.ok(receipt.changes.some((c) => c.invalidatedRepresentationIds.length > 0));
+});

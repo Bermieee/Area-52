@@ -179,6 +179,19 @@ export class LoreRepresentationRegistry {
     return this._bySource.get(sourceId) || [];
   }
 
+  // The source of a representation (no clone).
+  sourceIdOf(id) { return this.representations.get(id)?.sourceId ?? null; }
+
+  // Same ids, same order as activeForSource(...).map((row) => row.id), without cloning rows.
+  activeIdsForSource(sourceId, sourceRegistry) {
+    const current = this.#rowsForSource(sourceId).filter((row) => row.state === 'CURRENT');
+    const source = current.length ? revisionRef(sourceRegistry, sourceId) : null;
+    return current
+      .filter((row) => source && source.state !== 'REMOVED' && row.sourceRevisionId === source.id)
+      .sort((a, b) => a.profile.localeCompare(b.profile) || (a.capCharacters || 0) - (b.capCharacters || 0))
+      .map((row) => row.id);
+  }
+
   activeForSource(sourceId, sourceRegistry, {metadataOnly = false} = {}) {
     const current = this.#rowsForSource(sourceId).filter((row) => row.state === 'CURRENT');
     // The current source revision is the same for every row: read it once (it is a cloning read), not once per row.

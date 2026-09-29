@@ -21,8 +21,21 @@ await b.runLoreStudyBatched({ scope: 'DUE' });
 const studyMs = performance.now() - t;
 clearInterval(beat);
 gaps.sort((x, y) => y - x);
+// Operator edit: 10 changed entries re-accepted, then the batched study (the installed Run-study path).
+const edited = new Set([5, 77, 300, 301, 450, 600, 777, 900, 1001, 1199].filter((x) => x < N));
+const editedEntries = entries.map((e, i) => edited.has(i) ? { ...e, content: e.content + ' It no longer holds.' } : e);
+let lastE = performance.now(); const editGaps = [];
+const beatE = setInterval(() => { const now = performance.now(); editGaps.push(now - lastE); lastE = now; }, 1);
+t = performance.now();
+// The installed operator Accept (reference receipt), as the UI calls it.
+b.acceptLorebook({ id: 'syn', title: 'syn', chatId, discovery: { kind: 'Audit', stableId: 'syn', exactAuthoredSource: true }, entries: editedEntries }, { receiptForm: 'REFERENCE' });
+const editAcceptMs = performance.now() - t;
+const restudied = await b.runLoreStudyBatched({ scope: 'DUE' });
+const editMs = performance.now() - t;
+clearInterval(beatE); editGaps.sort((x, y) => y - x);
+const editRow = { editAcceptMs: Math.round(editAcceptMs), editTotalMs: Math.round(editMs), editRestudied: restudied?.requested ?? restudied?.results?.length ?? null, editLongestStallsMs: editGaps.slice(0, 5).map(Math.round) };
 const status = svc.status({ chatId, metadataOnly: true });
 console.log(JSON.stringify({ N, acceptMs: Math.round(acceptMs), batchedStudyMs: Math.round(studyMs), ready: status.counts.READY,
-  longestStallsMs: gaps.slice(0, 8).map(Math.round), stallsOver100ms: gaps.filter((g) => g > 100).length, stallsOver50ms: gaps.filter((g) => g > 50).length,
+  longestStallsMs: gaps.slice(0, 8).map(Math.round), ...editRow, stallsOver100ms: gaps.filter((g) => g > 100).length, stallsOver50ms: gaps.filter((g) => g > 50).length,
   chunks: Object.fromEntries([...chunks].map(([k, r]) => [k, { n: r.n, maxMs: Math.round(r.max), totalMs: Math.round(r.total) }])) }, null, 1));
 h.session.destroy();

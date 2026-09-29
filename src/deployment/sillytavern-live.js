@@ -1510,8 +1510,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       // one-shot synchronous call kept for rehearsal and tests.
       const batched=(input)=>this.brain.runLoreStudyBatched(input??{});
       const hostKey=['loreStudyHost','loreOperatorHost','loreHost'].find(key=>merged[key]&&typeof merged[key]?.actions?.runLoreStudy==='function');
-      if(hostKey)merged[hostKey]={...merged[hostKey],actions:{...merged[hostKey].actions,runLoreStudy:batched,startLoreStudy:batched}};
+      // The operator's Accept returns reference surfaces (not copies of the whole corpus status), so re-accepting a large
+      // edited Lorebook is not a multi-second synchronous chunk; the full receipt stays for rehearsal and tests.
+      const accept=typeof this.brain?.acceptLorebook==='function'?(input)=>this.brain.acceptLorebook(input??{},{receiptForm:'REFERENCE'}):null;
+      const acceptActions=accept?{acceptLorebook:accept,submitLorebook:accept}:{};
+      if(hostKey)merged[hostKey]={...merged[hostKey],actions:{...merged[hostKey].actions,...acceptActions,runLoreStudy:batched,startLoreStudy:batched}};
       if(typeof merged.runLoreStudy==='function')merged.runLoreStudy=batched;
+      if(accept&&typeof merged.acceptLorebook==='function')merged.acceptLorebook=accept;
     }
     // Conflict sets the operator sees carry the Jev advisory (if any) that the native path recorded for them: display only, the
     // Lore owner's data and every seal are untouched.

@@ -10,6 +10,7 @@ function compactExternalEvidenceFact(fact){
     id:fact.id,eid:fact.evidenceId,sc:fact.sourceClass,a:fact.a,t:fact.temporalStatus,cf:fact.cf,
     hr:Boolean(fact.hardRule),ar:fact.artifactRef,sr:fact.sourceRevisionRefs,dr:fact.dependencyRevisionRefs,pr:fact.provenanceRefs,
   };
+  if(fact.textCoverage?.complete===false)base.textCoverage=clone(fact.textCoverage);
   return semantic?{...base,s:semantic}:{...base,text:fact.text};
 }
 function compactHotCognitionFact(fact){

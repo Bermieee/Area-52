@@ -7,8 +7,15 @@ const factKey=(claim,section)=>`${section}|${claim.subjectId}|${claim.predicate}
 const hash=(value)=>stableHash(String(value),{length:16,alreadyString:true});
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
 
+function boundedEvidenceText(value,limit=12000){
+  const text=String(value??''),cap=Math.max(1,Number(limit)||12000);
+  if(text.length<=cap)return{text,coverage:{complete:true,policy:'FULL',sourceCharacters:text.length,includedCharacters:text.length,omittedCharacters:0}};
+  const marker='\n…[bounded evidence excerpt; source drillback retained]…\n',usable=Math.max(1,cap-marker.length),head=Math.ceil(usable/2),tail=Math.max(0,usable-head);
+  const bounded=(text.slice(0,head)+marker+text.slice(Math.max(head,text.length-tail))).slice(0,cap);
+  return{text:bounded,coverage:{complete:false,policy:'HEAD_TAIL_WITH_SOURCE_DRILLBACK',sourceCharacters:text.length,includedCharacters:Math.min(text.length,head+tail),omittedCharacters:Math.max(0,text.length-head-tail),headCharacters:head,tailCharacters:tail}};
+}
 function externalRow(evidence){
-  const semantic=evidence.semantic??null;
+  const semantic=evidence.semantic??null,bounded=boundedEvidenceText(evidence.representationText??evidence.extensions?.representationText??'');
   return {
     id:'context-evidence:'+evidence.evidenceId,
     evidenceId:evidence.evidenceId,
@@ -16,7 +23,8 @@ function externalRow(evidence){
     a:evidence.authorityClass,
     temporalStatus:evidence.temporalStatus,
     cf:evidence.confidence,
-    text:String(evidence.representationText??evidence.extensions?.representationText??'').slice(0,12000),
+    text:bounded.text,
+    textCoverage:bounded.coverage,
     semantic:semantic?structuredClone(semantic):null,
     hardRule:Boolean(evidence.hardRule),
     artifactRef:structuredClone(evidence.artifactRef),

@@ -107,7 +107,16 @@ function candidateFusionScore(nominations,intentCount){
   return Number((best*.8+support*.1+coverage*.1).toFixed(6));
 }
 function compatibleOwnerValue(values,fallback){const unique=uniq(values.filter(Boolean));return unique.length===1?unique[0]:fallback;}
-function trimText(text,max){if(text==null)return null;return String(text).slice(0,max);}
+function boundedPresentationText(text,max){
+  if(text==null)return{text:null,coverage:{complete:true,policy:'NONE',sourceCharacters:0,includedCharacters:0,omittedCharacters:0}};
+  const raw=String(text),cap=Math.max(0,Number(max)||0);
+  if(raw.length<=cap)return{text:raw,coverage:{complete:true,policy:'FULL',sourceCharacters:raw.length,includedCharacters:raw.length,omittedCharacters:0}};
+  if(cap===0)return{text:'',coverage:{complete:false,policy:'BOUNDED_TRANSPORT_WITH_SOURCE_DRILLBACK',sourceCharacters:raw.length,includedCharacters:0,omittedCharacters:raw.length,headCharacters:0,tailCharacters:0}};
+  const marker=' … ',usable=Math.max(1,cap-marker.length),head=Math.ceil(usable/2),tail=Math.max(0,usable-head);
+  const bounded=(raw.slice(0,head).trimEnd()+marker+raw.slice(Math.max(head,raw.length-tail)).trimStart()).slice(0,cap);
+  return{text:bounded,coverage:{complete:false,policy:'HEAD_TAIL_BOUNDED_TRANSPORT',sourceCharacters:raw.length,includedCharacters:Math.min(raw.length,head+tail),omittedCharacters:Math.max(0,raw.length-head-tail),headCharacters:head,tailCharacters:tail}};
+}
+function trimText(text,max){return boundedPresentationText(text,max).text;}
 function nominationView(n,lim){return {
   nominationId:n.nominationId,channelId:n.channelId,channelVersion:n.channelVersion,retrievalIntentIds:[...n.retrievalIntentIds],
   artifactRef:clone(n.artifactRef??null),artifactRevision:n.artifactRevision??null,
@@ -182,9 +191,11 @@ export class CandidateBus{
       const artifactRevision=keptRows.map(x=>x.artifactRevision).find(x=>x!=null)??null;
       const representationRef=keptRows.map(x=>x.representationRef).find(Boolean)??null;
       const representationRevision=keptRows.map(x=>x.representationRevision).find(x=>x!=null)??null;
-      const representationText=trimText(keptRows.map(x=>x.representationText).find(Boolean)??null,this.limits.maxRepresentationChars);
+      const representationSource=keptRows.map(x=>x.representationText).find(Boolean)??null;
+      const boundedRepresentation=boundedPresentationText(representationSource,this.limits.maxRepresentationChars),representationText=boundedRepresentation.text;
       const baseMetadata=boundedMetadata(keptRows,this.limits.maxMetadataBytesPerCandidate);
       const metadataOut={...baseMetadata};
+      if(boundedRepresentation.coverage.complete===false)metadataOut.representationCoverage={...boundedRepresentation.coverage,sourceDrillbackAvailable:Boolean(representationRef||artifactRef||(keptRows.flatMap(x=>x.sourceRevisionRefs??[]).length))};
       if(authorityConflict)metadataOut.authorityMetadataConflict=uniq(keptRows.map(x=>x.authorityClass));
       if(truthConflict)metadataOut.truthStatusMetadataConflict=uniq(keptRows.map(x=>x.truthStatusHint));
       const nominatedCandidateId=compatibleOwnerValue(keptRows.map(x=>x.candidateId).filter(Boolean),null);

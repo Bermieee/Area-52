@@ -1,15 +1,31 @@
 const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values,limit=32)=>[...new Set((values??[]).filter(Boolean).map(String))].slice(0,limit);
-const clean=(value,limit=320)=>String(value??'').trim().replace(/\s+/g,' ').slice(0,limit);
+const normalizeText=(value)=>String(value??'').trim().replace(/\s+/g,' ');
+function boundedQuery(value,limit=320){
+  const text=normalizeText(value),cap=Math.max(1,Number(limit)||320);
+  if(text.length<=cap)return{text,coverage:{complete:true,policy:'FULL',sourceCharacters:text.length,includedCharacters:text.length,omittedCharacters:0}};
+  const marker=' … ';
+  const usable=Math.max(1,cap-marker.length),head=Math.ceil(usable/2),tail=Math.max(0,usable-head);
+  const bounded=text.slice(0,head).trimEnd()+marker+text.slice(Math.max(head,text.length-tail)).trimStart();
+  return{text:bounded.slice(0,cap),coverage:{complete:false,policy:'HEAD_TAIL_DERIVED_QUERY',sourceCharacters:text.length,includedCharacters:Math.min(text.length,head+tail),omittedCharacters:Math.max(0,text.length-head-tail),headCharacters:head,tailCharacters:tail}};
+}
+function boundedRefs(values,limit=32){
+  const all=[...new Set((values??[]).filter(Boolean).map(String))],kept=all.slice(0,limit);
+  return{values:kept,coverage:{complete:kept.length===all.length,total:all.length,included:kept.length,boundedOut:Math.max(0,all.length-kept.length),policy:'STABLE_RANKED_BOUND'}};
+}
+const clean=(value,limit=320)=>boundedQuery(value,limit).text;
 const field=(scene,name)=>scene?.fields?.[name]?.value??null;
 
 function refOf(value,...keys){if(typeof value==='string')return value;for(const key of keys){if(value?.[key])return String(value[key]);}return null;}
 function intent({scene,index,intentKind,query,entityRefs=[],locationRefs=[],relationshipRefs=[],objectRefs=[],threadRefs=[],perspective='SCENE'}){
+  const bounded=boundedQuery(query),entities=boundedRefs(entityRefs),locations=boundedRefs(locationRefs),relationships=boundedRefs(relationshipRefs),objects=boundedRefs(objectRefs),threads=boundedRefs(threadRefs);
+  const sources=boundedRefs(scene.sourceRevisionRefs??[],64),provenance=boundedRefs(scene.provenance??[],64);
   return Object.freeze({
     kind:'SceneRetrievalIntent',contractVersion:'1.0.0',intentId:`scene-intent:${scene.sceneId}:${scene.revision}:${index}:${intentKind}`,
-    intentKind,query:clean(query),sceneId:scene.sceneId,sceneRevision:scene.revision,
-    entityRefs:uniq(entityRefs),locationRefs:uniq(locationRefs),relationshipRefs:uniq(relationshipRefs),objectRefs:uniq(objectRefs),threadRefs:uniq(threadRefs),
-    sourceRevisionRefs:uniq(scene.sourceRevisionRefs??[],64),provenanceRefs:uniq(scene.provenance??[],64),perspective,
+    intentKind,query:bounded.text,queryCoverage:bounded.coverage,sceneId:scene.sceneId,sceneRevision:scene.revision,
+    entityRefs:entities.values,locationRefs:locations.values,relationshipRefs:relationships.values,objectRefs:objects.values,threadRefs:threads.values,
+    sourceRevisionRefs:sources.values,provenanceRefs:provenance.values,perspective,
+    referenceCoverage:{entityRefs:entities.coverage,locationRefs:locations.coverage,relationshipRefs:relationships.coverage,objectRefs:objects.coverage,threadRefs:threads.coverage,sourceRevisionRefs:sources.coverage,provenanceRefs:provenance.coverage},
     graphTraversal:{maxDepth:3,maxNodes:64,maxEdges:128,maxCandidates:32},
     authority:'RETRIEVAL_INTENT_ONLY',runtimeSchedulingAuthority:false,finalAdmissionAuthority:false,truthAuthority:false,contextSealAuthority:false,
   });

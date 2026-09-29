@@ -816,12 +816,62 @@ export class MemorySummaryHierarchy {
     return (this.historyByScope.get(ref)??[]).map((id)=>deepClone(this.artifacts.get(id))).filter(Boolean);
   }
 
-  exactDrillback(artifactOrId,{offset=0,limit=MEMORY_LIMITS.maxSummaryDrillbackRows}={}) {
+  exactDrillbackPage(artifactOrId,{offset=0,limit=MEMORY_LIMITS.maxSummaryDrillbackRows}={}) {
     const artifact=typeof artifactOrId==='string'?this.artifacts.get(artifactOrId):artifactOrId;
-    if (!artifact||artifact.kind!=='MemoryHierarchicalSummary') return [];
+    if (!artifact||artifact.kind!=='MemoryHierarchicalSummary') return {
+      kind:'MemorySummaryDrillbackPage',rows:[],offset:0,limit:0,processed:0,remaining:0,
+      coverageComplete:true,continuationAvailable:false,nextOffset:null,reasonCode:'SUMMARY_ARTIFACT_UNAVAILABLE',
+    };
     const start=Math.max(0,Number(offset)||0);
     const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxSummaryDrillbackRows,Number(limit)||MEMORY_LIMITS.maxSummaryDrillbackRows));
-    return artifact.exactEvidenceRefs.slice(start,start+cap).map((id)=>this.graph.exactEvidence(id)).filter(Boolean);
+    const total=Number(artifact.evidenceManifest?.exactEvidenceCount??artifact.sourceRange?.evidenceCount??artifact.exactEvidenceRefs?.length??0);
+    let remainingOffset=start;
+    let takenIds=0;
+    const rows=[];
+    const seen=new Set();
+    const visit=(row)=>{
+      if(!row||seen.has(row.id)||takenIds>=cap)return;
+      seen.add(row.id);
+      const direct=row.evidenceManifest?.directEvidenceRefs??row.exactEvidenceRefs??[];
+      for(const id of direct){
+        if(remainingOffset>0){remainingOffset-=1;continue;}
+        if(takenIds>=cap)return;
+        const exact=this.graph.exactEvidence(id);
+        if(exact)rows.push(exact);
+        takenIds+=1;
+      }
+      const children=row.evidenceManifest?.childArtifactRefs??row.childArtifactRefs??[];
+      for(const childRef of children){
+        if(takenIds>=cap)return;
+        const child=this.artifacts.get(childRef.artifactId);
+        if(!child)continue;
+        const childCount=Number(childRef.exactEvidenceCount??child.evidenceManifest?.exactEvidenceCount??child.sourceRange?.evidenceCount??child.exactEvidenceRefs?.length??0);
+        if(remainingOffset>=childCount){remainingOffset-=childCount;continue;}
+        visit(child);
+      }
+    };
+    if(start<total)visit(artifact);
+    const nextOffset=start+takenIds;
+    const remaining=Math.max(0,total-nextOffset);
+    return {
+      kind:'MemorySummaryDrillbackPage',
+      rows,
+      offset:start,
+      limit:cap,
+      processed:takenIds,
+      remaining,
+      coverageComplete:remaining===0,
+      continuationAvailable:remaining>0,
+      nextOffset:remaining>0?nextOffset:null,
+      exactEvidenceCount:total,
+      hierarchical:Boolean((artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[]).length),
+      canonicalKnowledgeDropped:false,
+      reasonCode:remaining>0?'SUMMARY_DRILLBACK_PAGE_BOUND':null,
+    };
+  }
+
+  exactDrillback(artifactOrId,options={}) {
+    return this.exactDrillbackPage(artifactOrId,options).rows;
   }
 
   markScopeConeStale(ref,reason,{includeDescendants=false}={}) {

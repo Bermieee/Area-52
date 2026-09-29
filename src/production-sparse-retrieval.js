@@ -30,12 +30,16 @@ function normalize(value){
     .trim()
     .replace(/\s+/g,' ');
 }
-function tokens(value){
-  return normalize(value).split(/\s+/).filter(Boolean).slice(0,512);
+// Cap ledger row 27: an indexed entry keeps all its tokens (only its first 512 were counted, so the tail of a long entry
+// could not match). A query stays bounded per call (QUERY_TOKEN_LIMIT).
+const QUERY_TOKEN_LIMIT=512;
+function tokens(value,limit=Infinity){
+  const all=normalize(value).split(/\s+/).filter(Boolean);
+  return Number.isFinite(limit)?all.slice(0,limit):all;
 }
-function counts(value){
+function counts(value,limit=Infinity){
   const out={};
-  for(const token of tokens(value))out[token]=(out[token]??0)+1;
+  for(const token of tokens(value,limit))out[token]=(out[token]??0)+1;
   return out;
 }
 function strings(value){
@@ -146,7 +150,7 @@ class ProductionSparseRepresentationProvider{
   }
   representQuery(text,indexFamily){
     if(indexFamily!==RetrievalIndexFamily.SPARSE)throw new TypeError('ProductionSparseRepresentationProvider supports SPARSE only');
-    const normalized=normalize(text),termCounts=counts(normalized);
+    const normalized=normalize(text),termCounts=counts(normalized,QUERY_TOKEN_LIMIT);
     return{query:String(text??''),normalized,terms:Object.keys(termCounts).sort()};
   }
 }
@@ -244,12 +248,17 @@ export class ProductionSparseRetrievalChannel{
     const exactStatusMatch=(row)=>queryText&&[
       row?.sourceId,row?.uid,row?.title,row?.name,
     ].some((value)=>value!=null&&containsQualified(queryText,value));
+    // Cap ledger row 26: the sparse index is a bounded working set (CACHE), not the available Lore. Entries are chosen by
+    // relevance to this query (exact name first, then how many query terms their title/name carries), not alphabetically;
+    // the receipt says when the set is bounded. The owner Lore channel still reads every authorized entry.
+    const queryTerms=new Set(tokens(queryText,QUERY_TOKEN_LIMIT));
+    const titles=status?.titles??{};
+    const titleOverlap=(row)=>{if(!queryTerms.size)return 0;const t=new Set(tokens([row?.title??titles[row?.sourceId],row?.name,row?.uid].filter((v)=>v!=null).join(' ')));let n=0;for(const term of t)if(queryTerms.has(term))n+=1;return n;};
     const eligible=(status?.entries??[])
       .filter((row)=>row?.eligibleForStoryRetrieval===true&&row?.sourceState!=='REMOVED'&&row?.freshness==='CURRENT'&&row?.retrievalReady!==false)
-      .sort((a,b)=>{
-        const pa=exactStatusMatch(a)?0:1,pb=exactStatusMatch(b)?0:1;
-        return pa-pb||String(a.sourceId).localeCompare(String(b.sourceId));
-      });
+      .map((row)=>({row,exact:exactStatusMatch(row)?0:1,overlap:titleOverlap(row)}))
+      .sort((a,b)=>a.exact-b.exact||b.overlap-a.overlap||String(a.row.sourceId).localeCompare(String(b.row.sourceId)))
+      .map((x)=>x.row);
     const selected=eligible.slice(0,this.maxArtifacts);
     const queryPrioritizedCount=selected.filter(exactStatusMatch).length;
     const active=new Set(),failures=[],indexedArtifacts=[];
@@ -274,6 +283,9 @@ export class ProductionSparseRetrievalChannel{
       indexedCount,
       activeCount:active.size,
       boundedOutCount:Math.max(0,eligible.length-selected.length),
+      workingSetBounded:eligible.length>selected.length,
+      coverageComplete:eligible.length<=selected.length,
+      canonicalFallback:'OWNER_LORE',
       queryPrioritizedCount,
       compacted:Boolean(compaction),
       compaction:clone(compaction),

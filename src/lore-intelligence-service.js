@@ -511,7 +511,10 @@ export class LoreIntelligenceService {
         eligibleForStoryRetrieval: storyRetrievalEligible(entry, retrievalReady, storyScope, acceptedLorebookIds, readLorebookIds),
       };
     });
-    return {kind: 'LoreRetrievalEligibility', contractVersion: 1, chatId: chatId == null ? null : String(chatId), entries};
+    // Titles (outside the entry rows, which mirror status()) let the sparse working set be chosen by relevance to the
+    // query (cap ledger row 26).
+    const titles = Object.fromEntries(entries.map((row) => [row.sourceId, this.runtime.registry.currentRevision(row.sourceId, {allowMissing: true})?.metadata?.title ?? null]));
+    return {kind: 'LoreRetrievalEligibility', contractVersion: 1, chatId: chatId == null ? null : String(chatId), entries, titles};
   }
 
   status({chatId = null, metadataOnly = false} = {}) {

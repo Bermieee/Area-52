@@ -627,14 +627,6 @@ export class MemorySummaryHierarchy {
     const history=this.historyByScope.get(ref)??[];
     const revision=history.length+1;
     const artifactId='memory-summary:'+stableHash(ref+'|'+revision+'|'+fingerprint+'|'+stableHash(compiled.text));
-    if (current&&current.state==='CURRENT') {
-      const prior=this.artifacts.get(current.id);
-      if (prior) {
-        prior.state='HISTORICAL';
-        prior.freshness='STALE';
-        prior.replacedByArtifactId=artifactId;
-      }
-    }
     const knowledgeSets=[
       ...rows.map((row)=>row.knownBy??[]),
       ...childArtifacts.map((row)=>row.knowledgeFence?.fullyKnownBy??[]),
@@ -751,6 +743,14 @@ export class MemorySummaryHierarchy {
       replacedByArtifactId:null,
       reused:false,
     };
+    if (current&&current.state==='CURRENT') {
+      const prior=this.artifacts.get(current.id);
+      if (prior) {
+        prior.state='HISTORICAL';
+        prior.freshness='STALE';
+        prior.replacedByArtifactId=artifactId;
+      }
+    }
     this.artifacts.set(artifact.id,artifact);
     this.historyByScope.set(ref,[...history,artifact.id]);
     this.currentByScope.set(ref,artifact.id);

@@ -128,3 +128,33 @@ test('historian reports one oversized top artifact honestly without losing its i
   assert.equal(bounded.boundedOut[0].artifactRef.artifactId,complete.artifacts[0].artifactRef.artifactId);
   assert.equal(bounded.canonicalKnowledgeDropped,false);
 });
+
+test('historian candidate transport remains bounded when the owner record uses segmented-scale refs',()=>{
+  const graph={revisionRef:()=> 'graph:r1',exactEvidence:()=>null};
+  const experienceStore={memoryRevisionRefs:()=>['memory:r1']};
+  const historian=new MemoryHistorianIndex({graph,experienceStore});
+  const sourceRevisionRefs=Array.from({length:65},(_,i)=>'source:overflow:'+i+'@1');
+  const evidenceRefs=Array.from({length:129},(_,i)=>'evidence:overflow:'+i);
+  historian.addRecord({
+    kind:'MemoryHistorianRecord',id:'historian:overflow',artifactId:'episode:overflow',artifactRevision:1,
+    artifactType:'SCENE_EPISODE',channel:'SCENE_EPISODE',representationText:'overflowmanifest evidence',
+    tokens:['overflowmanifest','evidence'],sourceRevisionRefs,evidenceRefs,claimRefs:[],relationshipRefs:[],eventRefs:[],
+    entityRefs:[],participants:[],knownBy:[],timeBounds:{start:null,end:null},authorityClass:'OBSERVED',
+    truthStatusHint:'HISTORICAL',significance:.8,sequence:1,sceneRevision:1,worldRevision:1,provenance:[{ref:'overflow'}],
+    dependencyRevisions:[...sourceRevisionRefs,'episode:overflow'],freshness:'FRESH',exactDrillbackRefs:[...evidenceRefs],
+  });
+  historian.revision='memory-historian:overflow';
+  const result=historian.query({query:'overflowmanifest',perspectiveConstraint:{scope:PerspectiveScope.WORLD},maxCandidates:4});
+  assert.equal(result.nominations.length,1);
+  const nomination=result.nominations[0];
+  assert.equal(nomination.sourceRevisionRefs.length,64);
+  assert.equal(nomination.evidenceRefs.length,64);
+  assert.equal(nomination.dependencyRevisions.length,64);
+  assert.equal(nomination.metadata.sourceRevisionRefCount,65);
+  assert.equal(nomination.metadata.sourceRevisionRefsComplete,false);
+  assert.equal(nomination.metadata.evidenceRefCount,129);
+  assert.equal(nomination.metadata.evidenceRefsComplete,false);
+  assert.equal(nomination.metadata.transportReferencesBounded,true);
+  assert.equal(nomination.metadata.exactSourceDrillback,true);
+  assert.equal(nomination.metadata.canonicalKnowledgeDropped,false);
+});

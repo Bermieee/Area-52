@@ -23,6 +23,38 @@ function freshBySources(graph,sourceRevisionRefs) {
   return sourceRevisionRefs.every((id)=>graph.isSourceRevisionActive(id));
 }
 
+function segmentedStringRefs(values,limit,field) {
+  const all=uniqStrings(values,Infinity);
+  const segments=[];
+  for(let offset=0;offset<all.length;offset+=limit)segments.push(all.slice(offset,offset+limit));
+  return {
+    head:segments[0]??[],
+    all,
+    manifest:all.length>limit?{
+      kind:'MemoryReferenceManifest',
+      contractVersion:'1.0.0',
+      field,
+      segmentSize:limit,
+      total:all.length,
+      segments,
+      coverageComplete:true,
+      continuationAvailable:segments.length>1,
+      continuationSegments:Math.max(0,segments.length-1),
+      canonicalKnowledgeDropped:false,
+    }:null,
+  };
+}
+
+export function memoryReferenceValues(artifact,field) {
+  const manifest=artifact?.referenceManifests?.[field];
+  if(manifest?.kind==='MemoryReferenceManifest'&&Array.isArray(manifest.segments))return manifest.segments.flat().map(String);
+  return [...(artifact?.[field]??[])].map(String);
+}
+
+function manifestMap(rows) {
+  return Object.fromEntries(rows.filter(([,row])=>row?.manifest).map(([field,row])=>[field,deepClone(row.manifest)]));
+}
+
 export class MemoryExperienceStore {
   constructor({graph,snapshot=null}={}) {
     if (!graph) throw new TypeError('MemoryExperienceStore requires TemporalStateGraph');

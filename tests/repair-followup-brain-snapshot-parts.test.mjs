@@ -28,3 +28,22 @@ test('a missing chunk yields null (no torn Brain)', async () => {
   assert.equal(unpackBrainSnapshot({}), null);
   h.session.destroy();
 });
+
+test('storage dedupe is lossless: exact round trip, unchanged packet, smaller parts, independent copies (O8)', async () => {
+  const h = makeInstalled({ chatId: 'chat:parts3' });
+  for (let i = 1; i <= 6; i += 1) { h.user('At North Gallery, Mara waits near marker ' + i + '.'); await h.generate('normal', 'She waits ' + i + '.'); }
+  const snapshot = JSON.parse(JSON.stringify(h.nativeBrain.snapshot()));
+  const parts = JSON.parse(JSON.stringify(packBrainSnapshot(snapshot)));
+  const stored = Object.entries(parts).filter(([k]) => k.startsWith('brain.turns:')).reduce((n, [, v]) => n + JSON.stringify(v).length, 0);
+  const original = snapshot.turns.reduce((n, t) => n + JSON.stringify(t).length, 0);
+  assert.ok(stored < original * 0.75, `stored ${stored} of ${original} bytes`);
+  assert.ok(Object.values(parts).some((p) => p?.kind === 'Area52DedupedTurnRows' && Object.keys(p.blobs).length > 0), 'shared blobs used');
+  const round = unpackBrainSnapshot(JSON.parse(JSON.stringify(parts)));
+  assert.deepEqual(round, snapshot);
+  const pub = (x) => JSON.stringify(x.turns.map(([, r]) => r.published ?? null));
+  assert.equal(pub(round), pub(snapshot), 'published packets are byte-identical');
+  const key = Object.keys(parts).filter((k) => k.startsWith('brain.turns:')).find((k) => parts[k]?.kind === 'Area52DedupedTurnRows' && Object.keys(parts[k].blobs).length);
+  delete parts[key].blobs[Object.keys(parts[key].blobs)[0]];
+  assert.equal(unpackBrainSnapshot(parts), null);
+  h.session.destroy();
+});

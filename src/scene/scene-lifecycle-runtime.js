@@ -13,6 +13,7 @@ import { ClapperboardTransitionManager } from './transition-manager.js';
 import { SceneContextInvalidationPublisher } from './context-invalidation.js';
 import { buildSceneIntegrationSignal, buildSceneUiReadModel, fanOutSceneInput } from './scene-integration-view.js';
 import { AtmosphereTracker } from './atmosphere.js';
+import { exportSceneLifecycleState, importSceneLifecycleState } from './lifecycle-state.js';
 
 const clone=(v)=>structuredClone(v);
 const relationForBoundary=(type)=>type===BoundaryType.FLASHBACK?SceneRelationship.FLASHBACK_OF:type===BoundaryType.PARALLEL?SceneRelationship.PARALLEL_TO:SceneRelationship.CONTINUES;
@@ -25,6 +26,31 @@ export class SceneLifecycleRuntime{
     this.transitionManager=new ClapperboardTransitionManager({registry,stack,episodeCompiler,graph,publisher,prefetchTrigger,sceneRuntime:this.sceneRuntime,contextInvalidationPublisher});
     this.retrieval=new SceneRetrievalAdapter({episodeProvider:()=>episodeCompiler.list(),graph});
     this.chatScenes=new Map();this.chatSceneSeq=new Map();
+  }
+
+  // Owner state for durable restore. Restoration goes through the owner's own importState functions (registry,
+  // stack, feed, transitions ... each validates its own invariants); the atmosphere tracker is derived and restarts.
+  exportState(){
+    return clone({
+      kind:'SceneLifecycleRuntimeState',version:1,
+      lifecycle:exportSceneLifecycleState({registry:this.registry,stack:this.stack,episodeCompiler:this.episodeCompiler,graph:this.graph,prefetchTrigger:this.prefetchTrigger,narrativeFeed:this.narrativeFeed,transitionManager:this.transitionManager,contextInvalidationPublisher:this.contextInvalidationPublisher}),
+      chatScenes:[...this.chatScenes.entries()],chatSceneSeq:[...this.chatSceneSeq.entries()],
+    });
+  }
+
+  // Cheap change key: any scene, feed or transition mutation moves at least one of these counters.
+  stateRevisionKey(){
+    return ['scene-owner',this.registry.sequence,this.narrativeFeed.sequence,this.transitionManager.sequence,this.prefetchTrigger.seq,this.chatScenes.size].join(':');
+  }
+
+  static fromState(state,options={}){
+    if(state?.kind!=='SceneLifecycleRuntimeState'||state.version!==1)throw new TypeError('unsupported SceneLifecycleRuntimeState');
+    const parts=importSceneLifecycleState(state.lifecycle);
+    const {transitionState,...components}=parts;
+    const runtime=new SceneLifecycleRuntime({...components,...options});
+    if(transitionState){runtime.transitionManager.sequence=transitionState.sequence??0;runtime.transitionManager.transitions=new Map(transitionState.transitions??[]);runtime.transitionManager.handoffs=new Map(transitionState.handoffs??[]);}
+    runtime.chatScenes=new Map(clone(state.chatScenes??[]));runtime.chatSceneSeq=new Map(clone(state.chatSceneSeq??[]));
+    return runtime;
   }
 
   ensureChatScene(chatId,{sourceRevisionRefs=[],evidenceRefs=[]}={}){

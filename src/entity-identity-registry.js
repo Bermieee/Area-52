@@ -278,6 +278,17 @@ export class NativeEntityIdentityRegistry{
     };
   }
 
+  // Source revision refs asserted by identities an owner registered (metadata.ownerAuthority) and visible to the story.
+  // Lets a restored session know which owner revisions its identities still depend on.
+  ownerRevisionRefs(ownerAuthority,{storyId=null}={}){
+    const refs=new Set();
+    for(const entity of this.entities.values()){
+      if(!this.#visible(entity,storyId)||entity.metadata?.ownerAuthority!==ownerAuthority)continue;
+      for(const ref of entity.sourceRevisionRefs??[])refs.add(String(ref));
+    }
+    return refs;
+  }
+
   get(entityId,{storyId=null}={}){const row=this.entities.get(String(entityId));return row&&this.#visible(row,storyId)?clone(row):null;}
   proposal(proposalId){const row=this.proposals.get(String(proposalId));return row?clone(row):null;}
 

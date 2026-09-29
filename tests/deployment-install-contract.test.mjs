@@ -20,7 +20,7 @@ test('live adapter never imports the deterministic golden lore fixture', () => {
 
 test('installed entry auto-starts the SillyTavern turn bridge instead of requiring a hidden manual arm step', () => {
   const source = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-  const createAt = source.indexOf('session = createDevelopmentDeploymentSillyTavernSession');
+  const createAt = source.indexOf('session = await createInstalledDevelopmentDeploymentSession');
   const startAt = source.indexOf('session.start();', createAt);
   const renderAt = source.indexOf('renderEvidence(root, session.exportEvidence())', createAt);
   assert.ok(createAt >= 0);

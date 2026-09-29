@@ -622,6 +622,9 @@ export class Area52NativeBrain{
     if(typeof iface?.entityIdentities!=='function')return null;
     this.loreIdentitySync??={keys:new Map(),refs:new Map(),last:null};
     const state=this.loreIdentitySync;
+    // After a restore the in-memory ref table is empty: seed it from the identities the restored registry holds, so
+    // revisions Lore no longer publishes are invalidated (not silently kept).
+    if(!state.refs.has(chatId))state.refs.set(chatId,this.core.entities.ownerRevisionRefs('LORE_ONTOLOGY',{storyId:chatId}));
     let surface;
     try{surface=iface.entityIdentities({chatId,knownRevisionKey:state.keys.get(chatId)??null});}
     catch(error){state.last={kind:'NativeLoreIdentitySyncReceipt',chatId,status:'FAILED',reason:String(error?.message??error).slice(0,200)};return state.last;}

@@ -364,7 +364,7 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, memoryOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, memoryOwnerSnapshot = null, sceneOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
     if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
@@ -396,10 +396,22 @@ export class DevelopmentDeploymentBrain {
       if (this.sceneOwnerTimeline.length > 256) this.sceneOwnerTimeline.splice(0, this.sceneOwnerTimeline.length - 256);
     };
     const sceneTimelineEventSink=sceneTimelineSink('EVENT');
-    this.scene = new SceneLifecycleRuntime({
+    const sceneOwnerOptions = {
       publisher: new SceneEventPublisher({ sink: sceneTimelineEventSink }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
-    });
+    };
+    // A persisted Scene owner state is restored through the owner's own import path (each component validates its
+    // invariants); an unusable snapshot starts a fresh Scene owner and is reported, never half-applied.
+    this.sceneRestoreReceipt = { kind: 'SceneOwnerRestoreReceipt', status: 'NOT_REQUESTED', reason: null };
+    if (sceneOwnerSnapshot) {
+      try {
+        this.scene = SceneLifecycleRuntime.fromState(sceneOwnerSnapshot, sceneOwnerOptions);
+        this.sceneRestoreReceipt = { kind: 'SceneOwnerRestoreReceipt', status: 'RESTORED', reason: null, chats: this.scene.chatScenes.size };
+      } catch (error) {
+        this.scene = new SceneLifecycleRuntime(sceneOwnerOptions);
+        this.sceneRestoreReceipt = { kind: 'SceneOwnerRestoreReceipt', status: 'REJECTED_FRESH_START', reason: String(error?.message ?? error).slice(0, 200) };
+      }
+    } else this.scene = new SceneLifecycleRuntime(sceneOwnerOptions);
     const coreRevisionCurrent=this.core.publication.resultBus.isSourceRevisionCurrent.bind(this.core.publication.resultBus);
     this.core.publication.resultBus.isSourceRevisionCurrent=(revisionId)=>{
       const id=String(revisionId),chatId=String(this.core.hotCognition?.activeChatNamespace??'');
@@ -801,6 +813,14 @@ export class DevelopmentDeploymentBrain {
 
   snapshotMemoryOwner() {
     return this.memory.snapshot();
+  }
+
+  snapshotSceneOwner() {
+    return this.scene.exportState();
+  }
+
+  sceneOwnerRevisionKey() {
+    return this.scene.stateRevisionKey();
   }
 
   // Cheap change key for the Lore owner: lets a host persist the (large) Lore snapshot only when Lore
@@ -3100,6 +3120,8 @@ export class DevelopmentDeploymentBrain {
       snapshotLoreOwner: () => this.snapshotLoreOwner(),
       snapshotMemoryOwner: () => this.snapshotMemoryOwner(),
       loreOwnerRevisionKey: () => this.loreOwnerRevisionKey(),
+      snapshotSceneOwner: () => this.snapshotSceneOwner(),
+      sceneOwnerRevisionKey: () => this.sceneOwnerRevisionKey(),
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),

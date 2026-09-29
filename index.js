@@ -1,4 +1,4 @@
-import { createDevelopmentDeploymentSillyTavernSession } from './src/deployment/sillytavern-live.js';
+import { createInstalledDevelopmentDeploymentSession } from './src/deployment/installed-session.js';
 import { Area52NativeBrain } from './src/native-brain.js';
 
 const ROOT_ID = 'area52-development-deployment-controls';
@@ -78,12 +78,18 @@ export async function init() {
   const root = null;
 
   try {
-    session = createDevelopmentDeploymentSillyTavernSession({
+    // Installed durable storage (IndexedDB, else localStorage; none when neither exists) restores owners and the
+    // open story's Brain before the session starts. A host that supplies its own owners keeps full control:
+    // `Area52NativeBrainOwner` bypasses Brain restore, and the Area52*Snapshot globals win over stored owner state.
+    session = await createInstalledDevelopmentDeploymentSession({
       // Diagnostics reads evidence on demand; the retired demo has no listener.
-      nativeBrain: globalThis.Area52NativeBrainOwner ?? new Area52NativeBrain(),
+      sillyTavern: globalThis.SillyTavern ?? null,
+      mountUi: globalThis.Area52HeadlessHost !== true, // headless hosts (tests, diagnostics runners) skip the DOM mount
+      nativeBrain: globalThis.Area52NativeBrainOwner ?? null,
       ownerBindings: globalThis.Area52OwnerBindings ?? {},
       memoryOwnerSnapshot: globalThis.Area52MemoryOwnerSnapshot ?? null,
       loreOwnerSnapshot: globalThis.Area52LoreOwnerSnapshot ?? null,
+      sceneOwnerSnapshot: globalThis.Area52SceneOwnerSnapshot ?? null,
       persistNativeBrain: typeof globalThis.Area52PersistNativeBrain==='function'?globalThis.Area52PersistNativeBrain:null,
     });
     // Keep the installed live turn bridge active; only the standalone

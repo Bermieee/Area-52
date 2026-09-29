@@ -650,15 +650,24 @@ export class DevelopmentDeploymentSillyTavernSession {
     ownerBindings = {},
     memoryOwnerSnapshot = null,
     loreOwnerSnapshot = null,
+    sceneOwnerSnapshot = null,
     persistNativeBrain = null,
+    storage = null,
+    hostState = null,
+    restoreReceipt = null,
     detailedGenerationProfiling = false,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
-    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot, loreOwnerSnapshot });
+    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot, loreOwnerSnapshot, sceneOwnerSnapshot });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
     this.persistNativeBrain=typeof persistNativeBrain==='function'?persistNativeBrain:null;
+    // Installed durable storage: one Brain per story (chat), owners stored once. `storyBrains` keeps live brains so a
+    // chat switch inside a session does not reload; `nativeBrainStoryId` says which story the attached brain serves.
+    this.storage=storage&&typeof storage.saveStory==='function'?storage:null;
+    this.storageRestore=restoreReceipt?clone(restoreReceipt):{kind:'InstalledStorageRestoreReceipt',status:this.storage?'NOT_ATTEMPTED':'NO_STORAGE'};
+    this.nativeBrainStoryId=null;this.storyBrains=new Map();this.storyBrainReady=Promise.resolve();
     this.nativePersistence=[];
     this.nativePending = new Map();
     this.nativePayloads = new Map();
@@ -682,6 +691,11 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.lastPersistedLoreOwnerKey = null;
     this.hostRevisionReconciliations = [];
     this.sceneHostMessageState = new Map();
+    // Host bookkeeping that lets a restored session keep retiring what deleted/edited messages taught it.
+    if (hostState?.kind === 'InstalledHostState') {
+      for (const [key, row] of hostState.hostAssistantTurns ?? []) this.hostAssistantTurns.set(key, clone(row));
+      for (const [key, row] of hostState.sceneHostMessageState ?? []) this.sceneHostMessageState.set(key, clone(row));
+    }
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -843,6 +857,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       pushBounded(this.nativeRejections,{at:Date.now(),code:'HOST_GENERATION_TYPE_EXCLUDED',generationType:type},100);
       return null;
     }
+    await this.storyBrainReady;
+    try{await this.#ensureStoryBrain(clean(this.getContext()?.chatId));}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'STORY_BRAIN_SWITCH'},SESSION_BOUNDS.errors);}
     const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
     const context=this.getContext(),message=latestUserMessage(context),chatId=clean(context.chatId);
     if(!message)throw new Error('No current SillyTavern user message is available for native Brain preparation');
@@ -1306,7 +1322,7 @@ export class DevelopmentDeploymentSillyTavernSession {
             recoveredAfterLastFailure:Boolean(last&&this.nativeHistory.some(row=>row.state==='RESPONSE_COMPLETED'&&Number(row.completedAt??0)>Number(last.at??0)))};
         })(),
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
-        persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
+        persistence:{configured:Boolean(this.persistNativeBrain||this.storage),storage:this.storage?{...this.storage.diagnostics(),restore:clone(this.storageRestore),storyBrainId:this.nativeBrainStoryId,liveStories:this.storyBrains.size}:null,last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
         learnedByChat:clone(nativeLearnedByChat),responseCompletedByChat:clone(nativeResponseCompletedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndResponseObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndLearningAccepted:nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         sceneFanOut:{
@@ -1348,7 +1364,7 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   async #persistNativeBrainCheckpoint({chatId,turnId,generationId}={}){
-    if(!this.persistNativeBrain||typeof this.nativeBrain?.snapshot!=='function'){
+    if((!this.persistNativeBrain&&!this.storage)||typeof this.nativeBrain?.snapshot!=='function'){
       const row={at:Date.now(),chatId,turnId,generationId,status:'NOT_CONFIGURED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }
     try{
@@ -1361,9 +1377,18 @@ export class DevelopmentDeploymentSillyTavernSession {
       const snapshotLoreOwner=brainBindings?.snapshotLoreOwner??(typeof this.brain?.snapshotLoreOwner==='function'?()=>this.brain.snapshotLoreOwner():null);
       const loreChanged=Boolean(snapshotLoreOwner)&&loreOwnerRevisionKey!==this.lastPersistedLoreOwnerKey;
       const loreOwnerSnapshot=loreChanged?snapshotLoreOwner():undefined;
-      await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot,loreOwnerRevisionKey,...(loreChanged?{loreOwnerSnapshot}:{})});
+      if(this.persistNativeBrain)await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot,loreOwnerRevisionKey,...(loreChanged?{loreOwnerSnapshot}:{})});
+      let storageRow=null;
+      if(this.storage){
+        // One story per key, owners once. A failed owner write after a successful story write is reported and
+        // retried at the next checkpoint (the Lore key is only advanced on success).
+        const story=await this.storage.saveStory(chatId,{brain:snapshot,host:this.#hostStateFor(chatId)});
+        const snapshotSceneOwner=brainBindings?.snapshotSceneOwner??(typeof this.brain?.snapshotSceneOwner==='function'?()=>this.brain.snapshotSceneOwner():null);
+        const owners=await this.storage.saveOwners({memory:memoryOwnerSnapshot??undefined,scene:typeof snapshotSceneOwner==='function'?snapshotSceneOwner():undefined,...(loreChanged?{lore:loreOwnerSnapshot}:{})});
+        storageRow={storyGeneration:story.generation,ownersGeneration:owners.generation,storyBytes:story.bytes,ownersBytes:owners.bytes};
+      }
       if(loreChanged)this.lastPersistedLoreOwnerKey=loreOwnerRevisionKey;
-      const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+      const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED',...(storageRow?{storage:storageRow}:{})};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
       const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }
@@ -1618,6 +1643,49 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
   }
 
+  #hostStateFor(chatId){
+    const prefix=String(chatId)+'|';
+    return{
+      kind:'InstalledHostState',version:1,chatId:String(chatId),
+      hostAssistantTurns:[...this.hostAssistantTurns.entries()].filter(([,row])=>row.chatId===chatId).map(([key,row])=>[key,clone(row)]),
+      sceneHostMessageState:[...this.sceneHostMessageState.entries()].filter(([key])=>key.startsWith(prefix)).map(([key,row])=>[key,clone(row)]),
+    };
+  }
+
+  // Waits for the durable writes queued so far (tests, orderly shutdown).
+  async flushPersistence(){await this.storage?.flush?.();}
+
+  // One Brain per story. The attached brain serves exactly one chat; a chat switch attaches that chat's own
+  // brain (live in this session, restored from storage, or fresh), so nothing learned in one story is reachable
+  // from another. Without storage the single injected brain is kept (its registries are story-scoped instead).
+  async #ensureStoryBrain(chatId){
+    if(!this.storage||!chatId||!this.nativeBrain)return;
+    if(this.nativeBrainStoryId==null){this.nativeBrainStoryId=chatId;this.storyBrains.set(chatId,this.nativeBrain);return;}
+    if(this.nativeBrainStoryId===chatId)return;
+    const from=this.nativeBrainStoryId,receipt={kind:'StoryBrainSwitchReceipt',at:Date.now(),from,to:chatId,source:'LIVE',storage:null,error:null};
+    try{await this.#persistNativeBrainCheckpoint({chatId:from,turnId:null,generationId:null});}catch{/* best effort: every completed turn already checkpointed */}
+    let next=this.storyBrains.get(chatId)??null;
+    if(!next){
+      const loaded=await this.storage.loadStory(chatId);receipt.storage=loaded.status;
+      const brainClass=this.nativeBrain.constructor;
+      if(loaded.parts.brain&&typeof brainClass.fromSnapshot==='function'){
+        try{next=brainClass.fromSnapshot(loaded.parts.brain);receipt.source='STORAGE';}
+        catch(error){receipt.error=safeDiagnosticMessage(error);next=null;}
+      }
+      if(loaded.parts.host?.kind==='InstalledHostState'){
+        for(const [key,row] of loaded.parts.host.hostAssistantTurns??[])this.hostAssistantTurns.set(key,clone(row));
+        for(const [key,row] of loaded.parts.host.sceneHostMessageState??[])this.sceneHostMessageState.set(key,clone(row));
+      }
+      if(!next){next=new brainClass();receipt.source=receipt.error?'FRESH_AFTER_REJECTED_SNAPSHOT':'FRESH';}
+      this.storyBrains.set(chatId,next);
+    }
+    this.nativeBrain=next;this.nativeBrainStoryId=chatId;
+    this.#attachNativeKnowledgeOwners();
+    if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
+    this.storageRestore={...this.storageRestore,lastSwitch:receipt};
+    this.#notify();
+  }
+
   // Host history is the authority on which messages exist. Anything learned from a message that was
   // deleted, or whose text changed, is retired or superseded at the owner that holds it: Core source
   // registry (dependent artifacts), Scene NarrativeFeed (revision evidence) and the Native Brain turn
@@ -1699,6 +1767,7 @@ export class DevelopmentDeploymentSillyTavernSession {
       rawTextIncluded:false,rawPayloadIncluded:false,
     };
     this.hostNarrativeEvents.push(row);if(this.hostNarrativeEvents.length>200)this.hostNarrativeEvents.shift();
+    if(chatBoundary&&this.storage&&chatId){this.storyBrainReady=this.storyBrainReady.then(()=>this.#ensureStoryBrain(chatId)).catch(error=>{pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'STORY_BRAIN_SWITCH'},SESSION_BOUNDS.errors);});}
     if(revisionAffecting)this.#reconcileHostRevisions(eventType);
     if(this.nativePending.size&&(revisionAffecting||chatBoundary))this.#expireNativePending('HOST_'+eventType+'_INVALIDATED_PENDING_GENERATION');
     this.#notify();return clone(row);

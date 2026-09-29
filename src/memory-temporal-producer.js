@@ -22,6 +22,9 @@ import {
   normalizeMemorySelection,
 } from './memory-ui-read-model.js';
 
+// Summary scope page size: well inside MEMORY_LIMITS.maxSummaryEpisodeLogicalIds / maxSummaryChildScopes (512).
+const SUMMARY_PAGE=256;
+
 export class MemoryTemporalProducer {
   constructor({
     graph=new TemporalStateGraph(),
@@ -300,18 +303,34 @@ export class MemoryTemporalProducer {
     return receipt;
   }
 
+  // Paged summary hierarchy (cap ledger row 48). Scopes used to list every current episode of the chat in SESSION and ARC,
+  // so the 513th completed turn exceeded the 512-entry scope bound and every later turn failed after its episode was
+  // published. Now: a SCENE page holds at most SUMMARY_PAGE episodes of one scene (in admission order, so earlier pages
+  // are stable), a SESSION page holds at most SUMMARY_PAGE scene pages, and the ARC holds the session pages. SESSION and
+  // ARC reach their evidence through their children (exactEvidenceRefs), which is the same set the episode lists gave.
+  // Page 0 keeps the original scope ids, so chats within one page keep their scopes.
   ensureCompletedTurnSummaryScopes(episode) {
+    const PAGE=SUMMARY_PAGE;
     const chatId=episode.chatId??'unknown';
-    const sceneKey=episode.sceneId??('revision-'+String(episode.sceneRevision??'unknown'));
-    const sceneScopeRef='SCENE:brain:'+chatId+':'+sceneKey;
-    const sessionScopeRef='SESSION:brain:'+chatId;
+    const keyOf=(row)=>row.sceneId??('revision-'+String(row.sceneRevision??'unknown'));
+    const sceneKey=keyOf(episode);
     const arcScopeRef='ARC:brain:'+chatId;
     const current=this.experienceStore.currentEpisodes({freshOnly:true}).filter((row)=>row.chatId===chatId);
-    const sceneEpisodes=current.filter((row)=>(row.sceneId??('revision-'+String(row.sceneRevision??'unknown')))===sceneKey);
-    const sceneEvidence=[...new Set(sceneEpisodes.flatMap((row)=>row.evidenceRefs??[]))].sort();
-    const sceneLogicalIds=sceneEpisodes.map((row)=>row.logicalId).sort();
-    const allSceneKeys=[...new Set(current.map((row)=>row.sceneId??('revision-'+String(row.sceneRevision??'unknown'))))].sort();
-    const childSceneRefs=allSceneKeys.map((key)=>'SCENE:brain:'+chatId+':'+key);
+    const sceneOrder=[],byScene=new Map();
+    for(const row of current){
+      const key=keyOf(row);
+      if(!byScene.has(key)){byScene.set(key,[]);sceneOrder.push(key);}
+      byScene.get(key).push(row);
+    }
+    const scenePageId=(key,page)=>'brain:'+chatId+':'+key+(page?':p'+page:'');
+    const scenePages=[];
+    for(const key of sceneOrder){
+      const rows=byScene.get(key);
+      for(let page=0;page*PAGE<rows.length;page+=1)scenePages.push({key,page,rows:rows.slice(page*PAGE,(page+1)*PAGE)});
+    }
+    const sessionId=(page)=>'brain:'+chatId+(page?':p'+page:'');
+    const sessionPages=[];
+    for(let page=0;page*PAGE<scenePages.length;page+=1)sessionPages.push(scenePages.slice(page*PAGE,(page+1)*PAGE));
     const defineIfChanged=(input)=>{
       const ref=input.level+':'+input.scopeId,prior=this.summaryHierarchy.scope(ref);
       const shape=(row)=>stableStringify({
@@ -322,10 +341,27 @@ export class MemoryTemporalProducer {
       if(prior&&shape(prior)===shape(input))return prior;
       return this.summaryHierarchy.defineScope(input);
     };
-    defineIfChanged({level:'SCENE',scopeId:'brain:'+chatId+':'+sceneKey,parentScopeRefs:[sessionScopeRef],evidenceRefs:sceneEvidence,episodeLogicalIds:sceneLogicalIds,provenance:['native-brain:'+chatId]});
-    defineIfChanged({level:'SESSION',scopeId:'brain:'+chatId,parentScopeRefs:[arcScopeRef],childScopeRefs:childSceneRefs,episodeLogicalIds:current.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
-    defineIfChanged({level:'ARC',scopeId:'brain:'+chatId,childScopeRefs:[sessionScopeRef],episodeLogicalIds:current.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
-    return {kind:'MemoryCompletedTurnHierarchyReceipt',scopeRefs:[sceneScopeRef,sessionScopeRef,arcScopeRef],authorityGranted:false};
+    // Only the pages this episode touches (its scene page and that page's session page), plus the ARC when the number of
+    // session pages changed, are (re)defined; defineIfChanged makes unchanged ones a no-op.
+    let touchedScene=null,touchedSession=null;
+    sessionPages.forEach((pages,sessionPage)=>{
+      for(const row of pages){
+        if(row.key!==sceneKey||!row.rows.some((ep)=>ep.logicalId===episode.logicalId))continue;
+        touchedScene=row;touchedSession=sessionPage;
+      }
+    });
+    if(touchedScene){
+      defineIfChanged({level:'SCENE',scopeId:scenePageId(touchedScene.key,touchedScene.page),parentScopeRefs:['SESSION:'+sessionId(touchedSession)],
+        evidenceRefs:[...new Set(touchedScene.rows.flatMap((row)=>row.evidenceRefs??[]))].sort(),
+        episodeLogicalIds:touchedScene.rows.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
+      defineIfChanged({level:'SESSION',scopeId:sessionId(touchedSession),parentScopeRefs:[arcScopeRef],
+        childScopeRefs:sessionPages[touchedSession].map((row)=>'SCENE:'+scenePageId(row.key,row.page)),provenance:['native-brain:'+chatId]});
+    }
+    defineIfChanged({level:'ARC',scopeId:'brain:'+chatId,childScopeRefs:sessionPages.map((_,page)=>'SESSION:'+sessionId(page)),provenance:['native-brain:'+chatId]});
+    const sceneScopeRef=touchedScene?'SCENE:'+scenePageId(touchedScene.key,touchedScene.page):'SCENE:'+scenePageId(sceneKey,0);
+    const sessionScopeRef='SESSION:'+sessionId(touchedSession??0);
+    return {kind:'MemoryCompletedTurnHierarchyReceipt',scopeRefs:[sceneScopeRef,sessionScopeRef,arcScopeRef],
+      pages:{scenePages:scenePages.length,sessionPages:sessionPages.length,pageSize:PAGE},authorityGranted:false};
   }
 
   consolidateCompletedTurnReflections(episode,candidates=[],options={}) {

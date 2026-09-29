@@ -12,6 +12,7 @@ import {
   stableStringify,
   uniqStrings,
 } from './memory-contracts.js';
+import {memoryReferenceValues} from './memory-experience-store.js';
 
 export const MEMORY_SUMMARY_COMPILER_REVISION='memory-summary-local-v1';
 export const MEMORY_SUMMARY_POLICY_REVISION='memory-summary-policy-v1';
@@ -433,7 +434,7 @@ export class MemorySummaryHierarchy {
     for (const logicalId of scope.episodeLogicalIds) {
       const episode=episodes.get(logicalId);
       if (!episode) continue;
-      for (const id of episode.evidenceRefs) ids.add(id);
+      for (const id of memoryReferenceValues(episode,'evidenceRefs')) ids.add(id);
     }
     for (const childRef of scope.childScopeRefs) {
       const child=this.currentArtifact(childRef,{freshOnly:true});
@@ -467,7 +468,7 @@ export class MemorySummaryHierarchy {
   relevantReflections(evidenceIds) {
     const evidenceSet=new Set(evidenceIds);
     return this.experienceStore.currentReflections({freshOnly:true}).filter((reflection)=>
-      [...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])].some((id)=>evidenceSet.has(id)),
+      [...memoryReferenceValues(reflection,'supportEvidenceRefs'),...memoryReferenceValues(reflection,'contradictionEvidenceRefs')].some((id)=>evidenceSet.has(id)),
     );
   }
 

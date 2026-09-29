@@ -306,7 +306,11 @@ export class MemoryHistorianIndex {
     scored.sort((a,b)=>b.score.normalized-a.score.normalized||b.score.lexical-a.score.lexical||b.score.significance-a.score.significance||a.record.id.localeCompare(b.record.id));
     const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxHistorianCandidates,Number(maxCandidates)||MEMORY_LIMITS.maxHistorianCandidates));
     const picked=scored.slice(0,cap);
-    const nominations=picked.map(({record,score,perspective})=>createCandidateNomination({
+    const nominations=picked.map(({record,score,perspective})=>{
+      const transportSourceRevisionRefs=record.sourceRevisionRefs.slice(0,MEMORY_LIMITS.maxSourceRevisionRefsPerArtifact);
+      const transportEvidenceRefs=record.evidenceRefs.slice(0,64);
+      const transportDependencyRevisions=record.dependencyRevisions.slice(0,64);
+      return createCandidateNomination({
       nominationId:'memory-nomination:' + stableHash(intentId+'|'+record.id),
       candidateId:'memory-candidate:' + stableHash(record.id),
       evidenceIdentity:record.claimRefs.length
@@ -317,14 +321,14 @@ export class MemoryHistorianIndex {
         artifactType:record.artifactType,
         owner:'MEMORY',
         revision:record.artifactRevision,
-        sourceRevisionSet:record.sourceRevisionRefs,
+        sourceRevisionSet:transportSourceRevisionRefs,
         worldRevision:record.worldRevision,
         sceneRevision:record.sceneRevision,
         contentHash:stableHash(record.representationText),
         provenanceRef:record.provenance[0]?.ref??null,
       }),
       artifactRevision:record.artifactRevision,
-      sourceRevisionRefs:record.sourceRevisionRefs,
+      sourceRevisionRefs:transportSourceRevisionRefs,
       claimRefs:record.claimRefs,
       eventRefs:record.eventRefs,
       entityRefs:record.entityRefs,
@@ -344,8 +348,8 @@ export class MemoryHistorianIndex {
       authorityClass:record.channel===HistorianMemoryChannel.REFLECTION?AuthorityClass.INFERRED:record.authorityClass,
       truthStatusHint:record.channel===HistorianMemoryChannel.REFLECTION?KnowledgeStatus.UNRESOLVED:record.truthStatusHint,
       provenance:record.provenance,
-      evidenceRefs:record.evidenceRefs,
-      dependencyRevisions:record.dependencyRevisions,
+      evidenceRefs:transportEvidenceRefs,
+      dependencyRevisions:transportDependencyRevisions,
       representationRef:record.id,
       representationRevision:record.artifactRevision,
       representationText:record.representationText,
@@ -357,6 +361,14 @@ export class MemoryHistorianIndex {
         perspective,
         retrievalRecordRef:record.id,
         exactSourceDrillback:true,
+        sourceRevisionRefCount:record.sourceRevisionRefs.length,
+        sourceRevisionRefsComplete:record.sourceRevisionRefs.length<=transportSourceRevisionRefs.length,
+        evidenceRefCount:record.evidenceRefs.length,
+        evidenceRefsComplete:record.evidenceRefs.length<=transportEvidenceRefs.length,
+        dependencyRevisionCount:record.dependencyRevisions.length,
+        dependencyRevisionsComplete:record.dependencyRevisions.length<=transportDependencyRevisions.length,
+        transportReferencesBounded:true,
+        canonicalKnowledgeDropped:false,
         retrievalRankAuthority:false,
         truthAuthorityGranted:false,
         memoryMutation:false,
@@ -367,7 +379,8 @@ export class MemoryHistorianIndex {
       },
       worldRevision:record.worldRevision,
       sceneRevision:record.sceneRevision,
-    }));
+    });
+    });
     return {
       kind:'MemoryHistorianQueryResult',
       contractVersion:'1.0.0',

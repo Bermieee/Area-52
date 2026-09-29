@@ -21,7 +21,7 @@ Raw output: `repeat-audit/verification-after.txt` (harness scripts in `../harnes
 | D7 | All authored lore CURRENT; conflicts delivered side by side | unchanged (`trace-turn-bound`: Truth HIGH, 0 unresolved) | **OPEN, owner decision O4** |
 | D11 | Native Jev never runs | unchanged (`SKIP_JEV/JEV_NOT_REQUIRED`); consequence of D7; Jev is optional by JEV_WAVE11 | **OPEN, owner decision O5** |
 | D10 | 1,200 entries: 154 s synchronous study, 3.1-3.9 s/turn, 20.7 MB export | `stress-lore1200` N=1200: ingest+study **12.0 s**; turn wall 2.5-3.0 s; 10-entry edit 10.9 s (was 17.4); export **20.7 MB (unchanged)**; heap after load 535 MB (same). Study is still one synchronous call | PARTIAL (O6) |
-| D3 | Nothing persists across reload | with a host store: Brain + Memory + **Lore incl. story binding** restore (round trip test). No store is supplied by the repository, Scene state has no snapshot | PARTIAL (O7) |
+| D3 | Nothing persists across reload | installed storage adapter (IndexedDB/localStorage), one Brain per story, Scene owner restore, interrupted-write recovery: tests/repair-followup-*.test.mjs (fake backend + fake host) | FIXED for the seam; real browser storage/ST reload UNVERIFIED-LIVE; checkpoint size open (O8) |
 | D12 | Atmosphere TypeError, 10 tests, demo crash | fixed; demo rc=0 | FIXED |
 | D14 | DEEP consolidation cannot run on operator resources | unchanged | **OPEN, owner decision O2** |
 | H1 | Foreground job QUEUED forever | not reproduced before or after; D4 fixes the SKIPPED mechanism | UNVERIFIED-LIVE (needs a fresh installed export) |
@@ -38,3 +38,6 @@ Raw output: `repeat-audit/verification-after.txt` (harness scripts in `../harnes
 
 ## Open decisions (need an owner)
 O1 retirement policy without a revision oracle; O2 `DEEP_BACKGROUND` (scheduling class vs profile class); O3 quiet/impersonate excluded from context; O4 Lore temporal/conflict semantics; O5 native-path Jev; O6 Runtime Batch Engine for Lore study and diagnostic payload bounds; O7 durable host store and Scene persistence. Details and evidence in the ledger.
+
+## Round 2 (follow-up)
+See `REPAIR_LEDGER.md` FOLLOW-UP GATE; raw output in `repeat-audit/round2/`. Suite 32 failing tests, all baseline. Assembly verifier FAIL by design with 8 withheld paths (`ASSEMBLY_DRIFT_REVIEW.md`). Routine export at 1,200 Lore entries is 170 KB (was 20.7 MB).

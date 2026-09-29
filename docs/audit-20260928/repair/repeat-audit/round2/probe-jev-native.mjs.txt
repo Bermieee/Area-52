@@ -1,0 +1,3 @@
+native jev: {"considered":true,"invoked":false,"skipped":true,"unavailable":false,"abstained":false,"action":"SKIP_JEV","reason":"JEV_NOT_REQUIRED","alternativeCount":0,"request":null,"decisionRevision":null,"resultRef":null}
+native core jev adapter registered: false | deployment core: true
+truth confidence HIGH unresolved in packet: 0

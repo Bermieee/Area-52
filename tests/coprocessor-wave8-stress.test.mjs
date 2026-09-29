@@ -14,7 +14,8 @@ function payload(){return {outcome:JevOutcome.DECIDED,decisionCode:JevDecisionSh
 function ex(resources=1){const profiles=new CapabilityProfileRegistry(),adapters=new ProviderAdapterRegistry();for(let i=0;i<resources;i++){const providerId='p'+i;profiles.register({profileId:'profile:'+i,workerId:'slot:'+i,providerId,capabilities:[Capability.SEMANTIC_JUDGMENT],placements:['HOT'],supportedLayers:['L1'],concurrencyCapacity:4,maxContextTokens:100000,maxOutputTokens:2000});adapters.register(new DeterministicProviderAdapter({providerId,capabilities:[Capability.SEMANTIC_JUDGMENT],handlers:{JEV_DECISION:()=>({payload:payload()})}}));}return new JevProviderExecutor({profiles,adapters});}
 
 test('Wave 8 focused stress stays bounded, idempotent, revision-safe and non-authoritative',async()=>{
-  const core=new JevDecisionCore({providerExecutor:ex(2)});let decided=0,skipped=0,abstained=0,stale=0,late=0,authorityViolations=0,replayMismatch=0;
+  // Replay retention is bounded (7437aab, default 128); this run replays decisions from the whole 1,500-decision history.
+  const core=new JevDecisionCore({providerExecutor:ex(2),replayLimit:2000});let decided=0,skipped=0,abstained=0,stale=0,late=0,authorityViolations=0,replayMismatch=0;
   for(let i=0;i<600;i++){const x=await core.decide(r(i),{currentRevisionState:state(i)});if(x.outcome==='DECIDED')decided++;if(x.authorityGranted||x.canonicalMutation)authorityViolations++;}
   for(let i=600;i<1000;i++){const q=r(i,{options:[{optionId:'A',evidenceRefs:['eA']} ]});const x=await core.decide(q,{currentRevisionState:state(i)});if(x.serviceStatus==='JEV_SKIPPED')skipped++;}
   for(let i=1000;i<1200;i++){const q=r(i,{options:[{optionId:'A',evidenceRefs:[]},{optionId:'B',evidenceRefs:[]}],evidenceRefs:[]});const x=await core.decide(q,{currentRevisionState:state(i)});if(x.outcome==='ABSTAINED')abstained++;}

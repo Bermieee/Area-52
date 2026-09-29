@@ -1,5 +1,5 @@
 import { Placement, ResultClass } from './constants.js';
-import { compareCapabilityVersions, toRuntimeCapabilityDescriptor } from './capability-profiles.js';
+import { compareCapabilityVersions, resourceClassSatisfied, toRuntimeCapabilityDescriptor } from './capability-profiles.js';
 
 export const CAPABILITY_NEGOTIATION_VERSION = '1.0.0';
 
@@ -124,7 +124,7 @@ function profileConstraintFailures(profile, task, requirement) {
   if (requirement.structuredOutputRequirement && !profile.structuredOutput) failures.push('STRUCTURED_OUTPUT_UNAVAILABLE');
   if (requirement.contextRequirement.tokens > profile.maxContextTokens) failures.push('CONTEXT_TOO_LARGE');
   if (requirement.outputRequirement.tokens > profile.maxOutputTokens) failures.push('OUTPUT_TOO_LARGE');
-  if (requirement.resourceClass != null && profile.resourceClass !== requirement.resourceClass) failures.push('RESOURCE_CLASS_MISMATCH');
+  if (!resourceClassSatisfied(profile, requirement.resourceClass)) failures.push('RESOURCE_CLASS_MISMATCH');
   if (!resourcesWithinLimits(profile.resourceProfile, requirement.resourceLimits)) failures.push('RESOURCE_LIMIT_EXCEEDED');
   if ((COST[profile.costClass] ?? 99) > (COST[requirement.costBudget] ?? 99)) failures.push('COST_BUDGET_EXCEEDED');
   if (requirement.latencyBudget.maxClass != null && (LATENCY[profile.latencyClass] ?? 99) > (LATENCY[requirement.latencyBudget.maxClass] ?? 99)) failures.push('LATENCY_CLASS_EXCEEDED');

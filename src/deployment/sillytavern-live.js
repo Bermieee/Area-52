@@ -1510,6 +1510,28 @@ export class DevelopmentDeploymentSillyTavernSession {
       if(hostKey)merged[hostKey]={...merged[hostKey],actions:{...merged[hostKey].actions,runLoreStudy:batched,startLoreStudy:batched}};
       if(typeof merged.runLoreStudy==='function')merged.runLoreStudy=batched;
     }
+    // Conflict sets the operator sees carry the Jev advisory (if any) that the native path recorded for them: display only, the
+    // Lore owner's data and every seal are untouched.
+    {
+      const hostKey=['loreStudyHost','loreOperatorHost','loreHost'].find(key=>merged[key]&&typeof merged[key]?.read?.status==='function');
+      if(hostKey&&typeof this.nativeBrain?.readJevAdvisories==='function'){
+        const host=merged[hostKey],readStatus=host.read.status.bind(host.read);
+        const withAdvisories=(surface,byConflict)=>(!surface||!Array.isArray(surface.conflicts)||!surface.conflicts.length)?surface:{...surface,conflicts:surface.conflicts.map(conflict=>{
+          const row=byConflict.get(conflict.id);
+          return row?{...conflict,jevAdvisory:{id:row.id,status:row.status,classification:row.classification??null,ownerDecision:row.ownerDecision??null,current:Boolean(row.current),destination:row.destination,advisoryOnly:true}}:conflict;
+        })};
+        const annotate=(status)=>{
+          if(!status||typeof status!=='object')return status;
+          let rows;try{rows=this.nativeBrain.readJevAdvisories().rows??[];}catch{return status;}
+          if(!rows.length)return status;
+          const byConflict=new Map(rows.map(row=>[row.conflictSetId,row]));
+          // The Lore status is either the study surface itself or a status that carries it as `study`.
+          const next=withAdvisories(status,byConflict);
+          return status.study?{...next,study:withAdvisories(status.study,byConflict)}:next;
+        };
+        merged[hostKey]={...host,read:{...host.read,status:(...args)=>annotate(readStatus(...args))}};
+      }
+    }
 
     const authoringHost=this.#nativeAwareLoreAuthoringHost();
     if(authoringHost)merged.loreAuthoringHost=authoringHost;

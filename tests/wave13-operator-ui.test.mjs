@@ -275,6 +275,26 @@ test('Lore READY CURRENT entry with semanticDiff does not show stale source revi
   ui.destroy();
 });
 
+test('Lore diagnostics list conflict sets with certainty, alternatives and a display-only Jev advisory',()=>{
+  const owner=liveOwner({withLore:true});
+  owner.bindings.readLoreStatus=()=>({kind:'LoreIntelligenceStatus',counts:{READY:2,ACCEPTED:0,STUDYING:0,FAILED:0,REMOVED:0},entries:[],artifacts:[],lifecycle:{counts:{},due:0,active:0},conflicts:[
+    {kind:'LoreConflictSet',id:'conflict:a',certainty:'ESTABLISHED',property:'fate',status:'UNRESOLVED',basis:'INCOMPATIBLE_VALUES_OVERLAPPING_APPLICABILITY',
+      alternatives:[['x1'],['x2','x3']],values:[{artifactId:'x1',value:'destroyed-in-storm',attribution:'ASSERTED'},{artifactId:'x2',value:'stolen-before-storm',attribution:'HEARSAY',speaker:'dockhand'},{artifactId:'x3',value:'survived-storm',attribution:'OBSERVATION',speaker:'Captain'}],
+      jevAdvisory:{id:'jev-advisory:1',status:'ADVISED',classification:'CONTRADICTORY',ownerDecision:'ACCEPTED',current:true,destination:'NEXT_TURN',advisoryOnly:true}},
+    {kind:'LoreConflictSet',id:'conflict:b',certainty:'POSSIBLE',property:'state',status:'UNRESOLVED',basis:'EVENT_IDENTITY_UNSUPPORTED',alternatives:[['y1'],['y2']],values:[{artifactId:'y1',value:'intact',attribution:'ASSERTED'},{artifactId:'y2',value:'destroyed',attribution:'ASSERTED'}]},
+  ],...owner.bindings.readSelection()});
+  const{ui}=mount(owner);ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(2);
+  const body=textOf(ui.shell.nodes.workspace),nodes=walk(ui.shell.nodes.workspace);
+  assert.match(body,/Conflicts · 2/);assert.match(body,/Conflict · Fate/);assert.match(body,/ESTABLISHED/);assert.match(body,/POSSIBLE/);
+  assert.match(body,/Alternative 1[\s\S]*destroyed-in-storm/);assert.match(body,/Alternative 2[\s\S]*stolen-before-storm \(hearsay by dockhand\)/);
+  assert.match(body,/Jev advisory/);assert.match(body,/ADVISORY · CURRENT/);assert.match(body,/NEXT TURN · ADVISORY ONLY/);assert.match(body,/Contradictory/);
+  assert.match(body,/EVENT_IDENTITY_UNSUPPORTED/);
+  const conflictRoot=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-conflicts')),conflictNodes=walk(conflictRoot),conflictText=textOf(conflictRoot);
+  assert.doesNotMatch(conflictText,/\b(Resolve|Apply|Adopt|Accept advisory|Override)\b/,'display only: no resolving control');
+  assert.equal(conflictNodes.some(x=>x.tagName==='BUTTON'),false,'the conflict section has no controls at all');
+  ui.destroy();
+});
+
 test('Lore stale learned revision still shows source revision warning',()=>{
   const owner=liveOwner();
   owner.bindings.readLoreStatus=()=>({
@@ -315,15 +335,20 @@ test('Lore workspace uses SillyTavern selection instead of manual ID or pasted J
   ui.destroy();
 });
 
-test('Lore keeps controls first and explains DUE STUDYING READY without flooding the page',async()=>{
+test('Lore keeps controls first, shows DUE STUDYING READY as compact counts, and keeps entry-level detail out of the World Tree page',async()=>{
   const owner=liveOwner({withLore:true});
   owner.bindings.readSelectedLorebookSelection=()=>({kind:'SillyTavernLorebookSelection',selected:true,lorebookId:'UX Lore',title:'UX Lore',source:'SILLYTAVERN_WORLD_INFO_EDITOR'});
   owner.bindings.discoverSelectedLorebook=async()=>({id:'UX Lore',title:'UX Lore',entries:[{uid:'one',content:'One.'},{uid:'two',content:'Two.'}],fullSnapshot:true});
   const{ui}=mount(owner);await ui.operator.loreStudy.discoverSelectedLorebook();const snapshot=ui.operator.loreStudy.selectedLorebook().snapshot;await ui.operator.loreStudy.accept(snapshot);
   ui.shell.selectWorkspace('lore');ui.scheduler.flush(2);
-  const nodes=walk(ui.shell.nodes.workspace),body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/What Lore is doing now/);assert.match(body,/DUE for study/);assert.match(body,/DUE = accepted but not learned\/current/);assert.match(body,/Run 2 DUE entries/);
-  const controls=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-controls'));assert.ok(controls);
+  let nodes=walk(ui.shell.nodes.workspace),body=textOf(ui.shell.nodes.workspace);
+  // Since the World Tree redesign (73815c7, 7447810, 29a3121) the Lore page shows the owner lifecycle as compact counts and the
+  // intake as a source dock; entry-level cards and review tools moved into Diagnostics.
+  assert.match(body,/Study State/);assert.match(body,/Due 2/);assert.match(body,/Ready 0/);assert.match(body,/Run 2 DUE entries/);assert.match(body,/LORE OWNER · WORKING/);
+  assert.ok(nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-controls')),'controls stay on the Lore page');
+  assert.equal(nodes.some(x=>String(x.className??'').includes('a52-wave13-lore-entry ')||String(x.className??'').split(/\s+/).includes('a52-wave13-lore-entry')),false,'no per-entry cards flood the Lore page');
+  ui.shell.selectWorkspace('turn-log');ui.scheduler.flush(2);
+  nodes=walk(ui.shell.nodes.workspace);
   const entryDetails=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-entry-details'));assert.ok(entryDetails);assert.equal(entryDetails.open,false);
   const review=nodes.find(x=>String(x.className??'').includes('a52-wave13-lore-review-details'));assert.ok(review);assert.equal(review.open,false);
   ui.destroy();
@@ -354,20 +379,20 @@ test('Lore neural canvas stays quiet until study and then grows from published s
   const{ui}=mount(owner,{width:1500,height:900});await ui.operator.loreStudy.discoverSelectedLorebook();ui.shell.selectWorkspace('lore');ui.scheduler.flush(1);
   assert.equal(ui.workspaceRegistry.get('lore').preferredWidth,1280);
   let nodes=walk(ui.shell.nodes.workspace),body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/Source loaded — canvas waiting|Blank Lore canvas/);
+  assert.match(body,/Accept the selected Lorebook, then run study to populate source nodes and learned links/);assert.match(body,/LORE OWNER · IDLE/);assert.match(body,/0% retrieval-ready/);
   assert.equal(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-entry-node')).length,0);
 
   const snapshot=ui.operator.loreStudy.selectedLorebook().snapshot;await ui.operator.loreStudy.accept(snapshot);ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(2);
   nodes=walk(ui.shell.nodes.workspace);body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/graph armed/i);
+  assert.match(body,/Lore is accepted\. Run pending study; source nodes appear only after owner study evidence begins publishing/);assert.match(body,/LORE OWNER · WORKING/);assert.match(body,/0% retrieval-ready/);
   assert.equal(nodes.filter(x=>String(x.className??'').includes('a52-lore-graph-node')).length,0);
 
   await ui.operator.loreStudy.run({scope:'DUE'});ui.shell.refreshCurrentWorkspace();ui.scheduler.flush(3);
   nodes=walk(ui.shell.nodes.workspace);body=textOf(ui.shell.nodes.workspace);
-  assert.match(body,/LIVE GRAPH/);
+  assert.match(body,/LORE OWNER · LIVE/);assert.match(body,/100% retrieval-ready/);
   assert.match(body,/Character/);assert.match(body,/Place/);assert.match(body,/Faction/);
   assert.ok(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-hub-node')).length>=3);
-  assert.ok(nodes.filter(x=>String(x.className??'').includes('a52-lore-graph-node')).length>=3);
+  assert.ok(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-entry-node')).length>=3,'each published source is an entry node (renamed from a52-lore-graph-node)');
   assert.ok(nodes.filter(x=>String(x.attributes?.class??x.className??'').split(/\s+/).includes('a52-lore-neural-link')).length>=6);
   const css=readFileSync(new URL('../styles/ui-core-lore-neural.css',import.meta.url),'utf8');
   assert.match(css,/@keyframes a52-lore-link-grow/);assert.match(css,/@keyframes a52-lore-node-grow/);assert.match(css,/prefers-reduced-motion:reduce/);

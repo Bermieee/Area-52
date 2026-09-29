@@ -339,7 +339,8 @@ export class Area52NativeBrain{
     return{...receipt,nativePathAvailable:true};
   }
 
-  readJevAdvisories(){return{...this.jevAdvisory.diagnostics(),rows:this.jevAdvisory.list()};}
+  // Advisory rows plus whether each is still fresh against the Lore owner's current conflict sets (operators see stale ones as such).
+  readJevAdvisories(){return{...this.jevAdvisory.diagnostics(),rows:this.jevAdvisory.list().map(row=>({...row,current:this.jevAdvisory.isFresh(row,this.loreInterface)}))};}
 
   attachJevAdapter(adapter=null){
     const receipt=this.core.registerJevAdapter(adapter);

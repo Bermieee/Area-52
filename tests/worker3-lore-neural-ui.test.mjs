@@ -341,7 +341,8 @@ test('105 READY metadata-poor sources distribute across neutral topology hubs in
   assert.match(body,/Layout-only clusters do not add semantic meaning to Lore/);
   assert.match(body,/54 of 105 nodes shown/);
   assert.doesNotMatch(body,/hierarchy:a59b5c6ea9e88b85deadbeef/);
-  assert.match(body,/hierarchy:a59b5c6e…beef/);
+  // The graph revision label was removed from the canvas by the World Tree declutter (f508bdc); the raw id must still never leak.
+  assert.doesNotMatch(body,/hierarchy:a59b5c6e/);
   const positions=hubs.map(hub=>hub.children?.find?.(child=>child.tagName==='CIRCLE')?.attributes??{});
   const xs=positions.map(pos=>Number(pos.cx)),ys=positions.map(pos=>Number(pos.cy));
   assert.ok(Math.min(...xs)<350&&Math.max(...xs)>650);
@@ -574,7 +575,7 @@ test('Lore neural animation uses bounded native SVG reveal without JS timer loop
   const surfaces=readFileSync(new URL('../src/ui-core/wave13-operator-surfaces.js',import.meta.url),'utf8');
   assert.match(surfaces,/className:'a52-world-tree-shell'/);
   assert.match(surfaces,/worldTreeShell\.append\(worldTree,form\)/);
-  assert.match(surfaces,/registry\.has\('diagnostics'\)/);
+  assert.match(surfaces,/for\(const diagnosticsWorkspaceId of \['diagnostics','turn-log'\]\)/,'Lore diagnostics tools bind to the registered Diagnostics workspace (turn-log)');
   assert.match(surfaces,/renderLoreDiagnosticsTools/);
   assert.match(surfaces,/Secondary Lore owner state, derived representations, and authoring review live here/);
   assert.doesNotMatch(surfaces,/host\.append\(header\(d,'World Tree'/);

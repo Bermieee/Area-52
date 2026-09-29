@@ -8,7 +8,7 @@ import { createJevDomainAdapterMatrix } from '../src/coprocessor/jev-adapter-mat
 import { JevOutcome, JevDecisionShape } from '../src/coprocessor/jev-contracts.js';
 
 // A provider that decides, abstains, or runs a hook (to change the world while Jev is "thinking").
-function makeProvider({ pick = 'CONTRADICTION', abstain = false, before = null, live = true } = {}) {
+function makeProvider({ pick = 'CONTRADICTORY', abstain = false, before = null, live = true } = {}) {
   const calls = []; // closure state: the Jev core deep-freezes what it can reach from the provider object
   const provider = {
     count: () => calls.length,
@@ -19,7 +19,7 @@ function makeProvider({ pick = 'CONTRADICTION', abstain = false, before = null, 
       const evidenceUsed = request.evidenceRefs.map((row) => row.evidenceId).slice(0, 8);
       const decision = abstain
         ? { outcome: JevOutcome.ABSTAINED, decisionCode: JevDecisionShape.ABSTAIN, selectedOptionIds: [], rejectedOptionIds: [], classification: null, reasonCodes: ['TEST_ABSTAIN'], evidenceUsed, unresolvedFactors: ['test'], confidence: 0.3, abstained: true, escalationTarget: null, requiresOperator: false, explanation: 'abstained' }
-        : { outcome: JevOutcome.DECIDED, decisionCode: JevDecisionShape.CHOOSE_ONE, selectedOptionIds: [pick], rejectedOptionIds: ['TRANSITION', 'CONTRADICTION', 'TEMPORALLY_DISTINCT', 'UNRESOLVED'].filter((id) => id !== pick), classification: null, reasonCodes: ['TEST_DECIDED'], evidenceUsed, unresolvedFactors: [], confidence: 0.9, abstained: false, escalationTarget: null, requiresOperator: false, explanation: 'decided' };
+        : { outcome: JevOutcome.DECIDED, decisionCode: JevDecisionShape.CHOOSE_ONE, selectedOptionIds: [pick], rejectedOptionIds: ['CONTRADICTORY', 'TEMPORALLY_DISTINCT', 'COMPLEMENTARY', 'UNRESOLVED'].filter((id) => id !== pick), classification: null, reasonCodes: ['TEST_DECIDED'], evidenceUsed, unresolvedFactors: [], confidence: 0.9, abstained: false, escalationTarget: null, requiresOperator: false, explanation: 'decided' };
       return { decision, providerProvenance: { providerProfileId: 'test.profile', providerId: 'test.provider', modelId: 'test-model', workerId: 'test-worker', capability: 'SEMANTIC_JUDGMENT', attempt: 1, measurementClass: 'LOCAL_DETERMINISTIC', evidenceClass: live ? 'TEST_PROVIDER' : 'DETERMINISTIC_LOCAL_FIXTURE' }, latencyMetadata: { providerLatencyMs: 0, validationLatencyMs: 0, totalLatencyMs: 0, attempts: 1 }, payloadBytes: 10 };
     },
   };
@@ -67,7 +67,7 @@ for (const w of WORLDS) {
     assert.equal(rows.length, 1, JSON.stringify(h.nativeBrain.jevAdvisory.diagnostics()));
     const row = rows[0];
     assert.equal(row.status, 'ADVISED');
-    assert.equal(row.classification, 'CONTRADICTION');
+    assert.equal(row.classification, 'CONTRADICTORY');
     assert.equal(row.destination, 'NEXT_TURN');
     assert.equal(row.authorityGranted, false); assert.equal(row.canonicalMutation, false); assert.equal(row.contextSealMutated, false); assert.equal(row.loreMutated, false);
     assert.equal(row.sourceSealId, t2.published.sealReceipt.id);
@@ -87,7 +87,7 @@ for (const w of WORLDS) {
     const jev = t3.published.cognitiveChoiceReceipt.jev;
     assert.equal(jev.action, 'PRESERVE_UNRESOLVED');
     assert.equal(jev.advisory.id, row.id);
-    assert.equal(jev.advisory.classification, 'CONTRADICTION');
+    assert.equal(jev.advisory.classification, 'CONTRADICTORY');
     assert.equal(jev.advisory.authorityGranted, false);
     assert.ok((t3.published.candidates ?? []).some((c) => c.truthStatusHint === 'UNRESOLVED'), 'the alternatives stay unresolved');
     assert.equal(provider.count(), 1, 'no repeat request against an unchanged fence');
@@ -190,3 +190,27 @@ test('installed wiring: the deployment Jev service is attached but reports not c
   assert.equal(h.nativeBrain.readJevAdvisories().rows.length, 0);
   h.session.destroy();
 });
+
+for (const w of WORLDS) {
+  test(`[${w.name}] the operator's Lore status shows the conflict set with its Jev advisory, display only, and marks it stale after an edit`, async () => {
+    const { h, turn } = await world(w);
+    await turn(w.ask, 'Nobody knows.');
+    const bindings = h.session.uiBindings();
+    const host = bindings.loreStudyHost ?? bindings.loreOperatorHost ?? bindings.loreHost;
+    const status = () => { const raw = host.read.status(); return raw.study ?? raw; };
+    const conflict = status().conflicts.find((row) => row.certainty === 'ESTABLISHED');
+    assert.ok(conflict, 'the established conflict set is visible');
+    assert.equal(conflict.jevAdvisory.classification, 'CONTRADICTORY');
+    assert.equal(conflict.jevAdvisory.ownerDecision, 'ACCEPTED');
+    assert.equal(conflict.jevAdvisory.current, true);
+    assert.equal(conflict.jevAdvisory.advisoryOnly, true);
+    assert.equal(conflict.status, 'UNRESOLVED', 'the conflict itself stays unresolved');
+    const book = w.book();
+    book.entries[w.member] = { ...book.entries[w.member], content: book.entries[w.member].content + ' Twice confirmed.' };
+    h.session.ingestLorebook(book);
+    const after = status().conflicts.find((row) => row.jevAdvisory);
+    // The edit changes the source revision: the old advisory is no longer current (or its set is gone) and is never applied.
+    assert.ok(!after || after.jevAdvisory.current === false, 'a stale advisory is not shown as current');
+    h.session.destroy();
+  });
+}

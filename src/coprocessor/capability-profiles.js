@@ -8,6 +8,20 @@ function versionParts(value) {
   const parts = String(value ?? '1').replace(/^v/i,'').split('.').map((part)=>Number.parseInt(part,10));
   return parts.every(Number.isFinite) ? parts : [1];
 }
+// Resource classes that name a SCHEDULING lane, not a kind of provider. Work in such a lane borrows the same resources as
+// everything else (Wave 18 #88: DEEP work borrows spare capacity and yields to the foreground; Wave 20: the lane is
+// expressed by placement, background eligibility and layer). A profile therefore satisfies the lane by its placement and
+// background eligibility, not by carrying a matching `resourceClass` label, which an operator cannot set on a connected
+// resource. Any other requested class (for example NATIVE or STANDARD) still needs an exact profile match.
+export const SCHEDULING_RESOURCE_CLASSES = Object.freeze(['DEEP_BACKGROUND']);
+export function resourceClassSatisfied(profile, requested) {
+  if (requested == null) return true;
+  if (SCHEDULING_RESOURCE_CLASSES.includes(String(requested))) {
+    return profile?.backgroundEligible !== false && (profile?.placements ?? []).includes('DEEP');
+  }
+  return profile?.resourceClass === requested;
+}
+
 export function compareCapabilityVersions(a,b) {
   const aa=versionParts(a), bb=versionParts(b), len=Math.max(aa.length,bb.length);
   for(let i=0;i<len;i+=1){const delta=(aa[i]??0)-(bb[i]??0);if(delta)return delta<0?-1:1;}
@@ -155,7 +169,7 @@ export class CapabilityProfileRegistry {
       if (requireStructuredOutput && !profile.structuredOutput) return false;
       if (contextTokens > profile.maxContextTokens) return false;
       if (Number(expectedOutputTokens)>profile.maxOutputTokens) return false;
-      if (resourceClass != null && profile.resourceClass !== resourceClass) return false;
+      if (!resourceClassSatisfied(profile, resourceClass)) return false;
       if (!resourcesWithinLimits(profile.resourceProfile, resourceLimits)) return false;
       if ((COST[profile.costClass] ?? 99) > (COST[maxCostClass] ?? 99)) return false;
       if (maxLatencyClass!=null && (LATENCY[profile.latencyClass]??99)>(LATENCY[maxLatencyClass]??99)) return false;

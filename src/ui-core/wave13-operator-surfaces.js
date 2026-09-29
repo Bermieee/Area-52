@@ -944,6 +944,13 @@ function renderLoreDiagnosticsTools(host,{loreStudy,loreAuthoring,actionRouter,s
   else study.append(message(d,'No Lore accepted yet','No owner-backed Lore entries are currently published.','historical'));
   section.append(study);
 
+  const conflicts=Array.isArray(data.conflicts)?data.conflicts:[];
+  const conflictDetails=element(d,'details',{className:'a52-wave13-lore-conflict-details'});
+  conflictDetails.open=conflicts.some(row=>row?.certainty==='ESTABLISHED');
+  conflictDetails.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Conflicts · '+conflicts.length}));
+  conflictDetails.append(renderLoreConflicts(d,conflicts));
+  section.append(conflictDetails);
+
   const derived=element(d,'details',{className:'a52-wave13-lore-derived-details'});
   derived.open=detail===ProductDetailLevel.ADVANCED;
   derived.append(element(d,'summary',{className:'a52-wave13-lore-detail-summary',text:'Derived representations / navigation summaries'}),renderLoreDerivedRepresentations(d,{entries,summarySurface:loreStudy?.summaries?.(),detail}));
@@ -1218,6 +1225,36 @@ function operatorRouteMessage(route,success){
   const owner=route.result;
   if(owner?.ok===false)return'Owner preview failed: '+String(owner.error?.message??owner.error?.code??'unknown error');
   return success;
+}
+
+// Conflict sets under the Lore owner's rule R4. ESTABLISHED = incompatible values with provably overlapping applicability;
+// POSSIBLE = the overlap or event identity is not established (shown, never an adjudication). A Jev advisory, if the native
+// path recorded one, is shown as advisory only: nothing here resolves, applies or edits anything.
+function renderLoreConflicts(d,conflicts){
+  const root=element(d,'div',{className:'a52-wave13-lore-conflicts'});
+  if(!conflicts.length){root.append(message(d,'No conflicts','The Lore owner reports no conflicting claims for the accepted sources.','historical'));return root;}
+  for(const conflict of conflicts.slice(0,40)){
+    const certainty=String(conflict.certainty??'ESTABLISHED').toUpperCase();
+    const card=element(d,'article',{className:'a52-card a52-wave13-lore-conflict',dataset:{certainty}});
+    card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:'Conflict · '+humanLabel(conflict.property??'property')}),makeBadge(d,certainty,certainty==='ESTABLISHED'?'warning':'historical'),makeBadge(d,'UNRESOLVED','historical')));
+    card.append(element(d,'p',{className:'a52-muted',text:certainty==='ESTABLISHED'
+      ?'The Lore owner found values that cannot both hold at the same time on the same continuity. Nothing is resolved by showing this.'
+      :'The owner could not establish that these claims apply to the same event or continuity ('+String(conflict.basis??'unestablished')+'). Shown for review, not adjudication.'}));
+    const values=Array.isArray(conflict.values)?conflict.values:[];
+    const alternatives=Array.isArray(conflict.alternatives)?conflict.alternatives:[values.map(v=>v.artifactId)];
+    alternatives.slice(0,6).forEach((group,index)=>{
+      const rows=values.filter(v=>group.includes(v.artifactId));
+      card.append(createKeyValue(d,[{key:'Alternative '+(index+1),value:rows.map(v=>String(v.value)+' ('+String(v.attribution??'ASSERTED').toLowerCase()+(v.speaker?' by '+v.speaker:'')+')').join(' · ')||'—'}]));
+    });
+    const advisory=conflict.jevAdvisory;
+    if(advisory){
+      const status=String(advisory.status??'').toUpperCase();
+      card.append(element(d,'div',{className:'a52-inline-status'},element(d,'strong',{text:'Jev advisory'}),makeBadge(d,status==='ADVISED'?(advisory.current?'ADVISORY · CURRENT':'ADVISORY · STALE'):humanLabel(status||'UNKNOWN'),status==='ADVISED'&&advisory.current?'observed':'historical'),makeBadge(d,'NEXT TURN · ADVISORY ONLY','historical')));
+      card.append(createKeyValue(d,[{key:'Classification',value:advisory.classification?humanLabel(advisory.classification):'—'},{key:'Lore owner review',value:advisory.ownerDecision?humanLabel(advisory.ownerDecision):'—'}]));
+    }
+    root.append(card);
+  }
+  return root;
 }
 
 function renderLoreEntries(d,entries,scope,{showIds=false}={}){

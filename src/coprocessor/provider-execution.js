@@ -4,6 +4,7 @@ import { createWorkerResult } from './contracts.js';
 import { specialistForTask } from './foreground-specialists.js';
 import { ProviderInvocationError } from './provider-adapters.js';
 import { emitTelemetry } from './telemetry.js';
+import { resourceClassSatisfied } from './capability-profiles.js';
 import { normalizeProviderUsageReceipt } from './usage-receipt.js';
 import { sceneObservationOutputEstimate } from './scene-observation-specialist.js';
 
@@ -103,7 +104,7 @@ function profileSatisfiesExecutionLimits(profile,{contextTokens=0,maxCostClass='
   if(requireStructuredOutput&&!profile.structuredOutput)return false;
   if(Number(contextTokens)>Number(profile.maxContextTokens??Number.MAX_SAFE_INTEGER))return false;
   if(Number(expectedOutputTokens)>Number(profile.maxOutputTokens??Number.MAX_SAFE_INTEGER))return false;
-  if(resourceClass!=null&&profile.resourceClass!==resourceClass)return false;
+  if(!resourceClassSatisfied(profile,resourceClass))return false;
   if(!resourcesWithinLimits(profile.resourceProfile,resourceLimits))return false;
   if(costRank(profile.costClass)>costRank(maxCostClass))return false;
   if(maxLatencyClass!=null&&latencyRank(profile.latencyClass)>latencyRank(maxLatencyClass))return false;

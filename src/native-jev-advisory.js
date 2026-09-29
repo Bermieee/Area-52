@@ -11,12 +11,16 @@
 //     PRESERVE_UNRESOLVED with a result reference.
 // Jev stays optional: nothing is requested unless the host attached a Jev service AND reports it configured.
 import { JevDomain } from './coprocessor/jev-domain-adapter.js';
-import { TemporalJevDecisionKind } from './coprocessor/jev-memory-temporal-adapter.js';
+import { LoreJevDecisionKind, LoreReconciliationClassification } from './coprocessor/jev-lore-adapter.js';
 import { adjudicateJevForOwner } from './coprocessor/owner-integration.js';
+import { reviewLoreJevAdvisory } from './lore-jev-owner-review.js';
 import { stableHash } from './browser-runtime-utils.js';
 
 export const NATIVE_JEV_ADVISORY_LIMITS = Object.freeze({ maxSetsPerTurn: 2, maxMembersPerSet: 8, maxRows: 64, maxSummaryChars: 240 });
 const FRESH_TOKEN = (setId) => 'temporal-advisory:' + setId;
+// The Lore owner's review fences an advisory by the Lore revision it was made against. For a conflict advisory that revision
+// is the conflict set (members, values) plus its member source revisions, so it moves exactly when the evidence moves.
+const loreFence = (set) => stableHash(set.id + '|' + [...(set.sourceRevisionRefs ?? [])].sort().join(','));
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 const uniq = (list) => [...new Set(list)];
 
@@ -81,8 +85,8 @@ export class NativeJevAdvisory {
     const refs = evidence.map((row) => row.evidenceId);
     const option = (optionId, label) => ({ optionId, label, evidenceRefs: refs, provenanceRefs: uniq(set.sourceRevisionRefs), payload: {} });
     return {
-      domain: JevDomain.TEMPORAL,
-      decisionKind: TemporalJevDecisionKind.TRANSITION_CONTRADICTION,
+      domain: JevDomain.LORE,
+      decisionKind: LoreJevDecisionKind.RECONCILIATION,
       decisionId: 'native-jev-advisory:' + set.id,
       turnId: String(record.turnId),
       taskId: 'task:native-jev-advisory:' + set.id,
@@ -90,16 +94,16 @@ export class NativeJevAdvisory {
       causationId: String(record.generationId ?? record.turnId),
       owner: 'LORE_OWNER',
       options: [
-        option('TRANSITION', 'A change over time, not a contradiction'),
-        option('CONTRADICTION', 'A genuine contradiction'),
-        option('TEMPORALLY_DISTINCT', 'Applies to different times or continuities'),
-        option('UNRESOLVED', 'Keep unresolved'),
+        option(LoreReconciliationClassification.CONTRADICTORY, 'A genuine contradiction'),
+        option(LoreReconciliationClassification.TEMPORALLY_DISTINCT, 'Applies to different times or continuities'),
+        option(LoreReconciliationClassification.COMPLEMENTARY, 'The accounts fit together'),
+        option(LoreReconciliationClassification.UNRESOLVED, 'Keep unresolved'),
       ],
       evidence,
       provenanceRefs: uniq(set.sourceRevisionRefs),
       sourceRevisionSet: uniq(set.sourceRevisionRefs),
       worldRevision: 0, sceneRevision: 0, characterStateRevision: 0, ownerRevision: 0,
-      temporalRevision: set.id,
+      loreRevision: loreFence(set),
       freshnessToken: FRESH_TOKEN(set.id),
       deadline: now + 5000, softDeadline: now + 3000, maxRetries: 0,
       adapterMetadata: { conflictSetId: set.id, property: set.property, alternatives: set.alternatives.map((alt) => alt.length) },
@@ -113,7 +117,7 @@ export class NativeJevAdvisory {
     return {
       sourceRevisionSet: current ? uniq(current.sourceRevisionRefs) : [],
       worldRevision: 0, sceneRevision: 0, characterStateRevision: 0,
-      domainRevisions: { temporal: current ? current.id : 'GONE', owner: 0 },
+      domainRevisions: { lore: current ? loreFence(current) : 'GONE', owner: 0 },
       freshnessToken: FRESH_TOKEN(current ? current.id : 'GONE'),
     };
   }
@@ -126,7 +130,7 @@ export class NativeJevAdvisory {
       conflictSetId: set.id, property: set.property, chatId: record.chatId,
       sourceTurnId: record.turnId, sourceSealId: record.published?.sealReceipt?.id ?? null,
       memberClaimIds: set.members.map((m) => m.claimId).sort(),
-      fence: { sourceRevisionSet: uniq(set.sourceRevisionRefs), conflictSetId: set.id },
+      fence: { sourceRevisionSet: uniq(set.sourceRevisionRefs), conflictSetId: set.id, loreFence: loreFence(set) },
       destination: 'NEXT_TURN', appliesToTurnId: null,
       advisory: true, authorityGranted: false, canonicalMutation: false, settlementPerformed: false, contextSealMutated: false, loreMutated: false,
       sequence: ++this.sequence,
@@ -143,16 +147,19 @@ export class NativeJevAdvisory {
         // The requested turn is already sealed and is never touched: the advisory targets the NEXT turn, and its own fence is
         // the freshness gate, so the post-seal rejection (which protects the current turn) does not apply.
         sealed: false,
-        ownerReview: async (proposal) => (proposal.abstained || proposal.unresolved || proposal.staleState === 'STALE'
-          ? { decision: 'UNRESOLVED', reasonCode: 'JEV_PROPOSAL_NOT_DECISIVE', settlementPerformed: false, canonicalMutation: false }
-          : { decision: 'ACCEPTED', reasonCode: 'ADVISORY_ONLY', settlementPerformed: false, canonicalMutation: false }),
+        // The Lore owner decides admissibility of an advisory classification (documented owner boundary); it never mutates
+        // Lore, Truth or a seal. Its revision oracle is the same conflict-set fence the request carried.
+        ownerReview: async (proposal) => {
+          const current = this.#currentState({ ...set, chatId: record.chatId }, loreInterface).domainRevisions.lore;
+          return reviewLoreJevAdvisory(proposal, { currentLoreRevision: current === 'GONE' ? null : current });
+        },
       });
     } catch (error) {
       return finish('FAILED', { reasonCode: String(error?.code ?? error?.message ?? 'JEV_ADVISORY_FAILED').slice(0, 120) });
     }
     // Re-check the fence at admission: nothing it depends on may have moved while Jev was running.
     const after = this.#currentState({ ...set, chatId: record.chatId }, loreInterface);
-    const stillFresh = after.domainRevisions.temporal === set.id && uniq(set.sourceRevisionRefs).every((ref) => after.sourceRevisionSet.includes(ref));
+    const stillFresh = after.domainRevisions.lore === loreFence(set) && uniq(set.sourceRevisionRefs).every((ref) => after.sourceRevisionSet.includes(ref));
     if (record.published?.sealReceipt?.id !== sealBefore) return finish('REJECTED_SEAL_CHANGED', { reasonCode: 'SEAL_CHANGED_DURING_ADVISORY' });
     const proposal = admission?.proposal ?? null;
     const evidence = this.#executionEvidence?.(String(record.turnId)) ?? null;
@@ -161,7 +168,7 @@ export class NativeJevAdvisory {
       return finish('NOT_ADVISED_NO_LIVE_PROVIDER', { reasonCode: 'NO_LIVE_JEV_PROVIDER', providerEvidence: { status: evidence.status, fallbackUsed: Boolean(evidence.fallbackUsed) } });
     }
     const classification = proposal?.proposedOutcome ?? null;
-    const advised = admission?.accepted === true && classification && classification !== 'UNRESOLVED';
+    const advised = admission?.accepted === true && classification && classification !== LoreReconciliationClassification.UNRESOLVED;
     return finish(advised ? 'ADVISED' : 'UNRESOLVED', {
       classification, ownerDecision: admission?.ownerDecision ?? null, reasonCode: admission?.reasonCode ?? null,
       providerEvidence: evidence ? { status: evidence.status, fallbackUsed: Boolean(evidence.fallbackUsed) } : null,
@@ -180,7 +187,7 @@ export class NativeJevAdvisory {
   isFresh(row, loreInterface) {
     if (!row || !['ADVISED'].includes(row.status)) return false;
     const state = this.#currentState({ id: row.conflictSetId, chatId: row.chatId }, loreInterface);
-    return state.domainRevisions.temporal === row.conflictSetId && row.fence.sourceRevisionSet.every((ref) => state.sourceRevisionSet.includes(ref));
+    return state.domainRevisions.lore === row.fence.loreFence && row.fence.sourceRevisionSet.every((ref) => state.sourceRevisionSet.includes(ref));
   }
 
   // Choice-controller lookup (only consulted when the turn already has two or more unresolved alternatives): the standing

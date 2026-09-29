@@ -170,8 +170,12 @@ test('manual model ID can be selected and qualified even when discovery does not
     assert.equal(discovery.state,'READY');
     assert.equal(discovery.models.some(row=>row.id==='area52-local-model'),true);
     assert.equal(discovery.models.some(row=>row.id==='area52-manual-unlisted'),false);
-    assert.equal(discovery.manualModelEntryAllowed,true);
+    // Since 60a60b6 (Wave 16/17 contract) the read model unlocks manual entry only for UNSUPPORTED discovery, so a READY list does not.
+    assert.equal(discovery.manualModelEntryAllowed,false);
 
+    // Open owner decision O9: the same contracts say selection "must match a discovered model ID" when discovery is READY, yet the
+    // action accepts an unlisted ID and authenticated qualification (below) is what verifies it. This test keeps pinning the
+    // qualification behavior; whether the action should reject instead is recorded in the ledger, not decided here.
     const selected=registry.selectResourceModel('http-primary','area52-manual-unlisted');
     assert.equal(selected.modelId,'area52-manual-unlisted');
     assert.equal(selected.modelSelectionMode,'MANUAL');

@@ -460,10 +460,13 @@ export class MemorySummaryHierarchy {
       if (!episode) continue;
       for (const id of memoryReferenceValues(episode,'evidenceRefs')) ids.add(id);
     }
-    for (const childRef of scope.childScopeRefs) {
-      const child=this.currentArtifact(childRef,{freshOnly:true});
-      if (!child) throw new Error('MEMORY_SUMMARY_CHILD_UNAVAILABLE:'+childRef);
-      for (const id of child.exactEvidenceRefs) ids.add(id);
+    const hierarchicalChildManifest=scope.childScopeRefs.length>0&&scope.level!==SummaryScopeLevel.SCENE;
+    if(!hierarchicalChildManifest){
+      for (const childRef of scope.childScopeRefs) {
+        const child=this.currentArtifact(childRef,{freshOnly:true});
+        if (!child) throw new Error('MEMORY_SUMMARY_CHILD_UNAVAILABLE:'+childRef);
+        for (const id of child.exactEvidenceRefs) ids.add(id);
+      }
     }
     if (ids.size>MEMORY_LIMITS.maxSummaryEvidenceRefs) throw new Error('MEMORY_SUMMARY_EVIDENCE_BOUND_EXCEEDED');
     const rows=[...ids].map((id)=>this.graph.evidenceRecord(id)).filter(Boolean)

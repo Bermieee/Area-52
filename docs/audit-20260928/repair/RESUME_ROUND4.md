@@ -2,6 +2,12 @@
 
 **Branch** `repair/installed-architecture`, code head **`d041dca18ae9ef760c333b350b24638174490d1c`** (WIP commit; the note itself lands in the next docs-only commit). PR: https://github.com/Bermieee/Area-52/pull/324 (open, not merged; do not merge). Node 22.22.2.
 
+## Current state (update this block at every checkpoint)
+- Branch `repair/installed-architecture`, local head: see `git log -1` (last verified checkpoint 0afc84c + docs). NOT pushed (no repo access in the session); hand-off is a git bundle. Do not merge.
+- Done this round: O8 tests (6da77e1), full sweep 242/242 on 6da77e1, assembly review + verifier PASS (9d0c716), O2/O9 decided, cooldown timer fix (1f19bd5), turn path 3.3 s to 0.8 s + evidence-eviction fix (fa8d394), batched stall 804 to 412 ms (0890531), persistence failure modes (0afc84c).
+- Verification since 6da77e1: targeted files only (133 + 60 + 33 file runs, all pass). NO full sweep yet on the combined head.
+- Remaining, in order: (1) Jev consumption gaps (D11), (2) re-run verifier, (3) ONE full sweep on the exact combined head, (4) repeat audit probes (stress-lore1200, heap, batched stalls, long-session), (5) closure checklist + FINAL_HANDOFF + PR body text, (6) bundle.
+
 ## Update (6da77e1, docs in the following commit)
 - Step 1 done: O8 round-trip tests added, two lossy paths fixed (own `__proto__` key; missing string entry or short table row now fail closed). See the ledger.
 - Step 2 done: full sweep on exactly `6da77e1`: 242 files, 1,999/1,999 pass, 0 failing files; all 47 baseline failure names now pass; `repair-wave2-long-session` passes alone in 896 s (same as before O8 on this container; it exceeded the sweep's 900 s cap only under 2-way load).

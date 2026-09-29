@@ -12,7 +12,7 @@ Baseline: `main@1de19e82a0083d5dfa70175bc0434dae45ee676c`
 | 14 | FIXED | The 24,000-character limit remains a physical representation-segment limit. Oversized profiles publish one aggregate representation manifest only after every bounded segment validates. |
 | 15 | FIXED | The 96,000-character provider-request limit remains per segment. Oversized compile work is split into bounded provider calls rather than rejected as one request. |
 | 19 | FIXED | `queryForStory` now carries a `LoreRetrievalCoverageReceipt` with examined, examined-capped, matched, returned and bounded-out counts. The public producer receipt preserves it and explicitly does not claim full-corpus coverage. |
-| 20 | VERIFIED_BY_DESIGN + closure | Candidate text and ref transport stay bounded. Candidates expose transport completeness and a stable retrieval-record drillback ref; source drillback now has a paged continuation API, so the 64-ref transport envelope is not an identity ceiling. |
+| 20 | VERIFIED_BY_DESIGN | Candidate text and ref transport stay bounded. Candidates expose transport completeness and a stable retrieval-record drillback ref; source drillback now has a paged continuation API, so the 64-ref transport envelope is not an identity ceiling. |
 | 23 | FIXED | Community construction no longer stops at 256. Community scopes are retained and exposed through 256-scope manifest pages. |
 | 24 | FIXED | Hierarchy construction no longer throws when total scopes exceed 12,000. All derived scopes remain present and are exposed through 12,000-scope manifest pages. |
 | 25 | FIXED | Source/evidence references are represented with 4,096-ref pages. Summary text is split into independently validated <=12,000-character segments with an aggregate coverage receipt. Registry/retrieval evidence resolution walks pages instead of dropping the summary. |
@@ -27,15 +27,18 @@ Navigation summary publication remains derived/read-only. Paged manifests and se
 
 Focused tests cover:
 
-- source text requiring more than 128 physical slices;
+- source text requiring more than 128 physical slices, with sentinel facts at the beginning, middle, end, and across a physical segment overlap;
 - representation segments at <=24,000 characters and provider work at <=96,000 characters;
 - compile checkpoint/restore and edit-during-build supersession;
 - alias retention beyond the 16/7 compatibility windows;
+- ranked nomination overflow propagated by `queryForStory` and the operator-facing producer receipt;
 - more than 256 communities;
-- more than 12,000 hierarchy scopes;
+- more than 12,000 hierarchy scopes, including a source beyond the former boundary;
 - more than 4,096 evidence references;
 - summary text requiring multiple <=12,000-character segments;
-- unchanged single-segment behavior in the existing representation cap-remediation suite.
+- unchanged single-segment behavior in the existing representation cap-remediation suite;
+- exact authored-source drillback in the existing Lore Wave 3 suite;
+- two unrelated story/chat isolation in the deployment live-host suite.
 
 ## Remaining row 18 boundary
 

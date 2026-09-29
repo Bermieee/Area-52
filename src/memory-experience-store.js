@@ -55,6 +55,28 @@ function manifestMap(rows) {
   return Object.fromEntries(rows.filter(([,row])=>row?.manifest).map(([field,row])=>[field,deepClone(row.manifest)]));
 }
 
+function segmentJobs(jobs,limit=MEMORY_LIMITS.maxConsolidationJobs) {
+  const segments=[];
+  for(let offset=0;offset<jobs.length;offset+=limit)segments.push(deepClone(jobs.slice(offset,offset+limit)));
+  return segments.length?segments:[[]];
+}
+
+function advanceConsolidationSegment(session) {
+  if(session.cursor<session.jobs.length)return false;
+  const next=session.pendingJobSegments?.shift?.();
+  if(!next)return false;
+  session.jobs=next;
+  session.cursor=0;
+  session.jobSegmentIndex=Number(session.jobSegmentIndex??0)+1;
+  return true;
+}
+
+function consolidationSourceRefs(session) {
+  const manifest=session?.inputRevisionFence?.sourceRevisionManifest;
+  if(manifest?.kind==='MemoryReferenceManifest'&&Array.isArray(manifest.segments))return manifest.segments.flat().map(String);
+  return [...(session?.inputRevisionFence?.sourceRevisionRefs??[])].map(String);
+}
+
 export class MemoryExperienceStore {
   constructor({graph,snapshot=null}={}) {
     if (!graph) throw new TypeError('MemoryExperienceStore requires TemporalStateGraph');

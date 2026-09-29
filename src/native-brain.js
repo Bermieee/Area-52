@@ -456,6 +456,7 @@ export class Area52NativeBrain{
         reason:sparseUnavailable?sparseRetrievalReceipt.reason:null,
       });
     }
+    this.core.entities.setActiveStory(chat);
     this.#syncLoreEntityIdentities(chat);
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
     const sequence=++this.turnSequence;
@@ -632,7 +633,7 @@ export class Area52NativeBrain{
         try{
           this.core.registerEntityIdentity({
             entityId:entity.entityId,canonicalLabel:entity.canonicalName||entity.entityId,entityType:entity.entityType,
-            providerId:'LORE_OWNER_GRAPH',sourceEntityId:entity.entityId,aliases:entity.aliases??[],
+            providerId:'LORE_OWNER_GRAPH',sourceEntityId:entity.entityId,aliases:entity.aliases??[],storyScopeId:chatId,
             sourceRevisionRefs:entity.sourceRevisionRefs,provenanceRefs:entity.artifactRefs,authorityOrigin:'OWNER_EXPLICIT',
             metadata:{ownerAuthority:'LORE_ONTOLOGY',derivation:'LORE_ENTITY_EXTRACTION'},
           });
@@ -979,7 +980,7 @@ export class Area52NativeBrain{
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
-      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel(),loreIdentitySync:clone(this.loreIdentitySync?.last??null),authorityGranted:false})),
+      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel({storyId:record.chatId}),loreIdentitySync:clone(this.loreIdentitySync?.last??null),authorityGranted:false})),
       readGraphTraversal:(selection={})=>this.#readStage(selection,record=>record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??null),
       readWorldGraphReferences:(selection={})=>this.#readStage(selection,record=>this.#worldGraphReferenceReadModel(record)),
       readRetrievalBudget:(selection={})=>this.#readStage(selection,record=>this.#uiRetrievalBudgetReceipt(record)),

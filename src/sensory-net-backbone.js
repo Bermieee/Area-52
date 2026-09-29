@@ -24,6 +24,7 @@ export class SensoryNetBackbone{
     this.graphWalker=new NativeGraphNeighborhoodRetriever({
       temporalGraph:this.graph,entityRegistry:this.entityRegistry,sceneSnapshot:()=>this.hotCognition?.snapshot?.()??null,
       isSourceRevisionCurrent:(ref)=>this.isSourceRevisionCurrent(ref),limits:graphLimits,
+      sourceStoryOf:(ref)=>{try{const revision=sourceRegistry?.getRevision?.(ref);const source=revision?sourceRegistry.getSource?.(revision.sourceId):null;return source?.metadata?.chatId??null;}catch{return null;}},
       evidenceSink:(evidence)=>{if(evidence?.evidenceId)this.graphEvidence.set(String(evidence.evidenceId),clone(evidence));},
     });
     this.lastEnvelope=null;this.#registerCoreChannels();

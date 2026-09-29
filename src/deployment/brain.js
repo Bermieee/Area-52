@@ -417,6 +417,10 @@ export class DevelopmentDeploymentBrain {
     this.core.registerRetrievalChannel(this.loreChannel);
     this.coprocessorTelemetry = new CoprocessorTelemetry({ limit: 2000 });
     this.resourceConnections = new CoprocessorResourceConnections({ telemetry: this.coprocessorTelemetry });
+    // A resource releasing capacity is the moment retained POST_RESPONSE obligations can run.
+    this.resourceConnections.subscribe((event) => {
+      if (event?.type === 'RESOURCE_EXECUTION' && this.deferredSceneObservations?.size) setTimeout(() => { try { this.drainDeferredSceneObservations(); } catch { /* receipts record the outcome */ } }, 0);
+    });
     this.scenePrefetchSwarm = new NativeSidecarSwarm({ connections: this.resourceConnections, telemetry: this.coprocessorTelemetry });
     this.scenePrefetchConsiderations = [];
     this.sceneFanOutAssemblies = [];
@@ -445,6 +449,7 @@ export class DevelopmentDeploymentBrain {
       },
     });
     this.sceneRuntimePumpScheduled=false;
+    this.deferredSceneObservations=new Map();
     this.resourcePlacementScheduler = new NativeHotDeepScheduler({
       resourceSlots: Math.max(1, Number(resourceCount) || 1),
       foregroundReserve: 1,
@@ -755,19 +760,12 @@ export class DevelopmentDeploymentBrain {
     // a provider that ignores the abort keeps its slot and the replacement is truthfully SKIPPED).
     await Promise.all(superseded.filter(row=>row.physicalCancellationRequested).map(row=>this.resourceConnections.whenTaskSettled?.(row.workId,{timeoutMs:Math.max(25,Math.min(250,Number(foregroundBudgetMs)||250))})));
     this.#syncOptionalDirectorProfiles();
-    const baseExecutor=createResourceDirectorExecutor({
-      connections:this.resourceConnections,task,
-      inputResolver:()=>({
-        narrative:text,phase,sceneId:current.sceneId,baseRevision:current.revision,
-        evidenceRef:sourceRef,sourceRevisionId:sourceRef,
-      }),
-    });
-    const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(text).length/4));
-    const admission=this.resourceDirectorBridge.admit(task,{
-      executor:baseExecutor,units:[{id:task.taskId+':unit',payload:{sourceRevisionId:sourceRef,sceneRevision:current.revision,phase}}],
-      constraints:{contextTokens,expectedOutputTokens:task.metadata.expectedOutputTokens,maxCostClass:'HIGH',requireStructuredOutput:true},
-      owner:'SCENE_OBSERVATION_WORKER',
-    });
+    const admission=this.#admitSceneObservationTask({task,text,phase,current,sourceRef});
+    if(phase==='POST_RESPONSE'&&admission.status==='BLOCKED'&&admission.plan?.capabilityAdmission?.capacityDeferrable===true){
+      // The capable resource is only busy (for example with this turn's foreground observation). A valid
+      // POST_RESPONSE obligation is retained and admitted when capacity returns; it is never dropped for load.
+      return this.#deferSceneObservation({task,text,phase,current,sourceRef,parentWorkId,foregroundBudgetMs,hostEvent,admission});
+    }
     if(admission.status!=='ADMITTED'){
       const receipt=this.#sceneObservationExecutionReceipt({
         task,admission,status:'SKIPPED',reasonCode:'SCENE_OBSERVATION_'+String(admission.status??'UNAVAILABLE'),
@@ -790,6 +788,83 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
+  #admitSceneObservationTask({task,text,phase,current,sourceRef}){
+    const baseExecutor=createResourceDirectorExecutor({
+      connections:this.resourceConnections,task,
+      inputResolver:()=>({
+        narrative:text,phase,sceneId:current.sceneId,baseRevision:current.revision,
+        evidenceRef:sourceRef,sourceRevisionId:sourceRef,
+      }),
+    });
+    const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(text).length/4));
+    return this.resourceDirectorBridge.admit(task,{
+      executor:baseExecutor,units:[{id:task.taskId+':unit',payload:{sourceRevisionId:sourceRef,sceneRevision:current.revision,phase}}],
+      constraints:{contextTokens,expectedOutputTokens:task.metadata.expectedOutputTokens,maxCostClass:'HIGH',requireStructuredOutput:true},
+      owner:'SCENE_OBSERVATION_WORKER',
+    });
+  }
+
+  // One deferred obligation per chat and phase: a newer same-lane observation supersedes the older one (the
+  // same rule as queued work), so the set is bounded by the number of lanes, not by an arbitrary cap.
+  #deferSceneObservation(entry){
+    const key=entry.task.metadata.chatId+'|'+entry.phase,prior=this.deferredSceneObservations.get(key);
+    if(prior){
+      this.#retainSceneObservationReceipt(this.#sceneObservationExecutionReceipt({
+        task:prior.task,admission:prior.admission,status:'CANCELLED',reasonCode:'SCENE_OBSERVATION_SUPERSEDED',attempted:false,returned:false,workerResult:null,
+        sourceRevisionId:prior.sourceRef,sceneRevision:prior.current.revision,parentWorkId:prior.parentWorkId,
+      }));
+    }
+    this.deferredSceneObservations.set(key,{...entry,deferredAt:Date.now()});
+    const receipt=this.#sceneObservationExecutionReceipt({
+      task:entry.task,admission:entry.admission,status:'DEFERRED',reasonCode:'SCENE_OBSERVATION_DEFERRED_FOR_CAPACITY',attempted:false,returned:false,workerResult:null,
+      sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+    });
+    receipt.foregroundDisposition='BACKGROUND';
+    this.#retainSceneObservationReceipt(receipt);
+    return{kind:'SceneObservationWorkResult',status:'DEFERRED',proposal:null,boundarySignals:{},executionReceipt:receipt,foregroundDisposition:'BACKGROUND'};
+  }
+
+  // Runs when a resource releases capacity. Every retained obligation is re-validated against the exact
+  // source revision fence; stale ones are cancelled (history preserved in receipts), the rest are admitted
+  // in arrival order while capacity lasts.
+  drainDeferredSceneObservations(){
+    const outcomes=[];
+    for(const [key,entry] of [...this.deferredSceneObservations.entries()].sort((a,b)=>a[1].deferredAt-b[1].deferredAt)){
+      const chat=entry.task.metadata.chatId;
+      const currentEvidence=this.scene.narrativeFeed.currentEvidence(chat)??[];
+      if(!currentEvidence.some(row=>String(row.sourceRevisionId)===entry.sourceRef)){
+        this.deferredSceneObservations.delete(key);
+        this.#retainSceneObservationReceipt(this.#sceneObservationExecutionReceipt({
+          task:entry.task,admission:entry.admission,status:'CANCELLED',reasonCode:'SCENE_OBSERVATION_DEFERRED_SOURCE_STALE',attempted:false,returned:false,workerResult:null,
+          sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+        }));
+        outcomes.push({key,status:'CANCELLED_STALE'});continue;
+      }
+      const admission=this.#admitSceneObservationTask(entry);
+      if(admission.status==='ADMITTED'){
+        this.deferredSceneObservations.delete(key);
+        const deduped=Boolean(admission.directorAdmission?.deduped);
+        const receipt=this.#sceneObservationExecutionReceipt({
+          task:entry.task,admission,status:deduped?'DEDUPED':'QUEUED',reasonCode:deduped?'SCENE_OBSERVATION_RUNTIME_DEDUPED':'SCENE_OBSERVATION_RUNTIME_QUEUED_AFTER_DEFER',attempted:false,returned:false,workerResult:null,
+          sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+        });
+        receipt.foregroundDisposition='BACKGROUND';
+        this.#retainSceneObservationReceipt(receipt);this.#pumpResourceDirector();
+        outcomes.push({key,status:'QUEUED'});
+      }else if(admission.status==='BLOCKED'&&admission.plan?.capabilityAdmission?.capacityDeferrable===true){
+        outcomes.push({key,status:'STILL_DEFERRED'});
+      }else{
+        this.deferredSceneObservations.delete(key);
+        this.#retainSceneObservationReceipt(this.#sceneObservationExecutionReceipt({
+          task:entry.task,admission,status:'SKIPPED',reasonCode:'SCENE_OBSERVATION_'+String(admission.status??'UNAVAILABLE'),attempted:false,returned:false,workerResult:null,
+          sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+        }));
+        outcomes.push({key,status:'SKIPPED_NOT_CAPACITY'});
+      }
+    }
+    return outcomes;
+  }
+
   #pumpResourceDirector(){
     if(this.sceneRuntimePumpScheduled)return;
     this.sceneRuntimePumpScheduled=true;
@@ -806,6 +881,17 @@ export class DevelopmentDeploymentBrain {
 
   #cancelSceneObservationTasks({chatId=null,phase=null,sourceRevisionRefs=[],exceptTaskId=null,taskId=null,foreignToChat=null,reason='SCENE_OBSERVATION_CANCELLED'}={}){
     const refs=new Set((sourceRevisionRefs??[]).filter(Boolean).map(String)),cancelled=[];
+    for(const [key,entry] of [...this.deferredSceneObservations.entries()]){
+      const meta=entry.task.metadata??{};let deferredMatch=false;
+      if(taskId)deferredMatch=entry.task.taskId===String(taskId);
+      else if(foreignToChat)deferredMatch=String(meta.chatId??'')!==String(foreignToChat);
+      else if(refs.size)deferredMatch=(entry.task.sourceRevisionSet??[]).some(ref=>refs.has(String(ref)));
+      else if(chatId)deferredMatch=String(meta.chatId??'')===String(chatId)&&(!phase||String(meta.phase??'')===String(phase))&&entry.task.taskId!==exceptTaskId;
+      if(!deferredMatch)continue;
+      this.deferredSceneObservations.delete(key);
+      const receipt=this.#sceneObservationExecutionReceipt({task:entry.task,admission:entry.admission,status:'CANCELLED',reasonCode:reason,attempted:false,returned:false,workerResult:null,sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId});
+      receipt.cancelled=true;this.#retainSceneObservationReceipt(receipt);cancelled.push(receipt);
+    }
     for(const record of this.resourceDirector.ledger.list()){
       if(record?.obligation?.taskType!=='SCENE_OBSERVATION')continue;
       if(['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(record.lifecycleStatus)))continue;
@@ -2964,7 +3050,7 @@ export class DevelopmentDeploymentBrain {
       sceneCount: this.scene.registry.list().length,
       sceneObservation: {
         receipts:clone(this.sceneObservationReceipts.slice(-128)),
-        counts:Object.fromEntries(['QUEUED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,this.sceneObservationReceipts.filter(row=>row.status===status).length])),
+        counts:Object.fromEntries(['QUEUED','DEFERRED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,this.sceneObservationReceipts.filter(row=>row.status===status).length])),
         runtimeOpen:this.resourceDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SCENE_OBSERVATION'&&!['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(row.lifecycleStatus))).length,
         runtimeStates:this.resourceDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SCENE_OBSERVATION').slice(-64).map(row=>({
           taskId:row.taskId,lifecycleStatus:row.lifecycleStatus,executionStatus:row.executionStatus,startedCount:row.startedCount,

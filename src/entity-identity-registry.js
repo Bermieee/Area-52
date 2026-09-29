@@ -40,25 +40,38 @@ export class NativeEntityIdentityRegistry{
     this.proposalOrder=[];
     this.settlements=[];
     this.sequence=0;
+    this.activeStoryId=null;
     if(snapshot)this.restoreState(snapshot);
+  }
+
+  // Story isolation. An identity registered by a story-scoped owner (for example Lore, whose read authority is
+  // per story) carries the stories that may see it. Global identities (no scope) are visible everywhere. A scoped
+  // identity is hidden when no story is active or the story is not in its scope (fail closed). The identity
+  // record and its history are kept; only visibility is scoped.
+  setActiveStory(storyId){this.activeStoryId=storyId==null||storyId===''?null:String(storyId);return this.activeStoryId;}
+  #visible(entity,storyId){
+    const scope=entity?.storyScopeIds??[];if(!scope.length)return true;
+    const story=storyId??this.activeStoryId;return story!=null&&scope.includes(String(story));
   }
 
   registerIdentity({
     entityId,canonicalLabel,entityType='UNKNOWN',worldId=null,providerId='CORE',sourceEntityId=null,
-    aliases=[],sourceRevisionRefs=[],provenanceRefs=[],authorityOrigin='OWNER_EXPLICIT',metadata={},
+    aliases=[],sourceRevisionRefs=[],provenanceRefs=[],authorityOrigin='OWNER_EXPLICIT',metadata={},storyScopeId=null,
   }={}){
     const id=req(entityId,'entityId'),label=req(canonicalLabel,'canonicalLabel'),type=normalizedType(entityType),world=worldId==null?null:String(worldId);
     const existing=this.entities.get(id);
     if(existing){
       const sameIdentity=existing.canonicalLabel===label&&compatibleDimension(existing.entityType,type)&&compatibleDimension(existing.worldId,world);
       if(!sameIdentity)throw new Error('ENTITY_IDENTITY_CONFLICT:'+id);
+      // A global identity stays global; a scoped identity gains the additional story.
+      if(storyScopeId!=null&&(existing.storyScopeIds??[]).length){existing.storyScopeIds=[...new Set([...existing.storyScopeIds,String(storyScopeId)])].sort();}
       if(sourceEntityId)this.#linkSource(existing,{providerId,sourceEntityId,sourceRevisionRefs,provenanceRefs,authorityOrigin});
       for(const alias of aliases)this.#addAlias(existing,{alias,sourceRevisionRefs,provenanceRefs,authorityOrigin,providerId,sourceEntityId});
       return clone(existing);
     }
     const row={
       kind:'EntityIdentity',contractVersion:'1.0.0',entityId:id,canonicalLabel:label,entityType:type,worldId:world,
-      aliases:[],sourceLinks:[],revision:1,status:'CURRENT',authorityOrigin,
+      aliases:[],sourceLinks:[],revision:1,status:'CURRENT',authorityOrigin,storyScopeIds:storyScopeId==null?[]:[String(storyScopeId)],
       sourceRevisionRefs:uniq(sourceRevisionRefs),provenanceRefs:uniq(provenanceRefs),metadata:clone(metadata),
       createdSequence:++this.sequence,updatedSequence:this.sequence,
     };
@@ -152,10 +165,11 @@ export class NativeEntityIdentityRegistry{
     return clone(receipt);
   }
 
-  candidateEntities({label,worldId=null,entityType='UNKNOWN',includeRetiredAliases=false,temporalMode='CURRENT',at=null}={}){
+  candidateEntities({label,worldId=null,entityType='UNKNOWN',includeRetiredAliases=false,temporalMode='CURRENT',at=null,storyId=null}={}){
     const key=labelKey(label);if(!key)return[];
     const type=normalizedType(entityType),out=[],historical=String(temporalMode??'CURRENT').toUpperCase()==='HISTORICAL';
     for(const entity of this.entities.values()){
+      if(!this.#visible(entity,storyId))continue;
       if(!compatibleDimension(entity.worldId,worldId)||!compatibleDimension(entity.entityType,type))continue;
       const canonical=!historical&&labelKey(entity.canonicalLabel)===key;
       const aliases=(entity.aliases??[]).filter(row=>historical?aliasTemporalMatch(row,{temporalMode:'HISTORICAL',at}):(includeRetiredAliases||currentAlias(row))).filter(row=>labelKey(row.alias)===key);
@@ -164,37 +178,37 @@ export class NativeEntityIdentityRegistry{
     return out.sort((a,b)=>a.entityId.localeCompare(b.entityId));
   }
 
-  resolveSource({providerId,sourceEntityId}={}){
+  resolveSource({providerId,sourceEntityId,storyId=null}={}){
     const key=sourceKey(providerId,sourceEntityId),link=this.sourceLinks.get(key);
     if(!link||link.current===false)return null;
-    const entity=this.entities.get(link.entityId);return entity?{kind:'EntityResolution',state:'RESOLVED_SOURCE_LINK',entity:clone(entity),link:clone(link)}:null;
+    const entity=this.entities.get(link.entityId);return entity&&this.#visible(entity,storyId)?{kind:'EntityResolution',state:'RESOLVED_SOURCE_LINK',entity:clone(entity),link:clone(link)}:null;
   }
 
-  resolveMention({providerId=null,sourceEntityId=null,label=null,worldId=null,entityType='UNKNOWN',temporalMode='CURRENT',at=null}={}){
+  resolveMention({providerId=null,sourceEntityId=null,label=null,worldId=null,entityType='UNKNOWN',temporalMode='CURRENT',at=null,storyId=null}={}){
     const historical=String(temporalMode??'CURRENT').toUpperCase()==='HISTORICAL';
-    if(!historical&&providerId&&sourceEntityId){const direct=this.resolveSource({providerId,sourceEntityId});if(direct)return direct;}
-    const candidates=this.candidateEntities({label,worldId,entityType,temporalMode,at});
+    if(!historical&&providerId&&sourceEntityId){const direct=this.resolveSource({providerId,sourceEntityId,storyId});if(direct)return direct;}
+    const candidates=this.candidateEntities({label,worldId,entityType,temporalMode,at,storyId});
     const aliasBacked=candidates.filter(row=>row.aliasMatches.length);
     if(candidates.length===1&&aliasBacked.length===1)return{kind:'EntityResolution',state:historical?'RESOLVED_HISTORICAL_ALIAS':'RESOLVED_ACCEPTED_ALIAS',entity:clone(this.entities.get(aliasBacked[0].entityId)),candidateEntityIds:[aliasBacked[0].entityId],aliasMatches:clone(aliasBacked[0].aliasMatches)};
     return{kind:'EntityResolution',state:candidates.length?'UNRESOLVED':'NOT_FOUND',entity:null,candidateEntityIds:candidates.map(x=>x.entityId)};
   }
 
-  normalizeRef(ref,{providerId='CORE',worldId=null,entityType='UNKNOWN'}={}){
+  normalizeRef(ref,{providerId='CORE',worldId=null,entityType='UNKNOWN',storyId=null}={}){
     if(ref==null)return{entityId:null,resolved:false,state:'EMPTY',sourceRef:null};
     if(typeof ref==='string'){
-      if(this.entities.has(ref))return{entityId:ref,resolved:true,state:'CANONICAL_ID',sourceRef:ref};
-      const result=this.resolveMention({label:ref,worldId,entityType});
+      if(this.entities.has(ref)&&this.#visible(this.entities.get(ref),storyId))return{entityId:ref,resolved:true,state:'CANONICAL_ID',sourceRef:ref};
+      const result=this.resolveMention({label:ref,worldId,entityType,storyId});
       if(result.entity)return{entityId:result.entity.entityId,resolved:true,state:result.state,sourceRef:ref};
       return{entityId:String(providerId)+'::'+ref,resolved:false,state:result.state,sourceRef:ref,candidateEntityIds:result.candidateEntityIds??[]};
     }
-    if(ref.canonicalEntityId&&this.entities.has(String(ref.canonicalEntityId)))return{entityId:String(ref.canonicalEntityId),resolved:true,state:'EXPLICIT_CANONICAL_REF',sourceRef:clone(ref)};
+    if(ref.canonicalEntityId&&this.entities.has(String(ref.canonicalEntityId))&&this.#visible(this.entities.get(String(ref.canonicalEntityId)),storyId))return{entityId:String(ref.canonicalEntityId),resolved:true,state:'EXPLICIT_CANONICAL_REF',sourceRef:clone(ref)};
     const sourceEntityId=ref.sourceEntityId??ref.entityId??ref.characterId??ref.objectId??ref.id??ref.ref??null;
     const provider=ref.providerId??providerId;
     if(sourceEntityId){
-      const direct=this.resolveSource({providerId:String(provider),sourceEntityId:String(sourceEntityId)});
+      const direct=this.resolveSource({providerId:String(provider),sourceEntityId:String(sourceEntityId),storyId});
       if(direct)return{entityId:direct.entity.entityId,resolved:true,state:'RESOLVED_SOURCE_LINK',sourceRef:clone(ref)};
     }
-    const result=this.resolveMention({providerId:provider,sourceEntityId,label:ref.label??ref.name??ref.canonicalName,worldId:ref.worldId??worldId,entityType:ref.entityType??entityType});
+    const result=this.resolveMention({providerId:provider,sourceEntityId,label:ref.label??ref.name??ref.canonicalName,worldId:ref.worldId??worldId,entityType:ref.entityType??entityType,storyId});
     if(result.entity)return{entityId:result.entity.entityId,resolved:true,state:result.state,sourceRef:clone(ref)};
     const local=sourceEntityId?String(provider)+'::'+String(sourceEntityId):String(provider)+'::mention:'+stableHash(ref,{length:16});
     return{entityId:local,resolved:false,state:result.state,sourceRef:clone(ref),candidateEntityIds:result.candidateEntityIds??[]};
@@ -219,9 +233,9 @@ export class NativeEntityIdentityRegistry{
     return{kind:'IdentityRevisionInvalidationReceipt',sourceRevisionId:ref,affectedEntityIds:uniq(affectedEntityIds),retiredAliases:uniq(retiredAliases),retiredLinks:uniq(retiredLinks),invalidatedIdentityRevisionRefs:uniq(invalidatedIdentityRevisionRefs),currentIdentityRevisionRefs:uniq(affectedEntityIds.map(id=>{const row=this.entities.get(id);return row?identityRevisionRef(id,row.revision):null;})),historyPreserved:true,unrelatedIdentityMutation:false};
   }
 
-  identityReference(entityId){const entity=this.entities.get(String(entityId));return entity?{kind:'EntityIdentityReference',entityId:entity.entityId,revision:entity.revision,revisionRef:identityRevisionRef(entity.entityId,entity.revision),status:entity.status,entityType:entity.entityType,worldId:entity.worldId,authorityOrigin:entity.authorityOrigin,readOnly:true}:null;}
+  identityReference(entityId,{storyId=null}={}){const entity=this.entities.get(String(entityId));return entity&&this.#visible(entity,storyId)?{kind:'EntityIdentityReference',entityId:entity.entityId,revision:entity.revision,revisionRef:identityRevisionRef(entity.entityId,entity.revision),status:entity.status,entityType:entity.entityType,worldId:entity.worldId,authorityOrigin:entity.authorityOrigin,readOnly:true}:null;}
   isCurrentRevisionRef(ref){const value=String(ref??'');for(const entity of this.entities.values())if(identityRevisionRef(entity.entityId,entity.revision)===value)return true;return false;}
-  readReferences(entityIds=[],{limit=128}={}){const max=Math.max(1,Math.min(512,Number(limit)||128)),wanted=new Set((entityIds??[]).filter(Boolean).map(String));const rows=[];for(const entity of this.entities.values()){if(wanted.size&&!wanted.has(entity.entityId))continue;rows.push(this.identityReference(entity.entityId));if(rows.length>=max)break;}return{kind:'EntityIdentityReferenceSet',contractVersion:'1.0.0',references:rows.filter(Boolean),authorityGranted:false,mutationAuthority:false,settlementAuthority:false};}
+  readReferences(entityIds=[],{limit=128,storyId=null}={}){const max=Math.max(1,Math.min(512,Number(limit)||128)),wanted=new Set((entityIds??[]).filter(Boolean).map(String));const rows=[];for(const entity of this.entities.values()){if(wanted.size&&!wanted.has(entity.entityId))continue;rows.push(this.identityReference(entity.entityId,{storyId}));if(rows.length>=max)break;}return{kind:'EntityIdentityReferenceSet',contractVersion:'1.0.0',references:rows.filter(Boolean),authorityGranted:false,mutationAuthority:false,settlementAuthority:false};}
 
   contract(){
     return{
@@ -238,19 +252,20 @@ export class NativeEntityIdentityRegistry{
     };
   }
 
-  readModel({limit=128}={}){
+  readModel({limit=128,storyId=null}={}){
     const max=Math.max(1,Math.min(512,Number(limit)||128));
+    const visible=[...this.entities.values()].filter(entity=>this.#visible(entity,storyId));
     return{
       kind:'EntityIdentityReadModel',contractVersion:'1.0.0',
-      identities:[...this.entities.values()].slice(0,max).map(clone),
+      identities:visible.slice(0,max).map(clone),
       recentProposals:this.proposalOrder.slice(-max).map(id=>this.proposals.get(id)).filter(Boolean).map(clone),
       recentSettlements:this.settlements.slice(-max).map(clone),
-      counts:{identities:this.entities.size,currentSourceLinks:this.sourceLinks.size,proposals:this.proposals.size},
+      counts:{identities:visible.length,hiddenOutOfStory:this.entities.size-visible.length,currentSourceLinks:this.sourceLinks.size,proposals:this.proposals.size},
       authority:{proposalMutation:false,modelMerge:false,retrievalMerge:false,graphMerge:false,settlementRequired:true},
     };
   }
 
-  get(entityId){const row=this.entities.get(String(entityId));return row?clone(row):null;}
+  get(entityId,{storyId=null}={}){const row=this.entities.get(String(entityId));return row&&this.#visible(row,storyId)?clone(row):null;}
   proposal(proposalId){const row=this.proposals.get(String(proposalId));return row?clone(row):null;}
 
   exportState(){

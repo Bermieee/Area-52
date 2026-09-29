@@ -78,11 +78,14 @@ function providerBalancedEdges(rows=[]){
 }
 
 export class NativeGraphNeighborhoodRetriever{
-  constructor({temporalGraph,entityRegistry,sceneSnapshot=null,isSourceRevisionCurrent=null,evidenceSink=null,limits={}}={}){
+  constructor({temporalGraph,entityRegistry,sceneSnapshot=null,isSourceRevisionCurrent=null,sourceStoryOf=null,evidenceSink=null,limits={}}={}){
     if(!temporalGraph)throw new TypeError('NativeGraphNeighborhoodRetriever requires temporalGraph');
     this.temporalGraph=temporalGraph;this.entityRegistry=entityRegistry??null;this.sceneSnapshot=typeof sceneSnapshot==='function'?sceneSnapshot:()=>null;
     this.isSourceRevisionCurrent=typeof isSourceRevisionCurrent==='function'?isSourceRevisionCurrent:()=>true;
     this.evidenceSink=typeof evidenceSink==='function'?evidenceSink:()=>{};
+    // Story isolation: resolves a source revision to the story (chat) that produced it, or null when unknown/global.
+    this.sourceStoryOf=typeof sourceStoryOf==='function'?sourceStoryOf:()=>null;
+    this.requestStoryId=null;
     this.limits={
       maxDepth:clampInt(limits.maxDepth,3,1,6),maxNodes:clampInt(limits.maxNodes,96,1,1024),
       maxEdges:clampInt(limits.maxEdges,192,1,4096),maxCandidates:clampInt(limits.maxCandidates,64,1,512),
@@ -267,6 +270,7 @@ export class NativeGraphNeighborhoodRetriever{
   #request(intent,context){
     const opts={...(context.graphTraversal??{}),...(intent?.metadata?.graphTraversal??{})};
     const maxDepth=clampInt(opts.maxDepth,this.limits.maxDepth,1,this.limits.maxDepth),maxNodes=clampInt(opts.maxNodes,this.limits.maxNodes,1,this.limits.maxNodes),maxEdges=clampInt(opts.maxEdges,this.limits.maxEdges,1,this.limits.maxEdges),maxCandidates=clampInt(opts.maxCandidates,this.limits.maxCandidates,1,this.limits.maxCandidates);
+    this.requestStoryId=String(context.chatId??this.sceneSnapshot()?.chatNamespace??'')||null;
     const latencyBudgetMs=Math.max(0,Math.min(this.limits.latencyBudgetMs,Number(opts.latencyBudgetMs??context.latencyBudgetMs??this.limits.latencyBudgetMs)));
     return{
       chatId:String(context.chatId??this.sceneSnapshot()?.chatNamespace??'')||null,
@@ -278,8 +282,19 @@ export class NativeGraphNeighborhoodRetriever{
     };
   }
 
+  // A claim learned from another story's source revisions is never evidence here. Unknown provenance stays
+  // visible (older/global claims); a revision that resolves to a different story hides the whole claim.
+  #claimInStory(claim){
+    const story=this.requestStoryId;if(!story)return true;
+    for(const ref of claim.provenance?.sourceRevisionIds??[]){
+      let owner=null;try{owner=this.sourceStoryOf(ref);}catch{owner=null;}
+      if(owner&&String(owner)!==story)return false;
+    }
+    return true;
+  }
+
   #temporalEdges(request){
-    return this.temporalGraph.allClaims().map(claim=>{
+    return this.temporalGraph.allClaims().filter(claim=>this.#claimInStory(claim)).map(claim=>{
       const from=this.#normalizeRef(claim.subjectId,{providerId:'CORE_TEMPORAL_STATE'});
       const rawTo=typeof claim.value==='string'?claim.value:null;
       const to=this.#normalizeRef(rawTo??{providerId:'CORE_TEMPORAL_STATE',sourceEntityId:'value:'+stableHash(claim.value,{length:12}),label:JSON.stringify(claim.value)},{providerId:'CORE_TEMPORAL_STATE'});
@@ -349,7 +364,7 @@ export class NativeGraphNeighborhoodRetriever{
     };
   }
 
-  #normalizeRef(ref,options){return this.entityRegistry?.normalizeRef?.(ref,options)??{entityId:typeof ref==='string'?ref:String(ref?.entityId??ref?.id??ref?.ref??''),resolved:false,state:'IDENTITY_REGISTRY_UNAVAILABLE'};}
+  #normalizeRef(ref,options){return this.entityRegistry?.normalizeRef?.(ref,{...options,storyId:options?.storyId??this.requestStoryId})??{entityId:typeof ref==='string'?ref:String(ref?.entityId??ref?.id??ref?.ref??''),resolved:false,state:'IDENTITY_REGISTRY_UNAVAILABLE'};}
 
   #referenceEdge(row){
     const edge=row.edge;

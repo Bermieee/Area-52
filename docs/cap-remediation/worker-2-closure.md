@@ -54,6 +54,7 @@ Consolidation is page bounded:
 - Native Brain's Memory-owned Runtime executor converts remaining review pages into deterministic <=4,096-proposal units in the same Runtime batch before the current slice commits;
 - Runtime's persisted Work Ledger therefore owns interruption/reload recovery; continuation units bypass the Sidecar producer and do not issue another provider request;
 - page progress is retained as compact counts/coverage instead of thousands of per-proposal diagnostics;
+- Memory's diagnostic ring samples only the first/last eight results for review pages above 32 rows while retaining exact result/status counts;
 - Runtime scheduling authority remains false inside Memory receipts so the existing Runtime remains the scheduler.
 
 ### Row 49 — hierarchical exact drillback
@@ -112,7 +113,7 @@ Focused cap tests on this branch include:
 - `tests/memory-cognition-completion.test.mjs` now includes an exact Runtime interruption/reload continuation case for proposal 4,097
 - existing `tests/memory-wave4.mjs` expectations updated where segmented complete refs are now visible.
 
-Boundary coverage includes below/at/above bounds where applicable, stale exclusion, invalid replacement atomicity, 4,097-job continuation, changed-middle job/proposal resume rejection, Runtime-owned proposal-page recovery after Brain+Memory reload without provider reinvocation, >8,192 descendant drillback, failed summary replacement atomicity, correction/rebuild/restore, term recovery beyond the first 512 fallback rows, sealed-packet immutability and cache-history reload.
+Boundary coverage includes below/at/above bounds where applicable, stale exclusion, invalid replacement atomicity, 4,097-job continuation, changed-middle job/proposal resume rejection, Runtime-owned proposal-page recovery after Brain+Memory reload without provider reinvocation, bounded 4,096-result diagnostic retention, >8,192 descendant drillback, failed summary replacement atomicity, correction/rebuild/restore, term recovery beyond the first 512 fallback rows, sealed-packet immutability and cache-history reload.
 
 ## Validation state
 

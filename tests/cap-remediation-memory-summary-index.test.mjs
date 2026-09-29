@@ -109,3 +109,50 @@ test('summary query terms beyond the reverse-index ceiling recover through paged
   assert.equal(second.profile.targetedFallbackRemaining,0);
   assert.equal(second.profile.queryIndexCoverageComplete,false);
 });
+
+
+test('row 50 public historian boundary exposes incomplete targeted-summary coverage while preserving useful exact fallback',()=>{
+  const hierarchy=fixture();
+  const baseQuery=()=>({
+    kind:'MemoryHistorianQueryResult',
+    contractVersion:'1.0.0',
+    query:'needletail',
+    mode:'EXPLICIT_HISTORY',
+    retrievalIntentId:'intent:needletail',
+    historianRevision:'base:r1',
+    nominations:[{candidateId:'base:exact',representationText:'exact fallback'}],
+    diagnostics:{returned:1},
+    status:'OK',
+    authorityGranted:false,
+    admissionAuthority:false,
+    settlementAuthority:false,
+    contextSealAuthority:false,
+  });
+
+  const first=hierarchy.queryHistorian({
+    query:'needletail',resolutionHint:'SCENE',maxCandidates:4,
+    perspectiveConstraint:{scope:'WORLD'},
+    targetedFallbackOffset:0,
+  },baseQuery);
+
+  assert.equal(first.status,'DEGRADED');
+  assert.equal(first.nominations[0].candidateId,'base:exact');
+  assert.equal(first.continuationAvailable,true);
+  assert.equal(first.continuation.nextTargetedFallbackOffset,512);
+  assert.ok(first.continuation.remaining>0);
+  assert.deepEqual(first.continuation.tier,['SCENE']);
+  assert.equal(first.diagnostics.summaryCoverageComplete,false);
+  assert.equal(first.diagnostics.reason,'SUMMARY_INDEX_TARGETED_FALLBACK_PAGE_BOUND');
+  assert.equal(first.diagnostics.canonicalKnowledgeDropped,false);
+
+  const second=hierarchy.queryHistorian({
+    query:'needletail',resolutionHint:'SCENE',maxCandidates:4,
+    perspectiveConstraint:{scope:'WORLD'},
+    targetedFallbackOffset:first.continuation.nextTargetedFallbackOffset,
+  },baseQuery);
+
+  assert.equal(second.status,'OK');
+  assert.equal(second.continuationAvailable,false);
+  assert.equal(second.nominations.some((row)=>row.metadata?.summaryArtifactId==='summary:index-0550'),true);
+  assert.equal(second.diagnostics.summaryCoverageComplete,true);
+});

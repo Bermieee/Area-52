@@ -1,0 +1,1 @@
+{"N":1200,"totalMs":15617,"longestEventLoopStallMs":520,"ticks":4960,"completed":1200,"mappingCount":1200,"ready":{"READY":1200},"due":0,"aborted":false}

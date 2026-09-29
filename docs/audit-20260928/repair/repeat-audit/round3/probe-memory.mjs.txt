@@ -1,0 +1,21 @@
+memory snapshot bytes 44850 contains assistant token: true
+native snapshot bytes 103576 contains token: true
+after host delete: memory contains token: true | native contains token: true
+next turn request includes deleted token: false
+[
+  'kind',
+  'apiVersion',
+  'graph',
+  'greenRoom',
+  'experienceStore',
+  'historian',
+  'summaryHierarchy',
+  'evidenceBridge',
+  'plasticity',
+  'retrievalFeedback',
+  'causalEvents',
+  'vectorIndex',
+  'uiReadModel',
+  'diagnostics',
+  'consolidationProposalReviews'
+]

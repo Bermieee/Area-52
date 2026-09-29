@@ -18,3 +18,5 @@ Do not merge to `main` without an explicit instruction.
 
 ## Follow-up round status
 Done and pushed: persistence adapter, Lore runtime batches, read/export costs, POST_RESPONSE retention, identity isolation, Truth/Jev trace (finding stays open), per-path drift review. See repair/REPAIR_LEDGER.md FOLLOW-UP GATE. Open: O1-O8, D7/D11 owner rules, 8 withheld assembly paths, all live acceptance.
+
+Final state after the follow-up rounds: see repair/FINAL_HANDOFF.md (verified head c749e0e; 32 baseline failures remain; live acceptance open; not merged).

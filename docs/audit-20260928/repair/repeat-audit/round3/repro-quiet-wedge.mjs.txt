@@ -1,0 +1,21 @@
+T1 normal: Area-52 messages injected = 2
+Quiet generation: Area-52 messages injected into the quiet request = 0
+  pending after quiet: []
+T2 normal: Area-52 messages injected = 3
+  errors: []
+  completed turns: [
+  {
+    turnId: '1',
+    userMessageIndex: 0,
+    assistantMessageIndex: 1,
+    generationType: 'normal'
+  },
+  {
+    turnId: '2',
+    userMessageIndex: 2,
+    assistantMessageIndex: 3,
+    generationType: 'normal'
+  }
+]
+T3 normal: Area-52 messages injected = 3
+  errors: []

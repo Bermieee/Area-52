@@ -41,3 +41,6 @@ O1 retirement policy without a revision oracle; O2 `DEEP_BACKGROUND` (scheduling
 
 ## Round 2 (follow-up)
 See `REPAIR_LEDGER.md` FOLLOW-UP GATE; raw output in `repeat-audit/round2/`. Suite 32 failing tests, all baseline. Assembly verifier FAIL by design with 8 withheld paths (`ASSEMBLY_DRIFT_REVIEW.md`). Routine export at 1,200 Lore entries is 170 KB (was 20.7 MB).
+
+## Round 3 (exact head c749e0e)
+Raw output in `repeat-audit/round3/`; suite and gates summarised in `FINAL_HANDOFF.md`.

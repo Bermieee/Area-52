@@ -1,0 +1,28 @@
+graphProviders from deployment hostBindings: [
+  'LORE_OWNER_GRAPH:LORE_INTELLIGENCE',
+  'MEMORY_OWNER_GRAPH:MEMORY_TEMPORAL',
+  'SCENE_OWNER_GRAPH:SCENE_LIFECYCLE'
+]
+native attachments: {"lore":{"attached":true,"contractVersion":1},"memory":{"attached":true,"contractVersion":"1.0.0"},"memoryConsolidation":{"attached":true,"contractVersion":"1.0.0"},"graphProviders":[{"providerId":"LORE_OWNER_GRAPH","attached":true,"owner":"LORE_INTELLIGENCE","semanticsVersion":"LORE_OWNER_GRAPH_V1","receipt":{"kind":"CoreGraphProviderContract","contractVersion":"1.0.0","providerId":"LORE_OWNER_GRAPH","owner":"LORE_INTELLIGENCE","semanticsVersion":"LORE_OWNER_GRAPH_V1","requiresBoundedQuery":true,"requiresRevisionValidation":true,"graphMutationAuthority":false,"truthAuthority":false,"settlementAuthority":false,"contextSealAuthority":false}},{"providerId":"MEMORY_OWNER_GRAPH","attached":true,"owner":"MEMORY_TEMPORAL","semanticsVersion":"MEMORY_OWNER_GRAPH_V1","receipt":{"kind":"CoreGraphProviderContract","contractVersion":"1.0.0","providerId":"MEMORY_OWNER_GRAPH","owner":"MEMORY_TEMPORAL","semanticsVersion":"MEMORY_OWNER_GRAPH_V1","requiresBoundedQuery":true,"requiresRevisionValidation":true,"graphMutationAuthority":false,"truthAuthority":false,"settlementAuthority":false,"contextSealAuthority":false}},{"providerId":"SCENE_OWNER_GRAPH","attached":true,"owner":"SCENE_LIFECYCLE","semanticsVersion":"SCENE_OWNER_GRAPH_V1","receipt":{"kind":"CoreGraphProviderContract","contractVersion":"1.0.0","providerId":"SCENE_OWNER_GRAPH","owner":"SCENE_LIFECYCLE","semanticsVersion":"SCENE_OWNER_GRAPH_V1","requiresBoundedQuery":true,"requiresRevisionValidation":true,"graphMutationAuthority":false,"truthAuthority":false,"settlementAuthority":false,"contextSealAuthority":false}}]}
+LORE_OWNER_GRAPH Mara -> 5
+LORE_OWNER_GRAPH entity:mara -> 5
+LORE_OWNER_GRAPH mara -> 5
+LORE_OWNER_GRAPH Ember Tavern -> 5
+MEMORY_OWNER_GRAPH Mara -> 0
+MEMORY_OWNER_GRAPH entity:mara -> 0
+MEMORY_OWNER_GRAPH mara -> 0
+MEMORY_OWNER_GRAPH Ember Tavern -> 0
+SCENE_OWNER_GRAPH Mara -> 0
+SCENE_OWNER_GRAPH entity:mara -> 0
+SCENE_OWNER_GRAPH mara -> 0
+SCENE_OWNER_GRAPH Ember Tavern -> 0
+lore entity ids sample: [
+  'entity:f5f534034e820b35',
+  'entity:mara',
+  'entity:65b6dfd02190a3cc',
+  'entity:ember-tavern',
+  'entity:602e179f5d30be9e',
+  'entity:river-district',
+  'entity:deed85f583365077',
+  'entity:sun-blade'
+]

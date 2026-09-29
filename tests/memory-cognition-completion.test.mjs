@@ -832,6 +832,11 @@ test('Memory cognition: over-bound owner review resumes through the persisted Ru
   assert.equal(afterPageOne.memoryConsolidation?.reviewProgress?.coverageComplete,false);
   assert.equal(afterPageOne.memoryConsolidation?.reviewProgress?.runtimeOwnedContinuation,true);
   assert.equal(proposeCalls,2);
+  const pagedDiagnostic=memory.status().diagnostics.filter((row)=>row.kind==='MemoryConsolidationBundleReviewReceipt').at(-1);
+  assert.equal(pagedDiagnostic?.resultsSampled,true);
+  assert.equal(pagedDiagnostic?.resultCount,4096);
+  assert.equal(pagedDiagnostic?.results?.length,16);
+  assert.equal(pagedDiagnostic?.resultStatusCounts?.SKIPPED,4096);
 
   const brainSnapshot=brain.snapshot();
   const memorySnapshot=memory.snapshot();

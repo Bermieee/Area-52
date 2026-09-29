@@ -96,7 +96,7 @@ export class Area52CognitiveCore {
   graphWalkerDiagnostics(){return this.retrieval.graphWalkerDiagnostics();}
   worldGraphReferences(query,options={}){return this.retrieval.graphReferenceSet(query,options);}
   registerJevAdapter(adapter){return this.cognitiveChoice.registerJevAdapter(adapter);}
-  registerJevAdvisoryLookup(lookup){return this.cognitiveChoice.registerAdvisoryLookup(lookup);}
+  registerJevAdvisoryLookup(lookup,options={}){return this.cognitiveChoice.registerAdvisoryLookup(lookup,options);}
   cognitiveChoiceReceipt(turnId){return this.cognitiveChoice.getReceipt(turnId);}
   sensoryEnvelope(query,options={}){return this.retrieval.retrieveEnvelope(query,options);}
   sensoryManifest(){return this.retrieval.manifest();}

@@ -101,10 +101,12 @@ export class CognitiveChoiceController{
   }
 
   // Optional lookup of a standing, fresh NEXT_TURN Jev advisory for the current alternatives (see native-jev-advisory.js).
-  registerAdvisoryLookup(lookup=null){
+  // `isFresh(advisory)` re-checks an advisory's fence at the moment it is consumed (prompt attachment happens later in the turn).
+  registerAdvisoryLookup(lookup=null,{isFresh=null}={}){
     if(lookup!==null&&typeof lookup!=='function')throw new TypeError('advisory lookup must be a function');
-    this.advisoryLookup=lookup;
+    this.advisoryLookup=lookup;this.advisoryIsFresh=typeof isFresh==='function'?isFresh:null;
   }
+  isAdvisoryFresh(advisory){try{return Boolean(advisory)&&(this.advisoryIsFresh?this.advisoryIsFresh(advisory)===true:false);}catch{return false;}}
 
   registerJevAdapter(adapter=null){
     if(adapter!==null&&typeof adapter?.invoke!=='function')throw new TypeError('Jev adapter requires invoke(request)');
@@ -202,7 +204,7 @@ export class CognitiveChoiceController{
           ...this.#defaultJev(),considered:true,invoked:false,skipped:false,unavailable:false,advised:true,
           action:JevAction.PRESERVE_UNRESOLVED,reason:CognitiveReason.JEV_REQUIRED,alternativeCount:alternatives.length,request,
           decisionRevision:standing.fence?.conflictSetId??null,resultRef:standing.id,
-          advisory:{id:standing.id,conflictSetId:standing.conflictSetId,classification:standing.classification,status:standing.status,destination:'NEXT_TURN',sourceTurnId:standing.sourceTurnId,authorityGranted:false,canonicalMutation:false},
+          advisory:{id:standing.id,conflictSetId:standing.conflictSetId,classification:standing.classification,status:standing.status,destination:'NEXT_TURN',sourceTurnId:standing.sourceTurnId,sourceRevisionSet:[...(standing.fence?.sourceRevisionSet??[])],authorityGranted:false,canonicalMutation:false},
         };
         return session.jev;
       }

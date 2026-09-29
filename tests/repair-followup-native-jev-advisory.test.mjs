@@ -278,3 +278,89 @@ test('installed: a failed live Jev call (native fixture fallback) is never prese
   assert.notEqual(next.published.cognitiveChoiceReceipt.jev.action, 'PRESERVE_UNRESOLVED', 'nothing standing to consume');
   h.session.destroy();
 });
+
+// Next-turn PROMPT consumption (closure final pass): the admitted advisory reaches the next conflicting turn's prompt as a
+// labelled ADVISORY note in UNRESOLVED_EVIDENCE, sealed in that turn's packet, separate from canonical facts, fresh at
+// consumption; the requesting turn's seal is never touched.
+const canonicalRows = (packet) => JSON.stringify(['current', 'historical', 'unresolved', 'relevantLore', 'episodicMemory'].map((k) => packet?.[k] ?? []));
+async function consumingWorld({ connect = true } = {}) {
+  const env = await installedJevWorld();
+  const requests = [];
+  const ask = async (text) => { env.h.user(text); const r = await env.h.generate('normal', 'Nobody knows.'); requests.push(r.req); await env.h.nativeBrain.drainBackgroundLearning({ maxCycles: 64 }); return env.h.nativeBrain.readTurn(env.h.nativeBrain.uiBindings().readSelection({ chatId: env.w.chat }).turnId); };
+  if (connect) await env.h.session.brain.connectOptionalResource({ kind: 'JEV', resourceId: 'jev', endpoint: 'https://jev.invalid/v1', modelId: 'jev-mock', apiKey: 'k' });
+  return { ...env, ask, requests };
+}
+
+test('prompt consumption: the next conflicting turn carries a sealed, labelled ADVISORY note in UNRESOLVED_EVIDENCE; canonical rows are unchanged; the earlier seal is untouched', async () => {
+  const withJev = await consumingWorld();
+  const first = await withJev.ask(withJev.w.ask);
+  const firstSeal = JSON.stringify(first.published.sealReceipt), firstPacket = JSON.stringify(first.published.packet);
+  assert.equal(first.published.packet.advisories, undefined, 'the requesting turn has no advisory (it did not exist yet)');
+  const next = await withJev.ask('Where is the Sun Blade now? The reports still conflict.');
+  const advisory = withJev.h.nativeBrain.readJevAdvisories().rows[0];
+  const notes = next.published.packet.advisories ?? [];
+  assert.equal(notes.length, 1); const note = notes[0];
+  assert.equal(note.a, 'ADVISORY'); assert.equal(note.advisoryOnly, true); assert.equal(note.canonical, false);
+  assert.equal(note.advisoryId, advisory.id); assert.equal(note.classification, advisory.classification);
+  assert.match(note.note, /ADVISORY ONLY/); assert.match(note.note, /not a fact and not a resolution/);
+  assert.ok(note.relatesTo.length >= 2, 'tied to the conflicting accounts');
+  for (const field of ['current', 'historical', 'unresolved', 'relevantLore']) assert.equal((next.published.packet[field] ?? []).some((row) => row.id === note.id), false, 'never mixed into ' + field);
+  assert.deepEqual(next.published.packet.provenanceIndex[note.id], [...advisory.fence.sourceRevisionSet].sort());
+  const section = next.delivery.plan.sections.find((s) => s.slot === 'UNRESOLVED_EVIDENCE');
+  assert.ok(section && section.content.some((row) => row.id === note.id), 'rendered in UNRESOLVED_EVIDENCE');
+  assert.equal(next.delivery.plan.sections.filter((s) => s.slot !== 'UNRESOLVED_EVIDENCE').some((s) => JSON.stringify(s.content ?? '').includes(note.id)), false, 'only there');
+  assert.ok(JSON.stringify(withJev.requests.at(-1).chat).includes('ADVISORY ONLY'), 'reaches the injected prompt');
+  assert.equal(next.published.cognitiveChoiceReceipt.jev.action, 'PRESERVE_UNRESOLVED', 'the alternatives stay unresolved');
+  assert.equal(JSON.stringify(first.published.sealReceipt), firstSeal); assert.equal(JSON.stringify(first.published.packet), firstPacket, 'earlier seal and packet untouched');
+  assert.equal(next.published.sealReceipt.packetHash != null, true);
+  const without = await consumingWorld({ connect: false });
+  await without.ask(without.w.ask);
+  const plain = await without.ask('Where is the Sun Blade now? The reports still conflict.');
+  assert.equal(plain.published.packet.advisories, undefined, 'no Jev resource: no advisory');
+  assert.equal(canonicalRows(next.published.packet), canonicalRows(plain.published.packet), 'canonical rows identical with and without the advisory');
+  withJev.h.session.destroy(); without.h.session.destroy();
+});
+
+test('prompt consumption: an advisory that went stale before consumption is not attached, and a turn without the conflict evidence gets no note', async () => {
+  const env = await consumingWorld();
+  await env.ask(env.w.ask);
+  assert.equal(env.h.nativeBrain.readJevAdvisories().rows[0].status, 'ADVISED');
+  // Evidence rule, on a real consuming packet: remove one conflict member's row and the note is not attached.
+  const { attachJevAdvisoryToPacket } = await import('../src/jev-advisory-packet.js');
+  const consuming = await env.ask('Where is the Sun Blade now? The reports still conflict.');
+  const note = consuming.published.packet.advisories?.[0];
+  assert.ok(note, 'precondition: attached when the members are present');
+  const advisory = { ...consuming.published.cognitiveChoiceReceipt.jev.advisory };
+  const base = { ...consuming.published.packet }; delete base.advisories;
+  // Every row carrying one member's revision is removed (the contextual and sparse paths can both deliver it).
+  const member = advisory.sourceRevisionSet[0];
+  const carries = (row) => (base.provenanceIndex[row.id] ?? []).includes(member);
+  assert.ok(base.relevantLore.some(carries));
+  const missing = { ...base, relevantLore: base.relevantLore.filter((row) => !carries(row)), current: (base.current ?? []).filter((row) => !carries(row)), historical: (base.historical ?? []).filter((row) => !carries(row)), unresolved: (base.unresolved ?? []).filter((row) => !carries(row)) };
+  const result = attachJevAdvisoryToPacket(missing, advisory);
+  assert.equal(result.attached, false); assert.equal(result.reason, 'ADVISORY_MEMBERS_NOT_IN_PACKET');
+  assert.equal(attachJevAdvisoryToPacket(base, { ...advisory, authorityGranted: true }).attached, false, 'anything claiming authority is refused');
+  // A member source changes: the advisory's fence moves, so it must not reach the next prompt as current advice.
+  const book = env.w.book();
+  env.h.session.ingestLorebook({ ...book, entries: book.entries.map((e) => e.uid === 'blade-report-a' ? { ...e, content: e.content + ' The dockhand later recanted.' } : e) });
+  const after = await env.ask('Where is the Sun Blade now? The reports still conflict.');
+  assert.equal(after.published.packet.advisories, undefined, 'stale advisory not attached');
+  assert.equal(JSON.stringify(env.requests.at(-1).chat).includes('ADVISORY ONLY'), false);
+  env.h.session.destroy();
+});
+
+test('prompt consumption: freshness is re-checked at attachment; a fence that moves after the lookup blocks the note', async () => {
+  const env = await consumingWorld();
+  await env.ask(env.w.ask);
+  const advisory = env.h.nativeBrain.jevAdvisory;
+  const realIsFresh = advisory.isFresh.bind(advisory);
+  let calls = 0;
+  // First call (choice-controller lookup) sees a fresh advisory; the re-check at attachment sees the fence moved.
+  advisory.isFresh = (row, iface) => { calls += 1; return calls === 1 ? realIsFresh(row, iface) : false; };
+  const next = await env.ask('Where is the Sun Blade now? The reports still conflict.');
+  assert.ok(calls >= 2, 'looked up, then re-checked');
+  assert.equal(next.published.packet.advisories, undefined, 'not attached');
+  assert.equal(next.published.cognitiveChoiceReceipt.jev.advisory?.promptAttachment?.reason ?? 'ADVISORY_STALE_AT_CONSUMPTION', 'ADVISORY_STALE_AT_CONSUMPTION');
+  assert.equal(JSON.stringify(env.requests.at(-1).chat).includes('ADVISORY ONLY'), false);
+  env.h.session.destroy();
+});

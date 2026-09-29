@@ -173,7 +173,10 @@ export class Area52NativeBrain{
     this.rejectedLoreRevisionIds=new Set(clone(snapshot?.rejectedLoreRevisionIds??[]));
     this.loreInterface=null;this.memoryInterface=null;this.memoryConsolidationInterface=null;
     this.jevAdvisory=new NativeJevAdvisory({snapshot:snapshot?.jevAdvisories??null});
-    this.core.registerJevAdvisoryLookup((alternatives,context={})=>this.jevAdvisory.lookup(alternatives,{loreInterface:this.loreInterface,candidates:context.candidates}));
+    this.core.registerJevAdvisoryLookup((alternatives,context={})=>this.jevAdvisory.lookup(alternatives,{loreInterface:this.loreInterface,candidates:context.candidates}),{
+      // Freshness at consumption: the stored row must still be ADVISED and its fence (conflict set + member revisions) current.
+      isFresh:(advisory)=>{const row=this.jevAdvisory.list().find(r=>r.id===advisory?.id);return Boolean(row)&&this.jevAdvisory.isFresh(row,this.loreInterface);},
+    });
     this.ownerSparseChannel=new ProductionSparseRetrievalChannel({
       evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
       revisionGuard:(source)=>this.#admitLoreOwnerRevision(source),

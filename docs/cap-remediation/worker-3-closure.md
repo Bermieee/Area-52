@@ -4,7 +4,7 @@ Date: 2026-09-29
 Repository: Bermieee/Area-52  
 Branch: `Development-Worker-3`  
 Starting main: `1de19e82a0083d5dfa70175bc0434dae45ee676c`  
-Repair/test head before closure metadata: `a49e966efc8cdc370278fddd08f74f2ffb0dc2af`
+Repair/test sequence reviewed through: `682da7a0eaf2476c0732cf6999264cd58a3bd8cd`
 
 ## Scope and evidence rule
 
@@ -89,13 +89,16 @@ No blanket context-limit increase was made. Required `CURRENT_SCENE` and `USER_I
 - choice-summary normalization and `physicalAttempt:false`;
 - async Jev connection/pending/failure/owner-rejection diagnostics;
 - partial-Lore PromptPlan/ContextReceipt accounting;
+- installed SillyTavern host insertion of the actually admitted partial `RELEVANT_LORE` fragment, with the remainder still explicitly deferred;
 - long Scene query head/tail coverage and ref bounds;
 - hop-cap vs genuine NOT_FOUND plus bounded recovery;
 - ACTIVE prefetch retention at capacity;
 - 12-claim compiler coverage accounting;
 - 12k external evidence head/tail + drillback;
 - 1.6k Candidate Bus ranking text head/tail + drillback;
-- source-wide proof that production has no `enqueueDeep()` caller.
+- source-wide proof that production has no `enqueueDeep()` caller;
+- connected-resource timeout/abort returning `activeExecutions` to zero;
+- terminal Runtime failure returning the Worker Director governor to `activeLeases:0`.
 
 Existing acceptance expected on the draft PR includes Scene async/runtime lifecycle, Scene cognition owner/Jev integration, deployment live-host insertion, Candidate Bus, Cognitive Choice, browser-facing imports, syntax, and the repository-wide baseline-diff workflow. The PR's exact-head checks are authoritative; this document does not pre-claim a CI result.
 
@@ -107,6 +110,19 @@ Existing acceptance expected on the draft PR includes Scene async/runtime lifecy
 - `cbdffa9c1ae862685c7c6719983231dd9d9917c3` — report bounded claim coverage
 - `14c1463d0c861567c204dca764694cba5852b0b8` — preserve Jev reason detail and physical attempt
 - `a49e966efc8cdc370278fddd08f74f2ffb0dc2af` — add Scene/Jev publication cap regressions
+- `54dfd4e9584b81d5db21786e3e712c466184d4f7` — document closure and cap dispositions
+- `4ff6c8b35d7d150ef478ffac41107ca9dc7ad00d` — fix claim coverage finalize block
+- `1790d81a9cd96b7f2878332ac7a9f0d96bc9f62a` — reconcile reviewed Scene/Jev assembly digests
+- `dc5e79c6448530ecec15c8a2d9bfd9fb69396c04` — assert partial Lore reaches final host payload
+- `fe98a54a5561ec484bc2927c15c8e5bbd6fc6347` — align host payload regression with installed evidence seam
+- `ab6a8731dab58e5476bb2cb42dc8072e402979c7` — assert provider timeout/abort release connected-resource slots
+- `682da7a0eaf2476c0732cf6999264cd58a3bd8cd` — prove terminal Runtime failure releases the Director lease
+
+## Validation status
+
+The prior Worker 3 head ran the repository workflows with all observed functional suites green; the only failing Main Owner Integration step was the development-assembly digest verifier, which reported the three intentional reviewed Worker 3 byte changes as undeclared drift. Commit `1790d81a...` updates the reconciliation overlay with those exact reviewed git-blob digests instead of weakening the verifier.
+
+The final host-payload and lease-release assertions were added afterward. Exact-head GitHub Actions are the authoritative acceptance surface for those final commits; queued/pending checks are not counted as passed in this closure document.
 
 ## Acceptance still requiring a real provider
 

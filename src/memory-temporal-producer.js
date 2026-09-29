@@ -8,7 +8,7 @@ import {
 } from './memory-contracts.js';
 import {TemporalStateGraph} from './memory-temporal-state-graph.js';
 import {MemoryGreenRoomStore} from './memory-green-room.js';
-import {MemoryExperienceStore} from './memory-experience-store.js';
+import {MemoryExperienceStore,memoryReferenceValues} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';
 import {MemorySummaryHierarchy} from './memory-summary-hierarchy.js';
 import {MemoryExternalEvidenceBridge} from './memory-evidence-bridge.js';
@@ -108,7 +108,7 @@ export class MemoryTemporalProducer {
     this.summaryHierarchy.onEpisodePublished(episode);
     if (episode.freshness==='FRESH'&&resolution.status==='RESOLVED') this.ensureSceneSummaryScope(record.proposal,episode,resolution);
     this.historian.build();
-    this.notifyUi('MEMORY_SCENE_EPISODE_REFRESHED',episode.evidenceRefs??[],{
+    this.notifyUi('MEMORY_SCENE_EPISODE_REFRESHED',memoryReferenceValues(episode,'evidenceRefs'),{
       episodeId:episode.id,logicalId:episode.logicalId,freshness:episode.freshness,
     });
     return episode;
@@ -116,7 +116,7 @@ export class MemoryTemporalProducer {
 
   ensureSceneSummaryScope(proposal,episode,resolution) {
     const scopeRef='SCENE:'+proposal.sceneId;
-    const desiredEvidence=[...(episode.evidenceRefs??[])].sort();
+    const desiredEvidence=memoryReferenceValues(episode,'evidenceRefs').sort();
     const desiredEpisodes=[episode.logicalId].sort();
     const existing=this.summaryHierarchy.scope(scopeRef);
     if (
@@ -285,12 +285,12 @@ export class MemoryTemporalProducer {
     const compaction=this.runSummaryCompaction({maxUnits:3});
     this.historian.build();
     const historianRecord=[...this.historian.records.values()].find((row)=>row.artifactId===episode.id&&Number(row.artifactRevision)===Number(episode.revision))??null;
-    const vectorWork=this.vectorIndex.enqueueArtifact({artifactId:episode.id,artifactRevision:episode.revision,chatId,sourceRevisionRefs:episode.sourceRevisionRefs,historianRecordRef:historianRecord?.id??null});
+    const vectorWork=this.vectorIndex.enqueueArtifact({artifactId:episode.id,artifactRevision:episode.revision,chatId,sourceRevisionRefs:memoryReferenceValues(episode,'sourceRevisionRefs'),historianRecordRef:historianRecord?.id??null});
     const receipt={
       kind:'MemoryCompletedTurnAdmissionReceipt',contractVersion:'1.0.0',
       status:priorId===episode.id?'REPLAYED':'COMPLETED',reasonCode:null,
       chatId,turnId,generationId,correlationId:input.correlationId??null,sceneId:episode.sceneId,sceneRevision:episode.sceneRevision,
-      sourceRevisionRefs:[...episode.sourceRevisionRefs],evidenceRefs:[...episode.evidenceRefs],
+      sourceRevisionRefs:memoryReferenceValues(episode,'sourceRevisionRefs'),evidenceRefs:memoryReferenceValues(episode,'evidenceRefs'),
       episodeId:episode.id,episodeLogicalId:episode.logicalId,episodeRevision:episode.revision,
       exactSourceDrillback:this.experienceStore.exactDrillback(episode.id).length>0,
       summaryScopeRefs:hierarchy.scopeRefs,summaryPublishedArtifactIds:[...(compaction.publishedArtifactIds??[])],
@@ -299,7 +299,7 @@ export class MemoryTemporalProducer {
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
     this.pushDiagnostic(receipt);
-    this.notifyUi('MEMORY_COMPLETED_TURN_ADMITTED',episode.evidenceRefs??[],{episodeId:episode.id,turnId,generationId});
+    this.notifyUi('MEMORY_COMPLETED_TURN_ADMITTED',memoryReferenceValues(episode,'evidenceRefs'),{episodeId:episode.id,turnId,generationId});
     return receipt;
   }
 
@@ -352,7 +352,7 @@ export class MemoryTemporalProducer {
     });
     if(touchedScene){
       defineIfChanged({level:'SCENE',scopeId:scenePageId(touchedScene.key,touchedScene.page),parentScopeRefs:['SESSION:'+sessionId(touchedSession)],
-        evidenceRefs:[...new Set(touchedScene.rows.flatMap((row)=>row.evidenceRefs??[]))].sort(),
+        evidenceRefs:[...new Set(touchedScene.rows.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort(),
         episodeLogicalIds:touchedScene.rows.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
       defineIfChanged({level:'SESSION',scopeId:sessionId(touchedSession),parentScopeRefs:[arcScopeRef],
         childScopeRefs:sessionPages[touchedSession].map((row)=>'SCENE:'+scenePageId(row.key,row.page)),provenance:['native-brain:'+chatId]});
@@ -370,9 +370,9 @@ export class MemoryTemporalProducer {
       const current=this.experienceStore.currentEpisodes({freshOnly:true});
       const supports=current.filter((row)=>(row.reflectionSignals??[]).some((signal)=>signal.reflectionKey===candidate.reflectionKey&&signal.polarity==='SUPPORT'));
       const contradictions=current.filter((row)=>(row.reflectionSignals??[]).some((signal)=>signal.reflectionKey===candidate.reflectionKey&&signal.polarity==='CONTRADICT'));
-      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
-      const contradictionEvidenceRefs=[...new Set(contradictions.flatMap((row)=>row.evidenceRefs??[]))].sort();
-      const sourceRevisionRefs=[...new Set([...supports,...contradictions].flatMap((row)=>row.sourceRevisionRefs??[]))].sort();
+      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort();
+      const contradictionEvidenceRefs=[...new Set(contradictions.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort();
+      const sourceRevisionRefs=[...new Set([...supports,...contradictions].flatMap((row)=>memoryReferenceValues(row,'sourceRevisionRefs')))].sort();
       const session=this.startConsolidation([{type:'REFLECTION',input:{
         reflectionKey:candidate.reflectionKey,statement:candidate.statement,subjectRefs:candidate.subjectRefs,
         supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
@@ -443,7 +443,7 @@ export class MemoryTemporalProducer {
       if(!id)return[];
       if(this.graph.evidenceRecord(id))return[id];
       const episode=byId.get(id)??byLogical.get(id);
-      if(episode)return [...(episode.evidenceRefs??[])];
+      if(episode)return memoryReferenceValues(episode,'evidenceRefs');
       return [...(sourceEvidence.get(id)??[])];
     };
     const results=[];
@@ -461,7 +461,7 @@ export class MemoryTemporalProducer {
       const resolvedArtifactRefs=sourceArtifactRefs.map((ref)=>({ref,resolved:resolveEpisodeArtifactRef(ref)}));
       const supports=[...new Map(resolvedArtifactRefs.filter((row)=>row.resolved).map((row)=>[row.resolved.episode.logicalId,row.resolved.episode])).values()];
       const declaredSources=new Set((proposal.sourceRevisionSet??bundle.sourceRevisionSet??[]).map(String));
-      if(declaredSources.size&&supports.some((episode)=>(episode.sourceRevisionRefs??[]).some((ref)=>!declaredSources.has(String(ref))))){
+      if(declaredSources.size&&supports.some((episode)=>memoryReferenceValues(episode,'sourceRevisionRefs').some((ref)=>!declaredSources.has(String(ref))))){
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_REVISION_MISMATCH',artifactId:null});
         continue;
       }
@@ -484,7 +484,7 @@ export class MemoryTemporalProducer {
         results.push({...deepClone(priorReview),status:'REPLAYED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_REPLAY'});
         continue;
       }
-      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
+      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort();
       const rawContradictions=[...(proposal.payload?.contradictingEvidence??proposal.payload?.contradictionEvidenceRefs??[])].map(String).filter(Boolean);
       const contradictionEvidenceRefs=[...new Set(rawContradictions.flatMap(resolveEvidenceRef))].sort();
       const unresolvedContradictions=rawContradictions.filter((ref)=>resolveEvidenceRef(ref).length===0);
@@ -497,7 +497,7 @@ export class MemoryTemporalProducer {
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_REFLECTION_STATEMENT_MISSING',artifactId:null});
         continue;
       }
-      const sourceRevisionRefs=[...new Set([...supports.flatMap((row)=>row.sourceRevisionRefs??[]),...contradictionEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean)])].sort();
+      const sourceRevisionRefs=[...new Set([...supports.flatMap((row)=>memoryReferenceValues(row,'sourceRevisionRefs')),...contradictionEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean)])].sort();
       const eligibility=this.experienceStore.reflectionEligibility({
         reflectionKey:String(proposal.semanticIdentity??proposalId),
         supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
@@ -632,10 +632,10 @@ export class MemoryTemporalProducer {
 
   reflectionFromGreenRoomProposal(proposal,options={}) {
     const reflection=this.experienceStore.reflectionFromGreenRoomProposal(proposal,options);
-    this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
+    this.summaryHierarchy.invalidateEvidenceRefs([...memoryReferenceValues(reflection,'supportEvidenceRefs'),...memoryReferenceValues(reflection,'contradictionEvidenceRefs')],'REFLECTION_CHANGED');
     this.historian.build();
     this.plasticity.observeArtifact(reflection);
-    this.notifyUi('MEMORY_REFLECTION_PUBLISHED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
+    this.notifyUi('MEMORY_REFLECTION_PUBLISHED',memoryReferenceValues(reflection,'supportEvidenceRefs'),{reflectionId:reflection.id});
     return reflection;
   }
 
@@ -644,7 +644,7 @@ export class MemoryTemporalProducer {
     this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
     this.historian.build();
     this.plasticity.observeArtifact(reflection);
-    this.notifyUi('MEMORY_REFLECTION_REVISED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
+    this.notifyUi('MEMORY_REFLECTION_REVISED',memoryReferenceValues(reflection,'supportEvidenceRefs'),{reflectionId:reflection.id});
     return reflection;
   }
 

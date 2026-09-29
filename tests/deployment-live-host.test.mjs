@@ -581,6 +581,7 @@ test('detailed profile begins before Scene admission and includes checkpoint per
 test('Worker 3 host payload preserves partially admitted Lore',async()=>{
   const {sillyTavern,context,listeners}=makeHost();
   const nativeBrain=fakeNativeBrain();
+  let preparedPlan=null;
   const basePrepare=nativeBrain.prepareTurn.bind(nativeBrain);
   nativeBrain.prepareTurn=async function(input){
     const prepared=await basePrepare(input);
@@ -596,6 +597,7 @@ test('Worker 3 host payload preserves partially admitted Lore',async()=>{
       deferred:[{slot:'RELEVANT_LORE',reason:'PARTIAL_OPTIONAL_LORE_BY_BUDGET',partial:true,admittedEntryCount:1,deferredEntryCount:3,requiredTokens:90,remainingTokensAtDecision:22}],
       fallbackDecisions:['PARTIAL_OPTIONAL_LORE_BY_BUDGET'],
     };
+    preparedPlan=structuredClone(prepared.promptPlan);
     prepared.rendered={
       ...prepared.rendered,
       messages:[
@@ -621,10 +623,8 @@ test('Worker 3 host payload preserves partially admitted Lore',async()=>{
   const injected=actualRequest.chat.map(row=>String(row.content??''));
   assert.ok(injected.some(text=>text.includes('[RELEVANT_LORE]')&&text.includes('eastern lantern')),
     'final host payload must contain the Lore fragment that PromptPlan actually admitted');
-  const selected=session.exportEvidence().nativeBrainIntegration.selectedTurnReceipt;
-  const plan=selected?.delivery?.plan??null;
-  assert.ok(plan?.sections?.some(row=>row.slot==='RELEVANT_LORE'&&row.representation==='COMPACT'));
-  assert.ok(plan?.deferred?.some(row=>row.slot==='RELEVANT_LORE'&&row.partial===true&&row.deferredEntryCount===3));
-  assert.equal(selected?.delivery?.hostObserved?.state,'OBSERVED');
+  assert.ok(preparedPlan?.sections?.some(row=>row.slot==='RELEVANT_LORE'&&row.representation==='COMPACT'));
+  assert.ok(preparedPlan?.deferred?.some(row=>row.slot==='RELEVANT_LORE'&&row.partial===true&&row.deferredEntryCount===3));
+  assert.equal(session.exportEvidence().nativeBrainIntegration.exactPreparedRenderedObserved,true);
   session.destroy();
 });

@@ -140,6 +140,19 @@ function statusForTemporal(kind){
 // Runtime causal reason codes for a Jev advisory the owner did not adopt (the row keeps its own detailed reasonCode).
 const JEV_ADVISORY_CAUSAL_REASON=Object.freeze({REJECTED_STALE:'STALE_RESULT',REJECTED_SEAL_CHANGED:'STALE_RESULT',UNRESOLVED:'OWNER_REJECTED',FAILED:'TASK_FAILED',UNAVAILABLE:'OPTIONAL_RESOURCE_UNAVAILABLE',NOT_ADVISED_NO_LIVE_PROVIDER:'OPTIONAL_RESOURCE_UNAVAILABLE'});
 
+// What host-message retirement and correction need from a turn after it leaves the turn window (cap ledger row 60).
+function durableTurnIdentity(record){
+  const experience=record?.experience??{};
+  return{
+    kind:'NativeDurableTurnIdentity',turnId:record.turnId,chatId:record.chatId,generationId:record.generationId??null,correlationId:record.correlationId??null,
+    sequence:record.sequence??null,sceneId:record.sceneId??null,sceneRevision:record.sceneRevision??null,worldRevision:record.worldRevision??null,
+    published:{sealReceipt:{id:record.published?.sealReceipt?.id??null}},
+    experience:{sourceId:experience.sourceId,sourceRevisionId:experience.sourceRevisionId,artifactId:experience.artifactId??null,
+      evidence:{artifactRef:{revision:experience.evidence?.artifactRef?.revision??null}}},
+    retiredNarrative:record.retiredNarrative??null,
+  };
+}
+
 export class Area52NativeBrain{
   constructor({
     snapshot=null,
@@ -195,6 +208,10 @@ export class Area52NativeBrain{
 
     this.turns=new Map(clone(snapshot?.turns??[]));
     this.turnOrder=clone(snapshot?.turnOrder??[]);
+    // Cap ledger row 60: durable identity of turns evicted from the bounded turn window (maxTurns). Without it a delete or
+    // edit of an older message could not find what was learned from it, so that knowledge stayed current. The stub keeps
+    // only what retirement and correction need (no prompts, candidates or response text).
+    this.retainedTurnIdentity=new Map(clone(snapshot?.retainedTurnIdentity??[]));
     this.sceneSignals=new Map(clone(snapshot?.sceneSignals??[]));
     this.turnSequence=Number(snapshot?.turnSequence??0);
     this.runtimeResults=clone(snapshot?.runtimeResults??[]).slice(-128);
@@ -917,8 +934,14 @@ export class Area52NativeBrain{
 
   // Host deleted the message this turn's response was learned from. History is preserved (the source
   // is retired, not erased); every current-state consumer of that revision is invalidated.
+  // The live turn record, or the durable identity of a turn that has left the bounded window.
+  #turnForSourceReconciliation(id){
+    const live=this.turns.get(id);if(live)return{record:live,durable:false};
+    const stub=this.retainedTurnIdentity.get(id);return stub?{record:clone(stub),durable:true}:{record:null,durable:false};
+  }
+
   retireTurnNarrative(turnId,{reason='HOST_MESSAGE_DELETED'}={}){
-    const id=req(turnId,'turnId'),record=this.turns.get(id);
+    const id=req(turnId,'turnId'),{record,durable}=this.#turnForSourceReconciliation(id);
     if(!record?.experience)return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'NO_LEARNED_NARRATIVE',historyPreserved:true};
     const prior=this.knowledge.currentRecordForSource(record.experience.sourceId);
     if(!prior)return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'ALREADY_RETIRED',historyPreserved:true};
@@ -941,11 +964,12 @@ export class Area52NativeBrain{
       content:null,current:false,invalidates:[prior.sourceRevisionId],knownBy:[],publicToAll:false,
     });
     record.retiredNarrative={reason,sourceRevisionId:prior.sourceRevisionId};
-    return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'RETIRED',reason,sourceRevisionId:prior.sourceRevisionId,invalidatedClaimIds:clone(invalidatedClaimIds),removal:clone(removal),memoryInvalidation:clone(memoryInvalidation),historyPreserved:true};
+    if(durable)this.retainedTurnIdentity.set(id,durableTurnIdentity(record));
+    return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'RETIRED',durableIdentity:durable,reason,sourceRevisionId:prior.sourceRevisionId,invalidatedClaimIds:clone(invalidatedClaimIds),removal:clone(removal),memoryInvalidation:clone(memoryInvalidation),historyPreserved:true};
   }
 
   correctTurn({turnId,response,observations=[],knownBy=[],reflections=[]}={}){
-    const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record?.experience)throw new Error('Turn has no learned narrative source: '+id);
+    const id=req(turnId,'turnId'),{record,durable}=this.#turnForSourceReconciliation(id);if(!record?.experience)throw new Error('Turn has no learned narrative source: '+id);
     const prior=this.knowledge.currentRecordForSource(record.experience.sourceId);if(!prior)throw new Error('Narrative source is not current: '+id);
     const corrected=this.knowledge.correctSource(record.experience.sourceId,req(response,'response'),{
       knownBy:uniq(knownBy),metadata:{role:'assistant',sequence:record.sequence,representationText:response},
@@ -985,6 +1009,7 @@ export class Area52NativeBrain{
     const settlements=observations.map((row,index)=>this.#settleObservation(record,corrected,row,index));
     const memorySettlementReceipts=this.#mirrorSettlementsToMemory(record,corrected,settlements);
     record.response=response;record.experience=clone(corrected);record.settlements=clone(settlements);record.memoryPostTurn=clone(memoryPostTurn);record.state='LEARNED';
+    if(durable)this.retainedTurnIdentity.set(id,durableTurnIdentity(record));
     if(record.learningReceipt)record.learningReceipt={...record.learningReceipt,sourceRevisionId:corrected.sourceRevisionId,memoryWriteback:clone(memoryWriteback),memoryPostTurn:clone(memoryPostTurn),memorySettlementReceipts:clone(memorySettlementReceipts)};
     this.#notify('TURN_CORRECTED',record);
     return{kind:'NativeBrainCorrectionReceipt',turnId:id,priorSourceRevisionId:prior.sourceRevisionId,sourceRevisionId:corrected.sourceRevisionId,invalidatedClaimIds,settlements,memoryWriteback,memoryPostTurn,memorySettlementReceipts,historyPreserved:this.knowledge.history(prior.sourceId).length>1};
@@ -1149,6 +1174,7 @@ export class Area52NativeBrain{
       loreRevisionTrust:[...this.loreRevisionTrust.entries()],rejectedLoreRevisionIds:[...this.rejectedLoreRevisionIds],
       // Restore image: settled turns are persisted in compacted reference form (owner stores and the
       // sealed packet stay authoritative); turns with pending background learning keep full detail.
+      retainedTurnIdentity:[...this.retainedTurnIdentity.entries()],
       turns:[...this.turns.entries()].map(([id,record])=>[id,this.#turnBackgroundSettled(record)?compactTurnRecord(record,{reason:'SNAPSHOT',sequence:record.sequence??null}):record]),turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
       jevAdvisories:this.jevAdvisory.snapshot(),
       runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,expectedWork:this.obligationReconciler.snapshot(),
@@ -2056,7 +2082,11 @@ export class Area52NativeBrain{
     const id=String(record.turnId);
     if(!this.turns.has(id))this.turnOrder.push(id);
     this.turns.set(id,record);
-    while(this.turnOrder.length>this.maxTurns){const old=this.turnOrder.shift();this.turns.delete(old);}
+    while(this.turnOrder.length>this.maxTurns){
+      const old=this.turnOrder.shift(),evicted=this.turns.get(old);
+      if(evicted?.experience)this.retainedTurnIdentity.set(old,durableTurnIdentity(evicted));
+      this.turns.delete(old);
+    }
     this.#compactRetainedTurns();
   }
 

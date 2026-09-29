@@ -1420,6 +1420,11 @@ export class DevelopmentDeploymentSillyTavernSession {
       }catch(error){this.nativeOwnerAttachments.memoryConsolidation={attached:false,error:String(error?.code??error?.message??error)};}
     }
 
+    if(typeof this.nativeBrain.attachJevAdvisory==='function'){
+      try{this.nativeBrain.attachJevAdvisory(mergedOwners.jevAdvisory??{service:null});}
+      catch(error){this.nativeOwnerAttachments.jevAdvisory={attached:false,error:String(error?.code??error?.message??error)};}
+    }
+
     const graphReceipts=[];
     if(typeof this.nativeBrain.unregisterGraphProvider==='function'){
       for(const providerId of this.nativeGraphProviderIds){

@@ -29,6 +29,7 @@ import {
   WorkerDirector,
 } from './runtime/index.js';
 import {stableHash} from './browser-runtime-utils.js';
+import {NativeJevAdvisory} from './native-jev-advisory.js';
 import {createSceneUiReadModelFromIntegrationState} from './scene/scene-ui-read-model.js';
 import {NativeContextRetirementPolicy,contextRetirementContract} from './context-retirement-policy.js';
 import {compactTurnRecord,reboundCompactedTurnRecord,DEFAULT_FULL_DETAIL_TURNS} from './native-turn-retention.js';
@@ -136,6 +137,9 @@ function statusForTemporal(kind){
   return KnowledgeStatus.CURRENT;
 }
 
+// Runtime causal reason codes for a Jev advisory the owner did not adopt (the row keeps its own detailed reasonCode).
+const JEV_ADVISORY_CAUSAL_REASON=Object.freeze({REJECTED_STALE:'STALE_RESULT',REJECTED_SEAL_CHANGED:'STALE_RESULT',UNRESOLVED:'OWNER_REJECTED',FAILED:'TASK_FAILED',UNAVAILABLE:'OPTIONAL_RESOURCE_UNAVAILABLE',NOT_ADVISED_NO_LIVE_PROVIDER:'OPTIONAL_RESOURCE_UNAVAILABLE'});
+
 export class Area52NativeBrain{
   constructor({
     snapshot=null,
@@ -168,6 +172,8 @@ export class Area52NativeBrain{
     this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));
     this.rejectedLoreRevisionIds=new Set(clone(snapshot?.rejectedLoreRevisionIds??[]));
     this.loreInterface=null;this.memoryInterface=null;this.memoryConsolidationInterface=null;
+    this.jevAdvisory=new NativeJevAdvisory({snapshot:snapshot?.jevAdvisories??null});
+    this.core.registerJevAdvisoryLookup((alternatives,context={})=>this.jevAdvisory.lookup(alternatives,{loreInterface:this.loreInterface,candidates:context.candidates}));
     this.ownerSparseChannel=new ProductionSparseRetrievalChannel({
       evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
       revisionGuard:(source)=>this.#admitLoreOwnerRevision(source),
@@ -324,6 +330,16 @@ export class Area52NativeBrain{
     if(this.runtimeDirector)this.#attachRecoveredExecutors();
     return{kind:'NativeBrainMemoryInterfaceReceipt',attached:Boolean(memoryInterface),contractVersion:memoryInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
+
+  // Optional Jev advice on the Lore owner's established conflicts, through the Runtime (NEXT_TURN, freshness-fenced, advisory
+  // only). Nothing is requested unless a Jev service is attached and reports itself configured.
+  attachJevAdvisory(config={}){
+    const receipt=this.jevAdvisory.attach(config);
+    if(this.runtimeDirector)this.#attachRecoveredExecutors();
+    return{...receipt,nativePathAvailable:true};
+  }
+
+  readJevAdvisories(){return{...this.jevAdvisory.diagnostics(),rows:this.jevAdvisory.list()};}
 
   attachJevAdapter(adapter=null){
     const receipt=this.core.registerJevAdapter(adapter);
@@ -782,6 +798,7 @@ export class Area52NativeBrain{
     const feedbackTask=this.#scheduleFeedback(id,experience.sourceRevisionId);
     const memoryFeedbackTask=this.#scheduleMemoryRetrievalFeedback(record);
     const memoryTask=this.#scheduleMemoryPostTurn(record,experience,memoryWriteback,{knownBy,reflections,memoryExpectedId});
+    record.jevAdvisoryRuntimeTaskIds=this.#scheduleJevAdvisories(record);
     const feedbackTaskId=feedbackTask?.task?.taskId??null;
     const memoryFeedbackTaskId=memoryFeedbackTask?.task?.taskId??null;
     const memoryTaskId=memoryTask?.task?.taskId??null;
@@ -993,6 +1010,7 @@ export class Area52NativeBrain{
       readTruth:(selection={})=>this.#readStage(selection,record=>record.published?.publicationAssessment??record.published?.assessment??null),
       readCorrectiveRetrieval:(selection={})=>this.#readStage(selection,record=>record.published?.corrective??null),
       readJev:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt?.jev??null),
+      readJevAdvisory:(selection={})=>this.#readStage(selection,record=>({...this.jevAdvisory.diagnostics(),rows:this.jevAdvisory.list().filter(row=>row.chatId===record.chatId)})),
       readPrecision:(selection={})=>this.#readStage(selection,record=>this.#uiPrecisionReceipt(record)),
       readGather:(selection={})=>this.#readStage(selection,record=>this.#uiGatherReceipt(record)),
       readContextSeal:(selection={})=>this.#readStage(selection,record=>record.published?.sealReceipt??null),
@@ -1128,6 +1146,7 @@ export class Area52NativeBrain{
       // Restore image: settled turns are persisted in compacted reference form (owner stores and the
       // sealed packet stay authoritative); turns with pending background learning keep full detail.
       turns:[...this.turns.entries()].map(([id,record])=>[id,this.#turnBackgroundSettled(record)?compactTurnRecord(record,{reason:'SNAPSHOT',sequence:record.sequence??null}):record]),turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
+      jevAdvisories:this.jevAdvisory.snapshot(),
       runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,expectedWork:this.obligationReconciler.snapshot(),
     });
   }
@@ -1407,6 +1426,57 @@ export class Area52NativeBrain{
     };
   }
 
+  // NEXT_TURN Jev advisories for the established Lore conflict sets that shaped this turn (see native-jev-advisory.js).
+  #scheduleJevAdvisories(record){
+    if(!this.jevAdvisory.available)return[];
+    const ids=[];
+    for(const set of this.jevAdvisory.candidateSets({loreInterface:this.loreInterface,record})){
+      const submitted=this.runtimeDirector.submit({
+        taskType:'NATIVE_JEV_ADVISORY',owner:'COGNITIVE_CORE',producerId:'NATIVE_BRAIN',
+        layer:'L2',runtimeClass:'NEARLINE',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],
+        dedupeKey:'native-jev-advisory:'+record.chatId+':'+set.id,foreground:false,sourceRevisionIds:uniq(set.sourceRevisionRefs),
+        worldRevision:this.core.graph.revision,sceneRevision:record.sceneRevision,
+        payload:{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,conflictSetId:set.id,resultClass:'DEFERRED'},
+        cause:{eventType:'POST_TURN_JEV_ADVISORY',eventId:'jev-advisory:'+record.generationId+':'+set.id,correlationId:record.correlationId,producerId:'NATIVE_BRAIN',consumerId:'COGNITIVE_CORE',ownerId:'COGNITIVE_CORE',chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,turnRevision:record.sequence,sourceRevisionRefs:uniq(set.sourceRevisionRefs)},
+        batchHint:{maxSliceUnits:1},checkpointPolicy:{maxUnitsPerCheckpoint:1},
+      },{
+        units:[{id:'jev-advisory:'+set.id,payload:{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,conflictSetId:set.id}}],
+        ...this.#jevAdvisoryExecutor(),
+      });
+      const taskId=submitted?.task?.taskId??null;
+      if(taskId)ids.push(taskId);
+    }
+    return ids;
+  }
+
+  #jevAdvisoryExecutor(){
+    return{
+      execute:async({units})=>{
+        const rows=[];
+        for(const unit of units){
+          const item=unit.payload;
+          const candidate=this.turns.get(String(item.turnId));
+          const record=candidate&&candidate.chatId===String(item.chatId)&&candidate.generationId===String(item.generationId)&&candidate.correlationId===String(item.correlationId)?candidate:null;
+          const set=record?(this.loreInterface?.conflictSets?.({chatId:record.chatId,certainty:'ESTABLISHED'})??[]).find(row=>row.id===item.conflictSetId)??null:null;
+          if(!record||!set){rows.push({kind:'NativeJevAdvisory',id:'jev-advisory:'+stableHash(String(item.conflictSetId)+'|'+String(item.turnId)),conflictSetId:String(item.conflictSetId),chatId:String(item.chatId),sourceTurnId:String(item.turnId),status:'REJECTED_STALE',reasonCode:record?'CONFLICT_SET_GONE_BEFORE_REQUEST':'TURN_SELECTION_MISMATCH',classification:null,memberClaimIds:[],fence:{sourceRevisionSet:[],conflictSetId:String(item.conflictSetId)},destination:'NEXT_TURN',advisory:true,authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealMutated:false,loreMutated:false});continue;}
+          rows.push(await this.jevAdvisory.run({set,record,loreInterface:this.loreInterface}));
+        }
+        return rows;
+      },
+      validate:async({output})=>Array.isArray(output)&&output.every(row=>row?.kind==='NativeJevAdvisory'&&row.authorityGranted===false&&row.canonicalMutation===false),
+      commit:async({output})=>{
+        for(const row of output){
+          this.jevAdvisory.remember(row);
+          const record=this.turns.get(String(row.sourceTurnId));
+          const taskId=(record?.jevAdvisoryRuntimeTaskIds??[])[0]??null;
+          if(taskId)this.#recordTaskOwnerDecision(taskId,{accepted:row.status==='ADVISED',receiptId:row.id,reasonCode:row.status==='ADVISED'?null:(JEV_ADVISORY_CAUSAL_REASON[row.status]??'OWNER_REJECTED'),consumerId:'COGNITIVE_CORE'});
+          this.#notify('JEV_ADVISORY_RECORDED',record??{turnId:row.sourceTurnId,chatId:row.chatId});
+        }
+        return{output:output.map(clone),validation:{valid:true},authorityGranted:false,canonicalMutation:false};
+      },
+    };
+  }
+
   #scheduleFeedback(turnId,sourceRevisionId){
     const record=this.turns.get(String(turnId));if(!record)return null;
     return this.runtimeDirector.submit({
@@ -1453,6 +1523,7 @@ export class Area52NativeBrain{
       if(record.obligation?.taskType==='NATIVE_LEARNING_FEEDBACK')executor=this.#feedbackExecutor();
       if(record.obligation?.taskType==='MEMORY_RETRIEVAL_FEEDBACK'&&this.memoryInterface)executor=this.#memoryRetrievalFeedbackExecutor();
       if(record.obligation?.taskType==='MEMORY_POST_TURN'&&this.memoryInterface)executor=this.#memoryPostTurnExecutor();
+      if(record.obligation?.taskType==='NATIVE_JEV_ADVISORY'&&this.jevAdvisory?.available)executor=this.#jevAdvisoryExecutor();
       if(record.obligation?.taskType==='MEMORY_CONSOLIDATION_PROPOSAL'&&this.memoryConsolidationInterface&&this.memoryInterface)executor=this.#memoryConsolidationExecutor();
       if(!executor)continue;
       try{this.runtimeDirector.attachExecutor(record.taskId,executor);this.runtimeDirector.recoverTask(record.taskId);}catch{}

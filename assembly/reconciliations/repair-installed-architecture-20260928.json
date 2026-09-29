@@ -30,7 +30,7 @@
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
     "src/lore-contextual-retrieval.js": "7d0a85f0a7ec218ff786e1789936aa6a33341e32",
     "src/lore-hierarchy-retrieval-system.js": "1b88fa609377f7f366d0a4ad0401f22722278ab7",
-    "src/lore-intelligence-service.js": "cfa6ffc00cd3d64ab1f024ad4d2ff18329e20eb2",
+    "src/lore-intelligence-service.js": "a6f8fca7f499854804400edb3adcaf5847a84659",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
     "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
     "src/lore-navigation-summary-registry.js": "13d0ce15256fcadfcb354ba5a79430d5565e325e",
@@ -107,7 +107,7 @@
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "cfa6ffc00cd3d64ab1f024ad4d2ff18329e20eb2",
+      "digest": "a6f8fca7f499854804400edb3adcaf5847a84659",
       "lane": "lore",
       "lastCommit": "254d50d 2026-09-29 WIP D7: Lore temporal/conflict rules R1-R4 (+E1), story-scoped resolution, engine",
       "origin": "REPAIR_installed_architecture"

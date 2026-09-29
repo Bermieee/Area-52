@@ -916,6 +916,39 @@ export class LoreIntelligenceService {
     };
   }
 
+  // Conflict sets (owner rule R4) readable by one story, with the claim and source-revision identity a consumer needs to fence
+  // its own freshness. Bounded, story-scoped (every member's lorebook must be inside the story's read scope), read-only.
+  conflictSetsForStory({chatId, certainty = 'ESTABLISHED', limit = 16} = {}) {
+    const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(chatId));
+    if (!allowedBooks.size) return [];
+    const store = this.runtime.store, registry = this.runtime.registry;
+    const rows = [];
+    for (const set of store.temporalResolution(registry).conflicts) {
+      if (set.certainty !== certainty) continue;
+      const members = [];
+      let readable = true;
+      for (const artifactId of set.artifactIds) {
+        const artifact = store.artifacts.get(artifactId);
+        const source = artifact ? registry.entries.get(artifact.sourceId) : null;
+        const revision = artifact ? registry.currentRevisionState(artifact.sourceId) : null;
+        if (!artifact || !source || !allowedBooks.has(source.lorebookId) || !revision || revision.state === 'REMOVED' || revision.id !== artifact.sourceRevisionId) { readable = false; break; }
+        const shown = set.values.find((v) => v.artifactId === artifactId) ?? {};
+        members.push({
+          artifactId, claimId: artifact.payload?.claimId ?? artifact.semanticId, sourceId: artifact.sourceId, sourceRevisionId: artifact.sourceRevisionId,
+          value: artifact.payload?.value ?? null, normalizedValue: shown.normalizedValue ?? null, attribution: shown.attribution ?? 'ASSERTED', speaker: shown.speaker ?? null,
+        });
+      }
+      if (!readable) continue;
+      rows.push({
+        kind: 'LoreStoryConflictSet', id: set.id, certainty: set.certainty, property: set.property, slotKey: set.slotKey, basis: set.basis,
+        alternatives: set.alternatives.map((alt) => [...alt]), members,
+        sourceRevisionRefs: [...new Set(members.map((m) => m.sourceRevisionId))].sort(),
+      });
+      if (rows.length >= limit) break;
+    }
+    return rows;
+  }
+
   // Lorebooks read together by one story (each story's accepted read scope). Only those may supersede or conflict.
   temporalBookGroups() {
     return [...this.storyAuthority.stories.keys()].map((chatId) => this.storyAuthority.allowedLorebookIds(chatId));
@@ -932,6 +965,7 @@ export class LoreIntelligenceService {
       entityIdentities: (request = {}) => this.entityIdentitiesForStory(request),
       currentDerivedRefs: () => this.currentDerivedRefs(),
       sourceTruthHint: (sourceId) => sourceTruthHint(this.runtime, sourceId),
+      conflictSets: (request = {}) => this.conflictSetsForStory(request),
       summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
       isSourceRevisionCurrent: (revisionId) => {

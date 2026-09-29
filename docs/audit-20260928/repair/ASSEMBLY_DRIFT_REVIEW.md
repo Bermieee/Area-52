@@ -54,3 +54,5 @@ Evidence: sweep of 237 test files this round, 17 failing files / 32 failing test
 ## Addendum: D7 temporal-rules round (repair-authored paths)
 
 Five Lore paths were changed by this repository's own D7 work and are approved with fresh digests (repair-changed, all covering tests pass on the exact head `c7494ae`; see the D7 ledger row): `src/lore-contextual-retrieval.js`, `src/lore-intelligence-service.js`, `src/lore-source-registry.js`, `src/lore-study-engine.js`, `src/lore-study-runtime.js`. `src/lore-temporal-rules.js` is a new file that no lane manifest lists. The verifier still fails on exactly the same 8 withheld paths listed above.
+
+Jev advisory change: `src/lore-intelligence-service.js` gained the read-only `conflictSetsForStory`/`conflictSets` interface and its digest was refreshed; no other lane file changed. The verifier still fails on exactly the 8 withheld paths.

@@ -257,7 +257,7 @@ export class GenerationPublicationPipeline {
         :assessment;
 
       if(assessment.confidence==='LOW')this.choice?.evaluateJev?.(choiceSession,[]);
-      else this.choice?.evaluateJev?.(choiceSession,assessment.truthResults);
+      else this.choice?.evaluateJev?.(choiceSession,assessment.truthResults,{candidates});
 
       const precisionDecision=this.choice?.decidePrecision?.(choiceSession,{
         candidateCount:uniq([...(publicationAssessment.admittedCandidateIds??[]),...(publicationAssessment.supportCandidateIds??[])]).length,

@@ -3082,6 +3082,13 @@ export class DevelopmentDeploymentBrain {
       loreStudyHost,
       loreHost: loreStudyHost,
       loreBrainInterface: this.loreIntelligence.brainInterface(),
+      // Optional NEXT_TURN Jev advice for the native path: only requested while an operator-configured JEV resource is
+      // connected, and a silent local-fixture fallback is reported by the evidence callback, never presented as advice.
+      jevAdvisory: Object.freeze({
+        service: this.jev.service,
+        isConfigured: () => this.jevAvailable && this.listOptionalResources().resources.some((row) => row.kind === 'JEV' && row.connected),
+        executionEvidence: (turnId) => clone(this.jevExecution.get(String(turnId)) ?? null),
+      }),
       sceneLoreHandoff: (request = {}) => this.runSceneLoreHandoff(request),
       memoryIntegrationSurface: this.memorySurface,
       memoryConsolidationProducer: Object.freeze({

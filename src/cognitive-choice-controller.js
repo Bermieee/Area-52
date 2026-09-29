@@ -97,7 +97,13 @@ export class CognitiveChoiceController{
     this.maxReceipts=Math.max(8,Number(maxReceipts)||128);
     this.receipts=new Map();
     this.receiptOrder=[];
-    this.jevAdapter=null;
+    this.jevAdapter=null;this.advisoryLookup=null;
+  }
+
+  // Optional lookup of a standing, fresh NEXT_TURN Jev advisory for the current alternatives (see native-jev-advisory.js).
+  registerAdvisoryLookup(lookup=null){
+    if(lookup!==null&&typeof lookup!=='function')throw new TypeError('advisory lookup must be a function');
+    this.advisoryLookup=lookup;
   }
 
   registerJevAdapter(adapter=null){
@@ -169,7 +175,7 @@ export class CognitiveChoiceController{
     if(session.correctionCount>=1)session.reasons.add(CognitiveReason.CORRECTION_LIMIT_REACHED);
   }
 
-  evaluateJev(session,truthResults=[]){
+  evaluateJev(session,truthResults=[],{candidates=[]}={}){
     const alternatives=(truthResults??[]).filter(x=>unresolvedStatus.has(x.classification)).map(x=>({
       candidateId:x.candidateId,classification:x.classification,claimIds:uniq(x.claimIds??[]),
     })).sort((a,b)=>a.candidateId.localeCompare(b.candidateId));
@@ -187,6 +193,19 @@ export class CognitiveChoiceController{
       canonicalMutationAuthority:false,
     };
     if(!this.jevAdapter){
+      let standing=null;
+      try{standing=this.advisoryLookup?.(alternatives,{turnId:session.turnId,candidates})??null;}catch{standing=null;}
+      if(standing){
+        // A fresh advisory from an earlier turn: reported, not applied. The alternatives stay unresolved.
+        session.admitted.add(CognitiveJob.JEV);session.skipped.delete(CognitiveJob.JEV);session.reasons.add(CognitiveReason.JEV_REQUIRED);
+        session.jev={
+          ...this.#defaultJev(),considered:true,invoked:false,skipped:false,unavailable:false,advised:true,
+          action:JevAction.PRESERVE_UNRESOLVED,reason:CognitiveReason.JEV_REQUIRED,alternativeCount:alternatives.length,request,
+          decisionRevision:standing.fence?.conflictSetId??null,resultRef:standing.id,
+          advisory:{id:standing.id,conflictSetId:standing.conflictSetId,classification:standing.classification,status:standing.status,destination:'NEXT_TURN',sourceTurnId:standing.sourceTurnId,authorityGranted:false,canonicalMutation:false},
+        };
+        return session.jev;
+      }
       session.skipped.add(CognitiveJob.JEV);session.reasons.add(CognitiveReason.JEV_UNAVAILABLE);
       session.jev={...this.#defaultJev(),considered:true,skipped:true,unavailable:true,action:JevAction.JEV_UNAVAILABLE,reason:CognitiveReason.JEV_UNAVAILABLE,alternativeCount:alternatives.length,request};
       return session.jev;

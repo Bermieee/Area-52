@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MemoryExperienceStore,memoryReferenceValues} from '../src/memory-experience-store.js';
+import {MemoryTemporalProducer} from '../src/memory-temporal-producer.js';
 
 function fakeGraph(){
   const evidence=new Map();
@@ -150,4 +151,51 @@ test('row 46: 4,097 consolidation jobs and source refs resume once across snapsh
   assert.deepEqual(completed.outcomes.map((row)=>row.cursor),Array.from({length:4097},(_,i)=>i));
   assert.equal(completed.pendingJobSegments.length,0);
   assert.equal(completed.continuationAvailable,false);
+});
+
+
+test('row 46: bundle review exposes Runtime-owned continuation instead of silently dropping proposal 4,097',()=>{
+  const producer=new MemoryTemporalProducer();
+  const proposals=Array.from({length:4097},(_,i)=>({
+    proposalId:'proposal:page:'+i,
+    proposalKind:'EPISODE_SUMMARY',
+    authority:'UNRESOLVED',
+    sourceArtifactRefs:[],
+    payload:{},
+  }));
+  const bundle={
+    kind:'ConsolidationProposalBundle',
+    contractVersion:'1.1.0',
+    bundleId:'bundle:page',
+    unitId:'unit:page',
+    proposals,
+    validationReceipt:{syntax:'PASS',schema:'PASS',semantic:'PASS'},
+  };
+
+  const first=producer.reviewConsolidationBundle({bundle,selection:{chatId:'chat:page'}});
+  assert.equal(first.status,'DEFERRED');
+  assert.equal(first.reasonCode,'MEMORY_CONSOLIDATION_REVIEW_PAGE_BOUND');
+  assert.equal(first.reviewOffset,0);
+  assert.equal(first.processed,4096);
+  assert.equal(first.remaining,1);
+  assert.equal(first.continuationAvailable,true);
+  assert.equal(first.nextReviewOffset,4096);
+  assert.equal(first.continuation.nextProposalId,'proposal:page:4096');
+  assert.equal(first.continuation.runtimeSchedulingAuthority,false);
+  assert.equal(first.results[0].proposalId,'proposal:page:0');
+  assert.equal(first.results.at(-1).proposalId,'proposal:page:4095');
+
+  const second=producer.reviewConsolidationBundle({
+    bundle,
+    selection:{chatId:'chat:page'},
+    reviewOffset:first.nextReviewOffset,
+  });
+  assert.equal(second.reviewOffset,4096);
+  assert.equal(second.processed,1);
+  assert.equal(second.remaining,0);
+  assert.equal(second.continuationAvailable,false);
+  assert.equal(second.nextReviewOffset,null);
+  assert.equal(second.results.length,1);
+  assert.equal(second.results[0].proposalId,'proposal:page:4096');
+  assert.equal(new Set(first.results.map((row)=>row.proposalId)).has(second.results[0].proposalId),false);
 });

@@ -1094,7 +1094,8 @@ export class MemorySummaryHierarchy {
 
   summaryEvidenceAllowed(artifact,allowedEvidence,seen=new Set()){
     if(!allowedEvidence)return true;
-    if(!artifact||seen.has(artifact.id))return false;
+    if(!artifact)return false;
+    if(seen.has(artifact.id))return true;
     seen.add(artifact.id);
     const direct=artifact.evidenceManifest?.directEvidenceRefs??artifact.exactEvidenceRefs??[];
     for(const id of direct)if(!allowedEvidence.has(id))return false;

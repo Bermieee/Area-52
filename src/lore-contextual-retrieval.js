@@ -25,12 +25,17 @@ function truthStatusForArtifacts(artifacts) {
   return 'CURRENT';
 }
 
-function sourceContext(runtime, sourceId) {
+function sourceContext(runtime, sourceId, resolution = null) {
   const source = runtime.registry.getEntry(sourceId);
   const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
   const learned = runtime.store.currentLearnedRevision(sourceId);
   if (!source || !revision || revision.state === 'REMOVED' || !learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== revision.id) return null;
-  const artifacts = runtime.store.artifactsForLearnedRevision(learned.id);
+  // R3: a claim that a later same-entity, same-property, same-timeline claim supersedes is HISTORICAL for Truth. The stored
+  // artifact is not changed; only this view of it is.
+  const artifacts = runtime.store.artifactsForLearnedRevision(learned.id).map((row) => (
+    resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
+      : resolution?.conflictedIds.has(row.id) ? {...row, unresolved: true, conflictSetIds: resolution.conflicts.filter((c) => c.artifactIds.includes(row.id)).map((c) => c.id)} : row
+  ));
   const entities = artifacts
     .filter((row) => row.artifactType === ArtifactType.ENTITY)
     .flatMap((row) => [row.payload?.canonicalName, ...(row.payload?.aliases || [])])
@@ -55,6 +60,21 @@ function sourceContext(runtime, sourceId) {
     truthStatusHint: truthStatusForArtifacts([...claims, ...relationships]),
     contextPrefix,
     contextualText: contextPrefix + '\n' + revision.exactContent,
+  };
+}
+
+// The Truth-facing hint of one source under the current temporal resolution (R3/R4). Used by every Lore-derived
+// candidate path so a source cannot be CURRENT on one path and UNRESOLVED on another. null when the source has no
+// current learned revision.
+export function sourceTruthHint(runtime, sourceId) {
+  const ctx = sourceContext(runtime, sourceId, runtime.store.temporalResolution(runtime.registry));
+  if (!ctx) return null;
+  return {
+    status: ctx.truthStatusHint,
+    temporalHints: ctx.artifacts
+      .filter((row) => row.temporalClass && row.temporalClass !== TemporalClass.TIMELESS)
+      .slice(0, 32)
+      .map((row) => ({artifactId: row.id, temporalClass: row.temporalClass, unresolved: row.unresolved})),
   };
 }
 
@@ -155,8 +175,9 @@ export class LoreContextualRetrievalIndex {
     this.diagnostics = [];
     const scopeById = new Map(hierarchy.scopes.map((scope) => [scope.id, scope]));
 
+    const resolution = runtime.store.temporalResolution(runtime.registry);
     for (const sourceId of hierarchy.includedSourceIds) {
-      const ctx = sourceContext(runtime, sourceId);
+      const ctx = sourceContext(runtime, sourceId, resolution);
       if (!ctx) {
         this.pushDiagnostic({sourceId, status: 'SOURCE_SKIPPED_STALE_OR_UNSTUDIED'});
         continue;

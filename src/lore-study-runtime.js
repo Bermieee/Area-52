@@ -7,7 +7,7 @@ import {
   stableHash,
 } from './lore-contracts.js';
 import {LoreDerivedStore, LoreSourceRegistry} from './lore-source-registry.js';
-import {LoreStudyEngine, semanticDiff} from './lore-study-engine.js';
+import {LoreStudyEngine, STUDY_ENGINE_REVISION, semanticDiff} from './lore-study-engine.js';
 
 export class LoreStudyRuntime {
   constructor({registry = new LoreSourceRegistry(), store = new LoreDerivedStore(), engine = new LoreStudyEngine(), snapshot = null} = {}) {
@@ -68,7 +68,9 @@ export class LoreStudyRuntime {
 
   enqueue(revision, trigger = 'DEPENDENCY_INVALIDATION') {
     const existing = this.findObligation(revision.id);
-    if (existing && ![StudyState.SUPERSEDED, StudyState.INVALID].includes(existing.state)) return existing;
+    // An engine refresh deliberately re-studies a revision that was already studied by an older engine.
+    const refresh = trigger === 'ENGINE_REVISION' && existing?.state === StudyState.COMPLETED;
+    if (existing && !refresh && ![StudyState.SUPERSEDED, StudyState.INVALID].includes(existing.state)) return existing;
 
     for (const obligation of this.obligations.values()) {
       if (obligation.sourceId !== revision.sourceId) continue;
@@ -88,6 +90,20 @@ export class LoreStudyRuntime {
     });
     this.obligations.set(id, obligation);
     return deepClone(obligation);
+  }
+
+  // Queue a re-study for every source whose learned revision came from an older study engine revision (new rules must
+  // not silently coexist with claims extracted under the old ones). Idempotent: a source already queued is skipped.
+  enqueueEngineRefresh() {
+    const queued = [];
+    for (const sourceId of this.store.sourceIdsWithStaleEngine(this.registry, STUDY_ENGINE_REVISION)) {
+      const revision = this.registry.currentRevision(sourceId, {allowMissing: true});
+      if (!revision || revision.state === 'REMOVED') continue;
+      const open = [...this.obligations.values()].some((row) => row.sourceRevisionId === revision.id && [StudyState.DUE, StudyState.PENDING, StudyState.CHECKPOINTED].includes(row.state));
+      if (open) continue;
+      queued.push(this.enqueue(revision, 'ENGINE_REVISION').id);
+    }
+    return queued;
   }
 
   findObligation(sourceRevisionId) {
@@ -250,6 +266,7 @@ export class LoreStudyRuntime {
       artifacts: session.workspace.artifacts,
       semanticDiff: diff,
       validation: session.workspace.validation,
+      engineRevision: STUDY_ENGINE_REVISION,
     });
     obligation.state = StudyState.COMPLETED;
     this.sessions.delete(obligationId);

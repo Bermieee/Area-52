@@ -171,6 +171,7 @@ export class Area52NativeBrain{
     this.ownerSparseChannel=new ProductionSparseRetrievalChannel({
       evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
       revisionGuard:(source)=>this.#admitLoreOwnerRevision(source),
+      truthStatusFor:(sourceId)=>this.loreInterface?.sourceTruthHint?.(sourceId)??null,
     });
     this.ownerLoreChannel=new LoreOwnerRetrievalChannel({
       getInterface:()=>this.loreInterface,

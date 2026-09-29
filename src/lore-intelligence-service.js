@@ -6,6 +6,7 @@ import {LoreWorldOntology} from './lore-world-ontology.js';
 import {LoreHierarchyRetrievalSystem} from './lore-hierarchy-retrieval-system.js';
 import {QualityStatus, RepresentationProfile} from './lore-representation-contracts.js';
 import {LoreStoryAuthorityRegistry} from './lore-story-authority.js';
+import {sourceTruthHint} from './lore-contextual-retrieval.js';
 
 const MAX_SCOPE_RECEIPTS = 64;
 
@@ -111,6 +112,7 @@ export class LoreIntelligenceService {
     this.hierarchy = hierarchy || new LoreHierarchyRetrievalSystem({runtime});
     this.ontology = ontology || new LoreWorldOntology({runtime});
     this.storyAuthority = storyAuthority || new LoreStoryAuthorityRegistry();
+    this.runtime.store.setBookGroupsProvider?.(() => this.temporalBookGroups());
     this.compileFailures = new Map();
     this.lastAcceptance = null;
     this.lastStudyRun = null;
@@ -282,6 +284,7 @@ export class LoreIntelligenceService {
     if (scope !== 'DUE') throw new TypeError('LoreIntelligenceService currently supports scope=DUE');
     const results = [];
     const compilations = [];
+    this.runtime.enqueueEngineRefresh();
     for (const due of this.runtime.dueObligations()) {
       const step = this.studyObligation(due.id, {maxUnits: maxUnitsPerObligation});
       results.push(step.result);
@@ -293,6 +296,7 @@ export class LoreIntelligenceService {
   // One due obligation: study the source revision and compile its representation family. This is the unit
   // a Runtime batch slice runs; `runStudy` is the same loop without yielding.
   dueObligationIds() {
+    this.runtime.enqueueEngineRefresh();
     return this.runtime.dueObligations().map((row) => row.id);
   }
 
@@ -912,6 +916,11 @@ export class LoreIntelligenceService {
     };
   }
 
+  // Lorebooks read together by one story (each story's accepted read scope). Only those may supersede or conflict.
+  temporalBookGroups() {
+    return [...this.storyAuthority.stories.keys()].map((chatId) => this.storyAuthority.allowedLorebookIds(chatId));
+  }
+
   brainInterface() {
     return Object.freeze({
       kind: 'LoreBrainRetrievalInterface',
@@ -922,6 +931,7 @@ export class LoreIntelligenceService {
       storyScope: (chatId) => this.storyAuthority.scopeReceipt(chatId),
       entityIdentities: (request = {}) => this.entityIdentitiesForStory(request),
       currentDerivedRefs: () => this.currentDerivedRefs(),
+      sourceTruthHint: (sourceId) => sourceTruthHint(this.runtime, sourceId),
       summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
       isSourceRevisionCurrent: (revisionId) => {

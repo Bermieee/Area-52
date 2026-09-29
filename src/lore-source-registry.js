@@ -4,6 +4,7 @@ import {
   stableHash,
   stableStringify,
 } from './lore-contracts.js';
+import {resolveLoreTemporal} from './lore-temporal-rules.js';
 
 function normalizedMetadata(metadata = {}) {
   const passthrough = {};
@@ -226,7 +227,7 @@ export class LoreDerivedStore {
     if (snapshot) this.restore(snapshot);
   }
 
-  publish({source, sourceRevision, artifacts, semanticDiff, validation}) {
+  publish({source, sourceRevision, artifacts, semanticDiff, validation, engineRevision = null}) {
     if (sourceRevision.state === 'REMOVED') {
       return this.publishRemoval({source, sourceRevision, semanticDiff, validation});
     }
@@ -254,6 +255,7 @@ export class LoreDerivedStore {
       semanticDiff: deepClone(semanticDiff),
       validation: deepClone(validation),
       atomicPublication: true,
+      engineRevision,
     };
     if (previousId && this.learnedRevisions.has(previousId)) this.learnedRevisions.get(previousId).state = 'HISTORICAL';
     this.learnedRevisions.set(learnedId, learned);
@@ -369,32 +371,53 @@ export class LoreDerivedStore {
     };
   }
 
+  // Sources whose CURRENT learned revision was produced by a different study engine revision than `engineRevision`.
+  sourceIdsWithStaleEngine(registry, engineRevision) {
+    const out = [];
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      if ((learned.engineRevision ?? null) !== engineRevision) out.push(sourceId);
+    }
+    return out.sort();
+  }
+
+  // Cross-source temporal resolution (supersession and conflict sets) over the CURRENT learned claims. Cached by the set of
+  // current learned revisions, so it is recomputed only when a source is (re)studied, changed or removed.
+  // Lorebooks that are read together (one story's read scope) may interact; the provider returns arrays of lorebook ids.
+  setBookGroupsProvider(provider) { this._bookGroups = typeof provider === 'function' ? provider : null; this._temporalCache = null; }
+
+  temporalResolution(registry) {
+    const currentIds = [];
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      currentIds.push(learnedId);
+    }
+    const groups = (this._bookGroups?.() ?? []).map((group) => [...new Set(group)].sort()).filter((group) => group.length > 1).sort((a, b) => a.join(',').localeCompare(b.join(',')));
+    const key = stableHash(currentIds.sort().join(',') + '|' + groups.map((g) => g.join(',')).join(';'));
+    if (this._temporalCache?.key === key) return this._temporalCache.value;
+    const rows = this.currentArtifacts(registry, {types: [ArtifactType.CLAIM, ArtifactType.ENTITY]});
+    const bookOf = (claim) => registry.entries.get(claim.sourceId)?.lorebookId ?? claim.sourceId;
+    const coScoped = (a, b) => a === b || groups.some((group) => group.includes(a) && group.includes(b));
+    const value = resolveLoreTemporal({
+      claims: rows.filter((row) => row.artifactType === ArtifactType.CLAIM),
+      entities: rows.filter((row) => row.artifactType === ArtifactType.ENTITY),
+      scopeOf: bookOf,
+      coScoped,
+    });
+    this._temporalCache = {key, value};
+    return value;
+  }
+
+  // Conflict sets under the owner-approved rule R4: same entity, same normalized single-valued property, differing values,
+  // provably overlapping applicability. Change over time and unknown overlap are not conflicts.
   conflicts(registry) {
-    const claims = this.currentArtifacts(registry, {types: [ArtifactType.CLAIM]});
-    const slots = new Map();
-    for (const claim of claims) {
-      const key = claim.payload.subjectId + '|' + claim.payload.predicate;
-      const rows = slots.get(key) || [];
-      rows.push(claim);
-      slots.set(key, rows);
-    }
-    const conflicts = [];
-    for (const [slotKey, rows] of slots.entries()) {
-      const values = [...new Set(rows.map((row) => stableStringify(row.payload.value)))];
-      const uncertain = rows.some((row) => row.unresolved || row.temporalClass === 'UNCERTAIN' || row.temporalClass === 'CONFLICTING');
-      if (values.length > 1 && uncertain) {
-        conflicts.push({
-          kind: 'LoreConflictSet',
-          id: 'conflict:' + stableHash(slotKey + '|' + values.sort().join('|')),
-          slotKey,
-          artifactIds: rows.map((row) => row.id).sort(),
-          semanticIds: rows.map((row) => row.semanticId).sort(),
-          status: 'UNRESOLVED',
-          authorityClass: 'UNRESOLVED',
-        });
-      }
-    }
-    return conflicts.sort((a, b) => a.id.localeCompare(b.id));
+    return this.temporalResolution(registry).conflicts.map((row) => ({...row}));
   }
 
   snapshot() {

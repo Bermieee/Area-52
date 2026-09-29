@@ -10,6 +10,17 @@ import {
   stableHash,
   stableStringify,
 } from './lore-contracts.js';
+import {
+  TEMPORAL_RULES_REVISION,
+  analyzeClause,
+  isUnresolvedAttribution,
+  normalizedProperty,
+  parseAttribution,
+  readSourceTime,
+} from './lore-temporal-rules.js';
+
+// Study engine revision: a learned revision made by an older engine is re-studied (see LoreStudyRuntime).
+export const STUDY_ENGINE_REVISION = 'lore-study-engine-v2+' + TEMPORAL_RULES_REVISION;
 
 export const STUDY_UNITS = Object.freeze([
   'STRUCTURE_CONTEXT',
@@ -95,6 +106,8 @@ function createWorkspace(source, revision) {
     warnings: [],
     unitReceipts: [],
     validation: null,
+    // The registry keeps unknown metadata keys (at, claimAt, timeline, timeUnit) under `extra`.
+    time: readSourceTime({...(revision.metadata?.extra || {}), ...(revision.metadata || {})}, {lorebookId: source.lorebookId}),
   };
 }
 
@@ -144,6 +157,9 @@ function pushClaim(workspace, sentence, sentenceIndex, subjectId, predicate, val
     unresolved,
     sentenceIndex,
     qualifier: extra.qualifier || null,
+    applicability: extra.applicability || null,
+    attribution: extra.attribution || null,
+    qualifierDetail: extra.qualifierDetail || null,
   });
 }
 
@@ -333,40 +349,52 @@ function analyzeSentence(workspace, sentence, index) {
 
   if ((match = s.match(/^(?:The\s+)?(.+?)\s+(?:later\s+)?(?:burned|burned down|was destroyed in (?:the\s+)?fire)[.!?]?$/i))) {
     const entity = ensureEntity(workspace, match[1], null, index);
-    pushClaim(workspace, s, index, entity, 'state', 'destroyed', {temporalClass: TemporalClass.CURRENT});
-    return;
-  }
-
-  if ((match = s.match(/^(?:A\s+)?(?:witness\s+)?(?:report(?:s|ed)?|claim(?:s|ed)?|rumou?r(?:s|ed)?)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:was\s+)?removed\s+(?:shortly\s+)?before\s+(?:the\s+)?fire[.!?]?$/i))) {
-    const object = ensureEntity(workspace, match[1], 'OBJECT', index);
-    pushClaim(workspace, s, index, object, 'fate', 'removed-before-fire', {
-      temporalClass: TemporalClass.UNCERTAIN,
-      authorityClass: AuthorityClass.UNRESOLVED,
-      confidence: confidenceFor(s),
-      unresolved: true,
-      qualifier: 'reported',
-    });
-    return;
-  }
-
-  if ((match = s.match(/^(?:A\s+)?(?:witness\s+)?(?:report(?:s|ed)?|claim(?:s|ed)?|rumou?r(?:s|ed)?)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:was\s+)?destroyed\s+in\s+(?:the\s+)?fire[.!?]?$/i))) {
-    const object = ensureEntity(workspace, match[1], 'OBJECT', index);
-    pushClaim(workspace, s, index, object, 'fate', 'destroyed-in-fire', {
-      temporalClass: TemporalClass.UNCERTAIN,
-      authorityClass: AuthorityClass.UNRESOLVED,
-      confidence: confidenceFor(s),
-      unresolved: true,
-      qualifier: 'reported',
-    });
+    pushClaim(workspace, s, index, entity, 'state', 'destroyed', {temporalClass: TemporalClass.CURRENT, applicability: {kind: 'AS_OF'}});
     return;
   }
 
   if ((match = s.match(/^(?:The\s+)?(.+?)\s+was\s+destroyed\s+in\s+(?:the\s+)?(.+?)\s+fire[.!?]?$/i))) {
     const object = ensureEntity(workspace, match[1], 'OBJECT', index);
     const place = ensureEntity(workspace, match[2], 'LOCATION', index);
-    pushClaim(workspace, s, index, object, 'fate', 'destroyed-in-fire', {temporalClass: TemporalClass.HISTORICAL});
+    pushClaim(workspace, s, index, object, 'fate', 'destroyed-in-fire', {temporalClass: TemporalClass.HISTORICAL, applicability: {kind: 'FROM_EVENT', event: slug(match[2] + ' fire'), relation: 'in'}});
     pushRelationship(workspace, s, index, object, 'destroyedAt', place, {temporalClass: TemporalClass.HISTORICAL});
     return;
+  }
+
+  {
+    // Attribution (R1) and event/state clauses. The attributed clause goes through the same structured clause grammar as a
+    // plain sentence; a sentence whose clause is not understood falls through (no claim is invented).
+    const attributed = parseAttribution(s);
+    const spec = analyzeClause(attributed ? attributed.clause : s);
+    if (spec) {
+      const isFate = spec.predicate === 'fate';
+      const subjectId = ensureEntity(workspace, spec.subject, isFate ? 'OBJECT' : null, index);
+      if (subjectId) {
+        // A modal clause ('may have been') with no explicit speaker is the source speculating; with a speaker it stays that
+        // speaker's mode and records the modality.
+        const speaking = attributed ?? (spec.modal ? {mode: 'SPECULATION', speaker: null, marker: 'modal'} : null);
+        const attribution = speaking ? {
+          mode: speaking.mode,
+          speaker: speaking.speaker,
+          marker: speaking.marker,
+          modal: Boolean(spec.modal),
+          reportedBy: workspace.source.sourceId,
+          claimAt: workspace.time.claimAt,
+        } : null;
+        const reported = isUnresolvedAttribution(attribution);
+        pushClaim(workspace, s, index, subjectId, spec.predicate, spec.value, {
+          temporalClass: reported ? TemporalClass.UNCERTAIN : (spec.applicability.kind === 'FROM_EVENT' ? TemporalClass.HISTORICAL : TemporalClass.CURRENT),
+          authorityClass: reported ? AuthorityClass.UNRESOLVED : AuthorityClass.SOURCE_CANON,
+          confidence: attribution?.mode === 'SPECULATION' ? 0.45 : reported ? 0.6 : 1,
+          unresolved: reported,
+          qualifier: attribution ? 'attributed:' + attribution.mode.toLowerCase() : null,
+          qualifierDetail: spec.qualifier,
+          applicability: reported && spec.applicability.kind === 'AS_OF' ? {kind: 'UNKNOWN'} : spec.applicability,
+          attribution,
+        });
+        return;
+      }
+    }
   }
 
   if ((match = s.match(/^(?:The\s+)?(.+?)\s+is\s+(?:an?\s+)?(.+?)[.!?]?$/i))) {
@@ -382,7 +410,7 @@ function analyzeSentence(workspace, sentence, index) {
     const subject = ensureEntity(workspace, match[1], null, index);
     const value = cleanName(match[2]).toLowerCase();
     if (['destroyed', 'damaged', 'intact', 'lost', 'missing'].includes(value)) {
-      pushClaim(workspace, s, index, subject, 'state', value, {temporalClass: TemporalClass.CURRENT});
+      pushClaim(workspace, s, index, subject, 'state', value, {temporalClass: TemporalClass.CURRENT, applicability: {kind: 'AS_OF'}});
     } else {
       pushClaim(workspace, s, index, subject, 'type', value, {temporalClass: TemporalClass.TIMELESS});
     }
@@ -443,6 +471,20 @@ function finalizeEntities(workspace) {
   }
 }
 
+// R1/R2/R3/R4 evidence carried on the claim: normalized property, applicability, attribution and validated source time.
+function temporalPayload(workspace, row) {
+  const prop = normalizedProperty(row.predicate);
+  const out = {
+    property: prop.property,
+    cardinality: prop.cardinality,
+    applicability: row.applicability,
+    attribution: row.attribution,
+    sourceTime: {at: workspace.time.at, claimAt: workspace.time.claimAt, problems: workspace.time.problems},
+  };
+  if (row.qualifierDetail) out.qualifierDetail = row.qualifierDetail;
+  return out;
+}
+
 function finalizeClaims(workspace) {
   const seen = new Set();
   for (const row of workspace.claimRows) {
@@ -459,6 +501,7 @@ function finalizeClaims(workspace) {
         predicate: row.predicate,
         value: row.value,
         qualifier: row.qualifier,
+        ...temporalPayload(workspace, row),
       },
       span: spanFor(workspace.sentences[row.sentenceIndex] || '', row.sentenceIndex),
       derivation: 'ATOMIC_CLAIM_EXTRACTION',

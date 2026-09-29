@@ -177,7 +177,9 @@ export class ProductionSparseRetrievalChannel{
     maxCandidates=32,
     evidenceSink=null,
     revisionGuard=null,
+    truthStatusFor=null,
   }={}){
+    this.truthStatusFor=typeof truthStatusFor==='function'?truthStatusFor:null;
     this.channelId=String(channelId);
     this.evidenceSink=typeof evidenceSink==='function'?evidenceSink:()=>{};
     this.revisionGuard=typeof revisionGuard==='function'?revisionGuard:null;
@@ -353,12 +355,17 @@ export class ProductionSparseRetrievalChannel{
     const maxScore=Math.max(...fresh.map((row)=>Number(row.score)||0),1);
     return fresh.slice(0,this.maxCandidates).map((row,index)=>{
       const rep=row.representation;
+      // The Lore owner's current temporal/conflict view of this source (never a stale index-time constant). A failing
+      // lookup is UNRESOLVED (fail closed); no opinion (null) keeps the indexed hint.
+      let owned=null;
+      if(this.truthStatusFor){try{owned=this.truthStatusFor(rep.sourceId)??null;}catch{owned={status:CandidateTruthStatus.UNRESOLVED,temporalHints:[]};}}
+      const truthStatus=CandidateTruthStatus[owned?.status]??rep.truthStatusHint;
       const evidenceId='owner-sparse-evidence:'+rep.sourceRevision;
       const evidence=createKnowledgeEvidence({
         evidenceId,evidenceIdentity:'lore-source:'+rep.sourceId,
         artifactRef:{artifactId:rep.ownerArtifactId,artifactType:rep.metadata?.artifactType??'LORE_SOURCE_SPARSE',revision:rep.ownerArtifactRevision},
         sourceClass:KnowledgeSourceClass.SOURCE_LORE,authorityClass:'SOURCE_CANON',authorityOrigin:KnowledgeAuthorityOrigin.SOURCE,
-        temporalStatus:KnowledgeTemporalStatus.CURRENT,sourceRevisionRefs:[rep.sourceRevision],dependencyRevisionRefs:rep.dependencyInvalidators,
+        temporalStatus:KnowledgeTemporalStatus[truthStatus]??KnowledgeTemporalStatus.CURRENT,sourceRevisionRefs:[rep.sourceRevision],dependencyRevisionRefs:rep.dependencyInvalidators,
         provenanceRefs:uniq([rep.sourceRevision,...(rep.provenanceRefs??[])]),
         loreRef:{sourceId:rep.sourceId,lorebookId:rep.metadata?.lorebookId??null,uid:rep.metadata?.uid??null,sourceRevisionId:rep.sourceRevision},
         extensions:{representationText:rep.representationText,exactSourceDrillback:true,owner:'LORE',sparseExecution:row.rankSignals?.sparseExecution??'LEXICAL_FALLBACK'},
@@ -380,8 +387,8 @@ export class ProductionSparseRetrievalChannel{
         rankSignals:{...row.rankSignals,productionSparse:true,productionBm25:false},
         normalizedRank:Math.max(0,Math.min(1,(Number(row.score)||0)/maxScore-index*0.000001)),
         authorityClass:rep.authorityClass,
-        truthStatusHint:rep.truthStatusHint,
-        temporalHints:[{status:rep.truthStatusHint}],
+        truthStatusHint:truthStatus,
+        temporalHints:owned?.temporalHints?.length?owned.temporalHints:[{status:truthStatus}],
         provenance:(rep.provenanceRefs??[]).map((ref)=>({ref})),
         evidenceRefs:[evidenceId],
         dependencyRevisions:rep.dependencyInvalidators,

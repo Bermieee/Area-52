@@ -1,0 +1,111 @@
+===== repro-swipe.mjs 23:23:54
+swipe      Area-52 messages injected = 3 | new errors: []
+regenerate Area-52 messages injected = 2 | new errors: []
+continue   Area-52 messages injected = 3 | new errors: []
+exit=0
+===== probe-memory2.mjs 23:23:55
+exit=0
+===== probe-abort-availability.mjs 23:23:55
+connected: READY/HEALTH_CHECK_PASSED callable=true active=0 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=0
+after T1 (scene call in flight): READY/HEALTH_CHECK_PASSED callable=true active=1 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=1
+after T2 (T1 superseded): READY/HEALTH_CHECK_PASSED callable=true active=1 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=1
+1 FOREGROUND_USER QUEUED SCENE_OBSERVATION_RUNTIME_QUEUED
+1 POST_RESPONSE SKIPPED SCENE_OBSERVATION_BLOCKED
+1 FOREGROUND_USER CANCELLED SCENE_OBSERVATION_SUPERSEDED
+2 FOREGROUND_USER QUEUED SCENE_OBSERVATION_RUNTIME_QUEUED
+2 POST_RESPONSE SKIPPED SCENE_OBSERVATION_BLOCKED
+after T3: READY/HEALTH_CHECK_PASSED callable=true active=1 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=1
+2 CANCELLED SCENE_OBSERVATION_SUPERSEDED admission=null
+3 QUEUED SCENE_OBSERVATION_RUNTIME_QUEUED admission=null
+3 SKIPPED SCENE_OBSERVATION_BLOCKED admission=null
+6s later: READY/HEALTH_CHECK_PASSED callable=true active=0 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=0
+provider calls: 4
+exit=0
+===== probe-deterministic-skip.mjs 23:24:07
+semantic {"loc":"Eris","cast":[],"atmos":[],"prefetch":[]}  <- Mara glances at Eris and sets down her rag.
+semantic {"loc":"Kael","cast":[],"atmos":[],"prefetch":[]}  <- I look at Kael, waiting for an answer.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- "You should not be here," Lyra says, her eyes fixed on the door.
+semantic {"loc":null,"cast":[],"atmos":["humor"],"prefetch":[]}  <- Eris laughs and slides a coin across the counter.
+semantic {"loc":null,"cast":[],"atmos":["hostility"],"prefetch":[]}  <- The guard glares at me from across the courtyard.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- At Dawn, the bells of Saint Veyra ring out over the harbor.
+semantic {"loc":"Tomas","cast":[],"atmos":[],"prefetch":[]}  <- I sit near Tomas and keep my voice low.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- She leans closer. "Tell me what happened to the Sun Blade."
+semantic {"loc":null,"cast":[],"atmos":["danger"],"prefetch":[]}  <- Kael draws his sword as the bandits charge.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":["Silver Keep"]}  <- We will head to the Silver Keep tomorrow.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- Rain drums on the roof while Mira reads the letter again.
+semantic {"loc":"Anya","cast":[],"atmos":[],"prefetch":[]}  <- He smiles at Anya, then turns back to the map.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- I nod slowly and take the offered cup of tea.
+EXPLICIT {"loc":null,"cast":["Captain Rhys:MENTIONED_ONLY"],"atmos":[],"prefetch":[]}  <- The old man mentions Captain Rhys twice before falling silent.
+EXPLICIT {"loc":"The Gilded Lantern","cast":[],"atmos":[],"prefetch":[]}  <- Inside The Gilded Lantern, music spills over the crowd.
+EXPLICIT {"loc":null,"cast":["Lyra:PRESENT"],"atmos":[],"prefetch":[]}  <- Lyra steps in, shaking snow from her cloak.
+EXPLICIT {"loc":null,"cast":["Tomas:DEPARTED"],"atmos":[],"prefetch":[]}  <- Tomas leaves without another word.
+semantic {"loc":"The Map","cast":[],"atmos":[],"prefetch":[]}  <- I stare at The Map for a long moment.
+semantic {"loc":null,"cast":[],"atmos":["tension"],"prefetch":[]}  <- Her hand trembles; the tension in the room is unbearable.
+semantic {"loc":null,"cast":[],"atmos":["intimacy"],"prefetch":[]}  <- Selene hugs her brother tightly.
+
+4/20 lines take the deterministic path (Sidecar skipped); 6 set a location, 3 set cast.
+exit=0
+===== probe-graph-identity.mjs 23:24:08
+native identity registry entity count: 0 | deployment core registry count: 0
+normalizeRef(entity:mara, LORE provider) => {"entityId":"LORE_OWNER_GRAPH::entity:mara","resolved":false,"state":"NOT_FOUND","sourceRef":"entity:mara","candidateEntityIds":[]}
+edges before: 0 | after registering entity:mara in Native registry: 0 []
+raw Scene-style anchor "Mara" after registration: 0
+exit=0
+===== probe-graph-walk.mjs 23:24:08
+["Mara"] edges 0 providers [["LORE_OWNER_GRAPH",0,0],["MEMORY_OWNER_GRAPH",0,0],["SCENE_OWNER_GRAPH",0,0]] staleReasons []
+["entity:mara"] edges 0 providers [["LORE_OWNER_GRAPH",0,0],["MEMORY_OWNER_GRAPH",0,0],["SCENE_OWNER_GRAPH",0,0]] staleReasons []
+["entity:ember-tavern"] edges 0 providers [["LORE_OWNER_GRAPH",0,0],["MEMORY_OWNER_GRAPH",0,0],["SCENE_OWNER_GRAPH",0,0]] staleReasons []
+  lore-source-artifact:8ae0fd3c58ed0585:entity:ember-ta  entity:ember-tavern -> lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE temporal= CURRENT auth= SOURCE_CANON | deps: lore:ember-golden:mara@r1 | depCurrent: true
+  lore-source-artifact:8ae0fd3c58ed0585:entity:mara      entity:mara -> lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE temporal= CURRENT auth= SOURCE_CANON | deps: lore:ember-golden:mara@r1 | depCurrent: true
+  lore-source-artifact:8ae0fd3c58ed0585:entity:river-di  entity:river-district -> lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE temporal= CURRENT auth= SOURCE_CANON | deps: lore:ember-golden:mara@r1 | depCurrent: true
+  navigation-summary:3da4b82f058e620e:entity:ember-tave  entity:ember-tavern -> lore:artifact:navigation-summary:3da4b82f058e620e SUPPORTED_BY_LORE_SOURCE temporal= UNRESOLVED auth= DERIVED | deps: lore:ember-golden:blade-report-a@r1,lore:ember-golden:blade-report-b@r1 | depCurrent: true,true,true,true,true,true,true,true,true,true,true,true
+  navigation-summary:3da4b82f058e620e:entity:sun-blade   entity:sun-blade -> lore:artifact:navigation-summary:3da4b82f058e620e SUPPORTED_BY_LORE_SOURCE temporal= UNRESOLVED auth= DERIVED | deps: lore:ember-golden:blade-report-a@r1,lore:ember-golden:blade-report-b@r1 | depCurrent: true,true,true,true,true,true,true,true,true,true,true,true
+exit=0
+===== probe-jev-native.mjs 23:24:09
+native jev: {"considered":true,"invoked":false,"skipped":true,"unavailable":false,"abstained":false,"action":"SKIP_JEV","reason":"JEV_NOT_REQUIRED","alternativeCount":0,"request":null,"decisionRevision":null,"resultRef":null}
+native core jev adapter registered: false | deployment core: true
+truth confidence HIGH unresolved in packet: 0
+exit=0
+===== probe-turn-limit2.mjs (LEN=600) 23:24:09
+reply 600 chars: first failing turn=null; injections on next 3 turns=[]; errors=[]
+after CHAT_CHANGED back: injected 3 undefined
+exit=0
+===== probe-bound-graph-identity.mjs (story-bound Lore) 23:26:16
+native identity registry entity count: 4 | deployment core registry count: 0
+normalizeRef(entity:mara, LORE provider) => {"entityId":"entity:mara","resolved":true,"state":"CANONICAL_ID","sourceRef":"entity:mara"}
+register err ENTITY_IDENTITY_CONFLICT:entity:mara
+edges before: 4 | after registering entity:mara in Native registry: 4 [
+  'entity:mara->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE',
+  'entity:ember-tavern->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE',
+  'entity:river-district->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE'
+]
+raw Scene-style anchor "Mara" after registration: 4
+exit=0
+===== probe-bound-graph-walk.mjs (story-bound Lore) 23:26:16
+["Mara"] edges 4 providers [["LORE_OWNER_GRAPH",5,0],["MEMORY_OWNER_GRAPH",0,0],["SCENE_OWNER_GRAPH",0,0]] staleReasons []
+["entity:mara"] edges 4 providers [["LORE_OWNER_GRAPH",5,0],["MEMORY_OWNER_GRAPH",0,0],["SCENE_OWNER_GRAPH",0,0]] staleReasons []
+["entity:ember-tavern"] edges 5 providers [["LORE_OWNER_GRAPH",5,0],["MEMORY_OWNER_GRAPH",0,0],["SCENE_OWNER_GRAPH",0,0]] staleReasons []
+  lore-source-artifact:8ae0fd3c58ed0585:entity:ember-ta  entity:ember-tavern -> lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE temporal= CURRENT auth= SOURCE_CANON | deps: lore:ember-golden:mara@r1 | depCurrent: true
+  lore-source-artifact:8ae0fd3c58ed0585:entity:mara      entity:mara -> lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE temporal= CURRENT auth= SOURCE_CANON | deps: lore:ember-golden:mara@r1 | depCurrent: true
+  lore-source-artifact:8ae0fd3c58ed0585:entity:river-di  entity:river-district -> lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE temporal= CURRENT auth= SOURCE_CANON | deps: lore:ember-golden:mara@r1 | depCurrent: true
+  navigation-summary:3da4b82f058e620e:entity:ember-tave  entity:ember-tavern -> lore:artifact:navigation-summary:3da4b82f058e620e SUPPORTED_BY_LORE_SOURCE temporal= UNRESOLVED auth= DERIVED | deps: lore:ember-golden:blade-report-a@r1,lore:ember-golden:blade-report-b@r1 | depCurrent: true,true,true,true,true,true,true,true,true,true,true,true
+  navigation-summary:3da4b82f058e620e:entity:sun-blade   entity:sun-blade -> lore:artifact:navigation-summary:3da4b82f058e620e SUPPORTED_BY_LORE_SOURCE temporal= UNRESOLVED auth= DERIVED | deps: lore:ember-golden:blade-report-a@r1,lore:ember-golden:blade-report-b@r1 | depCurrent: true,true,true,true,true,true,true,true,true,true,true,true
+exit=0
+===== probe-bound-anchors-e2e.mjs (story-bound Lore) 23:26:17
+lore ingest: {"mappingCount":6,"retrievable":true}
+T1 graph: {"anchors":[],"noWork":"NO_ENTITY_ANCHORS"}
+Scene cast after T1: [{"characterId":"Mara","state":"PRESENT"}]
+T2 providers: [{"providerId":"LORE_OWNER_GRAPH","status":"OK","edgeCount":10,"rejectedStale":0,"providerRevision":"lore-retrieval:acb4fca4c648bf3f"},{"providerId":"MEMORY_OWNER_GRAPH","status":"OK","edgeCount":0,"rejectedStale":0,"providerRevision":"memory-historian:890c38af49a7b387"},{"providerId":"SCENE_OWNER_GRAPH","status":"OK","edgeCount":0,"rejectedStale":0,"providerRevision":1}] examined 11 traversed 8 staleRejected []
+T2 graph: {"anchors":["entity:mara"],"noWork":null,"nominations":8}
+graph keys: kind,contractVersion,intentId,query,anchorEntityIds,providers,providerCount,examinedEdgeCount,traversedEdgeCount,visitedNodeCount,nominationCount,staleRejectedCount,staleRejected,trustedSourceRevisionRefs,hotNeighborhoodRefs,hotNeighborhoodSourceRevisionRefs,hotNeighborhoodIdentityRevisionRefs,hotNeighborhoodDependencyRevisionRefs,hotNeighborhoodSummary,referenceSummary,boundedOut,limits,noWorkReason,budgetPolicy,elapsedMs,latencyBudgetExceeded,authority
+T2 delivered mentions Sun Blade / Ember Tavern lore: true true bytes 12226
+exit=0
+===== stress-lore1200.mjs N=1200 (LOCAL_DETERMINISTIC_NODE, same sandbox class as audit) 23:26:24
+{"N":1200,"ingestAndStudyMs":12011,"mappingCount":1200,"retrievable":true,"heapMB":535}
+turn1 lore {"s":"SYNCED","n":3056,"sparse":"1200/512","compacted":false,"injectedMsgs":3,"sections":["RELEVANT_LORE","CURRENT_SCENE","USER_INPUT"]}
+turn wall ms (host prepare+inject+complete, provider instant): [2998,2607,2714,2469,2583,2634,2726,2654] heapMB 485
+exportEvidence bytes 20746665 ms 2105
+UI readers: 40 largest: [["readIdentityResolution",648936,5],["readCorrectiveRetrieval",218541,2],["readSensoryTrace",193474,2],["readCandidateBusEnvelope",193474,2],["readLoreStatus",180130,2],["readCognitiveChoice",156785,5],["readSelectedTurnReceipt",131042,3],["readRuntimeStatus",122920,2]]
+edit 10 entries: re-accept+study ms 10947 mapping 1200 heapMB 702
+after edit: entries 1200 stale/due 0
+exit=0

@@ -55,7 +55,20 @@ export class FakeNode {
     this.append(...nodes);
   }
 
-  setAttribute(name, value) { this.attributes[name] = String(value); }
+  // Real DOM parity for markup that UI code writes as flat, non-nested elements (toasts: '<strong></strong><span></span>').
+  set innerHTML(html) {
+    this._html = String(html ?? '');
+    this.children = [];
+    for (const match of this._html.matchAll(/<([a-z][a-z0-9-]*)[^>]*>([^<]*)<\/\1>/gi)) {
+      const child = new FakeNode(match[1], this.ownerDocument);
+      child.textContent = match[2];
+      this.append(child);
+    }
+  }
+  get innerHTML() { return this._html ?? ''; }
+
+  // Real DOM parity: the value attribute of an option/input is reflected by its value property.
+  setAttribute(name, value) { this.attributes[name] = String(value); if (name === 'value') this.value = String(value); }
   addEventListener(type, handler) { add(this.listeners, type, handler); }
   removeEventListener(type, handler) { remove(this.listeners, type, handler); }
   focus() { this.ownerDocument.activeElement = this; }
@@ -72,6 +85,9 @@ export class FakeNode {
     walk(this);
     return nodes;
   }
+
+  // Real DOM parity for the UI code that reads one node (notifications, overlay): first match or null.
+  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
 
   dispatch(type, event = {}) {
     for (const handler of this.listeners.get(type) ?? []) handler({ type, target:this, preventDefault() {}, ...event });
@@ -168,5 +184,7 @@ function remove(map, type, handler) {
 function matches(node, selector) {
   if (selector === '[data-workspace-id]') return 'workspaceId' in node.dataset;
   if (selector === '[data-roving-item]') return 'rovingItem' in node.dataset;
+  if (/^[a-z][a-z0-9-]*$/i.test(selector)) return node.tagName === selector.toUpperCase();
+  if (/^\.[\w-]+$/.test(selector)) return String(node.className ?? '').split(/\s+/).includes(selector.slice(1));
   return false;
 }

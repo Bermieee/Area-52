@@ -1,0 +1,7 @@
+lore ingest: {"mappingCount":6,"retrievable":true}
+T1 graph: {"anchors":[],"noWork":"NO_ENTITY_ANCHORS"}
+Scene cast after T1: [{"characterId":"Mara","state":"PRESENT"}]
+T2 providers: [{"providerId":"LORE_OWNER_GRAPH","status":"OK","edgeCount":0,"rejectedStale":0,"providerRevision":"lore-retrieval:91e07a908c1b16d0"},{"providerId":"MEMORY_OWNER_GRAPH","status":"OK","edgeCount":0,"rejectedStale":0,"providerRevision":"memory-historian:890c38af49a7b387"},{"providerId":"SCENE_OWNER_GRAPH","status":"OK","edgeCount":0,"rejectedStale":0,"providerRevision":1}] examined 0 traversed 0 staleRejected []
+T2 graph: {"anchors":["Mara"],"noWork":"NO_MATCHING_EDGES","nominations":0}
+graph keys: kind,contractVersion,intentId,query,anchorEntityIds,providers,providerCount,examinedEdgeCount,traversedEdgeCount,visitedNodeCount,nominationCount,staleRejectedCount,staleRejected,trustedSourceRevisionRefs,hotNeighborhoodRefs,hotNeighborhoodSourceRevisionRefs,hotNeighborhoodIdentityRevisionRefs,hotNeighborhoodDependencyRevisionRefs,hotNeighborhoodSummary,referenceSummary,boundedOut,limits,noWorkReason,budgetPolicy,elapsedMs,latencyBudgetExceeded,authority
+T2 delivered mentions Sun Blade / Ember Tavern lore: true false bytes 3741

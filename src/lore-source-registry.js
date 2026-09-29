@@ -4,6 +4,7 @@ import {
   stableHash,
   stableStringify,
 } from './lore-contracts.js';
+import {resolveLoreTemporal} from './lore-temporal-rules.js';
 
 function normalizedMetadata(metadata = {}) {
   const passthrough = {};
@@ -160,6 +161,14 @@ export class LoreSourceRegistry {
     return revision ? deepClone(revision) : null;
   }
 
+  // Identity-only read of the current revision ({id, state}, no clone of the authored text). For hot paths that only compare
+  // revision ids or check removal; anything that needs content still uses currentRevision().
+  currentRevisionRef(sourceId) {
+    const entry = this.entries.get(sourceId);
+    const revision = entry?.currentRevisionId ? this.revisions.get(entry.currentRevisionId) : null;
+    return revision ? {id: revision.id, state: revision.state} : null;
+  }
+
   currentRevision(sourceId, {allowMissing = false} = {}) {
     const entry = this.entries.get(sourceId);
     if (!entry || !entry.currentRevisionId) {
@@ -167,6 +176,15 @@ export class LoreSourceRegistry {
       throw new Error('Unknown lore source: ' + sourceId);
     }
     return this.getRevision(entry.currentRevisionId);
+  }
+
+  // Identity/state of the current revision without cloning its exact authored content. For hot loops
+  // that only compare ids or check REMOVED (freshness, corpus counts).
+  currentRevisionState(sourceId) {
+    const entry = this.entries.get(sourceId);
+    if (!entry || !entry.currentRevisionId) return null;
+    const revision = this.revisions.get(entry.currentRevisionId);
+    return revision ? {id: revision.id, sourceId: revision.sourceId, state: revision.state} : null;
   }
 
   revisionHistory(sourceId) {
@@ -217,7 +235,7 @@ export class LoreDerivedStore {
     if (snapshot) this.restore(snapshot);
   }
 
-  publish({source, sourceRevision, artifacts, semanticDiff, validation}) {
+  publish({source, sourceRevision, artifacts, semanticDiff, validation, engineRevision = null}) {
     if (sourceRevision.state === 'REMOVED') {
       return this.publishRemoval({source, sourceRevision, semanticDiff, validation});
     }
@@ -245,6 +263,7 @@ export class LoreDerivedStore {
       semanticDiff: deepClone(semanticDiff),
       validation: deepClone(validation),
       atomicPublication: true,
+      engineRevision,
     };
     if (previousId && this.learnedRevisions.has(previousId)) this.learnedRevisions.get(previousId).state = 'HISTORICAL';
     this.learnedRevisions.set(learnedId, learned);
@@ -283,8 +302,23 @@ export class LoreDerivedStore {
     return id ? deepClone(this.learnedRevisions.get(id)) : null;
   }
 
+  // Identity-only read of the current learned revision (no clone).
+  currentLearnedRevisionRef(sourceId) {
+    const id = this.currentLearnedBySource.get(sourceId);
+    const learned = id ? this.learnedRevisions.get(id) : null;
+    return learned ? {id: learned.id, state: learned.state, sourceRevisionId: learned.sourceRevisionId} : null;
+  }
+
   learnedHistory(sourceId) {
     return (this.learnedRevisionIdsBySource.get(sourceId) || []).map((id) => deepClone(this.learnedRevisions.get(id)));
+  }
+
+  // Read-only view of the stored artifacts (no clone). Only for callers that derive values and neither mutate nor retain the
+  // rows (index build, truth hint, ontology rebuild); everything else uses artifactsForLearnedRevision().
+  artifactsForLearnedRevisionReadOnly(learnedRevisionId) {
+    const learned = this.learnedRevisions.get(learnedRevisionId);
+    if (!learned) return [];
+    return learned.artifactIds.map((id) => this.artifacts.get(id)).filter(Boolean);
   }
 
   artifactsForLearnedRevision(learnedRevisionId) {
@@ -293,12 +327,46 @@ export class LoreDerivedStore {
     return learned.artifactIds.map((id) => deepClone(this.artifacts.get(id))).filter(Boolean);
   }
 
+  // Per-type counts with the same selection rule as currentArtifacts, without cloning artifacts.
+  countCurrentArtifactsByType(registry) {
+    const counts = {};
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      for (const id of learned.artifactIds) {
+        const artifact = this.artifacts.get(id);
+        if (artifact) counts[artifact.artifactType] = (counts[artifact.artifactType] || 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  // Same selection rule as currentArtifacts, counted without cloning any artifact.
+  countCurrentArtifacts(registry, {types = null, excludeSourceId = null} = {}) {
+    const allowed = types ? new Set(types) : null;
+    let count = 0;
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      if (excludeSourceId != null && sourceId === excludeSourceId) continue;
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      for (const id of learned.artifactIds) {
+        const artifact = this.artifacts.get(id);
+        if (artifact && (!allowed || allowed.has(artifact.artifactType))) count += 1;
+      }
+    }
+    return count;
+  }
+
   currentArtifacts(registry, {types = null} = {}) {
     const allowed = types ? new Set(types) : null;
     const rows = [];
     for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
       const learned = this.learnedRevisions.get(learnedId);
-      const sourceRevision = registry.currentRevision(sourceId, {allowMissing: true});
+      const sourceRevision = registry.currentRevisionState(sourceId);
       if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
       if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
       for (const id of learned.artifactIds) {
@@ -326,32 +394,68 @@ export class LoreDerivedStore {
     };
   }
 
+  // Sources whose CURRENT learned revision was produced by a different study engine revision than `engineRevision`.
+  sourceIdsWithStaleEngine(registry, engineRevision) {
+    const out = [];
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      if ((learned.engineRevision ?? null) !== engineRevision) out.push(sourceId);
+    }
+    return out.sort();
+  }
+
+  // Cross-source temporal resolution (supersession and conflict sets) over the CURRENT learned claims. Cached by the set of
+  // current learned revisions, so it is recomputed only when a source is (re)studied, changed or removed.
+  // Lorebooks that are read together (one story's read scope) may interact; the provider returns arrays of lorebook ids.
+  setBookGroupsProvider(provider) { this._bookGroups = typeof provider === 'function' ? provider : null; this._temporalCache = null; }
+
+  // The key the temporal resolution (and every truth hint) is a function of: the current learned revisions and the story scope
+  // groups. The retrieval index is fenced by it (lore-contextual-retrieval.js).
+  resolutionKey(registry) {
+    const groups = (this._bookGroups?.() ?? []).map((group) => [...new Set(group)].sort()).filter((group) => group.length > 1).sort((a, b) => a.join(',').localeCompare(b.join(',')));
+    const groupsKey = groups.map((g) => g.join(',')).join(';');
+    // Every change that can move the key also changes one of these counts (a new source revision, a new learned revision)
+    // or the groups; the exact key is recomputed only then.
+    const proxy = registry.revisions.size + '|' + this.learnedRevisions.size + '|' + this.currentLearnedBySource.size + '|' + groupsKey;
+    const c = this._resolutionKeyCache;
+    if (c?.proxy === proxy && c.registry === registry && c.revisions === registry.revisions && c.learned === this.learnedRevisions && c.current === this.currentLearnedBySource) return c.key;
+    const currentIds = [];
+    for (const [sourceId, learnedId] of this.currentLearnedBySource.entries()) {
+      const learned = this.learnedRevisions.get(learnedId);
+      const sourceRevision = registry.currentRevisionState(sourceId);
+      if (!learned || !sourceRevision || sourceRevision.state === 'REMOVED') continue;
+      if (learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') continue;
+      currentIds.push(learnedId);
+    }
+    const key = stableHash(currentIds.sort().join(',') + '|' + groupsKey);
+    this._resolutionKeyCache = {proxy, registry, revisions: registry.revisions, learned: this.learnedRevisions, current: this.currentLearnedBySource, key};
+    return key;
+  }
+
+  temporalResolution(registry) {
+    const groups = (this._bookGroups?.() ?? []).map((group) => [...new Set(group)].sort()).filter((group) => group.length > 1).sort((a, b) => a.join(',').localeCompare(b.join(',')));
+    const key = this.resolutionKey(registry);
+    if (this._temporalCache?.key === key) return this._temporalCache.value;
+    const rows = this.currentArtifacts(registry, {types: [ArtifactType.CLAIM, ArtifactType.ENTITY]});
+    const bookOf = (claim) => registry.entries.get(claim.sourceId)?.lorebookId ?? claim.sourceId;
+    const coScoped = (a, b) => a === b || groups.some((group) => group.includes(a) && group.includes(b));
+    const value = resolveLoreTemporal({
+      claims: rows.filter((row) => row.artifactType === ArtifactType.CLAIM),
+      entities: rows.filter((row) => row.artifactType === ArtifactType.ENTITY),
+      scopeOf: bookOf,
+      coScoped,
+    });
+    this._temporalCache = {key, value};
+    return value;
+  }
+
+  // Conflict sets under the owner-approved rule R4: same entity, same normalized single-valued property, differing values,
+  // provably overlapping applicability. Change over time and unknown overlap are not conflicts.
   conflicts(registry) {
-    const claims = this.currentArtifacts(registry, {types: [ArtifactType.CLAIM]});
-    const slots = new Map();
-    for (const claim of claims) {
-      const key = claim.payload.subjectId + '|' + claim.payload.predicate;
-      const rows = slots.get(key) || [];
-      rows.push(claim);
-      slots.set(key, rows);
-    }
-    const conflicts = [];
-    for (const [slotKey, rows] of slots.entries()) {
-      const values = [...new Set(rows.map((row) => stableStringify(row.payload.value)))];
-      const uncertain = rows.some((row) => row.unresolved || row.temporalClass === 'UNCERTAIN' || row.temporalClass === 'CONFLICTING');
-      if (values.length > 1 && uncertain) {
-        conflicts.push({
-          kind: 'LoreConflictSet',
-          id: 'conflict:' + stableHash(slotKey + '|' + values.sort().join('|')),
-          slotKey,
-          artifactIds: rows.map((row) => row.id).sort(),
-          semanticIds: rows.map((row) => row.semanticId).sort(),
-          status: 'UNRESOLVED',
-          authorityClass: 'UNRESOLVED',
-        });
-      }
-    }
-    return conflicts.sort((a, b) => a.id.localeCompare(b.id));
+    return this.temporalResolution(registry).conflicts.map((row) => ({...row}));
   }
 
   snapshot() {

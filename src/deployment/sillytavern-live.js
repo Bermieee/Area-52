@@ -1,6 +1,7 @@
 import { CastPresence, ObservationClass, createFieldState } from '../scene/contracts.js';
 import { HostActivity, SceneRelationship } from '../scene/lifecycle-contracts.js';
 import { scenePrefetchIntentsFromNarrative } from '../scene/prefetch-trigger.js';
+import { packBrainSnapshot, unpackBrainSnapshot } from './brain-snapshot-parts.js';
 import { DevelopmentDeploymentBrain } from './brain.js';
 import { mountWave12SillyTavernInterface } from '../ui-core/index.js';
 import {
@@ -16,6 +17,7 @@ export const DEVELOPMENT_DEPLOYMENT_LIVE_CONTRACT_VERSION = '1.4.0';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const clean = (value) => String(value ?? '').trim();
+const EXCLUDED_HOST_GENERATION_TYPES=Object.freeze(new Set(['quiet','impersonate']));
 const SESSION_BOUNDS=Object.freeze({turnEvidence:32,processed:32,loreIngestion:32,errors:64,nativePerformance:12});
 const pushBounded=(list,value,limit)=>{list.push(value);if(list.length>limit)list.splice(0,list.length-limit);return value;};
 const safeDiagnosticMessage=(error)=>{
@@ -182,12 +184,23 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   let resumeSceneId = null;
   const prefetchIntents=scenePrefetchIntentsFromNarrative(raw);
 
-  const locationMatch = raw.match(/\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u)
-    ?? raw.match(/\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})/u);
+  // Clear location evidence is an explicit travel/arrival phrase or a clause-initial preposition
+  // ("At North Gallery, ..."). A preposition in the middle of a clause ("looks at Kael", "sits near
+  // Tomas") is as likely to name a person or object, so it is only weak, INFERRED evidence and never
+  // pre-empts semantic extraction.
+  const locationName = String.raw`([\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+(?:[\p{Lu}][\p{L}\p{N}'’_-]*|of|the|and)){0,4})`;
+  const prepositionMatch = raw.match(new RegExp(String.raw`\b(?:[Aa]t|[Ii]nside|[Ww]ithin|[Oo]utside|[Nn]ear)\s+(?:the\s+)?` + locationName, 'u'));
+  const travelMatch = raw.match(new RegExp(String.raw`\b(?:arrive(?:s|d)?|reach(?:es|ed)?|travel(?:s|ed)?|move(?:s|d)?|return(?:s|ed)?)\s+(?:at|in|inside|to)\s+(?:the\s+)?` + locationName, 'u'));
+  const clauseInitial = prepositionMatch ? /(?:^|[.!?"”\n]\s*|[,;]\s*)$/.test(raw.slice(0, prepositionMatch.index)) : false;
+  const locationMatch = clauseInitial ? prepositionMatch : (travelMatch ?? prepositionMatch);
+  const locationIsClear = clauseInitial || Boolean(travelMatch);
+  const TIME_OF_DAY = /^(?:dawn|dusk|noon|midnight|morning|evening|night|nightfall|daybreak|sunrise|sunset|twilight)$/i;
   let location = null;
   if (locationMatch?.[1]) {
-    location = locationMatch[1].replace(/[.,!?;:]+$/, '').trim();
-    if (location) fields.location = sceneField({ location }, revision, evidenceRef);
+    location = locationMatch[1].replace(/[.,!?;:]+$/, '').replace(/(?:\s+(?:and|of|the))+$/i, '').trim();
+    if (location && !TIME_OF_DAY.test(location)) {
+      fields.location = locationIsClear ? sceneField({ location }, revision, evidenceRef) : sceneField({ location }, revision, evidenceRef, ObservationClass.INFERRED, 0.5);
+    } else location = null;
   }
 
   const person = String.raw`[\p{Lu}][\p{L}\p{N}'’_-]*(?:\s+[\p{Lu}][\p{L}\p{N}'’_-]*)?`;
@@ -243,7 +256,9 @@ export function extractDevelopmentDeploymentScene(text, { revision, evidenceRef,
   if(explicitBreak)boundarySignals.explicitBreak=1;
 
   return {
-    explicit: Object.keys(fields).length > 0 || Object.keys(boundarySignals).length > 0 || prefetchIntents.length > 0,
+    // Only structural evidence is "clear": atmosphere cues, prefetch intents and weak locations alone
+    // leave semantic extraction in charge (deterministic fields stay as the fallback when no resource answers).
+    explicit: (Boolean(fields.location) && locationIsClear) || Boolean(fields.activeCast) || Boolean(fields.narrativeTime) || Object.keys(boundarySignals).length > 0,
     fields,
     prefetchIntents,
     sourceText: raw,
@@ -287,6 +302,18 @@ function sourceIdentity(chatId, message) {
 
 function registerNarrativeSource(brain, { chatId, message }) {
   const identity = sourceIdentity(chatId, message);
+  // Swipe/regenerate/continue legitimately re-prepare against an already registered, unchanged
+  // host message. Reuse its active revision; a same-id source with different content is a genuine
+  // identity collision and still fails. Generation/request identity stays separate (turnId/seq).
+  const existing = brain.core.registry.getSource(identity.sourceId);
+  if (existing) {
+    let active = null;
+    try { active = brain.core.registry.getActiveRevision(identity.sourceId); } catch { active = null; }
+    if (active && active.exactContent === message.text) return { ...identity, sourceRevisionId: active.id, reused: true };
+    const error = new Error('NARRATIVE_SOURCE_IDENTITY_COLLISION: ' + identity.sourceId + (active ? ' content differs from its active revision' : ' has no active revision'));
+    error.code = 'NARRATIVE_SOURCE_IDENTITY_COLLISION';
+    throw error;
+  }
   const imported = brain.core.registry.importSource({
     id: identity.sourceId,
     sourceType: 'EXPERIENCE',
@@ -623,19 +650,33 @@ export class DevelopmentDeploymentSillyTavernSession {
     nativeBrain = null,
     ownerBindings = {},
     memoryOwnerSnapshot = null,
+    loreOwnerSnapshot = null,
+    sceneOwnerSnapshot = null,
     persistNativeBrain = null,
+    storage = null,
+    hostState = null,
+    restoreReceipt = null,
     detailedGenerationProfiling = false,
   } = {}) {
     this.sillyTavern = sillyTavern;
     this.document = document;
-    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot });
+    this.ownsBrain = !brain;
+    this.brain = brain ?? new DevelopmentDeploymentBrain({ resourceCount: 1, jevAvailable: true, memoryOwnerSnapshot, loreOwnerSnapshot, sceneOwnerSnapshot });
     this.nativeBrain = null;
     this.ownerBindings = ownerBindings&&typeof ownerBindings==='object'?{...ownerBindings}:{};
     this.persistNativeBrain=typeof persistNativeBrain==='function'?persistNativeBrain:null;
+    // Installed durable storage: one Brain per story (chat), owners stored once. `storyBrains` keeps live brains so a
+    // chat switch inside a session does not reload; `nativeBrainStoryId` says which story the attached brain serves.
+    this.storage=storage&&typeof storage.saveStory==='function'?storage:null;
+    this.storageRestore=restoreReceipt?clone(restoreReceipt):{kind:'InstalledStorageRestoreReceipt',status:this.storage?'NOT_ATTEMPTED':'NO_STORAGE'};
+    this.nativeBrainStoryId=null;this.storyBrains=new Map();this.storyBrainReady=Promise.resolve();
     this.nativePersistence=[];
+    this.persistenceConflict=null;
     this.nativePending = new Map();
     this.nativePayloads = new Map();
     this.nativeRuns = new Map();
+    // Deep Lore study yields at slice boundaries while a native generation is running or awaiting its response.
+    this.brain.setForegroundProbe?.(() => this.nativeRuns.size > 0 || this.nativePending.size > 0);
     this.nativeHistory = [];
     this.nativeRejections = [];
     this.nativePerformance = [];
@@ -649,7 +690,15 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativeSequence = 0;
     this.hostEventSequence = 0;
     this.hostNarrativeEvents = [];
+    this.hostAssistantTurns = new Map();
+    this.lastPersistedLoreOwnerKey = null;
+    this.hostRevisionReconciliations = [];
     this.sceneHostMessageState = new Map();
+    // Host bookkeeping that lets a restored session keep retiring what deleted/edited messages taught it.
+    if (hostState?.kind === 'InstalledHostState') {
+      for (const [key, row] of hostState.hostAssistantTurns ?? []) this.hostAssistantTurns.set(key, clone(row));
+      for (const [key, row] of hostState.sceneHostMessageState ?? []) this.sceneHostMessageState.set(key, clone(row));
+    }
     this.onEvidence = typeof onEvidence === 'function' ? onEvidence : null;
     this.uiHost = null;
     this.running = false;
@@ -771,6 +820,13 @@ export class DevelopmentDeploymentSillyTavernSession {
       const stoppedHandler=(...args)=>{this.#recordHostNarrativeEvent('GENERATION_STOPPED',args);this.#expireNativePending('GENERATION_STOPPED_WITHOUT_COMPLETION');};
       context.eventSource.on(before,beforeHandler);releases.push(()=>context.eventSource.removeListener?.(before,beforeHandler));
       context.eventSource.on(requestReady,requestHandler);releases.push(()=>context.eventSource.removeListener?.(requestReady,requestHandler));
+      // Text-completion backends never emit CHAT_COMPLETION_PROMPT_READY; SillyTavern emits
+      // GENERATE_AFTER_COMBINE_PROMPTS {prompt:string} instead (also with prompt '' for chat completion).
+      const combined=context.eventTypes?.GENERATE_AFTER_COMBINE_PROMPTS??context.event_types?.GENERATE_AFTER_COMBINE_PROMPTS;
+      if(combined){
+        const textHandler=async(eventData)=>{if(eventData?.dryRun)return;try{this.injectNativeTextPrompt(eventData);}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'NATIVE_TEXT_PROMPT'},SESSION_BOUNDS.errors);this.#notify();}};
+        context.eventSource.on(combined,textHandler);releases.push(()=>context.eventSource.removeListener?.(combined,textHandler));
+      }
       context.eventSource.on(received,receivedHandler);releases.push(()=>context.eventSource.removeListener?.(received,receivedHandler));
       if(stopped){context.eventSource.on(stopped,stoppedHandler);releases.push(()=>context.eventSource.removeListener?.(stopped,stoppedHandler));}
     }else{
@@ -797,11 +853,25 @@ export class DevelopmentDeploymentSillyTavernSession {
   }
 
   async prepareNativeGeneration({generationType='normal'}={}){
+    const type=String(generationType??'normal').toLowerCase();
+    if(EXCLUDED_HOST_GENERATION_TYPES.has(type)){
+      // Quiet (other extensions' generateQuietPrompt) and impersonate requests produce no story
+      // reply; they are not Area-52 story turns and must not reserve a run or receive context.
+      pushBounded(this.nativeRejections,{at:Date.now(),code:'HOST_GENERATION_TYPE_EXCLUDED',generationType:type},100);
+      return null;
+    }
+    await this.storyBrainReady;
+    try{await this.#ensureStoryBrain(clean(this.getContext()?.chatId));}catch(error){pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'STORY_BRAIN_SWITCH'},SESSION_BOUNDS.errors);}
     const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
     const context=this.getContext(),message=latestUserMessage(context),chatId=clean(context.chatId);
     if(!message)throw new Error('No current SillyTavern user message is available for native Brain preparation');
     if(!chatId)throw new Error('SillyTavern chatId is unavailable');
-    if(this.nativeRuns.has(chatId))throw new Error('A native Brain generation is already pending for this selected chat');
+    // SillyTavern serializes non-quiet generations per chat, so a run still registered for this chat
+    // at a new GENERATION_AFTER_COMMANDS belongs to a generation that ended without completion
+    // (provider error, aborted stream). Expire exactly that run; never a newer one.
+    const orphan=this.nativeRuns.get(chatId);
+    if(orphan)this.releaseNativeRun(chatId,orphan,'SUPERSEDED_BY_NEW_GENERATION');
+    this.#reconcileHostRevisions('PREPARE_GENERATION');
     const hostPrepareStarted=perfNow(),profileStart=this.#generationProfileSample();
     const source=registerNarrativeSource(this.brain,{chatId,message});
     const seq=++this.nativeSequence,turnId='native-live:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq,generationId='native-live-gen:'+chatId+':'+source.messageKey+':'+source.digest+':'+seq;
@@ -828,19 +898,25 @@ export class DevelopmentDeploymentSillyTavernSession {
     let readyResolve,readyReject,responseResolve,responseReject,readySettled=false;
     const readyPromise=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
     const responsePromise=new Promise((resolve,reject)=>{responseResolve=resolve;responseReject=reject;});
+    // The generate callback is the only consumer; if preparation fails first, a release-time rejection
+    // must not surface as an unhandled rejection in the host page.
+    responsePromise.catch(()=>{});
     const run={chatId,turnId,generationId,responseResolve,responseReject,runPromise:null,hostPrepareStarted,profileStart,profileAfterInsertion:null};
     pushBounded(this.profileCaptureStates,{chatId,turnId,generationId,correlationId,status:profileStart?'ARMED':'NOT_ARMED',updatedAt:Date.now()},SESSION_BOUNDS.nativePerformance);
     this.nativeRuns.set(chatId,run);
     run.runPromise=Promise.resolve().then(()=>this.nativeBrain.runTurn({
       chatId,turnId,generationId,correlationId,query:message.text,sceneSignal:scene.signal,sceneTimeline:scene.dispatchTimeline??[],sceneOwnerReceipt,
       sceneFanOut:sceneFanOut?.coreHandoff??null,executionLabel:'LIVE_SILLYTAVERN',
+      // Installed context retirement: the host history window is evaluated by the documented
+      // NativeContextRetirementPolicy (RECENT_NARRATIVE, optional) instead of being ignored.
+      activeContext,
     },{
       generate:async(rendered,meta={})=>{
         const seal=meta.contextSealReceipt;
         if(!seal?.sealedState)throw new Error('Native Brain did not publish a sealed Context Seal before the model request');
         if(!rendered)throw new Error('Native Brain runTurn did not publish prepared.rendered for the model request');
         this.nativePayloads.set(chatId,clone(rendered));
-        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??correlationId,causationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneFanOutReceipt:clone(sceneFanOut?.receipt??null),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
+        const pending={kind:'NativeBrainHostTurn',chatId,turnId,generationId,correlationId:meta.selection?.correlationId??correlationId,causationId,generationType:String(generationType??'normal'),userMessageIndex:message.index,userMessageDigest:source.digest,sceneId:scene.signal?.sceneId??null,sceneRevision:scene.signal?.sceneRevision??null,sceneSourceRevisionRefs:[...(scene.signal?.sourceRevisionRefs??[])],sceneOwnerReceipt:clone(sceneOwnerReceipt),sceneFanOutReceipt:clone(sceneFanOut?.receipt??null),contextRetirement:clone(meta.contextRetirement??null),preparedAt:Date.now(),promptPlanId:meta.promptPlan?.promptPlanId??null,contextSealId:seal?.id??meta.promptPlan?.contextSealId??null,renderedPayloadDigest:shortHash(JSON.stringify(rendered)),state:'SEALED_FOR_MODEL_REQUEST'};
         if(typeof this.nativeBrain?.recordHostObservationEvidence==='function')this.nativeBrain.recordHostObservationEvidence(turnId,{eventId:'host-preparation:'+generationId,chatId,turnId,generationId,correlationId:pending.correlationId,sceneRevision:pending.sceneRevision,sourceRevisionRefs:pending.sceneSourceRevisionRefs,durationMs:Math.max(0,perfNow()-run.hostPrepareStarted),capturedAt:Date.now()});
         this.nativePending.set(chatId,pending);this.nativeHistory.push(clone(pending));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
         this.#beginOptionalGeneration(pending);
@@ -848,8 +924,47 @@ export class DevelopmentDeploymentSillyTavernSession {
         return responsePromise;
       },
       completeOptions:{autoDrain:false},
-    })).then(result=>({ok:true,result})).catch(error=>{if(!readySettled){readySettled=true;readyReject(error);}return{ok:false,error};});
+    })).then(result=>({ok:true,result})).catch(error=>{if(!readySettled){readySettled=true;this.releaseNativeRun(chatId,run,'NATIVE_PREPARATION_FAILED');readyReject(error);}return{ok:false,error};});
     return readyPromise;
+  }
+
+  /** Text-completion delivery (GENERATE_AFTER_COMBINE_PROMPTS). Inserts the exact sealed
+   *  prepared.rendered sections, in messageMap order, once, immediately before the current user
+   *  message in the combined prompt, and records the same observed-host delivery receipt. */
+  injectNativeTextPrompt(eventData={}){
+    const insertionStarted=perfNow();
+    if(typeof eventData?.prompt!=='string'||!eventData.prompt.length)return null; // chat completion emits prompt ''
+    const context=this.getContext(),chatId=clean(context.chatId),pending=this.nativePending.get(chatId),rendered=this.nativePayloads.get(chatId);
+    if(!pending||!rendered)return null;
+    if(pending.requestInjectedAt)return clone(pending);
+    if(rendered.format!=='messages'||!Array.isArray(rendered.messages))throw new Error('Native Brain prepared.rendered format is not supported by the SillyTavern text-completion hook: '+String(rendered.format??'unknown'));
+    const exactMessages=clone(rendered.messages);
+    const body=exactMessages.map(row=>String(row?.content??'')).filter(Boolean).join('\n\n');
+    const block='[Area-52 sealed context]\n'+body+'\n[/Area-52 sealed context]\n';
+    const userText=clean(context.chat?.[pending.userMessageIndex]?.mes??'');
+    const at=userText?eventData.prompt.lastIndexOf(userText):-1,insertAt=at>=0?at:0;
+    const before=eventData.prompt;
+    eventData.prompt=before.slice(0,insertAt)+block+before.slice(insertAt);
+    const area52PayloadJson=JSON.stringify(exactMessages),requestPayloadDigest=shortHash(area52PayloadJson),area52InputBytes=utf8Bytes(block);
+    const insertionDurationMs=Math.max(0,perfNow()-insertionStarted);
+    const run=this.nativeRuns.get(chatId);if(run)run.profileAfterInsertion=this.#generationProfileSample();
+    let observedReceipt=null,ownerDeliveryReceiptRecorded=false;
+    if(typeof this.nativeBrain?.recordObservedHostPromptEvidence==='function'){
+      try{
+        observedReceipt=this.nativeBrain.recordObservedHostPromptEvidence(pending.turnId,{
+          host:'SILLYTAVERN',hostFormat:'TEXT_COMPLETION',hostObserved:true,live:true,chatId,turnId:pending.turnId,generationId:pending.generationId,
+          contextSealId:pending.contextSealId,requestId:eventData.requestId??null,sealedPacketHash:rendered.sealedPacketHash??null,
+          observedRoles:exactMessages.map(row=>row.role),
+          observedSections:(rendered.messageMap??[]).map(row=>({slot:row.slot,sectionIdentity:row.sectionIdentity??null,providerRole:row.providerRole??null,sourceRevisionIds:[...(row.sourceRevisionIds??[])],semanticManifestIdentity:row.semanticManifestIdentity??null})),
+          promptFingerprint:requestPayloadDigest,capturedAt:Date.now(),insertionDurationMs,area52InputBytes,area52MessageCount:exactMessages.length,hostMessageCount:1,
+        });
+        if(observedReceipt?.phases?.hostRequest?.status!=='OBSERVED_MATCH')throw new Error('HOST_DELIVERY_OBSERVATION_MISMATCH');
+        ownerDeliveryReceiptRecorded=true;
+      }catch(error){eventData.prompt=before;throw error;}
+    }
+    const updated={...pending,state:'MODEL_REQUEST_PAYLOAD_INJECTED',requestInjectedAt:Date.now(),requestId:eventData.requestId??null,requestPayloadDigest,renderedMessageCount:exactMessages.length,area52InputBytes,requestHook:'GENERATE_AFTER_COMBINE_PROMPTS',hostFormat:'TEXT_COMPLETION',deliveryReceiptStatus:ownerDeliveryReceiptRecorded?(observedReceipt?.status??'OBSERVED_MATCH'):'HOST_OBSERVED_OWNER_RECEIPT_UNAVAILABLE',deliveryReceiptContractVersion:observedReceipt?.contractVersion??null,ownerDeliveryReceiptRecorded};
+    this.nativePending.set(chatId,updated);this.nativePayloads.delete(chatId);this.nativeHistory.push(clone(updated));if(this.nativeHistory.length>100)this.nativeHistory.splice(0,this.nativeHistory.length-100);
+    this.#notify();return clone(updated);
   }
 
   injectNativeModelRequest(eventData={}){
@@ -891,7 +1006,19 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.#notify();return clone(updated);
   }
 
-  async completeNativeGeneration({messageIndex=null}={}){
+  async completeNativeGeneration(options={}){
+    const chatId=(()=>{try{return clean(this.getContext().chatId);}catch{return '';}})();
+    const run=chatId?this.nativeRuns.get(chatId)??null:null;
+    try{return await this.#completeNativeGenerationInner(options);}
+    catch(error){
+      // Any failed completion is terminal for this run: release it (identity-checked) so the
+      // next Send is not blocked, then surface the failure to Diagnostics via the caller.
+      if(run)this.releaseNativeRun(chatId,run,'NATIVE_COMPLETION_FAILED');
+      throw error;
+    }
+  }
+
+  async #completeNativeGenerationInner({messageIndex=null}={}){
     const contract=nativeBrainContract(this.nativeBrain);if(!contract.available)throw new Error(contract.reason);
     const context=this.getContext(),chatId=clean(context.chatId),pending=this.nativePending.get(chatId);
     if(!pending){
@@ -922,6 +1049,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       const assistantSource=registerNarrativeSource(this.brain,{chatId,message:assistantMessageForScene});
       const assistantSceneVersion=this.#sceneHostVersion(chatId,assistantMessageForScene,{activity:HostActivity.ASSISTANT_GENERATION_COMPLETE});
       const assistantIdentity=sourceIdentity(chatId,assistantMessageForScene);
+      this.hostAssistantTurns.set(assistantIdentity.sourceId,{chatId,turnId:pending.turnId,messageKey:assistantIdentity.messageKey,digest:assistantIdentity.digest});
+      this.#reconcileHostRevisions('ASSISTANT_COMPLETED');
       postResponseScene=await applyNativeScene(this.brain,{
         chatId,message:assistantMessageForScene,sourceRevisionId:assistantSource.sourceRevisionId,
         activity:HostActivity.ASSISTANT_GENERATION_COMPLETE,messageRevision:assistantSceneVersion.messageRevision,
@@ -1163,7 +1292,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         liveProviderProvenance: clone(liveJevExecution?.providerProvenance ?? null),
         failedLiveAttempt: clone(failedLiveJevExecution ?? null),
       },
-      loreStatus: clone(this.brain.readLoreStatus?.() ?? null),
+      loreStatus: clone((this.brain.readLoreStatusReference ?? this.brain.readLoreStatus)?.call(this.brain) ?? null),
       sceneMemoryLifecycle:{
         diagnostics:clone(this.brain.diagnostics?.()?.sceneMemory??null),
         receipts:clone(this.brain.readSceneMemoryLifecycleReceipts?.({limit:100})??[]),
@@ -1178,13 +1307,25 @@ export class DevelopmentDeploymentSillyTavernSession {
         rawTextCaptured:false,
         revisionMutationEvents:this.hostNarrativeEvents.filter(row=>row.revisionAffecting).length,
         chatBoundaryEvents:this.hostNarrativeEvents.filter(row=>row.chatBoundary).length,
+        revisionReconciliations:clone(this.hostRevisionReconciliations.slice(-20)),
+        revisionReconciliationCount:this.hostRevisionReconciliations.length,
       },
       nativeBrainIntegration:{
         ownerAvailable:nativeContract.available,reason:nativeContract.reason??null,preparedCount:nativePrepared,requestPayloadInjectedCount:nativeInjected,responseCompletedCount:nativeResponseCompleted,learnedCount:nativeLearned,
         installedUiReaderNames,installedUiSceneReadModelKind,installedOptionalOwners,
         pendingCount:this.nativePending.size,retainedDeliveryPayloadCount:this.nativePayloads.size,staleOrForeignCompletionRejected:this.nativeRejections.length,
+        // Operator-visible lifecycle health (metadata only): a failed preparation or delivery and its
+        // recovery must be visible instead of Area-52 silently contributing nothing.
+        generationLifecycle:(()=>{
+          const byReason={};for(const row of this.nativeRejections)byReason[row.code]=(byReason[row.code]??0)+1;
+          const failures=this.errors.filter(row=>['NATIVE_PREPARE','NATIVE_MODEL_REQUEST','NATIVE_TEXT_PROMPT','NATIVE_COMPLETE'].includes(row.stage));
+          const last=failures.at(-1)??null;
+          return{activeRunCount:this.nativeRuns.size,releasedOrRejectedByReason:byReason,preparationOrDeliveryFailureCount:failures.length,
+            lastFailure:last?{at:last.at,stage:last.stage,message:String(last.message??'').slice(0,240)}:null,
+            recoveredAfterLastFailure:Boolean(last&&this.nativeHistory.some(row=>row.state==='RESPONSE_COMPLETED'&&Number(row.completedAt??0)>Number(last.at??0)))};
+        })(),
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
-        persistence:{configured:Boolean(this.persistNativeBrain),last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
+        persistence:{configured:Boolean(this.persistNativeBrain||this.storage),storage:this.storage?{...this.storage.diagnostics(),restore:clone(this.storageRestore),storyBrainId:this.nativeBrainStoryId,liveStories:this.storyBrains.size}:null,last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length,conflict:clone(this.persistenceConflict??null)},
         learnedByChat:clone(nativeLearnedByChat),responseCompletedByChat:clone(nativeResponseCompletedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndResponseObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndLearningAccepted:nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         sceneFanOut:{
@@ -1223,10 +1364,12 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.uiHost = null;
     this.releaseLoreOwnerEvents?.();
     this.releaseLoreOwnerEvents = null;
+    // A brain this session created dies with it; an injected brain belongs to its host.
+    if(this.ownsBrain)this.brain?.resourceConnections?.dispose?.();
   }
 
   async #persistNativeBrainCheckpoint({chatId,turnId,generationId}={}){
-    if(!this.persistNativeBrain||typeof this.nativeBrain?.snapshot!=='function'){
+    if((!this.persistNativeBrain&&!this.storage)||typeof this.nativeBrain?.snapshot!=='function'){
       const row={at:Date.now(),chatId,turnId,generationId,status:'NOT_CONFIGURED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }
     try{
@@ -1234,11 +1377,42 @@ export class DevelopmentDeploymentSillyTavernSession {
       const brainBindings=typeof this.brain?.hostBindings==='function'?this.brain.hostBindings():{};
       const snapshotMemoryOwner=brainBindings?.snapshotMemoryOwner??(typeof this.brain?.snapshotMemoryOwner==='function'?()=>this.brain.snapshotMemoryOwner():null);
       const memoryOwnerSnapshot=typeof snapshotMemoryOwner==='function'?snapshotMemoryOwner():null;
-      await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot});
-      const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED'};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+      // The Lore owner (accepted books, study, story binding) is large; persist it only when it changed.
+      const loreOwnerRevisionKey=typeof brainBindings?.loreOwnerRevisionKey==='function'?brainBindings.loreOwnerRevisionKey():(typeof this.brain?.loreOwnerRevisionKey==='function'?this.brain.loreOwnerRevisionKey():null);
+      const snapshotLoreOwner=brainBindings?.snapshotLoreOwner??(typeof this.brain?.snapshotLoreOwner==='function'?()=>this.brain.snapshotLoreOwner():null);
+      const loreChanged=Boolean(snapshotLoreOwner)&&loreOwnerRevisionKey!==this.lastPersistedLoreOwnerKey;
+      const loreOwnerSnapshot=loreChanged?snapshotLoreOwner():undefined;
+      if(this.persistNativeBrain)await this.persistNativeBrain({chatId,turnId,generationId,snapshot,memoryOwnerSnapshot,loreOwnerRevisionKey,...(loreChanged?{loreOwnerSnapshot}:{})});
+      let storageRow=null;
+      if(this.storage){
+        // One story per key, owners once. A failed owner write after a successful story write is reported and
+        // retried at the next checkpoint (the Lore key is only advanced on success).
+        const story=await this.storage.saveStory(chatId,{...packBrainSnapshot(snapshot),host:this.#hostStateFor(chatId)});
+        const snapshotSceneOwner=brainBindings?.snapshotSceneOwner??(typeof this.brain?.snapshotSceneOwner==='function'?()=>this.brain.snapshotSceneOwner():null);
+        let owners;
+        try{owners=await this.storage.saveOwners({memory:memoryOwnerSnapshot??undefined,scene:typeof snapshotSceneOwner==='function'?snapshotSceneOwner():undefined,...(loreChanged?{lore:loreOwnerSnapshot}:{})});}
+        catch(error){
+          if(error?.code!=='STALE_WRITER')throw error;
+          // The story checkpoint is saved; the shared owner state was not written over another tab's newer owners.
+          return this.#recordPersistenceConflict({chatId,turnId,generationId,error,scope:'owners',storage:{storyGeneration:story.generation,storyBytes:story.bytes}});
+        }
+        storageRow={storyGeneration:story.generation,ownersGeneration:owners.generation,storyBytes:story.bytes,ownersBytes:owners.bytes};
+      }
+      if(loreChanged)this.lastPersistedLoreOwnerKey=loreOwnerRevisionKey;
+      const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED',...(storageRow?{storage:storageRow}:{})};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
-      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+      if(error?.code==='STALE_WRITER')return this.#recordPersistenceConflict({chatId,turnId,generationId,error,scope:'story'});
+      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error),code:error?.storageCode??error?.code??null};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }
+  }
+
+  // Another tab saved a newer checkpoint: this tab's checkpoint was preserved as a conflict record (not written over the newer
+  // one). Reported on every checkpoint row and in persistenceConflict until the tab reloads.
+  #recordPersistenceConflict({chatId,turnId,generationId,error,scope,storage=null}){
+    const details=error?.details??{};
+    this.persistenceConflict={kind:'InstalledPersistenceConflict',at:Date.now(),chatId,scope,reason:details.reason??null,lastSeenGeneration:details.lastSeenGeneration??null,newerGeneration:details.newerGeneration??null,preserved:details.preserved===true,conflictKey:details.conflictKey??null,resolution:'RELOAD_TO_LOAD_THE_NEWER_CHECKPOINT'};
+    const row={at:Date.now(),chatId,turnId,generationId,status:'CONFLICT',code:'STALE_WRITER',scope,reason:safeDiagnosticMessage(error),preserved:details.preserved===true,...(storage?{storage}:{})};
+    this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
   }
 
   #attachNativeKnowledgeOwners(){
@@ -1264,6 +1438,11 @@ export class DevelopmentDeploymentSillyTavernSession {
         const receipt=this.nativeBrain.attachMemoryConsolidationInterface(memoryConsolidationInterface??null);
         this.nativeOwnerAttachments.memoryConsolidation={attached:Boolean(receipt?.attached),contractVersion:receipt?.contractVersion??memoryConsolidationInterface?.contractVersion??null};
       }catch(error){this.nativeOwnerAttachments.memoryConsolidation={attached:false,error:String(error?.code??error?.message??error)};}
+    }
+
+    if(typeof this.nativeBrain.attachJevAdvisory==='function'){
+      try{this.nativeBrain.attachJevAdvisory(mergedOwners.jevAdvisory??{service:null});}
+      catch(error){this.nativeOwnerAttachments.jevAdvisory={attached:false,error:String(error?.code??error?.message??error)};}
     }
 
     const graphReceipts=[];
@@ -1343,6 +1522,40 @@ export class DevelopmentDeploymentSillyTavernSession {
     );
     if(!loreStudyContractAvailable){
       for(const key of ['loreStudyHost','loreOperatorHost','loreHost','acceptLorebook','runLoreStudy'])delete merged[key];
+    }else if(typeof this.brain?.runLoreStudyBatched==='function'){
+      // The operator's "Run study" action goes through yielding, checkpointed Runtime batches (async), not the
+      // one-shot synchronous call kept for rehearsal and tests.
+      const batched=(input)=>this.brain.runLoreStudyBatched(input??{});
+      const hostKey=['loreStudyHost','loreOperatorHost','loreHost'].find(key=>merged[key]&&typeof merged[key]?.actions?.runLoreStudy==='function');
+      // The operator's Accept returns reference surfaces (not copies of the whole corpus status), so re-accepting a large
+      // edited Lorebook is not a multi-second synchronous chunk; the full receipt stays for rehearsal and tests.
+      const accept=typeof this.brain?.acceptLorebook==='function'?(input)=>this.brain.acceptLorebook(input??{},{receiptForm:'REFERENCE'}):null;
+      const acceptActions=accept?{acceptLorebook:accept,submitLorebook:accept}:{};
+      if(hostKey)merged[hostKey]={...merged[hostKey],actions:{...merged[hostKey].actions,...acceptActions,runLoreStudy:batched,startLoreStudy:batched}};
+      if(typeof merged.runLoreStudy==='function')merged.runLoreStudy=batched;
+      if(accept&&typeof merged.acceptLorebook==='function')merged.acceptLorebook=accept;
+    }
+    // Conflict sets the operator sees carry the Jev advisory (if any) that the native path recorded for them: display only, the
+    // Lore owner's data and every seal are untouched.
+    {
+      const hostKey=['loreStudyHost','loreOperatorHost','loreHost'].find(key=>merged[key]&&typeof merged[key]?.read?.status==='function');
+      if(hostKey&&typeof this.nativeBrain?.readJevAdvisories==='function'){
+        const host=merged[hostKey],readStatus=host.read.status.bind(host.read);
+        const withAdvisories=(surface,byConflict)=>(!surface||!Array.isArray(surface.conflicts)||!surface.conflicts.length)?surface:{...surface,conflicts:surface.conflicts.map(conflict=>{
+          const row=byConflict.get(conflict.id);
+          return row?{...conflict,jevAdvisory:{id:row.id,status:row.status,classification:row.classification??null,ownerDecision:row.ownerDecision??null,current:Boolean(row.current),destination:row.destination,advisoryOnly:true}}:conflict;
+        })};
+        const annotate=(status)=>{
+          if(!status||typeof status!=='object')return status;
+          let rows;try{rows=this.nativeBrain.readJevAdvisories().rows??[];}catch{return status;}
+          if(!rows.length)return status;
+          const byConflict=new Map(rows.map(row=>[row.conflictSetId,row]));
+          // The Lore status is either the study surface itself or a status that carries it as `study`.
+          const next=withAdvisories(status,byConflict);
+          return status.study?{...next,study:withAdvisories(status.study,byConflict)}:next;
+        };
+        merged[hostKey]={...host,read:{...host.read,status:(...args)=>annotate(readStatus(...args))}};
+      }
     }
 
     const authoringHost=this.#nativeAwareLoreAuthoringHost();
@@ -1483,6 +1696,111 @@ export class DevelopmentDeploymentSillyTavernSession {
     }
   }
 
+  #hostStateFor(chatId){
+    const prefix=String(chatId)+'|';
+    return{
+      kind:'InstalledHostState',version:1,chatId:String(chatId),
+      hostAssistantTurns:[...this.hostAssistantTurns.entries()].filter(([,row])=>row.chatId===chatId).map(([key,row])=>[key,clone(row)]),
+      sceneHostMessageState:[...this.sceneHostMessageState.entries()].filter(([key])=>key.startsWith(prefix)).map(([key,row])=>[key,clone(row)]),
+    };
+  }
+
+  // Waits for the durable writes queued so far (tests, orderly shutdown).
+  async flushPersistence(){await this.storage?.flush?.();}
+
+  // One Brain per story. The attached brain serves exactly one chat; a chat switch attaches that chat's own
+  // brain (live in this session, restored from storage, or fresh), so nothing learned in one story is reachable
+  // from another. Without storage the single injected brain is kept (its registries are story-scoped instead).
+  async #ensureStoryBrain(chatId){
+    if(!this.storage||!chatId||!this.nativeBrain)return;
+    if(this.nativeBrainStoryId==null){this.nativeBrainStoryId=chatId;this.storyBrains.set(chatId,this.nativeBrain);return;}
+    if(this.nativeBrainStoryId===chatId)return;
+    const from=this.nativeBrainStoryId,receipt={kind:'StoryBrainSwitchReceipt',at:Date.now(),from,to:chatId,source:'LIVE',storage:null,error:null};
+    try{await this.#persistNativeBrainCheckpoint({chatId:from,turnId:null,generationId:null});}catch{/* best effort: every completed turn already checkpointed */}
+    let next=this.storyBrains.get(chatId)??null;
+    if(!next){
+      const loaded=await this.storage.loadStory(chatId);receipt.storage=loaded.status;
+      const brainClass=this.nativeBrain.constructor;
+      const storedBrain=unpackBrainSnapshot(loaded.parts);
+      if(storedBrain&&typeof brainClass.fromSnapshot==='function'){
+        try{next=brainClass.fromSnapshot(storedBrain);receipt.source='STORAGE';}
+        catch(error){receipt.error=safeDiagnosticMessage(error);next=null;}
+      }
+      if(loaded.parts.host?.kind==='InstalledHostState'){
+        for(const [key,row] of loaded.parts.host.hostAssistantTurns??[])this.hostAssistantTurns.set(key,clone(row));
+        for(const [key,row] of loaded.parts.host.sceneHostMessageState??[])this.sceneHostMessageState.set(key,clone(row));
+      }
+      if(!next){next=new brainClass();receipt.source=receipt.error?'FRESH_AFTER_REJECTED_SNAPSHOT':['UNAVAILABLE','READ_FAILED'].includes(loaded.status)?'FRESH_STORAGE_UNAVAILABLE':['CORRUPT','CORRUPT_MANIFEST'].includes(loaded.status)?'FRESH_AFTER_UNREADABLE_STORY':'FRESH';}
+      this.storyBrains.set(chatId,next);
+    }
+    this.nativeBrain=next;this.nativeBrainStoryId=chatId;
+    this.#attachNativeKnowledgeOwners();
+    if(this.uiHost){this.uiHost.destroy?.();this.uiHost=null;this.mount();}
+    this.storageRestore={...this.storageRestore,lastSwitch:receipt};
+    this.#notify();
+  }
+
+  // Host history is the authority on which messages exist. Anything learned from a message that was
+  // deleted, or whose text changed, is retired or superseded at the owner that holds it: Core source
+  // registry (dependent artifacts), Scene NarrativeFeed (revision evidence) and the Native Brain turn
+  // narrative (claims, Hot tail, Memory mapping). Source history is preserved; nothing is erased.
+  #reconcileHostRevisions(cause){
+    let context;try{context=this.getContext();}catch{return null;}
+    const chatId=clean(context?.chatId),registry=this.brain?.core?.registry;
+    if(!chatId||!registry||typeof registry.listSources!=='function')return null;
+    const chat=Array.isArray(context.chat)?context.chat:[],live=new Map(),byKey=new Map();
+    chat.forEach((row,index)=>{
+      const text=clean(row?.mes??row?.content??row?.text);if(!text)return;
+      const message={index,row,text},identity=sourceIdentity(chatId,message);
+      live.set(identity.sourceId,message);byKey.set(identity.messageKey,{message,identity});
+    });
+    const receipt={kind:'HostRevisionReconciliation',cause:String(cause),chatId,at:Date.now(),retiredSources:[],sceneEvents:[],nativeTurns:[],errors:[]};
+    const fail=(stage,error)=>{receipt.errors.push({stage,message:safeDiagnosticMessage(error)});pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'HOST_REVISION_'+stage},SESSION_BOUNDS.errors);};
+    for(const source of registry.listSources()){
+      const meta=source.metadata??{};
+      if(meta.host!=='SILLYTAVERN'||meta.chatId!==chatId||live.has(source.id)||registry.isSourceRetired(source.id))continue;
+      const key=String(meta.messageId??''),replacement=byKey.get(key)??null,edited=Boolean(replacement);
+      try{
+        const retired=registry.retireSource(source.id,{reason:edited?'HOST_MESSAGE_EDITED':'HOST_MESSAGE_DELETED'});
+        receipt.retiredSources.push({sourceId:source.id,messageKey:key,reason:edited?'HOST_MESSAGE_EDITED':'HOST_MESSAGE_DELETED',invalidatedArtifactCount:(retired?.invalidatedArtifactIds??[]).length});
+      }catch(error){fail('CORE_RETIRE',error);}
+      try{
+        const hasFeedEvidence=(this.brain.scene?.narrativeFeed?.currentEvidence?.(chatId)??[]).some(row=>String(row.messageId)===key);
+        if(hasFeedEvidence&&typeof this.brain.ingestSceneHostEvent==='function'){
+          const stateKey=chatId+'|'+key,prior=this.sceneHostMessageState.get(stateKey)??null,messageRevision=(prior?.messageRevision??1)+1;
+          const activity=edited?HostActivity.EDIT:HostActivity.DELETE;
+          this.brain.ingestSceneHostEvent({
+            activity,chatId,messageId:key,messageRevision,hostEventId:'st-revision:'+chatId+':'+source.id+':'+activity,
+            turnId:'host-revision:'+chatId+':'+key+':'+messageRevision,correlationId:'corr:host-revision:'+source.id,
+            role:meta.role==='assistant'?'assistant':'user',...(edited?{content:replacement.message.text}:{}),
+          });
+          this.sceneHostMessageState.set(stateKey,{messageRevision,digest:edited?replacement.identity.digest:null,activity,messageKey:key});
+          receipt.sceneEvents.push({activity,messageKey:key,messageRevision});
+        }
+      }catch(error){fail('SCENE_FEED',error);}
+    }
+    for(const [sourceId,entry] of [...this.hostAssistantTurns.entries()]){
+      if(entry.chatId!==chatId||live.has(sourceId))continue;
+      const replacement=byKey.get(entry.messageKey)??null;
+      const superseded=replacement&&[...this.hostAssistantTurns.values()].some(other=>other!==entry&&other.chatId===chatId&&other.messageKey===entry.messageKey&&other.digest===replacement.identity.digest);
+      try{
+        if(replacement&&!superseded&&typeof this.nativeBrain?.correctTurn==='function'){
+          this.nativeBrain.correctTurn({turnId:entry.turnId,response:replacement.message.text});
+          this.hostAssistantTurns.delete(sourceId);
+          this.hostAssistantTurns.set(replacement.identity.sourceId,{...entry,digest:replacement.identity.digest});
+          receipt.nativeTurns.push({turnId:entry.turnId,action:'CORRECTED'});
+        }else if(typeof this.nativeBrain?.retireTurnNarrative==='function'){
+          this.nativeBrain.retireTurnNarrative(entry.turnId,{reason:superseded?'HOST_MESSAGE_SUPERSEDED':'HOST_MESSAGE_DELETED'});
+          this.hostAssistantTurns.delete(sourceId);
+          receipt.nativeTurns.push({turnId:entry.turnId,action:superseded?'SUPERSEDED':'RETIRED'});
+        }
+      }catch(error){fail('NATIVE_TURN',error);}
+    }
+    if(!receipt.retiredSources.length&&!receipt.nativeTurns.length&&!receipt.errors.length)return null;
+    pushBounded(this.hostRevisionReconciliations,receipt,100);
+    return receipt;
+  }
+
   #recordHostNarrativeEvent(type,args=[]){
     let context=null;try{context=this.getContext();}catch{}
     const eventType=String(type),revisionAffecting=['MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED'].includes(eventType);
@@ -1503,6 +1821,8 @@ export class DevelopmentDeploymentSillyTavernSession {
       rawTextIncluded:false,rawPayloadIncluded:false,
     };
     this.hostNarrativeEvents.push(row);if(this.hostNarrativeEvents.length>200)this.hostNarrativeEvents.shift();
+    if(chatBoundary&&this.storage&&chatId){this.storyBrainReady=this.storyBrainReady.then(()=>this.#ensureStoryBrain(chatId)).catch(error=>{pushBounded(this.errors,{at:Date.now(),message:safeDiagnosticMessage(error),stage:'STORY_BRAIN_SWITCH'},SESSION_BOUNDS.errors);});}
+    if(revisionAffecting)this.#reconcileHostRevisions(eventType);
     if(this.nativePending.size&&(revisionAffecting||chatBoundary))this.#expireNativePending('HOST_'+eventType+'_INVALIDATED_PENDING_GENERATION');
     this.#notify();return clone(row);
   }
@@ -1542,7 +1862,23 @@ export class DevelopmentDeploymentSillyTavernSession {
     for(const row of [...this.optionalGenerationActive.values()])this.#completeOptionalGeneration(row.pending,reason);
   }
 
+  /** Release one native run and its pending/payload rows, only if `run` is still the current run
+   *  for `chatId`. A late cleanup of a superseded run cannot erase a newer generation. */
+  releaseNativeRun(chatId,run,reason='NATIVE_RUN_RELEASED'){
+    const key=String(chatId??'');if(!key||!run||this.nativeRuns.get(key)!==run)return false;
+    const pending=this.nativePending.get(key)??null;
+    if(!pending||pending.turnId===run.turnId){
+      this.nativeRejections.push({at:Date.now(),code:String(reason),chatId:key,generationId:run.generationId??pending?.generationId??null,turnId:run.turnId??pending?.turnId??null});
+      while(this.nativeRejections.length>100)this.nativeRejections.shift();
+      try{run.responseReject?.(new Error(String(reason)));}catch{}
+      if(pending)this.#completeOptionalGeneration(pending,String(reason));
+      this.nativePending.delete(key);this.nativePayloads.delete(key);
+    }
+    this.nativeRuns.delete(key);this.#notify();return true;
+  }
+
   #expireNativePending(reason){
+    for(const [chatId,run] of [...this.nativeRuns.entries()])if(!this.nativePending.has(chatId))this.releaseNativeRun(chatId,run,reason);
     for(const [chatId,row] of [...this.nativePending.entries()]){
       this.nativeRejections.push({at:Date.now(),code:String(reason),chatId,generationId:row.generationId,turnId:row.turnId});
       const run=this.nativeRuns.get(chatId);try{run?.responseReject?.(new Error(String(reason)));}catch{}

@@ -18,6 +18,16 @@ export class SettlementEngine {
     const equivalent=existing.filter(c=>sameValue(c.value,claim.value));
     const conflicts=existing.filter(c=>!sameValue(c.value,claim.value)&&timeOf(c)===timeOf(claim));
     const latestTime=existing.length?Math.max(...existing.map(timeOf)):null;
+    // An inferred claim never mutates canonical temporal state. When it collides with stronger admitted evidence at the same
+    // temporal position the decision is CONTRADICT (the inference is preserved outside canonical state, part of the documented
+    // Wave 2 vocabulary); otherwise it is rejected. Neither path touches the canonical graph.
+    if(claim.authorityClass===AuthorityClass.INFERRED){
+      const rivals=conflicts,strongest=rivals.length?Math.max(...rivals.map(c=>authorityRank[c.authorityClass]??0)):0;
+      if(rivals.length&&strongest>(authorityRank[claim.authorityClass]??0)){
+        return this.#record(proposal,SettlementDecisionType.CONTRADICT,'inferred candidate conflicts with stronger admitted evidence; inference preserved outside canonical world state',rivals.map(c=>c.id),null,{candidateAuthority:claim.authorityClass,strongerAuthorities:[...new Set(rivals.map(c=>c.authorityClass))]});
+      }
+      return this.#record(proposal,SettlementDecisionType.REJECT,'inferred claim cannot mutate canonical temporal state',[],null,{validation:{ok:false,reason:'inferred claim cannot mutate canonical temporal state'}});
+    }
     const unresolvedCandidate=claim.temporal.kind==='UNRESOLVED'||claim.temporal.kind==='UNCERTAIN'||claim.authorityClass===AuthorityClass.UNRESOLVED;
 
     if(conflicts.length){
@@ -57,7 +67,6 @@ export class SettlementEngine {
     if(proposal.evidenceIds.some(id=>!this.registry.isArtifactValid(id)))return{ok:false,reason:'proposal evidence is missing or invalid'};
     if(proposal.mutationType===MutationType.SET_CLAIM&&!proposal.payload?.claim?.id)return{ok:false,reason:'SET_CLAIM payload is invalid'};
     const claim=proposal.payload?.claim??null;
-    if(claim?.authorityClass===AuthorityClass.INFERRED)return{ok:false,reason:'inferred claim cannot mutate canonical temporal state'};
     if(this.entityRegistry&&(claim?.identityRevisionRefs??[]).some(ref=>!this.entityRegistry.isCurrentRevisionRef(ref)))return{ok:false,reason:'claim identity revision is stale'};
     return{ok:true};
   }

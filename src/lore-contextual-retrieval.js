@@ -25,12 +25,21 @@ function truthStatusForArtifacts(artifacts) {
   return 'CURRENT';
 }
 
-function sourceContext(runtime, sourceId) {
+function sourceContext(runtime, sourceId, resolution = null) {
   const source = runtime.registry.getEntry(sourceId);
   const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
   const learned = runtime.store.currentLearnedRevision(sourceId);
   if (!source || !revision || revision.state === 'REMOVED' || !learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== revision.id) return null;
-  const artifacts = runtime.store.artifactsForLearnedRevision(learned.id);
+  // R3: a claim that a later same-entity, same-property, same-timeline claim supersedes is HISTORICAL for Truth. The stored
+  // artifact is not changed; only this view of it is. Conflict membership is recorded (conflictSetIds) but does not change an
+  // asserted claim's own status: reported members are UNRESOLVED by their attribution, and the conflict set itself is surfaced
+  // to Truth by the story query packet.
+  // Read-only rows: this view derives strings/flags from them and never mutates or returns a stored row (overlays are copies).
+  const read = typeof runtime.store.artifactsForLearnedRevisionReadOnly === 'function' ? runtime.store.artifactsForLearnedRevisionReadOnly(learned.id) : runtime.store.artifactsForLearnedRevision(learned.id);
+  const artifacts = read.map((row) => (
+    resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
+      : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: (resolution.conflictMembership.get(row.id) ?? []).map((m) => m.conflictSetId)} : row
+  ));
   const entities = artifacts
     .filter((row) => row.artifactType === ArtifactType.ENTITY)
     .flatMap((row) => [row.payload?.canonicalName, ...(row.payload?.aliases || [])])
@@ -53,8 +62,24 @@ function sourceContext(runtime, sourceId) {
     relationshipRefs: relationships.map((row) => row.payload?.relationshipId || row.semanticId).filter(Boolean),
     entityRefs: artifacts.filter((row) => row.artifactType === ArtifactType.ENTITY).map((row) => row.payload.entityId).filter(Boolean),
     truthStatusHint: truthStatusForArtifacts([...claims, ...relationships]),
+    learnedRevisionId: learned.id,
     contextPrefix,
     contextualText: contextPrefix + '\n' + revision.exactContent,
+  };
+}
+
+// The Truth-facing hint of one source under the current temporal resolution (R3/R4). Used by every Lore-derived
+// candidate path so a source cannot be CURRENT on one path and UNRESOLVED on another. null when the source has no
+// current learned revision.
+export function sourceTruthHint(runtime, sourceId) {
+  const ctx = sourceContext(runtime, sourceId, runtime.store.temporalResolution(runtime.registry));
+  if (!ctx) return null;
+  return {
+    status: ctx.truthStatusHint,
+    temporalHints: ctx.artifacts
+      .filter((row) => row.temporalClass && row.temporalClass !== TemporalClass.TIMELESS)
+      .slice(0, 32)
+      .map((row) => ({artifactId: row.id, temporalClass: row.temporalClass, unresolved: row.unresolved})),
   };
 }
 
@@ -147,7 +172,63 @@ export class LoreContextualRetrievalIndex {
     if (snapshot) this.restore(snapshot);
   }
 
+  // Synchronous build: same steps as buildAsync, published at once (the live index is replaced by a freshly built one).
   build({runtime, hierarchy, summaryRegistry}) {
+    const scratch = new LoreContextualRetrievalIndex();
+    for (const _ of scratch.#steps({runtime, hierarchy, summaryRegistry})) { /* run to completion */ }
+    this.#adopt(scratch);
+    return this.status();
+  }
+
+  // Yielding build (audit stall work): built aside in a scratch index with a host turn every `sliceSize` records, then
+  // published atomically, and only if the resolution fence did not move meanwhile (otherwise rebuilt, up to maxAttempts).
+  // Queries meanwhile use the previous index under its fences (no partial index is ever visible).
+  async buildAsync({runtime, hierarchy, summaryRegistry}, {yieldToHost = () => new Promise((resolve) => setTimeout(resolve, 0)), sliceSize = 96, maxAttempts = 3} = {}) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const key = runtime.store.resolutionKey(runtime.registry);
+      const scratch = new LoreContextualRetrievalIndex();
+      let n = 0;
+      for (const _ of scratch.#steps({runtime, hierarchy: hierarchy(), summaryRegistry})) { n += 1; if (n % sliceSize === 0) await yieldToHost(); }
+      if (runtime.store.resolutionKey(runtime.registry) === key) { this.#adopt(scratch); return {status: 'PUBLISHED', attempts: attempt, revision: this.revision}; }
+      await yieldToHost();
+    }
+    return {status: 'SUPERSEDED', attempts: maxAttempts, revision: this.revision};
+  }
+
+  #adopt(scratch) {
+    this.records = scratch.records; this.inverted = scratch.inverted; this.sourceRecordIds = scratch.sourceRecordIds;
+    this.summaryRecordIds = scratch.summaryRecordIds; this.revision = scratch.revision; this.diagnostics = scratch.diagnostics;
+    this.runtime = scratch.runtime; this.builtResolutionKey = scratch.builtResolutionKey;
+  }
+
+  // Serving fences. `builtResolutionKey` is the resolution the index was built against; when the owner's key has moved, a
+  // record is served only if every source and learned revision it was built from is still current, and truth hints are
+  // taken from the owner's current resolution, never from the build.
+  attachRuntime(runtime) { this.runtime = runtime ?? null; }
+  fenceMoved() {
+    if (!this.runtime) return false;
+    return !this.builtResolutionKey || this.runtime.store.resolutionKey(this.runtime.registry) !== this.builtResolutionKey;
+  }
+  recordCurrent(record) {
+    const runtime = this.runtime;
+    if (!runtime || !record) return Boolean(record);
+    if (!(record.sourceRevisionRefs || []).every((id) => runtime.registry.isCurrentRevision(id))) return false;
+    if (!Array.isArray(record.learnedFence)) return false; // built before fences existed: not provably current
+    for (const [sourceId, learnedId] of record.learnedFence) {
+      if (runtime.store.currentLearnedBySource.get(sourceId) !== learnedId) return false;
+      if (runtime.store.learnedRevisions.get(learnedId)?.state !== 'CURRENT') return false;
+    }
+    return true;
+  }
+  isSourceReady(sourceId) {
+    const record = this.records.get(this.sourceRecordIds.get(sourceId));
+    if (!record) return false;
+    return !this.fenceMoved() || this.recordCurrent(record);
+  }
+
+  *#steps({runtime, hierarchy, summaryRegistry}) {
+    this.runtime = runtime;
+    this.builtResolutionKey = runtime.store.resolutionKey(runtime.registry);
     this.records.clear();
     this.inverted.clear();
     this.sourceRecordIds.clear();
@@ -155,8 +236,9 @@ export class LoreContextualRetrievalIndex {
     this.diagnostics = [];
     const scopeById = new Map(hierarchy.scopes.map((scope) => [scope.id, scope]));
 
+    const resolution = runtime.store.temporalResolution(runtime.registry);
     for (const sourceId of hierarchy.includedSourceIds) {
-      const ctx = sourceContext(runtime, sourceId);
+      const ctx = sourceContext(runtime, sourceId, resolution);
       if (!ctx) {
         this.pushDiagnostic({sourceId, status: 'SOURCE_SKIPPED_STALE_OR_UNSTUDIED'});
         continue;
@@ -198,17 +280,19 @@ export class LoreContextualRetrievalIndex {
         evidenceIdentity: 'source:' + stableHash(ctx.revision.id),
         scopeId: null,
         scopeType: null,
+        learnedFence: [[sourceId, ctx.learnedRevisionId]],
       };
       this.addRecord(record);
       this.sourceRecordIds.set(sourceId, id);
+      yield;
     }
 
     for (const summary of summaryRegistry.activeSummaries()) {
       const scope = scopeById.get(summary.targetScopeId);
       if (!scope) continue;
+      // isCurrentRevision is false for a missing revision, so no cloning getRevision() is needed for this check.
       if (summary.sourceRevisionSet.some((revisionId) => {
-        const revision = runtime.registry.getRevision(revisionId);
-        return !revision || !runtime.registry.isCurrentRevision(revisionId);
+        return !runtime.registry.isCurrentRevision(revisionId);
       })) {
         this.pushDiagnostic({summaryId: summary.id, status: 'SUMMARY_SKIPPED_STALE_SOURCE'});
         continue;
@@ -232,7 +316,7 @@ export class LoreContextualRetrievalIndex {
       const id = 'retrieval-summary:' + stableHash(summary.id);
       const sourceEntries = scope.sourceIds.map((sourceId) => {
         const source = runtime.registry.getEntry(sourceId);
-        const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
+        const revision = typeof runtime.registry.currentRevisionRef === 'function' ? runtime.registry.currentRevisionRef(sourceId) : runtime.registry.currentRevision(sourceId, {allowMissing: true});
         return source && revision ? {
           sourceId,
           lorebookId: source.lorebookId,
@@ -271,16 +355,17 @@ export class LoreContextualRetrievalIndex {
         evidenceIdentity: 'representation:' + stableHash(summary.id + '|' + summary.sourceRevisionSet.join('|')),
         scopeId: scope.id,
         scopeType: scope.type,
+        learnedFence: scope.sourceIds.map((sourceId) => [sourceId, runtime.store.currentLearnedBySource.get(sourceId) ?? null]),
       };
       this.addRecord(record);
       this.summaryRecordIds.set(summary.id, id);
+      yield;
     }
 
     this.revision = 'lore-retrieval:' + stableHash(
       hierarchy.hierarchyRevision + '|'
       + [...this.records.values()].map((row) => row.id + ':' + row.dependencyRevisions.join(',')).sort().join('|'),
     );
-    return this.status();
   }
 
   addRecord(record) {
@@ -320,10 +405,12 @@ export class LoreContextualRetrievalIndex {
     }
 
     const scored = [];
-    let scopeFiltered = 0;
+    let scopeFiltered = 0, staleFiltered = 0;
+    const fenceMoved = this.fenceMoved();
     for (const id of candidateIds) {
       const record = this.records.get(id);
       if (!record) continue;
+      if (fenceMoved && !this.recordCurrent(record)) { staleFiltered += 1; continue; }
       if (allowed && (record.sourceIds || []).some((sourceId) => !allowed.has(String(sourceId)))) {
         scopeFiltered += 1;
         continue;
@@ -373,6 +460,7 @@ export class LoreContextualRetrievalIndex {
         returned: nominations.length,
         boundedOut: Math.max(0, scored.length - nominations.length),
         scopeFiltered,
+        staleFiltered,
         scoped: Boolean(allowed),
         deterministic: true,
         retrievalRankAuthority: false,
@@ -389,10 +477,28 @@ export class LoreContextualRetrievalIndex {
       ? this.records.get(nomination.metadata.retrievalRecordRef)
       : null;
     const refs = record?.sourceIds || nomination?.metadata?.sourceDrillbackRefs || [];
+    const fenceMoved = this.fenceMoved();
     return refs.slice(0, LORE_WAVE3_LIMITS.maxSourceRefsPerSummary).map((sourceId) => {
       const recordId = this.sourceRecordIds.get(sourceId);
       const record = recordId ? this.records.get(recordId) : null;
       if (!record) return null;
+      if (fenceMoved) {
+        // Built against an older resolution: served only if its own revisions are current, with the owner's CURRENT hint.
+        if (!this.recordCurrent(record)) return null;
+        const hint = sourceTruthHint(this.runtime, sourceId);
+        if (!hint) return null;
+        return {
+          sourceId,
+          lorebookId: record.sourceEntries?.[0]?.lorebookId ?? null,
+          uid: record.sourceEntries?.[0]?.uid ?? null,
+          sourceRevisionId: record.sourceRevisionRefs[0],
+          exactAuthoredText: record.exactAuthoredText,
+          representationRef: record.representationRef,
+          truthStatusHint: hint.status,
+          temporalHints: deepClone(hint.temporalHints || []),
+          provenance: deepClone(record.provenance),
+        };
+      }
       return {
         sourceId,
         lorebookId: record.sourceEntries?.[0]?.lorebookId ?? null,
@@ -427,6 +533,7 @@ export class LoreContextualRetrievalIndex {
     return {
       kind: 'LoreContextualRetrievalIndexSnapshot',
       revision: this.revision,
+      builtResolutionKey: this.builtResolutionKey ?? null,
       recordsIncluded: Boolean(includeRecords),
       records: includeRecords ? [...this.records.values()].map(deepClone) : [],
       diagnostics: deepClone(this.diagnostics),
@@ -439,6 +546,7 @@ export class LoreContextualRetrievalIndex {
     this.sourceRecordIds = new Map();
     this.summaryRecordIds = new Map();
     this.revision = snapshot?.revision || null;
+    this.builtResolutionKey = snapshot?.builtResolutionKey ?? null;
     this.diagnostics = deepClone(snapshot?.diagnostics || []);
     for (const record of snapshot?.records || []) {
       this.addRecord(record);

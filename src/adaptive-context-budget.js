@@ -32,10 +32,12 @@ export class AdaptiveBudgetAllocator{
     for(const row of orderedOptional){
       const remainingTokensAtDecision=remaining;let representation=RepresentationMode.OMITTED,used=0,admitted=row;
       if(row.compactTokens<=remaining){representation=RepresentationMode.COMPACT;used=row.compactTokens;remaining-=used;}
-      else if(row.slot===PromptSlot.RELEVANT_LORE&&Array.isArray(row.content)&&row.content.length>1&&remaining>0){
+      else if((row.slot===PromptSlot.RELEVANT_LORE||row.slot===PromptSlot.RECENT_NARRATIVE)&&Array.isArray(row.content)&&row.content.length>1&&remaining>0){
+        // Lore keeps its highest-ranked leading entries; recent narrative keeps its newest trailing messages.
+        const fromEnd=row.slot===PromptSlot.RECENT_NARRATIVE;
         let partial=null;
         for(let count=row.content.length-1;count>=1;count-=1){
-          const section=sliceFactSection(row,count),compactTokens=this.estimator.estimate(section.compactText);
+          const section=sliceFactSection(row,count,{fromEnd}),compactTokens=this.estimator.estimate(section.compactText);
           if(compactTokens<=remaining){partial={section,compactTokens,richTokens:this.estimator.estimate(section.richText),count};break;}
         }
         if(partial){

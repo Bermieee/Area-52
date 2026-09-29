@@ -1,0 +1,2 @@
+reply 60 chars: first failing turn=null; injections on next 3 turns=[]; errors=[]
+after CHAT_CHANGED back: injected 3 undefined

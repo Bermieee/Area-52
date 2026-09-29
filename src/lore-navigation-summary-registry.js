@@ -193,9 +193,11 @@ export class LoreNavigationSummaryRegistry {
     return changed.sort();
   }
 
-  activeSummaries() {
+  // `include` (optional) filters raw rows before they are cloned; the result equals filtering the default output.
+  activeSummaries({include = null} = {}) {
     return [...this.summaries.values()]
       .filter((row) => [NavigationSummaryState.BUILT, NavigationSummaryState.REUSED].includes(row.state) && row.freshness === 'FRESH')
+      .filter((row) => typeof include !== 'function' || include(row))
       .map(deepClone)
       .sort((a, b) => a.targetScopeId.localeCompare(b.targetScopeId));
   }

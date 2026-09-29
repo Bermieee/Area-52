@@ -73,13 +73,22 @@ test('Worker 4 late optional result preserves configured, qualified, attempted, 
   journal.recordSnapshot({
     selection,ownerReceipt:receipt,
     cognition:{data:{jev:{reasonCode:'JEV_REQUIRED'},gather:{state:'COMPLETE',counts:{ADMITTED:0,LATE:1,STALE:0,REJECTED:0,INVALID:0},results:[{resultId:'result:late',taskId:'JEV',status:'LATE',accepted:false,resourceId:'jev:provider',providerAttempted:true,reasonCode:'LATE_RESULT'}]},seal:{sealedState:true,sealId:'seal:late',effectiveAdmittedResultIds:[],lateResultIds:['result:late']}}},
-    diagnostics:{resources:{rows:[{id:'jev:provider',kind:'JEV',state:'CONNECTED',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,physicalExecutionReturned:true,ownerAccepted:false,lastExecution:{status:'SUCCESS',returned:true,receiptId:'jev:exec:1',latencyMs:12}}]}},
+    diagnostics:{resources:{rows:[{id:'jev:provider',kind:'JEV',state:'CONNECTED',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,physicalExecutionReturned:true,ownerAccepted:false,lastExecution:{status:'SUCCESS',returned:true,receiptId:'jev:exec:1',latencyMs:12,selection:{chatId:selection.chatId,turnId:selection.turnId,generationId:selection.generationId,correlationId:selection.correlationId}}}]}},
   });
   const report=new SelectedTurnCausalReportReader({journal}).read({selection});
   const jev=report.optionalResources.rows.find(row=>row.kind==='JEV');
   assert.equal(jev.configured,true);assert.equal(jev.qualified,true);assert.equal(jev.physicalAttempted,true);assert.equal(jev.returned,true);assert.equal(jev.ownerAccepted,false);
   assert.equal(report.evidence.gather.late,1);assert.equal(report.evidence.contextSeal.admittedResultCount,0);assert.equal(report.evidence.contextSeal.lateResultCount,1);
   assert.equal(report.generationOutcome.state,'PLANNED_ONLY');
+});
+
+test('Worker 4 an optional execution without this turn\'s exact identity is not attributed to the selected turn',()=>{
+  const selection={chatId:'chat:late2',turnId:'turn:late2',generationId:'gen:late2',correlationId:'corr:late2',worldRevision:5,sceneRevision:4,sourceRevisionRefs:['scene:r4']};
+  const journal=new DemoEvidenceJournal({storage:memory(),namespace:'worker4-late2',now:()=>3100});
+  const row=(execSelection)=>({id:'jev:provider',kind:'JEV',state:'CONNECTED',callable:true,physicalExecutionAttempted:true,physicalExecutionSucceeded:true,physicalExecutionReturned:true,lastExecution:{status:'SUCCESS',returned:true,receiptId:'jev:exec:2',selection:execSelection}});
+  journal.recordSnapshot({selection,ownerReceipt:ownerReceipt(selection,{hostObserved:false}),cognition:{data:{jev:{reasonCode:'JEV_REQUIRED'}}},diagnostics:{resources:{rows:[row({chatId:'chat:other',turnId:selection.turnId,generationId:selection.generationId,correlationId:selection.correlationId})]}}});
+  const report=new SelectedTurnCausalReportReader({journal}).read({selection});
+  assert.equal(report.optionalResources.rows.find(r=>r.kind==='JEV').physicalAttempted,false);
 });
 
 test('Worker 4 failed owner admission is retained as FAILED expected work with bounded causal stages',()=>{

@@ -13,6 +13,12 @@ export function createRuntimeCapabilityAdmission(registry,task,options={}){
     taskContract:projectCognitiveTaskContract(task),
     requirement:createCapabilityRequirement(task,options),
     status:negotiation.status,
+    // Why profiles that satisfy the capability request were not eligible (CONCURRENCY_FULL, UNHEALTHY, ...).
+    constraintFailures:negotiation.constraintFailures.map(row=>({profileId:row.profileId,failures:[...row.failures]})),
+    // True when nothing is eligible only because every capable profile is at its concurrency limit right now:
+    // a transient condition a deferred/background obligation may wait out (never a reason to drop it).
+    capacityDeferrable:!negotiation.eligibleProfiles.length&&negotiation.constraintFailures.some(row=>row.failures.includes('CONCURRENCY_FULL'))
+      &&negotiation.constraintFailures.every(row=>row.failures.every(failure=>failure==='CONCURRENCY_FULL')),
     degraded:Boolean(negotiation.degraded),
     fallbackSetUsed:negotiation.fallbackSetUsed,
     candidates:negotiation.eligibleProfiles.map(profile=>({

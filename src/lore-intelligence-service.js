@@ -1,4 +1,4 @@
-import {deepClone, StudyState} from './lore-contracts.js';
+import {ArtifactType, deepClone, StudyState} from './lore-contracts.js';
 import {LoreStudyRuntime} from './lore-study-runtime.js';
 import {LoreMultiResolutionSystem} from './lore-multi-resolution.js';
 import {LoreRepresentationRegistry} from './lore-representation-registry.js';
@@ -6,6 +6,7 @@ import {LoreWorldOntology} from './lore-world-ontology.js';
 import {LoreHierarchyRetrievalSystem} from './lore-hierarchy-retrieval-system.js';
 import {QualityStatus, RepresentationProfile} from './lore-representation-contracts.js';
 import {LoreStoryAuthorityRegistry} from './lore-story-authority.js';
+import {sourceTruthHint} from './lore-contextual-retrieval.js';
 
 const MAX_SCOPE_RECEIPTS = 64;
 
@@ -98,6 +99,15 @@ function operatorStateFor({entry, compileFailure = null, representationReady = f
   return 'STUDYING';
 }
 
+// The owner's story retrieval rule (used by status() and retrievalEligibility(); one definition so they cannot diverge).
+function storyRetrievalEligible(entry, retrievalReady, storyScope, acceptedLorebookIds, readLorebookIds) {
+  if (storyScope == null) return null;
+  return entry.freshness === 'CURRENT'
+    && retrievalReady
+    && acceptedLorebookIds.has(entry.lorebookId)
+    && readLorebookIds.has(entry.lorebookId);
+}
+
 export class LoreIntelligenceService {
   constructor({
     runtime = new LoreStudyRuntime(),
@@ -111,6 +121,7 @@ export class LoreIntelligenceService {
     this.hierarchy = hierarchy || new LoreHierarchyRetrievalSystem({runtime});
     this.ontology = ontology || new LoreWorldOntology({runtime});
     this.storyAuthority = storyAuthority || new LoreStoryAuthorityRegistry();
+    this.runtime.store.setBookGroupsProvider?.(() => this.temporalBookGroups());
     this.compileFailures = new Map();
     this.lastAcceptance = null;
     this.lastStudyRun = null;
@@ -171,7 +182,12 @@ export class LoreIntelligenceService {
     return packet;
   }
 
-  acceptLorebook(input) {
+  // receiptForm 'REFERENCE' returns a revision-aware status reference instead of a copy of the whole status (used by the
+  // installed operator Accept); the default full receipt is unchanged.
+  // deferRetrievalIndex (installed operator Accept): the ontology and hierarchy are refreshed inline as before, but the
+  // retrieval index is left to a yielding, fenced rebuild the caller schedules; meanwhile the index's serving fences exclude
+  // every record built from a revision that is no longer current and take truth hints from the current resolution.
+  acceptLorebook(input, {receiptForm = 'FULL', deferRetrievalIndex = false} = {}) {
     const requestedChatId = input?.chatId ?? input?.storyScope?.chatId ?? input?.discovery?.chatId ?? null;
     const book = assertDiscoveredLorebook(input);
     const before = new Map();
@@ -181,7 +197,7 @@ export class LoreIntelligenceService {
       before.set(source.sourceId, {
         sourceRevisionId: revision?.id || null,
         learnedRevisionId: this.runtime.store.currentLearnedRevision(source.sourceId)?.id || null,
-        representationIds: this.multiResolution.registry.activeForSource(source.sourceId, this.runtime.registry).map((row) => row.id),
+        representationIds: this.multiResolution.registry.activeIdsForSource(source.sourceId, this.runtime.registry),
       });
     }
 
@@ -194,19 +210,28 @@ export class LoreIntelligenceService {
     });
     const sourceRevisionChanged = results.some((row) => Boolean(row.changed));
     const staleRepresentationIds = sourceRevisionChanged ? this.multiResolution.refreshFreshness() : [];
+    let retrievalIndexDeferred = false;
     if (sourceRevisionChanged || !this.hierarchy.hierarchy) {
       this.ontology.rebuild();
       this.hierarchy.refreshHierarchy();
-      this.hierarchy.refreshRetrieval();
+      if (deferRetrievalIndex) retrievalIndexDeferred = true;
+      else this.hierarchy.refreshRetrieval();
     }
 
+    // Stale representation ids grouped by source once (was a filter with a cloning registry.get() per result: quadratic).
+    const staleBySource = new Map();
+    for (const id of staleRepresentationIds) {
+      const sourceId = this.multiResolution.registry.sourceIdOf(id);
+      if (sourceId == null) continue;
+      if (!staleBySource.has(sourceId)) staleBySource.set(sourceId, []);
+      staleBySource.get(sourceId).push(id);
+    }
     const changes = results.map((row) => {
       const sourceId = row.source.sourceId;
       const previous = before.get(sourceId) || null;
       const current = this.runtime.registry.currentRevision(sourceId, {allowMissing: true});
       const obligation = row.obligation || this.runtime.findObligation(current?.id);
-      const affectedRepresentations = staleRepresentationIds
-        .filter((id) => this.multiResolution.registry.get(id)?.sourceId === sourceId);
+      const affectedRepresentations = staleBySource.get(sourceId) ?? [];
       return {
         sourceId,
         uid: row.source.uid,
@@ -270,9 +295,13 @@ export class LoreIntelligenceService {
       sourceRevisionChanged,
       maintenancePerformed: sourceRevisionChanged,
       maintenanceReason: sourceRevisionChanged ? 'SOURCE_REVISION_CHANGED' : 'NO_SOURCE_REVISION_CHANGE',
-      dueStudyObligations: this.runtime.dueObligations().filter((row) => changes.some((change) => change.sourceId === row.sourceId)).length,
+      dueStudyObligations: (() => { const changed = new Set(changes.map((change) => change.sourceId)); return this.runtime.dueObligations().filter((row) => changed.has(row.sourceId)).length; })(),
       storyScope: deepClone(storyScope),
-      status: this.status({chatId: requestedChatId}),
+      status: receiptForm === 'REFERENCE'
+        ? {kind: 'LoreIntelligenceStatusReference', revisionKey: typeof this.runtime.referenceRevisionKey === 'function' ? this.runtime.referenceRevisionKey() : null, chatId: requestedChatId == null ? null : String(requestedChatId)}
+        : this.status({chatId: requestedChatId}),
+      ...(receiptForm === 'REFERENCE' ? {receiptForm: 'REFERENCE'} : {}),
+      ...(retrievalIndexDeferred ? {retrievalIndexDeferred: true} : {}),
     };
     this.lastAcceptance = deepClone(receipt);
     return receipt;
@@ -282,51 +311,70 @@ export class LoreIntelligenceService {
     if (scope !== 'DUE') throw new TypeError('LoreIntelligenceService currently supports scope=DUE');
     const results = [];
     const compilations = [];
+    this.runtime.enqueueEngineRefresh();
     for (const due of this.runtime.dueObligations()) {
-      const result = this.runtime.run(due.id, {maxUnits: maxUnitsPerObligation});
-      results.push(result);
-      const learned = result.learnedRevision;
-      if (!learned || learned.state !== 'CURRENT') continue;
-      try {
-        const family = this.multiResolution.compileFamily({sourceId: learned.sourceId});
-        const failures = Object.entries(family)
-          .filter(([, row]) => row?.status !== QualityStatus.PASS)
-          .map(([profile, row]) => ({profile, failure: row?.failure || 'REPRESENTATION_COMPILE_FAILED'}));
-        if (failures.length) {
-          this.compileFailures.set(learned.sourceId, failures);
-        } else {
-          this.compileFailures.delete(learned.sourceId);
-        }
-        compilations.push({
-          sourceId: learned.sourceId,
-          sourceRevisionId: learned.sourceRevisionId,
-          learnedRevisionId: learned.id,
-          semanticDiff: deepClone(learned.semanticDiff),
-          profiles: Object.fromEntries(Object.entries(family).map(([profile, row]) => [profile, {
-            status: row.status,
-            failure: row.failure || null,
-            representationRef: row.representation?.id || null,
-            sourceRevisionId: row.representation?.sourceRevisionId || learned.sourceRevisionId,
-            retentionReceipt: deepClone(row.qualityReceipt || null),
-            reused: Boolean(row.reused),
-          }])),
-        });
-      } catch (error) {
-        this.compileFailures.set(learned.sourceId, [{
-          profile: 'FAMILY',
-          failure: String(error?.code || error?.message || error),
-        }]);
-        compilations.push({
-          sourceId: learned.sourceId,
-          sourceRevisionId: learned.sourceRevisionId,
-          learnedRevisionId: learned.id,
-          semanticDiff: deepClone(learned.semanticDiff),
-          profiles: {},
-          failure: String(error?.message || error),
-        });
-      }
+      const step = this.studyObligation(due.id, {maxUnits: maxUnitsPerObligation});
+      results.push(step.result);
+      if (step.compilation) compilations.push(step.compilation);
     }
+    return this.finalizeStudy({results, compilations, rebuildRetrieval});
+  }
 
+  // One due obligation: study the source revision and compile its representation family. This is the unit
+  // a Runtime batch slice runs; `runStudy` is the same loop without yielding.
+  dueObligationIds() {
+    this.runtime.enqueueEngineRefresh();
+    return this.runtime.dueObligations().map((row) => row.id);
+  }
+
+  studyObligation(obligationId, {maxUnits = Infinity} = {}) {
+    const result = this.runtime.run(obligationId, {maxUnits});
+    const learned = result.learnedRevision;
+    if (!learned || learned.state !== 'CURRENT') return {result, compilation: null};
+    let compilation;
+    try {
+      const family = this.multiResolution.compileFamily({sourceId: learned.sourceId});
+      const failures = Object.entries(family)
+        .filter(([, row]) => row?.status !== QualityStatus.PASS)
+        .map(([profile, row]) => ({profile, failure: row?.failure || 'REPRESENTATION_COMPILE_FAILED'}));
+      if (failures.length) {
+        this.compileFailures.set(learned.sourceId, failures);
+      } else {
+        this.compileFailures.delete(learned.sourceId);
+      }
+      compilation = {
+        sourceId: learned.sourceId,
+        sourceRevisionId: learned.sourceRevisionId,
+        learnedRevisionId: learned.id,
+        semanticDiff: deepClone(learned.semanticDiff),
+        profiles: Object.fromEntries(Object.entries(family).map(([profile, row]) => [profile, {
+          status: row.status,
+          failure: row.failure || null,
+          representationRef: row.representation?.id || null,
+          sourceRevisionId: row.representation?.sourceRevisionId || learned.sourceRevisionId,
+          retentionReceipt: deepClone(row.qualityReceipt || null),
+          reused: Boolean(row.reused),
+        }])),
+      };
+    } catch (error) {
+      this.compileFailures.set(learned.sourceId, [{
+        profile: 'FAMILY',
+        failure: String(error?.code || error?.message || error),
+      }]);
+      compilation = {
+        sourceId: learned.sourceId,
+        sourceRevisionId: learned.sourceRevisionId,
+        learnedRevisionId: learned.id,
+        semanticDiff: deepClone(learned.semanticDiff),
+        profiles: {},
+        failure: String(error?.message || error),
+      };
+    }
+    return {result, compilation};
+  }
+
+  // After the due obligations: rebuild ontology and retrieval once, publish the run receipt.
+  finalizeStudy({results = [], compilations = [], rebuildRetrieval = true} = {}) {
     const maintenancePerformed = results.length > 0;
     const ontology = maintenancePerformed ? this.ontology.rebuild() : this.ontology.current();
     let retrieval = this.hierarchy.diagnostics();
@@ -334,7 +382,39 @@ export class LoreIntelligenceService {
       this.hierarchy.rebuild();
       retrieval = this.hierarchy.diagnostics();
     }
+    return this._studyReceipt({results, compilations, ontology, retrieval, maintenancePerformed});
+  }
 
+  // The same maintenance as finalizeStudy, split so a Runtime batch can yield between slices:
+  // beginMaintenance (ontology + hierarchy refresh + build session), runMaintenanceSlice (bounded summary units),
+  // completeMaintenance (retrieval index build + receipt). Same builder, plan and index as `hierarchy.rebuild()`.
+  beginMaintenance() {
+    const ontology = this.ontology.rebuild();
+    this.hierarchy.refreshHierarchy();
+    const session = this.hierarchy.beginBuild();
+    return {ontology, sessionId: session.id, planLength: session.plan.length, state: session.state};
+  }
+
+  // Same steps and result as beginMaintenance(), with the host given a turn between the three synchronous chunks.
+  async beginMaintenanceYielding(yieldToHost = () => new Promise((resolve) => setTimeout(resolve, 0))) {
+    const ontology = this.ontology.rebuild();
+    await yieldToHost();
+    this.hierarchy.refreshHierarchy();
+    await yieldToHost();
+    const session = this.hierarchy.beginBuild();
+    return {ontology, sessionId: session.id, planLength: session.plan.length, state: session.state};
+  }
+
+  runMaintenanceSlice(sessionId, {maxUnits = 16} = {}) {
+    return this.hierarchy.runBuild(sessionId, {maxUnits}).state;
+  }
+
+  completeMaintenance({results = [], compilations = [], ontology} = {}) {
+    this.hierarchy.refreshRetrieval();
+    return this._studyReceipt({results, compilations, ontology, retrieval: this.hierarchy.diagnostics(), maintenancePerformed: true});
+  }
+
+  _studyReceipt({results, compilations, ontology, retrieval, maintenancePerformed, status = null}) {
     const receipt = {
       kind: 'LoreStudyRunReceipt',
       contractVersion: 1,
@@ -345,7 +425,7 @@ export class LoreIntelligenceService {
       ontology,
       maintenancePerformed,
       maintenanceReason: maintenancePerformed ? 'DUE_STUDY_PROCESSED' : 'NO_DUE_STUDY',
-      status: this.status(),
+      status: status ?? this.status(),
     };
     this.lastStudyRun = deepClone(receipt);
     return receipt;
@@ -370,6 +450,30 @@ export class LoreIntelligenceService {
     return receipt;
   }
 
+  // Lean projection of status() for per-turn retrieval hydration: the same owner eligibility rule (shared helper below) and
+  // the same identity fields, without representation selection, study payloads or deep clones of the whole corpus. Read only.
+  retrievalEligibility({chatId = null} = {}) {
+    const surface = this.runtime.publicSurface({metadataOnly: true});
+    const storyScope = chatId == null ? null : this.storyAuthority.scopeReceipt(chatId);
+    const acceptedLorebookIds = new Set((storyScope?.acceptedForStudy || []).map((row) => row.lorebookId));
+    const readLorebookIds = new Set(storyScope?.readLorebookIds || []);
+    const entries = surface.entries.map((entry) => {
+      const retrievalReady = entry.sourceState !== 'REMOVED'
+        && this.hierarchy.retrievalIndex.isSourceReady(entry.sourceId);
+      return {
+        sourceId: entry.sourceId,
+        lorebookId: entry.lorebookId,
+        uid: entry.uid,
+        sourceRevisionId: entry.sourceRevisionId,
+        sourceState: entry.sourceState,
+        freshness: entry.freshness,
+        retrievalReady,
+        eligibleForStoryRetrieval: storyRetrievalEligible(entry, retrievalReady, storyScope, acceptedLorebookIds, readLorebookIds),
+      };
+    });
+    return {kind: 'LoreRetrievalEligibility', contractVersion: 1, chatId: chatId == null ? null : String(chatId), entries};
+  }
+
   status({chatId = null, metadataOnly = false} = {}) {
     const surface = this.runtime.publicSurface({metadataOnly});
     const retrievalStatus = this.hierarchy.retrievalIndex.status();
@@ -382,7 +486,7 @@ export class LoreIntelligenceService {
         : this.multiResolution.selection({sourceId: entry.sourceId});
       const representationReady = entry.sourceState !== 'REMOVED' && requiredProfilesReady(selection);
       const retrievalReady = entry.sourceState !== 'REMOVED'
-        && Boolean(this.hierarchy.retrievalIndex.sourceRecordIds.get(entry.sourceId));
+        && this.hierarchy.retrievalIndex.isSourceReady(entry.sourceId);
       const compileFailure = this.compileFailures.get(entry.sourceId) || null;
       return {
         sourceId: entry.sourceId,
@@ -406,12 +510,7 @@ export class LoreIntelligenceService {
         retrievalReady,
         acceptedForStudy: storyScope == null ? null : acceptedLorebookIds.has(entry.lorebookId),
         authorizedForStory: storyScope == null ? null : (acceptedLorebookIds.has(entry.lorebookId) && readLorebookIds.has(entry.lorebookId)),
-        eligibleForStoryRetrieval: storyScope == null ? null : (
-          entry.freshness === 'CURRENT'
-          && retrievalReady
-          && acceptedLorebookIds.has(entry.lorebookId)
-          && readLorebookIds.has(entry.lorebookId)
-        ),
+        eligibleForStoryRetrieval: storyRetrievalEligible(entry, retrievalReady, storyScope, acceptedLorebookIds, readLorebookIds),
         compileFailure: deepClone(compileFailure),
         operatorState: operatorStateFor({entry, compileFailure, representationReady, retrievalReady}),
       };
@@ -570,9 +669,32 @@ export class LoreIntelligenceService {
     };
   }
 
-  summarySurface() {
+  // Derived Lore refs that are current right now: active navigation summaries (content-addressed by
+  // their source revisions and child summaries, so a superseded summary disappears) and the structure
+  // revisions of the live hierarchy. Owner graph edges built from summaries depend on these refs.
+  currentDerivedRefs() {
+    const refs = new Set();
+    for (const summary of this.hierarchy.summaryRegistry.activeSummaries()) {
+      refs.add(String(summary.id));
+      if (summary.structureRevision) refs.add(String(summary.structureRevision));
+    }
+    for (const scope of this.hierarchy.hierarchy?.scopes || []) if (scope.structureRevision) refs.add(String(scope.structureRevision));
+    return [...refs];
+  }
+
+  // Summaries whose source revisions all lie inside `fence` (a Set) and that touch it; filtered before cloning. Equals
+  // summarySurface().summaries filtered by the same rule, which queryForStory used to do after cloning every summary.
+  _summariesWithinFence(fence) {
+    const inside = (summary) => {
+      const refs = [...(summary.sourceRevisionSet || [])];
+      return refs.some((revisionId) => fence.has(revisionId)) && refs.every((revisionId) => fence.has(revisionId));
+    };
+    return this.summarySurface({include: inside}).summaries;
+  }
+
+  summarySurface({include = null} = {}) {
     const scopes = new Map((this.hierarchy.hierarchy?.scopes || []).map((scope) => [scope.id, scope]));
-    const summaries = this.hierarchy.summaryRegistry.activeSummaries().map((summary) => {
+    const summaries = this.hierarchy.summaryRegistry.activeSummaries({include}).map((summary) => {
       const scope = scopes.get(summary.targetScopeId) || null;
       let level = 'TOPIC';
       if (scope?.type === 'LEAF') level = 'ENTRY';
@@ -617,7 +739,83 @@ export class LoreIntelligenceService {
     };
   }
 
-  queryForStory({chatId, query, intent = 'AUTO', intentId = null, profile = null} = {}) {
+  _storyReadableSources(scope, allowedBooks) {
+    const allowedSourceIds = [];
+    const exclusionReceipts = [];
+    for (const source of this.runtime.registry.listEntries({includeRemoved: true})) {
+      // Identity-only reads (ids and states); the full revision is never needed here.
+      const current = this.runtime.registry.currentRevisionRef(source.sourceId);
+      const learned = this.runtime.store.currentLearnedRevisionRef(source.sourceId);
+      let reason = null;
+      if (!allowedBooks.has(source.lorebookId)) {
+        const accepted = scope.acceptedForStudy.some((row) => row.lorebookId === source.lorebookId);
+        reason = accepted ? 'LOREBOOK_OUTSIDE_STORY_READ_SCOPE' : 'LOREBOOK_NOT_ACCEPTED_FOR_STUDY';
+      } else if (!current || current.state === 'REMOVED') {
+        reason = 'SOURCE_REMOVED';
+      } else if (!learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== current.id) {
+        reason = 'SOURCE_REVISION_NOT_LEARNED_CURRENT';
+      } else if (!this.hierarchy.retrievalIndex.isSourceReady(source.sourceId)) {
+        reason = 'SOURCE_NOT_RETRIEVAL_READY';
+      }
+      if (!reason) {
+        allowedSourceIds.push(source.sourceId);
+        continue;
+      }
+      if (exclusionReceipts.length < MAX_SCOPE_RECEIPTS) {
+        exclusionReceipts.push({
+          kind: 'LoreCandidateExclusionReceipt',
+          sourceId: source.sourceId,
+          lorebookId: source.lorebookId,
+          uid: String(source.uid),
+          sourceRevisionId: current?.id || null,
+          authorityScope: {chatId: scope.chatId, lorebookId: source.lorebookId},
+          decision: 'EXCLUDED',
+          reason,
+          mutationAuthority: false,
+          settlementAuthority: false,
+          contextSealAuthority: false,
+        });
+      }
+    }
+
+    return {allowedSourceIds, exclusionReceipts};
+  }
+
+  // Read-only owner surface: the entity identities Lore has learned from sources the story may read.
+  // The consumer (Native Brain) registers them as owner-explicit identities with source links; Lore
+  // grants no Truth, Settlement or merge authority. `knownRevisionKey` lets callers skip unchanged reads.
+  entityIdentitiesForStory({chatId, knownRevisionKey = null} = {}) {
+    const scope = this.storyAuthority.scopeReceipt(chatId);
+    const base = {kind: 'LoreEntityIdentitySurface', contractVersion: 1, chatId: scope.chatId ?? (chatId == null ? null : String(chatId)), mutationAuthority: false, settlementAuthority: false, truthGateAuthority: false, contextSealAuthority: false};
+    if (scope.state !== 'BOUND') return {...base, status: 'EXCLUDED', reason: 'LORE_STORY_SCOPE_REQUIRED', revisionKey: null, unchanged: false, entities: []};
+    const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(scope.chatId));
+    if (!allowedBooks.size) return {...base, status: 'EXCLUDED', reason: 'LORE_STORY_READ_SCOPE_EMPTY', revisionKey: null, unchanged: false, entities: []};
+    const revisionKey = ['lore-entities', this.hierarchy.retrievalIndex.revision, [...allowedBooks].sort().join(',')].join(':');
+    if (knownRevisionKey && knownRevisionKey === revisionKey) return {...base, status: 'UNCHANGED', reason: null, revisionKey, unchanged: true, entities: []};
+    const {allowedSourceIds} = this._storyReadableSources(scope, allowedBooks);
+    const byId = new Map();
+    for (const sourceId of allowedSourceIds) {
+      const learned = this.runtime.store.currentLearnedRevision(sourceId);
+      if (!learned) continue;
+      for (const artifact of this.runtime.store.artifactsForLearnedRevision(learned.id)) {
+        if (artifact.artifactType !== ArtifactType.ENTITY) continue;
+        const payload = artifact.payload || {};
+        const entityId = String(payload.entityId || '');
+        if (!entityId) continue;
+        const row = byId.get(entityId) ?? {entityId, canonicalName: String(payload.canonicalName || ''), entityType: String(payload.entityType || 'UNKNOWN'), aliases: [], sourceRevisionRefs: [], artifactRefs: []};
+        for (const alias of [payload.canonicalName, ...(payload.aliases || [])]) if (alias && !row.aliases.includes(String(alias))) row.aliases.push(String(alias));
+        if (!row.sourceRevisionRefs.includes(learned.sourceRevisionId)) row.sourceRevisionRefs.push(learned.sourceRevisionId);
+        row.artifactRefs.push(artifact.id);
+        byId.set(entityId, row);
+      }
+    }
+    return {...base, status: 'OK', reason: null, revisionKey, unchanged: false, entities: [...byId.values()].sort((a, b) => a.entityId.localeCompare(b.entityId))};
+  }
+
+  // includeNavigation=false (opt-in, for callers that only consume nominations, such as the Brain's Lore channel) omits the
+  // navigation extras (summaries, conflicts, thematic communities) and marks the packet `navigationOmitted`; every other field
+  // and the default packet are unchanged.
+  queryForStory({chatId, query, intent = 'AUTO', intentId = null, profile = null, includeNavigation = true} = {}) {
     const scope = this.storyAuthority.scopeReceipt(chatId);
     const blocked = (reason) => ({
       kind: 'LoreBrainRetrievalPacket',
@@ -651,49 +849,15 @@ export class LoreIntelligenceService {
     const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(scope.chatId));
     if (!allowedBooks.size) return this._rememberStoryQuery(blocked('LORE_STORY_READ_SCOPE_EMPTY'));
 
-    const allowedSourceIds = [];
-    const exclusionReceipts = [];
-    for (const source of this.runtime.registry.listEntries({includeRemoved: true})) {
-      const current = this.runtime.registry.currentRevision(source.sourceId, {allowMissing: true});
-      const learned = this.runtime.store.currentLearnedRevision(source.sourceId);
-      let reason = null;
-      if (!allowedBooks.has(source.lorebookId)) {
-        const accepted = scope.acceptedForStudy.some((row) => row.lorebookId === source.lorebookId);
-        reason = accepted ? 'LOREBOOK_OUTSIDE_STORY_READ_SCOPE' : 'LOREBOOK_NOT_ACCEPTED_FOR_STUDY';
-      } else if (!current || current.state === 'REMOVED') {
-        reason = 'SOURCE_REMOVED';
-      } else if (!learned || learned.state !== 'CURRENT' || learned.sourceRevisionId !== current.id) {
-        reason = 'SOURCE_REVISION_NOT_LEARNED_CURRENT';
-      } else if (!this.hierarchy.retrievalIndex.sourceRecordIds.get(source.sourceId)) {
-        reason = 'SOURCE_NOT_RETRIEVAL_READY';
-      }
-      if (!reason) {
-        allowedSourceIds.push(source.sourceId);
-        continue;
-      }
-      if (exclusionReceipts.length < MAX_SCOPE_RECEIPTS) {
-        exclusionReceipts.push({
-          kind: 'LoreCandidateExclusionReceipt',
-          sourceId: source.sourceId,
-          lorebookId: source.lorebookId,
-          uid: String(source.uid),
-          sourceRevisionId: current?.id || null,
-          authorityScope: {chatId: scope.chatId, lorebookId: source.lorebookId},
-          decision: 'EXCLUDED',
-          reason,
-          mutationAuthority: false,
-          settlementAuthority: false,
-          contextSealAuthority: false,
-        });
-      }
-    }
+    const {allowedSourceIds, exclusionReceipts} = this._storyReadableSources(scope, allowedBooks);
 
+    const allowedSourceSet = new Set(allowedSourceIds);
     const result = this.hierarchy.query({query, intent, intentId, allowedSourceIds});
     const desiredProfile = profile || (result.intent === 'BROAD' ? RepresentationProfile.LEAN : RepresentationProfile.HEAVY);
     const candidateReceipts = [];
     const nominations = result.nominations.map((nomination) => {
       const drillback = this.hierarchy.drillDown(nomination)
-        .filter((source) => allowedSourceIds.includes(source.sourceId))
+        .filter((source) => allowedSourceSet.has(source.sourceId))
         .map((source) => {
           const selection = this.multiResolution.selection({sourceId: source.sourceId, desiredProfile});
           return {
@@ -733,6 +897,7 @@ export class LoreIntelligenceService {
       return {nomination: deepClone(nomination), drillback};
     }).filter((row) => row.drillback.length > 0);
     const sourceRevisionFence = [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceRevisionId)))].sort();
+    const fenceSet = new Set(sourceRevisionFence);
     const packet = {
       kind: 'LoreBrainRetrievalPacket',
       contractVersion: 1,
@@ -751,16 +916,14 @@ export class LoreIntelligenceService {
       exclusionReceiptCount: exclusionReceipts.length,
       exclusionReceiptsTruncated: exclusionReceipts.length >= MAX_SCOPE_RECEIPTS,
       storyScope: deepClone(scope),
-      thematicCommunities: this.ontology.communitiesForSources(
+      navigationOmitted: !includeNavigation,
+      thematicCommunities: !includeNavigation ? [] : this.ontology.communitiesForSources(
         [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceId)))],
       ),
-      summaries: this.summarySurface().summaries.filter((summary) => (
-        summary.sourceRevisionRefs.some((revisionId) => sourceRevisionFence.includes(revisionId))
-        && summary.sourceRevisionRefs.every((revisionId) => sourceRevisionFence.includes(revisionId))
-      )),
-      conflicts: this.runtime.store.conflicts(this.runtime.registry).filter((row) => {
+      summaries: !includeNavigation ? [] : this._summariesWithinFence(fenceSet),
+      conflicts: !includeNavigation ? [] : this.runtime.store.conflicts(this.runtime.registry).filter((row) => {
         const refs = row?.sourceRevisionRefs || row?.sourceRevisionSet || [];
-        return refs.length === 0 || refs.every((revisionId) => sourceRevisionFence.includes(revisionId));
+        return refs.length === 0 || refs.every((revisionId) => fenceSet.has(revisionId));
       }),
       provenanceRequired: true,
       exactSourceDrillbackAvailable: true,
@@ -796,6 +959,7 @@ export class LoreIntelligenceService {
       };
     });
     const sourceRevisionFence = [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceRevisionId)))].sort();
+    const fenceSet = new Set(sourceRevisionFence);
     return {
       kind: 'LoreBrainRetrievalPacket',
       contractVersion: 1,
@@ -810,9 +974,7 @@ export class LoreIntelligenceService {
       thematicCommunities: this.ontology.communitiesForSources(
         [...new Set(nominations.flatMap((row) => row.drillback.map((source) => source.sourceId)))],
       ),
-      summaries: this.summarySurface().summaries.filter((summary) => (
-        summary.sourceRevisionRefs.some((revisionId) => sourceRevisionFence.includes(revisionId))
-      )),
+      summaries: this.summarySurface({include: (summary) => [...(summary.sourceRevisionSet || [])].some((revisionId) => fenceSet.has(revisionId))}).summaries,
       conflicts: this.runtime.store.conflicts(this.runtime.registry),
       provenanceRequired: true,
       exactSourceDrillbackAvailable: true,
@@ -823,6 +985,44 @@ export class LoreIntelligenceService {
     };
   }
 
+  // Conflict sets (owner rule R4) readable by one story, with the claim and source-revision identity a consumer needs to fence
+  // its own freshness. Bounded, story-scoped (every member's lorebook must be inside the story's read scope), read-only.
+  conflictSetsForStory({chatId, certainty = 'ESTABLISHED', limit = 16} = {}) {
+    const allowedBooks = new Set(this.storyAuthority.allowedLorebookIds(chatId));
+    if (!allowedBooks.size) return [];
+    const store = this.runtime.store, registry = this.runtime.registry;
+    const rows = [];
+    for (const set of store.temporalResolution(registry).conflicts) {
+      if (set.certainty !== certainty) continue;
+      const members = [];
+      let readable = true;
+      for (const artifactId of set.artifactIds) {
+        const artifact = store.artifacts.get(artifactId);
+        const source = artifact ? registry.entries.get(artifact.sourceId) : null;
+        const revision = artifact ? registry.currentRevisionState(artifact.sourceId) : null;
+        if (!artifact || !source || !allowedBooks.has(source.lorebookId) || !revision || revision.state === 'REMOVED' || revision.id !== artifact.sourceRevisionId) { readable = false; break; }
+        const shown = set.values.find((v) => v.artifactId === artifactId) ?? {};
+        members.push({
+          artifactId, claimId: artifact.payload?.claimId ?? artifact.semanticId, sourceId: artifact.sourceId, sourceRevisionId: artifact.sourceRevisionId,
+          value: artifact.payload?.value ?? null, normalizedValue: shown.normalizedValue ?? null, attribution: shown.attribution ?? 'ASSERTED', speaker: shown.speaker ?? null,
+        });
+      }
+      if (!readable) continue;
+      rows.push({
+        kind: 'LoreStoryConflictSet', id: set.id, certainty: set.certainty, property: set.property, slotKey: set.slotKey, basis: set.basis,
+        alternatives: set.alternatives.map((alt) => [...alt]), members,
+        sourceRevisionRefs: [...new Set(members.map((m) => m.sourceRevisionId))].sort(),
+      });
+      if (rows.length >= limit) break;
+    }
+    return rows;
+  }
+
+  // Lorebooks read together by one story (each story's accepted read scope). Only those may supersede or conflict.
+  temporalBookGroups() {
+    return [...this.storyAuthority.stories.keys()].map((chatId) => this.storyAuthority.allowedLorebookIds(chatId));
+  }
+
   brainInterface() {
     return Object.freeze({
       kind: 'LoreBrainRetrievalInterface',
@@ -830,7 +1030,12 @@ export class LoreIntelligenceService {
       query: (request = {}) => request?.chatId ? this.queryForStory(request) : this.queryForBrain(request),
       queryScoped: (request = {}) => this.queryForStory(request),
       status: (request = {}) => this.status({chatId: request?.chatId ?? null}),
+      retrievalEligibility: (request = {}) => this.retrievalEligibility({chatId: request?.chatId ?? null}),
       storyScope: (chatId) => this.storyAuthority.scopeReceipt(chatId),
+      entityIdentities: (request = {}) => this.entityIdentitiesForStory(request),
+      currentDerivedRefs: () => this.currentDerivedRefs(),
+      sourceTruthHint: (sourceId) => sourceTruthHint(this.runtime, sourceId),
+      conflictSets: (request = {}) => this.conflictSetsForStory(request),
       summaries: () => this.summarySurface(),
       sourceRevision: (sourceId) => this.runtime.registry.currentRevision(sourceId, {allowMissing: true}),
       isSourceRevisionCurrent: (revisionId) => {

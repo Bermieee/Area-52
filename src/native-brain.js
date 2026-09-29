@@ -29,8 +29,10 @@ import {
   WorkerDirector,
 } from './runtime/index.js';
 import {stableHash} from './browser-runtime-utils.js';
+import {NativeJevAdvisory} from './native-jev-advisory.js';
 import {createSceneUiReadModelFromIntegrationState} from './scene/scene-ui-read-model.js';
 import {NativeContextRetirementPolicy,contextRetirementContract} from './context-retirement-policy.js';
+import {compactTurnRecord,reboundCompactedTurnRecord,DEFAULT_FULL_DETAIL_TURNS} from './native-turn-retention.js';
 
 const clone=(value)=>value==null?value:structuredClone(value);
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
@@ -135,6 +137,9 @@ function statusForTemporal(kind){
   return KnowledgeStatus.CURRENT;
 }
 
+// Runtime causal reason codes for a Jev advisory the owner did not adopt (the row keeps its own detailed reasonCode).
+const JEV_ADVISORY_CAUSAL_REASON=Object.freeze({REJECTED_STALE:'STALE_RESULT',REJECTED_SEAL_CHANGED:'STALE_RESULT',UNRESOLVED:'OWNER_REJECTED',FAILED:'TASK_FAILED',UNAVAILABLE:'OPTIONAL_RESOURCE_UNAVAILABLE',NOT_ADVISED_NO_LIVE_PROVIDER:'OPTIONAL_RESOURCE_UNAVAILABLE'});
+
 export class Area52NativeBrain{
   constructor({
     snapshot=null,
@@ -167,9 +172,15 @@ export class Area52NativeBrain{
     this.loreRevisionTrust=new Map(clone(snapshot?.loreRevisionTrust??[]));
     this.rejectedLoreRevisionIds=new Set(clone(snapshot?.rejectedLoreRevisionIds??[]));
     this.loreInterface=null;this.memoryInterface=null;this.memoryConsolidationInterface=null;
+    this.jevAdvisory=new NativeJevAdvisory({snapshot:snapshot?.jevAdvisories??null});
+    this.core.registerJevAdvisoryLookup((alternatives,context={})=>this.jevAdvisory.lookup(alternatives,{loreInterface:this.loreInterface,candidates:context.candidates}),{
+      // Freshness at consumption: the stored row must still be ADVISED and its fence (conflict set + member revisions) current.
+      isFresh:(advisory)=>{const row=this.jevAdvisory.list().find(r=>r.id===advisory?.id);return Boolean(row)&&this.jevAdvisory.isFresh(row,this.loreInterface);},
+    });
     this.ownerSparseChannel=new ProductionSparseRetrievalChannel({
       evidenceSink:(evidence)=>this.#rememberOwnerEvidence(evidence),
       revisionGuard:(source)=>this.#admitLoreOwnerRevision(source),
+      truthStatusFor:(sourceId)=>this.loreInterface?.sourceTruthHint?.(sourceId)??null,
     });
     this.ownerLoreChannel=new LoreOwnerRetrievalChannel({
       getInterface:()=>this.loreInterface,
@@ -323,6 +334,17 @@ export class Area52NativeBrain{
     return{kind:'NativeBrainMemoryInterfaceReceipt',attached:Boolean(memoryInterface),contractVersion:memoryInterface?.contractVersion??null,authorityGranted:false,settlementAuthority:false,contextSealAuthority:false};
   }
 
+  // Optional Jev advice on the Lore owner's established conflicts, through the Runtime (NEXT_TURN, freshness-fenced, advisory
+  // only). Nothing is requested unless a Jev service is attached and reports itself configured.
+  attachJevAdvisory(config={}){
+    const receipt=this.jevAdvisory.attach(config);
+    if(this.runtimeDirector)this.#attachRecoveredExecutors();
+    return{...receipt,nativePathAvailable:true};
+  }
+
+  // Advisory rows plus whether each is still fresh against the Lore owner's current conflict sets (operators see stale ones as such).
+  readJevAdvisories(){return{...this.jevAdvisory.diagnostics(),rows:this.jevAdvisory.list().map(row=>({...row,current:this.jevAdvisory.isFresh(row,this.loreInterface)}))};}
+
   attachJevAdapter(adapter=null){
     const receipt=this.core.registerJevAdapter(adapter);
     return{kind:'NativeBrainOptionalJevReceipt',...clone(receipt),required:false,nativePathAvailable:true};
@@ -370,6 +392,7 @@ export class Area52NativeBrain{
   registerGraphProvider(options){return this.core.registerGraphProvider(options);}
   unregisterGraphProvider(providerId){return this.core.unregisterGraphProvider(providerId);}
   entityIdentityReadModel(options={}){return this.core.entityIdentityReadModel(options);}
+  entityIdentityDetail(entityId,{storyId=null}={}){return this.core.entities.get(entityId,{storyId:storyId??this.core.entities.activeStoryId});}
   entityIdentityContract(){return this.core.entityIdentityContract();}
   graphProviderInterfaceContract(){return this.core.graphProviderInterfaceContract();}
   graphWalkerDiagnostics(){return this.core.graphWalkerDiagnostics();}
@@ -455,6 +478,8 @@ export class Area52NativeBrain{
         reason:sparseUnavailable?sparseRetrievalReceipt.reason:null,
       });
     }
+    this.core.entities.setActiveStory(chat);
+    this.#syncLoreEntityIdentities(chat);
     const retrievalIntents=this.#selectedTurnRetrievalIntents({chatId:chat,query:q,intent,perspectiveConstraint,anchorEntityIds,graphTraversal});
     const sequence=++this.turnSequence;
     this.runtimeDirector.beginGeneration({turnId:turn,correlationId:corr,generationId:generation});
@@ -487,7 +512,9 @@ export class Area52NativeBrain{
     if(sceneFanOut){
       const expectedSources=uniq([
         ...(sceneState.sourceRevisionRefs??[]),
-        ...(sceneState.prefetchRecommendations??[]).flatMap(row=>row?.sourceRevisionSet??row?.sourceRevisionRefs??[]),
+        // The Core integration snapshot does not retain prefetch recommendations, so the admitted
+        // Scene owner signal is the authority for the prefetch part of the Fan-Out source set.
+        ...(this.sceneSignals.get(chat)?.prefetchRecommendations??sceneState.prefetchRecommendations??[]).flatMap(row=>row?.sourceRevisionSet??row?.sourceRevisionRefs??[]),
       ]),actualSources=uniq(sceneFanOut.sourceRevisionSet??[]);
       const identityMismatch=[];
       if(String(sceneFanOut.chatId??'')!==chat)identityMismatch.push('chatId');
@@ -605,6 +632,47 @@ export class Area52NativeBrain{
       promptPlan:delivery.plan,rendered:delivery.rendered,
       used:this.#usedWork(published),skipped:this.#skippedWork(published),
     });
+  }
+
+  // Lore owns its ontology; the Native identity registry is where Graph Walker resolves anchors and
+  // owner-graph endpoints. Source owners may register stable identities (entityIdentityContract), so the
+  // story-readable Lore entities are registered as owner-explicit identities with source links. Nothing
+  // here settles a merge/split, and a failed or conflicting registration stays a receipt row.
+  #syncLoreEntityIdentities(chatId){
+    const iface=this.loreInterface;
+    if(typeof iface?.entityIdentities!=='function')return null;
+    this.loreIdentitySync??={keys:new Map(),refs:new Map(),last:null};
+    const state=this.loreIdentitySync;
+    // After a restore the in-memory ref table is empty: seed it from the identities the restored registry holds, so
+    // revisions Lore no longer publishes are invalidated (not silently kept).
+    if(!state.refs.has(chatId))state.refs.set(chatId,this.core.entities.ownerRevisionRefs('LORE_ONTOLOGY',{storyId:chatId}));
+    let surface;
+    try{surface=iface.entityIdentities({chatId,knownRevisionKey:state.keys.get(chatId)??null});}
+    catch(error){state.last={kind:'NativeLoreIdentitySyncReceipt',chatId,status:'FAILED',reason:String(error?.message??error).slice(0,200)};return state.last;}
+    if(surface?.status==='UNCHANGED')return state.last;
+    const receipt={kind:'NativeLoreIdentitySyncReceipt',chatId,status:surface?.status??'UNAVAILABLE',reason:surface?.reason??null,revisionKey:surface?.revisionKey??null,registered:0,conflicts:[],invalidatedRevisionRefs:[],authorityGranted:false,settlementAuthority:false};
+    const nextRefs=new Set();
+    if(surface?.status==='OK'){
+      for(const entity of surface.entities??[]){
+        for(const ref of entity.sourceRevisionRefs??[])nextRefs.add(ref);
+        try{
+          this.core.registerEntityIdentity({
+            entityId:entity.entityId,canonicalLabel:entity.canonicalName||entity.entityId,entityType:entity.entityType,
+            providerId:'LORE_OWNER_GRAPH',sourceEntityId:entity.entityId,aliases:entity.aliases??[],storyScopeId:chatId,
+            sourceRevisionRefs:entity.sourceRevisionRefs,provenanceRefs:entity.artifactRefs,authorityOrigin:'OWNER_EXPLICIT',
+            metadata:{ownerAuthority:'LORE_ONTOLOGY',derivation:'LORE_ENTITY_EXTRACTION'},
+          });
+          receipt.registered+=1;
+        }catch(error){receipt.conflicts.push({entityId:entity.entityId,reason:String(error?.message??error).slice(0,120)});}
+      }
+      for(const ref of state.refs.get(chatId)??[]){
+        if(nextRefs.has(ref))continue;
+        try{this.core.invalidateEntityIdentityRevision(ref,{reason:'LORE_SOURCE_REVISION_CHANGED'});receipt.invalidatedRevisionRefs.push(ref);}catch{}
+      }
+      state.keys.set(chatId,surface.revisionKey);state.refs.set(chatId,nextRefs);
+    }
+    state.last=receipt;
+    return receipt;
   }
 
   #selectedTurnRetrievalIntents({chatId,query,intent='CURRENT',perspectiveConstraint=null,anchorEntityIds=[],graphTraversal=null}={}){
@@ -734,6 +802,7 @@ export class Area52NativeBrain{
     const feedbackTask=this.#scheduleFeedback(id,experience.sourceRevisionId);
     const memoryFeedbackTask=this.#scheduleMemoryRetrievalFeedback(record);
     const memoryTask=this.#scheduleMemoryPostTurn(record,experience,memoryWriteback,{knownBy,reflections,memoryExpectedId});
+    record.jevAdvisoryRuntimeTaskIds=this.#scheduleJevAdvisories(record);
     const feedbackTaskId=feedbackTask?.task?.taskId??null;
     const memoryFeedbackTaskId=memoryFeedbackTask?.task?.taskId??null;
     const memoryTaskId=memoryTask?.task?.taskId??null;
@@ -846,6 +915,35 @@ export class Area52NativeBrain{
     return true;
   }
 
+  // Host deleted the message this turn's response was learned from. History is preserved (the source
+  // is retired, not erased); every current-state consumer of that revision is invalidated.
+  retireTurnNarrative(turnId,{reason='HOST_MESSAGE_DELETED'}={}){
+    const id=req(turnId,'turnId'),record=this.turns.get(id);
+    if(!record?.experience)return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'NO_LEARNED_NARRATIVE',historyPreserved:true};
+    const prior=this.knowledge.currentRecordForSource(record.experience.sourceId);
+    if(!prior)return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'ALREADY_RETIRED',historyPreserved:true};
+    const removal=this.knowledge.removeSource(record.experience.sourceId,{reason});
+    const invalidatedClaimIds=this.core.graph.invalidateClaimsBySourceRevision(prior.sourceRevisionId);
+    let memoryInvalidation=null;
+    const invalidate=this.memoryInterface?.invalidateExternalEvidenceMapping??this.memoryInterface?.adapters?.invalidateExternalEvidenceMapping;
+    if(typeof invalidate==='function'){
+      const ownerArtifactRef=this.#memoryOwnerArtifactRef(record,prior);
+      memoryInvalidation=invalidate({ownerArtifactRef,externalEvidenceRef:ownerArtifactRef.artifactId,replacedBySourceRevisionId:null,removed:true,reason});
+      if(memoryInvalidation&&typeof memoryInvalidation.then==='function')throw new Error('MEMORY_ASYNC_INVALIDATION_UNSUPPORTED_IN_SYNC_COMMIT');
+    }
+    this.core.hotCognition.invalidateKnowledge({
+      chatNamespace:record.chatId,updateId:'narrative-retired:'+prior.sourceRevisionId,
+      invalidatedSourceRevisionRefs:[prior.sourceRevisionId],reason,
+    });
+    this.core.consumeNarrativeEvidence({
+      kind:'NarrativeEvidence',chatId:record.chatId,turnId:id,messageId:'assistant:'+id,messageRevision:2,
+      sequence:record.sequence,activity:'DELETE',role:'assistant',sourceRevisionId:prior.sourceRevisionId,
+      content:null,current:false,invalidates:[prior.sourceRevisionId],knownBy:[],publicToAll:false,
+    });
+    record.retiredNarrative={reason,sourceRevisionId:prior.sourceRevisionId};
+    return{kind:'NativeTurnNarrativeRetirementReceipt',turnId:id,status:'RETIRED',reason,sourceRevisionId:prior.sourceRevisionId,invalidatedClaimIds:clone(invalidatedClaimIds),removal:clone(removal),memoryInvalidation:clone(memoryInvalidation),historyPreserved:true};
+  }
+
   correctTurn({turnId,response,observations=[],knownBy=[],reflections=[]}={}){
     const id=req(turnId,'turnId'),record=this.turns.get(id);if(!record?.experience)throw new Error('Turn has no learned narrative source: '+id);
     const prior=this.knowledge.currentRecordForSource(record.experience.sourceId);if(!prior)throw new Error('Narrative source is not current: '+id);
@@ -908,7 +1006,7 @@ export class Area52NativeBrain{
       readSensoryTrace:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateBusEnvelope:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope??null),
       readCandidateFusionReceipt:(selection={})=>this.#readStage(selection,record=>record.published?.candidateEnvelope?.fusionReceipt??null),
-      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel(),authorityGranted:false})),
+      readIdentityResolution:(selection={})=>this.#readStage(selection,record=>({kind:'NativeBrainIdentityResolutionReadModel',...this.#selection(record),...this.core.entityIdentityReadModel({storyId:record.chatId,compact:true}),loreIdentitySync:clone(this.loreIdentitySync?.last??null),authorityGranted:false})),
       readGraphTraversal:(selection={})=>this.#readStage(selection,record=>record.published?.graphTraversalReceipt??record.published?.candidateEnvelope?.metadata?.graphTraversalReceipt??null),
       readWorldGraphReferences:(selection={})=>this.#readStage(selection,record=>this.#worldGraphReferenceReadModel(record)),
       readRetrievalBudget:(selection={})=>this.#readStage(selection,record=>this.#uiRetrievalBudgetReceipt(record)),
@@ -916,6 +1014,7 @@ export class Area52NativeBrain{
       readTruth:(selection={})=>this.#readStage(selection,record=>record.published?.publicationAssessment??record.published?.assessment??null),
       readCorrectiveRetrieval:(selection={})=>this.#readStage(selection,record=>record.published?.corrective??null),
       readJev:(selection={})=>this.#readStage(selection,record=>record.published?.cognitiveChoiceReceipt?.jev??null),
+      readJevAdvisory:(selection={})=>this.#readStage(selection,record=>({...this.jevAdvisory.diagnostics(),rows:this.jevAdvisory.list().filter(row=>row.chatId===record.chatId)})),
       readPrecision:(selection={})=>this.#readStage(selection,record=>this.#uiPrecisionReceipt(record)),
       readGather:(selection={})=>this.#readStage(selection,record=>this.#uiGatherReceipt(record)),
       readContextSeal:(selection={})=>this.#readStage(selection,record=>record.published?.sealReceipt??null),
@@ -1010,7 +1109,7 @@ export class Area52NativeBrain{
     return {
       kind:'Area52NativeBrainDiagnostics',
       turns:this.turns.size,activeChat:this.core.hotCognition.activeChatNamespace,
-      world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),identity:this.core.entityIdentityReadModel(),graph:this.core.graphWalkerDiagnostics(),
+      world:this.core.currentWorldModel(),sensory:this.core.sensoryDiagnostics(),identity:this.core.entityIdentityReadModel({compact:true,storyId:this.core.entities.activeStoryId}),graph:this.core.graphWalkerDiagnostics(),
       knowledge:this.knowledge.diagnostics(),feedback:this.feedback.diagnostics(),
       loreInterface:{attached:Boolean(this.loreInterface),kind:this.loreInterface?.kind??null,contractVersion:this.loreInterface?.contractVersion??null},
       loreRevisionTrust:{
@@ -1048,7 +1147,10 @@ export class Area52NativeBrain{
       },
       knowledge:this.knowledge.exportState(),feedback:this.feedback.exportState(),
       loreRevisionTrust:[...this.loreRevisionTrust.entries()],rejectedLoreRevisionIds:[...this.rejectedLoreRevisionIds],
-      turns:[...this.turns.entries()],turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
+      // Restore image: settled turns are persisted in compacted reference form (owner stores and the
+      // sealed packet stay authoritative); turns with pending background learning keep full detail.
+      turns:[...this.turns.entries()].map(([id,record])=>[id,this.#turnBackgroundSettled(record)?compactTurnRecord(record,{reason:'SNAPSHOT',sequence:record.sequence??null}):record]),turnOrder:this.turnOrder,sceneSignals:[...this.sceneSignals.entries()],
+      jevAdvisories:this.jevAdvisory.snapshot(),
       runtimeLedger:this.runtimePersistence.exportSnapshot(),runtimeResults:this.runtimeResults,expectedWork:this.obligationReconciler.snapshot(),
     });
   }
@@ -1328,6 +1430,57 @@ export class Area52NativeBrain{
     };
   }
 
+  // NEXT_TURN Jev advisories for the established Lore conflict sets that shaped this turn (see native-jev-advisory.js).
+  #scheduleJevAdvisories(record){
+    if(!this.jevAdvisory.available)return[];
+    const ids=[];
+    for(const set of this.jevAdvisory.candidateSets({loreInterface:this.loreInterface,record})){
+      const submitted=this.runtimeDirector.submit({
+        taskType:'NATIVE_JEV_ADVISORY',owner:'COGNITIVE_CORE',producerId:'NATIVE_BRAIN',
+        layer:'L2',runtimeClass:'NEARLINE',requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],
+        dedupeKey:'native-jev-advisory:'+record.chatId+':'+set.id,foreground:false,sourceRevisionIds:uniq(set.sourceRevisionRefs),
+        worldRevision:this.core.graph.revision,sceneRevision:record.sceneRevision,
+        payload:{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,conflictSetId:set.id,resultClass:'DEFERRED'},
+        cause:{eventType:'POST_TURN_JEV_ADVISORY',eventId:'jev-advisory:'+record.generationId+':'+set.id,correlationId:record.correlationId,producerId:'NATIVE_BRAIN',consumerId:'COGNITIVE_CORE',ownerId:'COGNITIVE_CORE',chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,turnRevision:record.sequence,sourceRevisionRefs:uniq(set.sourceRevisionRefs)},
+        batchHint:{maxSliceUnits:1},checkpointPolicy:{maxUnitsPerCheckpoint:1},
+      },{
+        units:[{id:'jev-advisory:'+set.id,payload:{chatId:record.chatId,turnId:record.turnId,generationId:record.generationId,correlationId:record.correlationId,conflictSetId:set.id}}],
+        ...this.#jevAdvisoryExecutor(),
+      });
+      const taskId=submitted?.task?.taskId??null;
+      if(taskId)ids.push(taskId);
+    }
+    return ids;
+  }
+
+  #jevAdvisoryExecutor(){
+    return{
+      execute:async({units})=>{
+        const rows=[];
+        for(const unit of units){
+          const item=unit.payload;
+          const candidate=this.turns.get(String(item.turnId));
+          const record=candidate&&candidate.chatId===String(item.chatId)&&candidate.generationId===String(item.generationId)&&candidate.correlationId===String(item.correlationId)?candidate:null;
+          const set=record?(this.loreInterface?.conflictSets?.({chatId:record.chatId,certainty:'ESTABLISHED'})??[]).find(row=>row.id===item.conflictSetId)??null:null;
+          if(!record||!set){rows.push({kind:'NativeJevAdvisory',id:'jev-advisory:'+stableHash(String(item.conflictSetId)+'|'+String(item.turnId)),conflictSetId:String(item.conflictSetId),chatId:String(item.chatId),sourceTurnId:String(item.turnId),status:'REJECTED_STALE',reasonCode:record?'CONFLICT_SET_GONE_BEFORE_REQUEST':'TURN_SELECTION_MISMATCH',classification:null,memberClaimIds:[],fence:{sourceRevisionSet:[],conflictSetId:String(item.conflictSetId)},destination:'NEXT_TURN',advisory:true,authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealMutated:false,loreMutated:false});continue;}
+          rows.push(await this.jevAdvisory.run({set,record,loreInterface:this.loreInterface}));
+        }
+        return rows;
+      },
+      validate:async({output})=>Array.isArray(output)&&output.every(row=>row?.kind==='NativeJevAdvisory'&&row.authorityGranted===false&&row.canonicalMutation===false),
+      commit:async({output})=>{
+        for(const row of output){
+          this.jevAdvisory.remember(row);
+          const record=this.turns.get(String(row.sourceTurnId));
+          const taskId=(record?.jevAdvisoryRuntimeTaskIds??[])[0]??null;
+          if(taskId)this.#recordTaskOwnerDecision(taskId,{accepted:row.status==='ADVISED',receiptId:row.id,reasonCode:row.status==='ADVISED'?null:(JEV_ADVISORY_CAUSAL_REASON[row.status]??'OWNER_REJECTED'),consumerId:'COGNITIVE_CORE'});
+          this.#notify('JEV_ADVISORY_RECORDED',record??{turnId:row.sourceTurnId,chatId:row.chatId});
+        }
+        return{output:output.map(clone),validation:{valid:true},authorityGranted:false,canonicalMutation:false};
+      },
+    };
+  }
+
   #scheduleFeedback(turnId,sourceRevisionId){
     const record=this.turns.get(String(turnId));if(!record)return null;
     return this.runtimeDirector.submit({
@@ -1374,6 +1527,7 @@ export class Area52NativeBrain{
       if(record.obligation?.taskType==='NATIVE_LEARNING_FEEDBACK')executor=this.#feedbackExecutor();
       if(record.obligation?.taskType==='MEMORY_RETRIEVAL_FEEDBACK'&&this.memoryInterface)executor=this.#memoryRetrievalFeedbackExecutor();
       if(record.obligation?.taskType==='MEMORY_POST_TURN'&&this.memoryInterface)executor=this.#memoryPostTurnExecutor();
+      if(record.obligation?.taskType==='NATIVE_JEV_ADVISORY'&&this.jevAdvisory?.available)executor=this.#jevAdvisoryExecutor();
       if(record.obligation?.taskType==='MEMORY_CONSOLIDATION_PROPOSAL'&&this.memoryConsolidationInterface&&this.memoryInterface)executor=this.#memoryConsolidationExecutor();
       if(!executor)continue;
       try{this.runtimeDirector.attachExecutor(record.taskId,executor);this.runtimeDirector.recoverTask(record.taskId);}catch{}
@@ -1821,6 +1975,18 @@ export class Area52NativeBrain{
         cause:{eventType:'SCENE_COGNITIVE_NEED',eventId:String(need.needId??expectedId),producerId:'SCENE',consumerId:'COGNITIVE_CHOICE',ownerId:'SCENE',chatId,turnId,generationId,correlationId,turnRevision,sourceRevisionRefs:sceneState.sourceRevisionRefs??[],worldRevision:published?.worldRevision??null,sceneRevision:sceneState.sceneRevision},
         obligation:{taskType:'SCENE_RETRIEVAL_NEED',layer:'L1',requiredCapabilities:['RETRIEVAL'],dedupeKey:expectedId},
       });
+      // Physical evidence: when Cognitive Choice admitted RETRIEVAL for this turn, the retrieval did start, and the candidate
+      // envelope says whether a result came back. Owner admission is never inferred: the Scene owner must admit it.
+      if((choice?.admittedJobs??[]).map(String).includes('RETRIEVAL')&&candidate){
+        const channelReceipts=candidate.metadata?.channelReceipts??[];
+        const answered=channelReceipts.filter(row=>String(row?.status)==='OK'&&Number(row?.nominationCount??0)>0);
+        const metadata={retrievalIntentIds:clone(candidate.retrievalIntentIds??[]),candidateCount:Number(candidate.candidates?.length??0),envelopeFreshness:candidate.freshness??null,answeredChannelIds:answered.map(row=>row.channelId)};
+        const started=this.obligationReconciler.recordEvidence(expectedId,{id:expectedId+':started',kind:CausalReceiptKind.PHYSICAL_EXECUTION_STARTED,producerId:'SENSORY_NET',consumerId:'SCENE',metadata});
+        // A result came back when a channel answered; whether it is still fresh for foreground use is the envelope's own
+        // freshness (kept in the metadata) and the Scene owner's admission decision, not a reason to deny that it returned.
+        if(answered.length)this.obligationReconciler.recordEvidence(expectedId,{id:expectedId+':returned',kind:CausalReceiptKind.RESULT_RETURNED,producerId:'SENSORY_NET',consumerId:'SCENE',parentReceiptId:started?.id??null,metadata});
+        else this.obligationReconciler.recordEvidence(expectedId,{id:expectedId+':failed',kind:CausalReceiptKind.WORK_FAILED,producerId:'SENSORY_NET',consumerId:'SCENE',parentReceiptId:started?.id??null,reasonCode:CausalReasonCode.NO_EVIDENCE,metadata});
+      }
       results.push(this.obligationReconciler.reconcile(expectedId,{admit:false}));
     }
     return results;
@@ -1891,5 +2057,34 @@ export class Area52NativeBrain{
     if(!this.turns.has(id))this.turnOrder.push(id);
     this.turns.set(id,record);
     while(this.turnOrder.length>this.maxTurns){const old=this.turnOrder.shift();this.turns.delete(old);}
+    this.#compactRetainedTurns();
+  }
+
+  // Audit H3: only the newest turns keep full diagnostic detail. Older records whose background
+  // learning has settled are compacted to references; owner stores and the sealed packet remain
+  // authoritative. A record with pending Runtime work or uncomputed feedback is left intact.
+  #turnBackgroundSettled(record){
+    if(record.feedbackRuntimeTaskId&&!record.feedback)return false;
+    const ids=[record.feedbackRuntimeTaskId,record.memoryFeedbackRuntimeTaskId,record.memoryRuntimeTaskId,record.memoryConsolidationRuntimeTaskId].filter(Boolean);
+    for(const taskId of ids){
+      const task=this.runtimeDirector?.ledger?.get?.(taskId);if(!task)continue;
+      if(['PENDING','ELIGIBLE'].includes(String(task.lifecycleStatus))||['QUEUED','ACTIVE','YIELDING','PARKED','RECOVERING'].includes(String(task.executionStatus)))return false;
+    }
+    return true;
+  }
+  #compactRetainedTurns(){
+    const keep=Math.max(1,Number(this.fullDetailTurns??DEFAULT_FULL_DETAIL_TURNS));
+    const eligible=this.turnOrder.slice(0,Math.max(0,this.turnOrder.length-keep));
+    for(const id of eligible){
+      const record=this.turns.get(id);
+      if(!record)continue;
+      if(record.retention?.state==='COMPACTED'){
+        // Late learning receipts can attach after compaction; re-bound recently compacted records only.
+        if(Number(record.retention.compactedAtSequence??0)>=this.turnSequence-8)this.turns.set(id,reboundCompactedTurnRecord(record));
+        continue;
+      }
+      if(!this.#turnBackgroundSettled(record))continue;
+      this.turns.set(id,compactTurnRecord(record,{sequence:this.turnSequence}));
+    }
   }
 }

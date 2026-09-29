@@ -66,7 +66,7 @@ export class NativeKnowledgeStore{
     const existing=this.registry.getSource(id);
     let revision,changed=false;
     if(!existing){
-      revision=this.registry.importSource({id,sourceType:String(sourceType),content:text,metadata:{...clone(metadata),nativeKnowledge:true}}).revision;
+      revision=this.registry.importSource({id,sourceType:String(sourceType),content:text,metadata:{...clone(metadata),nativeKnowledge:true,...(chatId!=null?{chatId:String(chatId)}:{})}}).revision;
       changed=true;
     }else{
       const active=this.registry.getActiveRevision(id);

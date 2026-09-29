@@ -1,0 +1,11 @@
+turn 3 query ok: true | plan tokens 1380 / 4096 | packet bytes 4810 | CURRENT_SCENE:777 RECENT_NARRATIVE:527 USER_INPUT:75
+turn 6 query ok: true | plan tokens 2470 / 4096 | packet bytes 6513 | CURRENT_SCENE:1083 RECENT_NARRATIVE:1311 USER_INPUT:75
+turn 9 query ok: true | plan tokens 3358 / 4096 | packet bytes 7092 | CURRENT_SCENE:1186 RECENT_NARRATIVE:2097 USER_INPUT:75
+turn 12 query ok: true | plan tokens 3590 / 4096 | packet bytes 7119 | CURRENT_SCENE:633/COMPACT RECENT_NARRATIVE:2882 USER_INPUT:75
+turn 15 query ok: true | plan tokens 3705 / 4096 | packet bytes 7134 | CURRENT_SCENE:633/COMPACT RECENT_NARRATIVE:2996/COMPACT USER_INPUT:75
+turn 18 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
+turn 19 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
+turn 20 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
+turn 21 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
+turn 22 query ok: true | plan tokens 3707 / 4096 | packet bytes 7139 | CURRENT_SCENE:634/COMPACT RECENT_NARRATIVE:2997/COMPACT USER_INPUT:75
+# exit=0 wall_s=19 head=91815e2 node=v22.22.2

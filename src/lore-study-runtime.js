@@ -7,7 +7,7 @@ import {
   stableHash,
 } from './lore-contracts.js';
 import {LoreDerivedStore, LoreSourceRegistry} from './lore-source-registry.js';
-import {LoreStudyEngine, semanticDiff} from './lore-study-engine.js';
+import {LoreStudyEngine, STUDY_ENGINE_REVISION, semanticDiff} from './lore-study-engine.js';
 
 export class LoreStudyRuntime {
   constructor({registry = new LoreSourceRegistry(), store = new LoreDerivedStore(), engine = new LoreStudyEngine(), snapshot = null} = {}) {
@@ -68,7 +68,9 @@ export class LoreStudyRuntime {
 
   enqueue(revision, trigger = 'DEPENDENCY_INVALIDATION') {
     const existing = this.findObligation(revision.id);
-    if (existing && ![StudyState.SUPERSEDED, StudyState.INVALID].includes(existing.state)) return existing;
+    // An engine refresh deliberately re-studies a revision that was already studied by an older engine.
+    const refresh = trigger === 'ENGINE_REVISION' && existing?.state === StudyState.COMPLETED;
+    if (existing && !refresh && ![StudyState.SUPERSEDED, StudyState.INVALID].includes(existing.state)) return existing;
 
     for (const obligation of this.obligations.values()) {
       if (obligation.sourceId !== revision.sourceId) continue;
@@ -88,6 +90,20 @@ export class LoreStudyRuntime {
     });
     this.obligations.set(id, obligation);
     return deepClone(obligation);
+  }
+
+  // Queue a re-study for every source whose learned revision came from an older study engine revision (new rules must
+  // not silently coexist with claims extracted under the old ones). Idempotent: a source already queued is skipped.
+  enqueueEngineRefresh() {
+    const queued = [];
+    for (const sourceId of this.store.sourceIdsWithStaleEngine(this.registry, STUDY_ENGINE_REVISION)) {
+      const revision = this.registry.currentRevision(sourceId, {allowMissing: true});
+      if (!revision || revision.state === 'REMOVED') continue;
+      const open = [...this.obligations.values()].some((row) => row.sourceRevisionId === revision.id && [StudyState.DUE, StudyState.PENDING, StudyState.CHECKPOINTED].includes(row.state));
+      if (open) continue;
+      queued.push(this.enqueue(revision, 'ENGINE_REVISION').id);
+    }
+    return queued;
   }
 
   findObligation(sourceRevisionId) {
@@ -148,7 +164,7 @@ export class LoreStudyRuntime {
     const previousLearned = this.store.currentLearnedRevision(obligation.sourceId);
     const previousArtifacts = previousLearned ? this.store.artifactsForLearnedRevision(previousLearned.id) : [];
     const impactPreview = this.store.impactPreview(obligation.sourceId);
-    impactPreview.unrelatedReusableArtifactCount = this.store.currentArtifacts(this.registry).filter((artifact) => artifact.sourceId !== obligation.sourceId).length;
+    impactPreview.unrelatedReusableArtifactCount = this.store.countCurrentArtifacts(this.registry, {excludeSourceId: obligation.sourceId});
 
     if (currentRevision.state === 'REMOVED') {
       const diff = semanticDiff(previousArtifacts, []);
@@ -250,6 +266,7 @@ export class LoreStudyRuntime {
       artifacts: session.workspace.artifacts,
       semanticDiff: diff,
       validation: session.workspace.validation,
+      engineRevision: STUDY_ENGINE_REVISION,
     });
     obligation.state = StudyState.COMPLETED;
     this.sessions.delete(obligationId);
@@ -314,9 +331,51 @@ export class LoreStudyRuntime {
     };
   }
 
+  // Revision-aware change key: changes whenever a source revision, learned revision or study state changes.
+  referenceRevisionKey() {
+    return 'lore-study:' + stableHash(JSON.stringify([this.registry.entries.size, this.registry.revisions.size, this.store.learnedRevisions.size, this.studyStatus().counts]));
+  }
+
+  // Routine Diagnostics surface: revision key, counts and only the entries that need attention. Full
+  // detail (`publicSurface`) stays available on demand; nothing here carries authored text or artifacts.
+  referenceSurface() {
+    const key = this.referenceRevisionKey();
+    if (this._referenceCache?.key === key) return deepClone(this._referenceCache.value);
+    const surface = this.publicSurface({metadataOnly: true});
+    const byOperatorState = {};
+    for (const row of surface.entries) byOperatorState[row.operatorState] = (byOperatorState[row.operatorState] || 0) + 1;
+    const value = {
+      kind: 'LoreStudyReferenceSurface',
+      contractVersion: 1,
+      revisionKey: key,
+      counts: {
+        entries: surface.entries.length,
+        byOperatorState,
+        artifactsByType: this.store.countCurrentArtifactsByType(this.registry),
+        study: this.studyStatus().counts,
+      },
+      problemEntries: surface.entries.filter((row) => row.operatorState !== 'READY').map((row) => ({
+        sourceId: row.sourceId,
+        sourceRevisionId: row.sourceRevisionId,
+        operatorState: row.operatorState,
+        studyState: row.studyState,
+        studyAttempts: row.studyAttempts,
+        studyError: row.studyError ? String(row.studyError.message ?? row.studyError.code ?? 'ERROR').slice(0, 160) : null,
+      })),
+      detailReader: 'readLoreStatus',
+      rawLoreIncluded: false,
+      candidateBusAuthority: false, truthGateAuthority: false, precisionAuthority: false, gatherSealAuthority: false,
+    };
+    this._referenceCache = {key, value};
+    return deepClone(value);
+  }
+
   publicSurface({metadataOnly = false} = {}) {
     const currentArtifacts = metadataOnly ? [] : this.store.currentArtifacts(this.registry);
     const conflicts = metadataOnly ? [] : this.store.conflicts(this.registry);
+    // Inspector view fields (never stored): a claim shows the conflict sets it belongs to and what superseded it, while its
+    // own asserted status stays as learned.
+    const resolution = metadataOnly ? null : this.store.temporalResolution(this.registry);
     const entries = this.registry.listEntries({includeRemoved: true}).map((source) => {
       const revision = this.registry.currentRevision(source.sourceId);
       const learned = this.store.currentLearnedRevision(source.sourceId);
@@ -391,6 +450,10 @@ export class LoreStudyRuntime {
         dependencyRevisions: [artifact.sourceRevisionId],
         freshness: 'CURRENT',
         unresolved: artifact.unresolved,
+        ...(artifact.artifactType === ArtifactType.CLAIM && resolution ? {
+          conflictMembership: deepClone(resolution.conflictMembership.get(artifact.id) ?? []),
+          supersededBy: resolution.superseded.get(artifact.id)?.by ?? null,
+        } : {}),
       })),
       conflicts,
       lifecycle: this.studyStatus(),

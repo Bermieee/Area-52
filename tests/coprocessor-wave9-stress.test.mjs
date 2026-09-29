@@ -15,7 +15,9 @@ function handler({ input }) {
 }
 
 test('Wave 9 mixed adapter stress remains bounded, replay-safe, stale-safe, isolated and non-authoritative', async () => {
-  const core = new JevDecisionCore({ providerExecutor: providerExecutor(handler) });
+  // Replay retention is bounded (7437aab, default 128). This stress replays decisions from the whole 3,000-decision run, so it
+  // states the retention it needs instead of relying on an unbounded cache.
+  const core = new JevDecisionCore({ providerExecutor: providerExecutor(handler), replayLimit: 4000 });
   const m = createJevDomainAdapterMatrix({ core });
   const totals = { decisions: 0, lore: 0, scene: 0, retrieval: 0, duplicates: 0, malformed: 0, stale: 0, deterministicExpected: 0, unresolvedExpected: 0, authorityViolations: 0, staleProposalAcceptance: 0, crossDomainLeaks: 0, forcedDecisionOnAbstain: 0, oversizedProposals: 0 };
 
@@ -61,7 +63,9 @@ test('Wave 9 mixed adapter stress remains bounded, replay-safe, stale-safe, isol
   }
 
   const metrics = m.service.metricsSnapshot();
-  assert.equal(m.registry.size, 3);
+  // Wave 18 (#211) added the Memory and Temporal domains to the shared matrix: Lore, Scene, Retrieval/Truth, Memory, Temporal.
+  assert.equal(m.registry.size, 5);
+  for (const id of ['jev.adapter.memory.v1', 'jev.adapter.temporal.v1']) assert.ok(m.registry.get(id), id);
   assert.equal(totals.authorityViolations, 0);
   assert.equal(totals.staleProposalAcceptance, 0);
   assert.equal(totals.crossDomainLeaks, 0);

@@ -65,6 +65,8 @@ export function normalizeCausalCause(input={}){
     chatId:input.chatId==null?null:String(input.chatId),
     turnId:input.turnId==null?null:String(input.turnId),
     generationId:input.generationId==null?null:String(input.generationId),
+    causationId:input.causationId==null?null:String(input.causationId),
+    sceneId:input.sceneId==null?null:String(input.sceneId),
     turnRevision:Number.isFinite(Number(input.turnRevision))?Number(input.turnRevision):null,
     sourceRevisionRefs:uniq(input.sourceRevisionRefs),
     worldRevision:Number.isFinite(Number(input.worldRevision))?Number(input.worldRevision):null,

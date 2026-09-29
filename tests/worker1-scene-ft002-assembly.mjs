@@ -26,7 +26,8 @@ const ingest=(brain,input)=>brain.ingestSceneHostEvent(input,{
 function nativeFor(brain){
   return new Area52NativeBrain({
     memoryInterface:brain.memorySurface,
-    memoryConsolidationInterface:brain.memorySurface,
+    // Production binding: sillytavern-live #attachNativeKnowledgeOwners attaches memoryConsolidationProducer.
+    memoryConsolidationInterface:brain.hostBindings().memoryConsolidationProducer,
     graphProviders:[createSceneOwnerGraphProvider(brain.scene)],
   });
 }

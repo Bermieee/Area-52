@@ -60,7 +60,7 @@ The public host is returned by:
 The current `main` UI uses this sequence and it remains supported:
 
 1. `discoverModels({ kind:"OPENAI_COMPATIBLE", endpoint, capabilities, apiKey?, transportMode? })`
-2. operator selects one returned model, or manual entry only when discovery reports `UNSUPPORTED` with `manualModelEntryAllowed:true`
+2. operator selects one returned model or types a model ID (owner decision O9: the list is suggestions; an unlisted ID is selected as `MANUAL`); the free-text fallback for providers without discovery is offered only when discovery reports `UNSUPPORTED` with `manualModelEntryAllowed:true`. Either way, qualification in steps 4-5 decides whether the model is usable
 3. `addResource({ resourceId, displayName, kind:"OPENAI_COMPATIBLE", endpoint, modelId, apiKey?, capabilities, ... })`
 4. `connectResource(resourceId)`
 5. `testResource(resourceId)`
@@ -109,7 +109,7 @@ Public discovery fields include:
 - `credentialStorage`
 - `latencyMs` when measured
 
-Manual model entry is allowed only for `UNSUPPORTED`. It is not a bypass for unauthorized, unreachable, failed, or empty discovery.
+The free-text fallback (`manualModelEntryAllowed`) is offered only for `UNSUPPORTED`. A typed or unlisted model ID is never a bypass for unauthorized, unreachable, failed, or empty discovery: an authenticated execution probe with that exact model ID must still succeed before the resource executes (owner decision O9).
 
 ## Resource read model
 

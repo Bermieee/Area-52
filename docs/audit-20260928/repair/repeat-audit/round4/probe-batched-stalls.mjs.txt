@@ -1,0 +1,61 @@
+{
+ "N": 1200,
+ "acceptMs": 594,
+ "batchedStudyMs": 20782,
+ "ready": 1200,
+ "longestStallsMs": [
+  414,
+  272,
+  209,
+  142,
+  131,
+  96,
+  89,
+  79
+ ],
+ "editAcceptMs": 1088,
+ "editTotalMs": 9489,
+ "editRestudied": null,
+ "editLongestStallsMs": [
+  1102,
+  410,
+  271,
+  176,
+  149
+ ],
+ "stallsOver100ms": 5,
+ "stallsOver50ms": 20,
+ "chunks": {
+  "dueObligationIds": {
+   "n": 4,
+   "maxMs": 4,
+   "totalMs": 8
+  },
+  "studyObligation": {
+   "n": 1210,
+   "maxMs": 24,
+   "totalMs": 7983
+  },
+  "runCycle": {
+   "n": 3802,
+   "maxMs": 148,
+   "totalMs": 16517
+  },
+  "runMaintenanceSlice": {
+   "n": 194,
+   "maxMs": 148,
+   "totalMs": 7366
+  },
+  "refreshRetrieval": {
+   "n": 3,
+   "maxMs": 403,
+   "totalMs": 1126
+  },
+  "_studyReceipt": {
+   "n": 2,
+   "maxMs": 203,
+   "totalMs": 221
+  }
+ }
+}
+# exit=0 wall_s=31 head=83cb9a8 node=v22.22.2

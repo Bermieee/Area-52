@@ -1,0 +1,11 @@
+import { makeSession, normalTurn } from './host.mjs';
+import { createGoldenDeploymentLorebook } from '../../../src/deployment/brain.js';
+const h = makeSession({ chatId: 'chat:jev' });
+h.session.ingestLorebook({ ...createGoldenDeploymentLorebook(), chatId: 'chat:jev' });
+h.session.start();
+await normalTurn(h, 'The journals disagree. What really happened to the Sun Blade? The accounts are conflicting.', 'Unclear.');
+const sel = h.nativeBrain.uiBindings().readSelection({ chatId: 'chat:jev' }); const t = h.nativeBrain.readTurn(sel.turnId);
+console.log('native jev:', JSON.stringify(t.published.cognitiveChoiceReceipt?.jev));
+console.log('native core jev adapter registered:', Boolean(h.nativeBrain.core.cognitiveChoice?.jevAdapter ?? h.nativeBrain.core.cognitiveChoice?.jev), '| deployment core:', Boolean(h.session.brain.core.cognitiveChoice?.jevAdapter ?? h.session.brain.core.cognitiveChoice?.jev));
+console.log('truth confidence', t.published.assessment.confidence, 'unresolved in packet:', (t.published.packet.unresolved ?? []).length);
+h.session.destroy();

@@ -1,0 +1,9 @@
+# Documentation conflicts / obsolete claims (to verify against code)
+
+- README "Status 0.1-dev — blueprint phase"; PROJECT_PLAN "Current phase: Phase 0 contract freeze; Nexus integration may not proceed" vs. packaged main: 75k-line src, installed SillyTavern extension manifest 0.3.1-development-deployment, live host injection. Status sections obsolete.
+- README + DEVELOPMENT_NEXUS_WORKING_GROUND: "Development-Nexus is the active implementation workspace; main remains preserved reference baseline". Packaged commit is main @98a4e438 and contains Native Brain + deployment. Obsolete.
+- DEVELOPMENT_DEPLOYMENT_DEMO: "do not merge Development-Deployment into main"; main contains src/deployment/* and manifest points at it.
+- NATIVE_BRAIN_COMPLETION_WAVE_HANDOFF: "current main sillytavern-live.js injects PromptPlan with setExtensionPrompt around DevelopmentDeploymentBrain; not equivalent". Current main: when nativeBrain attached (always, index.js constructs one), injects prepared.rendered into CHAT_COMPLETION_PROMPT_READY eventData.chat. Handoff obsolete on this point; setExtensionPrompt path = legacy branch only when no native brain (verify).
+- WORKER1_BRAIN_CAUSAL_RECEIPT_CONTRACT: "NativeTurn Runtime admits every supplied job immediately; layered scatter recorded as proposal only". Verify current.
+- Two brains in one session: DevelopmentDeploymentBrain (Scene, Runtime/resource director, sidecar) + Area52NativeBrain (Core/retrieval/seal). FRAMEWORK doc: "Framework does not create a second scheduler". Check for duplicate Runtime/scheduler/stores.
+- index.js reads globalThis.Area52NativeBrainOwner/OwnerBindings/MemoryOwnerSnapshot/PersistNativeBrain; nothing in repo sets them. => installed build: fresh NativeBrain, no owner bindings, no persistence callback? (verify what "Lore/Memory owners" attach from).

@@ -580,7 +580,8 @@ export class Wave13ResourceControlAdapter{
         const requestedId=resourceId(hydrated);
         const existing=this.read().data.resources.find(row=>(requestedId&&row.id===requestedId)||(role&&row.kind===role));
         if(existing){
-          const desired=normalizeWorker2ResourceConfig(hydrated);
+          // A bare reconnect (an existing resource row, no endpoint or model fields) must not require a full configuration.
+          const desired=text(hydrated?.endpoint)?normalizeWorker2ResourceConfig(hydrated):{endpoint:null,modelId:text(hydrated?.modelId)||null};
           if(desired.endpoint&&desired.endpoint!==existing.endpoint){
             if(!this.setEndpointFn){const e=new Error('Resource endpoint update action is not exported by the host assembly.');e.code='RESOURCE_ENDPOINT_UPDATE_UNAVAILABLE';throw e;}
             await this.setEndpointFn(existing.id,desired.endpoint);

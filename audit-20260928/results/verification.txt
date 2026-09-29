@@ -1,0 +1,167 @@
+===== repro-swipe.mjs 20:22:33
+swipe      Area-52 messages injected = 0 | new errors: ["NATIVE_PREPARE: Source already exists: sillytavern:chat:swipe:message:u1:997c5e7d"]
+regenerate Area-52 messages injected = 0 | new errors: ["NATIVE_PREPARE: Source already exists: sillytavern:chat:regenerate:message:u3:997c5e7d"]
+continue   Area-52 messages injected = 0 | new errors: ["NATIVE_PREPARE: Source already exists: sillytavern:chat:continue:message:u6:997c5e7d"]
+exit=0
+===== probe-memory2.mjs 20:22:34
+system ...-live:chat:mem:u1:997c5e7d:1:assistant@1", |         "sourceRevisionId": "narrative:chat:mem:native-live:chat:mem:u1:997c5e7d:1:assistant@1", |         "messageId": "assistant:native-live:chat:mem:u1:997c5e7d:1", |         "messageRevision": 1, |         "role": "assistant", |         "activity": "APPEND", |         "contentDigest": "0c4feaae4421757c", |         "excerpt": "Eris walks in carrying the Sun Blade UNIQUETOKEN.", |         "turnId": "native
+exit=0
+===== probe-abort-availability.mjs 20:22:35
+connected: READY/HEALTH_CHECK_PASSED callable=true active=0 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=0
+after T1 (scene call in flight): READY/HEALTH_CHECK_PASSED callable=true active=1 lastFailure=null | profile:glm:HEALTHY/AVAILABLE load=1
+after T2 (T1 superseded): UNAVAILABLE/PROVIDER_ABORTED callable=false active=0 lastFailure=PROVIDER_ABORTED | profile:glm:UNAVAILABLE/UNAVAILABLE load=0
+1 FOREGROUND_USER QUEUED SCENE_OBSERVATION_RUNTIME_QUEUED
+1 POST_RESPONSE SKIPPED SCENE_OBSERVATION_BLOCKED
+1 FOREGROUND_USER CANCELLED SCENE_OBSERVATION_SUPERSEDED
+2 FOREGROUND_USER SKIPPED SCENE_OBSERVATION_BLOCKED
+2 POST_RESPONSE SKIPPED SCENE_OBSERVATION_BLOCKED
+after T3: UNAVAILABLE/PROVIDER_ABORTED callable=false active=0 lastFailure=PROVIDER_ABORTED | profile:glm:UNAVAILABLE/UNAVAILABLE load=0
+2 SKIPPED SCENE_OBSERVATION_BLOCKED admission=null
+3 SKIPPED SCENE_OBSERVATION_BLOCKED admission=null
+3 SKIPPED SCENE_OBSERVATION_BLOCKED admission=null
+6s later: UNAVAILABLE/PROVIDER_ABORTED callable=false active=0 lastFailure=PROVIDER_ABORTED | profile:glm:UNAVAILABLE/UNAVAILABLE load=0
+provider calls: 2
+exit=0
+===== probe-deterministic-skip.mjs 20:22:47
+EXPLICIT {"loc":"Eris and","cast":[],"atmos":[],"prefetch":[]}  <- Mara glances at Eris and sets down her rag.
+EXPLICIT {"loc":"Kael","cast":[],"atmos":[],"prefetch":[]}  <- I look at Kael, waiting for an answer.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- "You should not be here," Lyra says, her eyes fixed on the door.
+EXPLICIT {"loc":null,"cast":[],"atmos":["humor"],"prefetch":[]}  <- Eris laughs and slides a coin across the counter.
+EXPLICIT {"loc":null,"cast":[],"atmos":["hostility"],"prefetch":[]}  <- The guard glares at me from across the courtyard.
+EXPLICIT {"loc":"Dawn","cast":[],"atmos":[],"prefetch":[]}  <- At Dawn, the bells of Saint Veyra ring out over the harbor.
+EXPLICIT {"loc":"Tomas and","cast":[],"atmos":[],"prefetch":[]}  <- I sit near Tomas and keep my voice low.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- She leans closer. "Tell me what happened to the Sun Blade."
+EXPLICIT {"loc":null,"cast":[],"atmos":["danger"],"prefetch":[]}  <- Kael draws his sword as the bandits charge.
+EXPLICIT {"loc":null,"cast":[],"atmos":[],"prefetch":["Silver Keep"]}  <- We will head to the Silver Keep tomorrow.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- Rain drums on the roof while Mira reads the letter again.
+EXPLICIT {"loc":"Anya","cast":[],"atmos":[],"prefetch":[]}  <- He smiles at Anya, then turns back to the map.
+semantic {"loc":null,"cast":[],"atmos":[],"prefetch":[]}  <- I nod slowly and take the offered cup of tea.
+EXPLICIT {"loc":null,"cast":["Captain Rhys:MENTIONED_ONLY"],"atmos":[],"prefetch":[]}  <- The old man mentions Captain Rhys twice before falling silent.
+EXPLICIT {"loc":"The Gilded Lantern","cast":[],"atmos":[],"prefetch":[]}  <- Inside The Gilded Lantern, music spills over the crowd.
+EXPLICIT {"loc":null,"cast":["Lyra:PRESENT"],"atmos":[],"prefetch":[]}  <- Lyra steps in, shaking snow from her cloak.
+EXPLICIT {"loc":null,"cast":["Tomas:DEPARTED"],"atmos":[],"prefetch":[]}  <- Tomas leaves without another word.
+EXPLICIT {"loc":"The Map","cast":[],"atmos":[],"prefetch":[]}  <- I stare at The Map for a long moment.
+EXPLICIT {"loc":null,"cast":[],"atmos":["tension"],"prefetch":[]}  <- Her hand trembles; the tension in the room is unbearable.
+EXPLICIT {"loc":null,"cast":[],"atmos":["intimacy"],"prefetch":[]}  <- Selene hugs her brother tightly.
+
+16/20 lines take the deterministic path (Sidecar skipped); 7 set a location, 3 set cast.
+exit=0
+===== probe-graph-identity.mjs 20:22:47
+native identity registry entity count: 0 | deployment core registry count: 0
+normalizeRef(entity:mara, LORE provider) => {"entityId":"LORE_OWNER_GRAPH::entity:mara","resolved":false,"state":"NOT_FOUND","sourceRef":"entity:mara","candidateEntityIds":[]}
+edges before: 0 | after registering entity:mara in Native registry: 3 [
+  'entity:mara->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE',
+  'LORE_OWNER_GRAPH::entity:ember-tavern->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE',
+  'LORE_OWNER_GRAPH::entity:river-district->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE'
+]
+raw Scene-style anchor "Mara" after registration: 0
+exit=0
+===== probe-turn-limit2.mjs 20:22:48
+reply 600 chars: first failing turn=22; injections on next 3 turns=[0,0,0]; errors=["NATIVE_BRAIN_DELIVERY_FAILED:DELIVERY_BUDGET_UNSATISFIABLE","A native Brain generation is already pending for this selected chat"]
+after CHAT_CHANGED back: injected 0 A native Brain generation is already pending for this selected chat
+exit=0
+===== probe-jev-native.mjs 20:22:57
+native jev: {"considered":true,"invoked":false,"skipped":true,"unavailable":false,"abstained":false,"action":"SKIP_JEV","reason":"JEV_NOT_REQUIRED","alternativeCount":0,"request":null,"decisionRevision":null,"resultRef":null}
+native core jev adapter registered: false | deployment core: true
+truth confidence HIGH unresolved in packet: 0
+exit=0
+===== trace-turn-bound.mjs 20:22:57
+readTurn keys: [
+  'kind',
+  'turnId',
+  'sequence',
+  'chatId',
+  'generationId',
+  'correlationId',
+  'query',
+  'intent',
+  'executionLabel',
+  'sceneId',
+  'sceneRevision',
+  'worldRevision',
+  'sourceRevisionSet',
+  'sceneSourceRevisionRefs',
+  'ownerSourceRevisionSet',
+  'sceneReadModel',
+  'perspectiveConstraint',
+  'anchorEntityIds',
+  'sceneOwnerReceipt',
+  'sceneFanOutIngress',
+  'sceneIngress',
+  'retrievalPolicy',
+  'sparseRetrievalReceipt',
+  'memoryDensePrime',
+  'published',
+  'delivery',
+  'contextRetirement',
+  'loreSync',
+  'memorySync',
+  'response',
+  'experience',
+  'settlements',
+  'reflections',
+  'feedback',
+  'performance',
+  'memoryReadDiagnosis',
+  'state',
+  'hostObservation',
+  'memoryRetrievalFeedbackBatch',
+  'feedbackRuntimeTaskId',
+  'memoryFeedbackRuntimeTaskId',
+  'memoryRuntimeTaskId',
+  'responseCompletionReceipt',
+  'learningReceipt',
+  'memoryPostTurn',
+  'memoryConsolidationRuntimeTaskId'
+]
+  kind : NativeBrainTurnRecord
+  turnId : native-live:chat:trace:u3:fb1a963c:2
+  sequence : 2
+  chatId : chat:trace
+  generationId : native-live-gen:chat:trace:u3:fb1a963c:2
+  correlationId : corr:native-live:chat:trace:u3:fb1a963c:2
+  query : Where can Eris find the Sun Blade now?
+  intent : CURRENT
+  executionLabel : LIVE_SILLYTAVERN
+  sceneId : chat:chat:trace:scene:1
+  sceneRevision : 1
+  worldRevision : 0
+  sourceRevisionSet : array(8)
+  sceneSourceRevisionRefs : array(1)
+  ownerSourceRevisionSet : array(6)
+  sceneReadModel : kind,contractVersion,sceneId,revision,lifecycle,sourceRevisionRefs,location,narrativeTime,activeCast,activeThreads,objects,atmosphere,boundaryState,relationshipToPrior,latestEpisodeRef,latestDeltaSummary,uncertainFields,prefetchState,health,provenanceRefs,diagnosticRefs,authority,authorityGranted,mutationAuthority,settlementAuthority
+  perspectiveConstraint : null
+  anchorEntityIds : array(0)
+  sceneOwnerReceipt : kind,contractVersion,status,noWorkReason,evidence,chatId,sceneId,sceneRevision,sourceRevisionRefs,invalidatedSourceRevisionRefs,memoryInvalidations,changedFields,delta,boundary,boundarySignals,transition,transitionHandoff,invalidatedTransitionHandoffs,handoffReceipts,graphEvidenceAdmission,graphInvalidations,eventIds,eventTypes,invalidationIds,coreReceipts
+  sceneFanOutIngress : kind,status,reasonCode,identityMismatch,causationId,assemblyStatus,assemblyReasonCode,plannerConsidered,physicalExecutionCount,admittedResultIds,rejectedResultIds,staleResultIds,candidateCount,candidateIds,authorityGranted,admissionAuthority,truthAuthority,contextSealAuthority
+  sceneIngress : kind,timelineCount,timelineReceipts,signalStatus,signalReceipt,authorityGranted,canonicalMutationAuthority,settlementAuthority,contextSealAuthority
+  retrievalPolicy : candidateBudget,latencyBudgetMs,graphTraversal,retrievalIntents
+  sparseRetrievalReceipt : kind,status,reason,chatId,eligibleCount,indexedCount,activeCount,boundedOutCount,queryPrioritizedCount,compacted,compaction,failures,indexVersion,implementation,productionBm25,authorityGranted,admissionAuthority,settlementAuthority,contextSealAuthority
+  memoryDensePrime : contractVersion,at,kind,selection,executionId,status,reasonCode,requestPurpose,requested,providerAttempted,providerReturned,ownerAdmitted,foregroundBudgetMs,foregroundQueueWaitMs,providerExecutionMs,foregroundBlockedMs,resultClass
+  published : worldRevision,sceneRevision,primaryCandidates,candidates,assessment,publicationAssessment,corrective,precisionResults,precisionFailed,compilerReceipt,packet,sealReceipt,candidateEnvelope,candidateEnvelopes,hotCognition,hotFreshnessReceipt,hotContributions,resultRoutes,cognitiveChoiceReceipt,gatherReceipt,sceneIntegration,sceneTransitionContinuity,sceneFanOutResultBusReceipt,retrievalIntents,retrievalQualityReceipt
+  delivery : ok,status,plan,integrityReceipt,profile,rendered,adapterIntegrityReceipt,presentationRouting,receipt
+  contextRetirement : null
+  loreSync : kind,channelId,status,reason,queried,nominationCount,sourceRevisionFence,rejectedCount,rejectedRevisionRefs,rejectionReasons,authorityScope,candidateReceipts,exclusionReceipts,ownerIndexRevision,ownerOntologyRevision,rawLoreIncluded,authorityGranted,settlementAuthority,contextSealAuthority
+  memorySync : kind,channelId,status,queried,nominationCount,sourceRevisionFence,historianRevision,densePrime,authorityGranted,settlementAuthority,contextSealAuthority
+  response : Nobody knows.
+  experience : kind,sequence,sourceId,sourceRevisionId,evidenceId,evidence,artifactId,channelFamily,exactContent,representationText,knownBy,publicToAll,chatId,turnId,generationId,correlationId,sceneRevision,worldRevision,changed
+  settlements : array(0)
+  reflections : array(0)
+  feedback : kind,turnId,sequence,channelOutcomes,admittedCandidateIds,reasonCodes,finalEvidenceRefs,packetDependencies,canonicalMutationAuthority,settlementAuthority,policyEffect
+  performance : kind,contractVersion,chatId,turnId,generationId,correlationId,sceneRevision,worldRevision,stages,retrievalChannels,counts,sizes,retained,detailedProfiling,rawPromptIncluded,storyTextIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded
+  memoryReadDiagnosis : null
+  state : RESPONSE_COMPLETED
+  hostObservation : kind,eventId,chatId,turnId,generationId,correlationId,worldRevision,sceneRevision,sourceRevisionRefs,durationMs,capturedAt,rawPromptIncluded,storyTextIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded
+  memoryRetrievalFeedbackBatch : kind,contractVersion,batchId,selection,outcomes,mappingRejects,outcomeCount,scheduledEligible,deliveryKnown,hostDeliveryInferred,supportAdded,retrievalUseIsEvidence,authorityChanged,canonicalMutationAuthority,settlementAuthority,truthAuthority,rawStoryIncluded,rawLoreIncluded,promptIncluded,credentialsIncluded,hiddenReasoningIncluded
+  feedbackRuntimeTaskId : task-000004
+  memoryFeedbackRuntimeTaskId : null
+  memoryRuntimeTaskId : task-000005
+  responseCompletionReceipt : kind,contractVersion,status,chatId,turnId,generationId,correlationId,contextSealId,sourceRevisionId,foregroundWaitMs,boundedOwnerAcknowledgement,learningScheduled,feedbackRuntimeTaskId,memoryFeedbackRuntimeTaskId,memoryRuntimeTaskId,responseRecordedBeforeBackgroundExecution,sealedGenerationImmutable,rawResponseIncluded,rawPromptIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded
+  learningReceipt : kind,turnId,experienceId,sourceRevisionId,settlementDecisions,reflectionEvidenceIds,feedback,runtimeTaskId,memoryFeedbackRuntimeTaskId,memoryRuntimeTaskId,memoryRetrievalFeedbackBatch,memoryRetrievalFeedback,memoryWriteback,memoryPostTurn,memoryConsolidation,memoryConsolidationRuntimeTaskId,memorySettlementReceipts,responseCompletion,learningLifecycle,rawExperienceRecoverable,sealedGenerationImmutable,canonicalMutationAuthority
+  memoryPostTurn : kind,contractVersion,status,reasonCode,chatId,turnId,generationId,correlationId,sceneId,sceneRevision,sourceRevisionRefs,evidenceRefs,episodeId,episodeLogicalId,episodeRevision,exactSourceDrillback,summaryScopeRefs,summaryPublishedArtifactIds,reflectionReceipts,vectorWorkId,rawChatIncluded,loreBodiesIncluded,credentialsIncluded,hiddenReasoningIncluded,authorityGranted
+  memoryConsolidationRuntimeTaskId : task-000006
+bytes 944270
+exit=0
+turn 1 pending: 1 runs: 1 last error: Native Brain response arrived without the exact prepared.rendered payload being observed in the model request
+turn 2 pending: 1 runs: 1 last error: Native Brain response arrived without the exact prepared.rendered payload being observed in the model request
+turn 3 pending: 1 runs: 1 last error: Native Brain response arrived without the exact prepared.rendered payload being observed in the model request

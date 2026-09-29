@@ -23,7 +23,10 @@ function coverage(rows,{chatId='chat:alpha',probe='PASS',stale=false,committed=t
 }
 
 test('DETERMINISTIC: context retirement requires durable retrieval proof and preserves protected/raw context',()=>{
-  const policy=new NativeContextRetirementPolicy({defaultRecentWindow:3,transitionTail:2}),rows=messages();
+  // Production always supplies the revision oracle (Area52NativeBrain wires the Core registry), and the policy fails closed
+  // without one, so the fixture states which coverage revision is current instead of relying on an absent fence.
+  const currentRefs=new Set(['episode:r1']);
+  const policy=new NativeContextRetirementPolicy({defaultRecentWindow:3,transitionTail:2,isSourceRevisionCurrent:(ref)=>currentRefs.has(ref)}),rows=messages();
   const proven=coverage(rows.slice(0,9));
   const first=policy.evaluate({
     chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3,
@@ -51,6 +54,10 @@ test('DETERMINISTIC: context retirement requires durable retrieval proof and pre
   assert.equal(staleRevision.retireEligibleMessageIds.length,0);
   assert.ok(staleRevision.decisions.find(row=>row.messageId==='m1').reasons.includes('COVERAGE_SOURCE_REVISION_STALE'));
 
+  const noOracle=new NativeContextRetirementPolicy({defaultRecentWindow:3}).evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
+  assert.equal(noOracle.retireEligibleMessageIds.length,0,'without a revision oracle the policy fails closed');
+  assert.ok(noOracle.decisions.find(row=>row.messageId==='m1').reasons.includes('COVERAGE_SOURCE_REVISION_STALE'));
+
   const wrongChat=policy.evaluate({chatId:'chat:imported',messages:rows,coverage:proven,recentWindow:3});
   assert.equal(wrongChat.retireEligibleMessageIds.length,0);
   assert.ok(wrongChat.decisions.find(row=>row.messageId==='m1').reasons.includes('CHAT_IDENTITY_MISMATCH'));
@@ -72,7 +79,7 @@ test('DETERMINISTIC: context retirement requires durable retrieval proof and pre
 
   const replay=policy.evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
   const regeneration=policy.evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
-  const reload=new NativeContextRetirementPolicy({defaultRecentWindow:3}).evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
+  const reload=new NativeContextRetirementPolicy({defaultRecentWindow:3,isSourceRevisionCurrent:(ref)=>currentRefs.has(ref)}).evaluate({chatId:'chat:alpha',messages:rows,coverage:proven,recentWindow:3});
   assert.equal(replay.receiptId,regeneration.receiptId);
   assert.deepEqual(replay.retireEligibleMessageIds,reload.retireEligibleMessageIds);
   assert.equal(contextRetirementContract().regressionBehavior,'REVERSE_OR_ABSTAIN');

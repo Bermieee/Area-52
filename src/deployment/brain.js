@@ -364,7 +364,7 @@ function attachIdentity(value, selection) {
 }
 
 export class DevelopmentDeploymentBrain {
-  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, memoryOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
+  constructor({ resourceCount = 1, jevAvailable = true, loreOwnerSnapshot = null, memoryOwnerSnapshot = null, sceneOwnerSnapshot = null, loreJevOwnerReview = null } = {}) {
     if (!Number.isInteger(resourceCount) || resourceCount < 1 || resourceCount > 8) throw new TypeError('resourceCount must be 1-8');
     if (loreJevOwnerReview !== null && typeof loreJevOwnerReview !== 'function') throw new TypeError('loreJevOwnerReview must be a function');
     this.resourceCount = resourceCount;
@@ -396,10 +396,22 @@ export class DevelopmentDeploymentBrain {
       if (this.sceneOwnerTimeline.length > 256) this.sceneOwnerTimeline.splice(0, this.sceneOwnerTimeline.length - 256);
     };
     const sceneTimelineEventSink=sceneTimelineSink('EVENT');
-    this.scene = new SceneLifecycleRuntime({
+    const sceneOwnerOptions = {
       publisher: new SceneEventPublisher({ sink: sceneTimelineEventSink }),
       contextInvalidationPublisher: new SceneContextInvalidationPublisher({ sink: sceneTimelineSink('INVALIDATION') }),
-    });
+    };
+    // A persisted Scene owner state is restored through the owner's own import path (each component validates its
+    // invariants); an unusable snapshot starts a fresh Scene owner and is reported, never half-applied.
+    this.sceneRestoreReceipt = { kind: 'SceneOwnerRestoreReceipt', status: 'NOT_REQUESTED', reason: null };
+    if (sceneOwnerSnapshot) {
+      try {
+        this.scene = SceneLifecycleRuntime.fromState(sceneOwnerSnapshot, sceneOwnerOptions);
+        this.sceneRestoreReceipt = { kind: 'SceneOwnerRestoreReceipt', status: 'RESTORED', reason: null, chats: this.scene.chatScenes.size };
+      } catch (error) {
+        this.scene = new SceneLifecycleRuntime(sceneOwnerOptions);
+        this.sceneRestoreReceipt = { kind: 'SceneOwnerRestoreReceipt', status: 'REJECTED_FRESH_START', reason: String(error?.message ?? error).slice(0, 200) };
+      }
+    } else this.scene = new SceneLifecycleRuntime(sceneOwnerOptions);
     const coreRevisionCurrent=this.core.publication.resultBus.isSourceRevisionCurrent.bind(this.core.publication.resultBus);
     this.core.publication.resultBus.isSourceRevisionCurrent=(revisionId)=>{
       const id=String(revisionId),chatId=String(this.core.hotCognition?.activeChatNamespace??'');
@@ -417,6 +429,10 @@ export class DevelopmentDeploymentBrain {
     this.core.registerRetrievalChannel(this.loreChannel);
     this.coprocessorTelemetry = new CoprocessorTelemetry({ limit: 2000 });
     this.resourceConnections = new CoprocessorResourceConnections({ telemetry: this.coprocessorTelemetry });
+    // A resource releasing capacity is the moment retained POST_RESPONSE obligations can run.
+    this.resourceConnections.subscribe((event) => {
+      if (event?.type === 'RESOURCE_EXECUTION' && this.deferredSceneObservations?.size) setTimeout(() => { try { this.drainDeferredSceneObservations(); } catch { /* receipts record the outcome */ } }, 0);
+    });
     this.scenePrefetchSwarm = new NativeSidecarSwarm({ connections: this.resourceConnections, telemetry: this.coprocessorTelemetry });
     this.scenePrefetchConsiderations = [];
     this.sceneFanOutAssemblies = [];
@@ -445,6 +461,7 @@ export class DevelopmentDeploymentBrain {
       },
     });
     this.sceneRuntimePumpScheduled=false;
+    this.deferredSceneObservations=new Map();
     this.resourcePlacementScheduler = new NativeHotDeepScheduler({
       resourceSlots: Math.max(1, Number(resourceCount) || 1),
       foregroundReserve: 1,
@@ -582,6 +599,16 @@ export class DevelopmentDeploymentBrain {
     };
     const adapter = { invoke: (ctx) => this.#invokeRuntime(ctx) };
     for (let i = 0; i < resourceCount; i += 1) this.runtime.registerExecutionResource({ worker: runtimeWorker('area52-local-' + (i + 1)), adapter });
+    // Lore study is large background work: a Deep Cognition profile so it is sliced, checkpointed in the Work
+    // Ledger and yields at slice boundaries (BOARD_MAP #18 "prepare -> execute -> validate -> commit -> safe yield").
+    this.runtime.registerDeepProfile({
+      profileId: 'lore-study', taskType: 'LORE_STUDY', owner: 'LORE_INTELLIGENCE',
+      requiredCapabilities: [CAPABILITIES.CPU_ANALYSIS], preferredLayer: 'L3', minimumLayer: 'L3',
+      batchHint: { maxSliceUnits: 1 }, foregroundSensitivity: 'YIELD_ON_GENERATION',
+    });
+    this.foregroundProbe = () => false;
+    this.loreStudyBatchSequence = 0;
+    this.loreMaintenanceDue = false;
     this.speculativeWarmReceipts=[];
     this.speculativeWarmTurnSequence=0;
     this.speculativeWarmPumpScheduled=false;
@@ -609,8 +636,13 @@ export class DevelopmentDeploymentBrain {
     this.pendingJevAdmission = new Map();
   }
 
-  acceptLorebook(input = {}) {
-    const ownerReceipt = this.loreIntelligence.acceptLorebook(input);
+  // receiptForm 'REFERENCE' (the operator's Accept in the installed session) returns revision-aware references for the
+  // corpus-wide study and status surfaces instead of copies of them, like batched study receipts; detail stays on demand
+  // via readLoreStatus. The default full receipt is unchanged.
+  acceptLorebook(input = {}, { receiptForm = 'FULL' } = {}) {
+    const reference = receiptForm === 'REFERENCE';
+    const ownerReceipt = this.loreIntelligence.acceptLorebook(input, { receiptForm: reference ? 'REFERENCE' : 'FULL', deferRetrievalIndex: reference });
+    if (ownerReceipt.retrievalIndexDeferred) this.#scheduleLoreIndexRebuild('LOREBOOK_ACCEPTED');
     this.loreSystem = this.loreIntelligence.hierarchy;
     const result = {
       kind: 'DeploymentLoreAcceptanceReceipt',
@@ -620,10 +652,11 @@ export class DevelopmentDeploymentBrain {
       lorebookId: ownerReceipt.lorebookId,
       entryCount: ownerReceipt.acceptedEntryCount,
       changedCount: ownerReceipt.changes.filter((row) => row.changed !== false).length,
-      ownerReceipt: clone(ownerReceipt),
-      study: this.lore.publicSurface(),
-      intelligence: this.loreIntelligence.status(),
+      ownerReceipt: reference ? ownerReceipt : clone(ownerReceipt),
+      study: reference ? this.lore.referenceSurface() : this.lore.publicSurface(),
+      intelligence: reference ? { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } : this.loreIntelligence.status(),
       retrieval: this.loreSystem.diagnostics(),
+      ...(reference ? { receiptForm: 'REFERENCE' } : {}),
     };
     this.#emit({ type: 'LORE_ACCEPTED', result });
     return clone(result);
@@ -636,6 +669,10 @@ export class DevelopmentDeploymentBrain {
       if (!revision || revision.state === 'REMOVED') continue;
       this.#syncLoreRevision(revision);
     }
+    return this.#loreStudyReceipt(scope, ownerReceipt);
+  }
+
+  #loreStudyReceipt(scope, ownerReceipt, extra = {}) {
     this.loreSystem = this.loreIntelligence.hierarchy;
     const diagnostics = this.loreSystem.diagnostics();
     const result = {
@@ -646,16 +683,141 @@ export class DevelopmentDeploymentBrain {
       completedObligationCount: ownerReceipt.results?.length ?? 0,
       retrievable: this.sourceMap.size > 0,
       ownerReceipt: clone(ownerReceipt),
-      lane: this.lore.publicSurface(),
-      intelligence: this.loreIntelligence.status(),
+      // Batched runs return revision-aware references (detail stays on demand via readLoreStatus) so assembling
+      // the receipt is not another multi-hundred-millisecond synchronous chunk at large corpora.
+      lane: extra.receiptForm === 'REFERENCE' ? this.lore.referenceSurface() : this.lore.publicSurface(),
+      intelligence: extra.receiptForm === 'REFERENCE' ? { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } : this.loreIntelligence.status(),
       retrieval: diagnostics,
       coreWorld: this.core.currentWorldModel(),
       mappingCount: this.sourceMap.size,
       rawSourceOnlyCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'RAW_SOURCE_ONLY').length,
       semanticExtractionCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'SEMANTIC').length,
+      ...extra,
     };
     this.#emit({ type: 'LORE_STUDIED', result });
     return clone(result);
+  }
+
+  // Yielding, fenced retrieval-index rebuild, serialised; published atomically only when its fence still holds (see
+  // LoreContextualRetrievalIndex.buildAsync). `whenLoreIndexCurrent()` resolves when every scheduled rebuild has finished.
+  #scheduleLoreIndexRebuild(reason) {
+    const svc = this.loreIntelligence;
+    const run = async () => {
+      const result = await svc.hierarchy.refreshRetrievalYielding();
+      this.loreIndexRebuildReceipt = { kind: 'LoreIndexRebuildReceipt', reason, at: Date.now(), ...result };
+      if (result.status !== 'PUBLISHED') this.loreMaintenanceDue = true;
+      return this.loreIndexRebuildReceipt;
+    };
+    this.loreIndexRebuild = (this.loreIndexRebuild ?? Promise.resolve()).then(run, run).catch((error) => { this.loreIndexRebuildReceipt = { kind: 'LoreIndexRebuildReceipt', reason, status: 'FAILED', error: String(error?.message ?? error).slice(0, 160) }; return this.loreIndexRebuildReceipt; });
+    return this.loreIndexRebuild;
+  }
+  async whenLoreIndexCurrent() { await (this.loreIndexRebuild ?? Promise.resolve()); return clone(this.loreIndexRebuildReceipt ?? null); }
+
+  // The installed session tells the brain when a generation is running; deep work waits at slice boundaries.
+  setForegroundProbe(probe) { this.foregroundProbe = typeof probe === 'function' ? probe : () => false; }
+
+  // One Runtime obligation over `units`, executed slice by slice (one unit per slice). Between slices the
+  // event loop gets a turn, work pauses while a foreground generation is active, and an abort cancels the
+  // obligation at the next boundary; progress stays checkpointed in the owner (Lore obligations) and in the
+  // Work Ledger.
+  async #runLoreBatch({ label, units, execute, signal = null }) {
+    const macrotask = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const sequence = ++this.loreStudyBatchSequence;
+    const admission = this.runtime.deep.submit('lore-study', { dedupeKey: label + ':' + sequence, units, payload: { label } }, {
+      execute: async ({ units: slice }) => {
+        const out = [];
+        for (const unit of slice) out.push(await execute(unit));
+        await macrotask();
+        return out;
+      },
+      validate: ({ output }) => Array.isArray(output),
+      commit: () => ({ committed: true }),
+    });
+    if (!admission.accepted) throw new Error('LORE_STUDY_RUNTIME_ADMISSION_REJECTED:' + String(admission.reason ?? 'UNKNOWN'));
+    const taskId = admission.task.taskId;
+    for (;;) {
+      if (signal?.aborted) {
+        this.runtimeDirector.cancelTask(taskId, 'lore-study-aborted');
+        // An active assignment is released by the director on its next cycle; do not leave the slot held.
+        for (let i = 0; i < 4 && this.runtimeDirector.active.has(taskId); i += 1) await this.runtimeDirector.runCycle({ waitForTaskIds: [taskId] });
+        return { aborted: true, taskId };
+      }
+      if (this.foregroundProbe()) { await new Promise((resolve) => setTimeout(resolve, 10)); continue; }
+      const record = this.runtimeDirector.ledger.get(taskId);
+      if (record.executionStatus === 'COMPLETE') return { aborted: false, taskId };
+      if (record.executionStatus === 'FAILED') throw new Error('LORE_STUDY_RUNTIME_FAILED:' + String(record.executionReason ?? 'UNKNOWN'));
+      if (record.executionStatus === 'PARKED') this.runtimeDirector.resumeParked();
+      await this.runtimeDirector.runCycle({ signal, waitForTaskIds: [taskId] });
+      await macrotask(); // never spin on microtasks: the host event loop always gets a turn
+    }
+  }
+
+  async runLoreStudyBatched({ scope = 'DUE', signal = null } = {}) {
+    if (scope !== 'DUE') throw new TypeError('runLoreStudyBatched currently supports scope=DUE');
+    const svc = this.loreIntelligence;
+    const results = [];
+    const compilations = [];
+    let aborted = false;
+    for (;;) {
+      const due = svc.dueObligationIds();
+      if (!due.length) break;
+      const before = results.length;
+      const outcome = await this.#runLoreBatch({
+        label: 'lore-study', signal,
+        units: due.map((id) => ({ id: 'lore-study:' + id, payload: { obligationId: id } })),
+        execute: async (unit) => {
+          const step = svc.studyObligation(unit.payload.obligationId, { maxUnits: Infinity });
+          results.push(step.result);
+          if (step.compilation) compilations.push(step.compilation);
+          return { obligationId: unit.payload.obligationId, state: step.result.obligation?.state ?? null };
+        },
+      });
+      if (outcome.aborted) { aborted = true; break; }
+      if (results.length === before) break; // no progress: leave the rest due, never spin
+    }
+    // Learned revisions whose ontology/summaries/retrieval index were not rebuilt (aborted run) stay flagged, and
+    // are excluded from retrieval until a later run completes maintenance (retrieval is fail-closed on index readiness).
+    if (results.length) this.loreMaintenanceDue = true;
+    let ownerReceipt;
+    if (this.loreMaintenanceDue && !aborted) {
+      const begun = typeof svc.beginMaintenanceYielding === 'function' ? await svc.beginMaintenanceYielding() : svc.beginMaintenance();
+      const sliceCount = Math.max(1, Math.ceil(begun.planLength / 16));
+      const outcome = await this.#runLoreBatch({
+        label: 'lore-maintenance', signal,
+        units: Array.from({ length: sliceCount }, (_, i) => ({ id: 'lore-maintenance:' + begun.sessionId + ':' + i, payload: { sessionId: begun.sessionId } })),
+        execute: async (unit) => ({ state: svc.runMaintenanceSlice(unit.payload.sessionId, { maxUnits: 16 }) }),
+      });
+      if (outcome.aborted) { aborted = true; ownerReceipt = svc._studyReceipt({ results, compilations, ontology: begun.ontology, retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: false, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } }); }
+      else {
+        // Any slice remainder (plan not yet COMPLETED) is finished before the index is built.
+        while (svc.runMaintenanceSlice(begun.sessionId, { maxUnits: 16 }) !== 'COMPLETED') await new Promise((resolve) => setTimeout(resolve, 0));
+        // Index built aside with host turns and published atomically when its fence holds; receipt assembly follows.
+        await (this.loreIndexRebuild ?? Promise.resolve());
+        const indexResult = await svc.hierarchy.refreshRetrievalYielding();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        ownerReceipt = svc._studyReceipt({ results, compilations, ontology: begun.ontology, retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: true, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } });
+        ownerReceipt.retrievalIndexPublication = indexResult;
+        // A rebuild superseded three times (the Lore kept changing) leaves maintenance due; the fenced index keeps serving.
+        this.loreMaintenanceDue = indexResult.status !== 'PUBLISHED';
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    } else {
+      ownerReceipt = svc._studyReceipt({ results, compilations, ontology: svc.ontology.current(), retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: false, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } });
+    }
+    const mirror = this.lore.registry.listEntries({ includeRemoved: false });
+    if (!aborted && mirror.length) {
+      const outcome = await this.#runLoreBatch({
+        label: 'lore-mirror', signal,
+        units: mirror.map((row) => ({ id: 'lore-mirror:' + row.sourceId, payload: { sourceId: row.sourceId } })),
+        execute: async (unit) => {
+          const revision = this.lore.registry.currentRevision(unit.payload.sourceId, { allowMissing: true });
+          if (revision && revision.state !== 'REMOVED') this.#syncLoreRevision(revision);
+          return { sourceId: unit.payload.sourceId };
+        },
+      });
+      aborted = outcome.aborted;
+    }
+    return this.#loreStudyReceipt(scope, ownerReceipt, { aborted, batched: true, runtimeTaskType: 'LORE_STUDY', receiptForm: 'REFERENCE' });
   }
 
   ingestLorebook(input = {}) {
@@ -675,6 +837,21 @@ export class DevelopmentDeploymentBrain {
 
   snapshotMemoryOwner() {
     return this.memory.snapshot();
+  }
+
+  snapshotSceneOwner() {
+    return this.scene.exportState();
+  }
+
+  sceneOwnerRevisionKey() {
+    return this.scene.stateRevisionKey();
+  }
+
+  // Cheap change key for the Lore owner: lets a host persist the (large) Lore snapshot only when Lore
+  // (index, story binding or authoring) changed instead of serializing it every turn.
+  loreOwnerRevisionKey() {
+    const story = this.loreIntelligence.storyAuthority.snapshot();
+    return ['lore-owner', this.loreIntelligence.hierarchy.retrievalIndex.revision, JSON.stringify(story).length, sha256Hex(JSON.stringify(story)).slice(0, 16)].join(':');
   }
 
   ensureScene({ chatId, sourceRevisionId } = {}) {
@@ -699,7 +876,13 @@ export class DevelopmentDeploymentBrain {
       activeThreads: field(activeThreads, nextRevision, evidenceRef),
       immediateObjects: field(objects, nextRevision, evidenceRef),
     };
-    if (atmosphere != null) fields.atmosphere = this.scene.atmosphereTracker.update({revision:nextRevision,evidenceRefs:[evidenceRef],dimensions:atmosphere?.value??atmosphere});
+    if (atmosphere != null) {
+      // Public rehearsal/operator boundary: a dimension map (or {value: map}) is atmosphere
+      // evidence; free text is retained only as a description and never becomes dimensions.
+      const description = typeof atmosphere === 'string' ? atmosphere : null;
+      const dimensions = description == null ? (atmosphere?.value ?? atmosphere) : {};
+      fields.atmosphere = this.scene.atmosphereTracker.update({revision:nextRevision,evidenceRefs:[evidenceRef],dimensions,metadata:description==null?{}:{description}});
+    }
     const observed = this.scene.sceneRuntime.observe({
       sceneId: scene.sceneId,
       proposalId: 'deployment-scene:' + evidenceRef,
@@ -736,21 +919,18 @@ export class DevelopmentDeploymentBrain {
       foregroundBudgetMs,now:Date.now(),narrative:text,
       sceneWorkload:{cast:current.fields?.activeCast?.value?.length??0,objects:current.fields?.immediateObjects?.value?.length??0,relationships:current.fields?.activeRelationships?.value?.length??0,threads:current.fields?.activeThreads?.value?.length??0},
     });
-    this.#cancelSceneObservationTasks({chatId:chat,phase,exceptTaskId:task.taskId,reason:'SCENE_OBSERVATION_SUPERSEDED'});
+    const superseded=this.#cancelSceneObservationTasks({chatId:chat,phase,exceptTaskId:task.taskId,reason:'SCENE_OBSERVATION_SUPERSEDED'});
+    // The superseded call still holds the resource slot until its aborted request unwinds; admit the
+    // replacement only after that release (bounded short wait: a cooperative abort unwinds in milliseconds;
+    // a provider that ignores the abort keeps its slot and the replacement is truthfully SKIPPED).
+    await Promise.all(superseded.filter(row=>row.physicalCancellationRequested).map(row=>this.resourceConnections.whenTaskSettled?.(row.workId,{timeoutMs:Math.max(25,Math.min(250,Number(foregroundBudgetMs)||250))})));
     this.#syncOptionalDirectorProfiles();
-    const baseExecutor=createResourceDirectorExecutor({
-      connections:this.resourceConnections,task,
-      inputResolver:()=>({
-        narrative:text,phase,sceneId:current.sceneId,baseRevision:current.revision,
-        evidenceRef:sourceRef,sourceRevisionId:sourceRef,
-      }),
-    });
-    const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(text).length/4));
-    const admission=this.resourceDirectorBridge.admit(task,{
-      executor:baseExecutor,units:[{id:task.taskId+':unit',payload:{sourceRevisionId:sourceRef,sceneRevision:current.revision,phase}}],
-      constraints:{contextTokens,expectedOutputTokens:task.metadata.expectedOutputTokens,maxCostClass:'HIGH',requireStructuredOutput:true},
-      owner:'SCENE_OBSERVATION_WORKER',
-    });
+    const admission=this.#admitSceneObservationTask({task,text,phase,current,sourceRef});
+    if(phase==='POST_RESPONSE'&&admission.status==='BLOCKED'&&admission.plan?.capabilityAdmission?.capacityDeferrable===true){
+      // The capable resource is only busy (for example with this turn's foreground observation). A valid
+      // POST_RESPONSE obligation is retained and admitted when capacity returns; it is never dropped for load.
+      return this.#deferSceneObservation({task,text,phase,current,sourceRef,parentWorkId,foregroundBudgetMs,hostEvent,admission});
+    }
     if(admission.status!=='ADMITTED'){
       const receipt=this.#sceneObservationExecutionReceipt({
         task,admission,status:'SKIPPED',reasonCode:'SCENE_OBSERVATION_'+String(admission.status??'UNAVAILABLE'),
@@ -773,6 +953,83 @@ export class DevelopmentDeploymentBrain {
     };
   }
 
+  #admitSceneObservationTask({task,text,phase,current,sourceRef}){
+    const baseExecutor=createResourceDirectorExecutor({
+      connections:this.resourceConnections,task,
+      inputResolver:()=>({
+        narrative:text,phase,sceneId:current.sceneId,baseRevision:current.revision,
+        evidenceRef:sourceRef,sourceRevisionId:sourceRef,
+      }),
+    });
+    const contextTokens=Math.max(1,Math.ceil(new TextEncoder().encode(text).length/4));
+    return this.resourceDirectorBridge.admit(task,{
+      executor:baseExecutor,units:[{id:task.taskId+':unit',payload:{sourceRevisionId:sourceRef,sceneRevision:current.revision,phase}}],
+      constraints:{contextTokens,expectedOutputTokens:task.metadata.expectedOutputTokens,maxCostClass:'HIGH',requireStructuredOutput:true},
+      owner:'SCENE_OBSERVATION_WORKER',
+    });
+  }
+
+  // One deferred obligation per chat and phase: a newer same-lane observation supersedes the older one (the
+  // same rule as queued work), so the set is bounded by the number of lanes, not by an arbitrary cap.
+  #deferSceneObservation(entry){
+    const key=entry.task.metadata.chatId+'|'+entry.phase,prior=this.deferredSceneObservations.get(key);
+    if(prior){
+      this.#retainSceneObservationReceipt(this.#sceneObservationExecutionReceipt({
+        task:prior.task,admission:prior.admission,status:'CANCELLED',reasonCode:'SCENE_OBSERVATION_SUPERSEDED',attempted:false,returned:false,workerResult:null,
+        sourceRevisionId:prior.sourceRef,sceneRevision:prior.current.revision,parentWorkId:prior.parentWorkId,
+      }));
+    }
+    this.deferredSceneObservations.set(key,{...entry,deferredAt:Date.now()});
+    const receipt=this.#sceneObservationExecutionReceipt({
+      task:entry.task,admission:entry.admission,status:'DEFERRED',reasonCode:'SCENE_OBSERVATION_DEFERRED_FOR_CAPACITY',attempted:false,returned:false,workerResult:null,
+      sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+    });
+    receipt.foregroundDisposition='BACKGROUND';
+    this.#retainSceneObservationReceipt(receipt);
+    return{kind:'SceneObservationWorkResult',status:'DEFERRED',proposal:null,boundarySignals:{},executionReceipt:receipt,foregroundDisposition:'BACKGROUND'};
+  }
+
+  // Runs when a resource releases capacity. Every retained obligation is re-validated against the exact
+  // source revision fence; stale ones are cancelled (history preserved in receipts), the rest are admitted
+  // in arrival order while capacity lasts.
+  drainDeferredSceneObservations(){
+    const outcomes=[];
+    for(const [key,entry] of [...this.deferredSceneObservations.entries()].sort((a,b)=>a[1].deferredAt-b[1].deferredAt)){
+      const chat=entry.task.metadata.chatId;
+      const currentEvidence=this.scene.narrativeFeed.currentEvidence(chat)??[];
+      if(!currentEvidence.some(row=>String(row.sourceRevisionId)===entry.sourceRef)){
+        this.deferredSceneObservations.delete(key);
+        this.#retainSceneObservationReceipt(this.#sceneObservationExecutionReceipt({
+          task:entry.task,admission:entry.admission,status:'CANCELLED',reasonCode:'SCENE_OBSERVATION_DEFERRED_SOURCE_STALE',attempted:false,returned:false,workerResult:null,
+          sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+        }));
+        outcomes.push({key,status:'CANCELLED_STALE'});continue;
+      }
+      const admission=this.#admitSceneObservationTask(entry);
+      if(admission.status==='ADMITTED'){
+        this.deferredSceneObservations.delete(key);
+        const deduped=Boolean(admission.directorAdmission?.deduped);
+        const receipt=this.#sceneObservationExecutionReceipt({
+          task:entry.task,admission,status:deduped?'DEDUPED':'QUEUED',reasonCode:deduped?'SCENE_OBSERVATION_RUNTIME_DEDUPED':'SCENE_OBSERVATION_RUNTIME_QUEUED_AFTER_DEFER',attempted:false,returned:false,workerResult:null,
+          sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+        });
+        receipt.foregroundDisposition='BACKGROUND';
+        this.#retainSceneObservationReceipt(receipt);this.#pumpResourceDirector();
+        outcomes.push({key,status:'QUEUED'});
+      }else if(admission.status==='BLOCKED'&&admission.plan?.capabilityAdmission?.capacityDeferrable===true){
+        outcomes.push({key,status:'STILL_DEFERRED'});
+      }else{
+        this.deferredSceneObservations.delete(key);
+        this.#retainSceneObservationReceipt(this.#sceneObservationExecutionReceipt({
+          task:entry.task,admission,status:'SKIPPED',reasonCode:'SCENE_OBSERVATION_'+String(admission.status??'UNAVAILABLE'),attempted:false,returned:false,workerResult:null,
+          sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId,
+        }));
+        outcomes.push({key,status:'SKIPPED_NOT_CAPACITY'});
+      }
+    }
+    return outcomes;
+  }
+
   #pumpResourceDirector(){
     if(this.sceneRuntimePumpScheduled)return;
     this.sceneRuntimePumpScheduled=true;
@@ -789,6 +1046,17 @@ export class DevelopmentDeploymentBrain {
 
   #cancelSceneObservationTasks({chatId=null,phase=null,sourceRevisionRefs=[],exceptTaskId=null,taskId=null,foreignToChat=null,reason='SCENE_OBSERVATION_CANCELLED'}={}){
     const refs=new Set((sourceRevisionRefs??[]).filter(Boolean).map(String)),cancelled=[];
+    for(const [key,entry] of [...this.deferredSceneObservations.entries()]){
+      const meta=entry.task.metadata??{};let deferredMatch=false;
+      if(taskId)deferredMatch=entry.task.taskId===String(taskId);
+      else if(foreignToChat)deferredMatch=String(meta.chatId??'')!==String(foreignToChat);
+      else if(refs.size)deferredMatch=(entry.task.sourceRevisionSet??[]).some(ref=>refs.has(String(ref)));
+      else if(chatId)deferredMatch=String(meta.chatId??'')===String(chatId)&&(!phase||String(meta.phase??'')===String(phase))&&entry.task.taskId!==exceptTaskId;
+      if(!deferredMatch)continue;
+      this.deferredSceneObservations.delete(key);
+      const receipt=this.#sceneObservationExecutionReceipt({task:entry.task,admission:entry.admission,status:'CANCELLED',reasonCode:reason,attempted:false,returned:false,workerResult:null,sourceRevisionId:entry.sourceRef,sceneRevision:entry.current.revision,parentWorkId:entry.parentWorkId});
+      receipt.cancelled=true;this.#retainSceneObservationReceipt(receipt);cancelled.push(receipt);
+    }
     for(const record of this.resourceDirector.ledger.list()){
       if(record?.obligation?.taskType!=='SCENE_OBSERVATION')continue;
       if(['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(record.lifecycleStatus)))continue;
@@ -2048,6 +2316,9 @@ export class DevelopmentDeploymentBrain {
         edgeId:row.edgeId??null,edgeType:row.edgeType??null,status:row.status??null,temporalStatus:row.temporalStatus??null,
         retiredSourceRevisionId:row.retiredSourceRevisionId??null,invalidatedBy:row.invalidatedBy??null,
       }))),
+      // Likely-next / boundary prefetch recommendations the Scene owner published or withdrew for this observation (bounded).
+      publishedPrefetch: clone((outcome?.publishedPrefetch ?? []).slice(0, 32)),
+      invalidatedPrefetch: clone((outcome?.invalidatedPrefetch ?? []).slice(0, 32)),
       eventIds: eventRows.map((row) => row.value?.eventId).filter(Boolean),
       eventTypes: [...new Set(eventRows.map((row) => row.value?.eventType).filter(Boolean))],
       invalidationIds: invalidationRows.map((row) => row.value?.invalidationId).filter(Boolean),
@@ -2557,13 +2828,8 @@ export class DevelopmentDeploymentBrain {
         foregroundWorkAvoided:{lorePlanningQuery:Boolean(warmPreparedLore),runtimeLorePreparation:Boolean(warmPreparedLore),coreRetrieval:false,truth:false,precision:false,compile:false},
         authorityGranted:false,canonicalMutationAuthority:false,truthAuthority:false,contextSealAuthority:false,
       },
-      loreStatus: {
-        kind: 'DeploymentLoreStatus',
-        ...this.loreSystem.diagnostics(),
-        study: this.lore.publicSurface(),
-        channelId: CHANNEL_ID,
-        externalServiceRequired: false,
-      },
+      // A turn keeps a revision-aware reference to Lore, not a copy of the corpus.
+      loreStatus: this.readLoreStatusReference(),
       planning,
       sceneLoreHandoff: sceneLore,
       sceneLoreAdmittedCount,
@@ -2584,16 +2850,34 @@ export class DevelopmentDeploymentBrain {
     }
   }
 
+  readLoreStatusReference() {
+    return {
+      kind: 'DeploymentLoreStatus',
+      ...this.loreSystem.diagnostics(),
+      study: this.lore.referenceSurface(),
+      channelId: CHANNEL_ID,
+      externalServiceRequired: false,
+    };
+  }
+
+  // Full detail on demand. For a selected turn the full surface is served only while Lore is still at the
+  // revision that turn saw; afterwards the turn's own reference is returned (`detailState` says why), so
+  // a superseded revision is never presented as the current corpus.
   readLoreStatus(selection = {}) {
     const active = selection?.turnId ? this.turns.get(String(selection.turnId)) ?? null : null;
     const identity = active?.selection ?? selection ?? {};
-    return attachIdentity(active?.loreStatus ?? {
+    const live = () => ({
       kind: 'DeploymentLoreStatus',
       ...this.loreSystem.diagnostics(),
       study: this.lore.publicSurface(),
       channelId: CHANNEL_ID,
       externalServiceRequired: false,
-    }, identity);
+    });
+    if (!active?.loreStatus) return attachIdentity(live(), identity);
+    const seen = active.loreStatus.study?.revisionKey ?? null;
+    if (seen && seen === this.lore.referenceRevisionKey()) return attachIdentity({ ...live(), detailState: 'CURRENT_REVISION' }, identity);
+    if (!seen) return attachIdentity(active.loreStatus, identity);
+    return attachIdentity({ ...clone(active.loreStatus), detailState: 'REVISION_SUPERSEDED' }, identity);
   }
 
   listOptionalResources() {
@@ -2825,6 +3109,13 @@ export class DevelopmentDeploymentBrain {
       loreStudyHost,
       loreHost: loreStudyHost,
       loreBrainInterface: this.loreIntelligence.brainInterface(),
+      // Optional NEXT_TURN Jev advice for the native path: only requested while an operator-configured JEV resource is
+      // connected, and a silent local-fixture fallback is reported by the evidence callback, never presented as advice.
+      jevAdvisory: Object.freeze({
+        service: this.jev.service,
+        isConfigured: () => this.jevAvailable && this.listOptionalResources().resources.some((row) => row.kind === 'JEV' && row.connected),
+        executionEvidence: (turnId) => clone(this.jevExecution.get(String(turnId)) ?? null),
+      }),
       sceneLoreHandoff: (request = {}) => this.runSceneLoreHandoff(request),
       memoryIntegrationSurface: this.memorySurface,
       memoryConsolidationProducer: Object.freeze({
@@ -2862,6 +3153,9 @@ export class DevelopmentDeploymentBrain {
       loreAuthoringOperator: loreAuthoringHost,
       snapshotLoreOwner: () => this.snapshotLoreOwner(),
       snapshotMemoryOwner: () => this.snapshotMemoryOwner(),
+      loreOwnerRevisionKey: () => this.loreOwnerRevisionKey(),
+      snapshotSceneOwner: () => this.snapshotSceneOwner(),
+      sceneOwnerRevisionKey: () => this.sceneOwnerRevisionKey(),
       readScene: (selection) => attachIdentity(get(selection)?.scene, get(selection)?.selection ?? {}),
       readPromptPlan: (selection) => attachIdentity(get(selection)?.delivery?.plan, get(selection)?.selection ?? {}),
       readContextReceipt: (selection) => attachIdentity(get(selection)?.published?.compilerReceipt, get(selection)?.selection ?? {}),
@@ -2946,7 +3240,7 @@ export class DevelopmentDeploymentBrain {
       sceneCount: this.scene.registry.list().length,
       sceneObservation: {
         receipts:clone(this.sceneObservationReceipts.slice(-128)),
-        counts:Object.fromEntries(['QUEUED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,this.sceneObservationReceipts.filter(row=>row.status===status).length])),
+        counts:Object.fromEntries(['QUEUED','DEFERRED','DEDUPED','RETURNED','ROUTED','ADMITTED','REJECTED','FAILED','CANCELLED','INVALID','SKIPPED'].map(status=>[status,this.sceneObservationReceipts.filter(row=>row.status===status).length])),
         runtimeOpen:this.resourceDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SCENE_OBSERVATION'&&!['SATISFIED','SUPERSEDED','CANCELLED'].includes(String(row.lifecycleStatus))).length,
         runtimeStates:this.resourceDirector.ledger.list().filter(row=>row?.obligation?.taskType==='SCENE_OBSERVATION').slice(-64).map(row=>({
           taskId:row.taskId,lifecycleStatus:row.lifecycleStatus,executionStatus:row.executionStatus,startedCount:row.startedCount,

@@ -284,5 +284,5 @@
       "nativeBrainRequiresOptionalResources": false
     }
   },
-  "reconciliationDigestOverlay": "assembly/reconciliations/scene-worker-runtime-trace-20260928.json"
+  "reconciliationDigestOverlay": "assembly/reconciliations/repair-installed-architecture-20260928.json"
 }

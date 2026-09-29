@@ -113,19 +113,28 @@ function candidateEdges({providerId,owner,sourceKind,rows,maxEdges=128}){
 
 export function createLoreOwnerGraphProvider(loreInterface){
   if(typeof loreInterface?.query!=='function')return null;
-  let queryRevisionSet=null;
+  let queryRevisionSet=null,derivedRefs=null;
   return Object.freeze({
     providerId:'LORE_OWNER_GRAPH',
     owner:'LORE_INTELLIGENCE',
     semanticsVersion:'LORE_OWNER_GRAPH_V1',
     metadata:{sourceKind:'LORE_OWNER',authority:'REFERENCE_ONLY'},
-    isRevisionCurrent:(revisionId)=>typeof loreInterface?.isSourceRevisionCurrent==='function'
-      ? Boolean(loreInterface.isSourceRevisionCurrent(String(revisionId)))
-      : (queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(String(revisionId)),
+    isRevisionCurrent:(revisionId)=>{
+      const id=String(revisionId);
+      const source=typeof loreInterface?.isSourceRevisionCurrent==='function'
+        ? Boolean(loreInterface.isSourceRevisionCurrent(id))
+        : (queryRevisionSet??=currentLoreRevisionSet(loreInterface)).has(id);
+      if(source)return true;
+      // Summary/structure dependencies are derived refs, not source revisions: they are current only while
+      // Lore still publishes them (a changed input yields a new content-addressed ref).
+      if(typeof loreInterface?.currentDerivedRefs!=='function')return false;
+      try{return (derivedRefs??=new Set((loreInterface.currentDerivedRefs()??[]).map(String))).has(id);}catch{return false;}
+    },
     query(request={}){
-      queryRevisionSet=null;
+      queryRevisionSet=null;derivedRefs=null;
       try{
-        const packet=loreInterface.query({query:String(request.query??''),intent:'AUTO'});
+        // Story read scope: with a chat the Lore interface answers only from sources that chat may read.
+        const packet=loreInterface.query({query:String(request.query??''),intent:'AUTO',...(request.chatId?{chatId:String(request.chatId)}:{})});
         return {
           providerRevision:packet?.indexRevision??packet?.ontologyRevision??null,
           edges:candidateEdges({providerId:'LORE_OWNER_GRAPH',owner:'LORE_INTELLIGENCE',sourceKind:'LORE',rows:packet?.nominations,maxEdges:request.maxEdges}),
@@ -170,11 +179,14 @@ export function createSceneOwnerGraphProvider(sceneRuntime){
   if(!sceneRuntime?.graph?.exportState)return null;
   let queryRevisionSet=null;
   const temporalStatusFor=(row)=>{
-    if(row?.temporalStatus)return String(row.temporalStatus).toUpperCase();
+    // A stored CURRENT is the status at write time. Scene lifecycle moves on: an edge whose scene is now CLOSED is
+    // HISTORICAL. Any other explicit status (HISTORICAL, UNRESOLVED, SUPERSEDED...) is the owner's and is kept.
+    const declared=row?.temporalStatus?String(row.temporalStatus).toUpperCase():null;
+    if(declared&&declared!=='CURRENT')return declared;
     if(String(row?.edgeType??'')==='SCENE_FLASHBACK')return'HISTORICAL';
-    const sceneIds=[row?.fromSceneId,row?.toSceneId].filter(Boolean);
+    const sceneIds=[...new Set([row?.fromSceneId,row?.toSceneId,row?.sceneId].filter(Boolean))];
     if(sceneIds.length&&sceneIds.every(sceneId=>sceneRuntime.registry?.get?.(sceneId)?.lifecycle==='CLOSED'))return'HISTORICAL';
-    return sceneIds.length?'CURRENT':'UNRESOLVED';
+    return declared??(sceneIds.length?'CURRENT':'UNRESOLVED');
   };
   return Object.freeze({
     providerId:'SCENE_OWNER_GRAPH',

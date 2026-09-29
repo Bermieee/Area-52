@@ -1,0 +1,7 @@
+{"N":1200,"ingestAndStudyMs":12914,"mappingCount":1200,"retrievable":true,"heapMB":586}
+turn1 lore {"s":"SYNCED","n":3056,"sparse":"1200/512","compacted":false,"injectedMsgs":3,"sections":["RELEVANT_LORE","CURRENT_SCENE","USER_INPUT"]}
+turn wall ms (host prepare+inject+complete, provider instant): [3714,3330,3059,2814,3387,2928,3505,3142] heapMB 381
+exportEvidence bytes 169664 ms 938
+UI readers: 40 largest: [["readCorrectiveRetrieval",218541,2],["readSensoryTrace",193472,2],["readCandidateBusEnvelope",193472,5],["readLoreStatus",180130,2],["readCognitiveChoice",156785,1],["readSelectedTurnReceipt",131039,3],["readRuntimeStatus",122920,2],["readPromptPlan",84427,0]]
+edit 10 entries: re-accept+study ms 13949 mapping 1200 heapMB 1099
+after edit: entries 1200 stale/due 0

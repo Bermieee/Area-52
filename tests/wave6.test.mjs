@@ -203,7 +203,8 @@ test('explicit fixture snapshot remains visibly FIXTURE and never reports live s
 test('Front Face presentation persists UI-only state and clamps dimensions',()=>{
   const storage=memoryStore(),store=new UIStateStore({storage,namespace:'wave6-test'}),p=new FrontFacePresentationState({stateStore:store});
   p.patch({frontFaceMode:FrontFaceMode.EXPANDED,frontFaceWidth:5000,frontFaceDensity:FrontFaceDensity.COMFORTABLE,inspectorVisible:true,inspectorWidth:50,lastProductWorkspace:'brain'});
-  const v=p.get();assert.equal(v.frontFaceMode,FrontFaceMode.EXPANDED);assert.equal(v.frontFaceWidth,960);assert.equal(v.inspectorWidth,240);assert.equal(v.lastProductWorkspace,'brain');
+  const v=p.get();assert.equal(v.frontFaceMode,FrontFaceMode.EXPANDED);assert.equal(v.frontFaceWidth,1440,'the Front Face ceiling is 1440 since 65d7909 (dashboard workspaces)');assert.equal(v.inspectorWidth,240);assert.equal(v.lastProductWorkspace,'brain');
+  const small=new FrontFacePresentationState({stateStore:new UIStateStore({storage:memoryStore(),namespace:'wave6-small'})});small.patch({frontFaceWidth:10});assert.equal(small.get().frontFaceWidth,360,'lower clamp');
   const restored=new FrontFacePresentationState({stateStore:store}).get();assert.deepEqual(restored,v);assert.equal('sceneRevision' in restored,false);assert.equal('worldRevision' in restored,false);
 });
 

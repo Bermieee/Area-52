@@ -21,7 +21,12 @@ function segmentFact(snapshot,kind,{predicate=kind.toLowerCase(),slot=PromptSlot
   };
 }
 
-function recentEpisodeFact(snapshot,perspectiveConstraint=null){
+// Prompt projection window for the protected recent-episode tail. Matches the documented
+// NativeContextRetirementPolicy default recent window; older tail rows stay in Hot state and
+// Memory as evidence and are not deleted — they are just not projected as protected context.
+export const HOT_TAIL_PROMPT_WINDOW=6;
+function tailPresentationRow(row){return{role:row?.role??null,sequence:row?.sequence??null,excerpt:row?.excerpt??null};}
+function recentEpisodeFact(snapshot,perspectiveConstraint=null,{window=HOT_TAIL_PROMPT_WINDOW}={}){
   const segment=snapshot.segments[HotSegmentKind.RECENT_EPISODE_TAIL];
   if(!segment||segment.freshness!==HotFreshness.FRESH)return null;
   const scope=String(perspectiveConstraint?.scope??perspectiveConstraint?.kind??'WORLD');
@@ -32,9 +37,12 @@ function recentEpisodeFact(snapshot,perspectiveConstraint=null){
     return Boolean(row?.publicToAll)||(row?.knownBy??[]).map(String).includes(String(characterRef));
   });
   if(!rows.length)return null;
-  const fact=segmentFact(snapshot,HotSegmentKind.RECENT_EPISODE_TAIL,{predicate:'recent_episode_tail',value:rows});
+  const limit=Math.max(1,Number(window)||HOT_TAIL_PROMPT_WINDOW);
+  const projected=rows.slice(-limit);
+  const fact=segmentFact(snapshot,HotSegmentKind.RECENT_EPISODE_TAIL,{predicate:'recent_episode_tail',value:projected.map(tailPresentationRow)});
   if(!fact)return null;
-  fact.sourceRevisionRefs=uniq(rows.map(row=>row?.sourceRevisionId));
+  fact.tailProjection={projected:projected.length,retainedInHot:rows.length,window:limit};
+  fact.sourceRevisionRefs=uniq(projected.map(row=>row?.sourceRevisionId));
   fact.provenanceRefs=uniq(fact.sourceRevisionRefs);
   return fact;
 }

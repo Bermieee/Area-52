@@ -8,6 +8,7 @@ import { PublicationContextCompiler } from './publication-context-compiler.js';
 import { GenerationContextSeal } from './context-seal.js';
 import { buildHotCognitionCompilerProjection,buildSceneTransitionContinuityProjection,mergeCompilerProjections,attachHotCognitionToPacket } from './hot-cognition-context.js';
 import { stableHash,utf8ByteLength } from './browser-runtime-utils.js';
+import { attachJevAdvisoryToPacket } from './jev-advisory-packet.js';
 
 const uniq=(values)=>[...new Set(values)].sort();
 const emptyAssessment=({turnId,query,intent,reason})=>createTruthAssessment({
@@ -257,7 +258,7 @@ export class GenerationPublicationPipeline {
         :assessment;
 
       if(assessment.confidence==='LOW')this.choice?.evaluateJev?.(choiceSession,[]);
-      else this.choice?.evaluateJev?.(choiceSession,assessment.truthResults);
+      else this.choice?.evaluateJev?.(choiceSession,assessment.truthResults,{candidates});
 
       const precisionDecision=this.choice?.decidePrecision?.(choiceSession,{
         candidateCount:uniq([...(publicationAssessment.admittedCandidateIds??[]),...(publicationAssessment.supportCandidateIds??[])]).length,
@@ -375,6 +376,19 @@ export class GenerationPublicationPipeline {
       packet.dependencies=uniq([...(packet.dependencies??[]),...(sceneTrace.sourceRevisionRefs??[])]);
       packet.id=String(packet.id)+':scene:'+stableHash({sceneId:sceneTrace.sceneId,sceneRevision:sceneTrace.sceneRevision,invalidationEpoch:sceneTrace.contextInvalidationEpoch,receipt:sceneTrace.lastReceiptId},{length:16});
       compiled={...compiled,packet,receipt:{...compiled.receipt,id:'compiler-receipt:'+packet.id,packetId:packet.id,compiledBytes:utf8ByteLength(JSON.stringify(packet)),reason:compiled.receipt.reason+'; native Scene integration trace '+sceneTrace.sceneId+'@'+sceneTrace.sceneRevision+' attached'}};
+    }
+    // A standing NEXT_TURN Jev advisory found for this turn (choice controller) is attached to THIS turn's packet before its
+    // seal, only if still fresh now and only next to its own member evidence (jev-advisory-packet.js). Advisory only.
+    const standingAdvisory=choiceSession?.jev?.advisory??null;
+    let advisoryAttachment=null;
+    if(standingAdvisory){
+      if(!this.choice?.isAdvisoryFresh?.(standingAdvisory))advisoryAttachment={attached:false,reason:'ADVISORY_STALE_AT_CONSUMPTION',advisoryId:standingAdvisory.id};
+      else{
+        const result=attachJevAdvisoryToPacket(compiled.packet,standingAdvisory);
+        advisoryAttachment={attached:result.attached,reason:result.reason??'ADVISORY_ATTACHED',advisoryId:standingAdvisory.id};
+        if(result.attached)compiled={...compiled,packet:result.packet,receipt:{...compiled.receipt,id:'compiler-receipt:'+result.packet.id,packetId:result.packet.id,compiledBytes:utf8ByteLength(JSON.stringify(result.packet)),reason:compiled.receipt.reason+'; Jev advisory '+standingAdvisory.id+' attached (advisory only)'}};
+      }
+      if(choiceSession?.jev)choiceSession.jev={...choiceSession.jev,advisory:{...choiceSession.jev.advisory,promptAttachment:advisoryAttachment}};
     }
     recordStage('CONTEXT_COMPILER',compilerStarted,{inputCount:(publicationAssessment?.truthResults??[]).length,outputCount:(compiled.packet?.current?.length??0)+(compiled.packet?.historical?.length??0)+(compiled.packet?.unresolved?.length??0)+(compiled.packet?.relevantLore?.length??0)+(compiled.packet?.episodicMemory?.length??0),inputBytes:compiled.receipt?.rawBytes??null,outputBytes:compiled.receipt?.compiledBytes??null,retainedObjectCount:1,retainedBytes:compiled.receipt?.compiledBytes??null,outcome:compiled.receipt?.fallbackUsed?'RICH_FALLBACK':'COMPACT'});
 

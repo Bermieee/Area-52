@@ -1,0 +1,15 @@
+channels with nominations: ACTIVE_CONTINUITY:6 OWNER_MEMORY:1 OWNER_SPARSE_EXACT:6
+memorySync: {"s":"SYNCED","n":1}
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth UNRESOLVED false claim-missing-or-invalid continuity:hot-state:407a1a35f1b9820e:episode:recent:narrative:chat:recall:nativ
+  truth HISTORICAL false external-historical-not-usable-for-current memory-candidate:46199c2b-bb46c29
+  section RELEVANT_LORE mentions heron: false bytes 4646
+  section CURRENT_SCENE mentions heron: true bytes 3474
+  section RECENT_NARRATIVE mentions heron: true bytes 1198
+  section USER_INPUT mentions heron: true bytes 32
+settlements over session: 0
+native temporal claims: 0 | memory episodes (approx): 6

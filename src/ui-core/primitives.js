@@ -1,7 +1,7 @@
 import { RenderCost, WidgetCategory } from './constants.js';
 import { VirtualListController } from './virtualization.js';
 
-export function element(doc, tag, { className, text, attrs = {}, dataset = {} } = {}) {
+export function element(doc, tag, { className, text, attrs = {}, dataset = {} } = {}, ...children) {
   const node = doc.createElement(tag);
   if (className) node.className = className;
   if (text != null) node.textContent = text;
@@ -15,6 +15,8 @@ export function element(doc, tag, { className, text, attrs = {}, dataset = {} } 
     node.setAttribute(key, String(value));
   }
   Object.assign(node.dataset, dataset);
+  // Callers pass child nodes as trailing arguments (headers with badges, key/value rows); they were silently dropped before.
+  for (const child of children.flat()) if (child != null && child !== false) node.append(child);
   return node;
 }
 

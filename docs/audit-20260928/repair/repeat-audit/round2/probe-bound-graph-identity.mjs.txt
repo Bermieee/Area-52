@@ -1,0 +1,9 @@
+native identity registry entity count: 4 | deployment core registry count: 0
+normalizeRef(entity:mara, LORE provider) => {"entityId":"entity:mara","resolved":true,"state":"CANONICAL_ID","sourceRef":"entity:mara"}
+register err ENTITY_IDENTITY_CONFLICT:entity:mara
+edges before: 4 | after registering entity:mara in Native registry: 4 [
+  'entity:mara->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE',
+  'entity:ember-tavern->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE',
+  'entity:river-district->LORE_OWNER_GRAPH::lore:artifact:lore-source-artifact:8ae0fd3c58ed0585 SUPPORTED_BY_LORE_SOURCE'
+]
+raw Scene-style anchor "Mara" after registration: 4

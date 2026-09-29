@@ -28,7 +28,7 @@ test('Scene Graph supports evidence-backed causal/supporting links without turni
 
   const caused=graph.addEvidenceLink({
     fromRef:'event:door-opened',toRef:'event:alarm',relation:'CAUSES',
-    evidenceRefs:['cause:1'],provenance:['cause:1'],
+    evidenceRefs:['cause:1'],provenance:['cause:1'],ownerApproved:true,
   });
   assert.equal(caused.edgeType,SceneGraphEdgeType.EVIDENCE_CAUSES);
   assert.equal(caused.causal,true);
@@ -36,11 +36,13 @@ test('Scene Graph supports evidence-backed causal/supporting links without turni
 
   const supporting=graph.addEvidenceLink({
     fromRef:'claim:location',toRef:'episode:scene:b',relation:'SUPPORTS',
-    evidenceRefs:['support:1'],provenance:['support:1'],
+    evidenceRefs:['support:1'],provenance:['support:1'],ownerApproved:true,
   });
   assert.equal(supporting.edgeType,SceneGraphEdgeType.EVIDENCE_SUPPORTS);
   assert.equal(supporting.causal,false);
-  assert.throws(()=>graph.addEvidenceLink({fromRef:'x',toRef:'y',relation:'CAUSES'}),/evidence/i);
+  assert.throws(()=>graph.addEvidenceLink({fromRef:'x',toRef:'y',relation:'CAUSES',ownerApproved:true}),/evidence/i);
+  // The Scene owner must approve an evidence link: without the owner's approval no causal or supporting edge is created.
+  assert.throws(()=>graph.addEvidenceLink({fromRef:'event:a',toRef:'event:b',relation:'CAUSES',evidenceRefs:['cause:2'],provenance:['cause:2']}),/ownerApproved/);
 });
 
 test('confirmed lifecycle transition emits a bounded handoff and an edited source invalidates only dependent handoff/prefetch artifacts',()=>{

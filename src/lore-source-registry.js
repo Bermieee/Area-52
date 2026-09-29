@@ -313,6 +313,14 @@ export class LoreDerivedStore {
     return (this.learnedRevisionIdsBySource.get(sourceId) || []).map((id) => deepClone(this.learnedRevisions.get(id)));
   }
 
+  // Read-only view of the stored artifacts (no clone). Only for callers that derive values and neither mutate nor retain the
+  // rows (index build, truth hint, ontology rebuild); everything else uses artifactsForLearnedRevision().
+  artifactsForLearnedRevisionReadOnly(learnedRevisionId) {
+    const learned = this.learnedRevisions.get(learnedRevisionId);
+    if (!learned) return [];
+    return learned.artifactIds.map((id) => this.artifacts.get(id)).filter(Boolean);
+  }
+
   artifactsForLearnedRevision(learnedRevisionId) {
     const learned = this.learnedRevisions.get(learnedRevisionId);
     if (!learned) return [];

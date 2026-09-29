@@ -28,7 +28,8 @@ export class LoreWorldOntology {
         addNode(key,{kind:'TREE_TOPIC',label:String(segment),authorityClass:AuthorityClass.DERIVED,truthAuthority:false});
         addMembership(key,source.sourceId,revision.id);
       }
-      for(const artifact of this.runtime.store.artifactsForLearnedRevision(learned.id)){
+      // Read-only rows: only primitive fields are copied into new nodes and edges.
+      for(const artifact of (this.runtime.store.artifactsForLearnedRevisionReadOnly??this.runtime.store.artifactsForLearnedRevision).call(this.runtime.store,learned.id)){
         if(artifact.artifactType===ArtifactType.CONCEPT){
           const key='concept:'+artifact.payload.concept;
           addNode(key,{kind:'LEARNED_CONCEPT',label:artifact.payload.concept,parentConcept:artifact.payload.parentConcept||null,authorityClass:artifact.authorityClass,truthAuthority:false});
@@ -67,7 +68,8 @@ export class LoreWorldOntology {
       ontologyRevision:'lore-ontology:'+stableHash(stableStringify({dependencyRows,nodes:[...nodes.keys()].sort(),edges:edges.map(x=>[x.kind,x.from,x.to,x.predicate||null,x.sourceRevisionId]).sort()})),
       sourceRevisionFence:dependencyRows.map(([,revisionId])=>revisionId),
       nodes:[...nodes.values()].map(deepClone).sort((a,b)=>a.id.localeCompare(b.id)),
-      edges:edges.map(deepClone).sort((a,b)=>stableStringify(a).localeCompare(stableStringify(b))),
+      // Same order as comparing stableStringify(a) with stableStringify(b), with each key computed once instead of per comparison.
+      edges:edges.map((edge)=>[stableStringify(edge),edge]).sort((a,b)=>a[0].localeCompare(b[0])).map(([,edge])=>deepClone(edge)),
       communities:communities.sort((a,b)=>a.id.localeCompare(b.id)),
       authoredTreePreserved:true,
       learnedFromWorldLore:true,

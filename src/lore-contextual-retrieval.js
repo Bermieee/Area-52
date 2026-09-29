@@ -34,7 +34,9 @@ function sourceContext(runtime, sourceId, resolution = null) {
   // artifact is not changed; only this view of it is. Conflict membership is recorded (conflictSetIds) but does not change an
   // asserted claim's own status: reported members are UNRESOLVED by their attribution, and the conflict set itself is surfaced
   // to Truth by the story query packet.
-  const artifacts = runtime.store.artifactsForLearnedRevision(learned.id).map((row) => (
+  // Read-only rows: this view derives strings/flags from them and never mutates or returns a stored row (overlays are copies).
+  const read = typeof runtime.store.artifactsForLearnedRevisionReadOnly === 'function' ? runtime.store.artifactsForLearnedRevisionReadOnly(learned.id) : runtime.store.artifactsForLearnedRevision(learned.id);
+  const artifacts = read.map((row) => (
     resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
       : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: (resolution.conflictMembership.get(row.id) ?? []).map((m) => m.conflictSetId)} : row
   ));
@@ -229,9 +231,9 @@ export class LoreContextualRetrievalIndex {
     for (const summary of summaryRegistry.activeSummaries()) {
       const scope = scopeById.get(summary.targetScopeId);
       if (!scope) continue;
+      // isCurrentRevision is false for a missing revision, so no cloning getRevision() is needed for this check.
       if (summary.sourceRevisionSet.some((revisionId) => {
-        const revision = runtime.registry.getRevision(revisionId);
-        return !revision || !runtime.registry.isCurrentRevision(revisionId);
+        return !runtime.registry.isCurrentRevision(revisionId);
       })) {
         this.pushDiagnostic({summaryId: summary.id, status: 'SUMMARY_SKIPPED_STALE_SOURCE'});
         continue;
@@ -255,7 +257,7 @@ export class LoreContextualRetrievalIndex {
       const id = 'retrieval-summary:' + stableHash(summary.id);
       const sourceEntries = scope.sourceIds.map((sourceId) => {
         const source = runtime.registry.getEntry(sourceId);
-        const revision = runtime.registry.currentRevision(sourceId, {allowMissing: true});
+        const revision = typeof runtime.registry.currentRevisionRef === 'function' ? runtime.registry.currentRevisionRef(sourceId) : runtime.registry.currentRevision(sourceId, {allowMissing: true});
         return source && revision ? {
           sourceId,
           lorebookId: source.lorebookId,

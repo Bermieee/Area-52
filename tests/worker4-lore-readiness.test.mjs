@@ -632,3 +632,25 @@ test('includeNavigation:false omits only summaries, conflicts and communities; t
   assert.ok(withFlag.length > 0);
   assert.deepEqual(withFlag, ignoringFlag, 'channel nominations identical whether or not the owner honours the flag');
 });
+
+test('Read-only artifact views in the index build, truth hints and ontology give identical results and never alter stored artifacts', () => {
+  const service = readySelectedService();
+  service.acceptLorebook(worker4LargeCurrentLorebook());
+  service.acceptLorebook(worker4TemporalLorebook());
+  service.runStudy({scope: 'DUE'});
+  const store = service.runtime.store;
+  const storedBefore = JSON.stringify([...store.artifacts.entries()]);
+  const capture = () => {
+    const ontology = service.ontology.rebuild();
+    service.hierarchy.refreshRetrieval();
+    const index = service.hierarchy.retrievalIndex;
+    const hints = service.runtime.registry.listEntries({includeRemoved: false}).map((e) => [e.sourceId, service.brainInterface().sourceTruthHint(e.sourceId)]);
+    return JSON.parse(JSON.stringify({ontology, records: [...index.records.entries()], sourceRecordIds: [...index.sourceRecordIds.entries()], hints}));
+  };
+  const readOnly = capture();
+  const saved = store.artifactsForLearnedRevisionReadOnly;
+  store.artifactsForLearnedRevisionReadOnly = undefined; // forces the cloning path everywhere
+  try { assert.deepEqual(capture(), readOnly); } finally { store.artifactsForLearnedRevisionReadOnly = saved; }
+  assert.ok(readOnly.records.length > 3 && readOnly.hints.some(([, h]) => h?.status === 'UNRESOLVED' || h?.status === 'HISTORICAL'), 'non-trivial corpus with temporal hints');
+  assert.equal(JSON.stringify([...store.artifacts.entries()]), storedBefore, 'stored artifacts untouched');
+});

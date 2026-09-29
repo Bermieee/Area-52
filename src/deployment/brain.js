@@ -759,7 +759,7 @@ export class DevelopmentDeploymentBrain {
     if (results.length) this.loreMaintenanceDue = true;
     let ownerReceipt;
     if (this.loreMaintenanceDue && !aborted) {
-      const begun = svc.beginMaintenance();
+      const begun = typeof svc.beginMaintenanceYielding === 'function' ? await svc.beginMaintenanceYielding() : svc.beginMaintenance();
       const sliceCount = Math.max(1, Math.ceil(begun.planLength / 16));
       const outcome = await this.#runLoreBatch({
         label: 'lore-maintenance', signal,

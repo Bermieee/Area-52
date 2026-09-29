@@ -377,6 +377,16 @@ export class LoreIntelligenceService {
     return {ontology, sessionId: session.id, planLength: session.plan.length, state: session.state};
   }
 
+  // Same steps and result as beginMaintenance(), with the host given a turn between the three synchronous chunks.
+  async beginMaintenanceYielding(yieldToHost = () => new Promise((resolve) => setTimeout(resolve, 0))) {
+    const ontology = this.ontology.rebuild();
+    await yieldToHost();
+    this.hierarchy.refreshHierarchy();
+    await yieldToHost();
+    const session = this.hierarchy.beginBuild();
+    return {ontology, sessionId: session.id, planLength: session.plan.length, state: session.state};
+  }
+
   runMaintenanceSlice(sessionId, {maxUnits = 16} = {}) {
     return this.hierarchy.runBuild(sessionId, {maxUnits}).state;
   }

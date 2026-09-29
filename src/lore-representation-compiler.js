@@ -63,7 +63,7 @@ function sentenceSpans(text) {
   return rows;
 }
 
-export function sliceSource(content, limits = LORE_REPRESENTATION_LIMITS) {
+function buildSourceSlices(content, limits = LORE_REPRESENTATION_LIMITS, {enforceSliceCount = true} = {}) {
   const text = String(content || '');
   if (!text.length) return [];
   const size = limits.sliceCharacters;
@@ -71,7 +71,7 @@ export function sliceSource(content, limits = LORE_REPRESENTATION_LIMITS) {
   const slices = [];
   let start = 0;
   while (start < text.length) {
-    if (slices.length >= limits.maxSlices) throw new Error('SOURCE_SLICE_LIMIT_EXCEEDED');
+    if (enforceSliceCount && slices.length >= limits.maxSlices) throw new Error('SOURCE_SLICE_LIMIT_EXCEEDED');
     const hardEnd = Math.min(text.length, start + size);
     let end = hardEnd;
     if (hardEnd < text.length) {
@@ -95,6 +95,29 @@ export function sliceSource(content, limits = LORE_REPRESENTATION_LIMITS) {
     start = Math.max(start + 1, end - overlap);
   }
   return slices;
+}
+
+export function sliceSource(content, limits = LORE_REPRESENTATION_LIMITS) {
+  return buildSourceSlices(content, limits, {enforceSliceCount: true});
+}
+
+export function segmentSourceSlices(content, limits = LORE_REPRESENTATION_LIMITS) {
+  const slices = buildSourceSlices(content, limits, {enforceSliceCount: false});
+  const segments = [];
+  for (let offset = 0; offset < slices.length; offset += limits.maxSlices) {
+    const rows = slices.slice(offset, offset + limits.maxSlices);
+    segments.push({
+      kind: 'LoreSourceSliceSegment',
+      id: 'source-slice-segment:' + stableHash(rows.map((row) => row.id).join('|')),
+      index: segments.length,
+      sliceRefs: rows.map((row) => row.id),
+      sliceCount: rows.length,
+      start: rows[0]?.start ?? 0,
+      end: rows.at(-1)?.end ?? 0,
+      complete: offset + rows.length >= slices.length,
+    });
+  }
+  return {slices, segments};
 }
 
 export function validateSlices(content, slices) {
@@ -253,7 +276,7 @@ export function buildGroundedContributions({runtime, sourceId, slices = null}) {
   if (!learned || learned.sourceRevisionId !== revision.id || learned.state !== 'CURRENT') throw new Error('SOURCE_NOT_CURRENTLY_LEARNED');
 
   const artifacts = runtime.store.artifactsForLearnedRevision(learned.id);
-  const sourceSlices = slices || sliceSource(revision.exactContent);
+  const sourceSlices = slices || segmentSourceSlices(revision.exactContent).slices;
   const labels = new Map(
     artifacts
       .filter((artifact) => artifact.artifactType === ArtifactType.ENTITY)
@@ -499,6 +522,147 @@ function fitCustomCap(selected, policy, capCharacters) {
   return {possible: true, selected: chosen, minimumSafeEstimate: measureText(minimum).characters};
 }
 
+function planRepresentationSegments(selected) {
+  const segments = [];
+  let current = [];
+  let currentCharacters = 0;
+  let currentRequestCharacters = 0;
+  const flush = () => {
+    if (!current.length && segments.length) return;
+    const contentCharacters = current.map(contributionLine).join('\n').length;
+    segments.push({
+      index: segments.length,
+      selectedContributions: current,
+      contentCharacters,
+      providerRequestCharacters: currentRequestCharacters,
+    });
+    current = [];
+    currentCharacters = 0;
+    currentRequestCharacters = 0;
+  };
+  if (!selected.length) {
+    flush();
+    return {ok: true, segments};
+  }
+  for (const row of selected) {
+    const lineCharacters = contributionLine(row).length;
+    const requestCharacters = row.text.length + 96;
+    if (lineCharacters > LORE_REPRESENTATION_LIMITS.maxRepresentationCharacters) {
+      return {ok: false, failure: 'REPRESENTATION_SEGMENT_LIMIT_EXCEEDED', contributionId: row.id, requiredCharacters: lineCharacters};
+    }
+    if (requestCharacters > LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters) {
+      return {ok: false, failure: 'PROVIDER_REQUEST_SEGMENT_LIMIT_EXCEEDED', contributionId: row.id, requiredCharacters: requestCharacters};
+    }
+    const nextCharacters = current.length ? currentCharacters + 1 + lineCharacters : lineCharacters;
+    const nextRequestCharacters = currentRequestCharacters + requestCharacters;
+    if (current.length && (
+      nextCharacters > LORE_REPRESENTATION_LIMITS.maxRepresentationCharacters
+      || nextRequestCharacters > LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters
+    )) flush();
+    current.push(row);
+    currentCharacters = current.length === 1 ? lineCharacters : currentCharacters + 1 + lineCharacters;
+    currentRequestCharacters += requestCharacters;
+  }
+  if (current.length) flush();
+  return {ok: true, segments};
+}
+
+function aggregateRepresentationReceipt({
+  drafts,
+  segmentReceipts,
+  contributionSet,
+  selected,
+  policy,
+  sourceRevision,
+  capCharacters,
+  slicesReceipt,
+  sourceSliceSegments,
+}) {
+  const refs = drafts.flatMap((draft) => draft.contributionRefs || []);
+  const refSet = new Set(refs);
+  const selectedSet = new Set(selected.map((row) => row.id));
+  const mandatory = contributionSet.contributions.filter((row) => requirementFor(policy, row) === RequirementLevel.MANDATORY);
+  const preferred = contributionSet.contributions.filter((row) => requirementFor(policy, row) === RequirementLevel.PREFERRED);
+  const optional = contributionSet.contributions.filter((row) => requirementFor(policy, row) === RequirementLevel.OPTIONAL);
+  const failures = segmentReceipts.flatMap((receipt) => receipt.validationFailures || []);
+  if (refs.length !== refSet.size) failures.push(QualityFailure.DUPLICATE_CONTRIBUTION_REF);
+  for (const row of mandatory) if (!refSet.has(row.id)) failures.push(failureCodeForMissing(row));
+  for (const ref of refSet) if (!selectedSet.has(ref)) failures.push(QualityFailure.UNKNOWN_CONTRIBUTION_REF);
+  const aggregateContent = drafts.map((draft) => draft.content || '').join('\n');
+  const representationSize = measureText(aggregateContent);
+  const sourceSize = measureText(sourceRevision.exactContent || '');
+  const minimumSafeEstimate = measureText(mandatory.map(contributionLine).join('\n')).characters;
+  if (capCharacters != null && minimumSafeEstimate > capCharacters) failures.push(QualityFailure.CAP_IMPOSSIBLE);
+  if (capCharacters != null && representationSize.characters > capCharacters) failures.push(QualityFailure.CAP_EXCEEDED);
+  const uniqueFailures = [...new Set(failures)];
+  return {
+    kind: 'RepresentationQualityReceipt',
+    sourceId: sourceRevision.sourceId,
+    sourceRevisionId: sourceRevision.id,
+    profile: policy.profile,
+    policyRevision: policy.revision,
+    sourceSize,
+    representationSize,
+    compressionRatio: sourceSize.characters ? Number((representationSize.characters / sourceSize.characters).toFixed(4)) : 1,
+    requiredContributions: mandatory.length,
+    requiredRetained: mandatory.filter((row) => refSet.has(row.id)).length,
+    preferredContributions: preferred.length,
+    preferredRetained: preferred.filter((row) => refSet.has(row.id)).length,
+    optionalContributions: optional.length,
+    optionalRetained: optional.filter((row) => refSet.has(row.id)).length,
+    selectedContributions: selected.length,
+    selectedRetained: selected.filter((row) => refSet.has(row.id)).length,
+    claims: {
+      total: contributionSet.contributions.filter((row) => row.claimRefs.length).length,
+      retained: contributionSet.contributions.filter((row) => row.claimRefs.length && refSet.has(row.id)).length,
+    },
+    relationships: {
+      total: contributionSet.contributions.filter((row) => row.relationshipRefs.length).length,
+      retained: contributionSet.contributions.filter((row) => row.relationshipRefs.length && refSet.has(row.id)).length,
+    },
+    temporalAnchors: categoryMetric(contributionSet.contributions, refSet, SemanticClass.TEMPORAL_ANCHOR),
+    conflicts: categoryMetric(contributionSet.contributions, refSet, SemanticClass.UNRESOLVED_CONFLICT),
+    constraints: categoryMetric(contributionSet.contributions, refSet, SemanticClass.HARD_CONSTRAINT),
+    behavioralAnchors: categoryMetric(contributionSet.contributions, refSet, SemanticClass.CHARACTER_BEHAVIOR),
+    sensoryAnchors: categoryMetric(contributionSet.contributions, refSet, SemanticClass.SENSORY_ANCHOR),
+    unsupportedStatementsDetected: segmentReceipts.reduce((sum, receipt) => sum + Number(receipt.unsupportedStatementsDetected || 0), 0),
+    capCharacters,
+    minimumSafeEstimate,
+    capCompliant: capCharacters == null || representationSize.characters <= capCharacters,
+    sliceCoverage: deepClone(slicesReceipt),
+    sourceSliceSegmentation: {
+      segmentCount: sourceSliceSegments.length,
+      maxSlicesPerSegment: LORE_REPRESENTATION_LIMITS.maxSlices,
+      segments: sourceSliceSegments.map((segment) => ({
+        id: segment.id,
+        index: segment.index,
+        sliceCount: segment.sliceCount,
+        start: segment.start,
+        end: segment.end,
+        complete: segment.complete,
+      })),
+      complete: sourceSliceSegments.every((segment, index) => segment.index === index) && (sourceSliceSegments.at(-1)?.complete ?? true),
+    },
+    representationSegmentation: {
+      segmentCount: drafts.length,
+      maxSegmentCharacters: LORE_REPRESENTATION_LIMITS.maxRepresentationCharacters,
+      maxProviderRequestCharacters: LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters,
+      segments: drafts.map((draft, index) => ({
+        index,
+        contributionCount: draft.contributionRefs?.length || 0,
+        characters: measureText(draft.content || '').characters,
+        providerRequestCharacters: segmentReceipts[index]?.providerRequestCharacters ?? null,
+        qualityStatus: segmentReceipts[index]?.status ?? null,
+      })),
+      aggregateCoverageComplete: selected.every((row) => refSet.has(row.id)),
+    },
+    validationFailures: uniqueFailures,
+    status: uniqueFailures.length ? QualityStatus.FAIL : QualityStatus.PASS,
+    qualityAuthority: false,
+    settlementAuthority: false,
+  };
+}
+
 export class LoreRepresentationCompiler {
   constructor({
     runtime,
@@ -506,6 +670,7 @@ export class LoreRepresentationCompiler {
     provider = new DeterministicRepresentationProvider(),
     compilerRevision = DEFAULT_COMPILER_REVISION,
     policyOverrides = {},
+    snapshot = null,
   }) {
     if (!runtime) throw new TypeError('LoreRepresentationCompiler requires a LoreStudyRuntime');
     if (!representationRegistry) throw new TypeError('LoreRepresentationCompiler requires a representation registry');
@@ -514,6 +679,9 @@ export class LoreRepresentationCompiler {
     this.provider = provider;
     this.compilerRevision = compilerRevision;
     this.policyOverrides = {...policyOverrides};
+    this.sessions = new Map();
+    this.sessionSequence = 0;
+    if (snapshot) this.restore(snapshot);
   }
 
   policy(profile, {policyRevision = null, baseProfile = null} = {}) {
@@ -526,7 +694,36 @@ export class LoreRepresentationCompiler {
     });
   }
 
-  compile({
+  _terminalSession(result, meta = {}) {
+    const id = 'representation-compile:' + (++this.sessionSequence);
+    const session = {
+      kind: 'LoreRepresentationCompileSession',
+      id,
+      state: result.status === QualityStatus.PASS ? 'COMPLETED' : 'FAILED',
+      cursor: 0,
+      segmentCount: 0,
+      checkpoint: null,
+      result: deepClone(result),
+      ...deepClone(meta),
+    };
+    this.sessions.set(id, session);
+    return deepClone(session);
+  }
+
+  _fence(session) {
+    const current = this.runtime.registry.currentRevision(session.sourceId, {allowMissing: true});
+    const learned = this.runtime.store.currentLearnedRevision(session.sourceId);
+    return Boolean(
+      current
+      && current.state !== 'REMOVED'
+      && current.id === session.sourceRevisionId
+      && learned
+      && learned.state === 'CURRENT'
+      && learned.sourceRevisionId === session.sourceRevisionId
+    );
+  }
+
+  beginCompile({
     sourceId,
     profile,
     capCharacters = null,
@@ -534,22 +731,23 @@ export class LoreRepresentationCompiler {
     policyRevision = null,
   }) {
     const sourceRevision = this.runtime.registry.currentRevision(sourceId);
-    if (sourceRevision.state === 'REMOVED') return {
+    if (sourceRevision.state === 'REMOVED') return this._terminalSession({
       status: QualityStatus.FAIL,
       failure: 'SOURCE_REMOVED',
       representation: null,
       qualityReceipt: null,
       reused: false,
-    };
+    }, {sourceId, sourceRevisionId: sourceRevision.id});
+
     const learned = this.runtime.store.currentLearnedRevision(sourceId);
     if (!learned || learned.sourceRevisionId !== sourceRevision.id || learned.state !== 'CURRENT') {
-      return {
+      return this._terminalSession({
         status: QualityStatus.FAIL,
         failure: QualityFailure.SOURCE_REVISION_STALE,
         representation: null,
         qualityReceipt: null,
         reused: false,
-      };
+      }, {sourceId, sourceRevisionId: sourceRevision.id});
     }
 
     const normalizedProfile = String(profile).toUpperCase();
@@ -566,17 +764,20 @@ export class LoreRepresentationCompiler {
       policyFingerprint,
       compilerRevision: this.compilerRevision,
     });
-    const slices = sliceSource(sourceRevision.exactContent);
-    const slicesReceipt = validateSlices(sourceRevision.exactContent, slices);
-    if (!slicesReceipt.ok) return {
+
+    const sliced = segmentSourceSlices(sourceRevision.exactContent);
+    const slicesReceipt = validateSlices(sourceRevision.exactContent, sliced.slices);
+    slicesReceipt.segmentCount = sliced.segments.length;
+    slicesReceipt.maxSlicesPerSegment = LORE_REPRESENTATION_LIMITS.maxSlices;
+    if (!slicesReceipt.ok) return this._terminalSession({
       status: QualityStatus.FAIL,
       failure: QualityFailure.SLICE_COVERAGE_FAILURE,
       representation: null,
       qualityReceipt: {status: QualityStatus.FAIL, validationFailures: slicesReceipt.failures, sliceCoverage: slicesReceipt},
       reused: false,
-    };
+    }, {sourceId, sourceRevisionId: sourceRevision.id});
 
-    const contributionSet = buildGroundedContributions({runtime: this.runtime, sourceId, slices});
+    const contributionSet = buildGroundedContributions({runtime: this.runtime, sourceId, slices: sliced.slices});
     const semanticDependencyHash = stableHash(stableStringify({
       contributionFingerprint: contributionSet.contributionFingerprint,
       dependencyArtifactIds: contributionSet.dependencyArtifactIds,
@@ -591,21 +792,18 @@ export class LoreRepresentationCompiler {
       semanticDependencyHash,
     });
     const reusable = this.registry.getByReuseKey(reuseKey, {sourceRegistry: this.runtime.registry});
-    if (reusable) {
-      return {
-        status: QualityStatus.PASS,
-        representation: reusable,
-        qualityReceipt: deepClone(reusable.retentionReceipt),
-        reused: true,
-        contributionSet,
-        slicesReceipt,
-      };
-    }
+    if (reusable) return this._terminalSession({
+      status: QualityStatus.PASS,
+      representation: reusable,
+      qualityReceipt: deepClone(reusable.retentionReceipt),
+      reused: true,
+      contributionSet,
+      slicesReceipt,
+    }, {sourceId, sourceRevisionId: sourceRevision.id, profile: normalizedProfile});
 
     let selected = selectedForProfile(contributionSet.contributions, policy);
-    let capPlan = null;
     if (normalizedProfile === RepresentationProfile.CUSTOM_CAP) {
-      capPlan = fitCustomCap(selected, policy, capCharacters);
+      const capPlan = fitCustomCap(selected, policy, capCharacters);
       if (!capPlan.possible) {
         const fakeDraft = {
           kind: 'LoreRepresentationDraft',
@@ -625,7 +823,7 @@ export class LoreRepresentationCompiler {
           capCharacters,
           slicesReceipt,
         });
-        return {
+        return this._terminalSession({
           status: QualityStatus.FAIL,
           failure: QualityFailure.CAP_IMPOSSIBLE,
           representation: null,
@@ -633,95 +831,292 @@ export class LoreRepresentationCompiler {
           reused: false,
           contributionSet,
           slicesReceipt,
-        };
+        }, {sourceId, sourceRevisionId: sourceRevision.id, profile: normalizedProfile});
       }
       selected = capPlan.selected;
     }
 
-    const providerRequestCharacters = selected.reduce((sum, row) => sum + row.text.length + 96, 0);
-    if (providerRequestCharacters > LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters) {
-      return {
+    const plan = planRepresentationSegments(selected);
+    if (!plan.ok) return this._terminalSession({
+      status: QualityStatus.FAIL,
+      failure: plan.failure,
+      representation: null,
+      qualityReceipt: {
+        kind: 'RepresentationQualityReceipt',
         status: QualityStatus.FAIL,
-        failure: 'PROVIDER_REQUEST_LIMIT_EXCEEDED',
-        representation: null,
-        qualityReceipt: {
-          kind: 'RepresentationQualityReceipt',
-          status: QualityStatus.FAIL,
-          sourceId,
-          sourceRevisionId: sourceRevision.id,
-          profile: normalizedProfile,
-          providerRequestCharacters,
-          providerRequestLimit: LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters,
-          validationFailures: ['PROVIDER_REQUEST_LIMIT_EXCEEDED'],
-        },
-        reused: false,
-        contributionSet,
-        slicesReceipt,
-      };
-    }
+        sourceId,
+        sourceRevisionId: sourceRevision.id,
+        profile: normalizedProfile,
+        contributionId: plan.contributionId,
+        requiredCharacters: plan.requiredCharacters,
+        validationFailures: [plan.failure],
+        exactSourceDrillbackAvailable: true,
+      },
+      reused: false,
+      contributionSet,
+      slicesReceipt,
+    }, {sourceId, sourceRevisionId: sourceRevision.id, profile: normalizedProfile});
 
-    const draft = this.provider.generate({
+    const id = 'representation-compile:' + stableHash(sourceRevision.id + '|' + normalizedProfile + '|' + (capCharacters ?? '-') + '|' + (++this.sessionSequence));
+    const session = {
+      kind: 'LoreRepresentationCompileSession',
+      id,
+      state: 'ACTIVE',
       sourceId,
       sourceRevisionId: sourceRevision.id,
+      learnedRevisionId: learned.id,
       profile: normalizedProfile,
       capCharacters,
-      policy: deepClone(policy),
-      selectedContributions: deepClone(selected),
-      allContributions: deepClone(contributionSet.contributions),
-      sliceReceipt: deepClone(slicesReceipt),
-    });
-    const qualityReceipt = validateRepresentationDraft({
-      draft,
-      contributionSet,
+      baseProfile,
       policy,
-      sourceRevision,
-      capCharacters,
+      policyFingerprint,
+      compilerRevision: this.compilerRevision,
+      semanticDependencyHash,
+      reuseKey,
+      contributionSet,
+      selected,
       slicesReceipt,
-    });
+      sourceSliceSegments: sliced.segments,
+      segments: plan.segments.map((segment) => ({
+        index: segment.index,
+        selectedContributions: deepClone(segment.selectedContributions),
+        contentCharacters: segment.contentCharacters,
+        providerRequestCharacters: segment.providerRequestCharacters,
+      })),
+      segmentDrafts: [],
+      segmentReceipts: [],
+      cursor: 0,
+      checkpoint: {cursor: 0, total: plan.segments.length, sourceRevisionId: sourceRevision.id},
+      result: null,
+    };
+    this.sessions.set(id, session);
+    return deepClone(session);
+  }
+
+  _finish(session) {
+    if (!this._fence(session)) {
+      session.state = 'SUPERSEDED';
+      session.result = {
+        status: QualityStatus.FAIL,
+        failure: QualityFailure.SOURCE_REVISION_STALE,
+        representation: null,
+        qualityReceipt: null,
+        reused: false,
+        superseded: true,
+      };
+      return;
+    }
+    const sourceRevision = this.runtime.registry.currentRevision(session.sourceId);
+    const qualityReceipt = session.segmentDrafts.length === 1
+      ? session.segmentReceipts[0]
+      : aggregateRepresentationReceipt({
+          drafts: session.segmentDrafts,
+          segmentReceipts: session.segmentReceipts,
+          contributionSet: session.contributionSet,
+          selected: session.selected,
+          policy: session.policy,
+          sourceRevision,
+          capCharacters: session.capCharacters,
+          slicesReceipt: session.slicesReceipt,
+          sourceSliceSegments: session.sourceSliceSegments,
+        });
     if (qualityReceipt.status !== QualityStatus.PASS) {
-      return {
+      session.state = 'FAILED';
+      session.result = {
         status: QualityStatus.FAIL,
         failure: qualityReceipt.validationFailures[0] || QualityFailure.MALFORMED_OUTPUT,
         representation: null,
         qualityReceipt,
         reused: false,
-        contributionSet,
-        slicesReceipt,
+        contributionSet: session.contributionSet,
+        slicesReceipt: session.slicesReceipt,
       };
+      return;
     }
 
     const representationRevision = this.registry.nextRevision({
-      sourceId,
-      profile: normalizedProfile,
-      capCharacters,
+      sourceId: session.sourceId,
+      profile: session.profile,
+      capCharacters: session.capCharacters,
     });
+    const firstDraft = session.segmentDrafts[0] || {content: '', contributionRefs: []};
     const representation = createRepresentationArtifact({
-      sourceId,
-      sourceRevisionId: sourceRevision.id,
-      profile: normalizedProfile,
-      capCharacters,
+      sourceId: session.sourceId,
+      sourceRevisionId: session.sourceRevisionId,
+      profile: session.profile,
+      capCharacters: session.capCharacters,
       representationRevision,
-      content: draft.content,
-      contributionIds: draft.contributionRefs,
-      dependencyArtifactIds: contributionSet.dependencyArtifactIds,
-      policyRevision: policy.revision,
-      policyFingerprint,
+      content: firstDraft.content,
+      contributionIds: session.segmentDrafts.flatMap((draft) => draft.contributionRefs || []),
+      dependencyArtifactIds: session.contributionSet.dependencyArtifactIds,
+      policyRevision: session.policy.revision,
+      policyFingerprint: session.policyFingerprint,
       compilerRevision: this.compilerRevision,
-      semanticDependencyHash,
+      semanticDependencyHash: session.semanticDependencyHash,
       qualityReceipt,
     });
-    const published = this.registry.publish({
-      representation,
-      sourceRegistry: this.runtime.registry,
-    });
-    return {
+    if (session.segmentDrafts.length > 1) {
+      representation.segmented = true;
+      representation.physicalSize = deepClone(representation.size);
+      representation.size = deepClone(qualityReceipt.representationSize);
+      representation.segments = session.segmentDrafts.map((draft, index) => ({
+        kind: 'LoreRepresentationSegment',
+        id: representation.id + ':segment:' + index,
+        index,
+        sourceId: session.sourceId,
+        sourceRevisionId: session.sourceRevisionId,
+        profile: session.profile,
+        contributionRefs: [...(draft.contributionRefs || [])],
+        content: draft.content,
+        size: measureText(draft.content || ''),
+        providerRequestCharacters: session.segments[index]?.providerRequestCharacters ?? null,
+        qualityReceipt: deepClone(session.segmentReceipts[index]),
+      }));
+      representation.segmentManifest = {
+        kind: 'LoreRepresentationSegmentManifest',
+        sourceRevisionId: session.sourceRevisionId,
+        segmentCount: representation.segments.length,
+        segmentRefs: representation.segments.map((segment) => segment.id),
+        aggregateContributionCount: representation.contributionIds.length,
+        aggregateCoverageComplete: Boolean(qualityReceipt.representationSegmentation?.aggregateCoverageComplete),
+      };
+    }
+    if (!this._fence(session)) {
+      session.state = 'SUPERSEDED';
+      session.result = {
+        status: QualityStatus.FAIL,
+        failure: QualityFailure.SOURCE_REVISION_STALE,
+        representation: null,
+        qualityReceipt: null,
+        reused: false,
+        superseded: true,
+      };
+      return;
+    }
+    const published = this.registry.publish({representation, sourceRegistry: this.runtime.registry});
+    session.state = 'COMPLETED';
+    session.result = {
       status: QualityStatus.PASS,
       representation: published,
       qualityReceipt,
       reused: false,
-      contributionSet,
-      slicesReceipt,
+      contributionSet: session.contributionSet,
+      slicesReceipt: session.slicesReceipt,
     };
+  }
+
+  runCompile(sessionId, {maxSegments = Infinity} = {}) {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error('Unknown representation compile session: ' + sessionId);
+    if (!['ACTIVE', 'CHECKPOINTED'].includes(session.state)) return deepClone(session);
+    if (!this._fence(session)) {
+      session.state = 'SUPERSEDED';
+      session.result = {
+        status: QualityStatus.FAIL,
+        failure: QualityFailure.SOURCE_REVISION_STALE,
+        representation: null,
+        qualityReceipt: null,
+        reused: false,
+        superseded: true,
+      };
+      return deepClone(session);
+    }
+
+    const limit = Number.isFinite(maxSegments) ? Math.max(1, Math.trunc(maxSegments)) : Number.MAX_SAFE_INTEGER;
+    let used = 0;
+    while (session.cursor < session.segments.length && used < limit) {
+      if (!this._fence(session)) {
+        session.state = 'SUPERSEDED';
+        session.result = {
+          status: QualityStatus.FAIL,
+          failure: QualityFailure.SOURCE_REVISION_STALE,
+          representation: null,
+          qualityReceipt: null,
+          reused: false,
+          superseded: true,
+        };
+        break;
+      }
+      const segment = session.segments[session.cursor];
+      const singleSegment = session.segments.length === 1;
+      const draft = this.provider.generate({
+        sourceId: session.sourceId,
+        sourceRevisionId: session.sourceRevisionId,
+        profile: session.profile,
+        capCharacters: session.capCharacters,
+        policy: deepClone(session.policy),
+        selectedContributions: deepClone(segment.selectedContributions),
+        allContributions: deepClone(singleSegment ? session.contributionSet.contributions : segment.selectedContributions),
+        sliceReceipt: deepClone(session.slicesReceipt),
+        segment: {
+          index: segment.index,
+          count: session.segments.length,
+          providerRequestCharacters: segment.providerRequestCharacters,
+          sourceSliceSegmentCount: session.sourceSliceSegments.length,
+        },
+      });
+      if (!this._fence(session)) {
+        session.state = 'SUPERSEDED';
+        session.result = {
+          status: QualityStatus.FAIL,
+          failure: QualityFailure.SOURCE_REVISION_STALE,
+          representation: null,
+          qualityReceipt: null,
+          reused: false,
+          superseded: true,
+        };
+        break;
+      }
+      const segmentSet = singleSegment
+        ? session.contributionSet
+        : {...session.contributionSet, contributions: segment.selectedContributions};
+      const receipt = validateRepresentationDraft({
+        draft,
+        contributionSet: segmentSet,
+        policy: session.policy,
+        sourceRevision: this.runtime.registry.currentRevision(session.sourceId),
+        capCharacters: singleSegment ? session.capCharacters : null,
+        slicesReceipt: session.slicesReceipt,
+      });
+      receipt.providerRequestCharacters = segment.providerRequestCharacters;
+      receipt.providerRequestLimit = LORE_REPRESENTATION_LIMITS.maxProviderRequestCharacters;
+      session.segmentDrafts.push(deepClone(draft));
+      session.segmentReceipts.push(deepClone(receipt));
+      session.cursor += 1;
+      used += 1;
+      session.checkpoint = {
+        cursor: session.cursor,
+        total: session.segments.length,
+        sourceRevisionId: session.sourceRevisionId,
+        completedSegmentIndexes: session.segmentDrafts.map((_, index) => index),
+      };
+      if (receipt.status !== QualityStatus.PASS) {
+        session.state = 'FAILED';
+        session.result = {
+          status: QualityStatus.FAIL,
+          failure: receipt.validationFailures[0] || QualityFailure.MALFORMED_OUTPUT,
+          representation: null,
+          qualityReceipt: receipt,
+          reused: false,
+          contributionSet: session.contributionSet,
+          slicesReceipt: session.slicesReceipt,
+        };
+        break;
+      }
+    }
+    if (session.state === 'ACTIVE' || session.state === 'CHECKPOINTED') {
+      if (session.cursor >= session.segments.length) this._finish(session);
+      else session.state = 'CHECKPOINTED';
+    }
+    return deepClone(session);
+  }
+
+  compile(request) {
+    let session = this.beginCompile(request);
+    while (['ACTIVE', 'CHECKPOINTED'].includes(session.state)) {
+      session = this.runCompile(session.id, {maxSegments: Number.MAX_SAFE_INTEGER});
+    }
+    return deepClone(session.result);
   }
 
   compileFamily({sourceId, customCapCharacters = null, customBaseProfile = RepresentationProfile.LEAN} = {}) {
@@ -748,5 +1143,20 @@ export class LoreRepresentationCompiler {
       contributionFingerprint: set.contributionFingerprint,
       semanticIds: set.contributions.map((row) => row.semanticId).sort(),
     };
+  }
+
+  snapshot() {
+    return {
+      kind: 'LoreRepresentationCompilerSnapshot',
+      compilerRevision: this.compilerRevision,
+      sessionSequence: this.sessionSequence,
+      sessions: [...this.sessions.entries()].map(([id, session]) => [id, deepClone(session)]),
+    };
+  }
+
+  restore(snapshot) {
+    if (snapshot?.compilerRevision) this.compilerRevision = snapshot.compilerRevision;
+    this.sessionSequence = Number(snapshot?.sessionSequence || 0);
+    this.sessions = new Map((snapshot?.sessions || []).map(([id, session]) => [id, deepClone(session)]));
   }
 }

@@ -7,6 +7,7 @@ import {LoreHierarchyRetrievalSystem} from './lore-hierarchy-retrieval-system.js
 import {QualityStatus, RepresentationProfile} from './lore-representation-contracts.js';
 import {LoreStoryAuthorityRegistry} from './lore-story-authority.js';
 import {sourceTruthHint} from './lore-contextual-retrieval.js';
+import {LORE_WAVE3_LIMITS} from './lore-navigation-contracts.js';
 
 const MAX_SCOPE_RECEIPTS = 64;
 
@@ -1163,6 +1164,7 @@ export class LoreIntelligenceService {
       registry: representationRegistry,
       compilerRevision: snapshot.multiResolution?.compilerRevision || null,
       policyOverrides: snapshot.multiResolution?.policyOverrides || {},
+      compilerSnapshot: snapshot.multiResolution?.compiler || null,
     });
     const hierarchy = LoreHierarchyRetrievalSystem.fromSnapshot({
       runtime,

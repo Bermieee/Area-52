@@ -126,6 +126,16 @@ export class TemporalStateGraph {
     return row?deepClone(row):null;
   }
 
+  // Existence check and read-only view for internal owners (freshness sweeps, selector matching): no copy, the caller
+  // must not retain or mutate the row. evidenceRecord() remains the copying accessor for anything that is returned.
+  hasEvidence(id) {
+    return this.evidence.has(id);
+  }
+
+  evidenceView(id) {
+    return this.evidence.get(id)??null;
+  }
+
   exactEvidence(id) {
     return this.evidenceRecord(id);
   }

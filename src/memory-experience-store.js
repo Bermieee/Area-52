@@ -350,13 +350,14 @@ export class MemoryExperienceStore {
     const staleReflections=[];
     for (const episode of this.episodes.values()) {
       if (episode.state!=='CURRENT') continue;
-      const unresolvedLocal=episode.evidenceRefs.filter((id)=>!this.graph.evidenceRecord(id));
+      const has=(id)=>(this.graph.hasEvidence?this.graph.hasEvidence(id):Boolean(this.graph.evidenceRecord(id)));
+      const unresolvedLocal=episode.evidenceRefs.filter((id)=>!has(id));
       const unresolved=uniqStrings([
         ...unresolvedLocal,
         ...(episode.bridgeResolutionStatus==='WITHHELD'?(episode.unresolvedExternalEvidenceRefs??[]):[]),
       ],MEMORY_LIMITS.maxEpisodeEvidenceRefs);
       episode.unresolvedEvidenceRefs=unresolved;
-      episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>this.graph.evidenceRecord(id));
+      episode.resolvedEvidenceRefs=episode.evidenceRefs.filter((id)=>has(id));
       const fresh=freshBySources(this.graph,episode.sourceRevisionRefs)
         && unresolved.length===0
         && episode.resolvedEvidenceRefs.every((id)=>this.graph.evidenceFresh(id))

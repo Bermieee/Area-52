@@ -1332,24 +1332,107 @@ export class Area52NativeBrain{
   }
 
   #memoryConsolidationExecutor(){
+    const REVIEW_PAGE_KIND='MemoryConsolidationReviewPage';
+    const reviewStatusCounts=(review)=>{
+      const counts={COMPLETED:0,REPLAYED:0,SKIPPED:0,DEFERRED:0,STALE:0,FAILED:0,OTHER:0};
+      for(const row of review?.results??[]){
+        const status=String(row?.status??'OTHER').toUpperCase();
+        if(Object.hasOwn(counts,status))counts[status]+=1;else counts.OTHER+=1;
+      }
+      return counts;
+    };
+    const addCounts=(left,right)=>Object.fromEntries(Object.keys(left).map((key)=>[key,Number(left[key]??0)+Number(right[key]??0)]));
+    const compactOwnerReview=(review,rootReviewToken=null)=>review?{
+      kind:review.kind??'MemoryConsolidationBundleReviewReceipt',
+      contractVersion:review.contractVersion??'1.0.0',
+      bundleId:review.bundleId??null,
+      unitId:review.unitId??null,
+      status:review.status??null,
+      reasonCode:review.reasonCode??null,
+      reviewOffset:Number(review.reviewOffset??0),
+      processed:Number(review.processed??review.results?.length??0),
+      remaining:Number(review.remaining??0),
+      continuationAvailable:Boolean(review.continuationAvailable),
+      nextReviewOffset:review.nextReviewOffset??null,
+      proposalSetToken:rootReviewToken??review.proposalSetToken??null,
+      resultCount:Array.isArray(review.results)?review.results.length:0,
+      resultStatusCounts:reviewStatusCounts(review),
+      canonicalMutationAuthority:false,
+      settlementAuthority:false,
+      contextSealAuthority:false,
+    }:null;
+    const continuationUnits=(proposed,review)=>{
+      if(!review?.continuationAvailable||!Array.isArray(proposed?.bundle?.proposals))return[];
+      const proposals=proposed.bundle.proposals;
+      const firstOffset=Math.max(0,Number(review.nextReviewOffset??review.continuation?.nextReviewOffset??0));
+      const pageSize=Math.max(1,Number(review.processed)||4096);
+      if(firstOffset<=0||firstOffset>=proposals.length)return[];
+      const pageCount=Math.ceil(proposals.length/pageSize);
+      const rootReviewToken=String(review.proposalSetToken??review.continuation?.reviewToken??('memory-consolidation-review-set:'+stableHash(proposals)));
+      const bundleId=String(proposed.bundle.bundleId??proposed.bundle.unitId??'unknown');
+      const rows=[];
+      for(let offset=firstOffset;offset<proposals.length;offset+=pageSize){
+        const page=proposals.slice(offset,offset+pageSize);
+        const allowed=new Set(page.map((row)=>String(row?.proposalId??'')));
+        const bundlePage={...clone(proposed.bundle),proposals:clone(page)};
+        const handoffPage=proposed.memoryHandoff?{
+          ...clone(proposed.memoryHandoff),
+          proposalRefs:(proposed.memoryHandoff.proposalRefs??[]).filter((row)=>allowed.has(String(row?.proposalId??''))),
+        }:null;
+        const pageIndex=Math.floor(offset/pageSize);
+        rows.push({
+          id:'memory-consolidation-review:'+bundleId+':'+String(offset)+':'+stableHash(page.map((row)=>row?.proposalId??null)),
+          payload:{
+            kind:REVIEW_PAGE_KIND,
+            selection:clone(proposed.selection??{}),
+            episodeId:proposed.episodeId??null,
+            bundle:bundlePage,
+            memoryHandoff:handoffPage,
+            rootReviewToken,
+            reviewPageOffset:offset,
+            reviewPageSize:page.length,
+            reviewPageIndex:pageIndex,
+            reviewPageCount:pageCount,
+            totalProposals:proposals.length,
+          },
+        });
+      }
+      return rows;
+    };
     return{
       execute:async({units})=>{
         const rows=[];
         for(const unit of units){
+          const payload=unit.payload??{};
+          if(payload.kind===REVIEW_PAGE_KIND){
+            rows.push({
+              kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+              status:'PROPOSED',reasonCode:null,selection:clone(payload.selection??{}),episodeId:payload.episodeId??null,
+              bundle:clone(payload.bundle),memoryHandoff:clone(payload.memoryHandoff??null),
+              reviewPage:{
+                offset:Number(payload.reviewPageOffset??0),size:Number(payload.reviewPageSize??payload.bundle?.proposals?.length??0),
+                index:Number(payload.reviewPageIndex??0),count:Number(payload.reviewPageCount??1),
+                totalProposals:Number(payload.totalProposals??payload.bundle?.proposals?.length??0),
+                rootReviewToken:payload.rootReviewToken??null,
+              },
+              providerAttempted:false,rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+            });
+            continue;
+          }
           const producer=this.memoryConsolidationInterface;
           if(!producer||typeof producer.propose!=='function'){
-            rows.push({kind:'DeploymentMemoryConsolidationProposalReceipt',status:'DEFERRED',reasonCode:'MEMORY_CONSOLIDATION_PRODUCER_UNAVAILABLE',...clone(unit.payload)});
+            rows.push({kind:'DeploymentMemoryConsolidationProposalReceipt',status:'DEFERRED',reasonCode:'MEMORY_CONSOLIDATION_PRODUCER_UNAVAILABLE',...clone(payload)});
             continue;
           }
           try{
-            let result=producer.propose(clone(unit.payload));
+            let result=producer.propose(clone(payload));
             if(result&&typeof result.then==='function')result=await result;
             rows.push(clone(result));
           }catch(error){
             rows.push({
               kind:'DeploymentMemoryConsolidationProposalReceipt',status:'FAILED',
               reasonCode:error?.code??error?.message??String(error),
-              selection:clone(unit.payload?.selection??null),episodeId:unit.payload?.episodeId??null,
+              selection:clone(payload?.selection??null),episodeId:payload?.episodeId??null,
               rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
             });
           }
@@ -1357,9 +1440,17 @@ export class Area52NativeBrain{
         return rows;
       },
       validate:async({output})=>Array.isArray(output)&&output.every((row)=>typeof row?.status==='string'),
-      commit:async({output})=>{
+      commit:async({task,units,output})=>{
         const receipts=[];
-        for(const proposed of output){
+        for(let index=0;index<output.length;index+=1){
+          const proposed=output[index];
+          const unitPayload=units?.[index]?.payload??{};
+          const reviewPage=proposed?.reviewPage??(unitPayload.kind===REVIEW_PAGE_KIND?{
+            offset:Number(unitPayload.reviewPageOffset??0),size:Number(unitPayload.reviewPageSize??unitPayload.bundle?.proposals?.length??0),
+            index:Number(unitPayload.reviewPageIndex??0),count:Number(unitPayload.reviewPageCount??1),
+            totalProposals:Number(unitPayload.totalProposals??unitPayload.bundle?.proposals?.length??0),
+            rootReviewToken:unitPayload.rootReviewToken??null,
+          }:null);
           const selection=proposed?.selection??null;
           const turnId=String(selection?.turnId??proposed?.turnId??'');
           const record=this.#recordForSelection({...selection,turnId,sourceRevisionRefs:[]});
@@ -1375,25 +1466,85 @@ export class Area52NativeBrain{
               }
             }else ownerReview={kind:'MemoryConsolidationBundleReviewReceipt',status:'FAILED',reasonCode:'MEMORY_CONSOLIDATION_OWNER_REVIEW_UNAVAILABLE',results:[]};
           }
+
+          const rootReviewToken=reviewPage?.rootReviewToken??ownerReview?.proposalSetToken??ownerReview?.continuation?.reviewToken??null;
+          const pages=reviewPage?[]:continuationUnits(proposed,ownerReview);
+          if(pages.length&&task?.taskId)this.runtimeDirector.batch.append(task.taskId,pages);
+
+          const priorProgress=record?.memoryConsolidation?.reviewProgress;
+          const sameReview=Boolean(priorProgress&&(
+            (rootReviewToken&&priorProgress.rootReviewToken===rootReviewToken)
+            ||(!rootReviewToken&&priorProgress.bundleId===(ownerReview?.bundleId??proposed?.bundle?.bundleId??null))
+          ));
+          const baseCounts=sameReview?priorProgress.resultStatusCounts:{COMPLETED:0,REPLAYED:0,SKIPPED:0,DEFERRED:0,STALE:0,FAILED:0,OTHER:0};
+          const resultStatusCounts=addCounts(baseCounts,reviewStatusCounts(ownerReview));
+          const priorProcessed=sameReview?Number(priorProgress.processed??0):0;
+          const processed=priorProcessed+Number(ownerReview?.processed??ownerReview?.results?.length??0);
+          const totalProposals=Number(reviewPage?.totalProposals??proposed?.bundle?.proposals?.length??processed);
+          const pageCount=Number(reviewPage?.count??(pages.length?pages.length+1:1));
+          const pageIndex=Number(reviewPage?.index??0);
+          const reviewComplete=Boolean(ownerReview)&&!ownerReview.continuationAvailable&&(!reviewPage||pageIndex>=pageCount-1);
+          let aggregateStatus;
+          if(!reviewComplete)aggregateStatus='DEFERRED';
+          else if(resultStatusCounts.FAILED>0)aggregateStatus='FAILED';
+          else if(resultStatusCounts.STALE>0)aggregateStatus='STALE';
+          else if(resultStatusCounts.DEFERRED>0)aggregateStatus='DEFERRED';
+          else if(resultStatusCounts.COMPLETED>0)aggregateStatus='COMPLETED';
+          else if(resultStatusCounts.REPLAYED>0)aggregateStatus='REPLAYED';
+          else aggregateStatus='SKIPPED';
+          const aggregateReason=!reviewComplete
+            ?'MEMORY_CONSOLIDATION_REVIEW_PAGE_BOUND'
+            :(ownerReview?.reasonCode??proposed?.reasonCode??null);
+          const reviewProgress=ownerReview?{
+            kind:'MemoryConsolidationRuntimeReviewProgress',
+            bundleId:ownerReview.bundleId??proposed?.bundle?.bundleId??null,
+            rootReviewToken,
+            totalProposals,
+            processed,
+            remaining:Math.max(0,totalProposals-processed),
+            pageIndex,
+            pageCount,
+            resultStatusCounts,
+            coverageComplete:reviewComplete&&processed>=totalProposals,
+            runtimeOwnedContinuation:!reviewComplete,
+            providerReinvokedForContinuation:false,
+          }:null;
+          const ownerReviewView=(ownerReview&&(ownerReview.continuationAvailable||reviewPage))
+            ?compactOwnerReview(ownerReview,rootReviewToken)
+            :clone(ownerReview);
+          const priorSidecar=record?.memoryConsolidation?.sidecarExecution??null;
+          const sidecarExecution=proposed?.executionReceipt?clone({
+            ...proposed.executionReceipt,
+            ownerDecision:aggregateStatus,
+            ownerAccepted:reviewComplete&&['COMPLETED','REPLAYED'].includes(aggregateStatus),
+          }):clone(priorSidecar);
+          if(sidecarExecution&&reviewPage){
+            sidecarExecution.ownerDecision=aggregateStatus;
+            sidecarExecution.ownerAccepted=reviewComplete&&['COMPLETED','REPLAYED'].includes(aggregateStatus);
+          }
           const receipt={
             kind:'NativeBrainMemoryConsolidationReceipt',
-            status:ownerReview?.status??proposed?.status??'DEFERRED',
-            reasonCode:ownerReview?.reasonCode??proposed?.reasonCode??null,
+            status:ownerReview?aggregateStatus:(proposed?.status??'DEFERRED'),
+            reasonCode:ownerReview?aggregateReason:(proposed?.reasonCode??null),
             episodeId:proposed?.episodeId??record?.memoryPostTurn?.episodeId??null,
-            producerStatus:proposed?.status??null,
-            ownerReview:clone(ownerReview),
-            providerAttempted:Boolean(proposed?.providerAttempted),
-            sidecarExecution:proposed?.executionReceipt?clone({
-              ...proposed.executionReceipt,
-              ownerDecision:ownerReview?.status??proposed?.status??'DEFERRED',
-              ownerAccepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),
-            }):null,
+            producerStatus:reviewPage?'REVIEW_CONTINUATION':(proposed?.status??null),
+            ownerReview:ownerReviewView,
+            reviewProgress,
+            providerAttempted:Boolean(proposed?.providerAttempted||record?.memoryConsolidation?.providerAttempted),
+            sidecarExecution,
             rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
             authorityGranted:false,canonicalMutation:false,settlementAuthority:false,contextSealAuthority:false,
           };
           if(record){
             record.memoryConsolidation=clone(receipt);
-            if(record.memoryConsolidationRuntimeTaskId&&ownerReview)this.#recordTaskOwnerDecision(record.memoryConsolidationRuntimeTaskId,{accepted:['COMPLETED','REPLAYED'].includes(String(ownerReview?.status??'').toUpperCase()),receiptId:ownerReview?.bundleId??ownerReview?.kind??receipt.kind,reasonCode:receipt.reasonCode??null,consumerId:'MEMORY'});
+            if(record.memoryConsolidationRuntimeTaskId&&ownerReview&&reviewComplete){
+              this.#recordTaskOwnerDecision(record.memoryConsolidationRuntimeTaskId,{
+                accepted:['COMPLETED','REPLAYED'].includes(aggregateStatus),
+                receiptId:ownerReview?.bundleId??ownerReview?.kind??receipt.kind,
+                reasonCode:receipt.reasonCode??null,
+                consumerId:'MEMORY',
+              });
+            }
           }
           receipts.push(receipt);
         }

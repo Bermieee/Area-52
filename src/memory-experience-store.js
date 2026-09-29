@@ -529,14 +529,14 @@ export class MemoryExperienceStore {
 
   startConsolidation(jobs=[],options={}) {
     if (!Array.isArray(jobs)) throw new TypeError('consolidation jobs must be an array');
-    if (jobs.length>MEMORY_LIMITS.maxConsolidationJobs) throw new RangeError('Memory consolidation job count exceeds bound');
-    const explicitSources=uniqStrings(options.sourceRevisionRefs??[],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
+    const explicitSources=uniqStrings(options.sourceRevisionRefs??[],Infinity);
     const jobSources=uniqStrings(jobs.flatMap((job)=>[
       ...(job?.input?.sourceRevisionRefs??[]),
       ...(job?.input?.supportEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
       ...(job?.input?.contradictionEvidenceRefs??[]).map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean),
-    ]),MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
-    const sourceRevisionRefs=uniqStrings([...explicitSources,...jobSources],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs);
+    ]),Infinity);
+    const sourcesR=segmentedStringRefs([...explicitSources,...jobSources],MEMORY_LIMITS.maxConsolidationSourceRevisionRefs,'sourceRevisionRefs');
+    const jobSegments=segmentJobs(jobs);
     const generation=options.generationFence??options.selection??{};
     const generationFence={
       chatId:generation.chatId??generation.chatNamespace??null,
@@ -546,11 +546,13 @@ export class MemoryExperienceStore {
       contextSealId:generation.contextSealId??null,
     };
     const inputRevisionFence={
-      sourceRevisionRefs,
+      sourceRevisionRefs:sourcesR.head,
+      sourceRevisionManifest:sourcesR.manifest,
+      sourceRevisionCount:sourcesR.all.length,
       worldRevision:options.worldRevision==null?null:Number(options.worldRevision),
       sceneRevision:options.sceneRevision==null?null:Number(options.sceneRevision),
       revisionToken:options.revisionToken??stableHash(stableStringify({
-        sourceRevisionRefs,
+        sourceRevisionRefs:sourcesR.all,
         worldRevision:options.worldRevision??null,
         sceneRevision:options.sceneRevision??null,
       })),
@@ -562,7 +564,13 @@ export class MemoryExperienceStore {
       id,
       state:'ACTIVE',
       cursor:0,
-      jobs:deepClone(jobs),
+      jobs:jobSegments[0]??[],
+      pendingJobSegments:jobSegments.slice(1),
+      jobSegmentIndex:0,
+      processedJobs:0,
+      totalJobs:jobs.length,
+      boundedJobSegments:jobSegments.length,
+      continuationAvailable:jobSegments.length>1,
       publishedArtifactIds:[],
       failures:[],
       outcomes:[],
@@ -583,13 +591,16 @@ export class MemoryExperienceStore {
   consolidationWorkUnits(sessionId,{maxUnits=MEMORY_LIMITS.maxCheckpointWorkUnits}={}) {
     const session=this.consolidationSessions.get(sessionId);
     if (!session) throw new Error('Unknown Memory consolidation session: '+sessionId);
+    advanceConsolidationSegment(session);
     const cap=Math.max(1,Math.min(MEMORY_LIMITS.maxCheckpointWorkUnits,Number(maxUnits)||1));
     return session.jobs.slice(session.cursor,session.cursor+cap).map((job,offset)=>({
       kind:'MemoryConsolidationWorkUnit',
       contractVersion:MEMORY_CONSOLIDATION_WORK_VERSION,
-      workUnitId:'memory-consolidation-unit:'+stableHash(session.id+'|'+String(session.cursor+offset)+'|'+session.inputRevisionFence.revisionToken),
+      workUnitId:'memory-consolidation-unit:'+stableHash(session.id+'|'+String(session.processedJobs+offset)+'|'+session.inputRevisionFence.revisionToken),
       sessionId:session.id,
-      cursor:session.cursor+offset,
+      cursor:session.processedJobs+offset,
+      segmentIndex:session.jobSegmentIndex,
+      segmentCursor:session.cursor+offset,
       jobType:job?.type??null,
       inputRevisionFence:deepClone(session.inputRevisionFence),
       generationFence:deepClone(session.generationFence),
@@ -607,7 +618,7 @@ export class MemoryExperienceStore {
     if (sealed===true||(generationId&&sealedIds.has(String(generationId)))) {
       return {ok:false,state:'PARKED_AFTER_SEAL',reasonCode:'MEMORY_CONSOLIDATION_GENERATION_SEALED',destination:'NEXT_TURN'};
     }
-    const expected=session?.inputRevisionFence?.sourceRevisionRefs??[];
+    const expected=consolidationSourceRefs(session);
     const active=currentSourceRevisionRefs==null
       ? new Set([...this.graph.sourceRevisionState.entries()].filter(([,row])=>row?.state==='ACTIVE').map(([id])=>id))
       : new Set(currentSourceRevisionRefs);
@@ -638,7 +649,9 @@ export class MemoryExperienceStore {
     session.lateDisposition=null;
     const limit=Math.max(1,Math.min(MEMORY_LIMITS.maxCheckpointWorkUnits,Number(maxUnits)||1));
     let used=0;
-    while (session.cursor<session.jobs.length && used<limit) {
+    advanceConsolidationSegment(session);
+    while (session.processedJobs<session.totalJobs && used<limit) {
+      if(session.cursor>=session.jobs.length&&!advanceConsolidationSegment(session))break;
       const liveFence=this.consolidationFenceStatus(session,{sealed,sealedGenerationIds,currentSourceRevisionRefs});
       if(!liveFence.ok){
         session.state=liveFence.state;
@@ -651,12 +664,13 @@ export class MemoryExperienceStore {
         break;
       }
       const job=session.jobs[session.cursor];
+      const globalCursor=session.processedJobs;
       try {
         if (job.type!=='REFLECTION') throw new Error('MEMORY_CONSOLIDATION_JOB_UNSUPPORTED:'+String(job.type));
         if(session.reflectionEligibilityPolicy==='REPEATED_EXPERIENCE_REQUIRED'){
           const eligibility=this.reflectionEligibility(job.input??{});
           if(!eligibility.eligible){
-            session.outcomes.push({cursor:session.cursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
+            session.outcomes.push({cursor:globalCursor,status:eligibility.status,reasonCode:eligibility.reasonCode,reflectionKey:eligibility.reflectionKey});
           }else{
             const artifact=this.reviseReflection({
               ...(job.input??{}),
@@ -664,30 +678,39 @@ export class MemoryExperienceStore {
               action:eligibility.action,
               truthStatus:eligibility.truthStatus,
               resolutionStatus:eligibility.resolutionStatus,
-              episodeRefs:eligibility.supportEpisodeIds,
+              episodeRefs:memoryReferenceValues(eligibility,'supportEpisodeIds'),
             });
             if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
-            session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+            session.outcomes.push({cursor:globalCursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
           }
         }else{
           const artifact=this.reviseReflection(job.input??{});
           if(!session.publishedArtifactIds.includes(artifact.id))session.publishedArtifactIds.push(artifact.id);
-          session.outcomes.push({cursor:session.cursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
+          session.outcomes.push({cursor:globalCursor,status:'COMPLETED',reasonCode:null,reflectionKey:artifact.reflectionKey,artifactId:artifact.id,confidence:artifact.confidence,resolutionStatus:artifact.resolutionStatus});
         }
       } catch (error) {
-        const failure={cursor:session.cursor,code:error?.message??String(error)};
+        const failure={cursor:globalCursor,code:error?.message??String(error)};
         session.failures.push(failure);
-        session.outcomes.push({cursor:session.cursor,status:'FAILED',reasonCode:failure.code});
+        session.outcomes.push({cursor:globalCursor,status:'FAILED',reasonCode:failure.code});
       }
       session.cursor+=1;
+      session.processedJobs+=1;
       used+=1;
+      const hasContinuation=session.processedJobs<session.totalJobs;
+      session.continuationAvailable=hasContinuation;
       session.checkpoint={
-        cursor:session.cursor,
-        total:session.jobs.length,
+        cursor:session.processedJobs,
+        total:session.totalJobs,
+        segmentIndex:session.jobSegmentIndex,
+        segmentCursor:session.cursor,
+        pendingSegments:session.pendingJobSegments.length+(session.cursor<session.jobs.length?1:0),
+        continuationAvailable:hasContinuation,
         inputRevisionFence:deepClone(session.inputRevisionFence),
         generationFence:deepClone(session.generationFence),
         checksum:stableHash(stableStringify({
-          cursor:session.cursor,
+          cursor:session.processedJobs,
+          segmentIndex:session.jobSegmentIndex,
+          segmentCursor:session.cursor,
           publishedArtifactIds:session.publishedArtifactIds,
           failures:session.failures,
           outcomes:session.outcomes,
@@ -696,7 +719,7 @@ export class MemoryExperienceStore {
         })),
       };
     }
-    if(session.state!=='PARKED_AFTER_SEAL'&&session.state!=='STALE')session.state=session.cursor>=session.jobs.length?'COMPLETED':'CHECKPOINTED';
+    if(session.state!=='PARKED_AFTER_SEAL'&&session.state!=='STALE')session.state=session.processedJobs>=session.totalJobs?'COMPLETED':'CHECKPOINTED';
     return deepClone(session);
   }
 

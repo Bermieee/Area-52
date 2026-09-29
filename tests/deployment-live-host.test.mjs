@@ -619,9 +619,12 @@ test('Worker 3 host payload preserves partially admitted Lore',async()=>{
     {role:'user',content:'At Moonlit Observatory, tell me which lantern still matters.'},
   ],dryRun:false};
   await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
+  await Promise.all([...listeners.get('chat_completion_prompt_ready')].map(fn=>fn(actualRequest)));
 
   const injected=actualRequest.chat.map(row=>String(row.content??''));
-  assert.ok(injected.some(text=>text.includes('[RELEVANT_LORE]')&&text.includes('eastern lantern')),
+  const loreRows=injected.filter(text=>text.includes('[RELEVANT_LORE]')&&text.includes('eastern lantern'));
+  assert.equal(loreRows.length,1,'replayed prompt-ready hooks must not duplicate the sealed Lore insertion');
+  assert.ok(loreRows[0],
     'final host payload must contain the Lore fragment that PromptPlan actually admitted');
   assert.ok(preparedPlan?.sections?.some(row=>row.slot==='RELEVANT_LORE'&&row.representation==='COMPACT'));
   assert.ok(preparedPlan?.deferred?.some(row=>row.slot==='RELEVANT_LORE'&&row.partial===true&&row.deferredEntryCount===3));

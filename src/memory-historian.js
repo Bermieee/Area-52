@@ -12,7 +12,7 @@ import {
   stableStringify,
   uniqStrings,
 } from './memory-contracts.js';
-import {historianArtifactReference} from './memory-experience-store.js';
+import {historianArtifactReference,memoryReferenceValues} from './memory-experience-store.js';
 
 const TOKEN_RE=/[a-z0-9][a-z0-9'-]{1,}/g;
 const STOP=new Set(['the','a','an','and','or','of','to','in','on','at','for','with','is','was','were','be','been','about','tell','me','what','who','where','when','how','did','does','do']);
@@ -123,7 +123,9 @@ export class MemoryHistorianIndex {
     this.experienceStore.refreshFreshness();
 
     for (const episode of this.experienceStore.currentEpisodes({freshOnly:true})) {
-      const evidenceRows=episode.evidenceRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
+      const episodeEvidenceRefs=memoryReferenceValues(episode,'evidenceRefs');
+      const episodeSourceRevisionRefs=memoryReferenceValues(episode,'sourceRevisionRefs');
+      const evidenceRows=episodeEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
       const knownBy=episode.knownBy.length?episode.knownBy:intersectKnownBy(evidenceRows);
       const text=[episode.summary,...episode.participants,evidenceRows.map((row)=>row.exactContent).join(' ')].join(' ');
       this.addRecord({
@@ -135,8 +137,8 @@ export class MemoryHistorianIndex {
         channel:HistorianMemoryChannel.SCENE_EPISODE,
         representationText:episode.summary,
         tokens:tokenize(text),
-        sourceRevisionRefs:[...episode.sourceRevisionRefs],
-        evidenceRefs:[...episode.evidenceRefs],
+        sourceRevisionRefs:episodeSourceRevisionRefs,
+        evidenceRefs:episodeEvidenceRefs,
         claimRefs:[],
         relationshipRefs:[],
         eventRefs:episode.sceneId?[episode.sceneId]:[],
@@ -151,14 +153,16 @@ export class MemoryHistorianIndex {
         sceneRevision:episode.sceneRevision,
         worldRevision:null,
         provenance:[{ref:'memory-episode-provenance:'+episode.id}],
-        dependencyRevisions:[...episode.sourceRevisionRefs,episode.id],
+        dependencyRevisions:[...episodeSourceRevisionRefs,episode.id],
         freshness:'FRESH',
-        exactDrillbackRefs:[...episode.evidenceRefs],
+        exactDrillbackRefs:episodeEvidenceRefs,
       });
     }
 
     for (const reflection of this.experienceStore.currentReflections({freshOnly:true})) {
-      const evidenceRows=reflection.supportEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
+      const reflectionSupportRefs=memoryReferenceValues(reflection,'supportEvidenceRefs');
+      const reflectionSourceRevisionRefs=memoryReferenceValues(reflection,'sourceRevisionRefs');
+      const evidenceRows=reflectionSupportRefs.map((id)=>this.graph.evidenceRecord(id)).filter(Boolean);
       const knownBy=intersectKnownBy(evidenceRows);
       const text=[reflection.statement,...reflection.subjectRefs,evidenceRows.map((row)=>row.exactContent).join(' ')].join(' ');
       this.addRecord({
@@ -170,8 +174,8 @@ export class MemoryHistorianIndex {
         channel:HistorianMemoryChannel.REFLECTION,
         representationText:reflection.statement,
         tokens:tokenize(text),
-        sourceRevisionRefs:[...reflection.sourceRevisionRefs],
-        evidenceRefs:[...reflection.supportEvidenceRefs],
+        sourceRevisionRefs:reflectionSourceRevisionRefs,
+        evidenceRefs:reflectionSupportRefs,
         claimRefs:[],
         relationshipRefs:[],
         eventRefs:[],
@@ -186,9 +190,9 @@ export class MemoryHistorianIndex {
         sceneRevision:null,
         worldRevision:null,
         provenance:[{ref:'memory-reflection-provenance:'+reflection.id}],
-        dependencyRevisions:[...reflection.sourceRevisionRefs,reflection.id],
+        dependencyRevisions:[...reflectionSourceRevisionRefs,reflection.id],
         freshness:'FRESH',
-        exactDrillbackRefs:[...reflection.supportEvidenceRefs],
+        exactDrillbackRefs:reflectionSupportRefs,
       });
     }
 

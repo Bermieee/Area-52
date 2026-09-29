@@ -22,7 +22,7 @@ function historianFixture(){
       artifactRevision:1,
       artifactType:'SCENE_EPISODE',
       channel:'SCENE_EPISODE',
-      representationText:'ember '+String(index)+' '+('detail '.repeat(90)),
+      representationText:'ember '+String(index)+' '+(index===1?'🔥'.repeat(80)+' ':'')+('detail '.repeat(90)),
       tokens:['ember','detail',String(index)],
       sourceRevisionRefs:['source:test:'+index+'@r1'],
       evidenceRefs:['evidence:test:'+index],
@@ -40,6 +40,23 @@ function historianFixture(){
       exactDrillbackRefs:['evidence:test:'+index],
     });
   }
+  historian.addRecord({
+    kind:'MemoryHistorianRecord',
+    id:'historian:test:stale',
+    artifactId:'episode:test:stale',
+    artifactRevision:1,
+    artifactType:'SCENE_EPISODE',
+    channel:'SCENE_EPISODE',
+    representationText:'ember detail stale should never return',
+    tokens:['ember','detail','stale'],
+    sourceRevisionRefs:['source:test:stale@r1'],
+    evidenceRefs:['evidence:test:stale'],
+    claimRefs:[],relationshipRefs:[],eventRefs:[],entityRefs:[],participants:[],knownBy:[],
+    timeBounds:{start:null,end:null},authorityClass:'OBSERVED',truthStatusHint:'HISTORICAL',
+    significance:1,sequence:11,sceneRevision:99,worldRevision:99,
+    provenance:[{ref:'test:stale'}],dependencyRevisions:['source:test:stale@r1'],
+    freshness:'STALE',exactDrillbackRefs:['evidence:test:stale'],
+  });
   historian.revision='memory-historian:test';
   return historian;
 }
@@ -54,6 +71,16 @@ function request(maxEvidenceBytes){
     limits:{maxArtifacts:3,maxEvidenceBytes},
   };
 }
+
+test('historian evidence budget uses UTF-8 bytes and excludes stale source records before packing',()=>{
+  const historian=historianFixture();
+  const complete=historian.resolveHistorianMemoryRequest(request(1_000_000));
+  assert.equal(complete.artifacts.length,3);
+  assert.equal(complete.artifacts.some((row)=>row.artifactRef.artifactId==='episode:test:stale'),false);
+  const json=JSON.stringify(complete.artifacts);
+  assert.equal(complete.evidenceBytes,new TextEncoder().encode(json).length);
+  assert.ok(complete.evidenceBytes>json.length,'multi-byte representation must be counted as UTF-8 bytes');
+});
 
 test('historian evidence budget returns the best-ranked prefix and addressable continuation instead of empty overflow',()=>{
   const historian=historianFixture();

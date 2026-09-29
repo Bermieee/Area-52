@@ -663,6 +663,8 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.nativePending = new Map();
     this.nativePayloads = new Map();
     this.nativeRuns = new Map();
+    // Deep Lore study yields at slice boundaries while a native generation is running or awaiting its response.
+    this.brain.setForegroundProbe?.(() => this.nativeRuns.size > 0 || this.nativePending.size > 0);
     this.nativeHistory = [];
     this.nativeRejections = [];
     this.nativePerformance = [];
@@ -1469,6 +1471,13 @@ export class DevelopmentDeploymentSillyTavernSession {
     );
     if(!loreStudyContractAvailable){
       for(const key of ['loreStudyHost','loreOperatorHost','loreHost','acceptLorebook','runLoreStudy'])delete merged[key];
+    }else if(typeof this.brain?.runLoreStudyBatched==='function'){
+      // The operator's "Run study" action goes through yielding, checkpointed Runtime batches (async), not the
+      // one-shot synchronous call kept for rehearsal and tests.
+      const batched=(input)=>this.brain.runLoreStudyBatched(input??{});
+      const hostKey=['loreStudyHost','loreOperatorHost','loreHost'].find(key=>merged[key]&&typeof merged[key]?.actions?.runLoreStudy==='function');
+      if(hostKey)merged[hostKey]={...merged[hostKey],actions:{...merged[hostKey].actions,runLoreStudy:batched,startLoreStudy:batched}};
+      if(typeof merged.runLoreStudy==='function')merged.runLoreStudy=batched;
     }
 
     const authoringHost=this.#nativeAwareLoreAuthoringHost();

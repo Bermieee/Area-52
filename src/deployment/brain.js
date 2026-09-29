@@ -587,6 +587,16 @@ export class DevelopmentDeploymentBrain {
     };
     const adapter = { invoke: (ctx) => this.#invokeRuntime(ctx) };
     for (let i = 0; i < resourceCount; i += 1) this.runtime.registerExecutionResource({ worker: runtimeWorker('area52-local-' + (i + 1)), adapter });
+    // Lore study is large background work: a Deep Cognition profile so it is sliced, checkpointed in the Work
+    // Ledger and yields at slice boundaries (BOARD_MAP #18 "prepare -> execute -> validate -> commit -> safe yield").
+    this.runtime.registerDeepProfile({
+      profileId: 'lore-study', taskType: 'LORE_STUDY', owner: 'LORE_INTELLIGENCE',
+      requiredCapabilities: [CAPABILITIES.CPU_ANALYSIS], preferredLayer: 'L3', minimumLayer: 'L3',
+      batchHint: { maxSliceUnits: 1 }, foregroundSensitivity: 'YIELD_ON_GENERATION',
+    });
+    this.foregroundProbe = () => false;
+    this.loreStudyBatchSequence = 0;
+    this.loreMaintenanceDue = false;
     this.speculativeWarmReceipts=[];
     this.speculativeWarmTurnSequence=0;
     this.speculativeWarmPumpScheduled=false;
@@ -641,6 +651,10 @@ export class DevelopmentDeploymentBrain {
       if (!revision || revision.state === 'REMOVED') continue;
       this.#syncLoreRevision(revision);
     }
+    return this.#loreStudyReceipt(scope, ownerReceipt);
+  }
+
+  #loreStudyReceipt(scope, ownerReceipt, extra = {}) {
     this.loreSystem = this.loreIntelligence.hierarchy;
     const diagnostics = this.loreSystem.diagnostics();
     const result = {
@@ -651,16 +665,123 @@ export class DevelopmentDeploymentBrain {
       completedObligationCount: ownerReceipt.results?.length ?? 0,
       retrievable: this.sourceMap.size > 0,
       ownerReceipt: clone(ownerReceipt),
-      lane: this.lore.publicSurface(),
-      intelligence: this.loreIntelligence.status(),
+      // Batched runs return revision-aware references (detail stays on demand via readLoreStatus) so assembling
+      // the receipt is not another multi-hundred-millisecond synchronous chunk at large corpora.
+      lane: extra.receiptForm === 'REFERENCE' ? this.lore.referenceSurface() : this.lore.publicSurface(),
+      intelligence: extra.receiptForm === 'REFERENCE' ? { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } : this.loreIntelligence.status(),
       retrieval: diagnostics,
       coreWorld: this.core.currentWorldModel(),
       mappingCount: this.sourceMap.size,
       rawSourceOnlyCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'RAW_SOURCE_ONLY').length,
       semanticExtractionCount: [...this.sourceMap.values()].filter((row) => row.extractionMode === 'SEMANTIC').length,
+      ...extra,
     };
     this.#emit({ type: 'LORE_STUDIED', result });
     return clone(result);
+  }
+
+  // The installed session tells the brain when a generation is running; deep work waits at slice boundaries.
+  setForegroundProbe(probe) { this.foregroundProbe = typeof probe === 'function' ? probe : () => false; }
+
+  // One Runtime obligation over `units`, executed slice by slice (one unit per slice). Between slices the
+  // event loop gets a turn, work pauses while a foreground generation is active, and an abort cancels the
+  // obligation at the next boundary; progress stays checkpointed in the owner (Lore obligations) and in the
+  // Work Ledger.
+  async #runLoreBatch({ label, units, execute, signal = null }) {
+    const macrotask = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const sequence = ++this.loreStudyBatchSequence;
+    const admission = this.runtime.deep.submit('lore-study', { dedupeKey: label + ':' + sequence, units, payload: { label } }, {
+      execute: async ({ units: slice }) => {
+        const out = [];
+        for (const unit of slice) out.push(await execute(unit));
+        await macrotask();
+        return out;
+      },
+      validate: ({ output }) => Array.isArray(output),
+      commit: () => ({ committed: true }),
+    });
+    if (!admission.accepted) throw new Error('LORE_STUDY_RUNTIME_ADMISSION_REJECTED:' + String(admission.reason ?? 'UNKNOWN'));
+    const taskId = admission.task.taskId;
+    for (;;) {
+      if (signal?.aborted) {
+        this.runtimeDirector.cancelTask(taskId, 'lore-study-aborted');
+        // An active assignment is released by the director on its next cycle; do not leave the slot held.
+        for (let i = 0; i < 4 && this.runtimeDirector.active.has(taskId); i += 1) await this.runtimeDirector.runCycle({ waitForTaskIds: [taskId] });
+        return { aborted: true, taskId };
+      }
+      if (this.foregroundProbe()) { await new Promise((resolve) => setTimeout(resolve, 10)); continue; }
+      const record = this.runtimeDirector.ledger.get(taskId);
+      if (record.executionStatus === 'COMPLETE') return { aborted: false, taskId };
+      if (record.executionStatus === 'FAILED') throw new Error('LORE_STUDY_RUNTIME_FAILED:' + String(record.executionReason ?? 'UNKNOWN'));
+      if (record.executionStatus === 'PARKED') this.runtimeDirector.resumeParked();
+      await this.runtimeDirector.runCycle({ signal, waitForTaskIds: [taskId] });
+      await macrotask(); // never spin on microtasks: the host event loop always gets a turn
+    }
+  }
+
+  async runLoreStudyBatched({ scope = 'DUE', signal = null } = {}) {
+    if (scope !== 'DUE') throw new TypeError('runLoreStudyBatched currently supports scope=DUE');
+    const svc = this.loreIntelligence;
+    const results = [];
+    const compilations = [];
+    let aborted = false;
+    for (;;) {
+      const due = svc.dueObligationIds();
+      if (!due.length) break;
+      const before = results.length;
+      const outcome = await this.#runLoreBatch({
+        label: 'lore-study', signal,
+        units: due.map((id) => ({ id: 'lore-study:' + id, payload: { obligationId: id } })),
+        execute: async (unit) => {
+          const step = svc.studyObligation(unit.payload.obligationId, { maxUnits: Infinity });
+          results.push(step.result);
+          if (step.compilation) compilations.push(step.compilation);
+          return { obligationId: unit.payload.obligationId, state: step.result.obligation?.state ?? null };
+        },
+      });
+      if (outcome.aborted) { aborted = true; break; }
+      if (results.length === before) break; // no progress: leave the rest due, never spin
+    }
+    // Learned revisions whose ontology/summaries/retrieval index were not rebuilt (aborted run) stay flagged, and
+    // are excluded from retrieval until a later run completes maintenance (retrieval is fail-closed on index readiness).
+    if (results.length) this.loreMaintenanceDue = true;
+    let ownerReceipt;
+    if (this.loreMaintenanceDue && !aborted) {
+      const begun = svc.beginMaintenance();
+      const sliceCount = Math.max(1, Math.ceil(begun.planLength / 16));
+      const outcome = await this.#runLoreBatch({
+        label: 'lore-maintenance', signal,
+        units: Array.from({ length: sliceCount }, (_, i) => ({ id: 'lore-maintenance:' + begun.sessionId + ':' + i, payload: { sessionId: begun.sessionId } })),
+        execute: async (unit) => ({ state: svc.runMaintenanceSlice(unit.payload.sessionId, { maxUnits: 16 }) }),
+      });
+      if (outcome.aborted) { aborted = true; ownerReceipt = svc._studyReceipt({ results, compilations, ontology: begun.ontology, retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: false, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } }); }
+      else {
+        // Any slice remainder (plan not yet COMPLETED) is finished before the index is built.
+        while (svc.runMaintenanceSlice(begun.sessionId, { maxUnits: 16 }) !== 'COMPLETED') await new Promise((resolve) => setTimeout(resolve, 0));
+        // Index build and receipt assembly are separate synchronous chunks; the host gets a turn between them.
+        svc.hierarchy.refreshRetrieval();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        ownerReceipt = svc._studyReceipt({ results, compilations, ontology: begun.ontology, retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: true, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } });
+        this.loreMaintenanceDue = false;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    } else {
+      ownerReceipt = svc._studyReceipt({ results, compilations, ontology: svc.ontology.current(), retrieval: svc.hierarchy.diagnostics(), maintenancePerformed: false, status: { kind: 'LoreIntelligenceStatusReference', revisionKey: this.lore.referenceRevisionKey() } });
+    }
+    const mirror = this.lore.registry.listEntries({ includeRemoved: false });
+    if (!aborted && mirror.length) {
+      const outcome = await this.#runLoreBatch({
+        label: 'lore-mirror', signal,
+        units: mirror.map((row) => ({ id: 'lore-mirror:' + row.sourceId, payload: { sourceId: row.sourceId } })),
+        execute: async (unit) => {
+          const revision = this.lore.registry.currentRevision(unit.payload.sourceId, { allowMissing: true });
+          if (revision && revision.state !== 'REMOVED') this.#syncLoreRevision(revision);
+          return { sourceId: unit.payload.sourceId };
+        },
+      });
+      aborted = outcome.aborted;
+    }
+    return this.#loreStudyReceipt(scope, ownerReceipt, { aborted, batched: true, runtimeTaskType: 'LORE_STUDY', receiptForm: 'REFERENCE' });
   }
 
   ingestLorebook(input = {}) {

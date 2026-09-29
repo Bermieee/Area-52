@@ -283,50 +283,67 @@ export class LoreIntelligenceService {
     const results = [];
     const compilations = [];
     for (const due of this.runtime.dueObligations()) {
-      const result = this.runtime.run(due.id, {maxUnits: maxUnitsPerObligation});
-      results.push(result);
-      const learned = result.learnedRevision;
-      if (!learned || learned.state !== 'CURRENT') continue;
-      try {
-        const family = this.multiResolution.compileFamily({sourceId: learned.sourceId});
-        const failures = Object.entries(family)
-          .filter(([, row]) => row?.status !== QualityStatus.PASS)
-          .map(([profile, row]) => ({profile, failure: row?.failure || 'REPRESENTATION_COMPILE_FAILED'}));
-        if (failures.length) {
-          this.compileFailures.set(learned.sourceId, failures);
-        } else {
-          this.compileFailures.delete(learned.sourceId);
-        }
-        compilations.push({
-          sourceId: learned.sourceId,
-          sourceRevisionId: learned.sourceRevisionId,
-          learnedRevisionId: learned.id,
-          semanticDiff: deepClone(learned.semanticDiff),
-          profiles: Object.fromEntries(Object.entries(family).map(([profile, row]) => [profile, {
-            status: row.status,
-            failure: row.failure || null,
-            representationRef: row.representation?.id || null,
-            sourceRevisionId: row.representation?.sourceRevisionId || learned.sourceRevisionId,
-            retentionReceipt: deepClone(row.qualityReceipt || null),
-            reused: Boolean(row.reused),
-          }])),
-        });
-      } catch (error) {
-        this.compileFailures.set(learned.sourceId, [{
-          profile: 'FAMILY',
-          failure: String(error?.code || error?.message || error),
-        }]);
-        compilations.push({
-          sourceId: learned.sourceId,
-          sourceRevisionId: learned.sourceRevisionId,
-          learnedRevisionId: learned.id,
-          semanticDiff: deepClone(learned.semanticDiff),
-          profiles: {},
-          failure: String(error?.message || error),
-        });
-      }
+      const step = this.studyObligation(due.id, {maxUnits: maxUnitsPerObligation});
+      results.push(step.result);
+      if (step.compilation) compilations.push(step.compilation);
     }
+    return this.finalizeStudy({results, compilations, rebuildRetrieval});
+  }
 
+  // One due obligation: study the source revision and compile its representation family. This is the unit
+  // a Runtime batch slice runs; `runStudy` is the same loop without yielding.
+  dueObligationIds() {
+    return this.runtime.dueObligations().map((row) => row.id);
+  }
+
+  studyObligation(obligationId, {maxUnits = Infinity} = {}) {
+    const result = this.runtime.run(obligationId, {maxUnits});
+    const learned = result.learnedRevision;
+    if (!learned || learned.state !== 'CURRENT') return {result, compilation: null};
+    let compilation;
+    try {
+      const family = this.multiResolution.compileFamily({sourceId: learned.sourceId});
+      const failures = Object.entries(family)
+        .filter(([, row]) => row?.status !== QualityStatus.PASS)
+        .map(([profile, row]) => ({profile, failure: row?.failure || 'REPRESENTATION_COMPILE_FAILED'}));
+      if (failures.length) {
+        this.compileFailures.set(learned.sourceId, failures);
+      } else {
+        this.compileFailures.delete(learned.sourceId);
+      }
+      compilation = {
+        sourceId: learned.sourceId,
+        sourceRevisionId: learned.sourceRevisionId,
+        learnedRevisionId: learned.id,
+        semanticDiff: deepClone(learned.semanticDiff),
+        profiles: Object.fromEntries(Object.entries(family).map(([profile, row]) => [profile, {
+          status: row.status,
+          failure: row.failure || null,
+          representationRef: row.representation?.id || null,
+          sourceRevisionId: row.representation?.sourceRevisionId || learned.sourceRevisionId,
+          retentionReceipt: deepClone(row.qualityReceipt || null),
+          reused: Boolean(row.reused),
+        }])),
+      };
+    } catch (error) {
+      this.compileFailures.set(learned.sourceId, [{
+        profile: 'FAMILY',
+        failure: String(error?.code || error?.message || error),
+      }]);
+      compilation = {
+        sourceId: learned.sourceId,
+        sourceRevisionId: learned.sourceRevisionId,
+        learnedRevisionId: learned.id,
+        semanticDiff: deepClone(learned.semanticDiff),
+        profiles: {},
+        failure: String(error?.message || error),
+      };
+    }
+    return {result, compilation};
+  }
+
+  // After the due obligations: rebuild ontology and retrieval once, publish the run receipt.
+  finalizeStudy({results = [], compilations = [], rebuildRetrieval = true} = {}) {
     const maintenancePerformed = results.length > 0;
     const ontology = maintenancePerformed ? this.ontology.rebuild() : this.ontology.current();
     let retrieval = this.hierarchy.diagnostics();
@@ -334,7 +351,29 @@ export class LoreIntelligenceService {
       this.hierarchy.rebuild();
       retrieval = this.hierarchy.diagnostics();
     }
+    return this._studyReceipt({results, compilations, ontology, retrieval, maintenancePerformed});
+  }
 
+  // The same maintenance as finalizeStudy, split so a Runtime batch can yield between slices:
+  // beginMaintenance (ontology + hierarchy refresh + build session), runMaintenanceSlice (bounded summary units),
+  // completeMaintenance (retrieval index build + receipt). Same builder, plan and index as `hierarchy.rebuild()`.
+  beginMaintenance() {
+    const ontology = this.ontology.rebuild();
+    this.hierarchy.refreshHierarchy();
+    const session = this.hierarchy.beginBuild();
+    return {ontology, sessionId: session.id, planLength: session.plan.length, state: session.state};
+  }
+
+  runMaintenanceSlice(sessionId, {maxUnits = 16} = {}) {
+    return this.hierarchy.runBuild(sessionId, {maxUnits}).state;
+  }
+
+  completeMaintenance({results = [], compilations = [], ontology} = {}) {
+    this.hierarchy.refreshRetrieval();
+    return this._studyReceipt({results, compilations, ontology, retrieval: this.hierarchy.diagnostics(), maintenancePerformed: true});
+  }
+
+  _studyReceipt({results, compilations, ontology, retrieval, maintenancePerformed, status = null}) {
     const receipt = {
       kind: 'LoreStudyRunReceipt',
       contractVersion: 1,
@@ -345,7 +384,7 @@ export class LoreIntelligenceService {
       ontology,
       maintenancePerformed,
       maintenanceReason: maintenancePerformed ? 'DUE_STUDY_PROCESSED' : 'NO_DUE_STUDY',
-      status: this.status(),
+      status: status ?? this.status(),
     };
     this.lastStudyRun = deepClone(receipt);
     return receipt;

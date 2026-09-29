@@ -94,6 +94,24 @@ function shardChildren({parentLogicalKey, parentLabel, childIds, sourceMap, lore
   return {childIds: shardIds, shards};
 }
 
+function pageManifest(ids, pageSize, prefix) {
+  const sorted = [...ids].sort();
+  const pages = [];
+  for (let offset = 0; offset < sorted.length; offset += pageSize) {
+    const scopeIds = sorted.slice(offset, offset + pageSize);
+    pages.push({
+      kind: 'LoreNavigationManifestPage',
+      id: prefix + ':' + stableHash(scopeIds.join('|')),
+      index: pages.length,
+      offset,
+      pageSize,
+      scopeIds,
+      complete: offset + scopeIds.length >= sorted.length,
+    });
+  }
+  return pages;
+}
+
 export function deriveLoreNavigationHierarchy(runtime) {
   const fresh = currentFreshSources(runtime);
   const sourceRows = fresh.rows;
@@ -199,7 +217,7 @@ export function deriveLoreNavigationHierarchy(runtime) {
   let communityCount = 0;
   for (const [communityKey, ids] of [...memberships.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const sourceIds = [...ids].sort();
-    if (sourceIds.length < 2 || communityCount >= LORE_WAVE3_LIMITS.maxCommunityScopes) continue;
+    if (sourceIds.length < 2) continue;
     const leafIds = sourceIds.map((id) => leafBySource.get(id)).filter(Boolean).sort();
     const baseLogical = 'community|' + communityKey;
     const provisional = createNavigationScope({
@@ -274,7 +292,22 @@ export function deriveLoreNavigationHierarchy(runtime) {
     scopes.set(corpus.id, corpus);
   }
 
-  if (scopes.size > LORE_WAVE3_LIMITS.maxScopeCount) throw new Error('LORE_HIERARCHY_SCOPE_LIMIT_EXCEEDED');
+  const scopePages = pageManifest(scopes.keys(), LORE_WAVE3_LIMITS.maxScopeCount, 'lore-scope-page');
+  const communityScopeIds = [...scopes.values()].filter((scope) => scope.type === NavigationScopeType.COMMUNITY).map((scope) => scope.id);
+  const communityPages = pageManifest(communityScopeIds, LORE_WAVE3_LIMITS.maxCommunityScopes, 'lore-community-page');
+  const diagnostics = [...fresh.diagnostics];
+  if (scopePages.length > 1) diagnostics.push({
+    status: 'HIERARCHY_SCOPE_PAGED',
+    scopeCount: scopes.size,
+    pageCount: scopePages.length,
+    pageSize: LORE_WAVE3_LIMITS.maxScopeCount,
+  });
+  if (communityPages.length > 1) diagnostics.push({
+    status: 'COMMUNITY_SCOPE_PAGED',
+    communityCount,
+    pageCount: communityPages.length,
+    pageSize: LORE_WAVE3_LIMITS.maxCommunityScopes,
+  });
 
   const structureFingerprint = stableHash(stableStringify([...scopes.values()]
     .map((scope) => [scope.id, scope.structureRevision])
@@ -285,7 +318,16 @@ export function deriveLoreNavigationHierarchy(runtime) {
     hierarchyRevision: 'hierarchy:' + structureFingerprint,
     scopes: [...scopes.values()].map(deepClone).sort((a, b) => a.id.localeCompare(b.id)),
     leafBySource: [...leafBySource.entries()],
-    diagnostics: fresh.diagnostics.slice(-LORE_WAVE3_LIMITS.maxDiagnostics),
+    scopePages,
+    communityPages,
+    coverage: {
+      scopeCount: scopes.size,
+      scopePageCount: scopePages.length,
+      communityCount,
+      communityPageCount: communityPages.length,
+      complete: true,
+    },
+    diagnostics: diagnostics.slice(-LORE_WAVE3_LIMITS.maxDiagnostics),
     includedSourceIds: allSources,
     excludedSourceCount: fresh.diagnostics.length,
     authoredTreeMutated: false,

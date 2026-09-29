@@ -24,6 +24,42 @@ export class LoreNavigationSummaryRegistry {
     return this.evidenceRegistry.resolveAll(refs, {limit});
   }
 
+  resolveEvidenceRefsPaged(refs = [], {pageSize = 4096} = {}) {
+    const unique = [...new Set((refs || []).filter(Boolean).map(String))];
+    const pages = [];
+    const evidence = [];
+    const missingEvidenceRefs = [];
+    const size = Math.max(1, Math.min(4096, Math.trunc(Number(pageSize) || 4096)));
+    for (let offset = 0; offset < unique.length; offset += size) {
+      const page = this.evidenceRegistry.resolveMany(unique, {offset, limit: size});
+      pages.push({
+        index: pages.length,
+        offset,
+        limit: size,
+        returnedRefs: page.returnedRefs,
+        hasMore: page.hasMore,
+        missingEvidenceRefs: [...page.missingEvidenceRefs],
+      });
+      evidence.push(...page.evidence);
+      missingEvidenceRefs.push(...page.missingEvidenceRefs);
+    }
+    return {
+      kind: 'LoreNavigationPagedEvidenceResolution',
+      status: missingEvidenceRefs.length ? 'DEGRADED' : 'COMPLETE',
+      totalRefs: unique.length,
+      pageCount: pages.length,
+      pageSize: size,
+      pages,
+      evidence,
+      missingEvidenceRefs: [...new Set(missingEvidenceRefs)],
+      authorityGranted: false,
+      sourceAuthority: false,
+      truthAuthority: false,
+      settlementAuthority: false,
+      contextSealAuthority: false,
+    };
+  }
+
   readEvidenceRefs(refs = [], {offset = 0, limit = 64} = {}) {
     return this.evidenceRegistry.resolveMany(refs, {offset, limit});
   }
@@ -69,19 +105,14 @@ export class LoreNavigationSummaryRegistry {
     if (!id) return null;
     const row = this.summaries.get(id);
     if (!row || ![NavigationSummaryState.BUILT, NavigationSummaryState.REUSED].includes(row.state) || row.freshness !== 'FRESH') return null;
-    const evidenceResolution = this.resolveEvidenceRefs(row.criticalEvidenceRefs || []);
+    const evidenceResolution = this.resolveEvidenceRefsPaged(row.criticalEvidenceRefs || []);
     if (evidenceResolution.status !== 'COMPLETE') return null;
     row.state = NavigationSummaryState.REUSED;
     return deepClone(row);
   }
 
   publish({summary, scope}) {
-    const evidenceResolution = this.resolveEvidenceRefs(summary?.criticalEvidenceRefs || []);
-    if (evidenceResolution.status === 'LIMIT_EXCEEDED') {
-      const error = new Error('Navigation summary evidence reference limit exceeded');
-      error.code = 'EVIDENCE_REF_LIMIT';
-      throw error;
-    }
+    const evidenceResolution = this.resolveEvidenceRefsPaged(summary?.criticalEvidenceRefs || []);
     if (evidenceResolution.status === 'DEGRADED') {
       const error = new Error('Navigation summary references missing evidence: ' + evidenceResolution.missingEvidenceRefs.join(','));
       error.code = 'EVIDENCE_REF_MISSING';

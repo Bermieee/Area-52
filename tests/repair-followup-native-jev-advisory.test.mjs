@@ -214,3 +214,67 @@ for (const w of WORLDS) {
     h.session.destroy();
   });
 }
+
+// Installed end to end (closure round): the deployment's own Jev service behind an operator-connected JEV resource (fake
+// OpenAI-compatible HTTP provider). Covers FINAL_HANDOFF acceptance item 8 on the fake host: advice only while a JEV
+// resource is connected, consumed by the next turn that the conflict shapes, a failed live call (native fixture fallback)
+// never presented as advice, disconnect stops requests.
+function installedJevProvider({ fail = false } = {}) {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    if (String(url).endsWith('/models')) return { ok: true, status: 200, json: async () => ({ data: [{ id: 'jev-mock' }] }) };
+    const body = JSON.parse(init?.body ?? '{}'); calls.push(body);
+    const user = String(body.messages?.at(-1)?.content ?? '');
+    if (fail && /optionId/.test(user)) return { ok: false, status: 503, headers: { get: () => null }, json: async () => ({ error: { message: 'down' } }) };
+    const option = (user.match(/"optionId"\s*:\s*"([^"]+)"/) || [])[1] ?? 'CONTRADICTORY';
+    const evidenceUsed = [...user.matchAll(/"evidenceId"\s*:\s*"([^"]+)"/g)].map((m) => m[1]).slice(0, 4);
+    const content = JSON.stringify({ outcome: 'DECIDED', decisionCode: 'CHOOSE_ONE', selectedOptionIds: [option], rejectedOptionIds: [], classification: null, reasonCodes: ['FAKE_PROVIDER'], evidenceUsed, unresolvedFactors: [], confidence: 0.8, abstained: false, escalationTarget: null, requiresOperator: false, explanation: 'fake' });
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ model: 'jev-mock', choices: [{ message: { content }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) };
+  };
+  return { calls, fetchImpl, jevCalls: () => calls.filter((b) => /optionId/.test(String(b.messages?.at(-1)?.content ?? ''))).length };
+}
+async function installedJevWorld({ fail = false } = {}) {
+  const w = WORLDS[0];
+  const h = makeInstalled({ chatId: w.chat });
+  h.session.ingestLorebook(w.book());
+  const provider = installedJevProvider({ fail });
+  h.session.brain.resourceConnections.fetchImpl = provider.fetchImpl;
+  const ask = async (text) => { h.user(text); await h.generate('normal', 'Nobody knows.'); await h.nativeBrain.drainBackgroundLearning({ maxCycles: 64 }); return h.nativeBrain.readTurn(h.nativeBrain.uiBindings().readSelection({ chatId: w.chat }).turnId); };
+  return { h, w, provider, ask };
+}
+
+test('installed: a connected JEV resource produces a live advisory that the next conflicting turn consumes; disconnect stops requests', async () => {
+  const { h, w, provider, ask } = await installedJevWorld();
+  assert.equal(h.nativeBrain.readJevAdvisories().configured, false, 'precondition: idle without a JEV resource');
+  await h.session.brain.connectOptionalResource({ kind: 'JEV', resourceId: 'jev', endpoint: 'https://jev.invalid/v1', modelId: 'jev-mock', apiKey: 'k' });
+  assert.equal(h.nativeBrain.readJevAdvisories().configured, true);
+  const first = await ask(w.ask);
+  const rows = h.nativeBrain.readJevAdvisories().rows;
+  assert.equal(rows.length, 1); assert.equal(rows[0].status, 'ADVISED'); assert.equal(rows[0].current, true);
+  assert.ok(provider.jevCalls() >= 1, 'the live provider was called');
+  assert.equal(first.published.cognitiveChoiceReceipt?.jev?.advised ?? false, false, 'the requesting turn is not changed after its seal');
+  const next = await ask('Where is the Sun Blade now? The reports still conflict.');
+  const jev = next.published.cognitiveChoiceReceipt.jev;
+  assert.equal(jev.action, 'PRESERVE_UNRESOLVED'); assert.equal(jev.advisory.id, rows[0].id); assert.equal(jev.advisory.destination, 'NEXT_TURN');
+  assert.equal(jev.advisory.authorityGranted, false); assert.equal(jev.advisory.canonicalMutation, false);
+  const hint = h.session.brain.loreIntelligence.brainInterface().sourceTruthHint('lore:ember-golden:blade-report-a')?.status;
+  assert.equal(hint, 'UNRESOLVED', 'the advice resolves nothing in Lore');
+  const before = provider.jevCalls();
+  h.session.brain.resourceConnections.disconnectResource('jev');
+  assert.equal(h.nativeBrain.readJevAdvisories().configured, false);
+  await ask('Where can Eris find the Sun Blade? The accounts conflict again.');
+  assert.equal(provider.jevCalls(), before, 'no Jev request after disconnect');
+  h.session.destroy();
+});
+
+test('installed: a failed live Jev call (native fixture fallback) is never presented or consumed as advice', async () => {
+  const { h, w, provider, ask } = await installedJevWorld({ fail: true });
+  await h.session.brain.connectOptionalResource({ kind: 'JEV', resourceId: 'jev', endpoint: 'https://jev.invalid/v1', modelId: 'jev-mock', apiKey: 'k' });
+  await ask(w.ask);
+  assert.ok(provider.jevCalls() >= 1, 'precondition: the live Jev call was attempted (and failed)');
+  const rows = h.nativeBrain.readJevAdvisories().rows;
+  assert.deepEqual(rows.map((row) => row.status), ['NOT_ADVISED_NO_LIVE_PROVIDER'], 'the fallback is recorded as no advice');
+  const next = await ask('Where is the Sun Blade now? The reports still conflict.');
+  assert.notEqual(next.published.cognitiveChoiceReceipt.jev.action, 'PRESERVE_UNRESOLVED', 'nothing standing to consume');
+  h.session.destroy();
+});

@@ -1,6 +1,6 @@
 # Area-52 Cap Ledger (cap-remediation wave)
 
-Status of this ledger: **inventory only; no cap changed yet.** Built by a read-only audit of `src/` at `repair/live-fixes` (6c20f2d, on main 786c67e) against `AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md`. The top findings (rows 1, 2, 13, 42, 51) were re-read in the code by the main session; the others are cited from the audit and are re-verified when their row is worked.
+Status of this ledger: inventory complete; rows marked changed are done (see Change log). Built by a read-only audit of `src/` at `repair/live-fixes` (6c20f2d, on main 786c67e) against `AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md`. The top findings (rows 1, 2, 13, 42, 51) were re-read in the code by the main session; the others are cited from the audit and are re-verified when their row is worked.
 
 Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core Architecture Invariant). "Proposed" = intended new classification; "Status": untouched / changed / validated.
 
@@ -16,15 +16,15 @@ Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core
 
 | # | Subsystem | Location | Value | Current behaviour when hit | Recorded? | Risk | Proposed | Continuation / canonical recovery | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | Lore Study | lore-study-engine.js:35,52 `MAX_SENTENCES` | 96 | `splitSentences(...).slice(0,96)`; 97+ never studied; obligation COMPLETED | silent | knowledge loss | SLICE (96/slice, sentence cursor) | Runtime batch checkpoint; exact source canonical; coverage receipt required before COMPLETED | untouched |
-| 2 | Lore Study | :36,865 `MAX_CHUNKS` | 24 | index compared to chunk cap: 12 chunks, sentences 0-23 | silent | knowledge loss | SLICE (24 chunks/slice) | chunk cursor | untouched |
-| 3 | Lore Study | :37,450 `MAX_ENTITIES` | 96 | first-seen `.slice(0,96)`; claims may point at missing ENTITY artifacts | silent | knowledge loss | SLICE (publication), identity across session | session-wide entity map | untouched |
-| 4 | Lore Study | :38,145 / :39,167 `MAX_CLAIMS` / `MAX_RELATIONSHIPS` | 192 / 128 | push returns once full | silent | knowledge loss | SLICE | pending claims carried to next slice | untouched |
-| 5 | Lore Study | :40,619 `MAX_CONCEPTS` | 128 | sliced before dedupe | silent | knowledge loss (derived) | SLICE | continue derivation | untouched |
-| 6 | Lore Study | :433 per-sentence candidates | 8 | fallback branch `.slice(0,8)` | silent | minor | SLICE or explicit overflow | — | untouched |
+| 1 | Lore Study | lore-study-engine.js:35,52 `MAX_SENTENCES` | 96 | `splitSentences(...).slice(0,96)`; 97+ never studied; obligation COMPLETED | silent | knowledge loss | SLICE (96/slice, sentence cursor) | `STUDY_SLICE_LIMITS.sentencesPerSlice` 96/step, sentence cursor; `LoreStudyCoverageReceipt` required before publication; engine v3 re-studies old revisions; old-engine sessions restart | changed + validated (`cap-remediation-lore-study`) |
+| 2 | Lore Study | :36,865 `MAX_CHUNKS` | 24 | index compared to chunk cap: 12 chunks, sentences 0-23 | silent | knowledge loss | SLICE (24 chunks/slice) | `chunksPerSlice` 24 real chunks/step until every sentence is chunked (bug fixed) | changed + validated (`cap-remediation-lore-study`) |
+| 3 | Lore Study | :37,450 `MAX_ENTITIES` | 96 | first-seen `.slice(0,96)`; claims may point at missing ENTITY artifacts | silent | knowledge loss | SLICE (publication), identity across session | `entitiesPerSlice` 96/step over the session-wide entity map; all entities published | changed + validated (`cap-remediation-lore-study`) |
+| 4 | Lore Study | :38,145 / :39,167 `MAX_CLAIMS` / `MAX_RELATIONSHIPS` | 192 / 128 | push returns once full | silent | knowledge loss | SLICE | `claimRowsPerSlice` 192 / `relationshipRowsPerSlice` 128 per step; no row dropped; supporting-claim lookup indexed | changed + validated (`cap-remediation-lore-study`) |
+| 5 | Lore Study | :40,619 `MAX_CONCEPTS` | 128 | sliced before dedupe | silent | knowledge loss (derived) | SLICE | dedupe over all concepts (no cap); community members uncapped (was 64) | changed + validated (`cap-remediation-lore-study`) |
+| 6 | Lore Study | :433 per-sentence candidates | 8 | fallback branch `.slice(0,8)` | silent | minor | SLICE or explicit overflow | cap removed; work per sentence is bounded by the sentence | changed + validated (`cap-remediation-lore-study`) |
 | 7 | Lore Study | :125/:469 aliases | 16 / 7 | trimmed | silent | minor | RANK (artifact) | aliases recoverable from exact source | untouched |
-| 8 | Lore Study | :41,714 / :89-91 forms / sparse terms | 32 / 96 | forms never bind (3 exist); terms capped | silent | low | PHYSICAL (fail explicitly) / PAGE | — | untouched |
-| 9 | Lore Study | :938-946 validateWorkspace | — | checks against the same caps, cannot fail; no sentences-studied/total | none | — | add coverage receipt | — | untouched |
+| 8 | Lore Study | :41,714 / :89-91 forms / sparse terms | 32 / 96 | forms never bind (3 exist); terms capped | silent | low | PHYSICAL (fail explicitly) / PAGE | — | changed (forms: explicit failure `LORE_RETRIEVAL_FORM_BOUND_EXCEEDED`); sparse terms 96 untouched (P3) |
+| 9 | Lore Study | :938-946 validateWorkspace | — | checks against the same caps, cannot fail; no sentences-studied/total | none | — | add coverage receipt | validation checks coverage (`incomplete-coverage` failure) instead of the old ceilings | changed + validated (`cap-remediation-lore-study`) |
 | 10 | Lore Repr. | lore-representation-compiler.js:25-27,72 slices | 1200 / 120 / 128 | throws `SOURCE_SLICE_LIMIT_EXCEEDED` (~138K chars); all profiles for the source fail | compileFailures | work loss | SLICE (segment windows) | segments under one source revision; coverage receipt | untouched |
 | 11 | Lore Repr. | :50 sentence spans | 512 | sentences after 512 get no texture contributions | silent | knowledge loss | SLICE | — | untouched |
 | 12 | Lore Repr. | :28,203 contributionsPerSlice | 48 | rest of slice skipped | silent | knowledge loss | SLICE | extra extraction unit | untouched |
@@ -92,3 +92,11 @@ Checkpoint size and CPU grow linearly with retained turns (repro `LEN=80 TURNS=4
 4. P4 derived representation overflow: 10-12, 14, 21, 23-25, 49.
 5. P5 publication: 34, 35, 33, 19.
 6. P6 audit remaining CACHE/PHYSICAL/DIAGNOSTIC rows.
+
+## Change log
+- **Lore Study slices (rows 1-6, 8-9)**: engine `lore-study-engine-v3`. Units repeat one bounded slice per step (cursor in the session) until covered; the Runtime already checkpoints per step, fences each step on the source revision and publishes atomically at the end, so no partial state is visible.
+  - Evidence: `tests/cap-remediation-lore-study.test.mjs` (10 tests: 95/96/97/192/1000 sentences; per-step bounds and contiguous tiling; stale edit between slices publishes nothing; snapshot/restore mid-study equals an uninterrupted study; old-engine session restarted; >8 name candidates kept). Mutation-checked (re-adding the 96-sentence cut, or ending the chunk unit after one slice, fails the suite).
+  - Equivalence: on the 91 Lore texts found in the test corpus (all within the old caps), artifacts are byte-identical to the previous engine.
+  - Changed expectation: `lore-wave1` "artifact production is bounded for oversized source input" asserted the old per-source ceilings; replaced by a full-coverage assertion (reason cited in the test).
+  - Downstream: no change to nomination budgets (16/24), Candidate Bus, Gather or Seal; more artifacts per large source only.
+  - Remaining limit: study time grows faster than linearly for extreme sources because the session is cloned per step (2,000 sentences: 2.2 s total, longest step 179 ms; 8,000 sentences: 30 s total, longest step 707 ms in the single-step ontology/retrieval/compile units). Follow-up if such sources are real.

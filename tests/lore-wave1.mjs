@@ -245,14 +245,28 @@ test('public integration surface is read-only in authority terms and keeps unres
   assert.ok(surface.artifacts.every((row) => row.sourceRevisionId && row.provenance && row.authorityClass));
 });
 
-test('artifact production is bounded for oversized source input', () => {
+// Changed expectation (cap remediation, owner handoff AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md, cap ledger rows 1-5):
+// this test used to assert the per-source ceilings (<= 24 chunks, <= 96 entities, <= 192 claims), which silently dropped
+// every sentence after the 96th. The bound now applies to the work per step, and the whole source must be covered.
+test('oversized source input is studied completely in bounded slices', () => {
   const runtime = new LoreStudyRuntime();
   runtime.registerLorebook({id: 'bound'});
   const content = Array.from({length: 180}, (_, i) => 'Keeper' + i + ' owns the Tavern' + i + '.').join(' ');
   const added = runtime.upsertEntry({lorebookId: 'bound', uid: 1, content});
-  runtime.run(added.obligation.id);
+  let result;
+  let steps = 0;
+  do { result = runtime.run(added.obligation.id, {maxUnits: 1}); steps += 1; } while (result.checkpointed && !result.failed && steps < 1000);
+  assert.ok(result.learnedRevision, 'published after every slice');
+  assert.ok(steps > 7, 'more steps than units: the work was sliced (' + steps + ')');
   const artifacts = runtime.store.currentArtifacts(runtime.registry);
-  assert.ok(artifacts.filter((row) => row.artifactType === ArtifactType.CONTEXT_CHUNK).length <= 24);
-  assert.ok(artifacts.filter((row) => row.artifactType === ArtifactType.ENTITY).length <= 96);
-  assert.ok(artifacts.filter((row) => row.artifactType === ArtifactType.CLAIM).length <= 192);
+  const chunks = artifacts.filter((row) => row.artifactType === ArtifactType.CONTEXT_CHUNK);
+  assert.equal(chunks.length, 90, 'every sentence is in a two-sentence chunk');
+  assert.deepEqual(chunks.flatMap((row) => row.payload.sentenceIndexes).sort((a, b) => a - b), Array.from({length: 180}, (_, i) => i));
+  const entityNames = new Set(artifacts.filter((row) => row.artifactType === ArtifactType.ENTITY).map((row) => row.payload.canonicalName));
+  assert.ok(entityNames.has('Keeper179') && entityNames.has('Tavern179'), 'the last sentence\'s entities exist');
+  assert.ok(artifacts.some((row) => row.artifactType === ArtifactType.CLAIM && row.provenance.span?.sentenceIndex === 179), 'the last sentence has a claim');
+  const coverage = result.learnedRevision.validation?.coverage ?? runtime.store.currentLearnedRevision(added.obligation.sourceId)?.validation?.coverage;
+  assert.equal(coverage?.coverageComplete, true);
+  assert.equal(coverage.sentenceCount, 180);
+  assert.equal(coverage.sentencesAnalyzed, 180);
 });

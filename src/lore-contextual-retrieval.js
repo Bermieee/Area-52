@@ -40,10 +40,14 @@ function sourceContext(runtime, sourceId, resolution = null) {
     resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
       : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: (resolution.conflictMembership.get(row.id) ?? []).map((m) => m.conflictSetId)} : row
   ));
-  const entities = artifacts
-    .filter((row) => row.artifactType === ArtifactType.ENTITY)
-    .flatMap((row) => [row.payload?.canonicalName, ...(row.payload?.aliases || [])])
-    .filter(Boolean);
+  const entities = [
+    ...artifacts
+      .filter((row) => row.artifactType === ArtifactType.ENTITY)
+      .flatMap((row) => [row.payload?.canonicalName, ...(row.payload?.aliases || [])]),
+    ...artifacts
+      .filter((row) => row.artifactType === ArtifactType.ALIAS)
+      .flatMap((row) => [row.payload?.alias, ...(row.payload?.aliases || [])]),
+  ].filter(Boolean);
   const claims = artifacts.filter((row) => row.artifactType === ArtifactType.CLAIM);
   const relationships = artifacts.filter((row) => row.artifactType === ArtifactType.RELATIONSHIP);
   const title = revision.metadata?.title || source.uid || sourceId;
@@ -145,6 +149,14 @@ function candidateNomination({record, intentId, score, reason}) {
       sourceEntries: deepClone(record.sourceEntries || []).slice(0, LORE_WAVE3_LIMITS.maxCandidateSourceRefs),
       sourceRefTotal: record.sourceIds.length,
       sourceRefsTruncated: record.sourceIds.length > LORE_WAVE3_LIMITS.maxCandidateSourceRefs,
+      transportCoverage: {
+        representationTextComplete: String(record.text || '').length <= LORE_WAVE3_LIMITS.maxCandidateTextCharacters,
+        sourceRefsComplete: record.sourceIds.length <= LORE_WAVE3_LIMITS.maxCandidateSourceRefs,
+        evidenceRefsComplete: (record.evidenceRefs || []).length <= LORE_WAVE3_LIMITS.maxCandidateEvidenceRefs,
+        dependencyRefsComplete: (record.dependencyRevisions || []).length <= LORE_WAVE3_LIMITS.maxCandidateDependencyRefs,
+        exactSourceDrillbackAvailable: true,
+        retrievalRecordRef: record.id,
+      },
       retrievalRecordRef: record.id,
       navigationEvidenceRefs: (record.navigationEvidenceRefs || []).slice(0, LORE_WAVE3_LIMITS.maxCandidateEvidenceRefs),
       navigationEvidenceRefTotal: (record.navigationEvidenceRefs || []).length,

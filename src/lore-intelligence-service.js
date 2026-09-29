@@ -146,6 +146,7 @@ export class LoreIntelligenceService {
       retrievalIntentId: packet?.retrievalIntentId ?? null,
       indexRevision: packet?.indexRevision ?? null,
       ontologyRevision: packet?.ontologyRevision ?? null,
+      retrievalCoverage: deepClone(packet?.retrievalCoverage || null),
       sourceRevisionFence: [...(packet?.sourceRevisionFence || [])].slice(0, MAX_SCOPE_RECEIPTS),
       candidateReceipts: (packet?.candidateReceipts || []).slice(0, MAX_SCOPE_RECEIPTS).map((row) => ({
         candidateId: row.candidateId ?? null,
@@ -697,6 +698,7 @@ export class LoreIntelligenceService {
         reason: lastQuery.reason,
         retrievalIntentId: lastQuery.retrievalIntentId,
         indexRevision: lastQuery.indexRevision,
+        retrievalCoverage: deepClone(lastQuery.retrievalCoverage || null),
         sourceRevisionFence: lastQuery.sourceRevisionFence.slice(0, receiptLimit),
         candidateCount: lastQuery.candidateReceipts.length,
         exclusionCount: lastQuery.exclusionReceipts.length,
@@ -841,12 +843,20 @@ export class LoreIntelligenceService {
       const learned = this.runtime.store.currentLearnedRevision(sourceId);
       if (!learned) continue;
       for (const artifact of this.runtime.store.artifactsForLearnedRevision(learned.id)) {
-        if (artifact.artifactType !== ArtifactType.ENTITY) continue;
+        if (![ArtifactType.ENTITY, ArtifactType.ALIAS].includes(artifact.artifactType)) continue;
         const payload = artifact.payload || {};
         const entityId = String(payload.entityId || '');
         if (!entityId) continue;
-        const row = byId.get(entityId) ?? {entityId, canonicalName: String(payload.canonicalName || ''), entityType: String(payload.entityType || 'UNKNOWN'), aliases: [], sourceRevisionRefs: [], artifactRefs: []};
-        for (const alias of [payload.canonicalName, ...(payload.aliases || [])]) if (alias && !row.aliases.includes(String(alias))) row.aliases.push(String(alias));
+        const row = byId.get(entityId) ?? {entityId, canonicalName: '', entityType: 'UNKNOWN', aliases: [], sourceRevisionRefs: [], artifactRefs: []};
+        if (artifact.artifactType === ArtifactType.ENTITY) {
+          row.canonicalName = String(payload.canonicalName || row.canonicalName || '');
+          row.entityType = String(payload.entityType || row.entityType || 'UNKNOWN');
+        }
+        for (const alias of artifact.artifactType === ArtifactType.ENTITY
+          ? [payload.canonicalName, ...(payload.aliases || [])]
+          : [payload.alias, ...(payload.aliases || [])]) {
+          if (alias && !row.aliases.includes(String(alias))) row.aliases.push(String(alias));
+        }
         if (!row.sourceRevisionRefs.includes(learned.sourceRevisionId)) row.sourceRevisionRefs.push(learned.sourceRevisionId);
         row.artifactRefs.push(artifact.id);
         byId.set(entityId, row);
@@ -875,6 +885,7 @@ export class LoreIntelligenceService {
       nominations: [],
       candidateReceipts: [],
       exclusionReceipts: [],
+      retrievalCoverage: null,
       storyScope: deepClone(scope),
       thematicCommunities: [],
       summaries: [],
@@ -952,6 +963,18 @@ export class LoreIntelligenceService {
       indexRevision: result.indexRevision,
       ontologyRevision: this.ontology.current().ontologyRevision,
       desiredProfile,
+      retrievalCoverage: {
+        kind: 'LoreRetrievalCoverageReceipt',
+        examined: Number(result.diagnostics?.examined || 0),
+        examinedCapped: Boolean(result.diagnostics?.examinedCapped),
+        matched: Number(result.diagnostics?.matched || 0),
+        returned: Number(result.diagnostics?.returned || 0),
+        boundedOut: Number(result.diagnostics?.boundedOut || 0),
+        nominationBudget: Math.min(LORE_WAVE3_LIMITS.maxNominationsPerIntent, LORE_WAVE3_LIMITS.maxTotalNominations),
+        coverageComplete: !result.diagnostics?.examinedCapped && Number(result.diagnostics?.boundedOut || 0) === 0,
+        rankedResult: true,
+        fullCorpusCoverageClaim: false,
+      },
       sourceRevisionFence,
       nominations,
       candidateReceipts,

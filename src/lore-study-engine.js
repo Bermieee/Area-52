@@ -151,6 +151,17 @@ function ensureEntity(workspace, rawName, type = null, sentenceIndex = null) {
   return entityId;
 }
 
+function recordAlias(workspace, entityId, rawAlias, sentenceIndex = null) {
+  const alias = cleanName(rawAlias);
+  const entity = workspace.entities[entityId];
+  if (!entity || !alias) return;
+  entity.aliases = boundedUnique([...(entity.aliases || []), alias], 16);
+  const key = entityId + '|' + alias.toLowerCase();
+  if (!workspace.aliasRows.some((row) => row.key === key)) {
+    workspace.aliasRows.push({key, entityId, alias, sentenceIndex});
+  }
+}
+
 function relationKey(subjectId, predicate, objectId) {
   return subjectId + '|' + predicate + '|' + objectId;
 }
@@ -308,7 +319,7 @@ function analyzeSentence(workspace, sentence, index) {
     const owner = ensureEntity(workspace, match[1], 'PERSON', index);
     const alias = cleanName(match[2]);
     const target = ensureEntity(workspace, match[3], null, index);
-    workspace.entities[owner].aliases = boundedUnique([...workspace.entities[owner].aliases, alias], 16);
+    recordAlias(workspace, owner, alias, index);
     pushClaim(workspace, s, index, target, 'owner', owner, {temporalClass: TemporalClass.CURRENT});
     pushRelationship(workspace, s, index, owner, 'owns', target, {temporalClass: TemporalClass.CURRENT});
     return;
@@ -316,7 +327,7 @@ function analyzeSentence(workspace, sentence, index) {
 
   if ((match = s.match(/^(.+?)\s+(?:is\s+)?also\s+(?:called|known as)\s+(.+?)[.!?]?$/i))) {
     const entity = ensureEntity(workspace, match[1], null, index);
-    workspace.entities[entity].aliases = boundedUnique([...workspace.entities[entity].aliases, cleanName(match[2])], 16);
+    recordAlias(workspace, entity, match[2], index);
     return;
   }
 
@@ -465,6 +476,18 @@ function analyzeSentence(workspace, sentence, index) {
 function finalizeEntities(workspace, offset, limit) {
   const rows = Object.values(workspace.entities).slice(offset, offset + limit);
   for (const row of rows) {
+    const seen = new Set();
+    const allAliases = [row.canonicalName, ...(row.aliases || []), ...workspace.aliasRows
+      .filter((aliasRow) => aliasRow.entityId === row.entityId)
+      .map((aliasRow) => aliasRow.alias)]
+      .filter((alias) => {
+        const key = String(alias || '').toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    const primaryAliases = boundedUnique(allAliases, 16);
+    const explicitAliases = allAliases.filter((alias) => String(alias).toLowerCase() !== String(row.canonicalName).toLowerCase());
     const artifact = makeArtifact({
       type: ArtifactType.ENTITY,
       sourceId: workspace.source.sourceId,
@@ -474,7 +497,14 @@ function finalizeEntities(workspace, offset, limit) {
         entityId: row.entityId,
         canonicalName: row.canonicalName,
         entityType: row.entityType,
-        aliases: row.aliases,
+        aliases: primaryAliases,
+        aliasCoverage: {
+          total: allAliases.length,
+          retainedInline: primaryAliases.length,
+          legacyAliasArtifacts: Math.min(7, explicitAliases.length),
+          continuationPages: Math.max(0, Math.ceil(Math.max(0, explicitAliases.length - 7) / 7)),
+          complete: true,
+        },
       },
       derivation: 'ENTITY_EXTRACTION',
       dependencies: [],
@@ -482,18 +512,41 @@ function finalizeEntities(workspace, offset, limit) {
       temporalClass: TemporalClass.TIMELESS,
     });
     addArtifact(workspace, artifact);
-    for (const alias of row.aliases.slice(1, 8)) {
-      const aliasArtifact = makeArtifact({
+
+    for (const alias of explicitAliases.slice(0, 7)) {
+      addArtifact(workspace, makeArtifact({
         type: ArtifactType.ALIAS,
         sourceId: workspace.source.sourceId,
         sourceRevisionId: workspace.revision.id,
         logicalKey: row.entityId + '|alias|' + alias.toLowerCase(),
-        payload: {entityId: row.entityId, alias, certainty: 'SUPPORTED'},
+        payload: {entityId: row.entityId, alias, certainty: 'SUPPORTED', continuation: false},
         derivation: 'ALIAS_EXTRACTION',
         dependencies: [artifact.id],
         authorityClass: AuthorityClass.DERIVED,
-      });
-      addArtifact(workspace, aliasArtifact);
+      }));
+    }
+
+    const overflow = explicitAliases.slice(7);
+    for (let index = 0; index < overflow.length; index += 7) {
+      const aliases = overflow.slice(index, index + 7);
+      addArtifact(workspace, makeArtifact({
+        type: ArtifactType.ALIAS,
+        sourceId: workspace.source.sourceId,
+        sourceRevisionId: workspace.revision.id,
+        logicalKey: row.entityId + '|alias-page|' + (index / 7),
+        payload: {
+          entityId: row.entityId,
+          aliases,
+          certainty: 'SUPPORTED',
+          continuation: true,
+          pageIndex: index / 7,
+          pageSize: 7,
+          complete: index + aliases.length >= overflow.length,
+        },
+        derivation: 'ALIAS_EXTRACTION_CONTINUATION',
+        dependencies: [artifact.id],
+        authorityClass: AuthorityClass.DERIVED,
+      }));
     }
   }
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {MemoryHistorianIndex} from '../src/memory-historian.js';
+import {MemoryTemporalProducer} from '../src/memory-temporal-producer.js';
 import {PerspectiveScope} from '../src/memory-contracts.js';
 
 const bytes=(value)=>new TextEncoder().encode(JSON.stringify(value)).length;
@@ -157,4 +158,46 @@ test('historian candidate transport remains bounded when the owner record uses s
   assert.equal(nomination.metadata.transportReferencesBounded,true);
   assert.equal(nomination.metadata.exactSourceDrillback,true);
   assert.equal(nomination.metadata.canonicalKnowledgeDropped,false);
+});
+
+
+test('producer HistorianMemoryResolution wrapper also returns ranked partial evidence instead of re-emptying overflow',()=>{
+  const producer=new MemoryTemporalProducer();
+  producer.memoryRevisionRefs=()=>['memory:test'];
+  const nominations=[0,1,2].map((index)=>({
+    candidateId:'producer-candidate:'+index,
+    evidenceIdentity:'producer-artifact:'+index,
+    artifactRef:{kind:'ArtifactReference',artifactId:'producer-episode:'+index,artifactType:'SCENE_EPISODE',owner:'MEMORY',revision:1,domain:'memory',sourceRevisionSet:['producer-source:'+index+'@1'],worldRevision:null,sceneRevision:index+1,contentHash:'h'+index,provenanceRef:'p'+index},
+    artifactRevision:1,
+    sourceRevisionRefs:['producer-source:'+index+'@1'],
+    claimRefs:[],eventRefs:[],entityRefs:[],relationshipRefs:[],
+    retrievalIntentIds:['intent:producer'],rankSignals:{intentMatch:1-index*.1,entityOverlap:0,temporalFit:1,significance:.8,recency:.5,perspectiveCompatibility:1},
+    normalizedRank:1-index*.1,temporalHints:['HISTORICAL'],authorityClass:'OBSERVED',truthStatusHint:'HISTORICAL',
+    provenance:[{ref:'producer:'+index}],evidenceRefs:['producer-evidence:'+index],dependencyRevisions:['producer-source:'+index+'@1'],
+    representationRef:'historian:producer:'+index,representationRevision:1,
+    representationText:'producer detail '+index+' '+('🔥'.repeat(50))+(' context'.repeat(80)),
+    metadata:{historianChannel:'SCENE_EPISODE',perspective:{scope:'WORLD'},retrievalRecordRef:'historian:producer:'+index,exactSourceDrillback:true,
+      sourceRevisionRefCount:1,sourceRevisionRefsComplete:true,evidenceRefCount:1,evidenceRefsComplete:true,dependencyRevisionCount:1,dependencyRevisionsComplete:true},
+    worldRevision:null,sceneRevision:index+1,
+  }));
+  producer.queryHistorian=()=>({kind:'MemoryHistorianQueryResult',nominations});
+
+  const base={kind:'HistorianMemoryRequest',contractVersion:'1.0.0',memoryRevisionRefs:['memory:test'],
+    retrievalIntents:[{intentId:'intent:producer',query:'producer detail',mode:'EXPLICIT_HISTORY'}],
+    activeEntityIds:[],perspectiveConstraint:{scope:'WORLD'},limits:{maxArtifacts:3,maxEvidenceBytes:1_000_000}};
+  const complete=producer.resolveHistorianMemoryRequest(base);
+  assert.equal(complete.status,'OK');
+  assert.equal(complete.artifacts.length,3);
+
+  const firstBytes=new TextEncoder().encode(JSON.stringify([complete.artifacts[0]])).length;
+  const bounded=producer.resolveHistorianMemoryRequest({...base,limits:{maxArtifacts:3,maxEvidenceBytes:firstBytes}});
+  assert.equal(bounded.status,'DEGRADED');
+  assert.equal(bounded.artifacts.length,1);
+  assert.equal(bounded.artifacts[0].artifactRef.artifactId,complete.artifacts[0].artifactRef.artifactId);
+  assert.equal(bounded.evidenceBytes,firstBytes);
+  assert.equal(bounded.remaining,2);
+  assert.equal(bounded.boundedOut.length,2);
+  assert.equal(bounded.continuationAvailable,true);
+  assert.equal(bounded.reasonCode,'EVIDENCE_BUDGET_EXCEEDED');
+  assert.equal(bounded.canonicalKnowledgeDropped,false);
 });

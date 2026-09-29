@@ -47,7 +47,10 @@ function decodeTables(node) {
   const keys = Object.keys(node);
   if (keys.length === 1 && keys[0] === TABLE) {
     const { keys: names, rows } = node[TABLE];
-    return rows.map((row) => { const out = {}; names.forEach((name, i) => { out[name] = decodeTables(row[i]); }); return out; });
+    if (!Array.isArray(names) || !Array.isArray(rows)) throw new Error('malformed table');
+    return rows.map((row) => {
+      if (!Array.isArray(row) || row.length !== names.length) throw new Error('malformed table row');
+      const out = {}; names.forEach((name, i) => { out[name] = decodeTables(row[i]); }); return out; });
   }
   const out = {}; for (const key of keys) out[key] = decodeTables(node[key]);
   return out;
@@ -73,9 +76,15 @@ function encodeStrings(rows, blobs) {
   return { rows: enc(rows), blobs: encBlobs, strings: table };
 }
 function decodeStrings(node, strings) {
-  if (!strings?.length) return node;
+  // Every marker string in a version-2 part is a reference (the encoder stores a record that already has one verbatim), so
+  // a reference with no table entry is a torn part and throws, like a missing shared blob.
   const dec = (value) => {
-    if (typeof value === 'string') return value.startsWith(STRING_MARK) ? strings[parseInt(value.slice(1), 36)] : value;
+    if (typeof value === 'string') {
+      if (!value.startsWith(STRING_MARK)) return value;
+      const text = strings[parseInt(value.slice(1), 36)];
+      if (typeof text !== 'string') throw new Error('missing shared string');
+      return text;
+    }
     if (Array.isArray(value)) return value.map(dec);
     if (isPlain(value)) { const out = {}; for (const [key, item] of Object.entries(value)) out[key] = dec(item); return out; }
     return value;
@@ -85,7 +94,9 @@ function decodeStrings(node, strings) {
 
 function dedupeRows(rows) {
   const raw = JSON.stringify(rows);
-  if (raw.includes('"' + REF + '"') || raw.includes('"' + TABLE + '"') || raw.includes('"\\u0001')) return rows;
+  // A reserved marker, or an own "__proto__" key (which plain assignment would turn into a prototype change on either
+  // side of the round trip), is stored verbatim.
+  if (raw.includes('"' + REF + '"') || raw.includes('"' + TABLE + '"') || raw.includes('"\\u0001') || raw.includes('"__proto__"')) return rows;
   const blobs = {};
   const enc = (node) => {
     if (node === null || typeof node !== 'object') return { value: node, size: 0 };
@@ -107,7 +118,8 @@ function dedupeRows(rows) {
 }
 function inflateRows(input) {
   // Undo string references, then tables, then shared subtrees (the reverse of encoding).
-  const strings = input.strings ?? [];
+  const strings = input.version === 2 ? input.strings : [];
+  if (!Array.isArray(strings)) throw new Error('missing string table');
   const part = input.version === 2
     ? { rows: decodeTables(decodeStrings(input.rows, strings)), blobs: Object.fromEntries(Object.entries(input.blobs).map(([hash, value]) => [hash, decodeTables(decodeStrings(value, strings))])) }
     : input;

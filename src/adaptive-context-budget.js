@@ -36,10 +36,18 @@ export class AdaptiveBudgetAllocator{
         // Lore keeps its highest-ranked leading entries; recent narrative keeps its newest trailing messages.
         const fromEnd=row.slot===PromptSlot.RECENT_NARRATIVE;
         let partial=null;
-        for(let count=row.content.length-1;count>=1;count-=1){
-          const section=sliceFactSection(row,count,{fromEnd}),compactTokens=this.estimator.estimate(section.compactText);
-          if(compactTokens<=remaining){partial={section,compactTokens,richTokens:this.estimator.estimate(section.richText),count};break;}
+        const tryCount=(count)=>{const section=sliceFactSection(row,count,{fromEnd}),compactTokens=this.estimator.estimate(section.compactText);return compactTokens<=remaining?{section,compactTokens,count}:null;};
+        if(this.estimator.constructor===DeterministicApproxTokenEstimator){
+          // The largest count that fits, found by bisection instead of re-rendering every shorter slice (quadratic on long
+          // chats: ~1.5 s for 438 messages). Same answer as the downward scan: a slice's compact text is the JSON array of
+          // independently compacted elements, so its length, and this estimator's ceil(length / charsPerToken), never
+          // decreases as elements are added. Other estimators keep the scan.
+          let lo=1,hi=row.content.length-1;
+          while(lo<=hi){const mid=(lo+hi)>>1,fit=tryCount(mid);if(fit){partial=fit;lo=mid+1;}else hi=mid-1;}
+        }else{
+          for(let count=row.content.length-1;count>=1;count-=1){const fit=tryCount(count);if(fit){partial=fit;break;}}
         }
+        if(partial)partial.richTokens=this.estimator.estimate(partial.section.richText);
         if(partial){
           admitted={...partial.section,compactTokens:partial.compactTokens,richTokens:partial.richTokens,weight:row.weight};
           representation=RepresentationMode.COMPACT;used=partial.compactTokens;remaining-=used;

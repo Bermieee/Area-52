@@ -8,18 +8,43 @@ const heapSample=()=>Number(globalThis.performance?.memory?.usedJSHeapSize??0)||
 export class MemoryVectorIndex{
   constructor({producer,snapshot=null,maxVectors=4096,maxPending=4096,maxReceipts=128}={}){
     if(!producer)throw new TypeError('MemoryVectorIndex requires producer');this.producer=producer;this.executor=null;this.maxVectors=maxVectors;this.maxPending=maxPending;this.maxReceipts=maxReceipts;
-    this.vectors=new Map();this.pending=[];this.queryCache=new Map();this.receipts=[];this.sequence=0;if(snapshot)this.restore(snapshot);
+    this.vectors=new Map();this.pending=[];this.queryCache=new Map();this.receipts=[];this.sequence=0;
+    // Cap ledger rows 51-52: pending work over capacity is deferred (backpressure), never dropped; the backlog is rebuilt
+    // from the canonical episodes once the queue drains. Vector eviction is counted, not silent.
+    this.backpressure={deferred:0,active:false};this.evictions={count:0,lastSequence:null};if(snapshot)this.restore(snapshot);
   }
   attachExecutor(executor=null){if(executor!==null&&typeof executor!=='function')throw new TypeError('vector executor must be a function');this.executor=executor;return{kind:'MemoryVectorExecutorReceipt',attached:Boolean(executor),authorityGranted:false};}
   enqueueArtifact({artifactId,artifactRevision=1,chatId=null,sourceRevisionRefs=[],historianRecordRef=null}={}){
     const id=String(artifactId??'').trim();if(!id)throw new TypeError('artifactId required');
     const item={workId:'memory-vector:'+stableHash(id+'|'+artifactRevision+'|'+sourceRevisionRefs.join('|')),artifactId:id,artifactRevision:Number(artifactRevision)||1,chatId:chatId==null?null:String(chatId),
       sourceRevisionRefs:[...new Set(sourceRevisionRefs.map(String))].sort(),historianRecordRef:historianRecordRef==null?null:String(historianRecordRef),attempts:0,enqueuedAt:Date.now(),enqueuedSequence:++this.sequence};
-    if(!this.pending.some(x=>x.workId===item.workId)&&!this.vectors.has(id+'@'+item.artifactRevision))this.pending.push(item);
-    if(this.pending.length>this.maxPending)this.pending.splice(0,this.pending.length-this.maxPending);return deepClone(item);
+    if(this.pending.some(x=>x.workId===item.workId)||this.vectors.has(id+'@'+item.artifactRevision))return deepClone(item);
+    if(this.pending.length>=this.maxPending){
+      this.backpressure.deferred+=1;this.backpressure.active=true;
+      return deepClone({...item,status:'DEFERRED_BACKPRESSURE',reasonCode:'VECTOR_PENDING_CAPACITY',continuation:'RECONCILE_FROM_EPISODES'});
+    }
+    this.pending.push(item);return deepClone(item);
+  }
+  // Re-derive deferred work from the owner's current episodes: every fresh episode record without a vector for its
+  // current revision and not already pending is queued, up to capacity. Clears backpressure once nothing is missing.
+  reconcileBackpressure(){
+    if(!this.backpressure.active)return 0;
+    const pendingKeys=new Set(this.pending.map(x=>x.artifactId+'@'+x.artifactRevision));let added=0,missing=0;
+    for(const record of this.producer.historian.records.values()){
+      if(record.channel!=='SCENE_EPISODE'||record.freshness!=='FRESH')continue;
+      const key=record.artifactId+'@'+record.artifactRevision;if(this.vectors.has(key)||pendingKeys.has(key))continue;
+      missing+=1;if(this.pending.length>=this.maxPending)continue;
+      const episode=this.producer.experienceStore?.episodes?.get?.(record.artifactId);
+      const before=this.pending.length;
+      this.enqueueArtifact({artifactId:record.artifactId,artifactRevision:record.artifactRevision,chatId:episode?.chatId??null,sourceRevisionRefs:record.sourceRevisionRefs,historianRecordRef:record.id});
+      if(this.pending.length>before){added+=1;pendingKeys.add(key);missing-=1;}
+    }
+    if(!missing){this.backpressure.active=false;this.backpressure.deferred=0;}
+    return added;
   }
   async runMaintenance({maxUnits=1}={}){
     const limit=Math.max(1,Math.min(16,Number(maxUnits)||1)),outcomes=[];const cycleStarted=Date.now();
+    if(this.backpressure.active&&this.pending.length<this.maxPending/2)this.reconcileBackpressure();
     for(let n=0;n<limit&&this.pending.length;n++){
       const item=this.pending[0],record=this.#historianRecord(item);item.attempts+=1;
       if(!record){this.pending.shift();outcomes.push(this.#record({kind:'MemoryVectorWorkReceipt',workId:item.workId,status:'REJECTED',reasonCode:'HISTORIAN_RECORD_ABSENT',ownerDecision:'REJECTED'}));continue;}
@@ -35,6 +60,8 @@ export class MemoryVectorIndex{
       }
       const key=item.artifactId+'@'+item.artifactRevision;this.vectors.set(key,{key,artifactId:item.artifactId,artifactRevision:item.artifactRevision,chatId:item.chatId,sourceRevisionRefs:[...item.sourceRevisionRefs],
         historianRecordRef:record.id,vector:[...result.embeddings[0]],providerRequestId:result.providerRequestId??null,providerId:result.providerId??null,modelId:result.actualModelId??result.modelId??null,acceptedSequence:++this.sequence});
+      // An older revision of the same artifact is superseded: it no longer takes a residency slot.
+      for(const [oldKey,row] of [...this.vectors])if(row.artifactId===item.artifactId&&row.artifactRevision<item.artifactRevision)this.vectors.delete(oldKey);
       this.pending.shift();this.#trimVectors();outcomes.push(this.#record({kind:'MemoryVectorWorkReceipt',workId:item.workId,executionId:result.executionId??null,status:'ACCEPTED',reasonCode:null,requestPurpose:'COGNITIVE_EXECUTION',
         providerRequestId:result.providerRequestId??null,providerId:result.providerId??null,modelId:result.actualModelId??null,ownerDecision:'ACCEPTED',ownerDestination:'MEMORY_VECTOR_INDEX',
         queueWaitMs:Math.max(0,dispatchedAt-Number(item.enqueuedAt??cycleStarted)),providerLatencyMs:result.latencyMs??null,usageClass:result.measurementClass??null,costClass:result.usageReceipt?.cost?.status??null,
@@ -74,14 +101,17 @@ export class MemoryVectorIndex{
     return out;
   }
   invalidateSourceRevision(sourceRevisionId){const source=String(sourceRevisionId);for(const [key,row] of [...this.vectors])if(row.sourceRevisionRefs.includes(source))this.vectors.delete(key);for(const row of this.pending)if(row.sourceRevisionRefs.includes(source))row.stale=true;this.queryCache.clear();}
-  status(){return{kind:'MemoryVectorIndexStatus',executorAttached:Boolean(this.executor),vectorCount:this.vectors.size,pendingCount:this.pending.length,queryCacheCount:this.queryCache.size,revision:this.revisionRef()};}
+  status(){return{kind:'MemoryVectorIndexStatus',executorAttached:Boolean(this.executor),vectorCount:this.vectors.size,pendingCount:this.pending.length,queryCacheCount:this.queryCache.size,
+    backpressure:{active:this.backpressure.active,deferred:this.backpressure.deferred,continuation:this.backpressure.active?'RECONCILE_FROM_EPISODES':null},
+    evictions:{count:this.evictions.count,lastSequence:this.evictions.lastSequence,canonicalKnowledgeDropped:false,fallback:'LEXICAL_HISTORIAN'},revision:this.revisionRef()};}
   readReceipts({limit=128}={}){return deepClone(this.receipts.slice(-Math.max(1,Math.min(128,Number(limit)||128))));}
   revisionRef(){return'memory-vector:'+stableHash(stableStringify({vectors:[...this.vectors.keys()].sort(),pending:this.pending.map(x=>x.workId)}));}
-  snapshot(){return{kind:'MemoryVectorIndexSnapshot',contractVersion:MEMORY_VECTOR_INDEX_VERSION,vectors:[...this.vectors.entries()].map(([k,v])=>[k,deepClone(v)]),pending:deepClone(this.pending),receipts:deepClone(this.receipts),sequence:this.sequence};}
-  restore(s){this.vectors=new Map((s?.vectors??[]).map(([k,v])=>[k,deepClone(v)]));this.pending=deepClone(s?.pending??[]).slice(-this.maxPending);this.receipts=deepClone(s?.receipts??[]).slice(-this.maxReceipts);this.sequence=Number(s?.sequence??0);this.queryCache=new Map();}
+  snapshot(){return{kind:'MemoryVectorIndexSnapshot',contractVersion:MEMORY_VECTOR_INDEX_VERSION,vectors:[...this.vectors.entries()].map(([k,v])=>[k,deepClone(v)]),pending:deepClone(this.pending),receipts:deepClone(this.receipts),sequence:this.sequence,backpressure:{...this.backpressure},evictions:{...this.evictions}};}
+  restore(s){this.vectors=new Map((s?.vectors??[]).map(([k,v])=>[k,deepClone(v)]));const pending=deepClone(s?.pending??[]);this.pending=pending.slice(0,this.maxPending);this.receipts=deepClone(s?.receipts??[]).slice(-this.maxReceipts);this.sequence=Number(s?.sequence??0);this.queryCache=new Map();
+    this.backpressure={deferred:Number(s?.backpressure?.deferred??0)+Math.max(0,pending.length-this.maxPending),active:Boolean(s?.backpressure?.active)||pending.length>this.maxPending};this.evictions={count:Number(s?.evictions?.count??0),lastSequence:s?.evictions?.lastSequence??null};}
   #historianRecord(item){if(item.historianRecordRef){const r=this.producer.historian.records.get(item.historianRecordRef);if(r)return r;}return[...this.producer.historian.records.values()].find(r=>r.artifactId===item.artifactId&&Number(r.artifactRevision)===Number(item.artifactRevision))??null;}
   #fresh(refs){return(refs??[]).every(ref=>this.producer.graph.isSourceRevisionActive(ref));}
   #queryKey(query,selection){return stableHash(stableStringify([String(selection?.chatId??''),String(selection?.turnId??''),String(selection?.generationId??''),String(selection?.correlationId??''),Number(selection?.worldRevision??0),Number(selection?.sceneRevision??0),[...new Set((selection?.sourceRevisionRefs??[]).map(String))].sort(),String(query).toLowerCase()]));}
   #record(row){const value={contractVersion:MEMORY_VECTOR_INDEX_VERSION,at:Date.now(),...deepClone(row)};this.receipts.push(value);if(this.receipts.length>this.maxReceipts)this.receipts.splice(0,this.receipts.length-this.maxReceipts);return deepClone(value);}
-  #trimVectors(){if(this.vectors.size<=this.maxVectors)return;const rows=[...this.vectors.entries()].sort((a,b)=>a[1].acceptedSequence-b[1].acceptedSequence);while(rows.length&&this.vectors.size>this.maxVectors)this.vectors.delete(rows.shift()[0]);}
+  #trimVectors(){if(this.vectors.size<=this.maxVectors)return;const rows=[...this.vectors.entries()].sort((a,b)=>a[1].acceptedSequence-b[1].acceptedSequence);while(rows.length&&this.vectors.size>this.maxVectors){this.vectors.delete(rows.shift()[0]);this.evictions.count+=1;this.evictions.lastSequence=this.sequence;}}
 }

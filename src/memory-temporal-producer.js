@@ -401,7 +401,7 @@ export class MemoryTemporalProducer {
     return receipts;
   }
 
-  reviewConsolidationBundle({bundle,handoff=null,selection={}}={}) {
+  reviewConsolidationBundle({bundle,handoff=null,selection={},reviewOffset=0}={}) {
     if(!bundle||bundle.kind!=='ConsolidationProposalBundle'||!Array.isArray(bundle.proposals))throw new TypeError('ConsolidationProposalBundle is required');
     if(String(bundle.contractVersion??'')!=='1.1.0')throw new Error('MEMORY_CONSOLIDATION_CONTRACT_VERSION_UNSUPPORTED');
     const validation=bundle.validationReceipt??{};
@@ -446,8 +446,11 @@ export class MemoryTemporalProducer {
       if(episode)return memoryReferenceValues(episode,'evidenceRefs');
       return [...(sourceEvidence.get(id)??[])];
     };
+    const pageStart=Math.max(0,Math.min(bundle.proposals.length,Number(reviewOffset)||0));
+    const pageEnd=Math.min(bundle.proposals.length,pageStart+MEMORY_LIMITS.maxConsolidationJobs);
+    const proposalPage=bundle.proposals.slice(pageStart,pageEnd);
     const results=[];
-    for(const proposal of bundle.proposals.slice(0,MEMORY_LIMITS.maxConsolidationJobs)){
+    for(const proposal of proposalPage){
       const proposalId=String(proposal?.proposalId??'');
       if(proposal?.proposalKind!=='REFLECTION_EVIDENCE'){
         results.push({proposalId,proposalKind:proposal?.proposalKind??null,status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_KIND_OUTSIDE_REFLECTION_OWNER_PATH',artifactId:null});
@@ -531,11 +534,36 @@ export class MemoryTemporalProducer {
       if(reviewed.status==='COMPLETED'&&reviewed.artifactId)this.consolidationProposalReviews.set(proposalId,deepClone(reviewed));
       results.push(reviewed);
     }
+    const remaining=Math.max(0,bundle.proposals.length-pageEnd);
+    const continuationAvailable=remaining>0;
+    const pageStatus=results.some((row)=>row.status==='COMPLETED')?'COMPLETED'
+      :results.some((row)=>row.status==='FAILED')?'FAILED'
+        :results.some((row)=>row.status==='DEFERRED')?'DEFERRED'
+          :results.some((row)=>row.status==='STALE')?'STALE'
+            :results.some((row)=>row.status==='REPLAYED')?'REPLAYED':'SKIPPED';
     const receipt={
       kind:'MemoryConsolidationBundleReviewReceipt',contractVersion:'1.0.0',
       bundleId:bundle.bundleId??null,unitId:bundle.unitId??null,
-      status:results.some((row)=>row.status==='COMPLETED')?'COMPLETED':results.some((row)=>row.status==='FAILED')?'FAILED':results.some((row)=>row.status==='DEFERRED')?'DEFERRED':results.some((row)=>row.status==='STALE')?'STALE':results.some((row)=>row.status==='REPLAYED')?'REPLAYED':'SKIPPED',
+      status:continuationAvailable?'DEFERRED':pageStatus,
+      reasonCode:continuationAvailable?'MEMORY_CONSOLIDATION_REVIEW_PAGE_BOUND':null,
       results:deepClone(results),
+      reviewOffset:pageStart,
+      processed:proposalPage.length,
+      remaining,
+      continuationAvailable,
+      nextReviewOffset:continuationAvailable?pageEnd:null,
+      continuation:continuationAvailable?{
+        kind:'MemoryConsolidationReviewContinuation',
+        contractVersion:'1.0.0',
+        bundleId:bundle.bundleId??null,
+        unitId:bundle.unitId??null,
+        resumeIdentity:'memory-consolidation-review:'+String(bundle.bundleId??bundle.unitId??'unknown'),
+        nextReviewOffset:pageEnd,
+        remaining,
+        nextProposalId:String(bundle.proposals[pageEnd]?.proposalId??''),
+        runtimeSchedulingAuthority:false,
+        memoryMutationAuthority:false,
+      }:null,
       rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };

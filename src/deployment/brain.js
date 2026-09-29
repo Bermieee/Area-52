@@ -1222,7 +1222,7 @@ export class DevelopmentDeploymentBrain {
         sceneId:proposal?.sceneId??null,sceneRevision:proposal?.baseRevision??execution?.sceneRevision??null,
         ambiguityId:ambiguity?.ambiguityId??null,decisionKind:ambiguity?.decisionKind??null,field:ambiguity?.field??null,
         alternativeCount:Array.isArray(ambiguity?.alternatives)?ambiguity.alternatives.length:0,
-        accepted:status==='ADVISED',unresolved:status!=='ADVISED',
+        accepted:status==='ADVISED',unresolved:status!=='ADVISED'&&status!=='PENDING',terminal:status!=='PENDING',
         authority:'ADVISORY',authorityGranted:false,canonicalMutation:false,settlementPerformed:false,contextSealAuthority:false,
         rawPromptIncluded:false,storyTextIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
         ...clone(extra),
@@ -1261,6 +1261,8 @@ export class DevelopmentDeploymentBrain {
       freshnessToken,deadline:now+1200,softDeadline:now+900,maxRetries:0,
       adapterMetadata:{sceneId:proposal.sceneId,field:String(ambiguity.field),sourceRevisionId:hostSource,selection:{chatId:execution?.chatId??null,generationId:execution?.generationId??null}},
     };
+    const pending=finish('PENDING','SCENE_JEV_ADJUDICATION_PENDING',{softDeadlineAt:input.softDeadline,deadlineAt:input.deadline});
+    this.#emit({type:'SCENE_JEV_ADJUDICATION_PENDING',receipt:clone(pending)});
     let review;
     try{
       review=await this.sceneJevOwner.adjudicate(input,{
@@ -1283,7 +1285,7 @@ export class DevelopmentDeploymentBrain {
     if(!selected())return finish('UNRESOLVED','SCENE_JEV_SELECTION_SUPERSEDED',{stale:true,ownerReview:clone(review)});
     if(!futureRoute&&phase!=='POST_RESPONSE'&&sealed())return finish('UNRESOLVED','SCENE_JEV_LATE_AFTER_SEAL',{late:true,ownerReview:clone(review)});
     if(!currentAfter||Number(currentAfter.revision)!==Number(proposal.baseRevision))return finish('UNRESOLVED','SCENE_JEV_STALE_REVISION',{stale:true,ownerReview:clone(review)});
-    if(review?.ownerDecision!==SceneOwnerDecision.ACCEPTED)return finish('UNRESOLVED',review?.reasonCode??'JEV_UNRESOLVED',{ownerReview:clone(review)});
+    if(review?.ownerDecision!==SceneOwnerDecision.ACCEPTED)return finish('UNRESOLVED',review?.reasonCode??'JEV_UNRESOLVED',{ownerReview:clone(review),timedOut:Boolean(review?.timedOut),cancelled:Boolean(review?.cancelled)});
     const chosen=alternatives.find(row=>String(row.optionId)===String(review?.proposal?.proposedOutcome??''))??null;
     if(!chosen)return finish('UNRESOLVED','SCENE_JEV_OWNER_RESULT_INVALID',{invalid:true,ownerReview:clone(review)});
     return finish('ADVISED','SCENE_JEV_OWNER_ADVISED',{

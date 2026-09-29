@@ -79,3 +79,50 @@ test('an older-engine learned revision is re-studied by the installed Lore study
   assert.equal(svc.brainInterface().sourceTruthHint('lore:ember-golden:tavern-intact')?.status, 'HISTORICAL');
   h.session.destroy();
 });
+
+// The Brain's Lore channel asks the owner for `includeNavigation:false` (it never reads summaries, conflicts or communities
+// from the retrieval packet). Truth's conflict handling does not depend on those packet fields: the unresolved hints travel on
+// the nominations and conflict sets are read from the owner directly. This compares a whole installed turn with the flag
+// honoured against the owner forced to return the full packet: candidates (truth hint, truth/temporal status, freshness,
+// fences), Truth assessment and corrective receipts, the sealed packet, the choice controller and the delivered plan must be
+// identical, for an unresolved conflict and for a source edited after study (stale, not yet re-studied).
+// Wall-clock fields only (case-sensitive camelCase suffixes plus exact names); everything else is compared.
+const TIME_KEY = /(At|Ms|Timestamp|Duration|Latency)$|^(at|ms|now|elapsed|timestamp|deadline|performance|timing|performanceReceipt)$/;
+const withoutTiming = (v) => Array.isArray(v) ? v.map(withoutTiming) : v && typeof v === 'object'
+  ? Object.fromEntries(Object.entries(v).filter(([k]) => !TIME_KEY.test(k)).map(([k, x]) => [k, withoutTiming(x)])) : v;
+async function turnWithNavigation(forceFullPacket, { editAfterStudy = false } = {}) {
+  const chatId = 'chat:nav-ab';
+  const h = makeInstalled({ chatId });
+  const svc = loreOf(h);
+  const requests = [];
+  const original = svc.queryForStory.bind(svc);
+  svc.queryForStory = (request = {}) => { requests.push(request.includeNavigation); return original(forceFullPacket ? { ...request, includeNavigation: true } : request); };
+  const book = { ...createGoldenDeploymentLorebook(), chatId };
+  h.session.ingestLorebook(book);
+  if (editAfterStudy) h.session.brain.acceptLorebook({ ...book, entries: book.entries.map((e) => e.uid === 'mara' ? { ...e, content: e.content + ' She has moved to the harbor.' } : e) });
+  h.user('Eris returns to the tavern.'); await h.generate('normal', 'Mara looks up.');
+  h.user(Q); await h.generate('normal', 'Nobody knows.');
+  const turn = h.nativeBrain.readTurn(h.nativeBrain.uiBindings().readSelection({ chatId }).turnId);
+  const out = withoutTiming(JSON.parse(JSON.stringify({ published: turn.published, delivery: turn.delivery, loreSync: turn.loreSync,
+    sourceRevisionSet: turn.sourceRevisionSet, ownerSourceRevisionSet: turn.ownerSourceRevisionSet, conflictSets: svc.brainInterface().conflictSets({ chatId }),
+    status: svc.retrievalEligibility({ chatId }) })));
+  h.session.destroy();
+  return { out, requests };
+}
+for (const editAfterStudy of [false, true]) {
+  test(`channel includeNavigation:false leaves retrieval, freshness and unresolved-conflict evidence unchanged (${editAfterStudy ? 'stale source' : 'unresolved conflict'})`, async () => {
+    const lean = await turnWithNavigation(false, { editAfterStudy });
+    const full = await turnWithNavigation(true, { editAfterStudy });
+    assert.ok(lean.requests.includes(false), 'the channel explicitly asks for includeNavigation:false');
+    assert.ok(lean.requests.every((flag) => flag === false || flag === undefined), 'other callers keep the default');
+    const cands = lean.out.published.candidates.filter((c) => /^candidate:owner-(lore|sparse)/.test(c.candidateId));
+    assert.ok(cands.some((c) => c.truthStatusHint === 'UNRESOLVED'), 'unresolved Lore evidence reaches Truth');
+    assert.equal(lean.out.conflictSets.length, 1, 'the owner conflict set is still readable');
+    if (editAfterStudy) {
+      const mara = lean.out.status.entries.find((row) => row.uid === 'mara');
+      assert.equal(mara.freshness, 'STALE_OR_UNLEARNED'); assert.equal(mara.eligibleForStoryRetrieval, false);
+      assert.equal(cands.some((c) => (c.sourceRevisionRefs ?? []).some((r) => r.startsWith(mara.sourceId + '@') && r !== mara.sourceRevisionId)), false, 'no candidate from the superseded revision');
+    }
+    assert.deepEqual(lean.out, full.out);
+  });
+}

@@ -233,7 +233,8 @@ export class ProductionSparseRetrievalChannel{
       return this.clearScope(!chat?'STORY_SCOPE_REQUIRED':'OWNER_CURRENT_SOURCE_SURFACE_UNAVAILABLE');
     }
     let status;
-    try{status=owner.status({chatId:chat});}
+    // Prefer the owner's lean eligibility read (same rule, same fields, no full status clone); fall back to status().
+    try{status=typeof owner.retrievalEligibility==='function'?owner.retrievalEligibility({chatId:chat}):owner.status({chatId:chat});}
     catch(error){
       this.clearScope('OWNER_STATUS_FAILED');
       this.lastHydration={...this.lastHydration,chatId:chat,reason:error?.code??error?.message??'OWNER_STATUS_FAILED'};

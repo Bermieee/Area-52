@@ -31,8 +31,10 @@ export class RetrievalIndexLifecycleManager{
     if(prior&&artifact.artifactRevision<prior.artifactRevision)throw new RetrievalIndexContractError('OWNER_REVISION_OUT_OF_ORDER','owner artifact revision moved backwards');
     const selected=this.#selected(adapterIds),op=operation??(prior?IndexLifecycleOperation.UPDATE:IndexLifecycleOperation.INSERT);
     if(prior&&artifact.artifactRevision===prior.artifactRevision){
-      const existing=selected.every(adapter=>this.expectedByAdapter.get(adapter.adapterId)?.has(this.#representation(adapter,artifact).representationId));
-      if(existing)return this.#receipt({operation:op,artifact,status:'NO_CHANGE',representationIds:selected.map(a=>this.#representation(a,artifact).representationId),reason:'owner revision already indexed'});
+      // One representation per adapter (it was built twice on this unchanged-revision path, once to check and once to report).
+      const ids=selected.map(adapter=>this.#representation(adapter,artifact).representationId);
+      const existing=selected.every((adapter,i)=>this.expectedByAdapter.get(adapter.adapterId)?.has(ids[i]));
+      if(existing)return this.#receipt({operation:op,artifact,status:'NO_CHANGE',representationIds:ids,reason:'owner revision already indexed'});
     }
     const tx='index-tx:'+stableHash({artifactId:artifact.artifactId,artifactRevision:artifact.artifactRevision,adapters:selected.map(x=>x.adapterId)},{length:20});
     const staged=[],success=[],failures=[];

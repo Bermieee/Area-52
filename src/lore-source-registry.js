@@ -161,6 +161,14 @@ export class LoreSourceRegistry {
     return revision ? deepClone(revision) : null;
   }
 
+  // Identity-only read of the current revision ({id, state}, no clone of the authored text). For hot paths that only compare
+  // revision ids or check removal; anything that needs content still uses currentRevision().
+  currentRevisionRef(sourceId) {
+    const entry = this.entries.get(sourceId);
+    const revision = entry?.currentRevisionId ? this.revisions.get(entry.currentRevisionId) : null;
+    return revision ? {id: revision.id, state: revision.state} : null;
+  }
+
   currentRevision(sourceId, {allowMissing = false} = {}) {
     const entry = this.entries.get(sourceId);
     if (!entry || !entry.currentRevisionId) {
@@ -292,6 +300,13 @@ export class LoreDerivedStore {
   currentLearnedRevision(sourceId) {
     const id = this.currentLearnedBySource.get(sourceId);
     return id ? deepClone(this.learnedRevisions.get(id)) : null;
+  }
+
+  // Identity-only read of the current learned revision (no clone).
+  currentLearnedRevisionRef(sourceId) {
+    const id = this.currentLearnedBySource.get(sourceId);
+    const learned = id ? this.learnedRevisions.get(id) : null;
+    return learned ? {id: learned.id, state: learned.state, sourceRevisionId: learned.sourceRevisionId} : null;
   }
 
   learnedHistory(sourceId) {

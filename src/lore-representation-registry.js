@@ -5,6 +5,12 @@ function familyKey({sourceId, profile, capCharacters = null}) {
   return sourceId + '|' + profile + '|' + (capCharacters == null ? '-' : capCharacters);
 }
 
+// Current source revision identity ({id, state}) without cloning the authored text; falls back for other registries.
+function revisionRef(sourceRegistry, sourceId) {
+  if (typeof sourceRegistry.currentRevisionRef === 'function') return sourceRegistry.currentRevisionRef(sourceId);
+  return sourceRegistry.currentRevision(sourceId, {allowMissing: true});
+}
+
 export class LoreRepresentationRegistry {
   constructor(snapshot = null) {
     this.representations = new Map();
@@ -159,19 +165,32 @@ export class LoreRepresentationRegistry {
     return row ? deepClone(row) : null;
   }
 
+  // Rows of one source in insertion order. Representations are only ever added (never deleted) and a row's sourceId never
+  // changes, so the index is rebuilt only when the map is replaced (restore) or grows; results equal a full scan.
+  #rowsForSource(sourceId) {
+    if (this._bySourceMap !== this.representations || this._bySourceSize !== this.representations.size) {
+      const index = new Map();
+      for (const row of this.representations.values()) {
+        const list = index.get(row.sourceId);
+        if (list) list.push(row); else index.set(row.sourceId, [row]);
+      }
+      this._bySource = index; this._bySourceMap = this.representations; this._bySourceSize = this.representations.size;
+    }
+    return this._bySource.get(sourceId) || [];
+  }
+
   activeForSource(sourceId, sourceRegistry, {metadataOnly = false} = {}) {
-    return [...this.representations.values()]
-      .filter((row) => row.sourceId === sourceId && row.state === 'CURRENT')
-      .filter((row) => {
-        const source = sourceRegistry.currentRevision(sourceId, {allowMissing: true});
-        return source && source.state !== 'REMOVED' && row.sourceRevisionId === source.id;
-      })
+    const current = this.#rowsForSource(sourceId).filter((row) => row.state === 'CURRENT');
+    // The current source revision is the same for every row: read it once (it is a cloning read), not once per row.
+    const source = current.length ? revisionRef(sourceRegistry, sourceId) : null;
+    return current
+      .filter((row) => source && source.state !== 'REMOVED' && row.sourceRevisionId === source.id)
       .map(row=>metadataOnly ? {id:row.id,profile:row.profile,capCharacters:row.capCharacters,size:deepClone(row.size),sourceRevisionId:row.sourceRevisionId,representationRevision:row.representationRevision,retentionReceipt:{status:row.retentionReceipt.status}} : deepClone(row))
       .sort((a, b) => a.profile.localeCompare(b.profile) || (a.capCharacters || 0) - (b.capCharacters || 0));
   }
 
   selectionSurface({sourceId, sourceRegistry, desiredProfile = null, availableBudget = null, precisionNeed = 'NORMAL'}) {
-    const source = sourceRegistry.currentRevision(sourceId, {allowMissing: true});
+    const source = revisionRef(sourceRegistry, sourceId);
     if (!source || source.state === 'REMOVED') return {
       kind: 'LoreRepresentationSelectionSurface',
       sourceId,
@@ -258,8 +277,8 @@ export class LoreRepresentationRegistry {
   }
 
   impactPreview({sourceId, sourceRegistry}) {
-    const source = sourceRegistry.currentRevision(sourceId, {allowMissing: true});
-    const rows = [...this.representations.values()].filter((row) => row.sourceId === sourceId && row.state === 'CURRENT');
+    const source = revisionRef(sourceRegistry, sourceId);
+    const rows = this.#rowsForSource(sourceId).filter((row) => row.state === 'CURRENT');
     const stale = rows.filter((row) => !source || source.state === 'REMOVED' || row.sourceRevisionId !== source.id);
     return {
       kind: 'LoreRepresentationImpactPreview',

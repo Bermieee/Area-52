@@ -90,12 +90,19 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
         return[];
       }
       const scopedQuery=typeof owner.queryScoped==='function'?owner.queryScoped:owner.query;
-      const packet=syncValue(scopedQuery({chatId:String(storyChatId),query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO'}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
+      // The channel consumes nominations only, so it asks the owner to skip the navigation extras (an owner that does not know
+      // the flag simply ignores it).
+      const packet=syncValue(scopedQuery({chatId:String(storyChatId),query:intent?.query??context.query??'',intent:intent?.intentKind??'AUTO',includeNavigation:false}),'LORE_OWNER_ASYNC_UNSUPPORTED_IN_SYNC_FOREGROUND');
       if(!packet||packet.kind!=='LoreBrainRetrievalPacket'||Number(packet.contractVersion)!==1)throw new Error('LORE_BRAIN_PACKET_CONTRACT_MISMATCH');
       const fence=new Set(uniq(packet.sourceRevisionFence??[]));
-      const out=[],rejected=[];
+      // The registry keeps only the first maxCandidates nominations of a channel. Building (and publishing evidence for) the
+      // rest was pure waste, and at large corpora it evicted the kept candidates' own evidence from the Brain's bounded
+      // evidence map. Stop at the limit and count what was bounded out; the kept set is identical.
+      const limit=Math.max(1,Number(this.descriptor?.maxCandidates)||48);
+      const out=[],rejected=[];let boundedOutCount=0;
       for(const group of packet.nominations??[]){
         for(const source of group?.drillback??[]){
+          if(out.length>=limit){boundedOutCount+=1;continue;}
           const sourceId=source?.sourceId==null?null:String(source.sourceId);
           const sourceRevisionId=source?.sourceRevisionId==null?null:String(source.sourceRevisionId);
           const exact=source?.exactAuthoredText;
@@ -197,7 +204,7 @@ export class LoreOwnerRetrievalChannel extends OwnerChannelBase{
       this.lastReceipt={
         kind:'OwnerKnowledgeRetrievalReceipt',channelId:this.channelId,
         status:packet.status==='EXCLUDED'?'EXCLUDED':'SYNCED',reason:packet.reason??null,queried:true,
-        nominationCount:out.length,sourceRevisionFence:uniq(out.flatMap((row)=>row.sourceRevisionRefs)),
+        nominationCount:out.length,boundedOutCount,sourceRevisionFence:uniq(out.flatMap((row)=>row.sourceRevisionRefs)),
         rejectedCount:rejected.length,rejectedRevisionRefs:uniq(rejected.map((row)=>row.sourceRevisionId)),
         rejectionReasons:uniq(rejected.map((row)=>row.reason)),
         authorityScope:packet.storyScope?{

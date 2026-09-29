@@ -8,7 +8,7 @@ import {
 } from './memory-contracts.js';
 import {TemporalStateGraph} from './memory-temporal-state-graph.js';
 import {MemoryGreenRoomStore} from './memory-green-room.js';
-import {MemoryExperienceStore} from './memory-experience-store.js';
+import {MemoryExperienceStore,memoryReferenceValues} from './memory-experience-store.js';
 import {MemoryHistorianIndex} from './memory-historian.js';
 import {MemorySummaryHierarchy} from './memory-summary-hierarchy.js';
 import {MemoryExternalEvidenceBridge} from './memory-evidence-bridge.js';
@@ -108,7 +108,7 @@ export class MemoryTemporalProducer {
     this.summaryHierarchy.onEpisodePublished(episode);
     if (episode.freshness==='FRESH'&&resolution.status==='RESOLVED') this.ensureSceneSummaryScope(record.proposal,episode,resolution);
     this.historian.build();
-    this.notifyUi('MEMORY_SCENE_EPISODE_REFRESHED',episode.evidenceRefs??[],{
+    this.notifyUi('MEMORY_SCENE_EPISODE_REFRESHED',memoryReferenceValues(episode,'evidenceRefs'),{
       episodeId:episode.id,logicalId:episode.logicalId,freshness:episode.freshness,
     });
     return episode;
@@ -116,7 +116,7 @@ export class MemoryTemporalProducer {
 
   ensureSceneSummaryScope(proposal,episode,resolution) {
     const scopeRef='SCENE:'+proposal.sceneId;
-    const desiredEvidence=[...(episode.evidenceRefs??[])].sort();
+    const desiredEvidence=memoryReferenceValues(episode,'evidenceRefs').sort();
     const desiredEpisodes=[episode.logicalId].sort();
     const existing=this.summaryHierarchy.scope(scopeRef);
     if (
@@ -285,12 +285,12 @@ export class MemoryTemporalProducer {
     const compaction=this.runSummaryCompaction({maxUnits:3});
     this.historian.build();
     const historianRecord=[...this.historian.records.values()].find((row)=>row.artifactId===episode.id&&Number(row.artifactRevision)===Number(episode.revision))??null;
-    const vectorWork=this.vectorIndex.enqueueArtifact({artifactId:episode.id,artifactRevision:episode.revision,chatId,sourceRevisionRefs:episode.sourceRevisionRefs,historianRecordRef:historianRecord?.id??null});
+    const vectorWork=this.vectorIndex.enqueueArtifact({artifactId:episode.id,artifactRevision:episode.revision,chatId,sourceRevisionRefs:memoryReferenceValues(episode,'sourceRevisionRefs'),historianRecordRef:historianRecord?.id??null});
     const receipt={
       kind:'MemoryCompletedTurnAdmissionReceipt',contractVersion:'1.0.0',
       status:priorId===episode.id?'REPLAYED':'COMPLETED',reasonCode:null,
       chatId,turnId,generationId,correlationId:input.correlationId??null,sceneId:episode.sceneId,sceneRevision:episode.sceneRevision,
-      sourceRevisionRefs:[...episode.sourceRevisionRefs],evidenceRefs:[...episode.evidenceRefs],
+      sourceRevisionRefs:memoryReferenceValues(episode,'sourceRevisionRefs'),evidenceRefs:memoryReferenceValues(episode,'evidenceRefs'),
       episodeId:episode.id,episodeLogicalId:episode.logicalId,episodeRevision:episode.revision,
       exactSourceDrillback:this.experienceStore.exactDrillback(episode.id).length>0,
       summaryScopeRefs:hierarchy.scopeRefs,summaryPublishedArtifactIds:[...(compaction.publishedArtifactIds??[])],
@@ -299,7 +299,7 @@ export class MemoryTemporalProducer {
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
     this.pushDiagnostic(receipt);
-    this.notifyUi('MEMORY_COMPLETED_TURN_ADMITTED',episode.evidenceRefs??[],{episodeId:episode.id,turnId,generationId});
+    this.notifyUi('MEMORY_COMPLETED_TURN_ADMITTED',memoryReferenceValues(episode,'evidenceRefs'),{episodeId:episode.id,turnId,generationId});
     return receipt;
   }
 
@@ -352,7 +352,7 @@ export class MemoryTemporalProducer {
     });
     if(touchedScene){
       defineIfChanged({level:'SCENE',scopeId:scenePageId(touchedScene.key,touchedScene.page),parentScopeRefs:['SESSION:'+sessionId(touchedSession)],
-        evidenceRefs:[...new Set(touchedScene.rows.flatMap((row)=>row.evidenceRefs??[]))].sort(),
+        evidenceRefs:[...new Set(touchedScene.rows.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort(),
         episodeLogicalIds:touchedScene.rows.map((row)=>row.logicalId).sort(),provenance:['native-brain:'+chatId]});
       defineIfChanged({level:'SESSION',scopeId:sessionId(touchedSession),parentScopeRefs:[arcScopeRef],
         childScopeRefs:sessionPages[touchedSession].map((row)=>'SCENE:'+scenePageId(row.key,row.page)),provenance:['native-brain:'+chatId]});
@@ -370,9 +370,9 @@ export class MemoryTemporalProducer {
       const current=this.experienceStore.currentEpisodes({freshOnly:true});
       const supports=current.filter((row)=>(row.reflectionSignals??[]).some((signal)=>signal.reflectionKey===candidate.reflectionKey&&signal.polarity==='SUPPORT'));
       const contradictions=current.filter((row)=>(row.reflectionSignals??[]).some((signal)=>signal.reflectionKey===candidate.reflectionKey&&signal.polarity==='CONTRADICT'));
-      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
-      const contradictionEvidenceRefs=[...new Set(contradictions.flatMap((row)=>row.evidenceRefs??[]))].sort();
-      const sourceRevisionRefs=[...new Set([...supports,...contradictions].flatMap((row)=>row.sourceRevisionRefs??[]))].sort();
+      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort();
+      const contradictionEvidenceRefs=[...new Set(contradictions.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort();
+      const sourceRevisionRefs=[...new Set([...supports,...contradictions].flatMap((row)=>memoryReferenceValues(row,'sourceRevisionRefs')))].sort();
       const session=this.startConsolidation([{type:'REFLECTION',input:{
         reflectionKey:candidate.reflectionKey,statement:candidate.statement,subjectRefs:candidate.subjectRefs,
         supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
@@ -401,9 +401,11 @@ export class MemoryTemporalProducer {
     return receipts;
   }
 
-  reviewConsolidationBundle({bundle,handoff=null,selection={}}={}) {
+  reviewConsolidationBundle({bundle,handoff=null,selection={},reviewOffset=0,reviewToken=null}={}) {
     if(!bundle||bundle.kind!=='ConsolidationProposalBundle'||!Array.isArray(bundle.proposals))throw new TypeError('ConsolidationProposalBundle is required');
     if(String(bundle.contractVersion??'')!=='1.1.0')throw new Error('MEMORY_CONSOLIDATION_CONTRACT_VERSION_UNSUPPORTED');
+    const proposalSetToken='memory-consolidation-review-set:'+stableHash(stableStringify(bundle.proposals));
+    if(reviewToken!=null&&String(reviewToken)!==proposalSetToken)throw new Error('MEMORY_CONSOLIDATION_REVIEW_SET_CHANGED');
     const validation=bundle.validationReceipt??{};
     if(validation.syntax!=='PASS'||validation.schema!=='PASS'||validation.semantic!=='PASS')throw new Error('MEMORY_CONSOLIDATION_BUNDLE_NOT_VALIDATED');
     if(handoff!=null){
@@ -443,11 +445,14 @@ export class MemoryTemporalProducer {
       if(!id)return[];
       if(this.graph.evidenceRecord(id))return[id];
       const episode=byId.get(id)??byLogical.get(id);
-      if(episode)return [...(episode.evidenceRefs??[])];
+      if(episode)return memoryReferenceValues(episode,'evidenceRefs');
       return [...(sourceEvidence.get(id)??[])];
     };
+    const pageStart=Math.max(0,Math.min(bundle.proposals.length,Number(reviewOffset)||0));
+    const pageEnd=Math.min(bundle.proposals.length,pageStart+MEMORY_LIMITS.maxConsolidationJobs);
+    const proposalPage=bundle.proposals.slice(pageStart,pageEnd);
     const results=[];
-    for(const proposal of bundle.proposals.slice(0,MEMORY_LIMITS.maxConsolidationJobs)){
+    for(const proposal of proposalPage){
       const proposalId=String(proposal?.proposalId??'');
       if(proposal?.proposalKind!=='REFLECTION_EVIDENCE'){
         results.push({proposalId,proposalKind:proposal?.proposalKind??null,status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_KIND_OUTSIDE_REFLECTION_OWNER_PATH',artifactId:null});
@@ -461,7 +466,7 @@ export class MemoryTemporalProducer {
       const resolvedArtifactRefs=sourceArtifactRefs.map((ref)=>({ref,resolved:resolveEpisodeArtifactRef(ref)}));
       const supports=[...new Map(resolvedArtifactRefs.filter((row)=>row.resolved).map((row)=>[row.resolved.episode.logicalId,row.resolved.episode])).values()];
       const declaredSources=new Set((proposal.sourceRevisionSet??bundle.sourceRevisionSet??[]).map(String));
-      if(declaredSources.size&&supports.some((episode)=>(episode.sourceRevisionRefs??[]).some((ref)=>!declaredSources.has(String(ref))))){
+      if(declaredSources.size&&supports.some((episode)=>memoryReferenceValues(episode,'sourceRevisionRefs').some((ref)=>!declaredSources.has(String(ref))))){
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'STALE',reasonCode:'MEMORY_CONSOLIDATION_SOURCE_REVISION_MISMATCH',artifactId:null});
         continue;
       }
@@ -484,7 +489,7 @@ export class MemoryTemporalProducer {
         results.push({...deepClone(priorReview),status:'REPLAYED',reasonCode:'MEMORY_CONSOLIDATION_PROPOSAL_REPLAY'});
         continue;
       }
-      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>row.evidenceRefs??[]))].sort();
+      const supportEvidenceRefs=[...new Set(supports.flatMap((row)=>memoryReferenceValues(row,'evidenceRefs')))].sort();
       const rawContradictions=[...(proposal.payload?.contradictingEvidence??proposal.payload?.contradictionEvidenceRefs??[])].map(String).filter(Boolean);
       const contradictionEvidenceRefs=[...new Set(rawContradictions.flatMap(resolveEvidenceRef))].sort();
       const unresolvedContradictions=rawContradictions.filter((ref)=>resolveEvidenceRef(ref).length===0);
@@ -497,7 +502,7 @@ export class MemoryTemporalProducer {
         results.push({proposalId,proposalKind:proposal.proposalKind,status:'SKIPPED',reasonCode:'MEMORY_CONSOLIDATION_REFLECTION_STATEMENT_MISSING',artifactId:null});
         continue;
       }
-      const sourceRevisionRefs=[...new Set([...supports.flatMap((row)=>row.sourceRevisionRefs??[]),...contradictionEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean)])].sort();
+      const sourceRevisionRefs=[...new Set([...supports.flatMap((row)=>memoryReferenceValues(row,'sourceRevisionRefs')),...contradictionEvidenceRefs.map((id)=>this.graph.evidenceRecord(id)?.sourceRevisionId).filter(Boolean)])].sort();
       const eligibility=this.experienceStore.reflectionEligibility({
         reflectionKey:String(proposal.semanticIdentity??proposalId),
         supportEvidenceRefs,contradictionEvidenceRefs,episodeRefs:supports.map((row)=>row.id),
@@ -531,15 +536,58 @@ export class MemoryTemporalProducer {
       if(reviewed.status==='COMPLETED'&&reviewed.artifactId)this.consolidationProposalReviews.set(proposalId,deepClone(reviewed));
       results.push(reviewed);
     }
+    const remaining=Math.max(0,bundle.proposals.length-pageEnd);
+    const continuationAvailable=remaining>0;
+    const pageStatus=results.some((row)=>row.status==='COMPLETED')?'COMPLETED'
+      :results.some((row)=>row.status==='FAILED')?'FAILED'
+        :results.some((row)=>row.status==='DEFERRED')?'DEFERRED'
+          :results.some((row)=>row.status==='STALE')?'STALE'
+            :results.some((row)=>row.status==='REPLAYED')?'REPLAYED':'SKIPPED';
     const receipt={
       kind:'MemoryConsolidationBundleReviewReceipt',contractVersion:'1.0.0',
       bundleId:bundle.bundleId??null,unitId:bundle.unitId??null,
-      status:results.some((row)=>row.status==='COMPLETED')?'COMPLETED':results.some((row)=>row.status==='FAILED')?'FAILED':results.some((row)=>row.status==='DEFERRED')?'DEFERRED':results.some((row)=>row.status==='STALE')?'STALE':results.some((row)=>row.status==='REPLAYED')?'REPLAYED':'SKIPPED',
+      status:continuationAvailable?'DEFERRED':pageStatus,
+      reasonCode:continuationAvailable?'MEMORY_CONSOLIDATION_REVIEW_PAGE_BOUND':null,
       results:deepClone(results),
+      reviewOffset:pageStart,
+      processed:proposalPage.length,
+      remaining,
+      proposalSetToken,
+      continuationAvailable,
+      nextReviewOffset:continuationAvailable?pageEnd:null,
+      continuation:continuationAvailable?{
+        kind:'MemoryConsolidationReviewContinuation',
+        contractVersion:'1.0.0',
+        bundleId:bundle.bundleId??null,
+        unitId:bundle.unitId??null,
+        resumeIdentity:'memory-consolidation-review:'+String(bundle.bundleId??bundle.unitId??'unknown'),
+        reviewToken:proposalSetToken,
+        nextReviewOffset:pageEnd,
+        remaining,
+        nextProposalId:String(bundle.proposals[pageEnd]?.proposalId??''),
+        runtimeSchedulingAuthority:false,
+        memoryMutationAuthority:false,
+      }:null,
       rawChatIncluded:false,loreBodiesIncluded:false,credentialsIncluded:false,hiddenReasoningIncluded:false,
       authorityGranted:false,canonicalMutationAuthority:false,settlementAuthority:false,contextSealAuthority:false,
     };
-    this.pushDiagnostic(receipt);
+    const diagnosticReceipt=results.length>32?{
+      ...receipt,
+      results:[
+        ...deepClone(results.slice(0,8)),
+        ...deepClone(results.slice(Math.max(8,results.length-8))),
+      ],
+      resultCount:results.length,
+      resultStatusCounts:results.reduce((counts,row)=>{
+        const status=String(row?.status??'OTHER').toUpperCase();
+        counts[status]=(counts[status]??0)+1;
+        return counts;
+      },{}),
+      resultsSampled:true,
+      sampledHeadCount:Math.min(8,results.length),
+      sampledTailCount:Math.min(8,Math.max(0,results.length-8)),
+    }:receipt;
+    this.pushDiagnostic(diagnosticReceipt);
     return receipt;
   }
 
@@ -632,19 +680,22 @@ export class MemoryTemporalProducer {
 
   reflectionFromGreenRoomProposal(proposal,options={}) {
     const reflection=this.experienceStore.reflectionFromGreenRoomProposal(proposal,options);
-    this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
+    this.summaryHierarchy.invalidateEvidenceRefs([...memoryReferenceValues(reflection,'supportEvidenceRefs'),...memoryReferenceValues(reflection,'contradictionEvidenceRefs')],'REFLECTION_CHANGED');
     this.historian.build();
     this.plasticity.observeArtifact(reflection);
-    this.notifyUi('MEMORY_REFLECTION_PUBLISHED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
+    this.notifyUi('MEMORY_REFLECTION_PUBLISHED',memoryReferenceValues(reflection,'supportEvidenceRefs'),{reflectionId:reflection.id});
     return reflection;
   }
 
   reviseReflection(input) {
     const reflection=this.experienceStore.reviseReflection(input);
-    this.summaryHierarchy.invalidateEvidenceRefs([...(reflection.supportEvidenceRefs??[]),...(reflection.contradictionEvidenceRefs??[])],'REFLECTION_CHANGED');
+    this.summaryHierarchy.invalidateEvidenceRefs([
+      ...memoryReferenceValues(reflection,'supportEvidenceRefs'),
+      ...memoryReferenceValues(reflection,'contradictionEvidenceRefs'),
+    ],'REFLECTION_CHANGED');
     this.historian.build();
     this.plasticity.observeArtifact(reflection);
-    this.notifyUi('MEMORY_REFLECTION_REVISED',reflection.supportEvidenceRefs??[],{reflectionId:reflection.id});
+    this.notifyUi('MEMORY_REFLECTION_REVISED',memoryReferenceValues(reflection,'supportEvidenceRefs'),{reflectionId:reflection.id});
     return reflection;
   }
 
@@ -830,37 +881,69 @@ export class MemoryTemporalProducer {
             ? nomination.metadata?.summaryScopeRef??nomination.artifactRef?.artifactId
             : nomination.artifactRef?.artifactId??nomination.candidateId,
           exactSourceDrillback:Boolean(nomination.metadata?.exactSourceDrillback),
+          retrievalRecordRef:nomination.metadata?.retrievalRecordRef??null,
+          referenceCoverage:{
+            sourceRevisionRefCount:Number(nomination.metadata?.sourceRevisionRefCount??nomination.sourceRevisionRefs?.length??0),
+            sourceRevisionRefsComplete:Boolean(nomination.metadata?.sourceRevisionRefsComplete??true),
+            evidenceRefCount:Number(nomination.metadata?.evidenceRefCount??nomination.evidenceRefs?.length??0),
+            evidenceRefsComplete:Boolean(nomination.metadata?.evidenceRefsComplete??true),
+            dependencyRevisionCount:Number(nomination.metadata?.dependencyRevisionCount??nomination.dependencyRevisions?.length??0),
+            dependencyRevisionsComplete:Boolean(nomination.metadata?.dependencyRevisionsComplete??true),
+            canonicalKnowledgeDropped:false,
+          },
           independentEvidence:summary?false:null,
           navigationOnly:summary?true:null,
           authorityGranted:false,
           memoryMutation:false,
         };
       });
-      const bytes=JSON.stringify(artifacts).length;
-      const maxBytes=Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes);
-      if (bytes>maxBytes) {
-        return {
-          kind:'HistorianMemoryResolution',
-          contractVersion:'1.0.0',
-          status:'DEGRADED',
-          artifacts:[],
-          unavailableChannels:['EVIDENCE_BUDGET_EXCEEDED'],
-          memoryRevisionRefs:requested.length?requested:currentRevisionRefs,
-          perspectiveStatus:request?.perspectiveConstraint?.scope??'WORLD',
-          evidenceBytes:0,
-          authorityGranted:false,
-          memoryMutation:false,
-        };
+      const byteLength=(rows)=>new TextEncoder().encode(JSON.stringify(rows)).length;
+      const maxBytes=Math.max(2,Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes));
+      const selected=[];
+      const boundedOut=[];
+      for(const artifact of artifacts){
+        if(byteLength([...selected,artifact])<=maxBytes){
+          selected.push(artifact);
+          continue;
+        }
+        boundedOut.push({
+          candidateId:artifact.candidateId,
+          artifactRef:deepClone(artifact.artifactRef),
+          retrievalRecordRef:artifact.retrievalRecordRef??null,
+          summaryArtifactId:artifact.summaryArtifactId??null,
+          channel:artifact.channel,
+          sourceRevisionRefs:[...artifact.sourceRevisionRefs],
+          evidenceRefs:[...artifact.evidenceRefs],
+        });
       }
+      const bytes=byteLength(selected);
+      const coverageComplete=boundedOut.length===0;
+      const firstArtifactBytes=artifacts.length?byteLength([artifacts[0]]):0;
+      const reasonCode=coverageComplete
+        ? null
+        : (!selected.length&&firstArtifactBytes>maxBytes?'EVIDENCE_ARTIFACT_EXCEEDS_BUDGET':'EVIDENCE_BUDGET_EXCEEDED');
       return {
         kind:'HistorianMemoryResolution',
         contractVersion:'1.0.0',
-        status:'OK',
-        artifacts,
-        unavailableChannels:[],
+        status:coverageComplete?'OK':'DEGRADED',
+        artifacts:selected,
+        unavailableChannels:coverageComplete?[]:[reasonCode],
         memoryRevisionRefs:requested.length?requested:currentRevisionRefs,
         perspectiveStatus:request?.perspectiveConstraint?.scope??'WORLD',
         evidenceBytes:bytes,
+        processed:selected.length,
+        remaining:boundedOut.length,
+        boundedOut,
+        coverageComplete,
+        continuationAvailable:boundedOut.length>0,
+        continuationCursor:boundedOut.length?{
+          afterCandidateId:selected.at(-1)?.candidateId??null,
+          nextCandidateId:boundedOut[0].candidateId,
+        }:null,
+        reasonCode,
+        limit:maxBytes,
+        limitType:'RANK',
+        canonicalKnowledgeDropped:false,
         authorityGranted:false,
         memoryMutation:false,
       };
@@ -967,7 +1050,10 @@ export class MemoryTemporalProducer {
     if (result.publishedArtifactIds.length) {
       const evidenceRefs=[...new Set(result.publishedArtifactIds.flatMap((id)=>{
         const artifact=this.experienceStore.artifact(id);
-        return [...(artifact?.supportEvidenceRefs??[]),...(artifact?.contradictionEvidenceRefs??[])];
+        return [
+          ...memoryReferenceValues(artifact,'supportEvidenceRefs'),
+          ...memoryReferenceValues(artifact,'contradictionEvidenceRefs'),
+        ];
       }))].sort();
       const affectedSummaryScopeRefs=evidenceRefs.length?this.summaryHierarchy.invalidateEvidenceRefs(evidenceRefs,'REFLECTION_CHANGED'):[];
       const summaryRefresh=affectedSummaryScopeRefs.length
@@ -989,7 +1075,14 @@ export class MemoryTemporalProducer {
     else if(outcomes.length&&outcomes.every((row)=>row.status==='SKIPPED'))status='SKIPPED';
     const diagnostic={
       kind:'MemoryConsolidationDiagnosticReceipt',contractVersion:'1.0.0',sessionId:result.id,status,state:result.state,
-      processedCursor:result.cursor,totalJobs:result.jobs?.length??0,publishedCount:result.publishedArtifactIds?.length??0,
+      processedCursor:Number(result.processedJobs??result.cursor??0),
+      totalJobs:Number(result.totalJobs??result.jobs?.length??0),
+      pageIndex:Number(result.jobPageIndex??0),
+      pageCursor:Number(result.cursor??0),
+      nextJobOffset:result.nextJobOffset??null,
+      continuationAvailable:Boolean(result.continuationAvailable),
+      continuation:deepClone(result.continuation??null),
+      publishedCount:result.publishedArtifactIds?.length??0,
       outcomeCounts:{
         completed:outcomes.filter((row)=>row.status==='COMPLETED').length,
         deferred:outcomes.filter((row)=>row.status==='DEFERRED').length,

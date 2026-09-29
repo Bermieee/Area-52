@@ -552,6 +552,7 @@ export class MemorySummaryHierarchy {
       includedOptional,
       omittedOptional:Math.max(0,optional.length-includedOptional),
       representativeEvidenceRefs:reps.map((row)=>row.id),
+      representativeChildEvidenceRefs:[...new Set(childReps.flatMap((row)=>row.representativeEvidenceRefs??[]))].slice(0,MEMORY_LIMITS.maxSummaryRepresentativeEvidence),
       representativeChildArtifactRefs:childReps.map((row)=>row.id),
       exactEvidenceCount,
     };
@@ -701,7 +702,7 @@ export class MemorySummaryHierarchy {
       unresolvedSetRefs:unresolvedSets.map((set)=>String(set.slotKey??set.key??stableHash(stableStringify(set)))),
       inferredReflectionRefs:reflections.map((row)=>row.id),
       representationText:compiled.text,
-      representativeEvidenceRefs:compiled.representativeEvidenceRefs,
+      representativeEvidenceRefs:[...new Set([...compiled.representativeEvidenceRefs,...(compiled.representativeChildEvidenceRefs??[])])].slice(0,MEMORY_LIMITS.maxSummaryRepresentativeEvidence),
       representativeChildArtifactRefs:compiled.representativeChildArtifactRefs??[],
       entityRefs,
       knowledgeFence:{
@@ -1131,7 +1132,9 @@ export class MemorySummaryHierarchy {
         sourceRange:deepClone(artifact.sourceRange),
         sourceRangeHash:artifact.sourceRangeHash,
         exactSourceRevisionCount:artifact.exactSourceRevisionSet.length,
-        exactEvidenceCount:artifact.exactEvidenceRefs.length,
+        exactEvidenceCount:Number(artifact.evidenceManifest?.exactEvidenceCount??artifact.sourceRange?.evidenceCount??artifact.exactEvidenceRefs.length),
+        hierarchicalDrillback:Boolean((artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[]).length),
+        drillbackPageSize:MEMORY_LIMITS.maxSummaryDrillbackRows,
         exactSourceDrillback:true,
         drillbackRequiredForClaimAuthority:true,
         independentEvidence:false,

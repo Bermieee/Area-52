@@ -17,8 +17,75 @@ const pad = (n) => String(n).padStart(5, '0');
 // that already contains the reference key is stored verbatim rather than risk ambiguity.
 const REF = '$area52Ref';
 const MIN_SHARED = 512;
+// Lossless shape encodings applied after the shared-subtree pass (all exactly reversible, asserted by tests):
+//  - a homogeneous array of plain objects (same keys, same order, at least MIN_TABLE_ROWS) becomes {keys, rows}: the property
+//    names are stored once instead of once per element;
+//  - a string of at least MIN_STRING_LENGTH characters that occurs at least twice in the part becomes a reference into a
+//    per-part string table.
+// A record that already uses a reserved marker is stored verbatim (see dedupeRows).
+const TABLE = '$area52Table';
+const STRING_MARK = '\u0001';
+const MIN_TABLE_ROWS = 3;
+const MIN_STRING_LENGTH = 24;
+const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+function encodeTables(node) {
+  if (Array.isArray(node)) {
+    if (node.length >= MIN_TABLE_ROWS && node.every(isPlain)) {
+      const keys = Object.keys(node[0]);
+      if (keys.length && node.every((row) => { const k = Object.keys(row); return k.length === keys.length && k.every((key, i) => key === keys[i]); })) {
+        return { [TABLE]: { keys, rows: node.map((row) => keys.map((key) => encodeTables(row[key]))) } };
+      }
+    }
+    return node.map(encodeTables);
+  }
+  if (isPlain(node)) { const out = {}; for (const [key, value] of Object.entries(node)) out[key] = encodeTables(value); return out; }
+  return node;
+}
+function decodeTables(node) {
+  if (Array.isArray(node)) return node.map(decodeTables);
+  if (!isPlain(node)) return node;
+  const keys = Object.keys(node);
+  if (keys.length === 1 && keys[0] === TABLE) {
+    const { keys: names, rows } = node[TABLE];
+    return rows.map((row) => { const out = {}; names.forEach((name, i) => { out[name] = decodeTables(row[i]); }); return out; });
+  }
+  const out = {}; for (const key of keys) out[key] = decodeTables(node[key]);
+  return out;
+}
+function encodeStrings(rows, blobs) {
+  const counts = new Map();
+  const count = (node) => {
+    if (typeof node === 'string') { if (node.length >= MIN_STRING_LENGTH) counts.set(node, (counts.get(node) ?? 0) + 1); return; }
+    if (Array.isArray(node)) { node.forEach(count); return; }
+    if (isPlain(node)) Object.values(node).forEach(count);
+  };
+  count(rows); Object.values(blobs).forEach(count);
+  const table = [...counts.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] * b[0].length - a[1] * a[0].length).map(([text]) => text);
+  if (!table.length) return { rows, blobs, strings: [] };
+  const index = new Map(table.map((text, i) => [text, i]));
+  const enc = (node) => {
+    if (typeof node === 'string') return index.has(node) ? STRING_MARK + index.get(node).toString(36) : node;
+    if (Array.isArray(node)) return node.map(enc);
+    if (isPlain(node)) { const out = {}; for (const [key, value] of Object.entries(node)) out[key] = enc(value); return out; }
+    return node;
+  };
+  const encBlobs = {}; for (const [hash, value] of Object.entries(blobs)) encBlobs[hash] = enc(value);
+  return { rows: enc(rows), blobs: encBlobs, strings: table };
+}
+function decodeStrings(node, strings) {
+  if (!strings?.length) return node;
+  const dec = (value) => {
+    if (typeof value === 'string') return value.startsWith(STRING_MARK) ? strings[parseInt(value.slice(1), 36)] : value;
+    if (Array.isArray(value)) return value.map(dec);
+    if (isPlain(value)) { const out = {}; for (const [key, item] of Object.entries(value)) out[key] = dec(item); return out; }
+    return value;
+  };
+  return dec(node);
+}
+
 function dedupeRows(rows) {
-  if (JSON.stringify(rows).includes('"' + REF + '"')) return rows;
+  const raw = JSON.stringify(rows);
+  if (raw.includes('"' + REF + '"') || raw.includes('"' + TABLE + '"') || raw.includes('"\\u0001')) return rows;
   const blobs = {};
   const enc = (node) => {
     if (node === null || typeof node !== 'object') return { value: node, size: 0 };
@@ -35,9 +102,15 @@ function dedupeRows(rows) {
     return { value: { [REF]: hash }, size: 24 + REF.length };
   };
   const encoded = rows.map((row) => enc(row).value);
-  return { kind: 'Area52DedupedTurnRows', rows: encoded, blobs };
+  const shaped = encodeStrings(encodeTables(encoded), Object.fromEntries(Object.entries(blobs).map(([hash, value]) => [hash, encodeTables(value)])));
+  return { kind: 'Area52DedupedTurnRows', version: 2, rows: shaped.rows, blobs: shaped.blobs, strings: shaped.strings };
 }
-function inflateRows(part) {
+function inflateRows(input) {
+  // Undo string references, then tables, then shared subtrees (the reverse of encoding).
+  const strings = input.strings ?? [];
+  const part = input.version === 2
+    ? { rows: decodeTables(decodeStrings(input.rows, strings)), blobs: Object.fromEntries(Object.entries(input.blobs).map(([hash, value]) => [hash, decodeTables(decodeStrings(value, strings))])) }
+    : input;
   const dec = (node) => {
     if (node === null || typeof node !== 'object') return node;
     if (Array.isArray(node)) return node.map(dec);

@@ -745,3 +745,118 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
   assert.equal(reflection.episodeRefs.length,2);
   assert.match(reflection.statement,/habitually verify the brass compass/i);
 });
+
+
+test('Memory cognition: over-bound owner review resumes through the persisted Runtime batch after reload without re-invoking the provider', {timeout:300000}, async()=>{
+  let memory=new MemoryTemporalProducer();
+  let surface=createMemoryIntegrationSurface(memory);
+  let proposeCalls=0;
+  const pagedProducer=Object.freeze({
+    kind:'TestPagedMemoryConsolidationProducer',contractVersion:'1.0.0',
+    async propose(input={}){
+      proposeCalls+=1;
+      if(proposeCalls===1)return{
+        kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+        status:'SKIPPED',reasonCode:'TEST_FIRST_EPISODE_ONLY',
+        selection:cloneForPagedTest(input.selection),episodeId:input.episodeId??null,providerAttempted:false,
+        rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+      };
+      const proposals=Array.from({length:4097},(_,index)=>({
+        proposalId:'runtime-page-proposal:'+String(index).padStart(5,'0'),
+        proposalKind:'REFLECTION_EVIDENCE',
+        semanticIdentity:'runtime-page-reflection:'+String(index).padStart(5,'0'),
+        sourceArtifactRefs:[],
+        confidence:0.5,
+        authority:'INFERRED',
+        payload:{},
+      }));
+      return{
+        kind:'DeploymentMemoryConsolidationProposalReceipt',contractVersion:'1.0.0',
+        status:'PROPOSED',reasonCode:null,
+        selection:cloneForPagedTest(input.selection),episodeId:input.episodeId??null,providerAttempted:true,
+        bundle:{
+          kind:'ConsolidationProposalBundle',contractVersion:'1.1.0',
+          bundleId:'bundle:runtime-page-resume',unitId:'unit:runtime-page-resume',
+          sourceArtifactRefs:[],sourceRevisionSet:[],
+          worldRevision:Number(input.selection?.worldRevision??2),sceneRevision:Number(input.selection?.sceneRevision??2),
+          characterStateRevision:0,
+          proposals,
+          validationReceipt:{syntax:'PASS',schema:'PASS',semantic:'PASS'},
+        },
+        memoryHandoff:null,
+        rawChatIncluded:false,canonicalMutation:false,settlementAuthority:false,
+      };
+    },
+  });
+  let brain=new Area52NativeBrain({memoryInterface:surface,memoryConsolidationInterface:pagedProducer});
+
+  await brain.prepareTurn({
+    chatId:'chat:runtime-page',turnId:'runtime-page:1',generationId:'gen:runtime-page:1',
+    query:'Continue.',intent:'CURRENT',
+    scene:scene('runtime-page-scene-1',1,{location:'Archive',activeCast:['Mira']}),
+    executionLabel:'DETERMINISTIC',
+  });
+  const first=await brain.completeTurn({
+    turnId:'runtime-page:1',response:'Mira records the first archive marker.',knownBy:['Mira'],
+  });
+  assert.equal(first.memoryPostTurn?.status,'COMPLETED');
+  assert.equal(first.memoryConsolidation?.status,'SKIPPED');
+  assert.equal(proposeCalls,1);
+
+  await brain.prepareTurn({
+    chatId:'chat:runtime-page',turnId:'runtime-page:2',generationId:'gen:runtime-page:2',
+    query:'Continue.',intent:'CURRENT',
+    scene:scene('runtime-page-scene-2',2,{location:'Archive',activeCast:['Mira'],relationship:'PRECEDES'}),
+    executionLabel:'DETERMINISTIC',
+  });
+  await brain.completeTurn({
+    turnId:'runtime-page:2',response:'Mira records the second archive marker.',knownBy:['Mira'],autoDrain:false,
+  });
+
+  let runtime=null;
+  for(let cycle=0;cycle<64;cycle+=1){
+    await brain.runtimeDirector.runCycle();
+    const turn=brain.readTurn('runtime-page:2');
+    runtime=turn?.memoryConsolidationRuntimeTaskId?brain.runtimeDirector.ledger.get(turn.memoryConsolidationRuntimeTaskId):null;
+    if(runtime?.batch?.units?.length===2&&runtime.batch.completedUnitIds.length===1)break;
+  }
+  const afterPageOne=brain.readTurn('runtime-page:2');
+  runtime=brain.runtimeDirector.ledger.get(afterPageOne.memoryConsolidationRuntimeTaskId);
+  assert.ok(runtime);
+  assert.equal(runtime.batch.units.length,2,'page 2 is persisted in the existing Runtime batch');
+  assert.equal(runtime.batch.completedUnitIds.length,1);
+  assert.equal(afterPageOne.memoryConsolidation?.status,'DEFERRED');
+  assert.equal(afterPageOne.memoryConsolidation?.reasonCode,'MEMORY_CONSOLIDATION_REVIEW_PAGE_BOUND');
+  assert.equal(afterPageOne.memoryConsolidation?.reviewProgress?.processed,4096);
+  assert.equal(afterPageOne.memoryConsolidation?.reviewProgress?.remaining,1);
+  assert.equal(afterPageOne.memoryConsolidation?.reviewProgress?.coverageComplete,false);
+  assert.equal(afterPageOne.memoryConsolidation?.reviewProgress?.runtimeOwnedContinuation,true);
+  assert.equal(proposeCalls,2);
+
+  const brainSnapshot=brain.snapshot();
+  const memorySnapshot=memory.snapshot();
+  memory=MemoryTemporalProducer.fromSnapshot(memorySnapshot);
+  surface=createMemoryIntegrationSurface(memory);
+  brain=Area52NativeBrain.fromSnapshot(brainSnapshot,{
+    memoryInterface:surface,memoryConsolidationInterface:pagedProducer,
+  });
+  await brain.runtimeDirector.drain({maxCycles:128});
+
+  const resumed=brain.readTurn('runtime-page:2');
+  runtime=brain.runtimeDirector.ledger.get(resumed.memoryConsolidationRuntimeTaskId);
+  assert.equal(runtime.lifecycleStatus,'SATISFIED');
+  assert.equal(runtime.batch.units.length,2);
+  assert.equal(runtime.batch.completedUnitIds.length,2);
+  assert.equal(proposeCalls,2,'the continuation reviews persisted proposals without a second provider call');
+  assert.equal(resumed.memoryConsolidation?.status,'SKIPPED');
+  assert.equal(resumed.memoryConsolidation?.producerStatus,'REVIEW_CONTINUATION');
+  assert.equal(resumed.memoryConsolidation?.reviewProgress?.processed,4097);
+  assert.equal(resumed.memoryConsolidation?.reviewProgress?.remaining,0);
+  assert.equal(resumed.memoryConsolidation?.reviewProgress?.coverageComplete,true);
+  assert.equal(resumed.memoryConsolidation?.reviewProgress?.runtimeOwnedContinuation,false);
+  assert.equal(resumed.memoryConsolidation?.reviewProgress?.providerReinvokedForContinuation,false);
+});
+
+function cloneForPagedTest(value){
+  return value==null?value:structuredClone(value);
+}

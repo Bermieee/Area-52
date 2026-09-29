@@ -213,3 +213,69 @@ test('a checkpoint rewrites only the changed tail: settled turn, ledger and seal
   assert.equal((await a.storage.loadStory('chat:A')).status, 'CURRENT');
   a.session.destroy();
 });
+
+test('reload after the story manifest is corrupted: restored from the backup manifest and reported, not a silent fresh start', async () => {
+  const backend = createMemoryBackend(), chats = makeChats();
+  const a = await boot({ backend, chats, chatId: 'chat:CM' });
+  await a.turn('At North Gallery, Mara waits near marker one.', 'Eris walks in.');
+  await a.turn('We arrive at South Courtyard.', 'Mara steps into the courtyard.');
+  a.session.destroy();
+  for (const key of await backend.keys('area52/v1/manifest/story:')) await backend.set(key, '{"truncated":');
+  const b = await boot({ backend, chats, chatId: 'chat:CM' });
+  assert.equal(b.session.storageRestore.story, 'RECOVERED_BACKUP_MANIFEST');
+  assert.equal(b.session.storageRestore.brain, 'RESTORED', 'the previous checkpoint is restored');
+  assert.ok(b.session.nativeBrain.turns.size >= 1);
+  b.session.destroy();
+});
+
+test('reload when story manifest and backup are unreadable: UNREADABLE_FRESH_START is reported and the old parts are kept', async () => {
+  const backend = createMemoryBackend(), chats = makeChats();
+  const a = await boot({ backend, chats, chatId: 'chat:CX' });
+  await a.turn('At North Gallery, Mara waits.', 'Eris walks in.');
+  await a.turn('Still here.', 'Yes.');
+  a.session.destroy();
+  for (const key of [...await backend.keys('area52/v1/manifest/story:'), ...await backend.keys('area52/v1/manifest-backup/story:')]) await backend.set(key, 'garbage');
+  const oldParts = await backend.keys('area52/v1/part/story:');
+  const b = await boot({ backend, chats, chatId: 'chat:CX' });
+  assert.equal(b.session.storageRestore.story, 'CORRUPT_MANIFEST');
+  assert.equal(b.session.storageRestore.brain, 'UNREADABLE_FRESH_START', 'visible, never NONE_STORED');
+  await b.turn('A new line.', 'A reply.');
+  for (const key of oldParts) assert.notEqual(await backend.get(key), null, 'recoverable parts are quarantined, not collected');
+  assert.equal((await b.storage.quarantineForStory('chat:CX')).length, 1);
+  b.session.destroy();
+});
+
+test('storage unavailable at reload and on save: reported in the restore receipt and on every checkpoint; the session keeps working', async () => {
+  const chats = makeChats();
+  const unavailable = () => Object.assign(new Error('No durable browser storage is usable'), { code: 'STORAGE_UNAVAILABLE' });
+  const dead = { kind: 'DEAD', async get() { throw unavailable(); }, async set() { throw unavailable(); }, async delete() { throw unavailable(); }, async keys() { throw unavailable(); } };
+  const s = await boot({ backend: dead, chats, chatId: 'chat:UA' });
+  assert.equal(s.session.storageRestore.story, 'UNAVAILABLE');
+  assert.equal(s.session.storageRestore.brain, 'STORAGE_UNAVAILABLE_FRESH_START');
+  const req = await s.turn('Mara waits at the gate.', 'She nods.');
+  assert.ok(req.chat.length >= 2, 'the turn still prepares context');
+  const rows = s.session.nativePersistence ?? [];
+  assert.ok(rows.length && rows.at(-1).status === 'FAILED', 'the checkpoint failure is recorded: ' + JSON.stringify(rows.at(-1)));
+  assert.equal(s.storage.diagnostics().lastErrorCode, 'STORAGE_UNAVAILABLE');
+  s.session.destroy();
+});
+
+test('quota exhausted mid-session: the last valid checkpoint survives a reload and the failure is recorded', async () => {
+  const chats = makeChats(), inner = createMemoryBackend();
+  let full = false;
+  const backend = { ...inner, async set(k, v) { if (full) throw Object.assign(new Error('QuotaExceededError'), { name: 'QuotaExceededError', code: 22 }); return inner.set(k, v); } };
+  const a = await boot({ backend, chats, chatId: 'chat:QT' });
+  await a.turn('At North Gallery, Mara waits.', 'Eris walks in.');
+  const turnsAtCheckpoint = a.session.nativeBrain.turns.size;
+  full = true;
+  await a.turn('A second line that cannot be stored.', 'A reply.');
+  assert.equal(a.session.nativePersistence.at(-1).status, 'FAILED');
+  assert.equal(a.storage.diagnostics().lastErrorCode, 'QUOTA_EXCEEDED');
+  a.session.destroy();
+  full = false;
+  const b = await boot({ backend, chats, chatId: 'chat:QT' });
+  assert.equal(b.session.storageRestore.story, 'CURRENT');
+  assert.equal(b.session.storageRestore.brain, 'RESTORED');
+  assert.equal(b.session.nativeBrain.turns.size, turnsAtCheckpoint, 'the last valid checkpoint, not a torn one');
+  b.session.destroy();
+});

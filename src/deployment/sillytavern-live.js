@@ -1708,7 +1708,7 @@ export class DevelopmentDeploymentSillyTavernSession {
         for(const [key,row] of loaded.parts.host.hostAssistantTurns??[])this.hostAssistantTurns.set(key,clone(row));
         for(const [key,row] of loaded.parts.host.sceneHostMessageState??[])this.sceneHostMessageState.set(key,clone(row));
       }
-      if(!next){next=new brainClass();receipt.source=receipt.error?'FRESH_AFTER_REJECTED_SNAPSHOT':'FRESH';}
+      if(!next){next=new brainClass();receipt.source=receipt.error?'FRESH_AFTER_REJECTED_SNAPSHOT':['UNAVAILABLE','READ_FAILED'].includes(loaded.status)?'FRESH_STORAGE_UNAVAILABLE':['CORRUPT','CORRUPT_MANIFEST'].includes(loaded.status)?'FRESH_AFTER_UNREADABLE_STORY':'FRESH';}
       this.storyBrains.set(chatId,next);
     }
     this.nativeBrain=next;this.nativeBrainStoryId=chatId;

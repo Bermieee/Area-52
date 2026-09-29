@@ -34,7 +34,9 @@ export async function createInstalledDevelopmentDeploymentSession(options = {}) 
     try { nativeBrain = Area52NativeBrain.fromSnapshot(storedBrain); receipt.brain = 'RESTORED'; }
     catch (error) { receipt.brain = 'REJECTED_FRESH_START'; receipt.brainError = String(error?.message ?? error).slice(0, 160); }
   } else if (hostSuppliedBrain) receipt.brain = 'HOST_SUPPLIED';
-  else if (storage && !receipt.brain) receipt.brain = 'NONE_STORED';
+  // A story that could not be read is reported as such, never as "nothing stored": the session starts fresh, and the storage
+  // adapter keeps the unreadable data (backup manifest, quarantine) instead of collecting it.
+  else if (storage && !receipt.brain) receipt.brain = ({ UNAVAILABLE: 'STORAGE_UNAVAILABLE_FRESH_START', CORRUPT: 'UNREADABLE_FRESH_START', CORRUPT_MANIFEST: 'UNREADABLE_FRESH_START', READ_FAILED: 'STORAGE_UNAVAILABLE_FRESH_START' })[receipt.story] ?? 'NONE_STORED';
   nativeBrain ??= new Area52NativeBrain();
   const session = createDevelopmentDeploymentSillyTavernSession({
     ...options, storage, nativeBrain,

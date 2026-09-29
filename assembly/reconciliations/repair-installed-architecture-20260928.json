@@ -4,7 +4,7 @@
   "reconciliationId": "REPAIR-INSTALLED-ARCHITECTURE-20260928",
   "baseMainSha": "98a4e438e995bdc62038076c5f97addaf2a3d0bd",
   "supersedes": "assembly/reconciliations/scene-worker-runtime-trace-20260928.json",
-  "rule": "Preserve every prior digest; add only paths whose current digest differs from their lane manifest. Pre-existing drift is traced in docs/audit-20260928/repair/assembly-drift-provenance.md; repair-added paths are changes made on branch repair/installed-architecture (see docs/audit-20260928/repair/REPAIR_LEDGER.md). Any later edit to a listed path invalidates its digest and must be re-reviewed.",
+  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Each listed path was reviewed individually (provenance, diff, covering tests).",
   "pathDigests": {
     "scripts/sidecar-jev-live-connection-smoke.mjs": "52ae216fdee0ff1248e7ac91f9db0c58d40323cd",
     "src/coprocessor/capability-negotiation.js": "383ff043150763189c716d7ff30842f331375b5b",
@@ -21,7 +21,6 @@
     "src/coprocessor/jev-domain-adapter.js": "5222adb783eecd7ed17abdd0e7e6c4717ba5b708",
     "src/coprocessor/provider-adapters.js": "e7745bfa1d2e03d3433c6a592d86585db691fab5",
     "src/coprocessor/provider-execution.js": "fe757782e0543ef59bacc4e5d29c81b6092cac15",
-    "src/coprocessor/resource-connections.js": "75db705f29a6ea770a438f655239ac264360aed1",
     "src/coprocessor/resource-host-adapter.js": "e78444845ee4de3c8dcdea1eb9222c97e92c3054",
     "src/coprocessor/runtime-benchmark.js": "1a438da5e5eaed418e4edf427a20af3846a7f003",
     "src/coprocessor/speculative-warmer-coordinator.js": "776ed3edd444eb9e553ccc12d62d56a394ae7068",
@@ -31,7 +30,7 @@
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
     "src/lore-contextual-retrieval.js": "da66aa721ffa9590d92ca11795a5940c85753b78",
     "src/lore-hierarchy-retrieval-system.js": "1b88fa609377f7f366d0a4ad0401f22722278ab7",
-    "src/lore-intelligence-service.js": "3c51ba02f4001748fd938555297e4dd532f91faf",
+    "src/lore-intelligence-service.js": "0a2eecba6abc1fe803fd34e8a0d65e77b857b5e5",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
     "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
     "src/lore-navigation-summary-registry.js": "13d0ce15256fcadfcb354ba5a79430d5565e325e",
@@ -51,7 +50,7 @@
     "src/scene/reconciliation.js": "e7c4ac483c2390f353e27fc14cb7fb0f30b72d81",
     "src/scene/runtime.js": "ce37402853a62187a3b7a190de49ef023c770d8b",
     "src/scene/scene-graph.js": "b2571b5cc910ea1b8184a37e02811bcbdc7b1a9b",
-    "src/scene/scene-lifecycle-runtime.js": "2d29fa8f04ce427648edd793db601763c6f711d0",
+    "src/scene/scene-lifecycle-runtime.js": "c642cabf7b92d22654475ae28acf78acb7757d3b",
     "src/scene/scene-registry.js": "95cae5011601212242049b63fc38eae762aa27e2",
     "src/scene/scene-retrieval.js": "96cbdc96010a29945e13adbf22cee1045c743eeb",
     "src/scene/scene-ui-read-model.js": "7ea7774c118a6f72466b670b8f0c409f8b2c8042",
@@ -63,10 +62,6 @@
     "src/ui-core/primitives.js": "d687a2fb2d7603b4a80a2bb9b2c028256a1833c1",
     "src/ui-core/wave11-live-bindings.js": "5764c3a5a21fe04e9c75c310bf61473850a7d544",
     "src/ui-core/wave12-sillytavern-host.js": "75ec9280bec1768e0e9d745b3abf5e97dd048cb2",
-    "src/ui-core/wave13-floating-navigation.js": "a3a3935490163f4457874656c5af0870dada1239",
-    "src/ui-core/wave13-operator-adapters.js": "2c39c38741c313074d8c57415de86955ab42c1fc",
-    "src/ui-core/wave13-operator-surfaces.js": "7957cba5d7c73276fd19401fe9933dd2f142c0a0",
-    "src/ui-core/wave6-front-face.js": "9df98279245aea2c25bbae4e2015b68e1359ff4c",
     "src/ui-core/wave6-presentation.js": "f44b057667e183990d3adb3a12f06230f65ead8a",
     "src/ui-core/wave6-production-adapters.js": "3787aa785a01bbb5e58efbb3ef6b2c280ba48d5a",
     "src/ui-core/wave6-runtime.js": "b0dcfb8e70448576df8940980eab0d0e472394b1",
@@ -75,14 +70,12 @@
     "src/ui-core/wave8-cognition.js": "3dce0ee07f35f6c85fb278ef28591e22d50b443f",
     "src/ui-core/wave8-production-adapters.js": "4df202febcf673fe16aa206e564902e26b60f64a",
     "src/ui-core/wave8-workspace.js": "714a7d4344b5019e0c276b4fa98747a2573f2493",
-    "styles/ui-core-wave13.css": "ae3944482c6322eb163f41ee58f70da45d2f4075",
     "styles/ui-core-wave8.css": "6bd93e3538c2ba466ce8c40ab247c7c497e75aab",
     "styles/ui-core.css": "5264e480f8486f3f285653aada3ac4645e5b04b1",
     "tests/coprocessor-wave14-connections.test.mjs": "e823b8c9fd799977a5e11ca21ef80bdb0cf17907",
     "tests/coprocessor-wave9-cross-domain.test.mjs": "b16488cc017b1611a3b391521042cc8a08959f62",
     "tests/ui-core.test.mjs": "f1a63ff680154673d9b8c24eab8276e1f4f69a7e",
     "tests/wave12-sillytavern-host.test.mjs": "7883206a9e7b628b1c233b585ca6914eb473c8a4",
-    "tests/wave13-operator-ui.test.mjs": "0aa59f74f041928926cd5476e9d42d5f85baef00",
     "tests/wave8.test.mjs": "ec7c548be7f2ef8ec07101ab795cdc8fbbb128ba",
     "src/scene/event-publisher.js": "d5d8db2d9b0eade9351f6afbc16d95f7ce9a6a7d",
     "src/scene/integration-contracts.js": "ed49e26593d590d2f50df78b56b61d01413c1727",
@@ -104,39 +97,38 @@
     "src/memory-experience-store.js": "298636055b80a0ea979a006e2a870f3c3352195e",
     "src/memory-integration-surface.js": "54b1b24d34f2f36895e29a4dae8ad23563dc11d8",
     "src/lore-representation-registry.js": "30d1eccd38fdd9a4e812e59ab062b4d90c0a0640",
-    "src/lore-source-registry.js": "db8f42fd79c3961d92837137461f11cebbfd0d0b",
-    "src/lore-study-runtime.js": "df1ea6310780f14c2d6922ba31dd1314b34a354b",
+    "src/lore-source-registry.js": "18eed617d72abf569eb5de18615afdcf2bc0dd5e",
+    "src/lore-study-runtime.js": "38b52fed2be544b7ee92b33f773911a44be27ae5",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
     "src/memory-temporal-producer.js": "e4c3cfeebe52011cbb9c5147f8fb97b3b89b1f73",
     "src/memory-ui-read-model.js": "859d738e58f206942a68b47ead32ecbd4dac33de",
     "tests/memory-wave4.mjs": "7f0e66a28eb922a8a1f19db8058d8f3f46ae5b64",
-    "src/ui-core/shell.js": "3a6206cf3227efe3ea1abc483f52b98cfa32e821",
-    "styles/ui-core-wave6.css": "95c48d40a8faf1d761cd2c00fabe095ebae5f0de"
+    "src/ui-core/shell.js": "3a6206cf3227efe3ea1abc483f52b98cfa32e821"
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "3c51ba02f4001748fd938555297e4dd532f91faf",
+      "digest": "0a2eecba6abc1fe803fd34e8a0d65e77b857b5e5",
       "lane": "lore",
-      "lastCommit": "18be44f 2026-09-28 Wave 5 (D6): register Lore owner entity identities in the Native registry, normalize graph ",
+      "lastCommit": "4608c49 2026-09-29 Follow-up: Lore study as yielding, checkpointed Runtime batches with sliced maint",
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-representation-registry.js": {
       "digest": "30d1eccd38fdd9a4e812e59ab062b4d90c0a0640",
       "lane": "lore",
-      "lastCommit": "57879fd 2026-09-28 Wave 6 (D10): stop O(N^2) corpus cloning in Lore study; record batch-engine and DEEP resour",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
+      "lastCommit": "57879fd 2026-09-28 Wave 6 (D10): stop O(N^2) corpus cloning in Lore study; record batch-engine and D",
+      "origin": "REPAIR_installed_architecture"
     },
     "src/lore-source-registry.js": {
-      "digest": "db8f42fd79c3961d92837137461f11cebbfd0d0b",
+      "digest": "18eed617d72abf569eb5de18615afdcf2bc0dd5e",
       "lane": "lore",
-      "lastCommit": "57879fd 2026-09-28 Wave 6 (D10): stop O(N^2) corpus cloning in Lore study; record batch-engine and DEEP resour",
+      "lastCommit": "8444a69 2026-09-29 Follow-up: revision-aware Lore status reference and compact identity read; D7/D11",
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-study-runtime.js": {
-      "digest": "df1ea6310780f14c2d6922ba31dd1314b34a354b",
+      "digest": "38b52fed2be544b7ee92b33f773911a44be27ae5",
       "lane": "lore",
-      "lastCommit": "57879fd 2026-09-28 Wave 6 (D10): stop O(N^2) corpus cloning in Lore study; record batch-engine and DEEP resour",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
+      "lastCommit": "8444a69 2026-09-29 Follow-up: revision-aware Lore status reference and compact identity read; D7/D11",
+      "origin": "REPAIR_installed_architecture"
     },
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": {
       "digest": "3e25023b7aac5a61f77ff7cc04e0652967119375",
@@ -148,19 +140,13 @@
       "digest": "901ad287ad1d0fcf4d7d0dba39f0184443502369",
       "lane": "scene",
       "lastCommit": "1cc3855 2026-09-28 Wave 0 (D12): keep free-text atmosphere as description, reject non-map dimensions",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
+      "origin": "REPAIR_installed_architecture"
     },
     "src/coprocessor/coprocessor-ui-read-model.js": {
       "digest": "54c6d07c886a1fe4ea23d0d0dc5b4e8a0a1ed00a",
       "lane": "jev",
       "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
-    "src/coprocessor/resource-connections.js": {
-      "digest": "75db705f29a6ea770a438f655239ac264360aed1",
-      "lane": "jev",
-      "lastCommit": "0c68412 2026-09-28 Wave 4 (D4, D5): stop scoring cancellation as provider failure, recover from cooldown by pr",
-      "origin": "REPAIR_installed_architecture"
     },
     "src/coprocessor/resource-host-adapter.js": {
       "digest": "e78444845ee4de3c8dcdea1eb9222c97e92c3054",
@@ -216,30 +202,6 @@
       "lastCommit": "28ea425 2026-09-28 Trace Scene worker runtime and resume work after generation",
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
     },
-    "src/ui-core/wave13-floating-navigation.js": {
-      "digest": "a3a3935490163f4457874656c5af0870dada1239",
-      "lane": "ui",
-      "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
-    "src/ui-core/wave13-operator-adapters.js": {
-      "digest": "2c39c38741c313074d8c57415de86955ab42c1fc",
-      "lane": "ui",
-      "lastCommit": "28ea425 2026-09-28 Trace Scene worker runtime and resume work after generation",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
-    "src/ui-core/wave13-operator-surfaces.js": {
-      "digest": "7957cba5d7c73276fd19401fe9933dd2f142c0a0",
-      "lane": "ui",
-      "lastCommit": "fde8a44 2026-09-28 fix(lore): close World Tree surface before diagnostics helpers",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
-    "src/ui-core/wave6-front-face.js": {
-      "digest": "9df98279245aea2c25bbae4e2015b68e1359ff4c",
-      "lane": "ui",
-      "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
     "src/ui-core/wave6-presentation.js": {
       "digest": "f44b057667e183990d3adb3a12f06230f65ead8a",
       "lane": "ui",
@@ -248,18 +210,6 @@
     },
     "src/ui-core/wave6-runtime.js": {
       "digest": "b0dcfb8e70448576df8940980eab0d0e472394b1",
-      "lane": "ui",
-      "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
-    "styles/ui-core-wave13.css": {
-      "digest": "ae3944482c6322eb163f41ee58f70da45d2f4075",
-      "lane": "ui",
-      "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
-    "styles/ui-core-wave6.css": {
-      "digest": "95c48d40a8faf1d761cd2c00fabe095ebae5f0de",
       "lane": "ui",
       "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
@@ -282,17 +232,17 @@
       "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
     },
-    "tests/wave13-operator-ui.test.mjs": {
-      "digest": "0aa59f74f041928926cd5476e9d42d5f85baef00",
-      "lane": "ui",
-      "lastCommit": "1e01f69 2026-09-28 test(settings): cover global Area-52 motion controls",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
-    },
     "tests/wave8.test.mjs": {
       "digest": "ec7c548be7f2ef8ec07101ab795cdc8fbbb128ba",
       "lane": "ui",
       "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
+    },
+    "src/scene/scene-lifecycle-runtime.js": {
+      "digest": "c642cabf7b92d22654475ae28acf78acb7757d3b",
+      "lane": "scene",
+      "lastCommit": "1a661f9 2026-09-29 Follow-up: installed storage adapter, one Brain per story, Scene owner restore, i",
+      "origin": "REPAIR_installed_architecture"
     }
   }
 }

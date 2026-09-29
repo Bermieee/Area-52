@@ -117,19 +117,28 @@ test('row 45: reflection episode/support refs segment and invalid revision input
   assert.equal(current.supersededByReflectionId,null);
 });
 
-test('row 46: 4,097 consolidation jobs and source refs resume once across snapshot without reselecting work',()=>{
+test('row 46: 4,097 consolidation jobs remain page-bounded and resume through Runtime continuation after reload',()=>{
   const graph=fakeGraph();
   const sourceRefs=Array.from({length:4097},(_,i)=>'consolidation-source:'+i+'@1');
   for(const ref of sourceRefs)graph.sourceRevisionState.set(ref,{state:'ACTIVE'});
-  const jobs=Array.from({length:4097},(_,i)=>({type:'UNSUPPORTED_TEST_JOB',input:{marker:i}}));
+  const jobs=Array.from({length:4097},(_,i)=>({
+    type:'UNSUPPORTED_TEST_JOB',
+    input:{marker:i,sourceRevisionRefs:[sourceRefs[i]]},
+  }));
   const store=new MemoryExperienceStore({graph});
-  const session=store.startConsolidation(jobs,{sourceRevisionRefs:sourceRefs});
+  const session=store.startConsolidation(jobs);
 
   assert.equal(session.jobs.length,4096);
-  assert.equal(session.pendingJobSegments.length,1);
   assert.equal(session.totalJobs,4097);
+  assert.equal(session.jobOffset,0);
+  assert.equal(session.jobPageEnd,4096);
+  assert.equal(session.nextJobOffset,4096);
+  assert.equal(session.continuationAvailable,true);
+  assert.equal(session.continuation.nextJobOffset,4096);
+  assert.equal(session.continuation.remaining,1);
+  assert.equal(session.continuation.runtimeSchedulingAuthority,false);
+  assert.equal('pendingJobSegments' in session,false,'Memory must not retain an unbounded overflow queue');
   assert.equal(session.inputRevisionFence.sourceRevisionRefs.length,4096);
-  assert.equal(session.inputRevisionFence.sourceRevisionManifest.total,4097);
   assert.equal(store.consolidationFenceStatus(session,{currentSourceRevisionRefs:sourceRefs}).ok,true);
 
   let state=session;
@@ -138,21 +147,41 @@ test('row 46: 4,097 consolidation jobs and source refs resume once across snapsh
   assert.equal(state.processedJobs,4095);
   assert.equal(state.state,'CHECKPOINTED');
   assert.equal(state.checkpoint.cursor,4095);
+  assert.equal(state.checkpoint.pageCursor,4095);
+  assert.equal(state.checkpoint.nextJobOffset,4096);
 
   const restored=new MemoryExperienceStore({graph,snapshot:JSON.parse(JSON.stringify(store.snapshot()))});
   const before=restored.consolidationWorkUnits(session.id,{maxUnits:32});
   assert.equal(before.length,1);
   assert.equal(before[0].cursor,4095);
 
-  const completed=restored.runConsolidation(session.id,{maxUnits:32,currentSourceRevisionRefs:sourceRefs});
+  const pageOneDone=restored.runConsolidation(session.id,{maxUnits:32,currentSourceRevisionRefs:sourceRefs});
+  assert.equal(pageOneDone.state,'CHECKPOINTED');
+  assert.equal(pageOneDone.processedJobs,4096);
+  assert.equal(pageOneDone.outcomes.length,4096);
+  assert.equal(pageOneDone.nextJobOffset,4096);
+  assert.equal(pageOneDone.continuationAvailable,true);
+  assert.deepEqual(pageOneDone.outcomes.map((row)=>row.cursor),Array.from({length:4096},(_,i)=>i));
+
+  const pageTwo=restored.startConsolidation(jobs,{
+    jobOffset:pageOneDone.continuation.nextJobOffset,
+    jobSetToken:pageOneDone.continuation.jobSetToken,
+  });
+  assert.equal(pageTwo.jobs.length,1);
+  assert.equal(pageTwo.jobOffset,4096);
+  assert.equal(pageTwo.nextJobOffset,null);
+  assert.equal(pageTwo.processedJobs,4096);
+  assert.equal(pageTwo.continuationAvailable,false);
+
+  const completed=restored.runConsolidation(pageTwo.id,{maxUnits:32,currentSourceRevisionRefs:sourceRefs});
   assert.equal(completed.state,'COMPLETED');
   assert.equal(completed.processedJobs,4097);
-  assert.equal(completed.outcomes.length,4097);
-  assert.deepEqual(completed.outcomes.map((row)=>row.cursor),Array.from({length:4097},(_,i)=>i));
-  assert.equal(completed.pendingJobSegments.length,0);
+  assert.equal(completed.outcomes.length,1);
+  assert.equal(completed.outcomes[0].cursor,4096);
   assert.equal(completed.continuationAvailable,false);
-});
 
+  assert.throws(()=>restored.startConsolidation(jobs,{jobOffset:4096,jobSetToken:'wrong-token'}),/MEMORY_CONSOLIDATION_JOB_SET_CHANGED/);
+});
 
 test('row 46: bundle review exposes Runtime-owned continuation instead of silently dropping proposal 4,097',()=>{
   const producer=new MemoryTemporalProducer();

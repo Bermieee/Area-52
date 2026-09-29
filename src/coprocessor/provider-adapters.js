@@ -1,5 +1,7 @@
 import { Capability, FailureCode } from './constants.js';
 
+function isOpenRouterEndpoint(endpoint){try{const host=new URL(String(endpoint)).hostname.toLowerCase();return host==='openrouter.ai'||host.endsWith('.openrouter.ai');}catch{return false;}}
+
 export const ProviderTransportMode=Object.freeze({
   CHAT_COMPLETIONS:'CHAT_COMPLETIONS',
   EMBEDDINGS:'EMBEDDINGS',
@@ -148,7 +150,7 @@ export class OpenAICompatibleProviderAdapter {
       requestPurpose:'QUALIFICATION_PROBE',providerRequestId:qualification.requestId??null,
     });
   }
-  async invoke(task,input,{signal=null,timeoutMs=this.timeoutMs,maxOutputTokens=null,temperature=null}={}){
+  async invoke(task,input,{signal=null,timeoutMs=this.timeoutMs,maxOutputTokens=null,temperature=null,reasoningMaxTokens=null}={}){
     if(this.transportMode!==ProviderTransportMode.CHAT_COMPLETIONS){
       throw new ProviderInvocationError(FailureCode.CAPABILITY_UNAVAILABLE,'Embeddings transport cannot execute chat-completion specialist work',{providerId:this.providerId});
     }
@@ -159,6 +161,11 @@ export class OpenAICompatibleProviderAdapter {
       if(input?.responseFormat?.type==='json_object')body.response_format={type:'json_object'};
       if(temperature!=null&&Number.isFinite(Number(temperature)))body.temperature=Number(temperature);
       const limit=maxOutputTokens??this.outputLimit;if(Number.isFinite(Number(limit))&&Number(limit)>0&&Number(limit)<Number.MAX_SAFE_INTEGER)body.max_tokens=Math.trunc(Number(limit));
+      // OpenRouter's unified reasoning control (reasoning tokens count against max_tokens). Sent only to OpenRouter, whose
+      // schema defines it; other OpenAI-compatible endpoints get the request unchanged.
+      if(reasoningMaxTokens!=null&&Number.isSafeInteger(Number(reasoningMaxTokens))&&Number(reasoningMaxTokens)>=0&&isOpenRouterEndpoint(this.endpoint)){
+        body.reasoning=Number(reasoningMaxTokens)>0?{max_tokens:Number(reasoningMaxTokens)}:{effort:'none'};
+      }
       const response=await providerFetch(this.fetchImpl,`${this.endpoint}/chat/completions`,{
         method:'POST',headers:this.#requestHeaders({'content-type':'application/json'}),body:JSON.stringify(body),signal,
       },{signal,timeoutMs,providerId:this.providerId,operation:'chat completion'});
@@ -286,7 +293,7 @@ export function safeCompletionResponseMetadata(value){
 export function safeSceneGenerationBudget(value){
   if(value?.policy!=='ADAPTIVE_SCENE')return null;
   const out={policy:'ADAPTIVE_SCENE',providerLimited:value.providerLimited===true};
-  for(const key of ['estimatedFinalTokens','reasoningAllowanceTokens','requestedGenerationTokens','effectiveGenerationTokens'])out[key]=Number.isSafeInteger(value[key])&&value[key]>=0?value[key]:null;
+  for(const key of ['estimatedFinalTokens','reasoningAllowanceTokens','reasoningCapTokens','requestedGenerationTokens','effectiveGenerationTokens'])out[key]=Number.isSafeInteger(value[key])&&value[key]>=0?value[key]:null;
   return Object.freeze(out);
 }
 function completionResponseMetadata(json){

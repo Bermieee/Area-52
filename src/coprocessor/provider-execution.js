@@ -48,6 +48,9 @@ export class SpecialistExecutionLayer {
       const requestedOutputTokens=expectedOutputTokens==null?null:(qualifiedOutputLimit==null?expectedOutputTokens:Math.min(expectedOutputTokens,qualifiedOutputLimit));
       invocation=await adapter.invoke(task,providerInput,{
         signal,attempt,maxOutputTokens:sceneBudget?.effectiveGenerationTokens??requestedOutputTokens,
+        // Reasoning may use only what is left after the estimated final answer, so a reasoning model cannot spend the whole
+        // generation budget thinking and return no content (live finding: finish_reason=length, content null).
+        ...(sceneBudget?{reasoningMaxTokens:sceneBudget.reasoningCapTokens}:{}),
       });
     }catch(error){
       emitTelemetry(this.telemetry,TelemetryEvent.PROVIDER_FAILED,{taskId:task.taskId,turnId:task.turnId,providerId:profile.providerId,modelId:profile.modelId,
@@ -149,5 +152,6 @@ function sceneGenerationBudget(task,input,profile,contextTokens){
   const contextRemaining=Math.max(0,(positiveFiniteOrNull(profile.maxContextTokens)??Number.MAX_SAFE_INTEGER)-contextTokens);
   const effectiveGenerationTokens=Math.floor(Math.min(requestedGenerationTokens,qualifiedOutputLimit,contextRemaining));
   if(effectiveGenerationTokens<estimatedFinalTokens)throw executionError(FailureCode.CAPABILITY_UNAVAILABLE,'Scene output estimate exceeds qualified provider capacity');
-  return Object.freeze({policy:'ADAPTIVE_SCENE',estimatedFinalTokens,reasoningAllowanceTokens,requestedGenerationTokens,effectiveGenerationTokens,providerLimited:effectiveGenerationTokens<requestedGenerationTokens});
+  const reasoningCapTokens=Math.max(0,Math.min(reasoningAllowanceTokens,effectiveGenerationTokens-estimatedFinalTokens));
+  return Object.freeze({policy:'ADAPTIVE_SCENE',estimatedFinalTokens,reasoningAllowanceTokens,reasoningCapTokens,requestedGenerationTokens,effectiveGenerationTokens,providerLimited:effectiveGenerationTokens<requestedGenerationTokens});
 }

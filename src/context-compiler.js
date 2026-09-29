@@ -26,6 +26,21 @@ function externalRow(evidence){
   };
 }
 
+// Deterministic rank of admitted external evidence (row 34): stable sort, admission order breaks ties.
+function rankExternal(rows){
+  const num=(v)=>Number.isFinite(Number(v))&&v!==null&&v!==''?Number(v):null;
+  const keyOf=(x,index)=>{const m=x.retrievalMetadata??{},p=m.precision??{};
+    return{hard:x.hardRule?1:0,finalRank:num(p.finalRank),score:num(p.score)??num(m.fusionScore),inputRank:num(m.inputRank),index};};
+  return rows.map((x,index)=>({x,k:keyOf(x,index)})).sort((a,b)=>{
+    if(a.k.hard!==b.k.hard)return b.k.hard-a.k.hard;
+    if(a.k.finalRank!==null&&b.k.finalRank!==null&&a.k.finalRank!==b.k.finalRank)return a.k.finalRank-b.k.finalRank;
+    if(a.k.finalRank!==null&&b.k.finalRank===null)return -1;if(a.k.finalRank===null&&b.k.finalRank!==null)return 1;
+    if(a.k.score!==null&&b.k.score!==null&&a.k.score!==b.k.score)return b.k.score-a.k.score;
+    if(a.k.inputRank!==null&&b.k.inputRank!==null&&a.k.inputRank!==b.k.inputRank)return a.k.inputRank-b.k.inputRank;
+    return a.k.index-b.k.index;
+  }).map((row)=>row.x);
+}
+
 export class ContextCompiler {
   constructor({graph,maxFactsPerSection=12,isCurrentRevision=()=>true}){this.graph=graph;this.maxFactsPerSection=maxFactsPerSection;this.isCurrentRevision=isCurrentRevision;}
   compile(input){return this.compileDetailed(input).packet;}
@@ -83,8 +98,18 @@ export class ContextCompiler {
 
     const current=finalize(buckets.current,'current'),historical=finalize(buckets.historical,'historical'),unresolvedRows=finalize(buckets.unresolved,'unresolved');
     const exactExternal=[...new Map(admittedExternal.map(x=>[x.evidenceId,x])).values()];
-    const relevantLore=exactExternal.filter(x=>['SOURCE_LORE','DERIVED_REPRESENTATION'].includes(x.sourceClass)).map(externalRow).slice(0,this.maxFactsPerSection);
-    const episodicMemory=exactExternal.filter(x=>!['SOURCE_LORE','DERIVED_REPRESENTATION','TEMPORAL_STATE'].includes(x.sourceClass)).map(externalRow).slice(0,this.maxFactsPerSection);
+    // Cap ledger row 34: when a section has more rows than its budget, it keeps the best-ranked ones, not the first ones
+    // admitted. Rank comes from signals the evidence already carries (hard rule, precision rank, score, input rank);
+    // admission order breaks ties. Kept rows stay in admission order, so a section within its budget is unchanged.
+    // What is left out is counted (metadata.externalKnowledge), not silently dropped.
+    const pick=(rows)=>{
+      if(rows.length<=this.maxFactsPerSection)return{rows:rows.map(externalRow),boundedOut:0};
+      const keep=new Set(rankExternal(rows).slice(0,this.maxFactsPerSection));
+      return{rows:rows.filter((x)=>keep.has(x)).map(externalRow),boundedOut:rows.length-keep.size};
+    };
+    const lorePick=pick(exactExternal.filter(x=>['SOURCE_LORE','DERIVED_REPRESENTATION'].includes(x.sourceClass)));
+    const memoryPick=pick(exactExternal.filter(x=>!['SOURCE_LORE','DERIVED_REPRESENTATION','TEMPORAL_STATE'].includes(x.sourceClass)));
+    const relevantLore=lorePick.rows,episodicMemory=memoryPick.rows;
     for(const row of [...relevantLore,...episodicMemory]){
       const evidence=evidenceById.get(row.evidenceId),refs=uniq([...(evidence?.sourceRevisionRefs??[]),...(evidence?.dependencyRevisionRefs??[])]);
       provenanceIndex[row.id]=refs;
@@ -98,7 +123,7 @@ export class ContextCompiler {
     if(episodicMemory.length)packet.episodicMemory=episodicMemory;
     if(Object.keys(knowledgeTraceIndex).length)packet.knowledgeTraceIndex=knowledgeTraceIndex;
     const semanticSizing=computeSemanticSizing({current,historical,unresolved:unresolvedRows,activeThreads:threads,provenanceIndex,dependencies:dependenciesList});
-    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length}};
+    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length,loreBoundedOut:lorePick.boundedOut,memoryBoundedOut:memoryPick.boundedOut,ranking:'HARD_RULE>PRECISION_RANK>SCORE>INPUT_RANK>ADMISSION'}};
     return{packet,metadata};
   }
 }

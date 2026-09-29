@@ -19,7 +19,7 @@ Scope: close the repair started in the audit of 2026-09-28 without expanding it.
 | 13 | Merge | NOT DONE, by instruction | - |
 
 ## Residual limits (recorded, not in this repair's scope or needing a decision)
-- Operator re-accept of an edited 1,200-entry Lorebook still refreshes ontology and hierarchy inline (~0.75 s): authoring, planners and the summary builder read them, so they are not deferred. The retrieval index is now built aside, fenced and published atomically.
+- Operator re-accept of an edited 1,200-entry Lorebook still refreshes ontology and hierarchy inline (~0.75 s). This is remaining performance work, not an architectural necessity: the ontology and hierarchy are still rebuilt synchronously because this pass only built the fencing and atomic publication for the retrieval index; their readers (authoring, planners, summary builder) would need the same treatment (build aside, fence, publish atomically) before those rebuilds could yield. The retrieval index is already built aside, fenced and published atomically.
 - The synchronous one-shot `ingestLorebook` (accept + full study) remains for `initialLorebook` and rehearsal; not an operator path.
 - A stale tab resolves its conflict by reloading; preserved conflict checkpoints are recoverable through the adapter (`loadWriteConflict`) but there is no UI to merge them.
 - Open owner decisions carried over: O1, O3, O6, O8 (further checkpoint work), D7 confirmations.

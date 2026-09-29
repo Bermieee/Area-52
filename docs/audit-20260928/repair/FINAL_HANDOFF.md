@@ -25,7 +25,7 @@ Verified code head: **`854aa87`** (later commits are documentation / assembly ov
 ## Remaining gaps (honest)
 1. **Live acceptance is entirely open** (checklist below).
 2. **Owner decisions still open**: O1 retirement policy without a revision oracle; O3 quiet/impersonate context; O6 batch-engine and diagnostic payload bounds; O8 further checkpoint growth work; D7 rule confirmations.
-3. **Residual synchronous chunk**: the operator re-accept refreshes ontology and hierarchy inline (~0.75 s at 1,200 entries) because other readers depend on them; the one-shot `ingestLorebook` remains for `initialLorebook` and rehearsal only.
+3. **Remaining performance work**: the operator re-accept rebuilds ontology and hierarchy inline (~0.75 s at 1,200 entries). This is remaining performance work, not an architectural necessity: the ontology and hierarchy are still rebuilt synchronously because this pass only built the fencing and atomic publication for the retrieval index; their readers (authoring, planners, summary builder) would need the same treatment (build aside, fence, publish atomically) before those rebuilds could yield. The one-shot `ingestLorebook` remains for `initialLorebook` and rehearsal only.
 4. **Conflicts across tabs** are resolved by reload; preserved conflict checkpoints are recoverable through the adapter, with no merge UI.
 5. **Jev scope**: only the TEMPORAL adapter and Lore ESTABLISHED conflicts (owner rule); POSSIBLE conflicts and Scene/Memory ambiguities are not routed.
 6. Atmosphere tracker state restarts on reload; owner parts are stored once for all stories.

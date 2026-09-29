@@ -5,7 +5,7 @@
 ## Current state (update this block at every checkpoint)
 - **Final pass complete on the mock harness.** Code head 854aa87; final sweep and probes on 91815e2 (docs-only difference): 242 files 2,040/2,040 pass; verifier PASS; round-5 probes 24/24 exit 0. Nothing running.
 - NOT pushed (no repo access in the session): apply the git bundle to a clone of the branch and push; paste `PR_BODY.md` into PR #324. Do not merge.
-- Next (outside this repair unless the owner decides): live acceptance; O1, O3, O6, O8, D7 confirmations.
+- Next, in order: (1) owner imports the bundle into a clone of the branch and pushes (PR #324 does not contain this work until then); (2) review; (3) installed / live acceptance per FINAL_HANDOFF. Open: O1, O3, O6, O8, D7 confirmations; the ~0.75 s re-accept rebuild is remaining performance work (ontology/hierarchy not yet fenced and published atomically).
 
 ## Update (6da77e1, docs in the following commit)
 - Step 1 done: O8 round-trip tests added, two lossy paths fixed (own `__proto__` key; missing string entry or short table row now fail closed). See the ledger.

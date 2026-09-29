@@ -24,6 +24,6 @@ Branch `repair/installed-architecture`. Verified code head `854aa87` (later comm
 - **Fenced, yielding, atomic Lore index**: built aside with host turns, published by one swap only if its fence held; records built from moved revisions are never served and truth hints come from the owner's current resolution. Batched study longest stall 414 to 254 ms; operator Accept 1.09 to 0.75 s.
 
 ## Still open (not in this repair's scope or needing a decision)
-Owner decisions O1, O3, O6, O8 (further checkpoint work), D7 confirmations; residual inline ontology/hierarchy refresh on re-accept (~0.75 s at 1,200 entries); no merge UI for preserved cross-tab conflicts; every live-acceptance item.
+Owner decisions O1, O3, O6, O8 (further checkpoint work), D7 confirmations; remaining performance work: the inline ontology/hierarchy rebuild on re-accept (~0.75 s at 1,200 entries) has not yet been given fencing and atomic publication; no merge UI for preserved cross-tab conflicts; every live-acceptance item.
 
 Details: `REPAIR_LEDGER.md`, `CLOSURE_CHECKLIST.md`, `FINAL_HANDOFF.md`, `ASSEMBLY_DRIFT_REVIEW.md`.

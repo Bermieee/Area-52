@@ -279,3 +279,28 @@ test('quota exhausted mid-session: the last valid checkpoint survives a reload a
   assert.equal(b.session.nativeBrain.turns.size, turnsAtCheckpoint, 'the last valid checkpoint, not a torn one');
   b.session.destroy();
 });
+
+test('two tabs on one story: the stale tab cannot overwrite the newer checkpoint; its checkpoint is preserved and the conflict is reported until reload', async () => {
+  const backend = createMemoryBackend(), chats = makeChats();
+  const tabA = await boot({ backend, chats, chatId: 'chat:TT' });
+  await tabA.turn('At North Gallery, Mara waits.', 'Eris walks in.');
+  const tabB = await boot({ backend, chats, chatId: 'chat:TT' }); // loads A's checkpoint
+  await tabA.turn('A second line in tab A.', 'Reply A.');          // A saves a newer checkpoint B has not seen
+  const newer = await new InstalledStorageAdapter({ backend }).loadStory('chat:TT');
+  await tabB.turn('A line typed in the stale tab B.', 'Reply B.');
+  const row = tabB.session.nativePersistence.at(-1);
+  assert.equal(row.status, 'CONFLICT'); assert.equal(row.code, 'STALE_WRITER'); assert.equal(row.scope, 'story'); assert.equal(row.preserved, true);
+  const evidence = tabB.session.exportEvidence();
+  assert.equal(JSON.stringify(evidence).includes('RELOAD_TO_LOAD_THE_NEWER_CHECKPOINT'), true, 'the conflict is visible in Diagnostics evidence');
+  const after = await new InstalledStorageAdapter({ backend }).loadStory('chat:TT');
+  assert.equal(after.generation, newer.generation, 'the newer checkpoint was not overwritten');
+  assert.deepEqual(after.parts, newer.parts);
+  const conflicts = await tabB.storage.readWriteConflicts('chat:TT');
+  assert.equal(conflicts.length, 1); assert.equal((await tabB.storage.loadWriteConflict(conflicts[0].key)).status, 'PRESERVED');
+  tabA.session.destroy(); tabB.session.destroy();
+  const reloaded = await boot({ backend, chats, chatId: 'chat:TT' });
+  assert.equal(reloaded.session.storageRestore.brain, 'RESTORED', 'reload restores the newer checkpoint');
+  await reloaded.turn('Continuing after reload.', 'Fine.');
+  assert.equal(reloaded.session.nativePersistence.at(-1).status, 'PERSISTED');
+  reloaded.session.destroy();
+});

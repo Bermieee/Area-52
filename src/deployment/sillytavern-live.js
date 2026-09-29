@@ -671,6 +671,7 @@ export class DevelopmentDeploymentSillyTavernSession {
     this.storageRestore=restoreReceipt?clone(restoreReceipt):{kind:'InstalledStorageRestoreReceipt',status:this.storage?'NOT_ATTEMPTED':'NO_STORAGE'};
     this.nativeBrainStoryId=null;this.storyBrains=new Map();this.storyBrainReady=Promise.resolve();
     this.nativePersistence=[];
+    this.persistenceConflict=null;
     this.nativePending = new Map();
     this.nativePayloads = new Map();
     this.nativeRuns = new Map();
@@ -1324,7 +1325,7 @@ export class DevelopmentDeploymentSillyTavernSession {
             recoveredAfterLastFailure:Boolean(last&&this.nativeHistory.some(row=>row.state==='RESPONSE_COMPLETED'&&Number(row.completedAt??0)>Number(last.at??0)))};
         })(),
         ownerKnowledgeAttachments:clone(this.nativeOwnerAttachments),loreRevisionInvalidations:clone(this.nativeLoreRevisionEvents),
-        persistence:{configured:Boolean(this.persistNativeBrain||this.storage),storage:this.storage?{...this.storage.diagnostics(),restore:clone(this.storageRestore),storyBrainId:this.nativeBrainStoryId,liveStories:this.storyBrains.size}:null,last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length},
+        persistence:{configured:Boolean(this.persistNativeBrain||this.storage),storage:this.storage?{...this.storage.diagnostics(),restore:clone(this.storageRestore),storyBrainId:this.nativeBrainStoryId,liveStories:this.storyBrains.size}:null,last:clone(this.nativePersistence.at(-1)??null),persistedCount:this.nativePersistence.filter(x=>x.status==='PERSISTED').length,conflict:clone(this.persistenceConflict??null)},
         learnedByChat:clone(nativeLearnedByChat),responseCompletedByChat:clone(nativeResponseCompletedByChat),multiTurnObserved:nativeMultiTurnChatIds.length>0,multiTurnChatIds:nativeMultiTurnChatIds,
         exactPreparedRenderedObserved:nativeInjected>0,endToEndObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndResponseObserved:nativePrepared>0&&nativeInjected>0&&nativeResponseCompleted>0,endToEndLearningAccepted:nativeLearned>0,last:this.nativeHistory.at(-1)??null,rejections:clone(this.nativeRejections),
         sceneFanOut:{
@@ -1388,14 +1389,30 @@ export class DevelopmentDeploymentSillyTavernSession {
         // retried at the next checkpoint (the Lore key is only advanced on success).
         const story=await this.storage.saveStory(chatId,{...packBrainSnapshot(snapshot),host:this.#hostStateFor(chatId)});
         const snapshotSceneOwner=brainBindings?.snapshotSceneOwner??(typeof this.brain?.snapshotSceneOwner==='function'?()=>this.brain.snapshotSceneOwner():null);
-        const owners=await this.storage.saveOwners({memory:memoryOwnerSnapshot??undefined,scene:typeof snapshotSceneOwner==='function'?snapshotSceneOwner():undefined,...(loreChanged?{lore:loreOwnerSnapshot}:{})});
+        let owners;
+        try{owners=await this.storage.saveOwners({memory:memoryOwnerSnapshot??undefined,scene:typeof snapshotSceneOwner==='function'?snapshotSceneOwner():undefined,...(loreChanged?{lore:loreOwnerSnapshot}:{})});}
+        catch(error){
+          if(error?.code!=='STALE_WRITER')throw error;
+          // The story checkpoint is saved; the shared owner state was not written over another tab's newer owners.
+          return this.#recordPersistenceConflict({chatId,turnId,generationId,error,scope:'owners',storage:{storyGeneration:story.generation,storyBytes:story.bytes}});
+        }
         storageRow={storyGeneration:story.generation,ownersGeneration:owners.generation,storyBytes:story.bytes,ownersBytes:owners.bytes};
       }
       if(loreChanged)this.lastPersistedLoreOwnerKey=loreOwnerRevisionKey;
       const row={at:Date.now(),chatId,turnId,generationId,status:'PERSISTED',...(storageRow?{storage:storageRow}:{})};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }catch(error){
-      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error)};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
+      if(error?.code==='STALE_WRITER')return this.#recordPersistenceConflict({chatId,turnId,generationId,error,scope:'story'});
+      const row={at:Date.now(),chatId,turnId,generationId,status:'FAILED',reason:safeDiagnosticMessage(error),code:error?.storageCode??error?.code??null};this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
     }
+  }
+
+  // Another tab saved a newer checkpoint: this tab's checkpoint was preserved as a conflict record (not written over the newer
+  // one). Reported on every checkpoint row and in persistenceConflict until the tab reloads.
+  #recordPersistenceConflict({chatId,turnId,generationId,error,scope,storage=null}){
+    const details=error?.details??{};
+    this.persistenceConflict={kind:'InstalledPersistenceConflict',at:Date.now(),chatId,scope,reason:details.reason??null,lastSeenGeneration:details.lastSeenGeneration??null,newerGeneration:details.newerGeneration??null,preserved:details.preserved===true,conflictKey:details.conflictKey??null,resolution:'RELOAD_TO_LOAD_THE_NEWER_CHECKPOINT'};
+    const row={at:Date.now(),chatId,turnId,generationId,status:'CONFLICT',code:'STALE_WRITER',scope,reason:safeDiagnosticMessage(error),preserved:details.preserved===true,...(storage?{storage}:{})};
+    this.nativePersistence.push(row);if(this.nativePersistence.length>100)this.nativePersistence.shift();return row;
   }
 
   #attachNativeKnowledgeOwners(){

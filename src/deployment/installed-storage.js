@@ -24,6 +24,8 @@ export function createMemoryBackend() {
     async set(key, value) { map.set(key, String(value)); },
     async delete(key) { map.delete(key); },
     async keys(prefix = '') { return [...map.keys()].filter((key) => key.startsWith(prefix)); },
+    // Atomic compare-and-set (single-threaded map): writes only if the stored value is still `expected` (null = absent).
+    async compareAndSet(key, expected, value) { const current = map.has(key) ? map.get(key) : null; if (current !== expected) return false; map.set(key, String(value)); return true; },
     _map: map,
   };
 }
@@ -68,6 +70,20 @@ export function createIndexedDbBackend({ indexedDB = globalThis.indexedDB, dbNam
     async set(key, value) { await run('readwrite', (store) => store.put(String(value), key)); },
     async delete(key) { await run('readwrite', (store) => store.delete(key)); },
     async keys(prefix = '') { const all = await run('readonly', (store) => store.getAllKeys()); return (all ?? []).map(String).filter((key) => key.startsWith(prefix)); },
+    // Atomic across tabs: read and conditional write in ONE readwrite transaction (IndexedDB serialises overlapping ones).
+    async compareAndSet(key, expected, value) {
+      const db = await open();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, 'readwrite'), store = tx.objectStore(storeName);
+        let swapped = false;
+        const read = store.get(key);
+        read.onsuccess = () => { const current = read.result == null ? null : String(read.result); if (current === expected) { swapped = true; store.put(String(value), key); } };
+        read.onerror = () => reject(read.error);
+        tx.oncomplete = () => resolve(swapped);
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error('indexedDB transaction aborted'));
+      });
+    },
   };
 }
 
@@ -105,6 +121,7 @@ export function createFailoverBackend(candidates = []) {
     async set(key, value) { return (await ready()).set(key, value); },
     async delete(key) { return (await ready()).delete(key); },
     async keys(prefix = '') { return (await ready()).keys(prefix); },
+    async compareAndSet(key, expected, value) { const backend = await ready(); return typeof backend.compareAndSet === 'function' ? backend.compareAndSet(key, expected, value) : null; },
   };
 }
 
@@ -117,6 +134,12 @@ export function selectInstalledBackend(host = globalThis) {
   return candidates.length ? createFailoverBackend(candidates) : null;
 }
 
+// A tab whose last known generation of a scope is older than the stored one (another tab saved since). Its checkpoint is not
+// written over the newer one; it is preserved in a conflict record (readWriteConflicts) and the tab must reload.
+export class StaleWriterError extends Error {
+  constructor(details = {}) { super('Another tab saved a newer checkpoint; this tab\'s checkpoint was preserved as a conflict, not written over it. Reload to continue.'); this.name = 'StaleWriterError'; this.code = 'STALE_WRITER'; this.details = details; }
+}
+
 // QuotaExceededError across browsers (DOMException name, legacy codes 22 / 1014, Firefox NS_ERROR_DOM_QUOTA_REACHED).
 export function isQuotaError(error) {
   const name = String(error?.name ?? ''), code = Number(error?.code);
@@ -124,6 +147,7 @@ export function isQuotaError(error) {
 }
 function storageErrorCode(error) {
   if (error?.code === 'STORAGE_UNAVAILABLE') return 'STORAGE_UNAVAILABLE';
+  if (error?.code === 'STALE_WRITER') return 'STALE_WRITER';
   return isQuotaError(error) ? 'QUOTA_EXCEEDED' : 'WRITE_FAILED';
 }
 
@@ -147,7 +171,7 @@ export class InstalledStorageAdapter {
     this.lastError = null;
     this.lastErrorCode = null;
     this.seenGeneration = new Map();
-    this.stats = { saves: 0, failedSaves: 0, loads: 0, fallbacks: 0, partsWritten: 0, partsReused: 0, bytesWritten: 0, quotaFailures: 0, concurrentWriterOverwrites: 0, backupManifestRecoveries: 0, quarantines: 0 };
+    this.stats = { saves: 0, failedSaves: 0, loads: 0, fallbacks: 0, partsWritten: 0, partsReused: 0, bytesWritten: 0, quotaFailures: 0, concurrentWriterOverwrites: 0, backupManifestRecoveries: 0, quarantines: 0, writeConflicts: 0 };
   }
 
   #manifestKey(scope) { return `${this.namespace}/manifest/${scope}`; }
@@ -155,6 +179,32 @@ export class InstalledStorageAdapter {
   #partPrefix(scope) { return `${this.namespace}/part/${scope}/`; }
   #partKey(scope, generation, name) { return `${this.#partPrefix(scope)}${generation}.${this.writerId}/${name}`; }
   #quarantinePrefix(scope) { return `${this.namespace}/quarantine/${scope}/`; }
+  #conflictPrefix(scope) { return `${this.namespace}/conflict/${scope}/`; }
+  #conflictKey(scope) { return `${this.#conflictPrefix(scope)}${this.writerId}`; }
+
+  // Part keys referenced by write-conflict records (a stale tab's preserved checkpoint). Never collected.
+  async #conflictHeldKeys(scope) {
+    const held = new Set();
+    for (const key of await this.backend.keys(this.#conflictPrefix(scope))) {
+      try { for (const row of Object.values(JSON.parse(await this.backend.get(key))?.parts ?? {})) held.add(row.key); } catch { /* unreadable record */ }
+    }
+    return held;
+  }
+
+  // Preserves a rejected checkpoint: its parts stay under this writer's keys and one record per writer (latest attempt)
+  // references them. The newer checkpoint is untouched.
+  async #preserveConflict(scope, { table, written, meta, seen, base, reason }) {
+    const record = { kind: 'Area52StorageWriteConflict', scope, reason, writerId: this.writerId, at: this.now(), ...meta,
+      lastSeenGeneration: seen ?? null, newerGeneration: base?.generation ?? null, newerWriterId: base?.writerId ?? null, newerSavedAt: base?.savedAt ?? null,
+      parts: Object.fromEntries(Object.entries(table).filter(([, row]) => written.includes(row.key))) };
+    let previous = null; try { previous = JSON.parse(await this.backend.get(this.#conflictKey(scope)) ?? 'null'); } catch { previous = null; }
+    await this.backend.set(this.#conflictKey(scope), JSON.stringify(record));
+    // The previous attempt of this writer is superseded by this one: its parts are released (unless still referenced).
+    const keepNow = new Set(Object.values(record.parts).map((row) => row.key));
+    for (const row of Object.values(previous?.parts ?? {})) if (!keepNow.has(row.key)) { try { await this.backend.delete(row.key); } catch { /* collected later */ } }
+    this.stats.writeConflicts += 1;
+    return record;
+  }
 
   // Keys held by quarantine records (parts that were on disk when an unreadable manifest was replaced). Never collected.
   async #quarantinedKeys(scope) {
@@ -215,9 +265,16 @@ export class InstalledStorageAdapter {
       const highest = existing.reduce((n, key) => Math.max(n, keyGeneration(key, prefix) || 0), 0);
       const generation = Math.max(base?.generation ?? 0, highest) + 1;
       const seen = this.seenGeneration.get(scope);
-      const concurrentWriter = base != null && seen != null && base.generation > seen;
+      // Stale tab: another writer committed a generation this writer never loaded or wrote. Never write over it.
+      const stale = base != null && seen != null && base.generation > seen;
+      const concurrentWriter = false;
       const table = retainUnlisted && base ? { ...base.parts } : {};
       const written = [];
+      const reject = async (reason, newer) => {
+        const record = await this.#preserveConflict(scope, { table, written, meta, seen, base: newer, reason }).catch(() => null);
+        throw new StaleWriterError({ scope, reason, lastSeenGeneration: seen ?? null, newerGeneration: newer?.generation ?? null, conflictKey: record ? this.#conflictKey(scope) : null, preserved: Boolean(record) });
+      };
+      let preserving = false;
       try {
         for (const [name, payload] of Object.entries(parts)) {
           if (payload === undefined) continue;
@@ -236,8 +293,19 @@ export class InstalledStorageAdapter {
           format: INSTALLED_STORAGE_FORMAT, version: INSTALLED_STORAGE_VERSION, scope, ...meta, generation, writerId: this.writerId,
           savedAt: this.now(), parts: table, previous: base ? { generation: base.generation, parts: base.parts, savedAt: base.savedAt } : null,
         };
+        if (stale) { preserving = true; await reject('NEWER_GENERATION_EXISTS', base); }
         if (baseRaw != null) await this.backend.set(this.#backupKey(scope), baseRaw); // the manifest being replaced
-        await this.backend.set(this.#manifestKey(scope), JSON.stringify(manifest)); // the atomic switch
+        const manifestText = JSON.stringify(manifest);
+        const expectedRaw = main.state === 'OK' ? main.raw : main.state === 'MISSING' ? null : undefined;
+        // The switch. Atomic compare-and-set where the backend has it (IndexedDB transaction, memory); otherwise write and read
+        // back. Losing the race means another writer switched first: this checkpoint is preserved as a conflict, not applied.
+        const swapped = expectedRaw !== undefined && typeof this.backend.compareAndSet === 'function' ? await this.backend.compareAndSet(this.#manifestKey(scope), expectedRaw, manifestText) : null;
+        if (swapped === false) { preserving = true; const now = await this.#readManifestAt(this.#manifestKey(scope), scope); await reject('LOST_SWITCH_RACE', now.manifest ?? null); }
+        if (swapped === null) {
+          await this.backend.set(this.#manifestKey(scope), manifestText);
+          const back = await this.backend.get(this.#manifestKey(scope));
+          if (back !== manifestText) { preserving = true; const now = await this.#readManifestAt(this.#manifestKey(scope), scope); await reject('OVERWRITTEN_AFTER_SWITCH', now.manifest ?? null); }
+        }
         this.seenGeneration.set(scope, generation);
         if (concurrentWriter) this.stats.concurrentWriterOverwrites += 1;
         if (quarantine) this.stats.quarantines += 1;
@@ -248,8 +316,8 @@ export class InstalledStorageAdapter {
           ...(concurrentWriter ? { concurrentWriterDetected: true, overwrittenGeneration: base.generation, lastSeenGeneration: seen } : {}) };
       } catch (error) {
         // Parts of this failed attempt are unreferenced: remove them now (on quota exhaustion this frees the space the
-        // next attempt needs). The previous generation is untouched.
-        for (const key of written) { try { await this.backend.delete(key); } catch { /* collected later */ } }
+        // next attempt needs). The previous generation is untouched. A stale-writer rejection keeps them (conflict record).
+        if (!preserving) for (const key of written) { try { await this.backend.delete(key); } catch { /* collected later */ } }
         throw error;
       }
     };
@@ -271,6 +339,7 @@ export class InstalledStorageAdapter {
     try {
       const keep = new Set([...Object.values(manifest.parts), ...Object.values(manifest.previous?.parts ?? {})].map((row) => row.key));
       for (const key of await this.#quarantinedKeys(scope)) keep.add(key);
+      for (const key of await this.#conflictHeldKeys(scope)) keep.add(key);
       const floor = manifest.previous?.generation ?? manifest.generation;
       const prefix = this.#partPrefix(scope);
       for (const key of await this.backend.keys(prefix)) {
@@ -336,10 +405,27 @@ export class InstalledStorageAdapter {
     return out;
   }
 
-  // An explicit delete removes everything of the story, quarantine included (the operator asked for it).
+  // Write conflicts (stale tabs' preserved checkpoints) of a story, or of the owners scope when chatId is null.
+  async readWriteConflicts(chatId = null) {
+    const scope = chatId == null ? 'owners' : storyKey(chatId), out = [];
+    for (const key of await this.backend.keys(this.#conflictPrefix(scope))) {
+      try { const row = JSON.parse(await this.backend.get(key)); out.push({ key, writerId: row.writerId, at: row.at, reason: row.reason, lastSeenGeneration: row.lastSeenGeneration, newerGeneration: row.newerGeneration, parts: Object.keys(row.parts ?? {}) }); }
+      catch { out.push({ key, unreadable: true }); }
+    }
+    return out;
+  }
+
+  // Reads a preserved (conflicted) checkpoint's parts, checksum-verified, for manual recovery. Never applied automatically.
+  async loadWriteConflict(key) {
+    try { const row = JSON.parse(await this.backend.get(key)); const parts = await this.#readParts(row.parts); return parts ? { status: 'PRESERVED', parts, record: { ...row, parts: Object.keys(row.parts ?? {}) } } : { status: 'UNREADABLE' }; }
+    catch { return { status: 'UNREADABLE' }; }
+  }
+
+  // An explicit delete removes everything of the story, quarantine and conflicts included (the operator asked for it).
   async deleteStory(chatId) {
     const scope = storyKey(chatId);
     const run = async () => {
+      for (const key of await this.backend.keys(this.#conflictPrefix(scope))) await this.backend.delete(key);
       for (const key of await this.backend.keys(this.#quarantinePrefix(scope))) await this.backend.delete(key);
       for (const key of await this.backend.keys(this.#partPrefix(scope))) await this.backend.delete(key);
       await this.backend.delete(this.#backupKey(scope));

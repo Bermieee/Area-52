@@ -207,7 +207,8 @@ test('quota exceeded exactly at the manifest switch keeps the previous generatio
   const inner = quotaBackend(1e6);
   const a = new InstalledStorageAdapter({ backend: inner });
   await a.saveStory('chat:Q2', { brain: { gen: 1 }, host: { gen: 1 } });
-  const failManifest = { ...inner, async set(k, v) { if (k.includes('/manifest/')) throw quotaError(); return inner.set(k, v); } };
+  // The switch is a compare-and-set where the backend has one, so quota is raised there as well as on set().
+  const failManifest = { ...inner, async set(k, v) { if (k.includes('/manifest/')) throw quotaError(); return inner.set(k, v); }, async compareAndSet(k, e, v) { if (k.includes('/manifest/')) throw quotaError(); return inner.compareAndSet(k, e, v); } };
   const b = new InstalledStorageAdapter({ backend: failManifest });
   assert.equal((await b.saveStory('chat:Q2', { brain: { gen: 2 }, host: { gen: 2 } }).catch((e) => e)).storageCode, 'QUOTA_EXCEEDED');
   const loaded = await a.loadStory('chat:Q2');
@@ -237,34 +238,57 @@ test('storage unavailable (IndexedDB open fails, localStorage rejects writes): l
   assert.equal(createInstalledStorage({ host: {} }), null, 'a host with no storage at all yields no adapter (reported as NO_STORAGE by the session)');
 });
 
-test('multi-tab writers with Web Locks: saves are serialised across tabs, every generation is complete, nothing falls back', async () => {
+test('multi-tab writers with Web Locks: a tab that did not see the other tab\'s newer checkpoint is rejected (STALE_WRITER), its checkpoint preserved, the newer one intact', async () => {
   const shared = slow(createMemoryBackend()), locks = locksFake();
   const tabA = new InstalledStorageAdapter({ backend: shared, locks, writerId: 'tabA' });
   const tabB = new InstalledStorageAdapter({ backend: shared, locks, writerId: 'tabB' });
   await tabA.saveStory('chat:M', { brain: { tab: 'A', n: 0 }, host: { tab: 'A', n: 0 } });
-  const results = await Promise.all([0, 1, 2].flatMap((n) => [tabA.saveStory('chat:M', { brain: { tab: 'A', n }, host: { tab: 'A', n } }), tabB.saveStory('chat:M', { brain: { tab: 'B', n }, host: { tab: 'B', n } })]));
-  assert.deepEqual(results.map((r) => r.generation).sort((x, y) => x - y), [2, 3, 4, 5, 6, 7], 'strictly increasing, no generation reused');
+  assert.equal((await tabB.loadStory('chat:M')).generation, 1, 'both tabs have seen generation 1');
+  await tabA.saveStory('chat:M', { brain: { tab: 'A', n: 1 }, host: { tab: 'A', n: 1 } }); // generation 2, unseen by B
+  const err = await tabB.saveStory('chat:M', { brain: { tab: 'B', n: 1 }, host: { tab: 'B', n: 1 } }).catch((e) => e);
+  assert.equal(err.code, 'STALE_WRITER'); assert.equal(err.details.lastSeenGeneration, 1); assert.equal(err.details.newerGeneration, 2); assert.equal(err.details.preserved, true);
   const loaded = await tabA.loadStory('chat:M');
-  assert.equal(loaded.status, 'CURRENT');
-  assert.deepEqual([loaded.parts.brain.tab, loaded.parts.brain.n], [loaded.parts.host.tab, loaded.parts.host.n], 'one writer per generation');
-  assert.ok(results.some((r) => r.concurrentWriterDetected), 'overwriting the other tab\'s newer generation is detected and reported');
+  assert.equal(loaded.status, 'CURRENT'); assert.equal(loaded.generation, 2); assert.deepEqual([loaded.parts.brain.tab, loaded.parts.host.tab], ['A', 'A'], 'the newer checkpoint was not overwritten');
+  const conflicts = await tabB.readWriteConflicts('chat:M');
+  assert.equal(conflicts.length, 1); assert.equal(conflicts[0].writerId, 'tabB'); assert.equal(conflicts[0].reason, 'NEWER_GENERATION_EXISTS');
+  const preserved = await tabB.loadWriteConflict(conflicts[0].key);
+  assert.equal(preserved.status, 'PRESERVED'); assert.deepEqual(preserved.parts.brain, { tab: 'B', n: 1 }, 'the stale tab\'s checkpoint is recoverable');
+  assert.equal(tabB.diagnostics().lastErrorCode, 'STALE_WRITER');
+  // Further saves by the stale tab keep failing and keep ONE conflict record (the latest attempt), never growing storage.
+  await tabB.saveStory('chat:M', { brain: { tab: 'B', n: 2 }, host: { tab: 'B', n: 2 } }).catch(() => {});
+  const again = await tabB.readWriteConflicts('chat:M');
+  assert.equal(again.length, 1); assert.deepEqual((await tabB.loadWriteConflict(again[0].key)).parts.brain, { tab: 'B', n: 2 });
+  // Tab A keeps saving normally, and its collection never deletes the preserved checkpoint.
+  for (let n = 2; n <= 5; n += 1) await tabA.saveStory('chat:M', { brain: { tab: 'A', n }, host: { tab: 'A', n } });
+  assert.equal((await tabB.loadWriteConflict(again[0].key)).status, 'PRESERVED');
+  // Reloading the stale tab resolves it: it now knows the newest generation and saves on top of it.
+  await tabB.loadStory('chat:M');
+  const latestA = (await tabA.loadStory('chat:M')).generation;
+  const ok = await tabB.saveStory('chat:M', { brain: { tab: 'B', n: 9 }, host: { tab: 'B', n: 9 } });
+  assert.ok(ok.generation > latestA, 'numbered past every existing key, including preserved conflict parts'); assert.deepEqual((await tabA.loadStory('chat:M')).parts.brain, { tab: 'B', n: 9 });
 });
 
-test('multi-tab writers without Web Locks: interleaved saves never produce a torn or unreadable story, and one tab never collects the other\'s in-flight parts', async () => {
+test('multi-tab writers without Web Locks: racing saves resolve by an atomic manifest switch; the loser is rejected and preserved, the winner is intact', async () => {
   for (let round = 0; round < 12; round += 1) {
     const shared = slow(createMemoryBackend());
     const tabA = new InstalledStorageAdapter({ backend: shared, locks: null, writerId: 'A' + round });
     const tabB = new InstalledStorageAdapter({ backend: shared, locks: null, writerId: 'B' + round });
     await tabA.saveStory('chat:N', { brain: { w: 'A', n: 0 }, host: { w: 'A', n: 0 } });
     await tabB.loadStory('chat:N');
-    await Promise.all([
+    const results = await Promise.allSettled([
       tabA.saveStory('chat:N', { brain: { w: 'A', n: 1 }, host: { w: 'A', n: 1 } }),
       (async () => { for (let i = 0; i < round % 4; i += 1) await tick(); return tabB.saveStory('chat:N', { brain: { w: 'B', n: 1 }, host: { w: 'B', n: 1 } }); })(),
     ]);
+    const won = results.filter((r) => r.status === 'fulfilled').length, lost = results.filter((r) => r.status === 'rejected');
+    assert.equal(won, 1, `round ${round}: exactly one writer wins`);
+    assert.ok(lost.every((r) => r.reason.code === 'STALE_WRITER'), `round ${round}: the loser is a reported write conflict`);
     const loaded = await new InstalledStorageAdapter({ backend: shared, locks: null }).loadStory('chat:N');
-    assert.ok(['CURRENT', 'RECOVERED_PREVIOUS_GENERATION', 'RECOVERED_BACKUP_MANIFEST'].includes(loaded.status), `round ${round}: ${loaded.status}`);
-    assert.equal(loaded.status, 'CURRENT', `round ${round}: writer-unique keys and the collection floor keep the winning generation intact`);
+    assert.equal(loaded.status, 'CURRENT', `round ${round}`);
     assert.deepEqual([loaded.parts.brain.w, loaded.parts.brain.n], [loaded.parts.host.w, loaded.parts.host.n], `round ${round}: never a torn mix`);
+    const loser = results[0].status === 'rejected' ? tabA : tabB;
+    const conflicts = await loser.readWriteConflicts('chat:N');
+    assert.equal(conflicts.length, 1);
+    assert.equal((await loser.loadWriteConflict(conflicts[0].key)).status, 'PRESERVED', `round ${round}: the losing checkpoint is recoverable`);
   }
 });
 
@@ -305,7 +329,7 @@ test('manifest and backup both unreadable: CORRUPT_MANIFEST is reported (not EMP
   assert.deepEqual([...backend._map.keys()], [], 'an explicit delete removes the story, quarantine included');
 });
 
-test('multi-tab writers that pick the SAME generation (both scan before either writes) still never overwrite each other\'s parts', async () => {
+test('multi-tab writers that pick the SAME generation (both scan before either writes) never overwrite each other\'s parts, and the second switch is refused', async () => {
   const inner = createMemoryBackend();
   const seed = new InstalledStorageAdapter({ backend: inner, locks: null, writerId: 'seed' });
   await seed.saveStory('chat:S', { brain: { w: 'seed' }, host: { w: 'seed' } });
@@ -314,14 +338,48 @@ test('multi-tab writers that pick the SAME generation (both scan before either w
   let aManifest; const bDone = new Promise((resolve) => { aManifest = resolve; });
   const gated = (writer) => ({ ...inner,
     async keys(prefix) { const out = await inner.keys(prefix); if (prefix.includes('/part/') && scanned < 2) { scanned += 1; if (scanned === 2) release(); await bothScanned; } return out; },
-    async set(key, value) { if (writer === 'A' && key.includes('/manifest/')) await bDone; return inner.set(key, value); } });
+    async compareAndSet(key, expected, value) { if (writer === 'A' && key.includes('/manifest/')) await bDone; return inner.compareAndSet(key, expected, value); } });
   const tabA = new InstalledStorageAdapter({ backend: gated('A'), locks: null, writerId: 'A' });
   const tabB = new InstalledStorageAdapter({ backend: gated('B'), locks: null, writerId: 'B' });
-  const pA = tabA.saveStory('chat:S', { brain: { w: 'A' }, host: { w: 'A' } });
+  const pA = tabA.saveStory('chat:S', { brain: { w: 'A' }, host: { w: 'A' } }).catch((e) => e);
   const rB = await tabB.saveStory('chat:S', { brain: { w: 'B' }, host: { w: 'B' } }); aManifest();
-  const rA = await pA;
-  assert.equal(rA.generation, rB.generation, 'precondition: both writers chose the same generation');
+  const eA = await pA;
+  assert.equal(eA.code, 'STALE_WRITER'); assert.equal(eA.details.reason, 'LOST_SWITCH_RACE'); assert.equal(eA.details.newerGeneration, rB.generation);
   const loaded = await seed.loadStory('chat:S');
-  assert.equal(loaded.status, 'CURRENT', 'the last manifest points at parts no other writer overwrote');
-  assert.deepEqual([loaded.parts.brain.w, loaded.parts.host.w], ['A', 'A']);
+  assert.equal(loaded.status, 'CURRENT', 'the winning manifest points at parts no other writer overwrote');
+  assert.deepEqual([loaded.parts.brain.w, loaded.parts.host.w], ['B', 'B']);
+  const conflict = (await tabA.readWriteConflicts('chat:S'))[0];
+  assert.deepEqual((await tabA.loadWriteConflict(conflict.key)).parts.brain, { w: 'A' }, 'writer-unique keys: A\'s parts were never overwritten and stay recoverable');
+});
+
+test('no Web Locks and no compare-and-set (localStorage-like): an overwrite right after the switch is detected by read-back and preserved as a conflict', async () => {
+  const inner = createMemoryBackend();
+  const seed = new InstalledStorageAdapter({ backend: { ...inner, compareAndSet: undefined }, locks: null, writerId: 'seed' });
+  await seed.saveStory('chat:L', { brain: { w: 'seed' } });
+  let other = null;
+  const racing = { ...inner, compareAndSet: undefined, async set(key, value) { await inner.set(key, value); if (key.includes('/manifest/') && other) { const text = other; other = null; await inner.set(key, text); } } };
+  const tab = new InstalledStorageAdapter({ backend: racing, locks: null, writerId: 'T' });
+  await tab.loadStory('chat:L');
+  const winner = new InstalledStorageAdapter({ backend: { ...inner, compareAndSet: undefined }, locks: null, writerId: 'W' });
+  await winner.loadStory('chat:L');
+  await winner.saveStory('chat:L', { brain: { w: 'W' } });
+  const winnerManifest = await inner.get((await inner.keys('area52/v1/manifest/'))[0]);
+  await tab.loadStory('chat:L'); // T is current now; the race below happens at T's switch
+  other = winnerManifest.replace('"generation":2', '"generation":9');
+  const err = await tab.saveStory('chat:L', { brain: { w: 'T' } }).catch((e) => e);
+  assert.equal(err.code, 'STALE_WRITER'); assert.equal(err.details.reason, 'OVERWRITTEN_AFTER_SWITCH');
+  assert.deepEqual((await tab.loadWriteConflict((await tab.readWriteConflicts('chat:L'))[0].key)).parts.brain, { w: 'T' }, 'the overwritten checkpoint is preserved');
+});
+
+test('IndexedDB compare-and-set runs in one transaction and refuses a switch over a manifest that changed', async () => {
+  const backend = createIndexedDbBackend({ indexedDB: idbFake() });
+  await backend.set('k', 'v1');
+  assert.equal(await backend.compareAndSet('k', 'v0', 'x'), false); assert.equal(await backend.get('k'), 'v1');
+  assert.equal(await backend.compareAndSet('k', 'v1', 'v2'), true); assert.equal(await backend.get('k'), 'v2');
+  assert.equal(await backend.compareAndSet('new', null, 'n1'), true); assert.equal(await backend.get('new'), 'n1');
+  const tabA = new InstalledStorageAdapter({ backend, locks: null, writerId: 'A' }), tabB = new InstalledStorageAdapter({ backend, locks: null, writerId: 'B' });
+  await tabA.saveStory('chat:I', { brain: { w: 'A' } }); await tabB.loadStory('chat:I');
+  await tabA.saveStory('chat:I', { brain: { w: 'A2' } });
+  assert.equal((await tabB.saveStory('chat:I', { brain: { w: 'B' } }).catch((e) => e)).code, 'STALE_WRITER');
+  assert.deepEqual((await tabA.loadStory('chat:I')).parts.brain, { w: 'A2' });
 });

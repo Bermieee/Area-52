@@ -1,5 +1,5 @@
 const clone=(value)=>value==null?value:structuredClone(value);
-const uniq=(values,limit=32)=>[...new Set((values??[]).filter(Boolean).map(String))].slice(0,limit);
+const uniq=(values,limit=Number.MAX_SAFE_INTEGER)=>[...new Set((values??[]).filter(Boolean).map(String))].slice(0,limit);
 const normalizeText=(value)=>String(value??'').trim().replace(/\s+/g,' ');
 function boundedQuery(value,limit=320){
   const text=normalizeText(value),cap=Math.max(1,Number(limit)||320);

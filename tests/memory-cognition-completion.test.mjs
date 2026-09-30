@@ -738,7 +738,10 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
   assert.ok(coverageFact?.omittedCharacters>0);
   assert.equal(coverageFact?.canonicalKnowledgeDropped,false);
   assert.equal(drillbackFact?.exactSourceDrillback,true);
-  assert.ok((drillbackFact?.sourceRevisionRefs??[]).length>=1);
+  assert.equal(drillbackFact?.artifactRevision,partialSlice.revision);
+  assert.equal(drillbackFact?.provenanceRef,partialSlice.provenanceRef);
+  assert.match(partialSlice.ref,/^memory-episode:.*@\d+$/);
+  assert.ok((consolidationProviderInput.data.taskSlice?.sourceRevisionSet??[]).length>=1,'complete source revision fence must survive into the provider task slice');
 
   const trace=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:real-consolidation',turnId:'real-consolidation:2',generationId:'gen:real-consolidation:2'});
   assert.equal(trace.producers.memory.status,'ADMITTED');

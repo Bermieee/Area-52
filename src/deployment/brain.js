@@ -12,6 +12,8 @@ import { LoreIntelligenceService } from '../lore-intelligence-service.js';
 import { reviewLoreJevAdvisory } from '../lore-jev-owner-review.js';
 import { LoreAuthoringService } from '../lore-authoring-service.js';
 import { MemoryTemporalProducer } from '../memory-temporal-producer.js';
+import { memoryReferenceValues } from '../memory-experience-store.js';
+import { createMemoryTransportExcerpt } from '../memory-transport-excerpt.js';
 import { createMemoryIntegrationSurface } from '../memory-integration-surface.js';
 import { LoreHierarchyRetrievalSystem } from '../lore-hierarchy-retrieval-system.js';
 import { SceneLoreHandoffAdapter } from '../scene-lore-handoff.js';
@@ -2978,7 +2980,7 @@ export class DevelopmentDeploymentBrain {
       kind:'ArtifactReference',artifactId:episode.id,artifactType:'MemoryEpisode',owner:'MEMORY',
       revision:episode.revision,storageDomain:'episodes',provenanceRef:'memory:'+episode.id,
     }));
-    const sourceRevisionSet=uniq(episodes.flatMap((row)=>row.sourceRevisionRefs??[]));
+    const sourceRevisionSet=uniq(episodes.flatMap((row)=>memoryReferenceValues(row,'sourceRevisionRefs')));
     const worldRevision=Number(selection.worldRevision??Math.max(...episodes.map((row)=>Number(row.worldRevision??0)),0));
     const sceneRevision=Number(selection.sceneRevision??episodes.at(-1)?.sceneRevision??0);
     const unit=createConsolidationUnit({
@@ -3001,9 +3003,18 @@ export class DevelopmentDeploymentBrain {
         evidenceSlices:storedUnit.artifactRefs.map((ref)=>{
           const episode=episodes.find((row)=>row.id===ref.artifactId);
           const exact=episode?this.memory.experienceStore.exactDrillback(episode.id):[];
-          const excerpt=exact.map((row)=>String(row?.exactContent??row?.content??'')).filter(Boolean).join('\n').slice(0,2400);
-          dispatchedPayloadCharacters+=excerpt.length;
-          return {ref,excerpt,structuredFacts:[],provenanceRef:'memory-drillback:'+ref.artifactId};
+          const provenanceRef='memory-drillback:'+ref.artifactId;
+          const transport=createMemoryTransportExcerpt({
+            text:exact.map((row)=>String(row?.exactContent??row?.content??'')).filter(Boolean).join('\n'),
+            maxCharacters:2400,
+            artifactRef:ref,
+            sourceRevisionRefs:episode?memoryReferenceValues(episode,'sourceRevisionRefs'):[],
+            evidenceRefs:exact.map((row)=>row?.evidenceId??row?.id).filter(Boolean),
+            provenanceRef,
+            transportPurpose:'CONSOLIDATION_EVIDENCE',
+          });
+          dispatchedPayloadCharacters+=transport.excerpt.length;
+          return {ref,excerpt:transport.excerpt,structuredFacts:transport.structuredFacts,provenanceRef};
         }),
         semanticGoals:['reflection-evidence','cross-episode-links','episode-summary'],
       }),
@@ -3610,15 +3621,27 @@ export class DevelopmentDeploymentBrain {
 
   #makeJevInput({ turn, query, planning, chatId }) {
     const rows = (planning?.nominations ?? []).slice(0, 8);
-    const evidence = rows.map((row, index) => ({
-      evidenceId: 'lore-evidence:' + turn.turnId + ':' + index,
-      sourceRef: row.representationRef,
-      summary: String(row.representationText ?? query).slice(0, 1200),
-      provenanceRefs: uniq([...(row.sourceRevisionRefs ?? []), ...(row.evidenceRefs ?? [])]).slice(0, 16),
-      revision: row.representationRevision ?? 1,
-      available: true,
-      stale: false,
-    }));
+    const evidence = rows.map((row, index) => {
+      const transport=createMemoryTransportExcerpt({
+        text:String(row.representationText??query),
+        maxCharacters:1200,
+        artifactRef:row.artifactRef??null,
+        sourceRevisionRefs:row.sourceRevisionRefs??[],
+        evidenceRefs:row.evidenceRefs??[],
+        provenanceRef:row.representationRef??null,
+        transportPurpose:'JEV_EVIDENCE',
+      });
+      return {
+        evidenceId:'lore-evidence:'+turn.turnId+':'+index,
+        sourceRef:row.representationRef,
+        summary:transport.excerpt,
+        provenanceRefs:uniq([...(row.sourceRevisionRefs??[]),...(row.evidenceRefs??[])]).slice(0,16),
+        revision:row.representationRevision??1,
+        available:true,
+        stale:false,
+        metadata:{transportCoverage:transport.coverage,drillback:transport.drillback},
+      };
+    });
     const refs = evidence.map((row) => row.evidenceId);
     return {
       domain: JevDomain.LORE,

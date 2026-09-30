@@ -211,9 +211,6 @@ function criticalKey(row) {
 }
 
 function buildScopeDependencies({scope, runtime, registry}) {
-  if (scope.sourceIds.length > LORE_WAVE3_LIMITS.maxSourceRefsPerSummary) {
-    return {ok: false, failure: NavigationFailure.SOURCE_REF_LIMIT};
-  }
   if (scope.childScopeIds.length > LORE_WAVE3_LIMITS.maxChildrenPerSummary) {
     return {ok: false, failure: NavigationFailure.CHILD_LIMIT};
   }
@@ -281,12 +278,9 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null, depe
 
   const childEvidence = new Map();
   for (const child of childSummaries) {
-    const resolved = registry.resolveEvidenceRefs(child.criticalEvidenceRefs || [], {
-      limit: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
+    const resolved = registry.resolveEvidenceRefsPaged(child.criticalEvidenceRefs || [], {
+      pageSize: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
     });
-    if (resolved.status === 'LIMIT_EXCEEDED') {
-      return {ok: false, failure: NavigationFailure.EVIDENCE_REF_LIMIT, childScopeId: child.targetScopeId};
-    }
     if (resolved.status === 'DEGRADED') {
       return {
         ok: false,
@@ -313,9 +307,6 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null, depe
     }
   }
   const criticalEvidence = [...evidenceById.values()].sort((a, b) => a.evidenceId.localeCompare(b.evidenceId));
-  if (criticalEvidence.length > LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary) {
-    return {ok: false, failure: NavigationFailure.EVIDENCE_REF_LIMIT};
-  }
   const criticalEvidenceRefs = [...new Set(criticalEvidence.map((row) => row.evidenceRef).filter(Boolean))];
   const navigationStatements = [];
 
@@ -379,7 +370,106 @@ function buildScopeRequest({scope, runtime, registry, evidenceCache = null, depe
     childSummaries,
     criticalEvidence,
     criticalEvidenceRefs,
+    sourceRevisionPages: Array.from({length: Math.ceil(sourceRevisionSet.length / LORE_WAVE3_LIMITS.maxSourceRefsPerSummary)}, (_, index) => ({
+      index,
+      refs: sourceRevisionSet.slice(index * LORE_WAVE3_LIMITS.maxSourceRefsPerSummary, (index + 1) * LORE_WAVE3_LIMITS.maxSourceRefsPerSummary),
+    })),
+    criticalEvidencePages: Array.from({length: Math.ceil(criticalEvidenceRefs.length / LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary)}, (_, index) => ({
+      index,
+      refs: criticalEvidenceRefs.slice(index * LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary, (index + 1) * LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary),
+    })),
     allowedStatements: [...deduped.values()].sort((a, b) => Number(b.critical) - Number(a.critical) || a.statementId.localeCompare(b.statementId)),
+  };
+}
+
+function segmentNavigationRequest(request) {
+  const evidenceById = new Map((request.criticalEvidence || []).map((row) => [row.evidenceId, row]));
+  const groups = [];
+  let statements = [];
+  let characters = 0;
+  let evidenceRefs = new Set();
+  const flush = () => {
+    if (!statements.length) return;
+    const criticalIds = new Set(statements.flatMap((row) => row.evidenceRefs || []));
+    const criticalEvidence = [...criticalIds].map((id) => evidenceById.get(id)).filter(Boolean);
+    groups.push({
+      statements,
+      criticalEvidence,
+      criticalEvidenceRefs: [...new Set(criticalEvidence.map((row) => row.evidenceRef).filter(Boolean))],
+    });
+    statements = [];
+    characters = 0;
+    evidenceRefs = new Set();
+  };
+  for (const statement of request.allowedStatements) {
+    const statementText = String(statement.text || '');
+    if (statementText.length > LORE_WAVE3_LIMITS.maxSummaryCharacters) {
+      return {ok: false, failure: NavigationFailure.SUMMARY_TOO_LARGE, statementId: statement.statementId};
+    }
+    const refs = [...new Set((statement.evidenceRefs || []).map((id) => evidenceById.get(id)?.evidenceRef).filter(Boolean))];
+    const nextEvidence = new Set([...evidenceRefs, ...refs]);
+    const nextCharacters = statements.length ? characters + 1 + statementText.length : statementText.length;
+    if (statements.length && (
+      nextCharacters > LORE_WAVE3_LIMITS.maxSummaryCharacters
+      || nextEvidence.size > LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary
+    )) flush();
+    statements.push(statement);
+    characters = statements.length === 1 ? statementText.length : characters + 1 + statementText.length;
+    for (const ref of refs) evidenceRefs.add(ref);
+  }
+  flush();
+  if (!groups.length) groups.push({statements: [], criticalEvidence: [], criticalEvidenceRefs: []});
+  return {
+    ok: true,
+    segments: groups.map((group, index) => ({
+      ...request,
+      allowedStatements: group.statements,
+      criticalEvidence: group.criticalEvidence,
+      criticalEvidenceRefs: group.criticalEvidenceRefs,
+      segment: {index, count: groups.length},
+    })),
+  };
+}
+
+function aggregateNavigationReceipt({request, drafts, receipts}) {
+  const statementRefs = new Set(drafts.flatMap((draft) => draft.statementRefs || []));
+  const criticalStatements = request.allowedStatements.filter((row) => row.critical);
+  const failures = [...new Set(receipts.flatMap((receipt) => receipt.validationFailures || []))];
+  const totalCharacters = drafts.reduce((sum, draft) => sum + String(draft.content || '').length, 0) + Math.max(0, drafts.length - 1);
+  return {
+    kind: 'NavigationSummaryQualityReceipt',
+    status: failures.length ? NavigationQualityStatus.FAIL : NavigationQualityStatus.PASS,
+    scopeId: request.scope.id,
+    structureRevision: request.scope.structureRevision,
+    sourceRefsTotal: request.sourceRevisionSet.length,
+    sourceRefsRetained: request.sourceRevisionSet.length,
+    sourceRefPageCount: request.sourceRevisionPages.length,
+    childRefsTotal: request.childSummaryDependencies.length,
+    childRefsRetained: request.childSummaryDependencies.length,
+    statementCandidates: request.allowedStatements.length,
+    statementsRetained: statementRefs.size,
+    criticalEvidenceTotal: criticalStatements.length,
+    criticalEvidenceRetained: criticalStatements.filter((row) => statementRefs.has(row.statementId)).length,
+    criticalEvidencePageCount: request.criticalEvidencePages.length,
+    hardRulesTotal: criticalStatements.filter((row) => row.text.startsWith('[RULE]')).length,
+    hardRulesRetained: criticalStatements.filter((row) => row.text.startsWith('[RULE]') && statementRefs.has(row.statementId)).length,
+    exceptionsTotal: criticalStatements.filter((row) => row.text.includes('[EXCEPTION]')).length,
+    exceptionsRetained: criticalStatements.filter((row) => row.text.includes('[EXCEPTION]') && statementRefs.has(row.statementId)).length,
+    behaviorTotal: criticalStatements.filter((row) => row.text.startsWith('[BEHAVIOR]') || / behavior /.test(row.text)).length,
+    behaviorRetained: criticalStatements.filter((row) => (row.text.startsWith('[BEHAVIOR]') || / behavior /.test(row.text)) && statementRefs.has(row.statementId)).length,
+    unresolvedTotal: criticalStatements.filter((row) => row.text.includes('[UNRESOLVED]')).length,
+    unresolvedRetained: criticalStatements.filter((row) => row.text.includes('[UNRESOLVED]') && statementRefs.has(row.statementId)).length,
+    temporalTotal: criticalStatements.filter((row) => /\[(HISTORICAL|SEQUENCE|DATED|UNCERTAIN|CONFLICTING)\]/.test(row.text)).length,
+    temporalRetained: criticalStatements.filter((row) => /\[(HISTORICAL|SEQUENCE|DATED|UNCERTAIN|CONFLICTING)\]/.test(row.text) && statementRefs.has(row.statementId)).length,
+    summaryCharacters: totalCharacters,
+    maxSummaryCharacters: LORE_WAVE3_LIMITS.maxSummaryCharacters,
+    segmentCount: drafts.length,
+    maxPhysicalSegmentCharacters: Math.max(0, ...drafts.map((draft) => String(draft.content || '').length)),
+    aggregateCoverageComplete: request.allowedStatements.every((row) => statementRefs.has(row.statementId)),
+    validationFailures: failures,
+    sourceAuthority: false,
+    truthAuthority: false,
+    settlementAuthority: false,
   };
 }
 
@@ -637,19 +727,32 @@ export class LoreNavigationSummaryBuilder {
     });
     if (!request.ok) return {state: NavigationSummaryState.BLOCKED, reason: request.failure, details: request};
 
-    const draft = this.provider.generate(request);
-    const receipt = validateNavigationSummaryDraft({draft, request});
-    if (receipt.status !== NavigationQualityStatus.PASS) {
-      return {state: NavigationSummaryState.INVALID, reason: receipt.validationFailures[0] || NavigationFailure.MALFORMED_OUTPUT, qualityReceipt: receipt};
+    const plan = segmentNavigationRequest(request);
+    if (!plan.ok) return {state: NavigationSummaryState.INVALID, reason: plan.failure, details: plan};
+
+    const drafts = [];
+    const receipts = [];
+    for (const segmentRequest of plan.segments) {
+      const draft = this.provider.generate(segmentRequest);
+      const receipt = validateNavigationSummaryDraft({draft, request: segmentRequest});
+      drafts.push(draft);
+      receipts.push(receipt);
+      if (receipt.status !== NavigationQualityStatus.PASS) {
+        return {state: NavigationSummaryState.INVALID, reason: receipt.validationFailures[0] || NavigationFailure.MALFORMED_OUTPUT, qualityReceipt: receipt};
+      }
     }
 
+    const receipt = drafts.length === 1
+      ? receipts[0]
+      : aggregateNavigationReceipt({request, drafts, receipts});
     const summaryRevision = this.registry.nextRevision(scope.id);
+    const allStatementRefs = drafts.flatMap((draft) => draft.statementRefs || []);
     const summary = createNavigationSummaryArtifact({
       scope,
       summaryRevision,
       sourceRevisionSet: request.sourceRevisionSet,
       childSummaryDependencies: request.childSummaryDependencies,
-      content: draft.content,
+      content: drafts[0]?.content || '',
       criticalEvidenceRefs: request.criticalEvidenceRefs,
       provenance: {
         kind: 'NavigationSummaryProvenance',
@@ -657,7 +760,7 @@ export class LoreNavigationSummaryBuilder {
         structureRevision: scope.structureRevision,
         sourceRevisionRefs: [...request.sourceRevisionSet],
         childSummaryRefs: request.childSummaryDependencies.map((row) => row.summaryId),
-        statementRefs: draft.statementRefs.map((ref) => {
+        statementRefs: allStatementRefs.map((ref) => {
           const row = request.allowedStatements.find((statement) => statement.statementId === ref);
           return {
             statementId: ref,
@@ -670,6 +773,28 @@ export class LoreNavigationSummaryBuilder {
       qualityReceipt: receipt,
       generatorRevision: this.generatorRevision,
     });
+    summary.sourceRevisionPages = request.sourceRevisionPages.map((page) => ({index: page.index, refs: [...page.refs]}));
+    summary.criticalEvidencePages = request.criticalEvidencePages.map((page) => ({index: page.index, refs: [...page.refs]}));
+    if (drafts.length > 1) {
+      summary.segmented = true;
+      summary.segments = drafts.map((draft, index) => ({
+        kind: 'LoreNavigationSummarySegment',
+        id: summary.id + ':segment:' + index,
+        index,
+        sourceRevisionId: null,
+        content: draft.content,
+        statementRefs: [...(draft.statementRefs || [])],
+        sourceRevisionRefs: [...new Set(plan.segments[index].allowedStatements.flatMap((row) => row.sourceRevisionRefs || []))],
+        criticalEvidenceRefs: [...plan.segments[index].criticalEvidenceRefs],
+        qualityReceipt: deepClone(receipts[index]),
+      }));
+      summary.segmentManifest = {
+        kind: 'LoreNavigationSummarySegmentManifest',
+        segmentCount: summary.segments.length,
+        segmentRefs: summary.segments.map((row) => row.id),
+        aggregateCoverageComplete: Boolean(receipt.aggregateCoverageComplete),
+      };
+    }
     return {state: NavigationSummaryState.BUILT, summary: this.registry.publish({summary, scope})};
   }
 

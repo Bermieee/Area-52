@@ -4,13 +4,14 @@ import {LoreRepresentationCompiler} from './lore-representation-compiler.js';
 import {LoreRepresentationRegistry} from './lore-representation-registry.js';
 
 export class LoreMultiResolutionSystem {
-  constructor({runtime, registry = new LoreRepresentationRegistry(), provider = null, compilerRevision = null, policyOverrides = {}} = {}) {
+  constructor({runtime, registry = new LoreRepresentationRegistry(), provider = null, compilerRevision = null, policyOverrides = {}, compilerSnapshot = null} = {}) {
     if (!runtime) throw new TypeError('LoreMultiResolutionSystem requires a LoreStudyRuntime');
     this.runtime = runtime;
     this.registry = registry;
     const options = {runtime, representationRegistry: registry, policyOverrides};
     if (provider) options.provider = provider;
     if (compilerRevision) options.compilerRevision = compilerRevision;
+    if (compilerSnapshot) options.snapshot = compilerSnapshot;
     this.compiler = new LoreRepresentationCompiler(options);
   }
 
@@ -22,6 +23,16 @@ export class LoreMultiResolutionSystem {
   compileFamily(request) {
     this.registry.refreshFreshness(this.runtime.registry);
     return this.compiler.compileFamily(request);
+  }
+
+  beginCompile(request) {
+    this.registry.refreshFreshness(this.runtime.registry);
+    return this.compiler.beginCompile(request);
+  }
+
+  runCompile(sessionId, options = {}) {
+    this.registry.refreshFreshness(this.runtime.registry);
+    return this.compiler.runCompile(sessionId, options);
   }
 
   representationHistory(request) {
@@ -75,6 +86,7 @@ export class LoreMultiResolutionSystem {
       representationRegistry: this.registry.snapshot(),
       compilerRevision: this.compiler.compilerRevision,
       policyOverrides: deepClone(this.compiler.policyOverrides),
+      compiler: this.compiler.snapshot(),
     };
   }
 

@@ -40,10 +40,14 @@ function sourceContext(runtime, sourceId, resolution = null) {
     resolution?.superseded.has(row.id) ? {...row, temporalClass: TemporalClass.HISTORICAL, supersededBy: resolution.superseded.get(row.id).by}
       : resolution?.conflictedIds.has(row.id) ? {...row, conflictSetIds: (resolution.conflictMembership.get(row.id) ?? []).map((m) => m.conflictSetId)} : row
   ));
-  const entities = artifacts
-    .filter((row) => row.artifactType === ArtifactType.ENTITY)
-    .flatMap((row) => [row.payload?.canonicalName, ...(row.payload?.aliases || [])])
-    .filter(Boolean);
+  const entities = [
+    ...artifacts
+      .filter((row) => row.artifactType === ArtifactType.ENTITY)
+      .flatMap((row) => [row.payload?.canonicalName, ...(row.payload?.aliases || [])]),
+    ...artifacts
+      .filter((row) => row.artifactType === ArtifactType.ALIAS)
+      .flatMap((row) => [row.payload?.alias, ...(row.payload?.aliases || [])]),
+  ].filter(Boolean);
   const claims = artifacts.filter((row) => row.artifactType === ArtifactType.CLAIM);
   const relationships = artifacts.filter((row) => row.artifactType === ArtifactType.RELATIONSHIP);
   const title = revision.metadata?.title || source.uid || sourceId;
@@ -145,6 +149,14 @@ function candidateNomination({record, intentId, score, reason}) {
       sourceEntries: deepClone(record.sourceEntries || []).slice(0, LORE_WAVE3_LIMITS.maxCandidateSourceRefs),
       sourceRefTotal: record.sourceIds.length,
       sourceRefsTruncated: record.sourceIds.length > LORE_WAVE3_LIMITS.maxCandidateSourceRefs,
+      transportCoverage: {
+        representationTextComplete: String(record.text || '').length <= LORE_WAVE3_LIMITS.maxCandidateTextCharacters,
+        sourceRefsComplete: record.sourceIds.length <= LORE_WAVE3_LIMITS.maxCandidateSourceRefs,
+        evidenceRefsComplete: (record.evidenceRefs || []).length <= LORE_WAVE3_LIMITS.maxCandidateEvidenceRefs,
+        dependencyRefsComplete: (record.dependencyRevisions || []).length <= LORE_WAVE3_LIMITS.maxCandidateDependencyRefs,
+        exactSourceDrillbackAvailable: true,
+        retrievalRecordRef: record.id,
+      },
       retrievalRecordRef: record.id,
       navigationEvidenceRefs: (record.navigationEvidenceRefs || []).slice(0, LORE_WAVE3_LIMITS.maxCandidateEvidenceRefs),
       navigationEvidenceRefTotal: (record.navigationEvidenceRefs || []).length,
@@ -310,13 +322,9 @@ export class LoreContextualRetrievalIndex {
         this.pushDiagnostic({summaryId: summary.id, status: 'SUMMARY_SKIPPED_STALE_SOURCE'});
         continue;
       }
-      const evidenceResolution = summaryRegistry.resolveEvidenceRefs(summary.criticalEvidenceRefs || [], {
-        limit: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
+      const evidenceResolution = summaryRegistry.resolveEvidenceRefsPaged(summary.criticalEvidenceRefs || [], {
+        pageSize: LORE_WAVE3_LIMITS.maxEvidenceRefsPerSummary,
       });
-      if (evidenceResolution.status === 'LIMIT_EXCEEDED') {
-        this.pushDiagnostic({summaryId: summary.id, status: 'SUMMARY_SKIPPED_EVIDENCE_LIMIT'});
-        continue;
-      }
       if (evidenceResolution.status === 'DEGRADED') {
         this.pushDiagnostic({
           summaryId: summary.id,
@@ -495,45 +503,65 @@ export class LoreContextualRetrievalIndex {
     };
   }
 
-  drillDown(nomination) {
+  drillDownPage(nomination, {offset = 0, limit = LORE_WAVE3_LIMITS.maxSourceRefsPerSummary} = {}) {
     const record = nomination?.metadata?.retrievalRecordRef
       ? this.records.get(nomination.metadata.retrievalRecordRef)
       : null;
     const refs = record?.sourceIds || nomination?.metadata?.sourceDrillbackRefs || [];
+    const start = Math.max(0, Math.trunc(Number(offset) || 0));
+    const size = Math.max(1, Math.min(LORE_WAVE3_LIMITS.maxSourceRefsPerSummary, Math.trunc(Number(limit) || LORE_WAVE3_LIMITS.maxSourceRefsPerSummary)));
     const fenceMoved = this.fenceMoved();
-    return refs.slice(0, LORE_WAVE3_LIMITS.maxSourceRefsPerSummary).map((sourceId) => {
+    const sources = refs.slice(start, start + size).map((sourceId) => {
       const recordId = this.sourceRecordIds.get(sourceId);
-      const record = recordId ? this.records.get(recordId) : null;
-      if (!record) return null;
+      const sourceRecord = recordId ? this.records.get(recordId) : null;
+      if (!sourceRecord) return null;
       if (fenceMoved) {
-        // Built against an older resolution: served only if its own revisions are current, with the owner's CURRENT hint.
-        if (!this.recordCurrent(record)) return null;
+        if (!this.recordCurrent(sourceRecord)) return null;
         const hint = sourceTruthHint(this.runtime, sourceId);
         if (!hint) return null;
         return {
           sourceId,
-          lorebookId: record.sourceEntries?.[0]?.lorebookId ?? null,
-          uid: record.sourceEntries?.[0]?.uid ?? null,
-          sourceRevisionId: record.sourceRevisionRefs[0],
-          exactAuthoredText: record.exactAuthoredText,
-          representationRef: record.representationRef,
+          lorebookId: sourceRecord.sourceEntries?.[0]?.lorebookId ?? null,
+          uid: sourceRecord.sourceEntries?.[0]?.uid ?? null,
+          sourceRevisionId: sourceRecord.sourceRevisionRefs[0],
+          exactAuthoredText: sourceRecord.exactAuthoredText,
+          representationRef: sourceRecord.representationRef,
           truthStatusHint: hint.status,
           temporalHints: deepClone(hint.temporalHints || []),
-          provenance: deepClone(record.provenance),
+          provenance: deepClone(sourceRecord.provenance),
         };
       }
       return {
         sourceId,
-        lorebookId: record.sourceEntries?.[0]?.lorebookId ?? null,
-        uid: record.sourceEntries?.[0]?.uid ?? null,
-        sourceRevisionId: record.sourceRevisionRefs[0],
-        exactAuthoredText: record.exactAuthoredText,
-        representationRef: record.representationRef,
-        truthStatusHint: record.truthStatusHint,
-        temporalHints: deepClone(record.temporalHints || []),
-        provenance: deepClone(record.provenance),
+        lorebookId: sourceRecord.sourceEntries?.[0]?.lorebookId ?? null,
+        uid: sourceRecord.sourceEntries?.[0]?.uid ?? null,
+        sourceRevisionId: sourceRecord.sourceRevisionRefs[0],
+        exactAuthoredText: sourceRecord.exactAuthoredText,
+        representationRef: sourceRecord.representationRef,
+        truthStatusHint: sourceRecord.truthStatusHint,
+        temporalHints: deepClone(sourceRecord.temporalHints || []),
+        provenance: deepClone(sourceRecord.provenance),
       };
     }).filter(Boolean);
+    return {
+      kind: 'LoreSourceDrillbackPage',
+      retrievalRecordRef: record?.id || nomination?.metadata?.retrievalRecordRef || null,
+      offset: start,
+      limit: size,
+      totalRefs: refs.length,
+      returnedRefs: Math.min(size, Math.max(0, refs.length - start)),
+      hasMore: start + size < refs.length,
+      sources,
+      exactSourceDrillbackAvailable: true,
+      authorityGranted: false,
+    };
+  }
+
+  drillDown(nomination) {
+    return this.drillDownPage(nomination, {
+      offset: 0,
+      limit: LORE_WAVE3_LIMITS.maxSourceRefsPerSummary,
+    }).sources;
   }
 
   status() {

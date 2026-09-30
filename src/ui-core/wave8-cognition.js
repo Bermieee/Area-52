@@ -214,26 +214,29 @@ export function normalizeCorrectiveRetrievalReceipt(receipt,truth=null){
 }
 
 export function normalizeJevDecisionReceipt(receipt,choice=null){
+  const looksLikeChoiceSummary=Boolean(receipt&&(!receipt.kind||receipt.kind==='JevChoiceSummary')&&
+    ['considered','invoked','skipped','unavailable','advised','action','abstained'].some(key=>Object.prototype.hasOwnProperty.call(receipt,key)));
+  if(looksLikeChoiceSummary)return normalizeJevDecisionReceipt(null,{jevDecision:normalizeJevChoice(receipt,safeArray(receipt.reasonCodes??choice?.reasonCodes))});
   if(!receipt){
     const decision=choice?.jevDecision;if(!decision)return null;
     const action=String(decision.action??decision.state??decision.status??'').toUpperCase();
     if(action==='JEV_UNAVAILABLE'||decision.unavailable===true)return deepFreeze({
-      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.UNAVAILABLE,outcome:'UNAVAILABLE',invoked:Boolean(decision.invoked),
-      reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,
+      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.UNAVAILABLE,outcome:'UNAVAILABLE',invoked:Boolean(decision.invoked),physicalAttempt:Boolean(decision.invoked),
+      reason:decision.reasonDetail??decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,
       serviceStatus:'JEV_UNAVAILABLE',options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
       requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,settlementPerformed:false,provider:null,model:null,resourceId:null,
       admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false,
     });
     if(action==='SKIP_JEV'||decision.invoked===false||decision.skipped===true||action==='SKIPPED')return deepFreeze({
-      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.SKIPPED,outcome:'SKIPPED',invoked:false,
-      reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,
+      kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.SKIPPED,outcome:'SKIPPED',invoked:false,physicalAttempt:false,
+      reason:decision.reasonDetail??decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:null,classification:null,
       serviceStatus:'JEV_SKIPPED',options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
       requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,settlementPerformed:false,provider:null,model:null,resourceId:null,
       admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false,
     });
     if(action==='JEV_ABSTAINED'||decision.abstained===true)return deepFreeze({
       kind:'NormalizedJevDecisionReceipt',receiptId:stringOrNull(decision.resultRef),state:CognitionStageState.COMPLETE,outcome:JevOutcome.ABSTAINED,invoked:true,
-      reason:decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:'ABSTAIN',classification:null,
+      reason:decision.reasonDetail??decision.reason??null,reasonCodes:safeArray(decision.reasonCodes),decisionType:null,decisionShape:null,decisionCode:'ABSTAIN',classification:null,
       serviceStatus:'JEV_ABSTAINED',options:[],selectedOptionIds:[],rejectedOptionIds:[],evidenceRefs:[],unresolvedFactors:[],revisionFence:null,confidence:null,
       requiresOwnerSettlement:null,requiresOperatorReview:null,ownerSettlement:null,settlementPerformed:false,provider:null,model:null,resourceId:null,
       admission:null,explanation:null,authority:'READ_ONLY',mutationAuthority:false,
@@ -409,7 +412,7 @@ function normalizeJevChoice(value,reasonCodes){
   if(!value)return null;
   return deepFreeze({invoked:value.invoked==null?null:Boolean(value.invoked),state:value.skipped?'SKIPPED':value.unavailable?'UNAVAILABLE':value.invoked?'INVOKED':null,
     skipped:Boolean(value.skipped),unavailable:Boolean(value.unavailable),abstained:Boolean(value.abstained),action:value.action??null,
-    reason:value.reason??null,reasonCodes:safeArray(reasonCodes),alternativeCount:Number(value.alternativeCount??0),decisionRevision:value.decisionRevision??null,resultRef:value.resultRef??null});
+    reason:value.reason??null,reasonDetail:value.reasonDetail??null,reasonCodes:safeArray(reasonCodes),alternativeCount:Number(value.alternativeCount??0),decisionRevision:value.decisionRevision??null,resultRef:value.resultRef??null});
 }
 function normalizePrecisionChoice(value,reasonCodes,candidateCounts){
   if(!value)return null;

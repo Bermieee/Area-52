@@ -441,6 +441,25 @@ test('worker failure recovers from last checkpoint without replaying completed s
   assert.equal(new Set(rec.batch.completedSliceIds).size,2);
 });
 
+test('terminal worker failure releases the Director resource lease', async () => {
+  const d=new WorkerDirector({capacity:{CPU:1},foregroundReserve:{CPU:0},batch:{base:1,max:1},maxRetries:0});
+  d.registerWorker(cpuWorker('w-terminal-failure',[CAPABILITIES.CPU_ANALYSIS]));
+  const r=d.submit(
+    {taskType:'terminal-failure',owner:'worker3-lease-proof',layer:'L1',foreground:true,requiredCapabilities:[CAPABILITIES.CPU_ANALYSIS],dedupeKey:'terminal-failure'},
+    {
+      units:units(1,'terminal'),
+      async execute(){const error=new Error('provider aborted');error.code='PROVIDER_ABORTED';throw error;},
+      validate(){return false;},
+      commit(){throw new Error('commit must not run after provider abort');},
+    },
+  );
+  await d.drain();
+  const rec=d.ledger.get(r.task.taskId),resources=d.snapshot().resources;
+  assert.equal(rec.executionStatus,EXECUTION_STATUS.FAILED);
+  assert.equal(resources.activeLeases,0,'terminal provider failure must not retain a Runtime governor lease');
+  assert.equal(resources.usage.CPU??0,0);
+});
+
 test('integrated Wave 1 acceptance scenario', async () => {
   let releaseFirstSlice;
   let firstGate = true;

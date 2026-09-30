@@ -4,7 +4,7 @@
   "reconciliationId": "REPAIR-INSTALLED-ARCHITECTURE-20260928",
   "baseMainSha": "98a4e438e995bdc62038076c5f97addaf2a3d0bd",
   "supersedes": "assembly/reconciliations/scene-worker-runtime-trace-20260928.json",
-  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Each listed path was reviewed individually (provenance, diff, covering tests). Deep-scan salvage 2026-09-30 reintroduces only Worker 1 Lore changes after isolated behavioral validation; Worker 2/Memory remains excluded.",
+  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Each listed path was reviewed individually (provenance, diff, covering tests). Deep-scan salvage 2026-09-30 reintroduces only Worker 1 Lore changes after isolated behavioral validation; Worker 2/Memory remains excluded. Deep-scan salvage Stage 2 adds only validated Worker 3 Scene/runtime/client changes; Worker 2/Memory remains excluded.",
   "pathDigests": {
     "scripts/sidecar-jev-live-connection-smoke.mjs": "52ae216fdee0ff1248e7ac91f9db0c58d40323cd",
     "src/coprocessor/capability-negotiation.js": "2a1c422bbb8ab42942de051797a601bc798c0848",
@@ -46,13 +46,13 @@
     "src/scene/atmosphere.js": "901ad287ad1d0fcf4d7d0dba39f0184443502369",
     "src/scene/index.js": "35c3d2c1c37ad9829fc2b944168f59916a86939b",
     "src/scene/lifecycle-contracts.js": "eea66ede21cf787215d12825e9bc465f9f44b7e1",
-    "src/scene/prefetch-trigger.js": "036a4554a37dc9ad2fee2796ce22bfe5be77625c",
+    "src/scene/prefetch-trigger.js": "4f744128c68f166f9ff83e2c553e78a3cd458547",
     "src/scene/reconciliation.js": "e7c4ac483c2390f353e27fc14cb7fb0f30b72d81",
     "src/scene/runtime.js": "ce37402853a62187a3b7a190de49ef023c770d8b",
     "src/scene/scene-graph.js": "b2571b5cc910ea1b8184a37e02811bcbdc7b1a9b",
     "src/scene/scene-lifecycle-runtime.js": "c642cabf7b92d22654475ae28acf78acb7757d3b",
     "src/scene/scene-registry.js": "95cae5011601212242049b63fc38eae762aa27e2",
-    "src/scene/scene-retrieval.js": "96cbdc96010a29945e13adbf22cee1045c743eeb",
+    "src/scene/scene-retrieval.js": "5a7dfa8a68e66d1c9518160b98d7e11e053efee3",
     "src/scene/scene-ui-read-model.js": "7ea7774c118a6f72466b670b8f0c409f8b2c8042",
     "src/scene/temporal-state.js": "5c35640b58ce5af47e5572013dace007f95a51ea",
     "src/scene/transition-manager.js": "19eabc7eddd31f1985bc830558d29d6ee99ca881",
@@ -67,7 +67,7 @@
     "src/ui-core/wave6-runtime.js": "b0dcfb8e70448576df8940980eab0d0e472394b1",
     "src/ui-core/wave7-explainability.js": "43e27af3c43460b59e63f644b276155548ae16c2",
     "src/ui-core/wave7-workspaces.js": "33570a611227402a9166f2153c1160be2b0bbdf3",
-    "src/ui-core/wave8-cognition.js": "3dce0ee07f35f6c85fb278ef28591e22d50b443f",
+    "src/ui-core/wave8-cognition.js": "c16025fa5f525c68394ff6da4c1db9dc836fa5e1",
     "src/ui-core/wave8-production-adapters.js": "4df202febcf673fe16aa206e564902e26b60f64a",
     "src/ui-core/wave8-workspace.js": "714a7d4344b5019e0c276b4fa98747a2573f2493",
     "styles/ui-core-wave8.css": "6bd93e3538c2ba466ce8c40ab247c7c497e75aab",
@@ -91,7 +91,7 @@
     "docs/SCENE_MEMORY_HANDOFF_CONTRACT.md": "a0203b1d02c555e84955a31807acf4c12b502edb",
     "src/scene/scene-memory-handoff.js": "49e62de6ff9fc35eec585d8d53489011e1a164f4",
     "src/runtime/batch-engine.js": "42531e19caf6f02837e77f2dc7601d3bd8da2a40",
-    "tests/runtime-fabric.mjs": "efac94fe2b179dda2184add90bf71486f0957295",
+    "tests/runtime-fabric.mjs": "dcf10ee7b41d4a43bf6ce16c3d1d54099cefe52c",
     "tests/runtime-wave3.mjs": "b2c683413421bf8d7f11ec489258e7663f6138b2",
     "src/memory-evidence-bridge.js": "68003524a1a7de19644a946224d3f48f9cb558a5",
     "src/memory-experience-store.js": "1f2ee517b0f6b8e212fd37ef7c066d07fab0b7aa",
@@ -528,6 +528,30 @@
       "lane": "lore",
       "origin": "DEEP_SCAN_SALVAGE_WORKER1_20260930",
       "review": "Worker 1 exact-head focused integration and Lore/Main Owner behavior passed; prior failure was assembly digest reconciliation only"
+    },
+    "src/scene/prefetch-trigger.js": {
+      "digest": "4f744128c68f166f9ff83e2c553e78a3cd458547",
+      "lane": "scene",
+      "origin": "DEEP_SCAN_SALVAGE_WORKER3_20260930",
+      "review": "Worker 3 focused/exact-head functional suites passed; prior Main Owner failure was assembly reconciliation only"
+    },
+    "src/scene/scene-retrieval.js": {
+      "digest": "5a7dfa8a68e66d1c9518160b98d7e11e053efee3",
+      "lane": "scene",
+      "origin": "DEEP_SCAN_SALVAGE_WORKER3_20260930",
+      "review": "Worker 3 focused/exact-head functional suites passed; prior Main Owner failure was assembly reconciliation only"
+    },
+    "src/ui-core/wave8-cognition.js": {
+      "digest": "c16025fa5f525c68394ff6da4c1db9dc836fa5e1",
+      "lane": "ui",
+      "origin": "DEEP_SCAN_SALVAGE_WORKER3_20260930",
+      "review": "Worker 3 focused/exact-head functional suites passed; prior Main Owner failure was assembly reconciliation only"
+    },
+    "tests/runtime-fabric.mjs": {
+      "digest": "dcf10ee7b41d4a43bf6ce16c3d1d54099cefe52c",
+      "lane": "runtime",
+      "origin": "DEEP_SCAN_SALVAGE_WORKER3_20260930",
+      "review": "Worker 3 focused/exact-head functional suites passed; prior Main Owner failure was assembly reconciliation only"
     }
   }
 }

@@ -62,7 +62,13 @@ export class ScenePrefetchTrigger{
       evidenceRefs:normalized.evidenceRefs,sourceRevisionRefs:[...normalized.sourceRevisionSet],sourceRevisionSet:[...normalized.sourceRevisionSet],
       authority:'NONE',runtimeSchedulingAuthority:false,retrievalAuthority:false,truthAuthority:false,contextSealAuthority:false,status:'ACTIVE',
     };
-    this.pending.set(id,r);while(this.pending.size>this.maxPending)this.pending.delete(this.pending.keys().next().value);return clone(r);
+    while(this.pending.size>=this.maxPending){
+      const terminal=[...this.pending.entries()].find(([,row])=>row.status!=='ACTIVE');
+      if(!terminal)break;
+      this.pending.delete(terminal[0]);
+    }
+    if(this.pending.size>=this.maxPending)return clone({...r,status:'DEFERRED',reasonCode:'PREFETCH_ACTIVE_CAPACITY_REACHED',cacheState:'NOT_CACHED',recovery:'FOREGROUND_RETRIEVAL_REVALIDATION_REQUIRED'});
+    r.cacheState='CACHED';this.pending.set(id,r);return clone(r);
   }
   recommendFromIntents({sceneId,sceneRevision,intents=[],trigger='QUERY_PLAN',evidenceRefs=[],sourceRevisionRefs=[]}={}){
     const rows=[];

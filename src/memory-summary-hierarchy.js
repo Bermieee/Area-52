@@ -16,6 +16,7 @@ import {memoryReferenceValues} from './memory-experience-store.js';
 
 export const MEMORY_SUMMARY_COMPILER_REVISION='memory-summary-local-v1';
 export const MEMORY_SUMMARY_POLICY_REVISION='memory-summary-policy-v1';
+export const MEMORY_SUMMARY_QUERY_INDEX_REVISION='memory-summary-query-index-v2';
 
 export const SummaryScopeLevel=Object.freeze({
   SCENE:'SCENE',
@@ -210,6 +211,7 @@ export class MemorySummaryHierarchy {
     this.diagnostics=[];
     this.queryIndex={
       revision:null,
+      compilerRevision:MEMORY_SUMMARY_QUERY_INDEX_REVISION,
       tokenToArtifactIds:new Map(),
       entityToArtifactIds:new Map(),
       levelToArtifactIds:new Map(),
@@ -278,6 +280,40 @@ export class MemorySummaryHierarchy {
     return 0;
   }
 
+  semanticIndexTokensForArtifact(artifact,{memo=new Map(),visiting=new Set()}={}){
+    if(!artifact)return[];
+    if(memo.has(artifact.id))return memo.get(artifact.id);
+    if(visiting.has(artifact.id))return[];
+    visiting.add(artifact.id);
+    const scores=new Map();
+    const add=(values,weight)=>{
+      for(const token of values){
+        const key=String(token);
+        scores.set(key,(scores.get(key)??0)+weight);
+      }
+    };
+    // Search semantics are intentionally independent from provider/display prose compression.
+    // Direct summary language is strongest; entities/claims are semantic owner metadata; child
+    // coverage propagates upward with frequency so repeated concepts survive broad summaries.
+    add(tokens(artifact.representationText),4);
+    add(tokens((artifact.entityRefs??[]).join(' ')),4);
+    for(const claim of artifact.temporalClaims??[]){
+      add(tokens(String(claim.subjectId??'')+' '+String(claim.predicate??'')+' '+stableStringify(claim.value??null)),3);
+    }
+    add(tokens((artifact.unresolvedSetRefs??[]).join(' ')),2);
+    for(const childRef of artifact.evidenceManifest?.childArtifactRefs??artifact.childArtifactRefs??[]){
+      const child=this.artifacts.get(childRef.artifactId);
+      add(this.semanticIndexTokensForArtifact(child,{memo,visiting}),1);
+    }
+    visiting.delete(artifact.id);
+    const bounded=[...scores.entries()]
+      .sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))
+      .slice(0,MEMORY_LIMITS.maxIndexedTermsPerArtifact)
+      .map(([token])=>token);
+    memo.set(artifact.id,bounded);
+    return bounded;
+  }
+
   ensureQueryIndex(){
     const started=nowMs();
     if(!this.queryIndexDirty)return {rebuilt:false,buildMs:0,revision:this.queryIndex.revision};
@@ -287,6 +323,7 @@ export class MemorySummaryHierarchy {
     const levelToArtifactIds=new Map();
     const artifactTokens=new Map();
     const artifactIds=[];
+    const semanticMemo=new Map();
     let indexedTerms=0;
     const boundedOutTermSet=new Set();
     for(const [scopeRef,id] of this.currentByScope.entries()){
@@ -295,7 +332,7 @@ export class MemorySummaryHierarchy {
       artifactIds.push(id);
       const levelIds=levelToArtifactIds.get(artifact.scopeLevel)??new Set();
       levelIds.add(id);levelToArtifactIds.set(artifact.scopeLevel,levelIds);
-      const rowTokens=tokens(artifact.representationText+' '+artifact.entityRefs.join(' '));
+      const rowTokens=this.semanticIndexTokensForArtifact(artifact,{memo:semanticMemo});
       artifactTokens.set(id,rowTokens);
       for(const token of rowTokens){
         if(!tokenToArtifactIds.has(token)&&tokenToArtifactIds.size>=MEMORY_LIMITS.maxHierarchyQueryIndexTerms){
@@ -309,9 +346,10 @@ export class MemorySummaryHierarchy {
       }
     }
     indexedTerms=tokenToArtifactIds.size;
-    const revision='memory-summary-query-index:'+stableHash(stableStringify(
-      artifactIds.sort().map((id)=>[id,this.artifacts.get(id)?.dependencyFingerprint,this.artifacts.get(id)?.freshness]),
-    ));
+    const revision='memory-summary-query-index:'+stableHash(stableStringify({
+      compilerRevision:MEMORY_SUMMARY_QUERY_INDEX_REVISION,
+      artifacts:artifactIds.sort().map((id)=>[id,this.artifacts.get(id)?.dependencyFingerprint,this.artifacts.get(id)?.freshness]),
+    }));
     const estimatedUtf16Bytes=stableStringify({
       revision,
       tokenToArtifactIds:[...tokenToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
@@ -320,7 +358,8 @@ export class MemorySummaryHierarchy {
       artifactTokens:[...artifactTokens.entries()],
     }).length*2;
     this.queryIndex={
-      revision,tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,
+      revision,compilerRevision:MEMORY_SUMMARY_QUERY_INDEX_REVISION,
+      tokenToArtifactIds,entityToArtifactIds,levelToArtifactIds,artifactTokens,artifactIds,indexedTerms,
       boundedOutTerms:boundedOutTermSet.size,
       coverageComplete:boundedOutTermSet.size===0,
       estimatedUtf16Bytes,
@@ -1586,6 +1625,7 @@ export class MemorySummaryHierarchy {
       costCounters:deepClone(this.costCounters),
       queryIndex:{
         revision:this.queryIndex.revision,
+        compilerRevision:this.queryIndex.compilerRevision??MEMORY_SUMMARY_QUERY_INDEX_REVISION,
         dirty:this.queryIndexDirty,
         artifacts:this.queryIndex.artifactIds?.length??0,
         indexedTerms:this.queryIndex.indexedTerms??0,
@@ -1633,6 +1673,7 @@ export class MemorySummaryHierarchy {
       costCounters:deepClone(this.costCounters),
       queryIndex:{
         revision:this.queryIndex.revision,
+        compilerRevision:this.queryIndex.compilerRevision??MEMORY_SUMMARY_QUERY_INDEX_REVISION,
         tokenToArtifactIds:[...this.queryIndex.tokenToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
         entityToArtifactIds:[...this.queryIndex.entityToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
         levelToArtifactIds:[...this.queryIndex.levelToArtifactIds.entries()].map(([k,v])=>[k,[...v]]),
@@ -1681,6 +1722,7 @@ export class MemorySummaryHierarchy {
     const qi=snapshot?.queryIndex??null;
     this.queryIndex=qi?{
       revision:qi.revision??null,
+      compilerRevision:qi.compilerRevision??null,
       tokenToArtifactIds:new Map((qi.tokenToArtifactIds??[]).map(([k,v])=>[k,new Set(v)])),
       entityToArtifactIds:new Map((qi.entityToArtifactIds??[]).map(([k,v])=>[k,new Set(v)])),
       levelToArtifactIds:new Map((qi.levelToArtifactIds??[]).map(([k,v])=>[k,new Set(v)])),
@@ -1691,10 +1733,13 @@ export class MemorySummaryHierarchy {
       coverageComplete:Boolean(qi.coverageComplete??true),
       estimatedUtf16Bytes:Number(qi.estimatedUtf16Bytes??0),
     }:{
-      revision:null,tokenToArtifactIds:new Map(),entityToArtifactIds:new Map(),levelToArtifactIds:new Map(),
+      revision:null,compilerRevision:MEMORY_SUMMARY_QUERY_INDEX_REVISION,
+      tokenToArtifactIds:new Map(),entityToArtifactIds:new Map(),levelToArtifactIds:new Map(),
       artifactTokens:new Map(),artifactIds:[],indexedTerms:0,boundedOutTerms:0,coverageComplete:true,estimatedUtf16Bytes:0,
     };
-    const restoredIndexValid=Boolean(qi)&&this.queryIndex.artifactIds.every((id)=>{
+    const restoredIndexValid=Boolean(qi)
+      &&this.queryIndex.compilerRevision===MEMORY_SUMMARY_QUERY_INDEX_REVISION
+      &&this.queryIndex.artifactIds.every((id)=>{
       const artifact=this.artifacts.get(id);
       return Boolean(artifact&&this.artifactIsFresh(artifact));
     });

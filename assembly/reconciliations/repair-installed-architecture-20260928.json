@@ -4,7 +4,7 @@
   "reconciliationId": "REPAIR-INSTALLED-ARCHITECTURE-20260928",
   "baseMainSha": "98a4e438e995bdc62038076c5f97addaf2a3d0bd",
   "supersedes": "assembly/reconciliations/scene-worker-runtime-trace-20260928.json",
-  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Worker 1-3 integration updates are limited to reviewed PR #326/#328/#327 tracked paths and their exact combined-tree Git blob digests; row 65 deployment/brain.js is recorded in integration-closure because it is not a copied lane path. PR #332 integration repair 2026-09-30 records only the reviewed regression-repair production paths and their exact repaired-tree blob digests.",
+  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Worker 1-3 integration updates are limited to reviewed PR #326/#328/#327 tracked paths and their exact combined-tree Git blob digests; row 65 deployment/brain.js is recorded in integration-closure because it is not a copied lane path. PR #332 integration repair 2026-09-30 records only the reviewed regression-repair production paths and their exact repaired-tree blob digests. PR #332 semantic-index root repair 2026-09-30 versions hierarchical search coverage independently of compressed summary prose and invalidates incompatible restored indexes.",
   "pathDigests": {
     "scripts/sidecar-jev-live-connection-smoke.mjs": "52ae216fdee0ff1248e7ac91f9db0c58d40323cd",
     "src/coprocessor/capability-negotiation.js": "2a1c422bbb8ab42942de051797a601bc798c0848",
@@ -123,7 +123,7 @@
     "tests/lore-wave3.mjs": "393379aad675859fb1eb3288821a3d65b733b06a",
     "src/coprocessor/continuous-consolidation.js": "98f39cd1c53803ee3e13a4867c1d4eb89c5e670d",
     "src/memory-historian.js": "5d114478f880087818bd9fecf0c550439667a33c",
-    "src/memory-summary-hierarchy.js": "3e2844763f2ca8ebb52a46bf60cbd10f06884d76",
+    "src/memory-summary-hierarchy.js": "9d31a23d243bdce99b2eefb6cc9f1d69bfd8cfdd",
     "tests/memory-wave1.mjs": "b7e5be6fc8cee1675a022fddb7660075309c896f",
     "src/memory-temporal-state-graph.js": "8b27d28e6e88c95f63e7377f6a36581b2fd97595",
     "src/lore-multi-resolution.js": "d32f65fe393e891c8cba408faddb2f84d6adb0c1",
@@ -499,11 +499,11 @@
       "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
     },
     "src/memory-summary-hierarchy.js": {
-      "digest": "3e2844763f2ca8ebb52a46bf60cbd10f06884d76",
+      "digest": "9d31a23d243bdce99b2eefb6cc9f1d69bfd8cfdd",
       "lane": "memory",
       "lastCommit": "bd22047 2026-09-29 cap remediation: non-copying selector read (performance)",
-      "origin": "PR332_INTEGRATION_REPAIR_20260930",
-      "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
+      "origin": "PR332_SEMANTIC_INDEX_ROOT_REPAIR_20260930",
+      "review": "PR #332 root repair: versioned semantic query-index coverage propagates grounded child semantics independently of summary prose compression; old index snapshots rebuild"
     },
     "tests/memory-wave1.mjs": {
       "digest": "b7e5be6fc8cee1675a022fddb7660075309c896f",

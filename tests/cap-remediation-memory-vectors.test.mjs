@@ -74,7 +74,7 @@ test('dense nomination keeps full owner freshness refs but bounds Candidate tran
   const sourceRevisionRefs=Array.from({length:65},(_,i)=>'src:overflow:'+i);
   const evidenceRefs=Array.from({length:129},(_,i)=>'evidence:overflow:'+i);
   const record={
-    id:'rec:overflow',artifactId:'episode:overflow',artifactRevision:1,channel:'SCENE_EPISODE',freshness:'FRESH',
+    id:'rec:overflow',artifactId:'episode:overflow',artifactType:'MemoryEpisode',artifactRevision:1,channel:'SCENE_EPISODE',freshness:'FRESH',
     sourceRevisionRefs,evidenceRefs,dependencyRevisions:[...sourceRevisionRefs,'episode:overflow'],
     representationText:'overflow dense memory',claimRefs:[],eventRefs:[],entityRefs:[],relationshipRefs:[],
     provenance:[{ref:'prov:overflow'}],authorityClass:'OBSERVED',truthStatusHint:'HISTORICAL',significance:.8,

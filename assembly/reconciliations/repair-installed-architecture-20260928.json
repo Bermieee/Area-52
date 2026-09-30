@@ -4,7 +4,7 @@
   "reconciliationId": "REPAIR-INSTALLED-ARCHITECTURE-20260928",
   "baseMainSha": "98a4e438e995bdc62038076c5f97addaf2a3d0bd",
   "supersedes": "assembly/reconciliations/scene-worker-runtime-trace-20260928.json",
-  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Each listed path was reviewed individually (provenance, diff, covering tests).",
+  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Worker 1-3 integration updates are limited to reviewed PR #326/#328/#327 tracked paths and their exact combined-tree Git blob digests; row 65 deployment/brain.js is recorded in integration-closure because it is not a copied lane path.",
   "pathDigests": {
     "scripts/sidecar-jev-live-connection-smoke.mjs": "52ae216fdee0ff1248e7ac91f9db0c58d40323cd",
     "src/coprocessor/capability-negotiation.js": "2a1c422bbb8ab42942de051797a601bc798c0848",
@@ -28,14 +28,14 @@
     "src/coprocessor/telemetry.js": "ae2ff87d5de7dadb7e00b39692b77958988e9ca8",
     "src/lore-authoring-contracts.js": "f0ce5722cf138b5b97e206e699772376a9b6bf78",
     "src/lore-authoring-service.js": "4b8b7670bc3ce57397fba0fc5a604dfc7ae8d394",
-    "src/lore-contextual-retrieval.js": "3b1fdf434ad946ccc3bf3b7ee0b74fb812b6d249",
-    "src/lore-hierarchy-retrieval-system.js": "1ef29ae45431166eb7a4781eb94c5955d48aae97",
-    "src/lore-intelligence-service.js": "4842bebc7e3faff7adc5ba9e7de44444337d9575",
+    "src/lore-contextual-retrieval.js": "5c5ad387efb344d412f10d50e9f06b111210ff93",
+    "src/lore-hierarchy-retrieval-system.js": "eee4f97ff21e7be4069975d759af3b3b9a88f1a0",
+    "src/lore-intelligence-service.js": "58b571f48b1a56136edefc134dd7bb075ed6f48f",
     "src/lore-navigation-contracts.js": "5bc9b88b8d1d969fa75a6505cd9db0319f9b801b",
-    "src/lore-navigation-summary-builder.js": "df94927dd08bab2d97ebd7f200e09305459bbd57",
-    "src/lore-navigation-summary-registry.js": "423880b74f5e39b4fb3d47c0809c5f1a62e7eb41",
+    "src/lore-navigation-summary-builder.js": "ad9646c89d80b627c65ff0a4addf9827db0cd4ae",
+    "src/lore-navigation-summary-registry.js": "375280bdef2dbeb5dfdbb3c21f2bbd9c408d0fb7",
     "src/lore-semantic-authoring.js": "54a58293ecd8d8241007f3e65d72ae6b9efe09f7",
-    "src/lore-study-engine.js": "753a5de891ef8febd82408603df520d916a38d93",
+    "src/lore-study-engine.js": "08a9fb41a360f36e8fa4b168237c72b1cfb4fb58",
     "src/runtime/index.js": "63b6e5775418895947779ef8ea187d8db792ba92",
     "src/runtime/lifecycle.js": "c0cbaee887673713058467dcd08d5f34432a8f7d",
     "src/runtime/native-swarm.js": "7dcaeffa7575dfa25578078789fc5bac56cac1cf",
@@ -91,18 +91,18 @@
     "docs/SCENE_MEMORY_HANDOFF_CONTRACT.md": "a0203b1d02c555e84955a31807acf4c12b502edb",
     "src/scene/scene-memory-handoff.js": "49e62de6ff9fc35eec585d8d53489011e1a164f4",
     "src/runtime/batch-engine.js": "42531e19caf6f02837e77f2dc7601d3bd8da2a40",
-    "tests/runtime-fabric.mjs": "efac94fe2b179dda2184add90bf71486f0957295",
+    "tests/runtime-fabric.mjs": "dcf10ee7b41d4a43bf6ce16c3d1d54099cefe52c",
     "tests/runtime-wave3.mjs": "b2c683413421bf8d7f11ec489258e7663f6138b2",
     "src/memory-evidence-bridge.js": "68003524a1a7de19644a946224d3f48f9cb558a5",
-    "src/memory-experience-store.js": "1f2ee517b0f6b8e212fd37ef7c066d07fab0b7aa",
+    "src/memory-experience-store.js": "fa3b68980e423ddc243b2519dc5d0e23c03f5ec9",
     "src/memory-integration-surface.js": "54b1b24d34f2f36895e29a4dae8ad23563dc11d8",
-    "src/lore-representation-registry.js": "cbb407c3d40c352bb70dd38628d7dd26baa34364",
+    "src/lore-representation-registry.js": "bd32102f2d6d1e7bcea8a55c4b9e778d1543920e",
     "src/lore-source-registry.js": "5d74231363ffd0cacebb030b9da26a5bfb8fb0ca",
     "src/lore-study-runtime.js": "4f9f341a7097a41ce4c608ff47d5a2f3b376449f",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
-    "src/memory-temporal-producer.js": "867c01d31d89a5b3bffa90141a09a1a0f1af27ca",
+    "src/memory-temporal-producer.js": "ab87a638da23f8f38894cba80f2a7b4395ee6fbf",
     "src/memory-ui-read-model.js": "859d738e58f206942a68b47ead32ecbd4dac33de",
-    "tests/memory-wave4.mjs": "7f0e66a28eb922a8a1f19db8058d8f3f46ae5b64",
+    "tests/memory-wave4.mjs": "2cf1c34422340156962fe5b43a9a298d0293a02d",
     "src/ui-core/shell.js": "3a6206cf3227efe3ea1abc483f52b98cfa32e821",
     "src/coprocessor/resource-connections.js": "5fb61c19ad1fbddbd2114f661e6e4db99276d63a",
     "tests/coprocessor-wave8-stress.test.mjs": "01b42ea29638c503c98c85959077aab9a3ca7964",
@@ -117,30 +117,31 @@
     "tests/wave13-operator-ui.test.mjs": "1376ab48ff12701f18c83938bd35c497961e8fd1",
     "tests/wave6.test.mjs": "675f6973138f346eeae85d92683884e1722d1ea3",
     "src/lore-world-ontology.js": "29123ffd7927e038d43124350e72322e8e2df29a",
-    "src/lore-navigation-hierarchy.js": "1ec08e01f32fbc4bf755208da15da4f364a95b0a",
-    "src/lore-representation-compiler.js": "5d9ec5328d3d223776e7ea1320927469c9b662e6",
+    "src/lore-navigation-hierarchy.js": "4cbeeb834cf7a785bd1d005c5ff4ad31ca5667a9",
+    "src/lore-representation-compiler.js": "2de3e3e6ef64e8fa42996dfa008ed2039c008bc0",
     "tests/lore-wave1.mjs": "55a6aae2f23402a526e98156e8608f8289726861",
     "tests/lore-wave3.mjs": "393379aad675859fb1eb3288821a3d65b733b06a",
     "src/coprocessor/continuous-consolidation.js": "415411db3d94068d3dbb9a31a31e5c0f68c80dc4",
-    "src/memory-historian.js": "58a93c3895ad881da1015abf060b0ec0f38c4b36",
-    "src/memory-summary-hierarchy.js": "b16248f5e17b16e5da6e8d4797824346b7aa312c",
+    "src/memory-historian.js": "ea4cd4109156c04f00900a4c74ffc57e4ed6137e",
+    "src/memory-summary-hierarchy.js": "3792e02eb9405a91ce120d2553fe73cb36282bda",
     "tests/memory-wave1.mjs": "b7e5be6fc8cee1675a022fddb7660075309c896f",
-    "src/memory-temporal-state-graph.js": "8b27d28e6e88c95f63e7377f6a36581b2fd97595"
+    "src/memory-temporal-state-graph.js": "8b27d28e6e88c95f63e7377f6a36581b2fd97595",
+    "src/lore-multi-resolution.js": "d32f65fe393e891c8cba408faddb2f84d6adb0c1"
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
-      "digest": "4842bebc7e3faff7adc5ba9e7de44444337d9575",
+      "digest": "58b571f48b1a56136edefc134dd7bb075ed6f48f",
       "lane": "lore",
       "lastCommit": "73c36bf 2026-09-29 cap remediation: titles beside eligibility rows (row 26)",
-      "origin": "REPAIR_installed_architecture",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/lore-representation-registry.js": {
-      "digest": "cbb407c3d40c352bb70dd38628d7dd26baa34364",
+      "digest": "bd32102f2d6d1e7bcea8a55c4b9e778d1543920e",
       "lane": "lore",
       "lastCommit": "4940268 2026-09-29 Operator re-accept of an edited 1,200-entry Lorebook: 5.5 s to 1.2 s synchronous",
-      "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_ROUND_20260929 performance addendum 3 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/lore-source-registry.js": {
       "digest": "5d74231363ffd0cacebb030b9da26a5bfb8fb0ca",
@@ -193,11 +194,11 @@
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
     },
     "src/memory-temporal-producer.js": {
-      "digest": "867c01d31d89a5b3bffa90141a09a1a0f1af27ca",
+      "digest": "ab87a638da23f8f38894cba80f2a7b4395ee6fbf",
       "lane": "memory",
       "lastCommit": "cd8d336, fe1a2c7 2026-09-29 cap remediation: row 48: paged hierarchy; non-copying chat filter",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER2_CAP_REMEDIATION_20260929",
+      "review": "Worker 2 PR #328 closure; reviewed integration digest"
     },
     "src/memory-ui-read-model.js": {
       "digest": "859d738e58f206942a68b47ead32ecbd4dac33de",
@@ -206,10 +207,11 @@
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
     },
     "tests/memory-wave4.mjs": {
-      "digest": "7f0e66a28eb922a8a1f19db8058d8f3f46ae5b64",
+      "digest": "2cf1c34422340156962fe5b43a9a298d0293a02d",
       "lane": "memory",
       "lastCommit": "c80d93e 2026-09-28 style(lore): spread structural hubs and protect canvas footer",
-      "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
+      "origin": "WORKER2_CAP_REMEDIATION_20260929",
+      "review": "Worker 2 PR #328 closure; reviewed integration digest"
     },
     "src/ui-core/index.js": {
       "digest": "89c1c0e92e32685096afaf1cc7b41346cf28780a",
@@ -272,18 +274,18 @@
       "origin": "REPAIR_installed_architecture"
     },
     "src/lore-contextual-retrieval.js": {
-      "digest": "3b1fdf434ad946ccc3bf3b7ee0b74fb812b6d249",
+      "digest": "5c5ad387efb344d412f10d50e9f06b111210ff93",
       "lane": "lore",
       "lastCommit": "fe1a2c7 2026-09-29 cap remediation: rows 16-18: long queries served, all terms indexed, scoped examined page",
-      "origin": "REPAIR_installed_architecture",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/lore-study-engine.js": {
-      "digest": "753a5de891ef8febd82408603df520d916a38d93",
+      "digest": "08a9fb41a360f36e8fa4b168237c72b1cfb4fb58",
       "lane": "lore",
       "lastCommit": "288d867 2026-09-29 cap remediation: rows 1-6, 8-9: sliced study with coverage receipt",
-      "origin": "REPAIR_installed_architecture",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/coprocessor/capability-negotiation.js": {
       "digest": "2a1c422bbb8ab42942de051797a601bc798c0848",
@@ -405,11 +407,11 @@
       "review": "CLOSURE_ROUND_20260929 (ASSEMBLY_DRIFT_REVIEW.md, closure addendum)"
     },
     "src/lore-navigation-summary-registry.js": {
-      "digest": "423880b74f5e39b4fb3d47c0809c5f1a62e7eb41",
+      "digest": "375280bdef2dbeb5dfdbb3c21f2bbd9c408d0fb7",
       "lane": "lore",
       "lastCommit": "fa8d394 2026-09-29 Turn path at 1,200 Lore entries: 3.3 s to 0.8 s; fix owner evidence eviction",
-      "origin": "REPAIR_installed_architecture",
-      "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/lore-world-ontology.js": {
       "digest": "29123ffd7927e038d43124350e72322e8e2df29a",
@@ -419,11 +421,11 @@
       "review": "CLOSURE_ROUND_20260929 performance addendum (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-hierarchy-retrieval-system.js": {
-      "digest": "1ef29ae45431166eb7a4781eb94c5955d48aae97",
+      "digest": "eee4f97ff21e7be4069975d759af3b3b9a88f1a0",
       "lane": "lore",
       "lastCommit": "fe1a2c7 2026-09-29 cap remediation: one-time index rebuild on token revision",
-      "origin": "REPAIR_installed_architecture",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/coprocessor/provider-adapters.js": {
       "digest": "2d64a870b08843887fa1cd781831812c3c1e9b74",
@@ -440,18 +442,18 @@
       "review": "LIVE_FIXES_20260929 addendum 5 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/lore-navigation-hierarchy.js": {
-      "digest": "1ec08e01f32fbc4bf755208da15da4f364a95b0a",
+      "digest": "4cbeeb834cf7a785bd1d005c5ff4ad31ca5667a9",
       "lane": "lore",
       "lastCommit": "73c36bf 2026-09-29 cap remediation: row 21: deep Tree folded",
-      "origin": "CAP_REMEDIATION_20260929",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "src/lore-representation-compiler.js": {
-      "digest": "5d9ec5328d3d223776e7ea1320927469c9b662e6",
+      "digest": "2de3e3e6ef64e8fa42996dfa008ed2039c008bc0",
       "lane": "lore",
       "lastCommit": "2ce755e 2026-09-29 cap remediation: rows 11-13: complete contribution set",
-      "origin": "CAP_REMEDIATION_20260929",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
     },
     "tests/lore-wave1.mjs": {
       "digest": "55a6aae2f23402a526e98156e8608f8289726861",
@@ -482,25 +484,25 @@
       "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/memory-experience-store.js": {
-      "digest": "1f2ee517b0f6b8e212fd37ef7c066d07fab0b7aa",
+      "digest": "fa3b68980e423ddc243b2519dc5d0e23c03f5ec9",
       "lane": "memory",
       "lastCommit": "bd22047 2026-09-29 cap remediation: non-copying evidence existence checks (performance)",
-      "origin": "CAP_REMEDIATION_20260929",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER2_CAP_REMEDIATION_20260929",
+      "review": "Worker 2 PR #328 closure; reviewed integration digest"
     },
     "src/memory-historian.js": {
-      "digest": "58a93c3895ad881da1015abf060b0ec0f38c4b36",
+      "digest": "ea4cd4109156c04f00900a4c74ffc57e4ed6137e",
       "lane": "memory",
       "lastCommit": "92cabfd, fe1a2c7 2026-09-29 cap remediation: non-cloning claim view; rows 36-37, 39",
-      "origin": "CAP_REMEDIATION_20260929",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER2_CAP_REMEDIATION_20260929",
+      "review": "Worker 2 PR #328 closure; reviewed integration digest"
     },
     "src/memory-summary-hierarchy.js": {
-      "digest": "b16248f5e17b16e5da6e8d4797824346b7aa312c",
+      "digest": "3792e02eb9405a91ce120d2553fe73cb36282bda",
       "lane": "memory",
       "lastCommit": "bd22047 2026-09-29 cap remediation: non-copying selector read (performance)",
-      "origin": "CAP_REMEDIATION_20260929",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "WORKER2_CAP_REMEDIATION_20260929",
+      "review": "Worker 2 PR #328 closure; reviewed integration digest"
     },
     "tests/memory-wave1.mjs": {
       "digest": "b7e5be6fc8cee1675a022fddb7660075309c896f",
@@ -521,21 +523,39 @@
       "lane": "scene",
       "lastCommit": "6372d85 worker3: preserve bounded Scene and evidence coverage",
       "origin": "WORKER3_CAP_REMEDIATION_20260929",
-      "review": "Worker 3 PR #327 rows 32; ACTIVE prefetch work retained and saturation recovers through foreground retrieval"
+      "review": "Worker 3 PR #327 closure/overlay; reviewed integration digest"
     },
     "src/scene/scene-retrieval.js": {
       "digest": "5a7dfa8a68e66d1c9518160b98d7e11e053efee3",
       "lane": "scene",
       "lastCommit": "6372d85 worker3: preserve bounded Scene and evidence coverage",
       "origin": "WORKER3_CAP_REMEDIATION_20260929",
-      "review": "Worker 3 PR #327 row 31; hop-bound exhaustion is distinct from graph NOT_FOUND and exposes bounded continuation"
+      "review": "Worker 3 PR #327 closure/overlay; reviewed integration digest"
     },
     "src/ui-core/wave8-cognition.js": {
       "digest": "c16025fa5f525c68394ff6da4c1db9dc836fa5e1",
       "lane": "ui",
       "lastCommit": "14c1463 worker3: preserve Jev reason detail and physical attempt",
-      "origin": "WORKER3_LIVE_JEV_DIAGNOSTICS_20260929",
-      "review": "Worker 3 PR #327 live Jev diagnostic repair; synchronous choice summaries no longer invent a physical provider attempt"
+      "origin": "WORKER3_CAP_REMEDIATION_20260929",
+      "review": "Worker 3 PR #327 closure/overlay; reviewed integration digest"
+    },
+    "src/lore-multi-resolution.js": {
+      "digest": "d32f65fe393e891c8cba408faddb2f84d6adb0c1",
+      "lane": "lore",
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
+    },
+    "src/lore-navigation-summary-builder.js": {
+      "digest": "ad9646c89d80b627c65ff0a4addf9827db0cd4ae",
+      "lane": "lore",
+      "origin": "WORKER1_CAP_REMEDIATION_20260929",
+      "review": "Worker 1 PR #326 closure + assembly addendum; reviewed integration digest"
+    },
+    "tests/runtime-fabric.mjs": {
+      "digest": "dcf10ee7b41d4a43bf6ce16c3d1d54099cefe52c",
+      "lane": "runtime",
+      "origin": "WORKER3_CAP_REMEDIATION_20260929",
+      "review": "Worker 3 PR #327 closure/overlay; reviewed integration digest"
     }
   }
 }

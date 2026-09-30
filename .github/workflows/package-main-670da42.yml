@@ -1,4 +1,4 @@
-name: Package exact main snapshot
+name: Package Area 52 documentation
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  package:
+  package-docs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact merged main
@@ -17,18 +17,24 @@ jobs:
         with:
           ref: 670da42fe8e6da29c6148f09ba2c2af23e40031b
           path: Area-52
+
       - name: Verify exact commit
         shell: bash
         run: test "$(git -C Area-52 rev-parse HEAD)" = "670da42fe8e6da29c6148f09ba2c2af23e40031b"
-      - name: Package extension tree
+
+      - name: Collect documentation
         shell: bash
         run: |
-          rm -rf Area-52/.git
-          zip -qr Area-52-main-670da42.zip Area-52
-      - name: Upload package
+          mkdir -p Area-52-Documentation
+          find Area-52 -maxdepth 1 -type f \( -name '*.md' -o -name '*.txt' \) -exec cp {} Area-52-Documentation/ \;
+          if [ -d Area-52/docs ]; then cp -a Area-52/docs Area-52-Documentation/docs; fi
+          if [ -d Area-52/audit-20260928 ]; then cp -a Area-52/audit-20260928 Area-52-Documentation/audit-20260928; fi
+          printf 'Source repository: Bermieee/Area-52\nSource main SHA: 670da42fe8e6da29c6148f09ba2c2af23e40031b\n' > Area-52-Documentation/SOURCE-SNAPSHOT.txt
+
+      - name: Upload documentation ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Area-52-main-670da42
-          path: Area-52-main-670da42.zip
+          name: Area-52-Documentation-main-670da42
+          path: Area-52-Documentation
           if-no-files-found: error
           retention-days: 7

@@ -642,6 +642,7 @@ test('Memory cognition: an admitted episode can checkpoint before L3 consolidati
 
 test('Memory cognition: deployment Continuous Consolidation producer closes real turn-to-reflection path',async()=>{
   const deployment=new DevelopmentDeploymentBrain();
+  let consolidationProviderInput=null;
   deployment.resourceConnections.addResource({
     resourceId:'memory-consolidation-test-resource',
     providerProfileId:'memory-consolidation-test-profile',
@@ -653,6 +654,7 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
     foregroundEligible:false,backgroundEligible:true,supportedLayers:['L3'],placements:['DEEP'],
     resourceClass:'DEEP_BACKGROUND',
     handler:async({input})=>{
+        consolidationProviderInput=structuredClone(input);
         const refs=(input.data.sourceReferences??[]).map(ref=>({
           kind:'ArtifactReference',artifactId:ref.artifactId,artifactType:ref.artifactType,
           owner:ref.owner,revision:ref.revision,storageDomain:ref.storageDomain,provenanceRef:ref.provenanceRef,
@@ -689,9 +691,10 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
     memoryInterface:deployment.memorySurface,
     memoryConsolidationInterface:bindings.memoryConsolidationProducer,
   });
+  const longEvidence='Sera checks the brass compass again before the next departure. '+('Detailed observed compass evidence. '.repeat(120));
   for(const [index,response] of [
     [1,'Sera checks the brass compass before sailing from the inlet.'],
-    [2,'Sera checks the brass compass again before the next departure.'],
+    [2,longEvidence],
   ]){
     await brain.prepareTurn({
       chatId:'chat:real-consolidation',turnId:'real-consolidation:'+index,generationId:'gen:real-consolidation:'+index,
@@ -723,6 +726,19 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
       assert.equal(learned.memoryConsolidation?.sidecarExecution?.sealDestination,'NOT_ELIGIBLE_POST_TURN');
     }
   }
+
+  assert.ok(consolidationProviderInput,'deployment consolidation consumer must dispatch a provider request');
+  const transportedSlices=consolidationProviderInput.data.selectedContext??[];
+  assert.ok(transportedSlices.length>=2);
+  const partialSlice=transportedSlices.find(row=>row.excerpt?.length===2400);
+  assert.ok(partialSlice,'long exact evidence must retain the existing 2400-character physical boundary');
+  const coverageFact=(partialSlice.structuredFacts??[]).find(row=>row?.kind==='MemoryTransportCoverage');
+  const drillbackFact=(partialSlice.structuredFacts??[]).find(row=>row?.kind==='MemoryTransportDrillback');
+  assert.equal(coverageFact?.coverageComplete,false);
+  assert.ok(coverageFact?.omittedCharacters>0);
+  assert.equal(coverageFact?.canonicalKnowledgeDropped,false);
+  assert.equal(drillbackFact?.exactSourceDrillback,true);
+  assert.ok((drillbackFact?.sourceRevisionRefs??[]).length>=1);
 
   const trace=brain.uiBindings().readSelectedTurnReceipt({chatId:'chat:real-consolidation',turnId:'real-consolidation:2',generationId:'gen:real-consolidation:2'});
   assert.equal(trace.producers.memory.status,'ADMITTED');

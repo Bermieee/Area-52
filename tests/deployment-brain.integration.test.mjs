@@ -141,6 +141,58 @@ test('ambiguous Sun Blade turn invokes bounded Jev through Runtime and preserves
   assert.equal(result.delivery.ok, true);
 });
 
+test('row 65 Jev deployment consumer preserves transport coverage and drillback metadata', async () => {
+  const { brain } = seeded({ resourceCount: 1 });
+  let providerInput = null;
+  brain.resourceConnections.addResource({
+    resourceId:'jev:row65',
+    providerProfileId:'profile:jev:row65',
+    providerId:'provider:jev:row65',
+    workerId:'worker:jev:row65',
+    kind:'DETERMINISTIC_LOCAL',
+    modelId:'row65-jev-fixture',
+    capabilities:['SEMANTIC_JUDGMENT'],
+    handler:async({input})=>{
+      providerInput=structuredClone(input);
+      return {payload:{
+        outcome:'ABSTAINED',
+        decisionCode:'ABSTAIN',
+        selectedOptionIds:[],
+        rejectedOptionIds:[],
+        classification:null,
+        reasonCodes:['INSUFFICIENT_EVIDENCE'],
+        evidenceUsed:[],
+        unresolvedFactors:['row65 fixture abstains'],
+        confidence:0,
+        abstained:true,
+        escalationTarget:null,
+        requiresOperator:false,
+        explanation:'Bounded fixture abstention.',
+      }};
+    },
+  });
+  await brain.connectOptionalResource('jev:row65');
+  const result = await brain.runTurn({
+    chatId:'chat:ember',
+    turnId:'turn:row65-jev',
+    generationId:'gen:row65-jev',
+    query:'What happened to the Sun Blade?',
+    mode:'ambiguous',
+  });
+  assert.equal(result.delivery.ok,true);
+  assert.ok(providerInput,'connected Jev provider must receive the real deployment request');
+  const evidence=providerInput.data.evidence??[];
+  assert.ok(evidence.length>=1);
+  for(const row of evidence){
+    assert.ok(row.summary.length<=1200,'existing Jev physical request limit must remain bounded');
+    assert.equal(row.metadata?.transportCoverage?.limitCharacters,1200);
+    assert.equal(typeof row.metadata?.transportCoverage?.coverageComplete,'boolean');
+    assert.equal(row.metadata?.transportCoverage?.canonicalKnowledgeDropped,false);
+    assert.equal(row.metadata?.drillback?.exactSourceDrillback,true);
+    assert.ok(row.metadata?.drillback?.provenanceRef??row.sourceRef);
+  }
+});
+
 test('an abstaining Jev result cannot be owner-accepted by an injected Lore reviewer', async () => {
   let reviewCalls = 0;
   const { brain } = seeded({

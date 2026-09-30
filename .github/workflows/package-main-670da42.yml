@@ -1,0 +1,34 @@
+name: Package exact main snapshot
+
+on:
+  push:
+    branches:
+      - package/main-670da42-20260930
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact merged main
+        uses: actions/checkout@v4
+        with:
+          ref: 670da42fe8e6da29c6148f09ba2c2af23e40031b
+          path: Area-52
+      - name: Verify exact commit
+        shell: bash
+        run: test "$(git -C Area-52 rev-parse HEAD)" = "670da42fe8e6da29c6148f09ba2c2af23e40031b"
+      - name: Package extension tree
+        shell: bash
+        run: |
+          rm -rf Area-52/.git
+          zip -qr Area-52-main-670da42.zip Area-52
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Area-52-main-670da42
+          path: Area-52-main-670da42.zip
+          if-no-files-found: error
+          retention-days: 7

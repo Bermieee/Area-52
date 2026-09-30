@@ -2,7 +2,7 @@
 // sorted alphabetically by semantic class and cut at 512, which dropped REQUIRED_IDENTITY, TEMPORAL_ANCHOR and
 // UNRESOLVED_CONFLICT first while the quality receipt still said PASS; texture contributions stopped at sentence 512 and
 // at 48 per slice. Contract now: the contribution set is complete; a representation that cannot hold what its profile
-// requires fails visibly instead of passing without it. (Segmented representations are the P4 follow-up.)
+// requires fails visibly instead of passing without it. (Oversized work is now segmented under the same source revision with aggregate coverage receipts.)
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SemanticClass, QualityStatus, RepresentationProfile } from '../src/lore-representation-contracts.js';
@@ -43,21 +43,25 @@ for (const n of [60, 200, 700]) {
   });
 }
 
-test('a representation that cannot hold its mandatory contributions fails visibly; small ones are unchanged', () => {
+test('oversized representations segment without dropping mandatory contributions; small ones are unchanged', () => {
   const small = studied(content(40));
   const smallFamily = new LoreMultiResolutionSystem({ runtime: small.runtime }).compileFamily({ sourceId: small.sourceId });
-  for (const profile of [RepresentationProfile.LEAN, RepresentationProfile.BALANCED, RepresentationProfile.HEAVY]) assert.equal(smallFamily[profile].status, QualityStatus.PASS, profile);
+  for (const profile of [RepresentationProfile.LEAN, RepresentationProfile.BALANCED, RepresentationProfile.HEAVY]) {
+    assert.equal(smallFamily[profile].status, QualityStatus.PASS, profile);
+    assert.equal(Boolean(smallFamily[profile].representation.segmented), false, profile + ' stays on the legacy single-artifact path');
+  }
 
   const large = studied(content(900));
   const family = new LoreMultiResolutionSystem({ runtime: large.runtime }).compileFamily({ sourceId: large.sourceId });
   for (const profile of [RepresentationProfile.LEAN, RepresentationProfile.BALANCED, RepresentationProfile.HEAVY]) {
     const row = family[profile];
-    if (row.status === QualityStatus.PASS) {
-      // A PASS must carry every mandatory contribution it was asked for.
-      assert.equal(row.qualityReceipt.requiredRetained, row.qualityReceipt.requiredContributions, profile);
-    } else {
-      assert.ok(['CAP_EXCEEDED', 'PROVIDER_REQUEST_LIMIT_EXCEEDED'].includes(row.failure), profile + ' failed visibly: ' + row.failure);
+    assert.equal(row.status, QualityStatus.PASS, profile);
+    assert.equal(row.qualityReceipt.requiredRetained, row.qualityReceipt.requiredContributions, profile);
+    if (row.representation.segmented) {
+      assert.ok(row.representation.segments.length > 1, profile);
+      assert.ok(row.representation.segments.every((segment) => segment.content.length <= 24000), profile + ' physical segment bound');
+      assert.ok(row.representation.segments.every((segment) => segment.providerRequestCharacters <= 96000), profile + ' provider segment bound');
     }
   }
-  assert.ok(Object.values(family).some((row) => row.status !== QualityStatus.PASS), 'the 900-sentence source exceeds one representation artifact and says so');
+  assert.ok(Object.values(family).some((row) => row.representation.segmented), 'the 900-sentence source uses segmented representation storage');
 });

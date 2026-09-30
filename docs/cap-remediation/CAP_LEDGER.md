@@ -1,6 +1,6 @@
 # Area-52 Cap Ledger (cap-remediation wave)
 
-Status of this ledger (2026-09-29): 65 rows inventoried. 34 changed and validated with dedicated cap tests (each mutation-checked against the previous code); 6 confirmed as already correct; 25 not changed yet (listed under "Remaining"). Built by a read-only audit of `src/` at `repair/live-fixes` (6c20f2d, on main 786c67e) against `AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md`. The top findings (rows 1, 2, 13, 42, 51) were re-read in the code by the main session; the others are cited from the audit and are re-verified when their row is worked.
+Status of this ledger (2026-09-29): 65 rows inventoried. 34 earlier rows are changed and validated; Worker 3 has now changed 7 additional rows with dedicated regressions, 7 rows are confirmed bounded-by-design, and 17 remain untouched. Worker 3 exact-head validation is tracked on its draft PR rather than assumed here. Built by a read-only audit of `src/` at `repair/live-fixes` (6c20f2d, on main 786c67e) against `AREA52_CAP_REMEDIATION_ARCHITECTURE_HANDOFF.md`. The top findings (rows 1, 2, 13, 42, 51) were re-read in the code by the main session; the others are cited from the audit and are re-verified when their row is worked.
 
 Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core Architecture Invariant). "Proposed" = intended new classification; "Status": untouched / changed / validated.
 
@@ -44,13 +44,13 @@ Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core
 | 26 | Sparse Lore | production-sparse-retrieval.js:176,247-276 maxArtifacts | 512 | exact matches then **alphabetical**; rest never indexed; status READY/HEALTHY | boundedOutCount | knowledge loss | CACHE (active working set) + targeted lookup | CACHE working set chosen by relevance (exact name, then title/query term overlap), not alphabetically; `workingSetBounded`, `coverageComplete`, `canonicalFallback: OWNER_LORE` in the receipt | changed + validated (`cap-remediation-sparse-working-set`) |
 | 27 | Sparse Lore | :33-35 tokens | 512 | first 512 tokens per entry/query | silent | knowledge loss | PAGE | entries index all tokens; query bounded per call | changed + validated |
 | 28 | Scene obs. | deployment/brain.js:908; scene-observation-specialist.js:83 | 6000 chars | head kept; end of long replies never observed | silent | knowledge loss | SLICE (segments under one source revision) | PHYSICAL per-call window kept (6,000); long reply read as opening (1,200) + whole ending, with marker; `narrativeCoverage` on the task (complete only when whole reply read); one call | changed + validated (`cap-remediation-scene-narrative`) |
-| 29 | Scene query | scene/scene-query-planner.js:3,10 | 320 chars | first 320 chars feed Lore/Memory/Graph intents | silent | knowledge loss | derived query | — | untouched |
-| 30 | Scene query | :2 refs | 32 | sliced | silent | minor | RANK | — | untouched |
-| 31 | Scene retrieval | scene-retrieval.js:9,42,45-46 | 8 / 4-8 hops | NOT_FOUND indistinguishable from hop cap | silent | minor | RANK / PAGE with continuation | — | untouched |
-| 32 | Scene prefetch | prefetch-trigger.js:47,65,69 | 32 / 8 / 3 rev | FIFO evicts even ACTIVE | silent | latency | CACHE | foreground retrieval authoritative | untouched |
-| 33 | Context compiler | context-compiler.js:30,82 claims | 12 | priority sort; RICH_FALLBACK on retention < 1 | fallbackUsed | low | RANK (adaptive) | — | untouched |
+| 29 | Scene query | scene/scene-query-planner.js | 320 chars | head+tail derived query preserves late evidence; exact coverage recorded | `queryCoverage` | bounded transport | derived query | canonical source remains authoritative | changed + Worker 3 regression |
+| 30 | Scene query | scene/scene-query-planner.js refs | 32 | stable ref bound retained after full pool is counted | `referenceCoverage` per ref family | minor / visible | RANK | owner/canonical refs remain available to foreground retrieval | changed + Worker 3 regression |
+| 31 | Scene retrieval | scene/scene-retrieval.js | 8 / 4-8 hops | hop exhaustion is distinct from genuine NOT_FOUND; bounded continuation hints are returned | status + continuation | minor / visible | RANK / PAGE with continuation | foreground retrieval can retry with a wider bounded hop budget | changed + Worker 3 regression |
+| 32 | Scene prefetch | scene/prefetch-trigger.js | 32 / 8 / 3 rev | terminal cache rows evict first; ACTIVE work is never evicted merely for capacity | explicit DEFERRED + recovery reason | latency only | CACHE | foreground retrieval revalidates when cache is saturated | changed + Worker 3 regression |
+| 33 | Context compiler | context-compiler.js claims | 12 | semantic-priority publication bound retained; omitted canonical claims are counted | `claimCoverage` total/included/boundedOut | low / visible | RANK (adaptive) | canonical graph truth remains available outside generation-facing slice | changed diagnostics + verified-by-design |
 | 34 | Context compiler | :86-87 external Lore/Memory | 12 each | **admission order, unsorted**, no retention check | silent | **knowledge loss** | RANK (priority + receipt) | RANK: over budget, keep the best-ranked (hard rule > precision rank > score > input rank > admission), kept rows in admission order; within budget unchanged; `loreBoundedOut`/`memoryBoundedOut` reported | changed + validated (`cap-remediation-context-ranking`) |
-| 35 | Context compiler | :19 external text | 12000 | head-sliced | silent | knowledge loss | RANK/transport + drillback | — | untouched |
+| 35 | Context compiler | context-compiler.js external text | 12000 | head+tail transport excerpt with explicit partial coverage | `textCoverage` | bounded transport | RANK/transport + drillback | artifact/source revision drillback retained | changed + Worker 3 regression |
 | 36 | Memory historian | memory-historian.js:246 query | 600 | **throws** | exception | knowledge loss (turn) | derived query | long request -> bounded representation (as row 16) | changed + validated |
 | 37 | Memory historian | :253-270 examined | 512 | token-order pre-score cutoff | examined | knowledge loss | PAGE | rarest terms first; `examinedCapped` reported | changed (partial) + validated |
 | 38 | Memory historian | :284-285,416 candidates | 48 | top-48 | boundedOut | low | RANK | — | validated (audit) |
@@ -74,10 +74,10 @@ Classifications: SLICE, PAGE, RANK, CACHE, PHYSICAL, DIAGNOSTIC (handoff § Core
 | 56 | Warmer | speculative-warmer.js:107,115 | 24 / 64 / 2 | put throws -> WARMER_FAILED; FIFO eviction | receipt | latency | CACHE | ordinary retrieval | validated (audit) |
 | 57 | Warmer (prod) | speculative-warmer-coordinator.js:15-16,79-83 | 16 / 48+64 | mergeBounded throws; falls back | diagnostic | latency | CACHE | ordinary retrieval | validated (audit) |
 | 58 | Jev | native-jev-advisory.js:19,63-67,81,181 | 2 / 8 / 64 / 240 | sets >2 break unrecorded; >8 members skipped permanently | partial | advice loss | SLICE + UNRESOLVED/DEFERRED_JEV | SLICE: same 2 sets per turn; over-budget sets DEFERRED (oldest first next turn, persisted); too-large sets recorded UNRESOLVED_TOO_MANY_MEMBERS (conflict stays in Truth); advisory rows LRU | changed + validated (`cap-remediation-jev-deferral`) |
-| 59 | Deep scheduler | native-hot-deep-scheduler.js:29,43,104 | 128 | enqueueDeep throws, no production caller | metric | none (prod) | PHYSICAL + parked obligation if ever used | — | untouched |
+| 59 | Deep scheduler | native-hot-deep-scheduler.js | 128 | physical guard retained; source-wide regression confirms no production caller | existing metric + call-site test | none (production) | PHYSICAL | if a caller is introduced it must add parked/backpressure semantics | VERIFIED_BY_DESIGN + Worker 3 regression |
 | 60 | Native Brain turns | native-brain.js:148,154,2059 maxTurns | 256 | FIFO eviction; evicted `experience` breaks host edit/delete retirement (old deleted message stays current); `correctTurn` throws | silent / error | **freshness loss** | split: operational identity (durable) vs diagnostic record (CACHE) | durable per-turn identity stub for evicted turns (source id/revision, chat, sequence, revisions, seal id); retire/correct use it; persisted in the snapshot | changed + validated (`cap-remediation-turn-identity`) |
 | 61 | Native Brain turns | native-turn-retention.js:12,110 full detail | 4 | older settled records compacted (safe) | retention block | diagnostic | DIAGNOSTIC | — | untouched |
-| 62 | Candidate bus | candidate-bus.js:17,185 | 1600 | ranking text head-sliced | silent | low | RANK/transport | evidence text | untouched |
+| 62 | Candidate bus | candidate-bus.js ranking text | 1600 | head+tail bounded ranking text; partial coverage and drillback availability recorded | `metadata.representationCoverage` | low / visible | RANK/transport | representation/artifact/source drillback retained | changed + Worker 3 regression |
 | 63 | Consolidation | continuous-consolidation.js:599,603 dedupe identity | 256 / 512 chars | claims sharing a 256-char prefix deduped as one | silent | knowledge loss (collision) | full-content identity (hash) | within the bound unchanged; past it prefix + hash of the whole value (no prefix collisions) | changed + validated (`cap-remediation-consolidation-identity`) |
 | 64 | Knowledge store | native-knowledge-store.js:46,137,323-331 | 8192 / 64 | non-current evicted oldest first | silent | low (history) | CACHE/DIAGNOSTIC | — | untouched |
 | 65 | Memory drill excerpts | deployment/brain.js:3000,3612 | 2400 / 1200 / 8 | head-sliced inputs for consolidation/Jev | silent | low | RANK/transport | drillback | untouched |
@@ -150,18 +150,19 @@ Checkpoint size and CPU grow linearly with retained turns (repro `LEN=80 TURNS=4
   - Evidence: `tests/cap-remediation-memory-journals.test.mjs` (67 edits of one message are all admitted; the replacement chain is intact; only the oldest audit copies are compacted). Mutation-checked. Memory and bridge suites pass.
   - Note: journal size now grows with the chat, by about one compact row per mapping or event. Scene proposals are operational and keep full records.
 
+- **Worker 3 Scene/Jev publication caps (rows 29-35, 59, 62)**: long Scene queries now preserve head and tail with coverage; ref limits report bounded-out refs; temporal traversal distinguishes hop exhaustion from graph exhaustion; prefetch cache pressure never discards ACTIVE work; the 12-claim publication rank stays bounded but reports canonical claims outside the slice; 12k and 1.6k text bounds are head+tail transport excerpts with source drillback; and the dormant 128-entry deep queue remains a physical safeguard with a source-wide no-caller regression. Evidence: `tests/worker3-scene-jev-publication.test.mjs`. Exact-head execution is recorded on the Worker 3 draft PR.
+
 ## Remaining (not changed in this pass)
 - **Owner priorities** (1, Scene; 5, smaller items) and the Nexus-guided items (2, 3, 4) are all done.
 - **Knowledge-affecting, next if pursued**:
   - Row 10: representation segment windows past 128 slices. Currently a visible failure; exact-source retrieval is unaffected.
   - Rows 14-15: representation shards past the artifact and request bounds (visible failures).
   - Row 49: SESSION/ARC summary-of-summaries (a visible failure at about 8,000 turns).
-  - Row 29: derived Scene query instead of the first 320 characters.
   - Row 40: historian evidence budget returns nothing instead of the top N.
   - Row 46: consolidation job backpressure.
   - Row 45: Memory store ref bounds throw.
   - Rows 23-25: Lore navigation community, scope and summary bounds.
-- **Transport / presentation / cache rows confirmed bounded-by-design; kept**: 7, 19 (16/24 kept; boundedOut propagation open), 20, 30, 31, 32, 33, 35, 50, 59, 61, 62, 64, 65.
+- **Transport / presentation / cache rows confirmed bounded-by-design; kept**: 7, 19 (16/24 kept; boundedOut propagation open), 20, 50, 59, 61, 64, 65. Worker 3 completed 29-35/62 with explicit coverage/recovery semantics; row 33 retains its semantic rank bound and row 59 retains its dormant physical guard.
 - **Open performance item**: checkpoint size and CPU grow with retained turns (live-fixes finding). Row 60's durable identity is now separate from the turn record, which makes it safe to cut how much of each turn is retained later (owner decision O8).
 
 ## Final verification (cap/remediation head)

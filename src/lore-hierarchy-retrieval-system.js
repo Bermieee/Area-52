@@ -79,6 +79,10 @@ export class LoreHierarchyRetrievalSystem {
     return this.retrievalIndex.drillDown(nomination);
   }
 
+  drillDownPage(nomination, options = {}) {
+    return this.retrievalIndex.drillDownPage(nomination, options);
+  }
+
   drillEvidence(summaryOrId, {offset = 0, limit = 64} = {}) {
     return this.summaryRegistry.evidenceForSummary(summaryOrId, {offset, limit});
   }

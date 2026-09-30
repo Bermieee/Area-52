@@ -282,6 +282,8 @@ export class LoreRepresentationRegistry {
           dependencyCount: row.dependencyArtifactIds.length,
         },
         capStatus: deepClone(row.hardCap),
+        segmented: Boolean(row.segmented),
+        segmentCount: row.segmentManifest?.segmentCount ?? 1,
       })),
       sourceDrillbackAvailable: Boolean(revision && revision.state !== 'REMOVED'),
       mutationAuthority: false,

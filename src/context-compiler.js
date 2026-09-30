@@ -7,8 +7,15 @@ const factKey=(claim,section)=>`${section}|${claim.subjectId}|${claim.predicate}
 const hash=(value)=>stableHash(String(value),{length:16,alreadyString:true});
 const uniq=(values)=>[...new Set((values??[]).filter(Boolean).map(String))].sort();
 
+function boundedEvidenceText(value,limit=12000){
+  const text=String(value??''),cap=Math.max(1,Number(limit)||12000);
+  if(text.length<=cap)return{text,coverage:{complete:true,policy:'FULL',sourceCharacters:text.length,includedCharacters:text.length,omittedCharacters:0}};
+  const marker='\n…[bounded evidence excerpt; source drillback retained]…\n',usable=Math.max(1,cap-marker.length),head=Math.ceil(usable/2),tail=Math.max(0,usable-head);
+  const bounded=(text.slice(0,head)+marker+text.slice(Math.max(head,text.length-tail))).slice(0,cap);
+  return{text:bounded,coverage:{complete:false,policy:'HEAD_TAIL_WITH_SOURCE_DRILLBACK',sourceCharacters:text.length,includedCharacters:Math.min(text.length,head+tail),omittedCharacters:Math.max(0,text.length-head-tail),headCharacters:head,tailCharacters:tail}};
+}
 function externalRow(evidence){
-  const semantic=evidence.semantic??null;
+  const semantic=evidence.semantic??null,bounded=boundedEvidenceText(evidence.representationText??evidence.extensions?.representationText??'');
   return {
     id:'context-evidence:'+evidence.evidenceId,
     evidenceId:evidence.evidenceId,
@@ -16,7 +23,8 @@ function externalRow(evidence){
     a:evidence.authorityClass,
     temporalStatus:evidence.temporalStatus,
     cf:evidence.confidence,
-    text:String(evidence.representationText??evidence.extensions?.representationText??'').slice(0,12000),
+    text:bounded.text,
+    textCoverage:bounded.coverage,
     semantic:semantic?structuredClone(semantic):null,
     hardRule:Boolean(evidence.hardRule),
     artifactRef:structuredClone(evidence.artifactRef),
@@ -87,16 +95,29 @@ export class ContextCompiler {
     }
 
     for(const thread of threads){provenanceIndex[thread.id]=[...thread.sourceRevisionIds];for(const ref of thread.sourceRevisionIds)dependencies.add(ref);}
-    const finalize=(map,section)=>[...map.values()].map(f=>{
-      const out={e:f.e,p:f.p,v:f.v,a:f.a,cf:f.cf,id:f.id};const sourceRefs=uniq(provenanceIndex[f.id]??[]);if(sourceRefs.length)out.sr=sourceRefs;const support=uniq(f._supportIds);if(support.length>1)out.supportIds=support;if(section!=='current')out.t=[f._from,f._to,f._status];
-      const knowledge=[...new Map((f._knowledge??[]).map(x=>[x.evidenceId,x])).values()];
-      if(knowledge.length){
-        out.q=knowledge.map(x=>({evidenceId:x.evidenceId,sourceClass:x.sourceClass,authorityClass:x.authorityClass,temporalStatus:x.temporalStatus,currentApplicability:x.currentApplicability??null,hardRule:Boolean(x.hardRule)}));
-        knowledgeTraceIndex[f.id]=knowledge.map(x=>({evidenceId:x.evidenceId,artifactRef:structuredClone(x.artifactRef),sourceRevisionRefs:[...(x.sourceRevisionRefs??[])],dependencyRevisionRefs:[...(x.dependencyRevisionRefs??[])],provenanceRefs:[...(x.provenanceRefs??[])],retrievalChannels:[...(x.candidateLineage?.nominationChannels??[])],precisionReasons:[...(x.retrievalMetadata?.precision?.reasonCodes??[])],contradictionSetId:x.contradictionSetId??null,hypothesisSetId:x.hypothesisSetId??null}));
-      }return out;
-    }).sort((a,b)=>{const pa=semanticPriorityForFact(a,section,threads).score,pb=semanticPriorityForFact(b,section,threads).score;return pb-pa||a.e.localeCompare(b.e)||a.p.localeCompare(b.p)||String(a.v).localeCompare(String(b.v));}).slice(0,this.maxFactsPerSection);
-
-    const current=finalize(buckets.current,'current'),historical=finalize(buckets.historical,'historical'),unresolvedRows=finalize(buckets.unresolved,'unresolved');
+    const finalize=(map,section)=>{
+      const ranked=[...map.values()].map(f=>{
+        const out={e:f.e,p:f.p,v:f.v,a:f.a,cf:f.cf,id:f.id};
+        const sourceRefs=uniq(provenanceIndex[f.id]??[]);
+        if(sourceRefs.length)out.sr=sourceRefs;
+        const support=uniq(f._supportIds);
+        if(support.length>1)out.supportIds=support;
+        if(section!=='current')out.t=[f._from,f._to,f._status];
+        const knowledge=[...new Map((f._knowledge??[]).map(x=>[x.evidenceId,x])).values()];
+        if(knowledge.length){
+          out.q=knowledge.map(x=>({evidenceId:x.evidenceId,sourceClass:x.sourceClass,authorityClass:x.authorityClass,temporalStatus:x.temporalStatus,currentApplicability:x.currentApplicability??null,hardRule:Boolean(x.hardRule)}));
+          knowledgeTraceIndex[f.id]=knowledge.map(x=>({evidenceId:x.evidenceId,artifactRef:structuredClone(x.artifactRef),sourceRevisionRefs:[...(x.sourceRevisionRefs??[])],dependencyRevisionRefs:[...(x.dependencyRevisionRefs??[])],provenanceRefs:[...(x.provenanceRefs??[])],retrievalChannels:[...(x.candidateLineage?.nominationChannels??[])],precisionReasons:[...(x.retrievalMetadata?.precision?.reasonCodes??[])],contradictionSetId:x.contradictionSetId??null,hypothesisSetId:x.hypothesisSetId??null}));
+        }
+        return out;
+      }).sort((a,b)=>{
+        const pa=semanticPriorityForFact(a,section,threads).score,pb=semanticPriorityForFact(b,section,threads).score;
+        return pb-pa||a.e.localeCompare(b.e)||a.p.localeCompare(b.p)||String(a.v).localeCompare(String(b.v));
+      });
+      const rows=ranked.slice(0,this.maxFactsPerSection);
+      return{rows,total:ranked.length,boundedOut:Math.max(0,ranked.length-rows.length)};
+    };
+    const currentPick=finalize(buckets.current,'current'),historicalPick=finalize(buckets.historical,'historical'),unresolvedPick=finalize(buckets.unresolved,'unresolved');
+    const current=currentPick.rows,historical=historicalPick.rows,unresolvedRows=unresolvedPick.rows;
     const exactExternal=[...new Map(admittedExternal.map(x=>[x.evidenceId,x])).values()];
     // Cap ledger row 34: when a section has more rows than its budget, it keeps the best-ranked ones, not the first ones
     // admitted. Rank comes from signals the evidence already carries (hard rule, precision rank, score, input rank);
@@ -123,7 +144,7 @@ export class ContextCompiler {
     if(episodicMemory.length)packet.episodicMemory=episodicMemory;
     if(Object.keys(knowledgeTraceIndex).length)packet.knowledgeTraceIndex=knowledgeTraceIndex;
     const semanticSizing=computeSemanticSizing({current,historical,unresolved:unresolvedRows,activeThreads:threads,provenanceIndex,dependencies:dependenciesList});
-    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length,loreBoundedOut:lorePick.boundedOut,memoryBoundedOut:memoryPick.boundedOut,ranking:'HARD_RULE>PRECISION_RANK>SCORE>INPUT_RANK>ADMISSION'}};
+    const metadata={kind:'ContextCompilerMetadata',semanticPriority:buildSemanticPriority({current,historical,unresolved:unresolvedRows,activeThreads:threads}),semanticSizing,representationEligibility:defaultRepresentationEligibility(),threadDiagnostics:{admittedThreadIds:threads.map(t=>t.threadId),staleThreadIds:threadState.staleThreadIds},claimCoverage:{current:{total:currentPick.total,included:current.length,boundedOut:currentPick.boundedOut},historical:{total:historicalPick.total,included:historical.length,boundedOut:historicalPick.boundedOut},unresolved:{total:unresolvedPick.total,included:unresolvedRows.length,boundedOut:unresolvedPick.boundedOut},policy:'SEMANTIC_PRIORITY_RANK'},externalKnowledge:{admitted:exactExternal.length,relevantLore:relevantLore.length,episodicMemory:episodicMemory.length,loreBoundedOut:lorePick.boundedOut,memoryBoundedOut:memoryPick.boundedOut,ranking:'HARD_RULE>PRECISION_RANK>SCORE>INPUT_RANK>ADMISSION'}};
     return{packet,metadata};
   }
 }

@@ -495,12 +495,16 @@ export class MemoryHistorianIndex {
     const maxBytes=Math.max(2,Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes));
     const selected=[];
     const boundedOut=[];
+    let rankPrefixClosed=false;
     for (const artifact of artifacts) {
       const candidateBytes=byteLength([...selected,artifact]);
-      if (candidateBytes<=maxBytes) {
+      if (!rankPrefixClosed&&candidateBytes<=maxBytes) {
         selected.push(artifact);
         continue;
       }
+      // Ranked evidence is a prefix contract: never skip a higher-ranked oversized artifact
+      // merely to squeeze lower-ranked artifacts into the remaining byte budget.
+      rankPrefixClosed=true;
       boundedOut.push({
         candidateId:artifact.candidateId,
         artifactRef:deepClone(artifact.artifactRef),

@@ -738,7 +738,7 @@ test('Memory cognition: deployment Continuous Consolidation producer closes real
   const partialSlice=transportedSlices.find(row=>row.excerpt?.length===2400);
   assert.ok(partialSlice,'long exact evidence must retain the existing 2400-character physical boundary');
   const coverageFact=(partialSlice.structuredFacts??[]).find(row=>row?.kind==='MemoryTransportCoverage');
-  const drillbackFact=(partialSlice.structuredFacts??[]).find(row=>row?.kind==='MemoryTransportDrillback');
+  const drillbackFact=(partialSlice.structuredFacts??[]).find(row=>row?.kind==='MemoryTransportDrillbackReference');
   assert.equal(coverageFact?.coverageComplete,false);
   assert.ok(coverageFact?.omittedCharacters>0);
   assert.equal(coverageFact?.canonicalKnowledgeDropped,false);

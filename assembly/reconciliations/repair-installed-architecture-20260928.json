@@ -4,7 +4,7 @@
   "reconciliationId": "REPAIR-INSTALLED-ARCHITECTURE-20260928",
   "baseMainSha": "98a4e438e995bdc62038076c5f97addaf2a3d0bd",
   "supersedes": "assembly/reconciliations/scene-worker-runtime-trace-20260928.json",
-  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Worker 1-3 integration updates are limited to reviewed PR #326/#328/#327 tracked paths and their exact combined-tree Git blob digests; row 65 deployment/brain.js is recorded in integration-closure because it is not a copied lane path.",
+  "rule": "Preserve prior digests for approved paths only; paths withheld in docs/audit-20260928/repair/ASSEMBLY_DRIFT_REVIEW.md are NOT listed and stay unexpected drift. Worker 1-3 integration updates are limited to reviewed PR #326/#328/#327 tracked paths and their exact combined-tree Git blob digests; row 65 deployment/brain.js is recorded in integration-closure because it is not a copied lane path. PR #332 integration repair 2026-09-30 records only the reviewed regression-repair production paths and their exact repaired-tree blob digests.",
   "pathDigests": {
     "scripts/sidecar-jev-live-connection-smoke.mjs": "52ae216fdee0ff1248e7ac91f9db0c58d40323cd",
     "src/coprocessor/capability-negotiation.js": "2a1c422bbb8ab42942de051797a601bc798c0848",
@@ -100,7 +100,7 @@
     "src/lore-source-registry.js": "5d74231363ffd0cacebb030b9da26a5bfb8fb0ca",
     "src/lore-study-runtime.js": "4f9f341a7097a41ce4c608ff47d5a2f3b376449f",
     "docs/SCENE_INTEGRATION_SIGNAL_CONTRACT.md": "3e25023b7aac5a61f77ff7cc04e0652967119375",
-    "src/memory-temporal-producer.js": "ab87a638da23f8f38894cba80f2a7b4395ee6fbf",
+    "src/memory-temporal-producer.js": "710e75a825ac7d7ac429399b0a46258ea4ff6cf5",
     "src/memory-ui-read-model.js": "859d738e58f206942a68b47ead32ecbd4dac33de",
     "tests/memory-wave4.mjs": "2cf1c34422340156962fe5b43a9a298d0293a02d",
     "src/ui-core/shell.js": "3a6206cf3227efe3ea1abc483f52b98cfa32e821",
@@ -121,12 +121,13 @@
     "src/lore-representation-compiler.js": "2de3e3e6ef64e8fa42996dfa008ed2039c008bc0",
     "tests/lore-wave1.mjs": "55a6aae2f23402a526e98156e8608f8289726861",
     "tests/lore-wave3.mjs": "393379aad675859fb1eb3288821a3d65b733b06a",
-    "src/coprocessor/continuous-consolidation.js": "415411db3d94068d3dbb9a31a31e5c0f68c80dc4",
-    "src/memory-historian.js": "ea4cd4109156c04f00900a4c74ffc57e4ed6137e",
-    "src/memory-summary-hierarchy.js": "3792e02eb9405a91ce120d2553fe73cb36282bda",
+    "src/coprocessor/continuous-consolidation.js": "98f39cd1c53803ee3e13a4867c1d4eb89c5e670d",
+    "src/memory-historian.js": "5d114478f880087818bd9fecf0c550439667a33c",
+    "src/memory-summary-hierarchy.js": "3e2844763f2ca8ebb52a46bf60cbd10f06884d76",
     "tests/memory-wave1.mjs": "b7e5be6fc8cee1675a022fddb7660075309c896f",
     "src/memory-temporal-state-graph.js": "8b27d28e6e88c95f63e7377f6a36581b2fd97595",
-    "src/lore-multi-resolution.js": "d32f65fe393e891c8cba408faddb2f84d6adb0c1"
+    "src/lore-multi-resolution.js": "d32f65fe393e891c8cba408faddb2f84d6adb0c1",
+    "src/coprocessor/provider-payload-boundary.js": "294db2e0e77bfcedd004993fcc3cf85030cb8428"
   },
   "reviewedPaths": {
     "src/lore-intelligence-service.js": {
@@ -194,11 +195,11 @@
       "origin": "PRE_EXISTING_DRIFT_SEE_assembly-drift-provenance.md"
     },
     "src/memory-temporal-producer.js": {
-      "digest": "ab87a638da23f8f38894cba80f2a7b4395ee6fbf",
+      "digest": "710e75a825ac7d7ac429399b0a46258ea4ff6cf5",
       "lane": "memory",
       "lastCommit": "cd8d336, fe1a2c7 2026-09-29 cap remediation: row 48: paged hierarchy; non-copying chat filter",
-      "origin": "WORKER2_CAP_REMEDIATION_20260929",
-      "review": "Worker 2 PR #328 closure; reviewed integration digest"
+      "origin": "PR332_INTEGRATION_REPAIR_20260930",
+      "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
     },
     "src/memory-ui-read-model.js": {
       "digest": "859d738e58f206942a68b47ead32ecbd4dac33de",
@@ -470,11 +471,11 @@
       "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
     },
     "src/coprocessor/continuous-consolidation.js": {
-      "digest": "415411db3d94068d3dbb9a31a31e5c0f68c80dc4",
+      "digest": "98f39cd1c53803ee3e13a4867c1d4eb89c5e670d",
       "lane": "jev",
       "lastCommit": "46bcbf9 2026-09-29 cap remediation: row 63: collision-free bounded identity",
-      "origin": "CAP_REMEDIATION_20260929",
-      "review": "CAP_REMEDIATION_20260929 addendum 6 (ASSEMBLY_DRIFT_REVIEW.md)"
+      "origin": "PR332_INTEGRATION_REPAIR_20260930",
+      "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
     },
     "src/memory-evidence-bridge.js": {
       "digest": "68003524a1a7de19644a946224d3f48f9cb558a5",
@@ -491,18 +492,18 @@
       "review": "Worker 2 PR #328 closure; reviewed integration digest"
     },
     "src/memory-historian.js": {
-      "digest": "ea4cd4109156c04f00900a4c74ffc57e4ed6137e",
+      "digest": "5d114478f880087818bd9fecf0c550439667a33c",
       "lane": "memory",
       "lastCommit": "92cabfd, fe1a2c7 2026-09-29 cap remediation: non-cloning claim view; rows 36-37, 39",
-      "origin": "WORKER2_CAP_REMEDIATION_20260929",
-      "review": "Worker 2 PR #328 closure; reviewed integration digest"
+      "origin": "PR332_INTEGRATION_REPAIR_20260930",
+      "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
     },
     "src/memory-summary-hierarchy.js": {
-      "digest": "3792e02eb9405a91ce120d2553fe73cb36282bda",
+      "digest": "3e2844763f2ca8ebb52a46bf60cbd10f06884d76",
       "lane": "memory",
       "lastCommit": "bd22047 2026-09-29 cap remediation: non-copying selector read (performance)",
-      "origin": "WORKER2_CAP_REMEDIATION_20260929",
-      "review": "Worker 2 PR #328 closure; reviewed integration digest"
+      "origin": "PR332_INTEGRATION_REPAIR_20260930",
+      "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
     },
     "tests/memory-wave1.mjs": {
       "digest": "b7e5be6fc8cee1675a022fddb7660075309c896f",
@@ -556,6 +557,12 @@
       "lane": "runtime",
       "origin": "WORKER3_CAP_REMEDIATION_20260929",
       "review": "Worker 3 PR #327 closure/overlay; reviewed integration digest"
+    },
+    "src/coprocessor/provider-payload-boundary.js": {
+      "digest": "294db2e0e77bfcedd004993fcc3cf85030cb8428",
+      "lane": "jev",
+      "origin": "PR332_INTEGRATION_REPAIR_20260930",
+      "review": "PR #332 full-regression repair: ranked-prefix Memory budget, hierarchical semantic/cache continuity, and row 65 bounded transport preservation"
     }
   }
 }

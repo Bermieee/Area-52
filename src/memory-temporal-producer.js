@@ -901,11 +901,13 @@ export class MemoryTemporalProducer {
       const maxBytes=Math.max(2,Number(request.limits?.maxEvidenceBytes??MEMORY_LIMITS.maxHistorianEvidenceBytes));
       const selected=[];
       const boundedOut=[];
+      let rankPrefixClosed=false;
       for(const artifact of artifacts){
-        if(byteLength([...selected,artifact])<=maxBytes){
+        if(!rankPrefixClosed&&byteLength([...selected,artifact])<=maxBytes){
           selected.push(artifact);
           continue;
         }
+        rankPrefixClosed=true;
         boundedOut.push({
           candidateId:artifact.candidateId,
           artifactRef:deepClone(artifact.artifactRef),

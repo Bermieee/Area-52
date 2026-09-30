@@ -48,7 +48,7 @@ function contextSlice(value){
     excerpt:value.excerpt??value.text??value.summary??null,
     structuredFacts:value.structuredFacts??value.facts??null,
     provenanceRef:value.provenanceRef??null,
-  },{maxKeys:12,maxArray:64,maxDepth:4,maxString:2048}));
+  },{maxKeys:12,maxArray:64,maxDepth:4,maxString:2400}));
 }
 
 function sanitizeObject(value,bounds,depth=0){

@@ -91,7 +91,12 @@ test('dense nomination keeps full owner freshness refs but bounds Candidate tran
     plasticity:{retrievable:()=>true},
   };
   const index=new MemoryVectorIndex({producer,maxVectors:8,maxPending:8});
-  index.attachExecutor(async()=>({executionId:'overflow-exec',embeddings:[[1,0,0]],providerReturned:true,providerAttempted:true}));
+  index.attachExecutor(async({input})=>({
+    executionId:'overflow-exec',
+    embeddings:(Array.isArray(input)?input:[input]).map(()=>[1,0,0]),
+    providerReturned:true,
+    providerAttempted:true,
+  }));
   index.enqueueArtifact({artifactId:record.artifactId,artifactRevision:1,chatId:'chat:a',sourceRevisionRefs,historianRecordRef:record.id});
   await index.runMaintenance({maxUnits:1});
   await index.primeQuery({query:'overflow dense memory',selection:{chatId:'chat:a',sourceRevisionRefs}});

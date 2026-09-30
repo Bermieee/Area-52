@@ -610,7 +610,20 @@ export class MemorySummaryHierarchy {
     const rows=this.evidenceForScope(scope);
     if (!rows.length&&!childArtifacts.length) throw new Error('MEMORY_SUMMARY_NO_GROUNDED_SOURCE:'+ref);
     const evidenceIds=rows.map((row)=>row.id);
-    const claims=this.relevantClaims(evidenceIds);
+    // Hierarchical parents keep child manifests as the authoritative drillback path, but a
+    // genuinely small parent may retain the exact child evidence ids directly.
+    const flattenedEvidenceIds=[...new Set([
+      ...evidenceIds,
+      ...childArtifacts.flatMap((row)=>row.exactEvidenceRefs??[]),
+    ])].sort();
+    const exactEvidenceRefs=flattenedEvidenceIds.length<=MEMORY_LIMITS.maxSummaryEvidenceRefs
+      ?flattenedEvidenceIds
+      :evidenceIds;
+    // Preserve child semantic state independently of clipped child prose excerpts.
+    const directClaims=this.relevantClaims(evidenceIds);
+    const inheritedClaims=childArtifacts.flatMap((row)=>row.temporalClaims??[]);
+    const claims=uniqueById([...directClaims,...inheritedClaims])
+      .sort((a,b)=>String(a.id).localeCompare(String(b.id)));
     const unresolvedSets=this.relevantUnresolvedSets(evidenceIds);
     const reflections=this.relevantReflections(evidenceIds);
     const cap=Math.max(
@@ -676,7 +689,7 @@ export class MemorySummaryHierarchy {
       childScopeRefs:[...scope.childScopeRefs],
       childArtifactRefs,
       evidenceManifest,
-      exactEvidenceRefs:evidenceIds,
+      exactEvidenceRefs,
       exactSourceRevisionSet:sourceRevisionSet,
       sourceRange,
       sourceRangeHash,
@@ -691,7 +704,10 @@ export class MemorySummaryHierarchy {
         evidenceIds:[...(claim.evidenceIds??[])],
         sourceRevisionIds:[...(claim.sourceRevisionIds??[])],
       })),
-      unresolvedSetRefs:unresolvedSets.map((set)=>String(set.slotKey??set.key??stableHash(stableStringify(set)))),
+      unresolvedSetRefs:uniqStrings([
+        ...unresolvedSets.map((set)=>String(set.slotKey??set.key??stableHash(stableStringify(set)))),
+        ...childArtifacts.flatMap((row)=>row.unresolvedSetRefs??[]),
+      ],64),
       inferredReflectionRefs:reflections.map((row)=>row.id),
       representationText:compiled.text,
       representativeEvidenceRefs:[...new Set([...compiled.representativeEvidenceRefs,...(compiled.representativeChildEvidenceRefs??[])])].slice(0,MEMORY_LIMITS.maxSummaryRepresentativeEvidence),
@@ -1195,7 +1211,9 @@ export class MemorySummaryHierarchy {
     const artifactAllowed=(artifact)=>this.summaryEvidenceAllowed(artifact,allowedEvidence);
     const budget=request.budgetCharacters==null?Infinity:Math.max(1,Number(request.budgetCharacters)||1);
     const cacheKey=this.queryCacheKey(request,preferred);
-    const cacheEligible=useCache&&unindexedQueryTokens.length===0;
+    // A complete targeted fallback is cache-safe even when the query contains terms that are
+    // absent from the index. Continuation pages remain intentionally uncached.
+    const cacheEligible=useCache&&Math.max(0,Number(request.targetedFallbackOffset)||0)===0;
     if(cacheEligible){
       const cached=this.queryCache.get(cacheKey);
       if(cached){
@@ -1328,7 +1346,7 @@ export class MemorySummaryHierarchy {
         queryIndexCoverageComplete:this.queryIndex.coverageComplete,
       },
     };
-    if(cacheEligible&&nominations.length)this.storeQueryCache(cacheKey,summary);
+    if(cacheEligible&&nominations.length&&targetedFallbackCoverageComplete)this.storeQueryCache(cacheKey,summary);
     return summary;
   }
 

@@ -652,12 +652,26 @@ function artifactIdentity(ref) { return ref.artifactId + '@' + ref.revision; }
 function boundedStructuredFacts(values, max) {
   if (!Array.isArray(values)) fail(FailureCode.SCHEMA_INVALID, 'structuredFacts must be an array');
   if (values.length > max) throw new RangeError('structuredFacts exceeds ' + max);
+  const boundedValue=(raw,depth=0)=>{
+    if (raw == null || typeof raw === 'number' || typeof raw === 'boolean') return raw;
+    if (typeof raw === 'string') return raw.slice(0,1000);
+    if (depth>=2) return null;
+    if (Array.isArray(raw)) return raw.slice(0,128).map((item)=>boundedValue(item,depth+1)).filter((item)=>item!==null);
+    if (typeof raw !== 'object') return String(raw).slice(0,1000);
+    const nested={};
+    for(const [key,value] of Object.entries(raw).slice(0,24)){
+      const bounded=boundedValue(value,depth+1);
+      if(bounded!==null)nested[key]=bounded;
+    }
+    return nested;
+  };
   return values.map((value) => {
-    if (value == null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') return value;
+    if (value == null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') return boundedValue(value);
     if (typeof value !== 'object' || Array.isArray(value)) return String(value);
     const out = {};
     for (const [key, raw] of Object.entries(value).slice(0, 24)) {
-      if (raw == null || ['number', 'boolean', 'string'].includes(typeof raw)) out[key] = typeof raw === 'string' ? raw.slice(0, 1000) : raw;
+      const bounded=boundedValue(raw);
+      if(bounded!==null)out[key]=bounded;
     }
     return out;
   });
